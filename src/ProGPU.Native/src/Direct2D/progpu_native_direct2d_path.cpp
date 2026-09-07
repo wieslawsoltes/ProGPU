@@ -2064,6 +2064,57 @@ void append_dash_side_point(
     return true;
 }
 
+using stroke_line_frame = std::array<double, 4U>; // unit X/Y, radius-scaled normal X/Y
+
+// Float endpoints make squared double deltas range-safe. Use double intrinsic
+// lanes to retain the existing normal precision, with at most one scalar tail.
+[[nodiscard]] com::result prepare_stroke_line_frames(
+    std::span<const progpu_native_path_segment> segments, double radius,
+    std::span<stroke_line_frame> frames)
+{
+    if (frames.size() != segments.size()) return com::invalid_argument;
+    std::size_t index = 0U;
+#if (defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_NEON) && (defined(__aarch64__) || defined(_M_ARM64))) || defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_SSE2)
+    for (; index + 2U <= segments.size(); index += 2U) {
+        const auto& a = segments[index];
+        const auto& b = segments[index + 1U];
+        if (a.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE || b.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE)
+            return not_implemented;
+#if defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_NEON)
+        const std::array<double, 2U> x{double{a.p1.x} - a.p0.x, double{b.p1.x} - b.p0.x};
+        const std::array<double, 2U> y{double{a.p1.y} - a.p0.y, double{b.p1.y} - b.p0.y};
+        const float64x2_t dx = vld1q_f64(x.data()), dy = vld1q_f64(y.data());
+        const float64x2_t length = vsqrtq_f64(vaddq_f64(vmulq_f64(dx, dx), vmulq_f64(dy, dy)));
+        if (!(vgetq_lane_f64(length, 0U) > 0.0) || !(vgetq_lane_f64(length, 1U) > 0.0)) return not_implemented;
+        const float64x2_t ux = vdivq_f64(dx, length), uy = vdivq_f64(dy, length);
+        const float64x2_t nx = vmulq_n_f64(uy, -radius), ny = vmulq_n_f64(ux, radius);
+        vst1q_f64(frames[index].data(), vzip1q_f64(ux, uy));
+        vst1q_f64(frames[index].data() + 2U, vzip1q_f64(nx, ny));
+        vst1q_f64(frames[index + 1U].data(), vzip2q_f64(ux, uy));
+        vst1q_f64(frames[index + 1U].data() + 2U, vzip2q_f64(nx, ny));
+#else
+        const __m128d dx = _mm_set_pd(double{b.p1.x} - b.p0.x, double{a.p1.x} - a.p0.x);
+        const __m128d dy = _mm_set_pd(double{b.p1.y} - b.p0.y, double{a.p1.y} - a.p0.y);
+        const __m128d length = _mm_sqrt_pd(_mm_add_pd(_mm_mul_pd(dx, dx), _mm_mul_pd(dy, dy)));
+        if (_mm_movemask_pd(_mm_cmpgt_pd(length, _mm_setzero_pd())) != 3) return not_implemented;
+        const __m128d ux = _mm_div_pd(dx, length), uy = _mm_div_pd(dy, length);
+        const __m128d nx = _mm_mul_pd(uy, _mm_set1_pd(-radius)), ny = _mm_mul_pd(ux, _mm_set1_pd(radius));
+        _mm_storeu_pd(frames[index].data(), _mm_unpacklo_pd(ux, uy));
+        _mm_storeu_pd(frames[index].data() + 2U, _mm_unpacklo_pd(nx, ny));
+        _mm_storeu_pd(frames[index + 1U].data(), _mm_unpackhi_pd(ux, uy));
+        _mm_storeu_pd(frames[index + 1U].data() + 2U, _mm_unpackhi_pd(nx, ny));
+#endif
+    }
+#endif
+    // Scalar tail, or the platform path where double SIMD is unavailable.
+    for (; index < segments.size(); ++index) {
+        auto& frame = frames[index];
+        if (!stroke_line_unit_and_normal(segments[index], radius,
+                frame[0U], frame[1U], frame[2U], frame[3U])) return not_implemented;
+    }
+    return com::ok;
+}
+
 [[nodiscard]] com::result append_stroke_side_join(
     const progpu_native_path_segment& incoming,
     const progpu_native_path_segment& outgoing,
@@ -2071,7 +2122,9 @@ void append_dash_side_point(
     double side,
     line_join join,
     double miter_limit,
-    dash_side& output)
+    dash_side& output,
+    const stroke_line_frame* incoming_frame = nullptr,
+    const stroke_line_frame* outgoing_frame = nullptr)
 {
     if (!same_point(
             {incoming.p1.x, incoming.p1.y},
@@ -2086,7 +2139,12 @@ void append_dash_side_point(
     double outgoing_unit_y = 0.0;
     double outgoing_normal_x = 0.0;
     double outgoing_normal_y = 0.0;
-    if (!stroke_line_unit_and_normal(
+    if (incoming_frame != nullptr && outgoing_frame != nullptr) {
+        incoming_unit_x = (*incoming_frame)[0U]; incoming_unit_y = (*incoming_frame)[1U];
+        incoming_normal_x = (*incoming_frame)[2U]; incoming_normal_y = (*incoming_frame)[3U];
+        outgoing_unit_x = (*outgoing_frame)[0U]; outgoing_unit_y = (*outgoing_frame)[1U];
+        outgoing_normal_x = (*outgoing_frame)[2U]; outgoing_normal_y = (*outgoing_frame)[3U];
+    } else if (!stroke_line_unit_and_normal(
             incoming,
             half_width,
             incoming_unit_x,
@@ -2838,22 +2896,31 @@ void reverse_widened_outline(widened_outline& outline)
     return com::ok;
 }
 
-[[nodiscard]] com::result transform_widened_outline(
-    widened_outline& outline,
+[[nodiscard]] com::result transform_widened_outline_batch(
+    std::span<widened_outline> outlines,
     const matrix_3x2_f* transform)
 {
     if (transform == nullptr) {
         return com::ok;
     }
     std::vector<point_2f> points;
-    points.reserve(1U + outline.segments.size() * 3U);
-    points.push_back(outline.start);
-    for (const widened_outline_segment& segment : outline.segments) {
-        if (segment.cubic) {
-            points.push_back(segment.control1);
-            points.push_back(segment.control2);
+    std::size_t point_capacity = 0U;
+    for (const auto& outline : outlines) {
+        if (point_capacity == points.max_size() ||
+            outline.segments.size() > (points.max_size() - point_capacity - 1U) / 3U)
+            return com::out_of_memory;
+        point_capacity += 1U + outline.segments.size() * 3U;
+    }
+    points.reserve(point_capacity);
+    for (const auto& outline : outlines) {
+        points.push_back(outline.start);
+        for (const widened_outline_segment& segment : outline.segments) {
+            if (segment.cubic) {
+                points.push_back(segment.control1);
+                points.push_back(segment.control2);
+            }
+            points.push_back(segment.end);
         }
-        points.push_back(segment.end);
     }
     const com::result transform_status =
         transform_points_in_place(points, transform);
@@ -2861,15 +2928,147 @@ void reverse_widened_outline(widened_outline& outline)
         return transform_status;
     }
     std::size_t point_index = 0U;
-    outline.start = points[point_index++];
-    for (widened_outline_segment& segment : outline.segments) {
-        if (segment.cubic) {
-            segment.control1 = points[point_index++];
-            segment.control2 = points[point_index++];
+    for (auto& outline : outlines) {
+        outline.start = points[point_index++];
+        for (widened_outline_segment& segment : outline.segments) {
+            if (segment.cubic) {
+                segment.control1 = points[point_index++];
+                segment.control2 = points[point_index++];
+            }
+            segment.end = points[point_index++];
         }
-        segment.end = points[point_index++];
     }
     return point_index == points.size() ? com::ok : failure;
+}
+
+[[nodiscard]] com::result transform_widened_outline(
+    widened_outline& outline, const matrix_3x2_f* transform)
+{
+    return transform_widened_outline_batch(std::span(&outline, 1U), transform);
+}
+
+// Compound stroke coverage is a nonzero-fill union of consistently oriented
+// bounded pieces, not a subtraction of potentially self-crossing offset loops.
+// Each piece has a fixed number of endpoints, so this orientation walk is O(1).
+[[nodiscard]] com::result append_positive_stroke_piece(widened_outline piece,
+    std::vector<widened_outline>& output)
+{
+    if (!finite_point(piece.start)) return com::invalid_argument;
+    double twice_area = 0.0;
+    point_2f previous = piece.start;
+    for (const auto& segment : piece.segments) {
+        if (!finite_point(segment.end) || (segment.cubic &&
+                (!finite_point(segment.control1) || !finite_point(segment.control2)))) return com::invalid_argument;
+        // Anchor locally so a large translation cannot cancel a small piece's
+        // area through subtraction of large absolute-coordinate products.
+        twice_area += (double{previous.x} - piece.start.x) * (double{segment.end.y} - piece.start.y) -
+            (double{segment.end.x} - piece.start.x) * (double{previous.y} - piece.start.y);
+        previous = segment.end;
+    }
+    if (!std::isfinite(twice_area) || twice_area == 0.0) return not_implemented;
+    if (twice_area < 0.0) reverse_widened_outline(piece);
+    output.push_back(std::move(piece));
+    return com::ok;
+}
+
+[[nodiscard]] com::result prepare_compound_segment_widen(
+    std::span<const progpu_native_path_segment> segments,
+    std::span<const std::uint8_t> joins, bool closed, bool closing_round,
+    float width, line_join join, double miter_limit,
+    cap_style start_cap, cap_style end_cap,
+    std::vector<widened_outline>& outlines)
+{
+    if (segments.empty() || joins.size() + 1U != segments.size()) return com::invalid_argument;
+    if (outlines.size() > outlines.max_size() - 2U ||
+        segments.size() > (outlines.max_size() - outlines.size() - 2U) / 2U) return com::out_of_memory;
+    outlines.reserve(outlines.size() + segments.size() * 2U + 2U);
+    const double radius = double{width} * 0.5;
+    std::vector<stroke_line_frame> frames(segments.size());
+    const com::result prepared = prepare_stroke_line_frames(segments, radius, frames);
+    if (com::failed(prepared)) return prepared;
+    const auto cap = [&](point_2f endpoint, point_2f adjacent, cap_style kind) {
+        if (kind == cap_style::flat) return com::ok;
+        widened_outline piece;
+        const com::result result = build_terminal_dash_outline(endpoint, adjacent, radius, kind, false, piece);
+        return com::failed(result) ? result : append_positive_stroke_piece(std::move(piece), outlines);
+    };
+    for (std::size_t index = 0U; index < segments.size(); ++index) {
+        const auto& segment = segments[index];
+        const double nx = frames[index][2U], ny = frames[index][3U];
+        widened_outline body;
+        body.segments.reserve(3U);
+        body.start = {static_cast<float>(segment.p0.x + nx), static_cast<float>(segment.p0.y + ny)};
+        append_outline_line(body, {static_cast<float>(segment.p0.x - nx), static_cast<float>(segment.p0.y - ny)});
+        append_outline_line(body, {static_cast<float>(segment.p1.x - nx), static_cast<float>(segment.p1.y - ny)});
+        append_outline_line(body, {static_cast<float>(segment.p1.x + nx), static_cast<float>(segment.p1.y + ny)});
+        const com::result result = append_positive_stroke_piece(std::move(body), outlines);
+        if (com::failed(result)) return result;
+    }
+    const auto add_join = [&](std::size_t incoming_index, std::size_t outgoing_index, bool round) {
+        const auto& incoming = segments[incoming_index];
+        const auto& outgoing = segments[outgoing_index];
+        const auto& in_frame = frames[incoming_index];
+        const auto& out_frame = frames[outgoing_index];
+        const line_join kind = resolved_line_join(join, round);
+        const double ix = in_frame[0U], iy = in_frame[1U], inx = in_frame[2U], iny = in_frame[3U];
+        const double ox = out_frame[0U], oy = out_frame[1U], onx = out_frame[2U], ony = out_frame[3U];
+        const double cross = ix * oy - iy * ox;
+        const point_2f vertex{incoming.p1.x, incoming.p1.y};
+        if (std::abs(cross) <= 1.0e-6) {
+            return kind == line_join::round && ix * ox + iy * oy < 0.0
+                ? cap(vertex, {incoming.p0.x, incoming.p0.y}, cap_style::round) : com::ok;
+        }
+        const double side = cross > 0.0 ? -1.0 : 1.0;
+        dash_side outer;
+        const com::result result = append_stroke_side_join(incoming, outgoing, radius, side, kind, miter_limit,
+            outer, &in_frame, &out_frame);
+        if (com::failed(result)) return result;
+        widened_outline wedge;
+        wedge.segments.reserve(6U);
+        wedge.start = vertex;
+        append_outline_line(wedge, {static_cast<float>(vertex.x + inx * side), static_cast<float>(vertex.y + iny * side)});
+        for (std::size_t index = 0U; index < outer.points.size(); ++index) {
+            if (index != 0U && outer.edges[index - 1U].round) {
+                const com::result arc = append_circular_arc_segments(wedge, vertex, outer.points[index]);
+                if (com::failed(arc)) return arc;
+            } else append_outline_line(wedge, outer.points[index]);
+        }
+        append_outline_line(wedge, {static_cast<float>(vertex.x + onx * side), static_cast<float>(vertex.y + ony * side)});
+        return append_positive_stroke_piece(std::move(wedge), outlines);
+    };
+    for (std::size_t index = 1U; index < segments.size(); ++index) {
+        const com::result result = add_join(index - 1U, index, joins[index - 1U] != 0U);
+        if (com::failed(result)) return result;
+    }
+    if (closed) return add_join(segments.size() - 1U, 0U, closing_round);
+    com::result result = cap({segments.front().p0.x, segments.front().p0.y},
+        {segments.front().p1.x, segments.front().p1.y}, start_cap);
+    if (com::failed(result)) return result;
+    return cap({segments.back().p1.x, segments.back().p1.y},
+        {segments.back().p0.x, segments.back().p0.y}, end_cap);
+}
+
+[[nodiscard]] com::result prepare_compound_polyline_widen(
+    std::span<const point_2f> points, std::span<const std::uint8_t> round_joins,
+    bool closed, float width, line_join join, double miter_limit,
+    cap_style start_cap, cap_style end_cap, const matrix_3x2_f* transform,
+    std::vector<widened_outline>& outlines)
+{
+    if (points.size() < 2U || round_joins.size() != points.size()) return com::invalid_argument;
+    const std::size_t first_outline = outlines.size();
+    const std::size_t count = closed ? points.size() : points.size() - 1U;
+    std::vector<progpu_native_path_segment> segments(count);
+    for (std::size_t index = 0U; index < count; ++index) {
+        segments[index].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        segments[index].p0 = {points[index].x, points[index].y};
+        const auto next = points[(index + 1U) % points.size()];
+        segments[index].p1 = {next.x, next.y};
+    }
+    const com::result result = prepare_compound_segment_widen(segments,
+        round_joins.subspan(1U, count - 1U), closed, closed && round_joins.front() != 0U,
+        width, join, miter_limit, start_cap, end_cap, outlines);
+    return com::failed(result) ? result : transform_widened_outline_batch(
+        std::span(outlines).subspan(first_outline), transform);
 }
 
 [[nodiscard]] com::result prepare_joined_dashed_widen(
@@ -2881,8 +3080,9 @@ void reverse_widened_outline(widened_outline& outline)
     cap_style source_start_cap,
     cap_style source_end_cap,
     const matrix_3x2_f* transform,
-    std::vector<widened_outline>& outlines)
+    std::vector<widened_outline>& outlines, bool compound = false)
 {
+    const std::size_t first_outline = outlines.size();
     curve_dash::run_buffer dash_runs;
     const com::result dash_status = create_dashed_polyline_runs(
         points, round_joins, closed, stroke_width, style, dash_runs);
@@ -2892,6 +3092,15 @@ void reverse_widened_outline(widened_outline& outline)
     outlines.reserve(outlines.size() + dash_runs.runs.size() + 2U);
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     for (const curve_dash::run& run : dash_runs.runs) {
+        if (compound) {
+            const com::result result = prepare_compound_segment_widen(dash_runs.segments_for(run),
+                dash_runs.smooth_joins_for(run), run.closed, run.closing_smooth_join,
+                stroke_width, style.GetLineJoin(), style.GetMiterLimit(),
+                run.starts_at_source_start ? source_start_cap : style.GetDashCap(),
+                run.ends_at_source_end ? source_end_cap : style.GetDashCap(), outlines);
+            if (com::failed(result)) return result;
+            continue;
+        }
         if (run.closed) {
             const com::result result = prepare_joined_closed_solid_widen(
                 points,
@@ -2931,6 +3140,12 @@ void reverse_widened_outline(widened_outline& outline)
         }
     }
     const auto append_terminal_cap = [&](cap_style cap, bool at_start) {
+        if (compound) {
+            widened_outline piece;
+            const com::result result = build_terminal_dash_outline(points.back(), points[points.size() - 2U],
+                half_width, cap, at_start, piece);
+            return com::failed(result) ? result : append_positive_stroke_piece(std::move(piece), outlines);
+        }
         outlines.emplace_back();
         com::result result = build_terminal_dash_outline(
             points.back(),
@@ -2964,7 +3179,7 @@ void reverse_widened_outline(widened_outline& outline)
             }
         }
     }
-    return com::ok;
+    return compound ? transform_widened_outline_batch(std::span(outlines).subspan(first_outline), transform) : com::ok;
 }
 
 [[nodiscard]] com::result prepare_joined_open_solid_widen(
@@ -6703,8 +6918,7 @@ public:
             }
             std::vector<flat_polyline> polylines;
             const com::result polyline_status = build_flat_polylines(
-                edges, data_->figures, polylines, dashed
-                    ? stroke_contour_usage::dashed_outline : stroke_contour_usage::solid_outline);
+                edges, data_->figures, polylines, stroke_contour_usage::query);
             if (com::failed(polyline_status)) {
                 return polyline_status;
             }
@@ -6712,7 +6926,7 @@ public:
             outlines.reserve(polylines.size() * 2U);
             const double half_width =
                 static_cast<double>(stroke_width) * 0.5;
-            for (const flat_polyline& polyline : polylines) {
+            for (flat_polyline& polyline : polylines) {
                 const cap_style run_start_cap =
                     polyline.starts_at_figure_start || polyline.closed
                     ? start_cap
@@ -6725,8 +6939,39 @@ public:
                     : style != nullptr
                         ? style->GetDashCap()
                         : cap_style::flat;
+                const std::size_t first_outline = outlines.size();
+                const auto compound_widen = [&]() {
+                    return dashed ? prepare_joined_dashed_widen(polyline.points, polyline.round_joins,
+                        polyline.closed, stroke_width, *style, run_start_cap, run_end_cap,
+                        world_transform, outlines, true)
+                        : prepare_compound_polyline_widen(polyline.points, polyline.round_joins,
+                            polyline.closed, stroke_width, join, miter_limit, run_start_cap, run_end_cap,
+                            world_transform, outlines);
+                };
+                // Disjoint-looking input figures may overlap after widening.
+                // Use same-winding pieces for all figures in that case, and
+                // for multi-edge open/dashed ribbons or non-simple closed spines.
+                // An inset can invert both axes and still report positive area;
+                // do not use the compact ring when its bounding box collapses.
+                rectangle_f contour_bounds{};
+                if (polyline.closed) {
+                    const com::result result = transformed_point_bounds(polyline.points, nullptr, contour_bounds);
+                    if (com::failed(result)) return result;
+                }
+                const bool collapsed_inset = polyline.closed &&
+                    (double{stroke_width} >= double{contour_bounds.right} - contour_bounds.left ||
+                     double{stroke_width} >= double{contour_bounds.bottom} - contour_bounds.top);
+                const bool compound = polylines.size() > 1U ||
+                    ((!polyline.closed || dashed) && polyline.points.size() > 2U) || collapsed_inset ||
+                    (polyline.closed && !prepare_closed_stroke_contour(polyline, dashed
+                        ? stroke_contour_usage::dashed_outline : stroke_contour_usage::solid_outline));
+                if (compound) {
+                    const com::result result = compound_widen();
+                    if (com::failed(result)) return result;
+                    continue;
+                }
                 if (dashed) {
-                    const com::result result = prepare_joined_dashed_widen(
+                    com::result result = prepare_joined_dashed_widen(
                         polyline.points,
                         polyline.round_joins,
                         polyline.closed,
@@ -6736,6 +6981,10 @@ public:
                         run_end_cap,
                         world_transform,
                         outlines);
+                    if (result == not_implemented) {
+                        outlines.resize(first_outline);
+                        result = compound_widen();
+                    }
                     if (com::failed(result)) {
                         return result;
                     }
@@ -6762,7 +7011,7 @@ public:
                         polyline.round_joins.begin(),
                         polyline.round_joins.end(),
                         [](std::uint8_t value) { return value != 0U; })) {
-                    const com::result result =
+                    com::result result =
                         prepare_joined_closed_solid_widen(
                             polyline.points,
                             polyline.round_joins,
@@ -6771,11 +7020,16 @@ public:
                             miter_limit,
                             world_transform,
                             outlines);
+                    if (result == not_implemented) {
+                        outlines.resize(first_outline);
+                        result = compound_widen();
+                    }
                     if (com::failed(result)) {
                         return result;
                     }
                     continue;
                 }
+                const auto default_closed_widen = [&]() -> com::result {
                 std::vector<point_2f> outer;
                 std::vector<point_2f> inner;
                 com::result result = build_default_miter_offset_contour(
@@ -6820,6 +7074,14 @@ public:
                     }
                     append_widened_polyline_outline(inner, outlines);
                 }
+                return com::ok;
+                };
+                com::result result = default_closed_widen();
+                if (result == not_implemented) {
+                    outlines.resize(first_outline);
+                    result = compound_widen();
+                }
+                if (com::failed(result)) return result;
             }
             replay_widened_outlines(outlines, *sink);
             return com::ok;

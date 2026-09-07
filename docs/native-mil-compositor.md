@@ -8395,6 +8395,48 @@ collapse replay fidelity, tiny/all-gap nonpoint contours and cross-platform/VM
 images, benchmarks and CI qualification remain open. Bounds support is not a
 claim that these final rendering/qualification requirements have been met.
 
+## Implementation-first checkpoint: compound native stroke widening
+
+The shared native Direct2D path core now materializes crossing/retraced closed
+strokes, multi-edge open and dashed strokes, and mixed open/closed figures as a
+nonzero-fill union of consistently oriented segment strips, outer joins and
+endpoint caps. This removes the simple-polygon requirement from those `Widen`
+paths and prevents opposite contour orientation from canceling overlapping
+stroke coverage. Bounding-box-collapsed insets use the same compound path instead
+of retaining an inverted inner hole. Simple single-contour solid cases retain
+the existing compact outline, with compound fallback on unsupported topology.
+
+Implementation/provenance: `progpu_native_direct2d_path.cpp` reuses the original
+ProGPU `append_stroke_side_join`, `append_circular_arc_segments`,
+`build_terminal_dash_outline`, dash-run splitter and affine transform kernel.
+No foreign source, second renderer, shader fork, CPU pixels/readback, managed
+bridge workaround or public ABI/module change is introduced. The managed
+`ProGpuDirect2DSurface.WidenGeometry` delegates to its provider; this patch changes
+the native compatibility provider's previously rejected geometry construction,
+not the independent managed WPF renderer or its stroke rasterizer.
+
+For P flattened line/dash segments, compound assembly and owned output use O(P)
+time/space after flattening/dash splitting. AArch64 NEON and x86 SSE2 compute two
+double-precision line frames per batch with a bounded scalar tail. Frames are
+allocated once per contour/run; the intrinsic kernel uses caller-owned spans.
+Bounded join/cap pieces retain small owned vectors. Transforms gather all pieces
+per run/contour into one O(P) buffer and use the existing SIMD affine kernel.
+Topological assembly and variable-length output walks remain sequential; no
+per-piece GPU submission is added. Existing compact closed-contour eligibility
+and topology checks still have O(P²) worst-case cost. Further scratch pooling and
+compact-offset topology work remain open; no speedup is claimed without profiling.
+
+Fixtures authored in `progpu_native_direct2d_compat_tests.cpp` cover bow ties,
+round reversals, overlapping ring/line figures, collapsed rectangle insets,
+all four joins, distinct source/dash caps, odd dash patterns/negative phase,
+reflection/shear and odd/even segment counts. Explicit coverage probes accompany
+fill-versus-stroke grids; old fixed-output-figure expectations are replaced with
+coverage checks. The native library and MIL/Direct2D compatibility/WebGPU test
+targets compile. No tests, image/VM comparison, benchmarks, verifiers or CI
+qualification ran. Point-only/tiny contours, transform-collapse replay fidelity,
+remaining compact-offset edge cases and full DirectX/Direct2D/Win2D parity remain
+open. See the Direct2D work log for the public-contract reference.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
