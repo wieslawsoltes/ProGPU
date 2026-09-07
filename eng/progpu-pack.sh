@@ -92,6 +92,10 @@ if [[ "${package_group}" == "portable" || "${package_group}" == "all" ]]; then
   PROGPU_PACKAGE_VERSION="${package_version}" \
   PROGPU_PACKAGE_OUTPUT="${package_output}" \
     "${repo_root}/eng/progpu-verify-xaml-package-consumer.sh"
+  PROGPU_CONFIGURATION="${configuration}" \
+  PROGPU_PACKAGE_VERSION="${package_version}" \
+  PROGPU_PACKAGE_OUTPUT="${package_output}" \
+    "${repo_root}/eng/progpu-verify-drawing-extension-package-consumer.sh"
 fi
 
 if [[ "${package_group}" == "cad" || "${package_group}" == "portable" || "${package_group}" == "all" ]]; then
