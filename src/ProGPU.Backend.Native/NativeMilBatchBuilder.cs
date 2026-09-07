@@ -669,7 +669,7 @@ public sealed class NativeMilBatchBuilder
     public void SetVisualBrush(uint handle, NativeMilTileBrush brush, uint visualHandle = 0) =>
         SetTileBrush(NativeMilCommand.VisualBrush, handle, brush, visualHandle);
 
-    /// <summary>Retains a typed BitmapCacheBrush packet; unsupported rendering fails closed.</summary>
+    /// <summary>Retains a typed BitmapCacheBrush packet for native cached visual capture.</summary>
     public void SetBitmapCacheBrush(uint handle, NativeMilBitmapCacheBrush brush)
     {
         ValidateHandle(handle);

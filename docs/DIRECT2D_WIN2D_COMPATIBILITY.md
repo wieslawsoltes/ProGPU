@@ -4729,3 +4729,22 @@ dependency/fail-closed and managed packet-layout fixtures are authored. Native
 targets and managed backend/test projects compile; runtime/VM/image/performance/
 verifier/CI qualification remains deferred. No public COM or full parity claim
 is made by the increased decoder coverage count.
+
+### Implementation-first checkpoint: MIL BitmapCacheBrush cached capture
+
+The distinct native cache brush now captures 2D target content/children into the
+existing GPU local-space cache and uses shared sampled shape/mask adapters.
+Explicit/target/default cache selection, brush opacity/mapping, ignored root
+compositing state and snap, cycle rejection and per-consumer cache identities
+are implemented. Descendant cache owners inherit their capture occurrence.
+
+Shared-page reuse, dirty regions, root scroll-clip/render-options/guidelines,
+Viewport3D root capture, independent managed renderer integration and platform
+qualification remain open. Unsupported root forms fail closed. This does not
+add a public Direct2D COM interface or establish Win2D compatibility.
+
+The native MIL document records contracts, original ProGPU provenance,
+complexity, managed applicability and remaining work. Native semantic and GPU
+pixel/warm-replay fixtures are authored; native and managed-backend compilation
+is the checkpoint evidence. Runtime, VM/images, performance, verifiers and CI
+qualification remain deferred; no full-parity or speed claim is made.

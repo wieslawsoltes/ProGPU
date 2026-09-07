@@ -1331,6 +1331,46 @@ void verify_mil_image_brushes(const gpu_context& gpu, progpu_native_engine* engi
         "skewed viewport lost its source mapping");
 }
 
+void verify_mil_bitmap_cache_brushes(const gpu_context& gpu, progpu_native_engine* engine)
+{
+    using namespace progpu::native::tests;
+    for (const double scale : {0.5, 1.0, 2.0}) {
+        for (const bool repeated : {false, true}) {
+            mil_image_brush_fixture_options options{};
+            options.source = mil_brush_fixture_source::visual;
+            options.opacity = 0.5;
+            options.bitmap_cache_brush = true;
+            options.explicit_source_cache = true;
+            options.source_cache_scale = scale;
+            options.repeat_paint = repeated;
+            const auto identity = 9500U + static_cast<std::uint64_t>(scale * 4.0) +
+                (repeated ? 16U : 0U);
+            std::vector<std::byte> stream;
+            require(build_mil_image_brush_fixture(stream, options, identity),
+                "BitmapCacheBrush fixture failed");
+            progpu_native_scene_header header{};
+            std::memcpy(&header, stream.data(), sizeof(header));
+            const auto pixels = render_scene(gpu, engine, nullptr, repeated ? 2U : 1U,
+                header.command_count, 0U, stream, identity);
+            // Independent scalar oracle: the source occupies [10,30)x[20,30),
+            // irrespective of cache resolution or the 48x48 paint rectangle.
+            for (std::uint32_t y = 0U; y < height; ++y) {
+                for (std::uint32_t x = 0U; x < width; ++x) {
+                    const auto offset = (y * width + x) * 4U;
+                    const bool inside = x >= 10U && x < 30U && y >= 20U && y < 30U;
+                    const int red = inside ? (repeated ? 191 : 128) : 0;
+                    require(std::abs(static_cast<int>(pixels[offset]) - red) <= 1 &&
+                        pixels[offset + 1U] == 0U && pixels[offset + 2U] == 0U &&
+                        pixels[offset + 3U] == 255U, "BitmapCacheBrush pixel oracle mismatch");
+                }
+            }
+            const auto warm = render_scene(gpu, engine, nullptr, repeated ? 2U : 1U,
+                header.command_count, 0U, stream, identity);
+            require(warm == pixels, "BitmapCacheBrush retained replay changed pixels");
+        }
+    }
+}
+
 void write_capture(
     const char* path,
     std::span<const std::uint8_t> pixels)
@@ -1381,6 +1421,7 @@ int main(int argc, char** argv)
     progpu_native_engine* engine = create_engine(gpu);
     if (software || (argc == 2 && std::strcmp(argv[1], "--mil-image-brush-only") == 0)) {
         verify_mil_image_brushes(gpu, engine);
+        verify_mil_bitmap_cache_brushes(gpu, engine);
         progpu_native_engine_destroy(engine);
         release_gpu(gpu);
         return EXIT_SUCCESS;
@@ -1397,6 +1438,7 @@ int main(int argc, char** argv)
     verify_stroke_transforms(gpu, engine, scene);
     phase("start MIL image brushes");
     verify_mil_image_brushes(gpu, engine);
+    verify_mil_bitmap_cache_brushes(gpu, engine);
     phase("stroke transforms passed; start MIL geometry");
     std::vector<std::byte> mil_scene;
     require(progpu::native::tests::build_mil_visual_clip_fixture(mil_scene),

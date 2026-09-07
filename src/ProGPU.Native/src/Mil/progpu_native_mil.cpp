@@ -2362,6 +2362,8 @@ struct scene_compile_context {
     bool needs_more_cycles{};
     std::uint32_t visual_brush_depth{};
     std::uint64_t scene_id{};
+    std::uint64_t cache_brush_occurrence{};
+    std::uint64_t cache_brush_scope{};
 
     bool is_visual_brush() const noexcept {
         return visual_brush_depth != 0U ||
@@ -2568,6 +2570,11 @@ struct channel::implementation {
         std::uint32_t relative_transform_handle{};
         std::uint32_t cache_handle{};
         std::uint32_t target_handle{};
+    };
+
+    struct cache_brush_capture_policy {
+        std::uint32_t brush_handle{};
+        std::uint64_t occurrence{};
     };
 
     struct gradient_brush_state {
@@ -3070,10 +3077,13 @@ struct channel::implementation {
             effects.contains(handle);
     }
 
+    bool is_sampled_brush(std::uint32_t handle) const noexcept {
+        return tile_brushes.contains(handle) || bitmap_cache_brushes.contains(handle);
+    }
+
     bool has_brush_state(std::uint32_t handle) const noexcept {
         return solid_brushes.contains(handle) ||
-            gradient_brushes.contains(handle) || tile_brushes.contains(handle) ||
-            bitmap_cache_brushes.contains(handle);
+            gradient_brushes.contains(handle) || is_sampled_brush(handle);
     }
 
     bool transform_reaches(
@@ -12568,7 +12578,7 @@ struct channel::implementation {
                 result = added;
                 return status::success;
             }
-            if (tile_brushes.contains(brush_handle) || bitmap_cache_brushes.contains(brush_handle)) {
+            if (is_sampled_brush(brush_handle)) {
                 // Tile sources require a sampled-image/layer brush, not a
                 // gradient-table approximation. The image lowering path owns it.
                 return status::unsupported_command;
@@ -14993,6 +15003,15 @@ struct channel::implementation {
             std::uint32_t brush_handle,
             const brush_use_state& use,
             const render_scope_state& state) -> status {
+            if (bitmap_cache_brushes.contains(brush_handle)) {
+                render_scope_state paint = state, clipped = state;
+                paint.transform = use.effective_transform;
+                const status clip = apply_rectangle_clip(use.x, use.y, use.width, use.height, paint, clipped);
+                if (clip != status::success) return clip;
+                return append_bitmap_cache_brush(brush_handle, use, clipped, builder,
+                    brush_indices, image_indices, glyph_resources, compile_context,
+                    active_drawings, clip_paths, clip_segments, clip_boolean_nodes, metrics);
+            }
             const auto found = tile_brushes.find(brush_handle);
             const bool drawing_brush = require_resource(brush_handle, type_drawing_brush);
             const bool visual_brush = require_resource(brush_handle, type_visual_brush);
@@ -15710,7 +15729,7 @@ struct channel::implementation {
                 return status::unsupported_command;
             const float dpi_scale = compile_context == nullptr ? 1.0F :
                 static_cast<float>(compile_context->request.dpi_scale_x);
-            const bool tiled = tile_brushes.contains(brush_handle);
+            const bool tiled = is_sampled_brush(brush_handle);
             if (!tiled && !gradient_brushes.contains(brush_handle))
                 return append_glyph_run(glyph_handle, brush_handle, source_state, builder, glyph_resources, dpi_scale);
             if (glyph_handle == 0U || affine_has_zero_area(source_state.transform)) return status::success;
@@ -16004,7 +16023,7 @@ struct channel::implementation {
                 std::uint32_t mask_resource_index =
                     PROGPU_NATIVE_SCENE_NO_INDEX;
                 const bool spatial_mask = gradient_brushes.contains(opacity_mask_handle) ||
-                    tile_brushes.contains(opacity_mask_handle);
+                    is_sampled_brush(opacity_mask_handle);
                 const status mask_status = spatial_mask
                     ? add_spatial_opacity_mask(
                         opacity_mask_handle,
@@ -16541,7 +16560,7 @@ struct channel::implementation {
                     pen_state pen{};
                     const status resolved = resolve_pen(pen_handle, pen);
                     if (resolved != status::success) return resolved;
-                    if (tile_brushes.contains(pen.brush_handle)) {
+                    if (is_sampled_brush(pen.brush_handle)) {
                         const status drawn = append_tile_line_pen(pen, x0, y0, x1, y1,
                             current.transform, current);
                         if (drawn != status::success) return drawn;
@@ -16727,7 +16746,7 @@ struct channel::implementation {
                     const bool has_spatial_opacity_mask =
                         group->second.opacity_mask_handle != 0U &&
                         (gradient_brushes.contains(group->second.opacity_mask_handle) ||
-                            tile_brushes.contains(group->second.opacity_mask_handle));
+                            is_sampled_brush(group->second.opacity_mask_handle));
                     const status opacity_mask_status =
                         has_spatial_opacity_mask
                         ? status::success
@@ -16996,7 +17015,7 @@ struct channel::implementation {
                     if (affine_has_zero_area(current.transform)) continue;
                     if (has_group_stroke) {
                         const bool spatial = gradient_brushes.contains(group_pen.brush_handle) ||
-                            tile_brushes.contains(group_pen.brush_handle);
+                            is_sampled_brush(group_pen.brush_handle);
                         const auto prepare = [&](auto&& self, std::uint32_t handle,
                             affine_2d_double parent, std::uint32_t depth) -> status {
                             if (depth == 0U || depth > maximum_visual_depth) return status::invalid_graph;
@@ -17202,7 +17221,7 @@ struct channel::implementation {
                         group_boolean_nodes.size() > 63U) {
                         return status::unsupported_command;
                     }
-                    if (has_group_fill && tile_brushes.contains(brush_handle)) {
+                    if (has_group_fill && is_sampled_brush(brush_handle)) {
                         const brush_use_state brush_use{group_left, group_top,
                             group_right - group_left, group_bottom - group_top,
                             effective_transform};
@@ -17210,7 +17229,7 @@ struct channel::implementation {
                             brush_use, current, group_segments, group_boolean_nodes, group_fill_rule);
                         if (tile_status != status::success) return tile_status;
                     }
-                    if (has_group_fill && !tile_brushes.contains(brush_handle)) {
+                    if (has_group_fill && !is_sampled_brush(brush_handle)) {
                         const brush_use_state brush_use{
                             group_left,
                             group_top,
@@ -17271,7 +17290,7 @@ struct channel::implementation {
                         }
                     }
                     if (has_group_stroke) {
-                        const bool tiled = tile_brushes.contains(group_pen.brush_handle);
+                        const bool tiled = is_sampled_brush(group_pen.brush_handle);
                         const brush_use_state use{group_stroke_left, group_stroke_top,
                             group_stroke_right - group_stroke_left, group_stroke_bottom - group_stroke_top,
                             current.transform};
@@ -17351,7 +17370,7 @@ struct channel::implementation {
                         path_geometry_state outline;
                         const status outlined = resolve_combined_stroke_outline(geometry_handle, tolerance, outline);
                         if (outlined != status::success || outline.stroke_contours.empty()) return outlined;
-                        if (tile_brushes.contains(combined_pen.brush_handle)) {
+                        if (is_sampled_brush(combined_pen.brush_handle)) {
                             const double expansion = combined_pen.thickness * 0.5 * std::max(1.0, combined_pen.miter_limit);
                             const brush_use_state use{outline.left - expansion, outline.top - expansion,
                                 outline.right - outline.left + expansion * 2.0,
@@ -17436,7 +17455,7 @@ struct channel::implementation {
                         combined_tree.right - combined_tree.left,
                         combined_tree.bottom - combined_tree.top,
                         effective_transform};
-                    if (tile_brushes.contains(brush_handle)) {
+                    if (is_sampled_brush(brush_handle)) {
                         const status tile_status = append_path_tile_brush(brush_handle,
                             brush_use, current, combined_segments, boolean_nodes,
                             PROGPU_NATIVE_FILL_RULE_NON_ZERO);
@@ -17521,7 +17540,7 @@ struct channel::implementation {
                         !fill_segments.empty() &&
                         try_get_path_segment_bounds(
                             fill_segments, local_path_bounds);
-                    if (brush_handle != 0U && has_fill_bounds && tile_brushes.contains(brush_handle)) {
+                    if (brush_handle != 0U && has_fill_bounds && is_sampled_brush(brush_handle)) {
                         const brush_use_state brush_use{local_path_bounds.x, local_path_bounds.y,
                             local_path_bounds.width, local_path_bounds.height, effective_transform};
                         const status tile_status = append_path_tile_brush(brush_handle,
@@ -17530,7 +17549,7 @@ struct channel::implementation {
                                 ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD : PROGPU_NATIVE_FILL_RULE_NON_ZERO);
                         if (tile_status != status::success) return tile_status;
                     }
-                    if (brush_handle != 0U && has_fill_bounds && !tile_brushes.contains(brush_handle)) {
+                    if (brush_handle != 0U && has_fill_bounds && !is_sampled_brush(brush_handle)) {
                         std::uint32_t brush_index =
                             PROGPU_NATIVE_SCENE_NO_INDEX;
                         const brush_use_state brush_use{
@@ -17612,7 +17631,7 @@ struct channel::implementation {
                         }
                         const auto& geometry = *prepared_spine;
                         brush_use_state spatial_use{};
-                        const bool spatial = gradient_brushes.contains(pen.brush_handle) || tile_brushes.contains(pen.brush_handle);
+                        const bool spatial = gradient_brushes.contains(pen.brush_handle) || is_sampled_brush(pen.brush_handle);
                         if (spatial) {
                             // Relative pen brushes use painted stroke bounds, not
                             // a transformed control hull or a scaled pen envelope.
@@ -17623,7 +17642,7 @@ struct channel::implementation {
                             spatial_use = {bounds.x, bounds.y, bounds.width, bounds.height, current.transform};
                         }
                         status stroke_status = status::success;
-                        if (tile_brushes.contains(pen.brush_handle)) {
+                        if (is_sampled_brush(pen.brush_handle)) {
                             if (pen.thickness > 0.0 && !geometry.stroke_contours.empty()) {
                                 // All contours share one mask and one brush paint,
                                 // including disjoint/non-stroked-segment breaks.
@@ -17653,7 +17672,7 @@ struct channel::implementation {
                     if (!try_transform_line_spine(x0, y0, x1, y1, local_transform)) {
                         return status::invalid_graph;
                     }
-                    if (tile_brushes.contains(pen.brush_handle)) {
+                    if (is_sampled_brush(pen.brush_handle)) {
                         const status drawn = append_tile_line_pen(pen, x0, y0, x1, y1,
                             current.transform, current);
                         if (drawn != status::success) return drawn;
@@ -17941,7 +17960,7 @@ struct channel::implementation {
                     native_local_transform)) {
                 return status::invalid_graph;
             }
-            const bool has_tile_fill = brush_handle != 0U && tile_brushes.contains(brush_handle);
+            const bool has_tile_fill = brush_handle != 0U && is_sampled_brush(brush_handle);
             if (has_tile_fill && fill_has_area && width > 0.0 && height > 0.0) {
                 render_scope_state paint_state = current;
                 if (is_ellipse || has_rounded_corners) {
@@ -18103,7 +18122,7 @@ struct channel::implementation {
                             const brush_use_state use{bounds.x, bounds.y, bounds.width, bounds.height, current.transform};
                             const auto effective = compose_affine(frame, current.transform);
                             status drawn = status::success;
-                            if (tile_brushes.contains(pen.brush_handle)) {
+                            if (is_sampled_brush(pen.brush_handle)) {
                                 const bool ellipse = shape.kind == fixed_geometry_kind::ellipse;
                                 const double half = pen.thickness * 0.5;
                                 const brush_use_state local_use{shape.first - (ellipse ? shape.third : 0.0) - half,
@@ -18140,7 +18159,7 @@ struct channel::implementation {
                         if (made != status::success) return made;
                         const status mapped = transform_path_stroke_spine(source, local_transform, spine);
                         if (mapped != status::success) return mapped;
-                        const bool spatial = gradient_brushes.contains(pen.brush_handle) || tile_brushes.contains(pen.brush_handle);
+                        const bool spatial = gradient_brushes.contains(pen.brush_handle) || is_sampled_brush(pen.brush_handle);
                         progpu_native_image_rect bounds{};
                         if (spatial) {
                             const status measured = resolve_path_stroke_bounds(spine, pen, {}, bounds);
@@ -18148,13 +18167,13 @@ struct channel::implementation {
                         }
                         if (!spatial || (bounds.width > 0.0F && bounds.height > 0.0F)) {
                             const brush_use_state use{bounds.x, bounds.y, bounds.width, bounds.height, current.transform};
-                            const status drawn = tile_brushes.contains(pen.brush_handle)
+                            const status drawn = is_sampled_brush(pen.brush_handle)
                                 ? append_tile_pen(pen, use, current, {}, {}, false, spine.stroke_contours)
                                 : append_path_strokes(spine, pen, {}, current.transform,
                                     PROGPU_NATIVE_SCENE_NO_INDEX, spatial ? &use : nullptr);
                             if (drawn != status::success) return drawn;
                         }
-                    } else if (tile_brushes.contains(pen.brush_handle)) {
+                    } else if (is_sampled_brush(pen.brush_handle)) {
                         fixed_geometry_state shape{};
                         shape.kind = is_ellipse ? fixed_geometry_kind::ellipse : fixed_geometry_kind::rectangle;
                         shape.first = first;
@@ -19071,7 +19090,7 @@ struct channel::implementation {
             !has_local_cache_input &&
             visual->second.alpha_mask_handle != 0U &&
             (gradient_brushes.contains(visual->second.alpha_mask_handle) ||
-                tile_brushes.contains(visual->second.alpha_mask_handle));
+                is_sampled_brush(visual->second.alpha_mask_handle));
         const bool isolate_source_composite =
             !has_local_cache_input &&
             (state.opacity != 1.0 || has_spatial_opacity_mask);
@@ -19977,7 +19996,7 @@ struct channel::implementation {
         std::span<const progpu_native_scene_clip_path> clip_paths = {},
         std::span<const progpu_native_path_segment> clip_segments = {},
         std::span<const progpu_native_scene_path_boolean_node> clip_nodes = {}) const {
-        if (!tile_brushes.contains(brush_handle)) return add_gradient_opacity_mask(
+        if (!is_sampled_brush(brush_handle)) return add_gradient_opacity_mask(
             brush_handle, x, y, width, height, source_state.transform, builder, mask_index,
             clip_paths, clip_segments, clip_nodes);
         mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -20062,6 +20081,117 @@ struct channel::implementation {
             mask_resource_index, context, clip_paths, clip_segments, clip_boolean_nodes);
     }
 
+    status append_bitmap_cache_brush(
+        std::uint32_t brush_handle,
+        const brush_use_state& use,
+        const render_scope_state& state,
+        native::semantic_scene_builder& builder,
+        std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
+        std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
+        std::unordered_map<std::uint64_t, glyph_scene_resource>& glyph_resources,
+        scene_compile_context* frame,
+        std::unordered_set<std::uint32_t>& active,
+        std::vector<progpu_native_scene_clip_path>& clip_paths,
+        std::vector<progpu_native_path_segment>& clip_segments,
+        std::vector<progpu_native_scene_path_boolean_node>& clip_nodes,
+        scene_metrics& metrics) const {
+        const auto found = bitmap_cache_brushes.find(brush_handle);
+        if (found == bitmap_cache_brushes.end()) return status::invalid_handle;
+        const auto& brush = found->second;
+        if (brush.target_handle == 0U) return status::success;
+        if (frame == nullptr) return status::unsupported_command;
+        const auto target = visuals.find(brush.target_handle);
+        if (target == visuals.end()) return status::invalid_handle;
+        // Capture 2D content explicitly, not append_visual(root): the six
+        // cache-brush-excluded root properties must never enter the page.
+        // Viewport3D root capture needs its own typed scene entry point.
+        if (!require_resource(brush.target_handle, type_visual))
+            return status::unsupported_command;
+        const auto& root = target->second;
+        // These root policies need a capture-local implementation; do not
+        // silently discard them along with the six explicitly ignored fields.
+        if (root.has_scroll_clip || root.render_options_flags != 0U ||
+            !root.guidelines_x.empty() || !root.guidelines_y.empty())
+            return status::unsupported_command;
+        if (!root.has_cache_bounds) return status::unsupported_command;
+        if (root.cache_bounds_width <= 0.0 || root.cache_bounds_height <= 0.0 ||
+            use.width <= 0.0 || use.height <= 0.0) return status::success;
+        double opacity{};
+        const status opacity_status = resolve_animated_double(
+            brush.opacity, brush.opacity_animation, opacity);
+        if (opacity_status != status::success) return opacity_status;
+        if (!std::isfinite(opacity) || opacity < 0.0 || opacity > 1.0)
+            return status::invalid_graph;
+        if (opacity == 0.0) return status::success;
+        affine_2d_double mapping{};
+        if (brush.relative_transform_handle != 0U) {
+            affine_2d_double relative{};
+            const status resolved = resolve_transform(brush.relative_transform_handle, relative);
+            if (resolved != status::success) return resolved;
+            const affine_2d_double to_relative{1.0 / use.width, 0.0, 0.0,
+                1.0 / use.height, -use.x / use.width, -use.y / use.height};
+            const affine_2d_double from_relative{use.width, 0.0, 0.0,
+                use.height, use.x, use.y};
+            mapping = compose_affine(compose_affine(to_relative, relative), from_relative);
+        }
+        if (brush.transform_handle != 0U) {
+            affine_2d_double absolute{};
+            const status resolved = resolve_transform(brush.transform_handle, absolute);
+            if (resolved != status::success) return resolved;
+            mapping = compose_affine(mapping, absolute);
+        }
+        auto composite = state;
+        // Unlike TileBrush there is no viewbox, viewport, stretch or tiling.
+        composite.transform = compose_affine(mapping, use.effective_transform);
+        composite.opacity *= opacity;
+        if (affine_has_zero_area(composite.transform)) return status::success;
+        if (active.size() + 2U > maximum_visual_depth ||
+            !active.insert(brush_handle).second) return status::invalid_graph;
+        if (!active.insert(brush.target_handle).second) {
+            active.erase(brush_handle);
+            return status::invalid_graph;
+        }
+        const auto depth = static_cast<std::uint32_t>(active.size());
+        // The executor currently requires one owner per layer occurrence.
+        // Stable traversal preserves identity without aliasing two consumers.
+        const cache_brush_capture_policy capture{brush_handle, frame->cache_brush_occurrence++};
+        const std::uint32_t cache_handle = brush.cache_handle != 0U
+            ? brush.cache_handle : root.cache_mode_handle;
+        bool pushed{}, skip{}, saved{};
+        render_scope_state content{};
+        const mask_replay_context context{frame, active, metrics, depth};
+        status result = add_visual_cache_layer(cache_handle, brush.target_handle,
+            frame->scene_id, true, composite, clip_paths, clip_segments, clip_nodes,
+            builder, context, pushed, skip, saved, content, &capture);
+        std::vector<progpu_native_scene_clip_path> child_paths;
+        std::vector<progpu_native_path_segment> child_segments;
+        std::vector<progpu_native_scene_path_boolean_node> child_nodes;
+        const auto previous_scope = frame->cache_brush_scope;
+        frame->cache_brush_scope = capture.occurrence + 1U;
+        ++frame->visual_brush_depth;
+        if (result == status::success && !skip) {
+            ++metrics.visual_count;
+            metrics.maximum_visual_depth = std::max(metrics.maximum_visual_depth, depth);
+            if (root.content_handle != 0U) {
+                result = append_render_data(root.content_handle, content, builder,
+                    brush_indices, image_indices, glyph_resources, frame, active,
+                    child_paths, child_segments, child_nodes, metrics);
+            }
+            for (std::size_t i = 0U; result == status::success && i < root.children.size(); ++i) {
+                result = append_visual(root.children[i], content, depth + 1U, frame->scene_id,
+                    builder, brush_indices, image_indices, glyph_resources, frame, active,
+                    child_paths, child_segments, child_nodes, metrics);
+            }
+        }
+        --frame->visual_brush_depth;
+        frame->cache_brush_scope = previous_scope;
+        if (saved && !builder.restore() && result == status::success) result = status::invalid_graph;
+        if (pushed && !builder.pop_layer() && result == status::success) result = status::invalid_graph;
+        active.erase(brush.target_handle);
+        active.erase(brush_handle);
+        return result;
+    }
+
     status add_visual_cache_layer(
         std::uint32_t cache_handle,
         std::uint32_t visual_handle,
@@ -20076,25 +20206,28 @@ struct channel::implementation {
         bool& pushed,
         bool& skip_content,
         bool& pushed_content_state,
-        render_scope_state& content_state) const {
+        render_scope_state& content_state,
+        const cache_brush_capture_policy* capture = nullptr) const {
         pushed = false;
         skip_content = false;
         pushed_content_state = false;
         content_state = state;
-        if (cache_handle == 0U) {
+        if (cache_handle == 0U && capture == nullptr) {
             return status::success;
         }
         const auto cache = bitmap_caches.find(cache_handle);
         const auto cache_resource = resources.find(cache_handle);
-        if (cache == bitmap_caches.end() ||
+        if (cache_handle != 0U && (cache == bitmap_caches.end() ||
             cache_resource == resources.end() ||
-            cache_resource->second.type != type_bitmap_cache) {
+            cache_resource->second.type != type_bitmap_cache)) {
             return status::invalid_handle;
         }
+        const bitmap_cache_state default_cache{};
+        const auto& cache_state = cache_handle == 0U ? default_cache : cache->second;
         double render_at_scale = 1.0;
         const status scale_status = resolve_animated_double(
-            cache->second.render_at_scale,
-            cache->second.render_at_scale_animation_handle,
+            cache_state.render_at_scale,
+            cache_state.render_at_scale_animation_handle,
             render_at_scale);
         if (scale_status != status::success ||
             !std::isfinite(render_at_scale)) {
@@ -20112,9 +20245,9 @@ struct channel::implementation {
             return status::unsupported_command;
         }
         const bool has_spatial_opacity_mask =
-            cache_visual.alpha_mask_handle != 0U &&
+            capture == nullptr && cache_visual.alpha_mask_handle != 0U &&
             (gradient_brushes.contains(cache_visual.alpha_mask_handle) ||
-                tile_brushes.contains(cache_visual.alpha_mask_handle));
+                is_sampled_brush(cache_visual.alpha_mask_handle));
         // Local cached pixels are independent of the cache-root Visual's
         // properties. WPF applies those properties while drawing the retained
         // bitmap. Typed gradients use GPU brush masks and tile sources use
@@ -20157,14 +20290,14 @@ struct channel::implementation {
         if (visual_brush) append_fnv1a64(content_revision, std::uint32_t{0x56425253U});
         append_fnv1a64(content_revision, cache_handle);
         append_fnv1a64(content_revision, render_at_scale);
-        append_fnv1a64(content_revision, cache->second.enable_clear_type);
+        append_fnv1a64(content_revision, cache_state.enable_clear_type);
         append_fnv1a64(content_revision, cache_visual.cache_bounds_x);
         append_fnv1a64(content_revision, cache_visual.cache_bounds_y);
         append_fnv1a64(content_revision, cache_visual.cache_bounds_width);
         append_fnv1a64(content_revision, cache_visual.cache_bounds_height);
-        if (cache->second.render_at_scale_animation_handle != 0U) {
+        if (cache_state.render_at_scale_animation_handle != 0U) {
             const auto animation = resources.find(
-                cache->second.render_at_scale_animation_handle);
+                cache_state.render_at_scale_animation_handle);
             if (animation == resources.end()) {
                 return status::invalid_handle;
             }
@@ -20189,6 +20322,15 @@ struct channel::implementation {
         // must not alias an onscreen page of the same Visual in the same frame.
         if (visual_brush) append_fnv1a64(owner_identity, std::uint32_t{0x56425253U});
         append_fnv1a64(owner_identity, visual_handle);
+        if (mask_context.frame != nullptr && mask_context.frame->cache_brush_scope != 0U) {
+            append_fnv1a64(owner_identity, std::uint32_t{0x43425343U});
+            append_fnv1a64(owner_identity, mask_context.frame->cache_brush_scope);
+        }
+        if (capture != nullptr) {
+            append_fnv1a64(owner_identity, std::uint32_t{0x43425253U});
+            append_fnv1a64(owner_identity, capture->brush_handle);
+            append_fnv1a64(owner_identity, capture->occurrence);
+        }
         const affine_2d_double raster_to_local{
             1.0 / render_at_scale,
             0.0,
@@ -20199,7 +20341,7 @@ struct channel::implementation {
         affine_2d_double mask_transform = state.transform;
         affine_2d_double composite_transform = compose_affine(
             raster_to_local, state.transform);
-        if (cache->second.snaps_to_device_pixels) {
+        if (capture == nullptr && cache_state.snaps_to_device_pixels) {
             const auto* frame = mask_context.frame;
             if (frame != nullptr && frame->request.dpi_scale_x != frame->request.dpi_scale_y)
                 return status::unsupported_command;
@@ -20229,7 +20371,7 @@ struct channel::implementation {
                 composite_transform, composite_state.transform)) {
             return status::invalid_graph;
         }
-        if (state.has_clip && cache_visual.effect_handle == 0U) {
+        if (state.has_clip && (capture != nullptr || cache_visual.effect_handle == 0U)) {
             composite_state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
             composite_state.clip_rect = state.clip_rect;
         }
@@ -20250,7 +20392,7 @@ struct channel::implementation {
         if (has_spatial_opacity_mask) {
             auto mask_state = state;
             mask_state.transform = mask_transform;
-            if (tile_brushes.contains(cache_visual.alpha_mask_handle) &&
+            if (is_sampled_brush(cache_visual.alpha_mask_handle) &&
                 state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
                 const auto* frame = mask_context.frame;
                 if (frame != nullptr && frame->request.dpi_scale_x != frame->request.dpi_scale_y)
@@ -20293,7 +20435,7 @@ struct channel::implementation {
         content_state.text_rendering_mode = 0U;
         content_state.text_hinting_mode = 0U;
         content_state.subpixel_text_disabled =
-            !cache->second.enable_clear_type;
+            !cache_state.enable_clear_type;
         auto raster_state =
             native::semantic_scene_builder::identity_state();
         if (!try_to_native_affine(
@@ -20459,7 +20601,7 @@ struct channel::implementation {
         const bool has_spatial_visual_opacity_mask =
             visual->second.alpha_mask_handle != 0U &&
             (gradient_brushes.contains(visual->second.alpha_mask_handle) ||
-                tile_brushes.contains(visual->second.alpha_mask_handle));
+                is_sampled_brush(visual->second.alpha_mask_handle));
         const status opacity_mask_status = has_spatial_visual_opacity_mask
             ? status::success
             : resolve_uniform_opacity_mask_alpha(
