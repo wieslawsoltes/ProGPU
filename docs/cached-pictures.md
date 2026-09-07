@@ -157,7 +157,8 @@ hinting are unchanged. Only original ProGPU implementation was ported.
 
 Release compilation: ProGPU.Tests 0 warnings/errors; WPF.Tests 14 warnings and
 0 errors after the fixture addition (the earlier broader rebuild had 108
-warnings); native MIL fixture target compiled. No warnings were investigated or
+warnings; the final null-material guard rebuild had 110 warnings and 0 errors);
+native MIL fixture target compiled. No warnings were investigated or
 claimed fixed. All runtime, scalar/SIMD execution, image, platform/VM, renderer,
 Svg.Skia, benchmark/Instruments, source-verifier and CI qualification remains
 deferred. This is an implementation checkpoint, not a speed or parity claim.
