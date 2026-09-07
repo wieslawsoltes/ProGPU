@@ -17506,6 +17506,78 @@ bool retained_gradient_brushes_compile_with_wpf_mapping_and_animation() {
     return true;
 }
 
+bool fixed_geometry_spines_match_single_child_groups() {
+    using namespace progpu::native::tests;
+    using mil_clip_fixture_detail::packet;
+    const std::array<std::array<double, 6U>, 6U> transforms{{
+        {1.0, 0.0, 0.0, 1.0, 0.0, 0.0},
+        {2.0, 0.0, 0.0, 3.0, 4.0, 8.0},
+        {-1.0, 0.5, 0.25, 1.0, 40.0, 8.0},
+        {1.0, 0.0, 0.0, 0.0, 0.0, 24.0},
+        {0.0, 0.0, 0.0, 1.0, 24.0, 0.0},
+        {0.0, 0.0, 0.0, 0.0, 24.0, 32.0}}};
+    const std::array sources{mil_brush_fixture_source::bitmap, mil_brush_fixture_source::drawing,
+        mil_brush_fixture_source::drawing_image, mil_brush_fixture_source::visual};
+    for (const auto& transform : transforms) {
+        for (std::uint32_t shape = 0U; shape < 3U; ++shape) {
+            std::array<std::vector<std::byte>, 2U> graphs;
+            for (std::uint32_t grouped = 0U; grouped < graphs.size(); ++grouped) {
+                auto& commands = graphs[grouped];
+                append_create(commands, 45U, 66U);
+                packet(commands, command::matrix_transform, 45U, transform, 0U);
+                const std::uint32_t handle = grouped == 0U ? 15U : 41U;
+                append_create(commands, handle, shape == 2U ? 70U : 69U);
+                if (shape == 2U) {
+                    packet(commands, command::ellipse_geometry, handle, 8.0, 6.0, 20.0, 24.0, 45U, 0U, 0U, 0U);
+                } else {
+                    packet(commands, command::rectangle_geometry, handle,
+                        shape == 1U ? 3.0 : 0.0, shape == 1U ? 2.0 : 0.0,
+                        12.0, 18.0, 16.0, 12.0, 45U, 0U, 0U, 0U);
+                }
+                if (grouped != 0U) {
+                    append_create(commands, 15U, 71U);
+                    packet(commands, command::geometry_group, 15U, 0U, 0U, 4U, handle);
+                }
+            }
+            for (std::uint32_t brush = 0U; brush < 6U; ++brush) {
+                for (const bool dashed : {false, true}) {
+                    mil_image_brush_fixture_options options{};
+                    options.tile_mode = 3U;
+                    options.source = sources[brush < 2U ? 0U : brush - 2U];
+                    options.shape = mil_brush_fixture_shape::group;
+                    options.paint_transform = true;
+                    options.pen = true;
+                    options.dashed = dashed;
+                    options.solid_pen = brush == 0U;
+                    options.gradient_pen = brush == 1U;
+                    options.paint_matrix = {0.75, 0.25, -0.5, 1.0, 12.0, 4.0};
+                    options.group_geometry_commands = graphs[0U];
+                    std::vector<std::byte> direct, grouped;
+                    PROGPU_REQUIRE(build_mil_image_brush_fixture(direct, options, 8108U));
+                    options.group_geometry_commands = graphs[1U];
+                    PROGPU_REQUIRE(build_mil_image_brush_fixture(grouped, options, 8108U));
+                    PROGPU_REQUIRE(direct == grouped);
+                    // A zero-area world transform still removes both fill and
+                    // stroke, unlike a geometry-only rank reduction.
+                    options.group_geometry_commands = graphs[0U];
+                    options.fill_with_pen = true;
+                    options.paint_matrix = {1.0, 0.0, 0.0, 0.0, 0.0, 24.0};
+                    PROGPU_REQUIRE(build_mil_image_brush_fixture(direct, options, 8108U));
+                    const auto header = read_value<progpu_native_scene_header>(direct, 0U);
+                    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                        const auto resource = read_value<progpu_native_scene_resource>(direct,
+                            header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                        PROGPU_REQUIRE(resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH);
+                        PROGPU_REQUIRE(resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH);
+                        PROGPU_REQUIRE(resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK);
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool group_geometry_spines_precede_pen_widening() {
     using namespace progpu::native::tests;
     using mil_clip_fixture_detail::packet;
@@ -20780,6 +20852,7 @@ int main() {
     PROGPU_REQUIRE(line_geometry_transform_precedes_pen_widening());
     PROGPU_REQUIRE(path_geometry_transform_precedes_pen_widening());
     PROGPU_REQUIRE(group_geometry_spines_precede_pen_widening());
+    PROGPU_REQUIRE(fixed_geometry_spines_match_single_child_groups());
     PROGPU_REQUIRE(
         retained_gradient_stops_match_wpf_coincidence_and_pad_edges());
     PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());

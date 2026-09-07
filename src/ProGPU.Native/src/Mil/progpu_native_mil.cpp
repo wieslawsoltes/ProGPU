@@ -17612,7 +17612,9 @@ struct channel::implementation {
                  radius_y < 0.0)) {
                 return status::malformed_batch;
             }
-            if (affine_has_zero_area(effective_transform)) {
+            const bool prepared_fixed_spine = is_geometry_shape && third > 0.0 && fourth > 0.0;
+            const bool fill_has_area = !affine_has_zero_area(effective_transform);
+            if ((!prepared_fixed_spine && !fill_has_area) || affine_has_zero_area(current.transform)) {
                 if (brush_handle != 0U &&
                     !has_brush_state(brush_handle)) {
                     return status::invalid_handle;
@@ -17650,7 +17652,7 @@ struct channel::implementation {
                 return status::invalid_graph;
             }
             const bool has_tile_fill = brush_handle != 0U && tile_brushes.contains(brush_handle);
-            if (has_tile_fill && width > 0.0 && height > 0.0) {
+            if (has_tile_fill && fill_has_area && width > 0.0 && height > 0.0) {
                 render_scope_state paint_state = current;
                 if (is_ellipse || has_rounded_corners) {
                     // Append to the inherited vector chain so the subsequent
@@ -17704,7 +17706,7 @@ struct channel::implementation {
                 const status tile_status = append_single_tile_brush(brush_handle, brush_use, paint_state);
                 if (tile_status != status::success) return tile_status;
             }
-            if (!has_tile_fill && brush_handle != 0U && width > 0.0 && height > 0.0) {
+            if (!has_tile_fill && fill_has_area && brush_handle != 0U && width > 0.0 && height > 0.0) {
                 progpu_native_image_rect fill_bounds{};
                 if (!try_transform_bounds(
                         x,
@@ -17792,7 +17794,35 @@ struct channel::implementation {
                     return pen_status;
                 }
                 if (pen.brush_handle != 0U && pen.thickness > 0.0) {
-                    if (tile_brushes.contains(pen.brush_handle)) {
+                    if (prepared_fixed_spine) {
+                        fixed_geometry_state shape{};
+                        shape.kind = is_ellipse ? fixed_geometry_kind::ellipse : fixed_geometry_kind::rectangle;
+                        shape.first = first;
+                        shape.second = second;
+                        shape.third = third;
+                        shape.fourth = fourth;
+                        shape.radius_x = radius_x;
+                        shape.radius_y = radius_y;
+                        path_geometry_state source{}, spine{};
+                        const status made = make_fixed_bounds_path(shape, source);
+                        if (made != status::success) return made;
+                        const status mapped = transform_path_stroke_spine(source, local_transform, spine);
+                        if (mapped != status::success) return mapped;
+                        const bool spatial = gradient_brushes.contains(pen.brush_handle) || tile_brushes.contains(pen.brush_handle);
+                        progpu_native_image_rect bounds{};
+                        if (spatial) {
+                            const status measured = resolve_path_stroke_bounds(spine, pen, {}, bounds);
+                            if (measured != status::success) return measured;
+                        }
+                        if (!spatial || (bounds.width > 0.0F && bounds.height > 0.0F)) {
+                            const brush_use_state use{bounds.x, bounds.y, bounds.width, bounds.height, current.transform};
+                            const status drawn = tile_brushes.contains(pen.brush_handle)
+                                ? append_tile_pen(pen, use, current, {}, {}, false, spine.stroke_contours)
+                                : append_path_strokes(spine, pen, {}, current.transform,
+                                    PROGPU_NATIVE_SCENE_NO_INDEX, spatial ? &use : nullptr);
+                            if (drawn != status::success) return drawn;
+                        }
+                    } else if (tile_brushes.contains(pen.brush_handle)) {
                         fixed_geometry_state shape{};
                         shape.kind = is_ellipse ? fixed_geometry_kind::ellipse : fixed_geometry_kind::rectangle;
                         shape.first = first;

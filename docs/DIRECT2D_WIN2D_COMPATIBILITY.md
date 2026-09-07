@@ -4632,3 +4632,20 @@ versus flattened stream fixtures and fixed/combined collapse cases are authored;
 native library and MIL/Direct2D compatibility/WebGPU targets compile. Runtime,
 Windows/VM/images, performance, verifier and CI qualification remain deferred.
 This does not establish full group, Direct2D or Win2D parity.
+
+### Implementation-first checkpoint: direct MIL fixed-shape pen ordering
+
+Positive-size native MIL rectangle/rounded-rectangle/ellipse resources now use
+the same prepared spine and widening order as single-child groups. Geometry
+transforms change the spine, drawing/world transforms change widened coverage,
+and spatial pens reuse native widened bounds. Fill handling stays independent.
+Immediate drawing commands and already-zero-size geometry handlers are unchanged;
+the latter still need geometry-transform generalization. Public COM/C/module and
+managed contracts are unchanged, with no pixel fallback or new shader.
+
+Direct-versus-group stream fixtures and collapsed-world fill/pen cases are
+authored. Native library and MIL/Direct2D compatibility/WebGPU targets compile;
+runtime/Windows/VM/images, performance, verifier and CI qualification are deferred.
+The native MIL specification records original helper provenance, bounded fixed
+contour setup, widening costs and pending retained preparation/fast-path work.
+No complete Direct2D/Win2D parity or performance claim is made.
