@@ -3693,6 +3693,30 @@ public static partial class GpuPictureNativeSceneCompiler
             error = NativePictureCompileError.UnsupportedStroke;
             return false;
         }
+        var dashCache = !RenderCommandGeometryCache.IsLinearDashCandidate(command.Pen) ? null :
+            command.GeometryCache is { } existing && ReferenceEquals(existing.StrokePath, path)
+                ? existing : RenderCommandGeometryCache.ForStrokePath(path);
+        if (dashCache?.SupportsLinearDashCoverage(command.Pen) == true)
+        {
+            if (!command.IsPenThicknessLocal || !dashCache.TryGetLinearDashCoverage(command.Pen,
+                    command.Pen.Thickness, out var coverage))
+            {
+                error = NativePictureCompileError.UnsupportedStroke;
+                return false;
+            }
+            var prepared = command;
+            prepared.Path = coverage.Path;
+            prepared.Pen = coverage.Pen;
+            prepared.Brush = coverage.Pen == null ? command.Pen.Brush : null;
+            prepared.GeometryCache = coverage.GeometryCache;
+            // A valid dash phase can hide the entire source contour.
+            if (coverage.Path.Figures.Count == 0) return true;
+            if (coverage.Pen == null)
+                return TryAppendPathFill(prepared, transform, nativePaths, nativeSegments, nativeBooleanNodes,
+                    pathBrushIndices, batches, operations, materials, out error);
+            return TryAppendGeneralPathStroke(prepared, coverage.Path, transform, nativeGeometry,
+                geometryBrushIndices, batches, operations, materials, out error);
+        }
         return TryAppendGeneralPathStroke(
             command,
             path,

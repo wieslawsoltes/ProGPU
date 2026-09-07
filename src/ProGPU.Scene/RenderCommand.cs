@@ -410,7 +410,7 @@ internal interface IImageEffectDataProvider
     ImageEffectCommandData GetImageEffect(int index);
 }
 
-public sealed class RenderCommandGeometryCache
+public sealed partial class RenderCommandGeometryCache
 {
     private PathGeometry? _dashedStrokePath;
     private float _dashedStrokeLocalThickness;

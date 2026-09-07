@@ -98,6 +98,56 @@ DPI and performance qualification is still required.
 
 ## Implementation-first status
 
+### Shared ordinary linear dash coverage (2026-09-07)
+
+Ordinary normal-width linear dashed strokes now request the complete terminal
+coverage payload through `RenderCommandGeometryCache.LinearDashes`. The managed
+compositor, retained geometric hit-test builder and native picture path compiler
+share that owned result. A terminal case is one nonzero filled path; a case with
+no painted terminal remains a dashed spine plus an undashed pen. Original source
+fills remain independent. The caller composes transforms once, and edge-alias
+state remains on the lowered command. A completely hidden dash phase produces no
+stroke draw instead of attempting to compile an empty stroke's bounds.
+
+The cache classifies immutable source topology once and keys preparation by
+effective local width, interval values, offset, all three caps, join and miter.
+Brush identity is deliberately excluded: a replacement brush refreshes only the
+derived undashed pen, or is read directly for filled coverage. Equal reconstructed
+interval arrays reuse geometry. Invalid keys cache failure, never stale prior
+coverage. Span-recorded polyline hit testing now materializes its source into the
+same deferred geometry cache used by rendering, rather than reconstructing the
+graph on every hit-index rebuild. Solid, fixed and hairline pens bypass the new
+cache before allocation. The source path must remain immutable for the cache's
+lifetime; mutation requires a new cache, as for the existing retained entries.
+
+Cold preparation retains the preceding O(D + S + G + T) bound. Stable lookup is
+O(1) with shared interval storage or O(D) for equal reconstructed arrays, and does
+not traverse source or emitted geometry. Interval equality uses runtime span
+equality; existing numeric preparation uses paired intrinsics. Topology and style
+dispatch are dependent control work, not pixel or independent numeric loops.
+Geometry changes replace one bounded retained result. No new shader, pipeline,
+CPU pixel work, upload, readback or per-dash submission is introduced. Costs and
+allocation behavior are fixture expectations, not measured performance claims.
+
+Original provenance is ProGPU `44c1d2fc`'s complete directed terminal outline and
+`RenderCommandGeometryCache`'s retained geometry/paint separation. Native C++
+already retains directed endpoint caps in
+`Mil/progpu_native_mil_curve_dash.hpp`,
+`Scene/progpu_native_semantic_path_stroke.hpp` and
+`Direct2D/progpu_native_direct2d_path.cpp`; this change repairs managed consumers
+and the managed-to-native picture compiler, not those native algorithms or ABI.
+The prior matched native `directed_terminal_dash_outlines_match_managed` fixture
+remains the native outline oracle. No foreign implementation text is used; the
+previously linked primary contract research remains applicable.
+
+New authored fixtures cover style-key invalidation, paint refresh, warm allocation,
+failure recovery, transform/fill separation, deferred polyline ownership, one
+native filled path per terminal stroke, empty hidden intervals and GPU hit/miss
+points at the terminal cap and hidden gap. They are not executed in this phase.
+All image, performance/SIMD, platform/VM/package, Svg.Skia, source-verifier and CI
+qualification remains deferred and required. Curved, boolean, device-width and
+tiny/point-only coverage remain separate unfinished work; this is not full parity.
+
 ### Directed terminal dash coverage (2026-09-07)
 
 The line and linear-path preparers now expose overloads with an optional complete
@@ -163,8 +213,9 @@ and CI qualification remain deferred and required.
 This closes the cached terminal-cap representation gap for prepared nondegenerate
 linear runs, not the full stroke goal. Tiny/nonpositive dash intervals, tiny or
 point-only source runs, curves, boolean boundaries and fixed/hairline policies
-remain unfinished. The ordinary non-cached legacy dash generator still does not
-request terminal payloads. General live managed-tree native-picture transport is
+remain unfinished. At this checkpoint the ordinary non-cached legacy dash generator
+did not request terminal payloads; the subsequent shared ordinary linear dash
+checkpoint above adds those consumers. General live managed-tree native-picture transport is
 also unchanged and remains unsupported. Oblique floating-point boundaries and
 compact/compound native rounding still need differential qualification.
 

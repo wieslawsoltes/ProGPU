@@ -7758,6 +7758,21 @@ SceneStateUploadComplete:
 
             if (cmd.Pen!.HasDashPattern)
             {
+                if (TryPrepareLinearDashCommand(cmd, cmd.Path, stroke.LocalThickness, out var preparedCommand))
+                {
+                    if (_activeClipRect.HasValue)
+                    {
+                        var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
+                        for (int i = startIndex; i < vertices.Length; i++)
+                        {
+                            var vertex = vertices[i];
+                            vertex.Position = ClampToClip(vertex.Position);
+                            vertices[i] = vertex;
+                        }
+                    }
+                    CompilePathCommand(preparedCommand, transform, subpixelPhaseGrid, quantizeScale, rasterScale);
+                    return;
+                }
                 PathGeometry dashedPath;
                 Pen undashedPen;
                 if (cmd.GeometryCache?.TryGetDashedStrokePath(
@@ -10990,6 +11005,11 @@ SceneStateUploadComplete:
         in StrokeCompileState stroke,
         Matrix4x4 transform)
     {
+        if (TryPrepareLinearDashCommand(cmd, sourcePath, stroke.LocalThickness, out var preparedCommand))
+        {
+            CompilePathCommand(preparedCommand, transform);
+            return;
+        }
         var pen = cmd.Pen!;
         PathGeometry dashedPath;
         Pen undashedPen;
@@ -11020,6 +11040,28 @@ SceneStateUploadComplete:
         pathCommand.Transform = default;
         pathCommand.IsPenThicknessLocal = true;
         CompilePathCommand(pathCommand, transform);
+    }
+
+    internal static bool TryPrepareLinearDashCommand(in RenderCommand source, PathGeometry path,
+        float localThickness, out RenderCommand prepared)
+    {
+        prepared = default;
+        var pen = source.Pen!;
+        if (!RenderCommandGeometryCache.IsLinearDashCandidate(pen)) return false;
+        var cache = source.GeometryCache is { } existing && ReferenceEquals(existing.StrokePath, path)
+            ? existing : RenderCommandGeometryCache.ForStrokePath(path);
+        if (!cache.SupportsLinearDashCoverage(pen)) return false;
+        if (!cache.TryGetLinearDashCoverage(pen, localThickness, out var coverage))
+            throw new NotSupportedException("The linear dashed stroke cannot be prepared without losing coverage.");
+        prepared = source;
+        prepared.Type = RenderCommandType.DrawPath;
+        prepared.Path = coverage.Path;
+        prepared.Brush = coverage.Pen == null ? pen.Brush : null;
+        prepared.Pen = coverage.Pen;
+        prepared.GeometryCache = coverage.GeometryCache;
+        prepared.Transform = default;
+        prepared.IsPenThicknessLocal = coverage.Pen != null;
+        return true;
     }
 
     private void CompileRetainedStrokePath(

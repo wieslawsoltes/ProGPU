@@ -9660,6 +9660,25 @@ platform/VM/package, source verifiers and CI qualification remain deferred.
 Ordinary non-cached terminal routing, tiny/point-like geometry, curves, boolean
 boundaries and device-width policy support remain open work.
 
+## Implementation-first checkpoint: shared ordinary linear dash consumers
+
+The managed compositor, geometric hit-test builder and native picture path compiler
+now consume one retained normal-width linear dash preparation result, including
+complete directed terminal coverage. Geometry keys include all outline style
+inputs but exclude paint identity. Deferred polyline hit testing shares its owned
+source graph with rendering. Empty hidden intervals emit no native stroke geometry.
+Original fills, source-space placement and alias state remain independent.
+
+Native C++ already implements the source terminal state and compound outline
+algorithms; no native product/ABI change is needed for this consumer repair.
+Matched native outline fixtures from `44c1d2fc` remain applicable. See
+[ownership, provenance, costs and authored fixtures](cached-pictures.md#shared-ordinary-linear-dash-coverage-2026-09-07).
+Final ProGPU.Tests Release compilation succeeds with 0 warnings and 0 errors.
+ProGPU `origin/main` was refreshed with zero commits missing from this branch.
+Runtime/image, performance/SIMD, VM/platform/package, source-verifier and CI
+qualification remain deferred. Curves, tiny/point-only cases, boolean boundaries,
+device-width policies and broader MIL/DirectX/Direct2D/COM/Win2D parity remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

@@ -202,6 +202,13 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Ordinary linear dash rendering, hit testing and native picture compilation must
+share complete retained coverage, including directed terminal caps. Keep paint
+out of the outline key, refresh derived paint without rebuilding geometry, cache
+unsupported style failures without reusing stale output, and retain deferred
+polyline source graphs. Compose outer transforms once and preserve original fill
+and alias state. Solid/device-width pens must not allocate the linear dash cache.
+
 Dash preparation must honor source-figure endpoint cap overrides only at reached
 endpoints and preserve source smooth joins, including the closed seam after run
 merging. A cap must not become a join until topology proves continuity. Borrow

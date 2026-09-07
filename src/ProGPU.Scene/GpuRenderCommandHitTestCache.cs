@@ -393,8 +393,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         var sourcePath = command.GeometryCache?.StrokePath ??
             RenderCommandGeometryCache.CreatePrimitiveStrokePath(command);
         var pen = command.Pen!;
-        if (sourcePath == null ||
-            !TryGetDashedStrokePath(
+        if (sourcePath == null) return;
+        if (TryAddLinearDashCoverage(command.GeometryCache, sourcePath, pen, localThickness, transform, id, zIndex)) return;
+        if (!TryGetDashedStrokePath(
                 command,
                 sourcePath,
                 pen,
@@ -449,6 +450,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             var linePath = command.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreateLinePath(command.Position, command.Position2);
 
+            if (TryAddLinearDashCoverage(command.GeometryCache, linePath, pen, localThickness, transform, id, zIndex)) return;
             if (TryGetDashedStrokePath(command, linePath, pen, localThickness, out var strokePath, out var strokePen))
             {
                 if (UsesDeviceStrokeWidth(pen))
@@ -541,6 +543,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
     {
         if (pen.HasDashPattern)
         {
+            if (TryAddLinearDashCoverage(geometryCache, path, pen, localThickness, transform, id, zIndex)) return;
             if (TryGetDashedStrokePath(geometryCache, path, pen, localThickness, out var strokePath, out var strokePen))
             {
                 if (UsesDeviceStrokeWidth(pen))
@@ -638,6 +641,8 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             zIndex += 0.25f;
         }
 
+        if (hasLocalStroke && TryAddLinearDashCoverage(command.GeometryCache, commandPath, pen,
+                localThickness, transform, id, zIndex)) return;
         if (!hasLocalStroke ||
             !TryGetDashedStrokePath(command, commandPath, pen, localThickness, out var strokePath, out var strokePen))
         {
@@ -652,6 +657,21 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         {
             TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen, localThickness);
         }
+    }
+
+    private bool TryAddLinearDashCoverage(RenderCommandGeometryCache? geometryCache, PathGeometry source,
+        Pen pen, float localThickness, Matrix4x4 transform, int id, float zIndex)
+    {
+        if (!RenderCommandGeometryCache.IsLinearDashCandidate(pen)) return false;
+        var cache = geometryCache != null && ReferenceEquals(geometryCache.StrokePath, source)
+            ? geometryCache : RenderCommandGeometryCache.ForStrokePath(source);
+        if (!cache.SupportsLinearDashCoverage(pen)) return false;
+        if (!cache.TryGetLinearDashCoverage(pen, localThickness, out var coverage)) return true;
+        if (coverage.Pen != null)
+            TryAddPathStrokePrimitive(coverage.Path, transform, id, zIndex, coverage.Pen, localThickness);
+        else if (TryCompileHitTestPath(coverage.Path, out var fill))
+            AddPathFillPrimitive(fill, transform, id, zIndex);
+        return true;
     }
 
     private static bool TryGetDashedStrokePath(
@@ -1662,10 +1682,11 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             return;
         }
 
-        var path = command.GeometryCache?.StrokePath ??
+        var path = command.GeometryCache?.GetOrCreatePolylineStrokePath(points, command.IsClosed) ??
             RenderCommandGeometryCache.CreatePolylinePath(points, command.IsClosed);
         if (pen.HasDashPattern)
         {
+            if (TryAddLinearDashCoverage(command.GeometryCache, path, pen, localThickness, transform, id, zIndex)) return;
             if (TryGetDashedStrokePath(command, path, pen, localThickness, out var strokePath, out var strokePen))
             {
                 if (UsesDeviceStrokeWidth(pen))
@@ -1753,6 +1774,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
         if (pen.HasDashPattern)
         {
+            if (TryAddLinearDashCoverage(command.GeometryCache, path, pen, localThickness, transform, id, zIndex)) return;
             if (TryGetDashedStrokePath(command, path, pen, localThickness, out var strokePath, out var strokePen))
             {
                 if (UsesDeviceStrokeWidth(pen))
