@@ -8779,6 +8779,44 @@ performance/verifier/CI qualification remain deferred. The specialized
 degenerate shapes, direct fixed shapes, cache work and full MIL/DirectX/Direct2D/
 Win2D goal remain open.
 
+## Implementation-first checkpoint: direct positive fixed-shape spines
+
+Direct RectangleGeometry (including rounded rectangles) and EllipseGeometry
+resources with positive source extents now use the same geometry-space stroke
+preparation as single-child groups. `make_fixed_bounds_path` constructs the
+original ProGPU contour, `transform_path_stroke_spine` maps it through the
+resource transform, and shared native stroke/tile adapters widen in drawing
+coordinates. Gradient/tile pens use native widened bounds; solid pens avoid the
+extra widening query. Geometry transforms no longer scale pen thickness, dash
+units or caps. Only drawing/world state acts after widening.
+
+Fill remains separate and preserves its existing analytic/path/tile route.
+Rank-deficient geometry transforms suppress fill without discarding visible
+stroke/cap coverage. A zero-area world transform still suppresses both. Immediate
+DrawRectangle/DrawRoundedRectangle/DrawEllipse commands retain their existing
+fast paths, since their current transform is drawing state rather than a
+geometry resource transform. Already-zero-size geometry resources retain their
+specialized handlers and remain an explicit geometry-transform correctness gap.
+
+This reuses original ProGPU fixed-path construction, intrinsic coordinate
+mapping, affine/collapsed arc handling, native bounds and semantic stroke code;
+no foreign source, new raster algorithm, shader, readback, per-item submission,
+public C/COM/module or managed bridge change is introduced. Fixed contour setup
+has bounded size; mapped preparation is O(P) time/storage for its P segments,
+plus the existing dash and spatial-bounds widening work. Prepared geometry and
+spatial bounds are not yet retained across scene compilations, and identity
+geometry resources also use the shared preparation. Caching and measured
+fast-path recovery remain performance work, not a claimed speed improvement.
+
+Authored stream differentials compare direct fixed resources with single-child
+groups for identity, nonuniform scale, shear/reflection, both rank-one projections
+and point collapse, using solid/gradient/tile brushes and dashes. Additional
+fill-plus-pen cases require no geometry/stroke/mask resources under a collapsed
+world transform. Native library and MIL/Direct2D compatibility/WebGPU targets
+compile; execution, Windows/VM/image/SIMD/performance/verifier/CI qualification
+remain deferred. Zero-size source-shape transforms, retained preparation costs
+and the broader full MIL/DirectX/Direct2D/Win2D goal remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
