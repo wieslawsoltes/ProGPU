@@ -4,6 +4,11 @@ Status: foundation, 2026-08-31
 
 ## Scope
 
+The active near-term milestone is now **rendering first, basic editing only**.
+The few-day delivery boundary and acceptance gates are defined in
+[the focused delivery scope](PROGPU_CAD_DELIVERY_SCOPE.md). The broader roadmap
+and implemented experiments below do not expand that milestone.
+
 `ProGPU.CAD` is the CAD application and engine layer for opening, processing,
 editing, rendering, printing, and saving DXF/DWG documents on desktop and in the
 browser. ACadSharp owns the file-format object model. ProGPU owns presentation,
