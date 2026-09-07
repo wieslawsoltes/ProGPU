@@ -5,6 +5,7 @@
 #include "../Geometry/progpu_native_arc.hpp"
 #include "../Scene/progpu_native_semantic_brush.hpp"
 #include "../Scene/progpu_native_semantic_validation.hpp"
+#include "../Scene/progpu_native_semantic_budget.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -2868,16 +2869,28 @@ struct channel::implementation {
         std::shared_ptr<stroke_preparation_cache> stroke_cache;
     };
 
+    struct prepared_stroke_geometry {
+        // Payload must be destroyed before its reservation is released.
+        native::semantic::residency_reservation reservation;
+        path_geometry_state geometry;
+        prepared_stroke_geometry(native::semantic::residency_reservation&& charge,
+            path_geometry_state&& source) noexcept
+            : reservation(std::move(charge)), geometry(std::move(source)) {}
+    };
+
     struct stroke_preparation_cache {
         struct entry {
             std::array<std::uint64_t, 6U> matrix{};
             std::shared_ptr<const path_geometry_state> geometry;
         };
         std::mutex mutex;
+        std::shared_ptr<native::semantic::residency_budget> budget;
         std::array<entry, 2U> entries;
         std::size_t next{};
         static constexpr std::size_t maximum_entry_bytes = 64U * 1024U;
-        static_assert(sizeof(path_geometry_state) < maximum_entry_bytes);
+        static_assert(sizeof(prepared_stroke_geometry) < maximum_entry_bytes);
+        explicit stroke_preparation_cache(std::shared_ptr<native::semantic::residency_budget> owner) noexcept
+            : budget(std::move(owner)) {}
     };
 
     struct geometry_group_state {
@@ -2912,6 +2925,10 @@ struct channel::implementation {
         std::vector<progpu_native_scene_gradient_stop> gradient_stops;
     };
 
+    // Transactional snapshots share accounting as well as immutable cache
+    // owners. Evicted geometry remains charged until its last lease ends.
+    std::shared_ptr<native::semantic::residency_budget> stroke_preparation_budget{
+        std::make_shared<native::semantic::residency_budget>(8U * 1024U * 1024U)};
     std::unordered_map<std::uint32_t, resource_state> resources;
     std::unordered_map<std::uint32_t, double> double_resources;
     std::unordered_map<std::uint32_t, std::array<float, 4U>> color_resources;
@@ -8957,7 +8974,7 @@ struct channel::implementation {
             }
             // Cache allocation is optional; allocation pressure must not turn
             // an otherwise valid resource update into a rendering failure.
-            try { geometry.stroke_cache = std::make_shared<stroke_preparation_cache>(); }
+            try { geometry.stroke_cache = std::make_shared<stroke_preparation_cache>(stroke_preparation_budget); }
             catch (const std::bad_alloc&) {}
             path_geometries.insert_or_assign(handle, std::move(geometry));
             increment_generation(handle);
@@ -11774,7 +11791,7 @@ struct channel::implementation {
         if (mapped != status::success) return mapped;
         output = &scratch;
         if (!cache) return status::success;
-        std::size_t bytes = sizeof(path_geometry_state);
+        std::size_t bytes = sizeof(prepared_stroke_geometry);
         const auto charge = [&bytes](std::size_t count, std::size_t size) {
             if (count > (stroke_preparation_cache::maximum_entry_bytes - bytes) / size) return false;
             bytes += count * size;
@@ -11786,9 +11803,27 @@ struct channel::implementation {
                 !charge(contour.segments.capacity(), sizeof(progpu_native_path_segment)) ||
                 !charge(contour.smooth_joins.capacity(), sizeof(std::uint8_t))) return status::success;
         }
-        // Prepare outside the lock. Concurrent misses may duplicate bounded
-        // work, but publication never exposes partially populated vectors.
-        try { lease = std::make_shared<const path_geometry_state>(std::move(scratch)); }
+        auto reservation = native::semantic::residency_reservation::try_acquire(cache->budget, bytes);
+        if (!reservation) {
+            // Give this owner's replacement slot a chance to release capacity.
+            // A live group lease keeps its charge; no other owner's cache is
+            // scanned or evicted, and a remaining miss simply stays uncached.
+            std::shared_ptr<const path_geometry_state> retired;
+            {
+                const std::lock_guard lock(cache->mutex);
+                retired = std::move(cache->entries[cache->next].geometry);
+            }
+            retired.reset();
+            reservation = native::semantic::residency_reservation::try_acquire(cache->budget, bytes);
+            if (!reservation) return status::success;
+        }
+        // Prepare outside the lock. Concurrent misses may duplicate work,
+        // but publication never exposes partially populated vectors. Aliasing
+        // ownership keeps accounting attached to every live geometry lease.
+        try {
+            auto retained = std::make_shared<const prepared_stroke_geometry>(std::move(reservation), std::move(scratch));
+            lease = {retained, &retained->geometry};
+        }
         catch (const std::bad_alloc&) { return status::success; }
         output = lease.get();
         stroke_preparation_cache::entry evicted;

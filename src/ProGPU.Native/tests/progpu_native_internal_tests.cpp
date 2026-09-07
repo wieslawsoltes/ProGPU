@@ -549,6 +549,62 @@ void effect_plan_uses_three_bounded_intermediates() {
     }
 }
 
+void retained_residency_budget_tracks_allocation_lifetimes() {
+    using progpu::native::semantic::residency_budget;
+    using progpu::native::semantic::residency_reservation;
+    auto budget = std::make_shared<residency_budget>(64U);
+    auto first = residency_reservation::try_acquire(budget, 48U);
+    require(bool(first) && budget->bytes() == 48U);
+    require(!residency_reservation::try_acquire(budget, 17U));
+    auto second = residency_reservation::try_acquire(budget, 16U);
+    require(bool(second) && budget->bytes() == 64U);
+    first = std::move(second);
+    require(!second && budget->bytes() == 16U);
+    struct retained_payload {
+        residency_reservation charge;
+        std::uint32_t value;
+    };
+    auto owner = std::make_shared<retained_payload>(std::move(first), 7U);
+    require(!first && budget->bytes() == 16U);
+    std::shared_ptr<const std::uint32_t> consumer{owner, &owner->value};
+    owner.reset(); // Evicted slot: the consumer still owns the allocation.
+    require(budget->bytes() == 16U && *consumer == 7U);
+    consumer.reset();
+    require(budget->bytes() == 0U);
+    auto all = residency_reservation::try_acquire(budget, 64U);
+    require(bool(all) && !residency_reservation::try_acquire(budget, 1U));
+    all.reset();
+    all.reset();
+    require(budget->bytes() == 0U);
+    auto zero = std::make_shared<residency_budget>(0U);
+    require(!residency_reservation::try_acquire(zero, 1U));
+    require(bool(residency_reservation::try_acquire(zero, 0U)) && zero->bytes() == 0U);
+    auto maximum = std::make_shared<residency_budget>(std::numeric_limits<std::uint64_t>::max());
+    auto almost_all = residency_reservation::try_acquire(maximum, maximum->limit() - 1U);
+    require(bool(almost_all) && !residency_reservation::try_acquire(maximum, 2U));
+    almost_all.reset();
+    require(maximum->bytes() == 0U);
+    require(!residency_reservation::try_acquire({}, 1U));
+}
+
+void retained_residency_budget_concurrent_admission_is_bounded() {
+    using progpu::native::semantic::residency_budget;
+    using progpu::native::semantic::residency_reservation;
+    const auto budget = std::make_shared<residency_budget>(3U);
+    std::atomic<std::uint32_t> admitted{};
+    std::array<std::thread, 4U> workers;
+    for (auto& worker : workers) worker = std::thread([&] {
+        for (std::uint32_t iteration = 0U; iteration < 500U; ++iteration) {
+            auto charge = residency_reservation::try_acquire(budget, 1U);
+            if (charge) admitted.fetch_add(1U, std::memory_order_relaxed);
+            require(budget->bytes() <= budget->limit());
+            std::this_thread::yield();
+        }
+    });
+    for (auto& worker : workers) worker.join();
+    require(admitted.load(std::memory_order_relaxed) > 0U && budget->bytes() == 0U);
+}
+
 void semantic_budget_counts_effected_depth_once() {
     using progpu::native::semantic::layer_budget;
     using progpu::native::semantic::scissor;
@@ -1421,6 +1477,8 @@ int main() {
     native_buffer_growth_respects_the_portable_device_limit();
     semantic_contiguous_draws_merge_without_reordering();
     effect_plan_uses_three_bounded_intermediates();
+    retained_residency_budget_tracks_allocation_lifetimes();
+    retained_residency_budget_concurrent_admission_is_bounded();
     semantic_budget_counts_effected_depth_once();
     semantic_compilation_budget_is_checked();
     semantic_cache_budget_is_owner_keyed_and_bounded();

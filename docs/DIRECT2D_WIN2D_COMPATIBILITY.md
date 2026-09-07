@@ -4697,3 +4697,20 @@ work. Warm/cold, eviction-with-live-leases, transform/path/pen update fixtures
 are authored and native targets compile. Runtime/race/lifetime, Windows/VM,
 image/SIMD/performance/Instruments, verifier and CI qualification remain deferred.
 No full Direct2D/Win2D parity or measured performance claim is made.
+
+### Implementation-first checkpoint: aggregate MIL cache residency
+
+Prepared MIL paths now share an 8 MiB payload budget per channel/snapshot family.
+Reservations belong to allocations rather than slots, so evicted geometry held
+by group or bounds leases stays charged. Failed admission remains on the same
+uncached preparation path. The original reusable native budget helper adds
+overflow-safe atomic admission and move-only lifetime accounting without changing
+public COM/module contracts or geometry output. This is not a total memory cap;
+metadata and transient uncached/widening storage remain separately accounted.
+
+Capacity/overflow, move/reset, alias-lifetime and concurrent-admission fixtures
+are authored. Native library, MIL/Direct2D compatibility/WebGPU/internal targets
+and module consumer compile. Execution, race/lifetime/allocation, VM/images,
+SIMD/performance/Instruments, verifiers and CI qualification remain deferred.
+The native MIL document records costs and remaining budget tuning/replacement
+work; full Direct2D/Win2D parity remains open.
