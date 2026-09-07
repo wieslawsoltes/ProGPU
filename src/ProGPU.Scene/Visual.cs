@@ -366,6 +366,7 @@ public class Visual
     // optional visual-layer optimization is disabled by the host.
     internal virtual bool RequiresLayerCache => false;
     internal virtual bool? LayerCacheClearTypePolicy => null;
+    internal virtual void PrepareLayerCache() { }
 
     /// <summary>
     /// Gets or sets the raster-resolution multiplier for a cached layer.

@@ -4810,3 +4810,15 @@ separate text policy and projection; precompiled DXF text fails closed when its
 baked policy cannot be suppressed. Tests are authored, not executed. This does
 not add COM APIs or complete Win2D/managed brush consumer integration. See the
 native MIL and cached-picture documents for provenance, costs and open work.
+
+### Implementation-first checkpoint: live cached-source preparation
+
+Managed `ICachedPictureSource` now supplies owned recordings to shared
+`CachedPicture` resources with deferred event-driven recapture, generation
+stability checks and explicit subscription/source disposal. LibreWPF connects
+its typed dependency tracker to this reusable ProGPU contract. Native MIL keeps
+its existing immutable host updates and shared source-page generations. This
+does not expand Direct2D COM or Win2D API coverage by itself; automatic WPF brush
+consumer routing and the full parity gates remain open. See
+[live typed sources](cached-pictures.md#live-typed-sources) for research, costs,
+ownership and the authored but unexecuted fixtures.

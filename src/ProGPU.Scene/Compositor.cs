@@ -6294,6 +6294,10 @@ SceneStateUploadComplete:
 
         try
         {
+            // Live cached sources can replace their recording here. Track the
+            // resulting version, not the pre-capture version, so the next stable
+            // frame does not incur a synthetic embedded-visual cache miss.
+            visual.PrepareLayerCache();
             bool alreadyTracked = false;
             for (int i = 0; i < _embeddedVisualsInFrame.Count; i++)
             {
@@ -16114,6 +16118,10 @@ SceneStateUploadComplete:
 
     private bool EnsureLayerTexture(Visual node)
     {
+        // Source refresh may change bounds, scale or commands. It must precede
+        // allocation sizing and cached-texture qualification, including empty
+        // and zero-scale sources that become visible after invalidation.
+        node.PrepareLayerCache();
         if (node.Size.X <= 0f || node.Size.Y <= 0f) return false;
 
         // Compute high-DPI scaling factor dynamically from the compositor target context

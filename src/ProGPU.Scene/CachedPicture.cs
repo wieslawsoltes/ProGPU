@@ -19,16 +19,46 @@ namespace ProGPU.Scene;
 /// </remarks>
 public sealed class CachedPicture : IDisposable
 {
-    private readonly CacheVisual _visual = new();
+    private readonly CacheVisual _visual;
+    private readonly ICachedPictureSource? _source;
+    private readonly bool _ownsSource;
     private GpuPicture? _picture;
     private bool _disposed;
+    private bool _sourceDirty;
+    private bool _refreshing;
+    private ulong _sourceVersion;
+
+    private CachedPicture() => _visual = new CacheVisual(this);
+
+    /// <summary>
+    /// Captures an initial recording and subscribes to typed invalidation.
+    /// Subsequent captures are deferred until Refresh or layer preparation.
+    /// When ownsSource is true, disposal and failed construction dispose source.
+    /// </summary>
+    public CachedPicture(ICachedPictureSource source, bool ownsSource = false) : this()
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        _source = source;
+        _ownsSource = ownsSource;
+        _sourceDirty = true;
+        source.Invalidated += OnSourceInvalidated;
+        try
+        {
+            Refresh();
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
+    }
 
     public CachedPicture(GpuPicture picture, Rect bounds, float renderScale = 1f)
         : this(picture, bounds, renderScale, enableClearType: true)
     {
     }
 
-    public CachedPicture(GpuPicture picture, Rect bounds, float renderScale, bool enableClearType)
+    public CachedPicture(GpuPicture picture, Rect bounds, float renderScale, bool enableClearType) : this()
     {
         Update(picture, bounds, renderScale, enableClearType);
     }
@@ -43,6 +73,40 @@ public sealed class CachedPicture : IDisposable
     /// </summary>
     public bool EnableClearType => _visual.EnableClearType;
 
+    public bool IsSourceDirty => _sourceDirty;
+
+    /// <summary>
+    /// Recaptures a dirty live source transactionally. Unchanged sources are
+    /// O(1) no-ops. Failure preserves previous ownership and remains dirty;
+    /// rendering propagates the failure instead of using stale pixels.
+    /// </summary>
+    public void Refresh()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_source == null || !_sourceDirty) return;
+        if (_refreshing)
+            throw new InvalidOperationException("A cached picture source cannot recursively capture itself.");
+        _refreshing = true;
+        ulong version = _sourceVersion;
+        try
+        {
+            using var snapshot = _source.Capture();
+            if (version != _sourceVersion)
+                throw new InvalidOperationException("A cached picture source changed during capture.");
+            UpdateCore(snapshot.Picture, snapshot.Bounds, snapshot.RenderScale, snapshot.EnableClearType);
+            _sourceDirty = false;
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    private void OnSourceInvalidated(object? sender, EventArgs args)
+    {
+        if (!_disposed) Invalidate();
+    }
+
     /// <summary>
     /// Replaces content and raster policy without changing shared source identity.
     /// Zero scale or an empty rectangle paints nothing. Invalid values fail before
@@ -52,6 +116,14 @@ public sealed class CachedPicture : IDisposable
         => Update(picture, bounds, renderScale, EnableClearType);
 
     public void Update(GpuPicture picture, Rect bounds, float renderScale, bool enableClearType)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_source != null)
+            throw new InvalidOperationException("A live cached picture is updated through its source and Refresh.");
+        UpdateCore(picture, bounds, renderScale, enableClearType);
+    }
+
+    private void UpdateCore(GpuPicture picture, Rect bounds, float renderScale, bool enableClearType)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(picture);
@@ -98,6 +170,11 @@ public sealed class CachedPicture : IDisposable
     public void Invalidate()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_source != null)
+        {
+            _sourceDirty = true;
+            unchecked { _sourceVersion++; }
+        }
         _visual.Invalidate();
     }
 
@@ -111,11 +188,13 @@ public sealed class CachedPicture : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        if (_source != null) _source.Invalidated -= OnSourceInvalidated;
         _visual.Commands.Clear();
         _visual.IsVisible = false;
         _visual.Invalidate();
         _picture?.Dispose();
         _picture = null;
+        if (_ownsSource) _source!.Dispose();
     }
 
     private sealed class CacheVisual : Visual, IOwnedRenderCommandCache
@@ -125,7 +204,16 @@ public sealed class CachedPicture : IDisposable
         internal bool EnableClearType = true;
         internal override bool? LayerCacheClearTypePolicy => EnableClearType;
 
-        internal CacheVisual() => CacheAsLayer = true;
+        private readonly CachedPicture _owner;
+        internal CacheVisual(CachedPicture owner)
+        {
+            _owner = owner;
+            CacheAsLayer = true;
+        }
+        internal override void PrepareLayerCache()
+        {
+            if (!_owner._disposed) _owner.Refresh();
+        }
         public DrawingContext GetOrUpdateRenderCommandCache() => Commands;
         public bool HasRenderCommands => Commands.Commands.Count != 0;
     }
