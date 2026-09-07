@@ -8437,6 +8437,38 @@ qualification ran. Point-only/tiny contours, transform-collapse replay fidelity,
 remaining compact-offset edge cases and full DirectX/Direct2D/Win2D parity remain
 open. See the Direct2D work log for the public-contract reference.
 
+## Implementation-first checkpoint: convex inset eligibility
+
+Native `Widen` now limits compact inner/outer rings to simple strictly convex
+source contours whose inset edges still advance in their source edge directions.
+An inset may invert and regain positive signed area before either source bounding
+box axis collapses; area/nesting checks alone must not turn that inverted contour
+into an unpainted hole. Both the default miter and explicit-style compact paths
+now fall back to the established compound stroke when the inset loses an edge.
+Non-convex/collinear closed sources use compound strips/joins/caps directly.
+This changes representation, not stroke semantics or supported join quality.
+
+`convex_inset_preserves_edges` in the original native Direct2D path core is an
+allocation-free O(P) predicate over caller-owned spans, with paired NEON/SSE2
+double dot products and a bounded scalar tail. The explicit-style compact path
+also prepares line frames once with `prepare_stroke_line_frames` and reuses them
+for both sides' `append_stroke_side_join` calls. That adds one O(P) frame buffer
+while removing repeated normal calculation at those calls; no timing improvement
+is claimed. Compound output and the existing compact topology checks retain
+their previously documented complexity. No foreign implementation, raster
+fallback, shader, managed workaround, public ABI or module surface changes.
+
+Authored triangle/kite/concave-notch fixtures exercise odd/even contour counts,
+both source windings, all joins, multiple widths, reflected/sheared transforms,
+an explicit filled point beyond the triangle inradius and the preserved narrow
+two-figure ring. Coverage grids use the independently queried stroke as an
+oracle. The native library and MIL/Direct2D compatibility/WebGPU test targets
+compile; fixtures, Windows/VM/images, benchmarks, sanitizers, verifiers and CI
+qualification remain unexecuted. Managed provider applicability is unchanged
+from the compound-widening checkpoint. General point/tiny-contour behavior and
+transform-collapse fidelity remain implementation work; complete platform and
+DirectX/Direct2D/Win2D parity is not established by these builds.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

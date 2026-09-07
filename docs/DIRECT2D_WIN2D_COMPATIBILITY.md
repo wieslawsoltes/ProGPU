@@ -4424,3 +4424,34 @@ implementation-first sequence. Windows native differential, image/GPU/VM,
 sanitizer, performance and CI gates remain deferred. General point-only/tiny
 contours, compact-offset edge cases and complete Direct2D/Win2D qualification are
 still open; this supersedes the prior blanket complex-`Widen` rejection.
+
+### Implementation-first checkpoint: compact convex inset eligibility
+
+Compact native `Widen` rings now require a simple strictly convex source and
+an inset with one corresponding vertex per source vertex whose edges advance
+along their source edges. A positive area and nested bounds do not establish
+this: insetting past the inradius can invert a contour and give it area again.
+An invalid compact inset returns to the compound strip/join/cap path before sink
+publication. Non-convex/collinear closed spines go directly to compound output.
+The narrow convex ring remains compact; this is not a quality reduction or an
+unsupported result for the excluded compact cases.
+
+The original `progpu_native_direct2d_path.cpp` gains an O(P), O(1)-scratch span
+predicate using paired AArch64 NEON/x86 SSE2 double dot products and a bounded
+scalar tail. Explicit-style compact widening now calls the existing ProGPU
+`prepare_stroke_line_frames` once and supplies those frames to both sides of
+`append_stroke_side_join`, with O(P) owned frame storage. Geometry output, the
+public Widen transform/sink contract, the provider-backed managed entry point
+and the existing O(P²) compact topology checks are unchanged. There is no foreign
+source, new shader, pixel work, readback, public ABI or module change.
+
+Authored coverage fixtures include a triangle whose inset inverts while its
+bounding box still has positive dimensions, a kite with even edge count and a
+concave notch. They cover both windings, all joins, multiple widths and affine
+transforms, explicitly preserving a narrow two-figure ring while filling the
+post-inradius triangle center. The native library and MIL/Direct2D compatibility/
+WebGPU test targets compile. No tests or runtime/Windows/VM/image/performance/
+sanitizer/verifier/CI qualification executed under implementation-first sequencing.
+This supersedes the preceding compact-offset eligibility limitation; point-only,
+tiny/near-degenerate contours, transform-collapse fidelity and full platform
+parity remain open, and no speedup or full Direct2D compatibility is claimed.
