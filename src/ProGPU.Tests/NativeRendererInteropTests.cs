@@ -13,6 +13,31 @@ namespace Avalonia.ProGpu.UnitTests;
 public class NativeRendererInteropTests
 {
     [Fact]
+    public void NativeTextInteractionUsesGeneratedBorrowedContracts()
+    {
+        Assert.Equal(32, Unsafe.SizeOf<NativeTextClusterBox>());
+        Assert.Equal(24, Unsafe.SizeOf<NativeTextCaretStop>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeTextRectangle>());
+        Assert.Equal(28, Unsafe.SizeOf<NativeTextHitTestResult>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeTextInteractionRequirements>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeTextInteractionResult>());
+        Assert.Equal(IntPtr.Size == 8 ? 72 : 40, Unsafe.SizeOf<NativeTextInteractionRequest>());
+        Assert.Equal(16, Marshal.OffsetOf<NativeTextClusterBox>(nameof(NativeTextClusterBox.X)).ToInt32());
+        Assert.Equal(21, Marshal.OffsetOf<NativeTextCaretStop>(nameof(NativeTextCaretStop.Trailing)).ToInt32());
+        string interop = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend.Native", "NativeTextInteractionInterop.cs"));
+        Assert.Contains("ReadOnlySpan<NativePositionedTextGlyph>", interop, StringComparison.Ordinal);
+        Assert.Contains("Span<NativeTextClusterBox>", interop, StringComparison.Ordinal);
+        Assert.Contains("Span<NativeTextCaretStop>", interop, StringComparison.Ordinal);
+        Assert.DoesNotContain("ToArray()", interop, StringComparison.Ordinal);
+        Assert.DoesNotContain("new List", interop, StringComparison.Ordinal);
+        foreach (string operation in new[] { "get_requirements", "build", "hit_test", "get_caret", "move_caret", "get_selection" })
+            Assert.Contains("progpu_native_text_interaction_" + operation, interop, StringComparison.Ordinal);
+        string native = File.ReadAllText(FindRepoFile("src", "ProGPU.Native", "src", "Text", "Interop", "progpu_native_text_interaction_interop.cpp"));
+        Assert.DoesNotContain("reinterpret_cast<const positioned_text_glyph", native, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::vector", native, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RetainedNativeTextOperationsLeaseTheirPointerForTheEntireCall()
     {
         string source = File.ReadAllText(FindRepoFile(

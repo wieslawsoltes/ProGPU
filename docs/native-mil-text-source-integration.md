@@ -1,4 +1,4 @@
-# Native text source integration — retained context ownership
+# Native text source integration
 
 ## Core consumer and existing implementation
 
@@ -18,7 +18,45 @@ positions and line ranges; the future WPF TextLine adapter must preserve them
 for rendering, selection, caret navigation, wrapping and trimming, including
 source-run styling and actual end-of-paragraph semantics.
 
-## Ownership connection implemented here
+## C/.NET interaction stage
+
+The existing native cluster/caret/hit/selection algorithms are now exposed through
+six C exports and `NativeTextInteractionInterop`: requirements, build, hit test,
+caret lookup, visual caret movement and selection rectangles. Inputs and outputs
+are borrowed caller-owned spans, with no device, retained handle, per-glyph call,
+buffer allocation or glyph repacking in this adapter. Managed output references
+are pinned for the complete native call, including references into managed objects.
+
+Cluster ends and resolved bidi levels are required **per positioned glyph**, not
+per input scalar. Consumers must preserve original UTF input offsets and real
+ligature/cluster boundaries after shaping and visual reordering; sequential glyph
+indices or guessed direction are not substitutes. Requirements are capacities;
+publish only the returned counts after success because caret deduplication can
+reduce output. Buffers must be aligned and nonoverlapping. Invalid input or
+insufficient output capacity fails closed, with zero published counts.
+
+The original ProGPU interaction implementation at `8a51aa05` was moved into a
+private record-templated implementation shared by the existing C++ API and new
+C ABI. C records and C++ records have different layouts and are consumed directly,
+not reinterpreted as one another. Valid-input algorithms are retained; finite
+extent, bidi-level and boolean-flag validation is strengthened. These synchronous
+CPU-owned editor queries are not a rejected-GPU fallback. This connection does
+not claim complete SIMD qualification or measured performance improvement.
+
+The new public C header generates its C# records through the existing contract
+generator; generation and verification scripts include it. A standalone C ABI
+fixture target builds without a WebGPU provider and compares C/native cluster and
+caret output, RTL affinity, selection capacity failure and malformed metadata.
+Managed fixtures cover ABI sizes and borrowed-buffer source contracts. These are
+authored fixtures, not executed evidence. Native text targets and the managed
+backend/fixture project compile; full renderer, runtime and application validation
+remain deferred until feature freeze.
+
+This closes the missing interaction export, not the WPF formatting connection.
+The source TextLine adapter, styled font runs and cluster metadata producer remain
+required; `SimpleTextLine.CreatePortableFallback` is still an open core blocker.
+
+## Retained context ownership connection
 
 The managed wrapper previously read a raw pointer and then entered native code;
 Dispose/finalization could destroy it during the call. Concurrent native calls

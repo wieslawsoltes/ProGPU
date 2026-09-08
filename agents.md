@@ -235,6 +235,11 @@ native operation, serializing mutable plans/fallback fonts and excluding disposa
 Do not restore raw pointer reads followed by unleased native calls. Reuse the
 existing C++ paragraph pipeline for WPF text integration; never count an empty
 portable paragraph as shaped content. See `docs/native-mil-text-source-integration.md`.
+Native text interaction adapters must use the shared C++ algorithms with borrowed
+typed buffers, actual positioned-glyph cluster ends and resolved bidi levels.
+Do not repack glyphs into a second implementation, alias incompatible C/C++ record
+layouts, invent cluster boundaries, or publish capacities as output counts.
+Managed by-reference outputs must remain pinned across the complete native call.
 Source custom chrome must recognize ProGPU window ownership before HWND access,
 including registered/pre-source activation. A host HWND is not a WPF HwndSource;
 portable border updates and restoration stay on typed source/host contracts.
