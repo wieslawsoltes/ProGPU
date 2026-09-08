@@ -14,9 +14,78 @@ font fallback, OpenType shaping and bidi-aware positioned paragraph layout.
 `GetParagraphRequirements`/`LayoutParagraph` and their C++ context implementation
 are the existing reusable pipeline. Do not add a second paragraph composer in
 the WPF bridge. Native output retains glyph/font indices, source clusters,
-positions and line ranges; the future WPF TextLine adapter must preserve them
+positions and line ranges; the WPF TextLine adapter must preserve them
 for rendering, selection, caret navigation, wrapping and trimming, including
 source-run styling and actual end-of-paragraph semantics.
+
+## Source TextLine connection — current implementation checkpoint
+
+The source adapter now exists: `PortableTextLine` consumes the neutral
+`IPortableTextFormatting`/`IPortableTextParagraph` contract. A native-MIL host
+registers the provider before source formatting. On platforms without Windows
+LineServices, a rejected SimpleTextLine now tries that provider before the old
+transitional empty fallback. When the registered provider rejects content, the
+exception propagates; it cannot become an empty successful line. The established
+simple formatter and Windows LineServices selection are not replaced in this
+checkpoint, and Windows SDK admission remains guarded.
+
+`NativeTextParagraphSnapshot` in ProGPU owns the reusable editor integration:
+UTF-16 input, existing retained C++ paragraph shaping, native bidi resolution,
+logical successor-cluster metadata, exact UTF input line ends and native
+interaction buffers. The original C++ shaping/layout algorithms are unchanged.
+The snapshot rejects truncated/ellipsis layout because synthetic glyphs require
+an explicit source collapsing contract. No retained native pointer is exposed.
+Requirements allocate owned output capacity; only successful result counts are
+retained. Temporary scratch is pooled and always returned.
+
+Source WPF owns physical GlyphTypeface byte/face-index/em-unit snapshots cached by
+face, run/paragraph metrics and source character indices. The host weakly caches
+the leased native contexts by those immutable font snapshots. Wrapped lines share
+their exact rendering TtfFont annotation (same bytes and collection face index),
+so replay does not choose another face by URI/family-name fallback. Source WPF
+transports that existing opaque glyph-font annotation without inspecting it.
+Wrapped lines share immutable paragraph output through cloned typed TextLineBreak continuation state;
+disposing a break drops its reference without invalidating an independent clone.
+Changing continuation width/source position is currently explicitly rejected.
+
+The adapter creates actual GlyphRuns with source cluster maps, caret stops, bidi
+levels and WPF offsets. Native Y-down positions transfer once to the initialized
+source GlyphRun and are used by both native-vector and neutral compatibility
+exports; they are not reconstructed as unshaped per-character advances. WPF
+logical caret navigation uses ordered native cluster boundaries, not the native
+API's distinct visual navigation operation. Native hit and selection queries
+consume retained buffers. Boolean OpenType typography features cross a typed tag
+contract; source DigitState decides whether unsupported digit substitution is
+required rather than guessing from a culture name.
+
+This is an incremental **single typography domain** connection, not complete
+TextBox/RichTextBox support. Mixed fonts/sizes/cultures/brushes, composite-font
+resolution and fallback-face mapping, tabs, document objects/modifiers/hidden
+runs, decorations/effects/baseline changes, enum-valued typography alternates,
+digit substitution, markers, justification, WrapWithOverflow and collapsing
+symbols remain explicit missing connections. Display-mode hinting is rejected;
+localization/variations, changed-width continuation, min/max paragraph measurement
+and full editing behavior remain unqualified. Close these against the existing
+MVP and Toolkit/AvalonDock editor cases; do not replace them with nominal glyphs
+or redefine this single-domain checkpoint as the application's finish line.
+
+CPU input expansion has intrinsic BMP and four-surrogate-pair blocks; mixed or
+malformed variable-length sequences and the bounded tail use the Rune decoder.
+Cluster sorting/search, variable cluster grouping and logical navigation have
+data-dependent topology. Owned DTO/font/glyph arrays are formatting lifetimes,
+not allocations on each retained replay. These are CPU-owned source/editor
+operations, not a GPU fallback, and no full SIMD or speed claim is made. Allocation
+and throughput qualification remain required at feature freeze.
+
+Authored fixtures compare UTF-16 expansion to the Rune oracle, and use a typed
+source paragraph fixture for cluster maps, RTL glyph metadata, selection,
+logical navigation and cloned continuation after line disposal. That fixture
+does not execute native shaping. The existing native host harness now creates
+its host before drawing, draws a mixed-direction/combining-mark FormattedText,
+requires positive text width and native font bindings, and retains its bitmap,
+geometry and device-recovery gates. Its existing dual-assembly diagnostic public
+API reflection is not product reflection; remove it when the harness binds the
+source WPF assembly directly. All fixture/application execution is deferred.
 
 ## C/.NET interaction stage
 
@@ -52,9 +121,8 @@ authored fixtures, not executed evidence. Native text targets and the managed
 backend/fixture project compile; full renderer, runtime and application validation
 remain deferred until feature freeze.
 
-This closes the missing interaction export, not the WPF formatting connection.
-The source TextLine adapter, styled font runs and cluster metadata producer remain
-required; `SimpleTextLine.CreatePortableFallback` is still an open core blocker.
+This closes the missing interaction export. The source connection above consumes
+it; styled font runs and the remaining editor contracts are still core blockers.
 
 ## Retained context ownership connection
 
@@ -93,9 +161,7 @@ prove paragraph/glyph parity. Source guards require all public context operation
 to hold the scope. Compilation is the current checkpoint; execution, native stress,
 application images/caret/selection checks, performance and CI await feature freeze.
 
-Still required: connect source WPF formatting to this existing C++ pipeline through
-typed interop, resolve/cache source font identities and variations, adapt mixed
-styled runs and source clusters to WPF line/glyph contracts, and remove the empty
-fallback without replacing missing content with nominal unshaped glyphs. This
-ownership change alone does not close that application feature or Windows SDK
-admission. Managed portable rendering must retain its independently selected mode.
+Still required: finish the source connection's explicitly listed application
+dependencies above and qualify them against native Windows. The ownership and
+single-domain adapter changes do not close the application feature or Windows SDK
+admission. Managed portable rendering retains its independently selected mode.
