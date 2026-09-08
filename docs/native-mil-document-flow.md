@@ -58,6 +58,72 @@ feature freeze. Required symbol faces, page formatting, exhausted zero-width
 wrapping, indentation/hyphenation, unsupported document objects and Windows SDK
 admission remain explicit. No application/package/VM/GPU/CI pass is claimed.
 
+## Sequential native pagination prerequisite
+
+The MVP's FlowDocumentPageViewer still reaches the PTS paginator unconditionally.
+`NativeDocumentFlow.Paginate` now provides the missing reusable sequential page/
+column fitting operation over already-shaped lines. The installed document C
+header owns its generated fixed records. Both wgpu-native and Dawn wrappers pin
+caller spans in one synchronous LibraryImport; the optional neutral document
+service has a zero-copy LibreWPF adapter and fails explicitly if not implemented.
+Registration remains lazy. Both managed and native WPF renderer modes use this
+same device-independent native service; there is no separate managed paginator.
+
+Inputs carry actual positive line advances, interior spacing, replacement leading
+spacing at a fragment start and source-admitted/forced break boundaries. Prefix
+metrics plus predecessor and next-forced-boundary indices select the furthest
+fitting admitted break. Forced page breaks skip unused columns; a force on the
+first input does not manufacture a blank page. Outputs retain input-line order,
+zero-based page/column identity and column-local Y. Empty input returns zero pages.
+Non-fitting indivisible content reports Unsupported without clipping a line or
+silently relaxing a constraint. Invalid flags, metrics, overflow, capacity and
+aliasing fail before publication, including when failure follows an earlier fit.
+All outputs and caller tails remain untouched on failure.
+
+Cost is O(N + F log N) time and O(N) temporary storage for N lines and F fragments.
+Binary search avoids quadratic rescans of long kept ranges. Prefixes, predecessor
+indices and boundary choices have ordered dependencies; independent metric pairs
+reuse the existing NEON/SSE2 validator. This is CPU-owned text metadata, not a
+rejected compute workload or a new CPU pixel fallback. No speed claim is made.
+
+This utility is **not paginated-viewer activation**. The next required consumer
+must share source page/column-width policy, resolve keep/widow/orphan constraints
+(including fragment-relative constraints, not just static paragraph-edge flags),
+produce page visuals and fragmented block decorations, and expose original
+document positions through page-local ITextView. Column balancing, changing-width
+fragmentainers and impossible-fit relaxation are not implemented by this fitter.
+Do not silently replace the MVP page viewer with a scroll view or remove its list.
+
+Source inspection also corrects the symbol-font blocker classification: ProGPU's
+managed SfntFontFace and native sfnt_font_view already implement Microsoft symbol
+cmaps, and this Mac has Wingdings installed. That is not execution evidence, nor
+portable font availability on Linux. Preserve the actual-face check and qualify
+the source marker through the retained paragraph pipeline; do not duplicate cmap
+support or substitute arbitrary ordinary-font characters.
+
+The design rechecked the primary [CSS fragmentation model](https://www.w3.org/TR/css-break-3/)
+for admitted/forced boundaries and separation of box fragmentation, and WPF's
+[ColumnWidth contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.documents.flowdocument.columnwidth)
+for source-owned width policy. It adopts separation of shaping/layout/drawing from
+[Skia](https://docs.skia.org/docs/dev/design/text_shaper/),
+[Parley](https://docs.rs/parley/latest/parley/),
+[HarfBuzz](https://harfbuzz.github.io/shaping-concepts.html) and
+[Win2D](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm),
+and retained-scene reuse from [WebRender](https://doc.servo.org/webrender/) and
+[Vello](https://docs.rs/vello/latest/vello/). No implementation text was imported.
+Startup/font discovery, fallback/variable fonts, atlas keys/eviction, demand upload,
+workers, DPI/hinting and device-loss ownership are unchanged: fragmentation only
+remaps already-formatted line placement. Balancing or a second shaper is rejected
+as an implicit responsibility of this bounded fitter.
+
+Authored fixtures cover sequential/forced page and column breaks, kept ranges,
+replacement leading space, exact fits, empty input, ABI fields, capacity/aliasing,
+failure atomicity and a scalar per-line placement oracle. Native fixture compilation
+succeeds under strict AppleClang C++20; the managed fixture graph builds with
+0 warnings/errors and the LibreWPF adapter fixture graph with 116 warnings/0
+errors. Fixtures are not executed. Full native
+libraries/packages, actual paginated viewer, platform/VM output and CI remain open.
+
 ## Source formatter checkpoint — not viewer activation
 
 LibreWPF now has `PortableDocumentParagraphSource`, `PortableFlowDocumentLayout`

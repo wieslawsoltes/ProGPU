@@ -58,6 +58,55 @@ typedef struct progpu_native_document_flow_result {
     double height;
 } progpu_native_document_flow_result;
 
+/* Source-resolved break opportunities over already formatted lines. Boolean
+ * fields are 0/1; forced page and column breaks are mutually exclusive and
+ * override allow_break_before. First-line force flags do not create blank pages.
+ * space_before applies inside a fragment; leading_space replaces it at the
+ * start of each fragment, including the first. All distances are finite,
+ * nonnegative DIPs; height is positive. Source policy resolves keep/widow/orphan
+ * constraints into opportunities; this layer never guesses them from glyphs. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeDocumentFragmentLine */
+typedef struct progpu_native_document_fragment_line {
+    uint32_t allow_break_before;
+    uint32_t force_column_before;
+    uint32_t force_page_before;
+    uint32_t reserved;
+    double height;
+    double space_before;
+    double leading_space;
+} progpu_native_document_fragment_line;
+
+/* Zero-based page/column; Y is relative to the column content origin. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeDocumentFragmentPosition */
+typedef struct progpu_native_document_fragment_position {
+    uint32_t page;
+    uint32_t column;
+    double y;
+} progpu_native_document_fragment_position;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeDocumentPaginationResult */
+typedef struct progpu_native_document_pagination_result {
+    uint32_t struct_size;
+    uint32_t line_count;
+    uint32_t fragment_count;
+    uint32_t page_count;
+} progpu_native_document_pagination_result;
+
+/* Uniform-height, sequential columns. Takes the furthest fitting legal break
+ * before the next forced boundary. Forced page breaks skip remaining columns.
+ * A non-fitting indivisible range returns UNSUPPORTED: no line clipping,
+ * emergency break or constraint relaxation is implicit. Empty input has zero
+ * pages/fragments. Column count is 1..1024; content height is finite positive.
+ * Same span/alias/budget/failure-publication rules as arrangement below.
+ * Does not resolve widths, balance columns, split box decorations, shape text,
+ * or retain document/font objects. Source consumers must implement those policies
+ * explicitly before claiming a complete paginated document viewer. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_document_paginate(
+    const progpu_native_document_fragment_line* lines, uint32_t line_count,
+    double content_height, uint32_t column_count,
+    progpu_native_document_fragment_position* positions, uint32_t position_capacity,
+    progpu_native_document_pagination_result* result);
+
 /* Synchronous borrowed spans; no pointers retained and no device required.
  * Arrays are aligned, disjoint and bounded to 1,048,576 elements, depth <= 128.
  * All outputs remain untouched on failure. One box per input node is published

@@ -25,9 +25,77 @@ block leaf(std::uint32_t parent, std::uint32_t end, std::uint32_t start,
     return b;
 }
 result fresh() { result r{}; r.struct_size = sizeof(r); return r; }
+
+void pagination_tests() {
+    using item = progpu_native_document_fragment_line;
+    using placed = progpu_native_document_fragment_position;
+    using summary = progpu_native_document_pagination_result;
+    static_assert(sizeof(item) == 40U && offsetof(item, height) == 16U && offsetof(item, leading_space) == 32U);
+    static_assert(sizeof(placed) == 16U && offsetof(placed, y) == 8U && sizeof(summary) == 16U);
+    summary report{sizeof(summary), 91U, 92U, 93U};
+    require(progpu_native_document_paginate(nullptr, 0U, 40.0, 2U, nullptr, 0U, &report) == success);
+    require(report.page_count == 0U && report.fragment_count == 0U && report.line_count == 0U);
+    std::array<item, 6> input{};
+    for (auto& l : input) l = {1U, 0U, 0U, 0U, 12.0, 2.0, 3.0};
+    std::array<placed, 7> output{};
+    output.back() = {77U, 78U, 79.0};
+    require(progpu_native_document_paginate(input.data(), 6U, 31.0, 2U, output.data(), 7U, &report) == success);
+    require(report.page_count == 2U && report.fragment_count == 3U && report.line_count == 6U);
+    for (std::uint32_t i = 0U; i < 6U; ++i)
+        require(output[i].page == i / 4U && output[i].column == (i / 2U) % 2U && output[i].y == 3.0 + 14.0 * (i % 2U));
+    require(output.back().page == 77U && output.back().y == 79.0);
+    // Forced page skips unused columns; forced column does not advance page.
+    input[1].force_page_before = 1U;
+    input[2].force_column_before = 1U;
+    require(progpu_native_document_paginate(input.data(), 6U, 100.0, 3U, output.data(), 6U, &report) == success);
+    require(output[0].page == 0U && output[1].page == 1U && output[1].column == 0U);
+    require(output[2].page == 1U && output[2].column == 1U && output[2].y == 3.0);
+    require(report.fragment_count == 3U && report.page_count == 2U);
+    input[0].force_page_before = 1U;
+    require(progpu_native_document_paginate(input.data(), 6U, 100.0, 3U, output.data(), 6U, &report) == success);
+    require(output[0].page == 0U); // No manufactured leading blank page.
+
+    // A kept three-line range moves together when possible, never clips or
+    // silently relaxes its source-admitted boundaries when it cannot fit.
+    for (auto& l : input) l = {0U, 0U, 0U, 0U, 10.0, 0.0, 0.0};
+    input[1].allow_break_before = 1U; input[4].allow_break_before = 1U;
+    require(progpu_native_document_paginate(input.data(), 6U, 30.0, 1U, output.data(), 6U, &report) == success);
+    require(output[0].page == 0U && output[1].page == 1U && output[3].page == 1U && output[4].page == 2U);
+    output[0] = {88U, 89U, 90.0}; report.page_count = 94U;
+    require(progpu_native_document_paginate(input.data(), 6U, 20.0, 1U, output.data(), 6U, &report) == PROGPU_NATIVE_STATUS_UNSUPPORTED);
+    require(output[0].page == 88U && output[0].y == 90.0 && report.page_count == 94U);
+    input[5].leading_space = std::numeric_limits<double>::quiet_NaN();
+    require(progpu_native_document_paginate(input.data(), 6U, 100.0, 1U, output.data(), 6U, &report) == invalid);
+    require(output[0].page == 88U && report.page_count == 94U);
+    input[5].leading_space = 0.0; input[5].reserved = 1U;
+    require(progpu_native_document_paginate(input.data(), 6U, 100.0, 1U, output.data(), 6U, &report) == invalid);
+    input[5].reserved = 0U;
+    require(progpu_native_document_paginate(input.data(), 6U, 100.0, 1U, output.data(), 5U, &report) == invalid);
+    require(progpu_native_document_paginate(input.data(), 6U, 100.0, 1025U, output.data(), 6U, &report) == invalid);
+    require(progpu_native_document_paginate(input.data(), 6U, 100.0, 1U,
+        reinterpret_cast<placed*>(input.data()), 6U, &report) == invalid);
+
+    // Independent scalar oracle: flat admissible lines fitted one at a time.
+    // Varied heights/gaps cover each prefix/binary-search frontier, exact fits,
+    // column rollover and leading-space replacement without native helpers.
+    for (std::uint32_t seed = 0U; seed < 32U; ++seed) {
+        for (std::uint32_t i = 0U; i < 6U; ++i)
+            input[i] = {1U, 0U, 0U, 0U, 1.0 + (seed + i * 3U) % 7U, static_cast<double>(i % 3U), 1.0};
+        require(progpu_native_document_paginate(input.data(), 6U, 12.0, 2U, output.data(), 6U, &report) == success);
+        double bottom = 0.0; std::uint32_t fragment = 0U;
+        for (std::uint32_t i = 0U; i < 6U; ++i) {
+            double y = i == 0U ? 1.0 : bottom + input[i].space_before;
+            if (y + input[i].height > 12.0) { ++fragment; y = 1.0; }
+            require(output[i].page == fragment / 2U && output[i].column == fragment % 2U && output[i].y == y);
+            bottom = y + input[i].height;
+        }
+        require(report.fragment_count == fragment + 1U && report.page_count == fragment / 2U + 1U);
+    }
+}
 }
 
 int main() {
+    pagination_tests();
     static_assert(sizeof(block) == 80U && offsetof(block, margin_left) == 16U);
     static_assert(offsetof(block, inset_bottom) == 72U);
     static_assert(sizeof(box) == 32U && sizeof(line) == 16U && sizeof(position) == 16U);

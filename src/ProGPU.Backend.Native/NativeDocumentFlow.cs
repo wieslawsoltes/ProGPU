@@ -5,7 +5,8 @@ namespace ProGPU.Backend.Native;
 
 /// <summary>
 /// Device-independent C++ placement of source-owned, already formatted paragraph
-/// lines. This does not shape text, paginate, create a renderer or retain pointers.
+/// lines, including sequential page/column fragmentation at source-admitted breaks.
+/// This does not shape text, create a renderer or retain pointers.
 /// Containers and leaves form a preorder forest; metrics use nonnegative DIPs.
 /// </summary>
 public static unsafe class NativeDocumentFlow
@@ -13,6 +14,34 @@ public static unsafe class NativeDocumentFlow
     public const uint NoParent = uint.MaxValue;
     public const int MaximumItems = 1 << 20;
     public const int MaximumDepth = 128;
+
+    /// <summary>
+    /// Fits lines into uniform content-height columns at source-admitted breaks.
+    /// Source owns column widths, keep/widow/orphan policy, box decorations and
+    /// page visuals. Non-fitting indivisible ranges fail; no clipping or implicit
+    /// constraint relaxation. Empty input yields zero pages. Outputs stay untouched
+    /// on failure and must not overlap inputs. One synchronous native crossing.
+    /// </summary>
+    public static NativeDocumentPaginationResult Paginate(ReadOnlySpan<NativeDocumentFragmentLine> lines,
+        double contentHeight, uint columns, Span<NativeDocumentFragmentPosition> positions,
+        NativeMilBackend backend = NativeMilBackend.WgpuNative)
+    {
+        Validate(lines.Length, contentHeight, positions.Length, backend);
+        if (contentHeight == 0) throw new ArgumentOutOfRangeException(nameof(contentHeight));
+        if (columns is 0 or > 1024) throw new ArgumentOutOfRangeException(nameof(columns));
+        NativeDocumentPaginationResult result = new() { StructSize = (uint)sizeof(NativeDocumentPaginationResult) };
+        NativeRendererStatus status;
+        fixed (NativeDocumentFragmentLine* input = lines)
+        fixed (NativeDocumentFragmentPosition* output = positions)
+            status = backend == NativeMilBackend.Dawn
+                ? NativeDawnDocumentFlowMethods.Paginate(input, (uint)lines.Length, contentHeight, columns,
+                    output, (uint)positions.Length, &result)
+                : NativeDocumentFlowMethods.Paginate(input, (uint)lines.Length, contentHeight, columns,
+                    output, (uint)positions.Length, &result);
+        if (status != NativeRendererStatus.Success)
+            throw new NativeRendererException(status, "Native document pagination failed.");
+        return result;
+    }
 
     /// <summary>
     /// Resolves one content-width constraint per block before paragraph formatting.
@@ -74,6 +103,12 @@ public static unsafe class NativeDocumentFlow
 
 internal static unsafe partial class NativeDocumentFlowMethods
 {
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_paginate")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus Paginate(NativeDocumentFragmentLine* lines, uint count,
+        double height, uint columns, NativeDocumentFragmentPosition* positions, uint capacity,
+        NativeDocumentPaginationResult* result);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_resolve_widths")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus ResolveWidths(NativeDocumentBlock* blocks, uint count,
@@ -88,6 +123,12 @@ internal static unsafe partial class NativeDocumentFlowMethods
 
 internal static unsafe partial class NativeDawnDocumentFlowMethods
 {
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_paginate")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus Paginate(NativeDocumentFragmentLine* lines, uint count,
+        double height, uint columns, NativeDocumentFragmentPosition* positions, uint capacity,
+        NativeDocumentPaginationResult* result);
+
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_resolve_widths")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus ResolveWidths(NativeDocumentBlock* blocks, uint count,

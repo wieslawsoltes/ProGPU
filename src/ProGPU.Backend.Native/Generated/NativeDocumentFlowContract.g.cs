@@ -62,3 +62,35 @@ public partial struct NativeDocumentFlowResult
     public double Width;
     public double Height;
 }
+
+// Native source: progpu_native_document_fragment_line.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeDocumentFragmentLine
+{
+    public uint AllowBreakBefore;
+    public uint ForceColumnBefore;
+    public uint ForcePageBefore;
+    public uint Reserved;
+    public double Height;
+    public double SpaceBefore;
+    public double LeadingSpace;
+}
+
+// Native source: progpu_native_document_fragment_position.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeDocumentFragmentPosition
+{
+    public uint Page;
+    public uint Column;
+    public double Y;
+}
+
+// Native source: progpu_native_document_pagination_result.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeDocumentPaginationResult
+{
+    public uint StructSize;
+    public uint LineCount;
+    public uint FragmentCount;
+    public uint PageCount;
+}

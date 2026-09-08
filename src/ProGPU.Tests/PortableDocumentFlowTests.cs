@@ -6,6 +6,13 @@ namespace ProGPU.Tests;
 public class PortableDocumentFlowTests
 {
     [Fact]
+    public void LegacyDocumentProviderRejectsMissingPaginationExplicitly()
+    {
+        IPortableDocumentFlow provider = new Provider();
+        Assert.Throws<PlatformNotSupportedException>(() => provider.Paginate([], 100, 1, []));
+    }
+
+    [Fact]
     public void DocumentDefaultsRemainLazyAndPreserveExplicitPriority()
     {
         var fallback = new Provider();

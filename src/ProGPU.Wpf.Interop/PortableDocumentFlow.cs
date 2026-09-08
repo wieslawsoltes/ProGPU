@@ -55,10 +55,40 @@ public struct PortableDocumentLinePosition
 public readonly record struct PortableDocumentExtent(double Width, double Height);
 
 /// <summary>
+/// Source-resolved fragmentation policy: 0/1 flags and nonnegative DIPs, with a
+/// positive height. LeadingSpace replaces SpaceBefore at each fragment start.
+/// Forced page/column flags are mutually exclusive and override AllowBreakBefore.
+/// Keep and widow/orphan rules must be reflected in the admitted break boundaries.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct PortableDocumentFragmentLine
+{
+    public uint AllowBreakBefore;
+    public uint ForceColumnBefore;
+    public uint ForcePageBefore;
+    public uint Reserved;
+    public double Height;
+    public double SpaceBefore;
+    public double LeadingSpace;
+}
+
+/// <summary>Zero-based page/column and Y relative to the column content origin.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct PortableDocumentFragmentPosition
+{
+    public uint Page;
+    public uint Column;
+    public double Y;
+}
+
+public readonly record struct PortableDocumentPagination(uint FragmentCount, uint PageCount);
+
+/// <summary>
 /// Device-independent block placement, separate from text shaping and drawing.
 /// The source retains its document, source positions and formatted line objects.
-/// Negative margins, floats, columns, pagination and RTL block ordering are not
-/// part of this contract. Missing or unsupported capability must throw.
+/// Negative margins, floats and RTL block ordering are not part of block placement.
+/// Optional pagination consumes source-admitted boundaries, not a full document
+/// pagination policy. Missing or unsupported capability must throw.
 /// Synchronous borrowed spans, at most 1,048,576 items and 128 nested nodes;
 /// no input or output retained. Disjoint output spans remain untouched on failure.
 /// </summary>
@@ -68,6 +98,15 @@ public interface IPortableDocumentFlow
     PortableDocumentExtent Arrange(ReadOnlySpan<PortableDocumentBlock> blocks, double width,
         ReadOnlySpan<PortableDocumentLine> lines, Span<PortableDocumentBox> boxes,
         Span<PortableDocumentLinePosition> positions);
+
+    /// <summary>
+    /// Optional sequential fragmentation over already formatted lines. Widths,
+    /// source policies and page visuals are separate; a utility result does not
+    /// imply that a paginated viewer is implemented. Impossible legal fits throw.
+    /// </summary>
+    PortableDocumentPagination Paginate(ReadOnlySpan<PortableDocumentFragmentLine> lines,
+        double contentHeight, uint columns, Span<PortableDocumentFragmentPosition> positions)
+        => throw new PlatformNotSupportedException("The document provider does not support pagination.");
 }
 
 public static partial class PortableWpfServiceRegistry

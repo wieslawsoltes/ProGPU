@@ -209,3 +209,73 @@ extern "C" progpu_native_status progpu_native_document_arrange(
     } catch (const std::bad_alloc&) { return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
     catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
 }
+
+extern "C" progpu_native_status progpu_native_document_paginate(
+    const progpu_native_document_fragment_line* lines, std::uint32_t count,
+    double height, std::uint32_t columns,
+    progpu_native_document_fragment_position* positions, std::uint32_t capacity,
+    progpu_native_document_pagination_result* result) {
+    if (!valid_buffer(lines, count) || !valid_buffer(positions, count) || !valid_buffer(result, 1U) ||
+        capacity < count || !std::isfinite(height) || height <= 0.0 || columns == 0U || columns > 1024U ||
+        !disjoint(std::array{bytes(lines, count), bytes(positions, count), bytes(result, 1U)}) ||
+        result->struct_size != sizeof(*result)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    try {
+        // Prefix sums plus predecessor/next-force indices avoid repeatedly
+        // scanning long kept ranges after a rollback. O(N + F log N) time,
+        // O(N) temporary storage; prefixes/break decisions are ordered, not
+        // independent SIMD lanes. Metric validation keeps the shared SIMD path.
+        std::vector<double> prefix(static_cast<std::size_t>(count) + 1U);
+        std::vector<std::uint32_t> previous(static_cast<std::size_t>(count) + 1U);
+        std::vector<std::uint32_t> forced(static_cast<std::size_t>(count) + 1U, count);
+        std::vector<progpu_native_document_fragment_position> placed(count);
+        for (std::uint32_t i = 0U; i < count; ++i) {
+            const auto& l = lines[i];
+            if (l.allow_break_before > 1U || l.force_column_before > 1U || l.force_page_before > 1U ||
+                l.force_column_before + l.force_page_before > 1U || l.reserved != 0U ||
+                !finite_nonnegative_pair(l.height, l.space_before) || l.height == 0.0 ||
+                !finite_nonnegative_pair(l.leading_space, 0.0)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            const double top = prefix[i] + l.space_before;
+            prefix[i + 1U] = top + l.height;
+            if (!std::isfinite(prefix[i + 1U]) || prefix[i + 1U] <= top)
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            previous[i] = (l.allow_break_before != 0U || l.force_column_before != 0U || l.force_page_before != 0U)
+                ? i : (i == 0U ? 0U : previous[i - 1U]);
+        }
+        previous[count] = count;
+        for (std::uint32_t i = count; i-- > 0U;)
+            forced[i] = lines[i].force_column_before != 0U || lines[i].force_page_before != 0U ? i : forced[i + 1U];
+        std::uint32_t start = 0U, page = 0U, column = 0U, fragments = 0U;
+        while (start < count) {
+            // Compare local differences rather than adding height to a possibly
+            // large prefix. Leading space is explicit source fragmentation policy.
+            const auto fits = [&](std::uint32_t end) noexcept {
+                return prefix[end] - prefix[start] - lines[start].space_before <= height - lines[start].leading_space;
+            };
+            const std::uint32_t stop = forced[start + 1U];
+            std::uint32_t low = start, high = stop;
+            while (low < high) {
+                const std::uint32_t middle = low + (high - low + 1U) / 2U;
+                if (fits(middle)) low = middle; else high = middle - 1U;
+            }
+            const std::uint32_t end = previous[low];
+            if (end <= start) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+            for (std::uint32_t i = start; i < end; ++i) {
+                const double y = lines[start].leading_space + (prefix[i] - prefix[start]) +
+                    (lines[i].space_before - lines[start].space_before);
+                if (!std::isfinite(y) || y < 0.0 || y + lines[i].height > height)
+                    return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+                placed[i] = {page, column, y};
+            }
+            ++fragments;
+            start = end;
+            if (start < count) {
+                if (lines[start].force_page_before != 0U || column + 1U == columns) { ++page; column = 0U; }
+                else ++column;
+            }
+        }
+        if (!placed.empty()) std::copy(placed.begin(), placed.end(), positions);
+        *result = {static_cast<std::uint32_t>(sizeof(*result)), count, fragments, count == 0U ? 0U : page + 1U};
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) { return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
+    catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
+}

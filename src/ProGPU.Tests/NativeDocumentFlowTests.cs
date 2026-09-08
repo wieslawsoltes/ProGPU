@@ -43,6 +43,20 @@ public class NativeDocumentFlowTests
     [Fact]
     public void GeneratedDoublePrecisionLayoutsMatchCAbi()
     {
+        Assert.Equal(40, Unsafe.SizeOf<NativeDocumentFragmentLine>());
+        Assert.Equal(40, Unsafe.SizeOf<PortableDocumentFragmentLine>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeDocumentFragmentPosition>());
+        Assert.Equal(16, Unsafe.SizeOf<PortableDocumentFragmentPosition>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeDocumentPaginationResult>());
+        Span<PortableDocumentFragmentLine> fragment = [new() { AllowBreakBefore = 1, ForceColumnBefore = 2,
+            ForcePageBefore = 3, Reserved = 4, Height = 5.25, SpaceBefore = 6.25, LeadingSpace = 7.25 }];
+        var native = MemoryMarshal.Cast<PortableDocumentFragmentLine, NativeDocumentFragmentLine>(fragment)[0];
+        Assert.Equal(1U, native.AllowBreakBefore); Assert.Equal(2U, native.ForceColumnBefore);
+        Assert.Equal(3U, native.ForcePageBefore); Assert.Equal(4U, native.Reserved);
+        Assert.Equal(5.25, native.Height); Assert.Equal(6.25, native.SpaceBefore); Assert.Equal(7.25, native.LeadingSpace);
+        Span<PortableDocumentFragmentPosition> placed = [new() { Page = 8, Column = 9, Y = 10.25 }];
+        var position = MemoryMarshal.Cast<PortableDocumentFragmentPosition, NativeDocumentFragmentPosition>(placed)[0];
+        Assert.Equal(8U, position.Page); Assert.Equal(9U, position.Column); Assert.Equal(10.25, position.Y);
         Assert.Equal(80, Unsafe.SizeOf<NativeDocumentBlock>());
         Assert.Equal(16, Marshal.OffsetOf<NativeDocumentBlock>(nameof(NativeDocumentBlock.MarginLeft)).ToInt32());
         Assert.Equal(72, Marshal.OffsetOf<NativeDocumentBlock>(nameof(NativeDocumentBlock.InsetBottom)).ToInt32());
@@ -67,6 +81,12 @@ public class NativeDocumentFlowTests
     [Fact]
     public void BadCapacitiesAndBackendFailBeforeLoadingNativeCode()
     {
+        Assert.Throws<ArgumentException>(() => NativeDocumentFlow.Paginate([new()], 100, 1, []));
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.Paginate([], 0, 1, []));
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.Paginate([], double.NaN, 1, []));
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.Paginate([], 100, 0, []));
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.Paginate([], 100, 1025, []));
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.Paginate([], 100, 1, [], (NativeMilBackend)99));
         Assert.Throws<ArgumentException>(() => NativeDocumentFlow.ResolveWidths([new()], 100, []));
         Assert.Throws<ArgumentException>(() => NativeDocumentFlow.Arrange([new()], 100, [], [], []));
         Assert.Throws<ArgumentException>(() => NativeDocumentFlow.Arrange([], 100, [new()], [], []));
