@@ -257,6 +257,13 @@ Source run metrics and drawing brushes remain source-owned. Explicit faces are
 not a completed composite-font/fallback policy, and compiled styled fixtures are
 not application qualification. Single-face styled paragraphs reuse leased plans;
 multi-face contexts are isolated until a bounded palette cache is implemented.
+LibreWPF source composite/fallback linking now feeds explicit physical style ranges
+through `GlyphingCache.GetPortableFontRuns`. WPF owns its family map/culture/cache
+policy and source line metrics; ProGPU owns the shared native shaping/paragraph.
+Keep mapped font scale in the actual em size, not just the paint or family label.
+Do not import the WPF family-linking implementation into ProGPU or reconstruct it
+through reflection. Null-shape, device-font and synthetic-style cases are not
+qualified by resolving an ordinary physical face.
 Source custom chrome must recognize ProGPU window ownership before HWND access,
 including registered/pre-source activation. A host HWND is not a WPF HwndSource;
 portable border updates and restoration stay on typed source/host contracts.

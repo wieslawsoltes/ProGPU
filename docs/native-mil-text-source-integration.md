@@ -20,6 +20,60 @@ source-run styling and actual end-of-paragraph semantics.
 
 ## Styled source TextLine connection — current implementation
 
+### Source composite and fallback connection
+
+The core source-host text case now selects WPF's `#GLOBAL USER INTERFACE` composite
+family. The source adapter no longer requires the requested Typeface itself to
+be a physical GlyphTypeface. `GlyphingCache.GetPortableFontRuns` exposes existing
+source `TypefaceMap` family linking without the DirectWrite text itemizer or a
+LineServices object. It reuses the formatter-owned bounded typeface cache and its
+physical/scaled run identities, preserving composite family ranges, culture-based
+family selection, configured fallback families, coverage and combining/joiner rules.
+The existing source mapping algorithm is reused, not rewritten or copied into ProGPU.
+
+Mapped ranges split source styles before the existing native paragraph call.
+Their exact face bytes/index and `requested em size * mapped scale` reach ProGPU;
+the actual WPF GlyphRun uses that same em size. Source Typeface baseline/line
+spacing remains based on the requested em size, matching the existing source
+TextShapeableCharacters distinction between line metrics and scaled glyph size.
+An empty paragraph resolves a default face through a source space probe without
+adding that space to its input or glyph output. No new glyph parser, shaper,
+renderer or GPU fallback is involved.
+
+Digit substitution is still checked before this mapping-only seam. Unresolved
+null-shape contracts, device fonts and synthetic style simulations fail explicitly;
+they are not silently treated as an ordinary face. Normal missing glyphs for a
+resolved physical face retain native shaping behavior. This is a source fallback
+connection, not a claim that arbitrary installed/composite fonts, emoji/variation
+sequences or text-service behavior are runtime-qualified. Mixed languages, tabs,
+document objects and the remaining editor gaps below remain open.
+
+Authored source fixtures cover an actual bundled Latin-to-symbol fallback chain,
+repeated cached face identity, culture-selected composite scale, surrogate-boundary
+coverage and scaled wrapped GlyphRuns through the typed paragraph provider. The
+source-host composite-family case retains its styled bidi text, image/geometry
+and device-recovery assertions. Test/application execution remains deferred.
+Compilation checkpoint: source PresentationCore fixtures finish with four warnings
+and zero errors; the source-host harness with one warning and zero errors; bridge
+fixtures with 115 warnings and zero errors. These are compile-only results.
+No fixture, source verifier, app/VM/GPU workload, benchmark or CI qualification
+was executed. The ProGPU native algorithms and generated ABI are unchanged in
+this source-connection batch; latest fetched ProGPU main is already included.
+
+The focused primary-source refresh is
+[DirectWrite font mapping](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_2/nf-dwrite_2-idwritefontfallback-mapcharacters),
+which reports a physical face, mapped length and em-scale, and
+[Parley's font context](https://docs.rs/parley/latest/parley/struct.FontContext.html),
+which separates reusable font discovery/cache state from layout. Adopt those
+ownership distinctions through the existing WPF font cache, not Windows activation
+or a new per-line font-discovery pass. The wider Skia/Win2D/WebRender/Vello/HarfBuzz
+comparisons below remain unchanged. No foreign implementation code was imported.
+The added traversal is dependency-bound range/cache metadata; existing native
+SIMD shaping/layout and GPU rendering remain authoritative. Allocation, fallback
+fidelity, startup and edit/scroll throughput still require final measurement.
+
+### Styled physical-face connection
+
 Core action: changing inline font size/face/foreground/background in the existing
 MVP editor or source-host FormattedText. The previous source adapter rejected
 these paragraphs as mixed typography. Explicit physical-font styles now reach
@@ -53,8 +107,8 @@ temporary vertical stride; WPF consumes line-relative glyph positions and native
 horizontal hit/selection extents, applying its own line height to selection and
 cached brush backgrounds. No full native variable-line-height contract is claimed.
 
-Still open for the core editor: source composite/fallback-font resolution, mixed
-languages/localization, tabs, document objects/modifiers/hidden runs, decorations,
+Still open for the core editor: mixed languages/localization, tabs,
+document objects/modifiers/hidden runs, decorations,
 baseline changes, trimming and the remaining gaps listed in the initial checkpoint
 below. Boolean typography is transported; variations and synthetic font styles
 are not newly implemented. This removes the explicit mixed physical-face/size/
@@ -260,5 +314,5 @@ application images/caret/selection checks, performance and CI await feature free
 
 Still required: finish the source connection's explicitly listed application
 dependencies above and qualify them against native Windows. The ownership and
-single-domain adapter changes do not close the application feature or Windows SDK
+styled/source-font adapter changes do not close the application feature or Windows SDK
 admission. Managed portable rendering retains its independently selected mode.
