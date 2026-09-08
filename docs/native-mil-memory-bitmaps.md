@@ -51,6 +51,26 @@ using its pointer and must not write after unlocking or freezing it.
 
 ## Evidence and final qualification
 
+### Decoder-backed package resources
+
+The existing LibreWPF SDK gate uses `Assets/ExternalImage.png` as a XAML Image,
+ImageBrush and pack-URI BitmapImage. Its source decoder dispatch now follows the
+same frozen storage policy, including format-specific stream/URI constructors.
+Unknown portable input fails before WIC creation instead of silently selecting
+Windows decoding. BitmapImage adopts cached and freshly decoded owned pixels on
+every OS and rejects missing portable pixels before a WIC handle read. Native
+Windows-MIL mode retains native decoding. The actual Windows HTTP cache-policy
+service remains guarded by OS, independently of image storage selection.
+
+This connects existing codecs and URI acquisition; it does not rewrite decoding,
+add CPU rendering, alter native texture ingestion or qualify existing codec SIMD.
+The existing native host draws the SDK PNG after OnLoad stream disposal. Added
+source fixtures cover generic/specific PNG decoder storage, cached URI adoption
+and unsupported portable input. Pack-resource, HTTP/async, color-profile, decoded
+transform and complete codec results still require final application qualification.
+
+### Authored coverage, not execution
+
 Authored source fixtures cover the selected storage family, independent memory
 sources/copy constructors/Clone/CloneCurrentValue, DPI, nested locks, dirty-event
 coalescing, pointer stability across collection and relocking, and freeze/write

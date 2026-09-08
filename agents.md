@@ -230,6 +230,8 @@ Owner-DPI notifications may update legacy coordinate decoding, not a separately
 surfaced popup's raster DPI. Only its own host geometry callbacks replace that
 initial source seed; composited owner-surface popups continue inheriting owner DPI.
 Source memory bitmaps select storage by the frozen media backend, not the OS.
+Source decoder/cache integration follows that same policy; unsupported portable
+formats or missing pixel ownership must fail before Windows WIC handle access.
 Both renderer modes consume typed pixel snapshots and native MIL sidebands with
 their format/stride/DPI preserved; never pass Windows double-buffer pointers as
 ProGPU resources. Source-owned locked pointers must have GC-owned or explicit
