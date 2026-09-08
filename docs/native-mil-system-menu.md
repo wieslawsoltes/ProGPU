@@ -10,10 +10,10 @@ and absolute native desktop coordinates. The host resolves its real native windo
 Absent/rejected capability fails explicitly. Old callback constructors remain
 binary-compatible; replacing registration clears an omitted capability.
 
-The shared provider implements Win32 tracking and X11 window-manager requests.
-Cocoa and Wayland providers remain missing; an active portable window no longer reports their
-previous source no-op as menu display. Windows SDK package admission remains
-guarded. This is not general menu, COM or Direct2D expansion.
+The shared provider implements Win32 tracking, X11 window-manager requests and
+a Cocoa AppKit native-action menu. Wayland remains missing; unsupported platform
+capabilities are not successful source no-ops. Windows SDK package admission
+remains guarded. This is not general menu, COM or Direct2D expansion.
 
 ## Shared native ownership
 
@@ -99,6 +99,79 @@ renderer, font context, retained scene or per-frame work. SIMD/GPU compute polic
 is inapplicable to this event-driven control flow. Both managed and C++ MIL
 renderers use the same window adapter; no paired rendering algorithm is changed.
 
+## Cocoa native-action menu
+
+The same MVP action now resolves the real NSWindow through the typed Silk.NET
+host and uses ProGPU's shared provider. The platform menu has **Minimize, Zoom
+and Close**, implemented by AppKit, not by a WPF visual tree or a renderer-specific
+menu implementation. Zoom is AppKit's standard/user-size toggle, not Windows
+maximize/fullscreen. This is a native macOS adaptation, **not** arbitrary Win32
+system-menu customization, Windows Move/Size keyboard modal loops or exact Windows
+menu-item parity. The current labels are English, matching the acceptance MVP;
+localized/custom menu labels are not claimed by this fixed native-action surface.
+
+Admission requires the actual AppKit main thread, supported 64-bit macOS ABI,
+loaded AppKit classes and a visible window in NSApplication.windows. Identity
+lookup happens before messaging a supplied window pointer. Calls do not marshal
+synchronously from a worker thread or create a new native window. The source
+Window's pre-host/disposed guards remain independent. Window style and actual
+standard-button enabled state define the available actions. A window with no
+available actions fails explicitly rather than displaying an empty capability.
+
+Retain the window, its content view and its delegate only for this synchronous
+operation. A private NSMenu owns three ordinary NSMenuItems and a scoped target.
+Manual item enablement uses the opening capability snapshot. The callback records
+only the identity of a known selected item for its own target, once: it performs
+no P/Invoke, allocation, WPF call or user callback inside the reverse native action.
+Thread-local stack context is restored after nested/reentrant tracking. No GCHandle,
+dynamic managed delegate, source-window handle or object-shape reflection is used.
+
+After tracking ends, selection is dispatched only if the original window is still
+visible and registered, its retained view/delegate identities still match and its
+selected native action remains enabled. A callback that closes/rehosts the owner
+or disables its button cannot cause a stale action. Opening-disabled and unknown
+selections are also rejected. Invoke performMiniaturize:, performZoom: or
+performClose: exactly once on that owner. In particular, never call close directly:
+performClose preserves AppKit's windowShouldClose: delegate and the existing
+GLFW/host/source Closing cancellation path. Dispatch success does not assert that
+a delegate accepted the close or that the requested size/state was ultimately applied.
+
+Menu item targets are cleared before menu/target release. Owner leases and an
+explicit autorelease pool are released on success, cancellation and managed failure.
+Unrelated errors propagate; no generic native-recovery loop is introduced. Only a
+private, process-lifetime Objective-C action class is registered, without swizzling
+NSWindow/NSObject or adopting another module's class. A collectible provider is
+rejected via an anchor Type.IsCollectible lifetime check because a registered native
+method must never outlive its managed callback code. This bounded loader-capability
+check is not runtime discovery of application objects. Class-name collision fails
+closed rather than reusing an unknown callback.
+
+Placement maps ProGPU's top-left native desktop convention to AppKit screen points
+using the current NSScreen.screens first entry, **not** mainScreen (which follows
+keyboard focus). Read it on each invocation so display reconfiguration is observed.
+Then use NSWindow.convertPointFromScreen: and NSView.convertPoint:fromView: to let
+AppKit handle view origins/flipping and attach the popup to the real content view.
+Do not pass backing pixels or multiply monitor origins by a Retina scale. CGRect
+returns use objc_msgSend_stret on x64 and ordinary objc_msgSend on arm64; CGPoint
+arguments/returns use the native two-double ABI. Finite screen/point checks precede
+tracking. Exact host-to-AppKit anchor placement still needs final mixed-monitor
+qualification, including primary-screen changes and one-pixel boundary cases.
+
+AppKit's popup result distinguishes selection from cancellation, not cancellation
+from every possible display failure. An invoked popup with no selected action
+returns without dispatch; successful tracking cannot replace observed-menu evidence.
+This event-driven provider creates no WebGPU context, scene or per-frame work and
+is shared by managed and C++ MIL. Its own selection/coordinate work is O(1);
+AppKit application-window identity lookup is O(W) for W windows, and its screen
+snapshot depends on S displays. Native menu storage has three items, plus scoped
+window/view/delegate references and AppKit's snapshots. No compute-heavy CPU
+fallback is added, and no speed claim is made.
+
+Original ProGPU implementation provenance: reuse the existing
+MacOsNativeWindowPlatform's native handle and documented arm64/x64 struct-return
+strategy; derive the new menu/ownership policy from Apple API contracts. No Apple,
+GLFW, GTK, KDE or other third-party implementation text was copied or translated.
+
 ## Contract references
 
 - [GetSystemMenu](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getsystemmenu): obtain the existing window menu without resetting it; retain native initialization and custom items.
@@ -109,6 +182,12 @@ renderers use the same window adapter; no paired rendering algorithm is changed.
 - [ICCCM WM_STATE](https://xorg.freedesktop.org/archive/current/doc/xorg-docs/icccm/icccm.html): managed-client state and property format; reject withdrawn/missing state rather than guessing a parent.
 - [Xlib contracts](https://xorg.freedesktop.org/archive/current/doc/libX11/libX11/libX11.html): root geometry, display identity, native-long property/event storage, SendEvent and allocation ownership.
 - [XIQueryVersion](https://xorg.freedesktop.org/archive/X11R7.5/doc/man/man3/XIQueryVersion.3.html) and [XIGetClientPointer](https://xorg.freedesktop.org/archive/X11R7.5/doc/man/man3/XIGetClientPointer.3.html): isolated version negotiation and actual owner-client pointer selection; do not alter the host's input connection.
+- [AppKit menu tracking](https://developer.apple.com/documentation/appkit/nsmenu/popup(positioning:at:in:)): synchronous selection/cancellation and positioning in the supplied view.
+- [Native close action](https://developer.apple.com/documentation/appkit/nswindow/performclose(_:)) and [native zoom action](https://developer.apple.com/documentation/appkit/nswindow/performzoom(_:)): button-equivalent behavior and delegate cancellation, not direct close or a fabricated Windows maximize operation.
+- [Menu enablement](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/MenuList/Articles/EnablingMenuItems.html): explicit manual enablement; this provider also checks current owner/button state after tracking.
+- [AppKit window inventory](https://developer.apple.com/documentation/appkit/nsapplication/windows) and [primary screen identity](https://developer.apple.com/documentation/appkit/nsscreen/screens): live application ownership and primary-versus-focus-screen distinction.
+- [GLFW coordinates](https://www.glfw.org/docs/latest/intro.html#coordinate_systems), [AppKit screen conversion](https://developer.apple.com/documentation/appkit/nswindow/convertpoint(fromscreen:)) and [view conversion](https://developer.apple.com/documentation/appkit/nsview/convert(_:from:)-1dq9l): top-left desktop points, native screen/window/view mapping and backing-pixel separation.
+- [Objective-C runtime public contracts](https://developer.apple.com/documentation/objectivec/objective-c-runtime): an original private action target class and typed ABI binding; no foreign class swizzling.
 
 ## Qualification pending
 
@@ -125,7 +204,7 @@ open the actual MVP menu with each renderer, cancel by Escape/outside click,
 select native state/move/size/close commands, exercise Closing cancellation,
 and repeat after moving between monitors/scales. Check images and source/native
 state; the API result or a mock fixture alone does not prove menu display. Keep
-macOS/Wayland missing-provider behavior and unsupported X11 environments explicit.
+Wayland missing-provider behavior and unsupported X11/Cocoa environments explicit.
 Package and exact-head CI gates are unchanged.
 
 X11 policy fixtures cover owner/display rejection, actual root routing, signed
@@ -145,6 +224,25 @@ Include a nondefault X screen where available and an unsupported WM/missing-XInp
 case; rejection is an explicit unsupported result, never a passed menu-display
 gate. Native Wayland is a separate missing provider, not covered by XWayland.
 
+Cocoa policy fixtures cover action ordering, one dispatch after revalidation,
+retained lease release, cancellation, absent owner/screen/actions, closed/rehosted
+owners, capability removal, unknown/disabled selection, propagated host errors,
+primary-screen point mapping and native record sizes. The callback fixture rejects
+foreign/nested target identities, unknown items and repeated selection. These are
+authored fixtures, not executed AppKit or image evidence. A source-linked scoped
+context fixture also covers nested tracking interrupted by an exception, restoration
+of the outer selection target, and late actions after scope exit.
+
+Final macOS qualification must invoke the actual MVP action with both renderers,
+observe the native menu and each available action, cancel by Escape/outside click,
+exercise source Closing cancellation and repeat close/reopen. Include style/button
+restrictions, menu-triggered nested callbacks and owner closure/view/delegate
+replacement during tracking. Observe mixed-Retina/non-Retina monitors above/left
+of primary, primary-screen changes, placement at screen edges, keyboard/mouse input
+after dismissal, and repeated-operation native/managed lifetime. Exercise arm64
+and x64 native bindings where available. API results, compilation and policy mocks
+alone do not pass this gate or enable Windows SDK package admission.
+
 Earlier Win32 implementation-phase compilation: ProGPU.Tests builds with 0 warnings/0 errors;
 LibreWPF bridge fixtures with 116 warnings/0 errors; source PresentationFramework
 fixtures with 6 warnings/0 errors. These are compilation results only. The initial
@@ -159,3 +257,11 @@ the shared backend, production host adapter and authored fixtures but do not run
 them or qualify Linux native linkage/menu output. Latest fetched ProGPU main is
 included. Runtime, VM/GPU, benchmark, source-verifier and CI execution remains
 deferred to the core feature freeze; automatic CI has not been disabled.
+
+Cocoa implementation-phase compilation: final ProGPU.Tests 0 warnings/0 errors,
+LibreWPF bridge fixtures 21/0 (116/0 on the initial dependency rebuild), and the
+source-built application harness 0/0 (4/0 initially). The final graph includes the
+scoped nested-selection fixture and native view-coordinate binding. No fixture,
+verifier, native menu, application/VM/GPU workload, benchmark or CI qualification
+was executed. Latest fetched ProGPU main is included. These results do not prove
+AppKit runtime linkage, callback ordering, native output or application parity.

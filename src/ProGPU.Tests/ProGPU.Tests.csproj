@@ -32,6 +32,8 @@
              Link="Backend\Win32SystemMenu.cs" />
     <Compile Include="..\ProGPU.Backend\X11SystemMenu.cs"
              Link="Backend\X11SystemMenu.cs" />
+    <Compile Include="..\ProGPU.Backend\CocoaSystemMenu.cs"
+             Link="Backend\CocoaSystemMenu.cs" />
     <Compile Include="..\ProGPU.Android\AndroidStorageNamePolicy.cs"
              Link="Android\AndroidStorageNamePolicy.cs" />
     <Compile Include="..\ProGPU.Android\AndroidScrollDeltaPolicy.cs"

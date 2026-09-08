@@ -55,7 +55,7 @@ public sealed class NativeWindowSystemMenuTests
         Assert.False(Win32SystemMenu.Show(0, default, ref api));
         Assert.Empty(api.Calls);
         Assert.False(NativeWindowSystemMenu.TryShow(NativeWindowHandle.Empty, default));
-        Assert.False(NativeWindowSystemMenu.TryShow(new(NativeWindowKind.Cocoa, 11, 0, "test"), default));
+        Assert.False(NativeWindowSystemMenu.TryShow(new(NativeWindowKind.Wayland, 11, 0, "test"), default));
     }
 
     [Fact]
