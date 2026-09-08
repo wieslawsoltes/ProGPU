@@ -190,3 +190,30 @@ save/reopen/resave, MTEXT column, and 2880x1800 resize assertions. The preflight
 records 4,096 direct red pixels and all 16,384 physical screenshot pixels at
 device scale 2. Linux uses RGBA8; macOS uses BGRA8. These are measured workflow
 passes on the same final AOT app, not a claim of x64 CI completion or performance.
+
+## Subsequent x64 CI screenshot stall
+
+Run `34200318584` on `ebf4f0ee` passes CAD tests, AOT/native linking, and the
+independent presentation preflight (4,096 direct / 16,384 page red pixels), then
+times out at the first CAD page screenshot after 30 seconds. No browser console
+error is recorded. The actual command line selects full Playwright Chromium
+revision 1234 (151.0.7922.34), SwiftShader, enabled Vulkan surfaces, and
+`CDPScreenshotNewSurface`. This is not evidence that the earlier blank-surface
+configuration is still selected, nor that the full CAD canvas is correct.
+
+The failure-state diagnostic previously combined DOM reads with
+`canvas.toDataURL`. A stalled GPU readback could therefore discard useful DOM
+state and did not prove the page's ordinary JavaScript was unresponsive. Capture
+DOM state before the first screenshot, record `Browser.getVersion`, and persist
+failure DOM state separately before attempting bounded canvas readback and page
+capture. Preserve the original smoke failure in every case. The rendering pixel
+assertions, browser selection, GPU flags, and screenshot timeout are unchanged.
+This improves diagnosis; it does not resolve or waive the x64 screenshot gate.
+
+The updated diagnostics pass syntax checking and the complete local Chromium
+SwiftShader smoke against the unchanged final AOT application: 84 frames /
+106 dispatches, 16 saved/reopened entity types, and a 2880x1800 framebuffer.
+`pre-screenshot-state.json` and the browser version are present. The initial
+state has six frames / 17 dispatches while the title still says the viewer is
+starting; the title alone is not an application-ready contract. No performance
+claim or screenshot-threshold change is made.

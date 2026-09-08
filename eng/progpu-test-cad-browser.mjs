@@ -40,6 +40,32 @@ let browser;
 let page;
 const errors = [];
 const browserLog = [];
+function captureHostState() {
+  // DOM-only: canvas readback can block even while these diagnostics work.
+  return page.evaluate(() => {
+    const canvas = document.querySelector('#progpu-canvas');
+    return {
+      userAgent: navigator.userAgent,
+      title: document.querySelector('#status-title')?.textContent,
+      detail: document.querySelector('#status-detail')?.textContent,
+      frames: document.querySelector('#counter-frames')?.textContent,
+      dispatches: document.querySelector('#counter-dispatches')?.textContent,
+      commandBytes: document.querySelector('#counter-bytes')?.textContent,
+      width: canvas?.width, height: canvas?.height, dpi: devicePixelRatio,
+      rootBackground: getComputedStyle(document.documentElement).backgroundColor,
+    };
+  });
+}
+async function diagnosticDeadline(operation, label) {
+  let timeout;
+  try {
+    return await Promise.race([operation, new Promise((_, reject) => {
+      timeout = setTimeout(() => reject(new Error(`${label} timed out.`)), 10_000);
+    })]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 async function waitForPresentation() {
   // A retained static app need not submit three GPU frames after an input.
   // Let browser/host input and presentation callbacks run; pixel and file
@@ -103,7 +129,8 @@ try {
   const diagnosticsSession = await browser.newBrowserCDPSession();
   try {
     const gpu = await diagnosticsSession.send('SystemInfo.getInfo');
-    await fs.writeFile(path.join(evidence, 'gpu.json'), JSON.stringify({ args, ...gpu }, null, 2));
+    const version = await diagnosticsSession.send('Browser.getVersion');
+    await fs.writeFile(path.join(evidence, 'gpu.json'), JSON.stringify({ args, version, ...gpu }, null, 2));
   } finally {
     await diagnosticsSession.detach();
   }
@@ -120,6 +147,8 @@ try {
     { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => Number(document.querySelector('#counter-frames')?.textContent) >= 3,
     undefined, { timeout: 120_000 });
+  await fs.writeFile(path.join(evidence, 'pre-screenshot-state.json'),
+    JSON.stringify(await diagnosticDeadline(captureHostState(), 'Initial host-state capture'), null, 2) + '\n');
   const drawing = { x: 300, y: 160, width: 680, height: 500 };
   // The host's frame counter can advance before application launch completes.
   // Inspect the default scene, not toolbar chrome or opaque target alpha. Reuse
@@ -263,34 +292,19 @@ try {
   if (page && !page.isClosed()) {
     // Diagnostic failures must not mask the assertion/startup error. Capture
     // DOM state before attempting a potentially stalled browser screenshot.
-    let stateTimeout;
     try {
-      const state = await Promise.race([page.evaluate(() => {
-        const canvas = document.querySelector('#progpu-canvas');
-        return {
-          userAgent: navigator.userAgent,
-          title: document.querySelector('#status-title')?.textContent,
-          detail: document.querySelector('#status-detail')?.textContent,
-          frames: document.querySelector('#counter-frames')?.textContent,
-          dispatches: document.querySelector('#counter-dispatches')?.textContent,
-          commandBytes: document.querySelector('#counter-bytes')?.textContent,
-          width: canvas?.width,
-          height: canvas?.height,
-          dpi: devicePixelRatio,
-          rootBackground: getComputedStyle(document.documentElement).backgroundColor,
-          canvasSnapshot: canvas?.toDataURL('image/png'),
-        };
-      }), new Promise((_, reject) => {
-        stateTimeout = setTimeout(() => reject(new Error('Failure-state capture timed out.')), 10_000);
-      })]);
-      const { canvasSnapshot, ...diagnostics } = state;
-      await fs.writeFile(path.join(evidence, 'state.json'), JSON.stringify(diagnostics, null, 2) + '\n');
+      const state = await diagnosticDeadline(captureHostState(), 'Failure-state capture');
+      await fs.writeFile(path.join(evidence, 'state.json'), JSON.stringify(state, null, 2) + '\n');
+    } catch (diagnosticError) {
+      console.error('Failure-state capture:', diagnosticError.message);
+    }
+    try {
+      const canvasSnapshot = await diagnosticDeadline(page.evaluate(() =>
+        document.querySelector('#progpu-canvas')?.toDataURL('image/png')), 'Failure canvas readback');
       if (canvasSnapshot?.startsWith('data:image/png;base64,'))
         await fs.writeFile(path.join(evidence, 'failed-canvas.png'), Buffer.from(canvasSnapshot.split(',')[1], 'base64'));
     } catch (diagnosticError) {
-      console.error('Failure-state capture:', diagnosticError.message);
-    } finally {
-      clearTimeout(stateTimeout);
+      console.error('Failure canvas readback:', diagnosticError.message);
     }
     try {
       await page.screenshot({ path: path.join(evidence, 'failed.png'), timeout: 10_000 });

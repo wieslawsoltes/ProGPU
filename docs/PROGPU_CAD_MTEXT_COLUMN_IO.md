@@ -140,3 +140,7 @@ identify an allocating source line. Keep the zero-byte assertion and runtime
 settings unchanged. Diagnostic programs and logs remain ignored under
 `artifacts/progpu-cad/`; the VM uses staged self-contained binaries and no
 configuration or system-package changes.
+
+Follow-up: [allocation measurement isolation](PROGPU_CAD_ALLOCATION_VALIDATION.md)
+records the expanded controls and the revised test's 1,000-run Linux validation.
+This is not a production mesh algorithm change or proof of the runtime cause.

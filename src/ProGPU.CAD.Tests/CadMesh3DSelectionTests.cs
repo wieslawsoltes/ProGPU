@@ -1,4 +1,6 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using ACadSharp;
 using ACadSharp.Entities;
 using CSMath;
@@ -178,6 +180,24 @@ public sealed class CadMesh3DSelectionTests
     [Fact]
     public void WarmModernMeshSubobjectQueryAllocatesNothing()
     {
+        (long allocated, int observed) = MeasureIsolatedModernMeshQuery(allocateControl: false);
+        Assert.True(observed > 0);
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void ModernMeshQueryAllocationMeasurementDetectsEscapingObjects()
+    {
+        (long allocated, int observed) = MeasureIsolatedModernMeshQuery(allocateControl: true);
+        Assert.True(observed > 0);
+        Assert.True(allocated >= 256 * IntPtr.Size,
+            "The isolated measurement must detect every deliberately escaping allocation.");
+    }
+
+    private static object? s_queryAllocationControl;
+
+    private static (long Allocated, int Observed) MeasureIsolatedModernMeshQuery(bool allocateControl)
+    {
         var document = new CadDocument();
         document.Entities.Add(CreateGridMesh(32));
         CadRecordedMesh3DScene scene = CompileScene(document);
@@ -191,6 +211,26 @@ public sealed class CadMesh3DSelectionTests
             viewport,
             scene,
             new CadPoint3D(16.25, 16.25, 0.0));
+        (long Allocated, int Observed) result = (-1, 0);
+        ExceptionDispatchInfo? failure = null;
+        // Keep fixture construction and test-runner allocation context off the
+        // measured thread. The same 32 warmups and 256 queries still run with
+        // normal GC enabled, and the zero-byte assertion remains exact.
+        var worker = new Thread(() =>
+        {
+            try { result = MeasureModernMeshQuery(index, viewport, point, allocateControl); }
+            catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+        }) { IsBackground = true };
+        worker.Start();
+        Assert.True(worker.Join(TimeSpan.FromSeconds(30)), "The isolated mesh query did not finish.");
+        failure?.Throw();
+        return result;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (long Allocated, int Observed) MeasureModernMeshQuery(
+        CadMesh3DSelectionIndex index, CadMesh3DViewport viewport, Vector2 point, bool allocateControl)
+    {
         Span<CadMesh3DSubobjectSelectionResult> hits =
             stackalloc CadMesh3DSubobjectSelectionResult[16];
         for (int warm = 0; warm < 32; warm++)
@@ -208,6 +248,8 @@ public sealed class CadMesh3DSelectionTests
         int observed = 0;
         for (int iteration = 0; iteration < 256; iteration++)
         {
+            if (allocateControl)
+                Volatile.Write(ref s_queryAllocationControl, new object());
             observed += index.QuerySubobjects(
                 viewport,
                 ViewportSize,
@@ -217,9 +259,8 @@ public sealed class CadMesh3DSelectionTests
                 targetHeight: 5.0f).HitCount;
         }
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-        Assert.True(observed > 0);
-        Assert.Equal(0, allocated);
+        Volatile.Write(ref s_queryAllocationControl, null);
+        return (allocated, observed);
     }
 
     [Fact]
