@@ -1,5 +1,84 @@
 # Native MIL desktop surface recovery
 
+## Device recreation integration — 2026-09-08
+
+This checkpoint supersedes the original fail-closed-only LibreWPF device-loss
+behavior described below. Automatic host reconstruction is now implemented,
+but runtime recovery is not qualified.
+
+The affected acceptance path is the native host harness / package-mode MVP:
+present an initial frame, lose the device domain, then resume the existing visual
+tree in the same native window. The host handles this at its composition-target
+loading boundary, never inside an active acquired frame or backend loss callback.
+
+- Backend notifications only enqueue host work when that host's exact context is
+  lost. Unrelated domains do not trigger reconstruction. Subscription lifetime
+  follows the installed target, including failure cleanup.
+- Before rebuilding, the host retires its native MIL session/compositor, external
+  image leases, DirectX wrapper, managed compositor, retained GPU caches and old
+  surface context. Existing shared-device reference counting keeps sibling
+  surfaces alive until each releases its own old-domain references.
+- Source-built WPF roots, popup bridges, native windows, placement, renderer mode,
+  clear color and platform services are preserved. The new session snapshots the
+  authoritative WPF state; it does not replay old-device texture handles. Input
+  and window-event subscriptions are reattached to the replacement target.
+- Native popup options now retain their typed owner host, not a captured context.
+  A popup creation/recreation resolves that owner's current initialized target;
+  it defers if the owner is still initializing or unwinding a frame. ProGPU's
+  `InitializeSharedDevice` explicitly rejects a lost owner before acquiring a
+  shared lifetime or accessing the native window.
+- `RenderDeviceRecreated` notifies applications on the host thread before the
+  replacement's first frame. Consumers must recreate application-owned GPU
+  resources there or through context-aware texture lease sources. The existing
+  native external-image domain/lease checks remain authoritative: arbitrary
+  D3DImage/media producers cannot reuse old resources or obtain fabricated pixels.
+- `RenderDeviceRecoveryCount` counts rebuilt target notifications, separately
+  from presentation counters. Reconstruction itself does not count as a frame.
+  A callback that closes the host stops publication and disposes the new target.
+- `WgpuDeviceLostException` distinguishes a lost-domain submission/shared-owner
+  failure from other invalid operations while retaining the previous
+  `InvalidOperationException` base contract. Native MIL's typed DeviceLost status
+  and managed lost-domain submissions unwind the frame before scheduling recovery.
+  Allocation, validation and unrelated application errors still propagate.
+
+Window target construction now cleans up its owned context and any completed
+compositor when initialization fails. Reconstruction uses the latest window
+geometry and a new full WPF snapshot; it does not assume a replacement has the
+old format, target dimensions, atlas contents or external image leases.
+
+The original ProGPU sources at `bf9cc40c` are `WgpuContext`'s device-domain loss,
+shared-device lifetime and disposal paths and `NativeCompositor.Recreate` /
+`progpu_native_device_recovery.cpp`'s separation of immutable CPU state from GPU
+handles. The generic native compositor's transactional snapshot-clone API remains
+unchanged. LibreWPF instead reconstructs from its retained source-built WPF root
+because its transport session and context-aware external images must be renewed
+together. This is O(scene resources) work only on recovery; no extra normal-frame
+serialization, pixel readback, shader path or CPU fallback is added. This host
+ownership work applies to managed and native MIL modes; standalone C++ consumers
+continue to own their replacement device and use the existing native recreate API.
+
+Authored gate coverage: `NativeMilHostDeviceRecoverySmoke` injects loss after the
+first real host frame, waits for recovery, and checks a distinct live context,
+old-context disposal, preserved root/window identity and a submitted native draw.
+`eng/progpu-wpf-native-mil-host-smoke.sh` includes this case on every supported
+platform through `--native-mil-device-recovery`. The injection marks an actual
+context's domain lost; it is not a hardware-reset simulation or image comparison.
+Paired host scheduling fixtures and a backend shared-owner rejection fixture are
+also authored. No tests or runtime gates have been executed in this batch.
+
+Compilation checkpoint: Release builds of `ProGPU.Tests`, `ProGPU.Wpf.Tests`
+and `ProGPU.Wpf.RealPresentationFrameworkHarness` succeeded with zero errors
+and 0, 116 and 4 warnings respectively. The harness build includes the source-built
+PresentationCore/PresentationFramework dependencies and the new recovery case;
+it is not evidence that the case has run or passed. Source verifiers, VM/GPU
+workloads, image comparisons and CI qualification remain deferred.
+
+Final qualification must still cover loss during encoding/submission, visible and
+hidden popup siblings, application-owned external-image recreation, callback
+reentrancy/close, failed replacement creation, repeated hardware loss, output
+quality and resource counts. Creation failure remains explicit; this change does
+not promise an indefinitely retrying device-creation loop.
+
 ## Core application blocker — 2026-09-08
 
 The LibreWPF native host harness and package-mode MVP use

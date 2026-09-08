@@ -156,7 +156,7 @@ public sealed class WgpuContextTests
         context.ReportDeviceLost(
             DeviceLostReason.Unknown,
             "synthetic exact-device loss");
-        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+        WgpuDeviceLostException exception = Assert.Throws<WgpuDeviceLostException>(
             () =>
             {
                 CommandBuffer* command = (CommandBuffer*)1;
@@ -636,6 +636,22 @@ public sealed class WgpuContextTests
         Assert.True(surface.Queue == null);
         Assert.True(surface.Surface == null);
         Assert.False(owner.SharesDeviceWith(surface));
+    }
+
+    [Fact]
+    public unsafe void SharedSurfaceRejectsLostOwnerBeforeAccessingNativeWindow()
+    {
+        using var owner = new WgpuContext();
+        using var surface = new WgpuContext();
+        owner.ReportDeviceLost(DeviceLostReason.Unknown, "Shared owner recovery fixture.");
+        var window = DispatchProxy.Create<IWindow, DefaultDispatchProxy>();
+        var error = Assert.Throws<WgpuDeviceLostException>(() => surface.InitializeSharedDevice(window, owner));
+        Assert.Contains("lost WebGPU device", error.Message);
+        Assert.True(surface.Instance == null);
+        Assert.True(surface.Device == null);
+        Assert.True(surface.Queue == null);
+        Assert.True(surface.Surface == null);
+        Assert.False(surface.IsDeviceLost);
     }
 
     [Fact]

@@ -262,7 +262,7 @@ public unsafe class WgpuContext : IDisposable
             ObjectDisposedException.ThrowIf(_isDisposed, this);
             if (IsDeviceLost)
             {
-                throw new InvalidOperationException(
+                throw new WgpuDeviceLostException(
                     "Cannot submit commands to a lost WebGPU device.");
             }
             Api.QueueSubmit(Queue, commandCount, commandBuffers);
@@ -1692,6 +1692,11 @@ public unsafe class WgpuContext : IDisposable
             throw new InvalidOperationException("The WebGPU context is already initialized.");
         }
 
+        if (deviceOwner.IsDeviceLost)
+        {
+            throw new WgpuDeviceLostException(
+                "Cannot create a shared surface on a lost WebGPU device; resolve its replacement owner first.");
+        }
         if (deviceOwner._isDisposed ||
             deviceOwner.Instance == null ||
             deviceOwner.Adapter == null ||
