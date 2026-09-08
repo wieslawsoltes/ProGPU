@@ -202,6 +202,10 @@ immutable, reject late backend switches, and share the interop assembly between
 host and source-built WPF. Device recovery must not reset that choice. Host
 callback registration and renderer mode alone are not proof that legacy Windows
 MIL utility, channel or popup paths have been bypassed.
+Portable window hidden-source creation is a separate `CreateHidden` capability,
+not a Show/Hide sequence. Preserve detached visual roots until Show, stable
+source identity and factory-failure cleanup. Missing capability must fail closed;
+portable source handles must not be advertised as arbitrary native HWNDs.
 
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 

@@ -6,6 +6,29 @@ namespace ProGPU.Tests;
 public sealed class PortableWpfServiceRegistryTests
 {
     [Fact]
+    public void HiddenWindowFactoryIsAnExplicitSeparateCapability()
+    {
+        object window = new(), visible = new(), hidden = new();
+        int ordinaryCalls = 0, hiddenCalls = 0;
+        var legacy = new PortableWindowActivationCallbacks(_ => visible);
+        Assert.Null(legacy.CreateHidden);
+        var callbacks = new PortableWindowActivationCallbacks(_ => { ordinaryCalls++; return visible; })
+        {
+            CreateHidden = value =>
+            {
+                Assert.Same(window, value);
+                hiddenCalls++;
+                return hidden;
+            }
+        };
+        Assert.Same(hidden, callbacks.CreateHidden(window));
+        Assert.Equal(0, ordinaryCalls);
+        Assert.Equal(1, hiddenCalls);
+        Assert.Same(visible, callbacks.Activate(window));
+        Assert.Equal(1, ordinaryCalls);
+    }
+
+    [Fact]
     public void WindowRegionOwnsImmutableExclusionsForRetainedConsumers()
     {
         var original = new PortableRect(10, 20, 30, 40);

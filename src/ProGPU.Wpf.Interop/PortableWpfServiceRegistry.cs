@@ -512,6 +512,20 @@ public sealed class PortableWindowActivationCallbacks
 
     public Func<object, object?> Activate { get; }
 
+    /// <summary>
+    /// Creates an owned, hidden window source without attaching the visual tree,
+    /// showing the window, or requesting foreground activation. The ordinary
+    /// Show callback attaches the tree later and reuses this activation object.
+    /// </summary>
+    /// <remarks>
+    /// Optional for existing hosts. A consumer must reject hidden-source creation
+    /// when absent, not fall back to Activate or a different window backend.
+    /// GetHandle must return the stable nonzero portable source identity before
+    /// this callback returns. That identity is not necessarily a native HWND.
+    /// A failing factory owns cleanup of every resource it allocated.
+    /// </remarks>
+    public Func<object, object?>? CreateHidden { get; init; }
+
     public Action<object>? Show { get; }
 
     public Action<object>? Hide { get; }
