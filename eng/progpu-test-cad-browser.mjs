@@ -194,30 +194,36 @@ try {
   await waitForPresentation();
   await page.mouse.move(700, 400);
   const beforeZoom = await screenshot({ clip: drawing });
+  const beforeZoomPixels = browserUtilities.PNG.sync.read(beforeZoom).data;
   await page.mouse.wheel(0, -250);
   const zoomDeadline = Date.now() + visualTimeoutMs;
-  await waitForPresentation(zoomDeadline);
+  // The bounded pixel poll is the readiness check. Waiting for additional
+  // animation callbacks first consumes the same deadline without checking
+  // output, and can queue expensive software-rendered frames ahead of capture.
   let afterZoom = beforeZoom;
+  let afterZoomPixels = beforeZoomPixels;
   for (let attempt = 0; attempt < 30 && Date.now() < zoomDeadline; attempt++) {
     afterZoom = await screenshot({ clip: drawing, timeout: Math.max(1, zoomDeadline - Date.now()) });
-    if (!afterZoom.equals(beforeZoom)) break;
+    afterZoomPixels = browserUtilities.PNG.sync.read(afterZoom).data;
+    if (!afterZoomPixels.equals(beforeZoomPixels)) break;
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   await fs.writeFile(path.join(evidence, 'zoomed.png'), afterZoom);
-  assert.ok(!afterZoom.equals(beforeZoom), 'Wheel input did not change the CAD drawing.');
+  assert.ok(!afterZoomPixels.equals(beforeZoomPixels), 'Wheel input did not change the CAD drawing.');
   await page.mouse.down({ button: 'middle' });
   await page.mouse.move(780, 450, { steps: 5 });
   await page.mouse.up({ button: 'middle' });
   const panDeadline = Date.now() + visualTimeoutMs;
-  await waitForPresentation(panDeadline);
   let afterPan = afterZoom;
+  let afterPanPixels = afterZoomPixels;
   for (let attempt = 0; attempt < 30 && Date.now() < panDeadline; attempt++) {
     afterPan = await screenshot({ clip: drawing, timeout: Math.max(1, panDeadline - Date.now()) });
-    if (!afterPan.equals(afterZoom)) break;
+    afterPanPixels = browserUtilities.PNG.sync.read(afterPan).data;
+    if (!afterPanPixels.equals(afterZoomPixels)) break;
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   await fs.writeFile(path.join(evidence, 'panned.png'), afterPan);
-  assert.ok(!afterPan.equals(afterZoom), 'Middle-button drag did not change the CAD drawing.');
+  assert.ok(!afterPanPixels.equals(afterZoomPixels), 'Middle-button drag did not change the CAD drawing.');
   const download = await clickUntilEvent('download', 195, 22, 60_000); // Save As.
   assert.match(download.suggestedFilename(), /\.dxf$/i);
   const savedDrawing = path.join(evidence, 'roundtrip.dxf');

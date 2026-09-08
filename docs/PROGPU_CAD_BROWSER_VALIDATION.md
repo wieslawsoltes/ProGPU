@@ -367,3 +367,40 @@ application readback, remove captures, or extend deadlines on this evidence.
 Only public diagnostic contracts and observed trace behavior are used; no
 third-party implementation is copied into ProGPU. Managed/native rendering,
 canonical shaders, ABI, and application host scheduling remain unchanged.
+
+### Pixel-based interaction readiness
+
+The next x64 run,
+[34216503431](https://github.com/wieslawsoltes/ProGPU/actions/runs/34216503431),
+passes CAD tests and AOT publishing and gets through the initial/expanded
+captures, but fails in the zoom pixel poll. Initial drawing capture takes
+83,682 ms with the expected visible/background pixels. After wheel input,
+waiting for two animation callbacks consumes 37,266 ms of the 120,000 ms
+interaction budget; the following screenshot exhausts the remaining 82,734 ms.
+Failure-time DOM counters are 54 frames / 74 dispatches, with no browser errors.
+
+The interaction driver now starts its existing bounded pixel poll immediately
+after input, without the preceding two-callback wait. The poll itself waits for
+observable output, so an unchanged capture still retries and eventually fails.
+Zoom and pan compare decoded RGBA pixels rather than compressed PNG bytes,
+preventing an encoding-only difference from satisfying the assertion. All
+captures, the 30/120-second profiles, the shared per-interaction deadline,
+first-drawing thresholds, and file/edit/recovery checks remain in place.
+Toolbar and final-resize presentation waits remain unchanged. This is a test
+readiness correction, not a renderer performance fix or CI qualification.
+
+An independent worker-side queue probe confirms that the published app uses
+worker execution: page-only instrumentation sees no submissions. In the worker,
+later batches of three render-only submissions take roughly 5.5 seconds to
+report completion without repeated compute dispatches. Completion promises
+cover earlier queued work and are not individual GPU timers. This further
+motivates profiling steady rendering/presentation separately from startup
+pipeline compilation; the instrumentation remains outside production source.
+
+Focused validation of the revised driver: the hardware browser completes the
+full smoke with 2,379 frames / 2,428 dispatches, 16 preserved entity types,
+malformed-clip recovery, and a 2880x1800 final framebuffer. Two independent
+negative controls omit only wheel input or only the middle-button drag; each
+fails its corresponding unchanged-pixel assertion as required. `node --check`
+passes. Software-rendered full runs and new-head CI remain pending; these
+results do not close the Linux x64 rendering gate.
