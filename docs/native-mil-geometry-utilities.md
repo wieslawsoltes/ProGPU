@@ -262,16 +262,38 @@ Both managed and native hosts will consume this one backend utility once wired.
 The original core semantics, including approximation limits, remain subject to
 final Windows/MIL differential testing.
 
-Known integration blocker: `build_flat_polylines` currently discards constant
-stroked segments, which can lose point caps or endpoint eligibility. The new
-query adapter uses the existing intrinsic
-`semantic_path_stroke::is_constant_segment` classifier and returns Unsupported
-for those segments instead of a false successful empty query. This shared header
-reuse avoids a second constancy algorithm; it does not change legacy MIL
-preparation. Close point-cap coverage/endpoint compaction using the existing
-ProGPU implementations, then connect a source/host query encoder retaining all
-figure and stroke flags. Do not enable the Windows SDK selector in the interim.
-This is an unfinished goal requirement, not a permanent reduced parity profile.
+The initial query checkpoint rejected constant stroked segments because
+`build_flat_polylines` discarded them. That implementation blocker is now closed
+in the shared path core: constants retain an anchor, source endpoint eligibility
+and incoming join flags; an unstroked constant remains a gap. Closed-seam flags
+survive compaction. Degenerate arcs emitting no cubics retain their edge state.
+An all-constant stroked run emits the original ProGPU X-axis cap pair, with a
+round pair for closed runs; an empty figure does not become a point stroke.
+Only the remaining source/host encoder and bounds/hit consumers are unconnected.
+Do not enable the Windows SDK selector before that integration and qualification.
+
+Point coverage provenance is original `resolve_degenerate_dash_visibility` and
+`try_transformed_line_stroke_bounds` in `Mil/progpu_native_mil.cpp`: odd patterns
+repeat twice, visible intervals own their inclusive endpoint, negative offsets
+wrap, and source/gap caps stay independent. The query core reuses its existing
+`build_terminal_dash_outline`, positive-winding normalization and intrinsic
+outline transforms. It constructs caps at the origin, then translates to the
+anchor and applies the world transform; no fake short spine or separately blended
+draw is introduced. Point hits reuse `stroke_cap_contains`, restricting each
+cap to its own half-plane because there is no stroke body to cover the inner half.
+Nonpoint stroke/dash algorithms and quality constants are unchanged.
+
+Applicability: C ABI bounds, C ABI hits, Direct2D Widen, GetWidenedBounds and
+StrokeContainsPoint consume this shared preparation. Both managed/native WPF
+renderer modes use the same C++ utility once connected; no new managed stroker is
+needed. Existing MIL callers also benefit from shared endpoint preparation.
+Its separate point fallback is preserved, not copied into WPF. No public record
+layout or module surface changes in this follow-up; only header comments change.
+Point construction has at most two cap pieces, using the existing bounded cubic
+round-cap representation. Topology compaction is sequential O(E) work, O(1)
+state beyond the existing polyline output; point dash phase is an ordered O(D)
+prefix walk with existing interval storage. Placement uses the shared intrinsic
+transform kernel. These synchronous CPU queries perform no GPU work or readback.
 
 Style validation uses four intrinsic float lanes in managed code and in shared
 native `core::valid_stroke_style` (AArch64 NEON, SSE2, Wasm SIMD), with a bounded
@@ -293,7 +315,7 @@ utility boundary, not renderer, text, atlas or GPU pipeline architecture.
 
 Authored fixtures cover source gaps, square caps, post-widen nonuniform scale,
 dash-on/off probes, incomplete closed contours, invalid flags/ranges, explicit
-constant-segment rejection, generated ABI offsets, pre-load validation and
+constant flat-cap empty coverage, generated ABI offsets, pre-load validation and
 unaligned dash arrays of lengths 1–17 against a scalar native oracle. Existing
 boolean/curve/fill fixtures still compile against the factored emitter. All
 fixture execution, final-module P/Invoke, SSE2/Wasm builds, Windows images,
@@ -304,6 +326,15 @@ up to date after successful compilation/linking; an initial fixture-only
 missing-field-initializer error was corrected with fully initialized segment
 construction. The final ProGPU.Tests Release build succeeds with 0 warnings and
 0 errors. These are compile-only results, not executed tests or parity evidence.
+
+Point/endpoint follow-up fixtures cover all 16 start/end cap pairs on constant
+line/quadratic/cubic input against independent scalar shape oracles, translated
+and rotated/nonuniform-scaled queries, public COM closed-point bounds/hits, odd/negative dash
+phases, and padded-versus-unpadded paths with forced joins and zero-distance gaps.
+The strict AppleClang C++20 geometry-utility, Direct2D core and Direct2D
+compatibility fixture targets compile and link successfully.
+Fixtures have not been executed; round-boundary approximation, direct COM and
+final-module managed/native comparisons still need the final differential gate.
 
 `progpu_native_geometry_utility_tests` is a CTest-registered device-independent
 include-based C ABI consumer built from the same wrapper source. It covers four

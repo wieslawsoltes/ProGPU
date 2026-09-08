@@ -227,7 +227,7 @@ bool stroke_queries_preserve_caps_gaps_dashes_and_world_order()
     return true;
 }
 
-bool stroke_queries_reject_incomplete_and_degenerate_transport()
+bool stroke_queries_reject_incomplete_transport()
 {
     const std::array line{line_segment({0, 0}, {10, 0})};
     std::array<progpu_native_geometry_query_figure, 1> figures{{{{0, 0}, 0, 1, 1}}};
@@ -249,7 +249,117 @@ bool stroke_queries_reject_incomplete_and_degenerate_transport()
     if (query(line) != PROGPU_NATIVE_STATUS_INVALID_ARGUMENT) return false;
     figures[0].first_segment = 0;
     const std::array<segment, 1> constant{};
-    return query(constant) == PROGPU_NATIVE_STATUS_UNSUPPORTED && has == 0 && contains == 0;
+    return query(constant) == PROGPU_NATIVE_STATUS_SUCCESS && has == 0 && contains == 0;
+}
+
+bool point_strokes_match_independent_cap_oracle()
+{
+    // Explicit original ProGPU point policy; independent scalar shape oracle.
+    const auto cap_hit = [](std::uint32_t cap, float x, float y) {
+        if (cap == 1U) return std::abs(x) <= 1 && std::abs(y) <= 1;
+        if (cap == 2U) return x * x + y * y <= 1;
+        if (cap == 3U) return std::abs(x) + std::abs(y) <= 1;
+        return false;
+    };
+    const point anchor{8, 4};
+    const progpu_native_affine_2d world{0, 2, -3, 0, 7, -5};
+    for (std::uint32_t kind = 0; kind < 3; ++kind) {
+        segment edge{};
+        edge.kind = kind;
+        edge.p0 = edge.p1 = edge.p2 = edge.p3 = anchor;
+        progpu_native_geometry_query_figure figure{anchor, 0, 1, 0};
+        const std::uint8_t flag = 1;
+        for (std::uint32_t start = 0; start < 4; ++start) {
+            for (std::uint32_t end = 0; end < 4; ++end) {
+                progpu_native_geometry_query_pen pen{2, 10, 0, start, end, 0, 0};
+                progpu_native_image_rect bounds{};
+                std::uint32_t has = 0, hit = 0;
+                if (progpu_native_geometry_stroke_query(&figure, 1, &edge, &flag, 1, &pen,
+                        nullptr, 0, nullptr, nullptr, 0.01F, &bounds, &has, &hit) != PROGPU_NATIVE_STATUS_SUCCESS)
+                    return false;
+                const bool ink = start != 0 || end != 0;
+                if (has != (ink ? 1U : 0U)) return false;
+                if (ink && (bounds.x != anchor.x - (start != 0 ? 1 : 0) || bounds.y != anchor.y - 1 ||
+                    bounds.width != (start != 0 ? 1 : 0) + (end != 0 ? 1 : 0) || bounds.height != 2)) return false;
+                for (int y = -5; y <= 5; ++y) for (int x = -5; x <= 5; ++x) {
+                    const float dx = x * 0.25F, dy = y * 0.25F;
+                    const bool expected = (dx <= 0 && cap_hit(start, dx, dy)) || (dx >= 0 && cap_hit(end, dx, dy));
+                    const point probe{7 - 3 * (anchor.y + dy), -5 + 2 * (anchor.x + dx)};
+                    if (progpu_native_geometry_stroke_query(&figure, 1, &edge, &flag, 1, &pen,
+                            nullptr, 0, &world, &probe, 0.01F, &bounds, &has, &hit) != PROGPU_NATIVE_STATUS_SUCCESS ||
+                        hit != (expected ? 1U : 0U)) return false;
+                }
+            }
+        }
+    }
+    // A closed collapsed contour retains the existing MIL round-pair policy.
+    auto edge = line_segment(anchor, anchor);
+    progpu_native_geometry_query_figure figure{anchor, 0, 1, 1};
+    const std::uint8_t flag = 1;
+    progpu_native_geometry_query_pen pen{2, 10, 0, 0, 0, 0, 0};
+    progpu_native_image_rect bounds{};
+    std::uint32_t has = 0, hit = 0;
+    if (progpu_native_geometry_stroke_query(&figure, 1, &edge, &flag, 1, &pen,
+        nullptr, 0, &world, nullptr, 0.01F, &bounds, &has, &hit) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        has != 1 || bounds.x != -8 || bounds.y != 9 || bounds.width != 6 || bounds.height != 4) return false;
+    // Include the public portable COM queries, not just the C ABI Widen route.
+    namespace d2d = progpu::native::direct2d::compat;
+    namespace com = progpu::native::com;
+    com::pointer<d2d::factory> owner;
+    com::pointer<d2d::path_geometry> path;
+    if (com::failed(d2d::create_factory(owner.put())) ||
+        com::failed(d2d::detail::create_native_query_geometry(owner.get(), std::span(&figure, 1U),
+            std::span(&edge, 1U), std::span(&flag, 1U), path.put()))) return false;
+    const d2d::matrix_3x2_f matrix{0, 2, -3, 0, 7, -5};
+    d2d::rectangle_f measured{};
+    std::int32_t direct_hit = 0;
+    if (com::failed(path->GetWidenedBounds(2, nullptr, &matrix, 0.01F, &measured)) ||
+        measured.left != bounds.x || measured.top != bounds.y ||
+        measured.right != bounds.x + bounds.width || measured.bottom != bounds.y + bounds.height ||
+        com::failed(path->StrokeContainsPoint({-5, 11}, 2, nullptr, &matrix, 0.01F, &direct_hit)) || direct_hit != 1)
+        return false;
+    const std::array<float, 3> pattern{1, 2, 1}; // doubled odd pattern: on/off/on/off/on/off
+    for (const float phase : {0.0F, 1.0F, 2.0F, 3.5F, 4.5F, 5.5F, 7.5F, -0.5F}) {
+        pen.dash_offset = phase;
+        const bool visible = phase == 0 || phase == 1 || phase == 3.5F || phase == 5.5F;
+        if (progpu_native_geometry_stroke_query(&figure, 1, &edge, &flag, 1, &pen,
+            pattern.data(), 3, nullptr, &anchor, 0.01F, &bounds, &has, &hit) != PROGPU_NATIVE_STATUS_SUCCESS ||
+            hit != (visible ? 1U : 0U)) return false;
+    }
+    return true;
+}
+
+bool constant_edges_preserve_endpoint_and_join_eligibility()
+{
+    const std::array baseline{line_segment({0, 0}, {2, 0}), line_segment({2, 0}, {2, 2})};
+    const std::array padded{line_segment({0, 0}, {0, 0}), baseline[0],
+        line_segment({2, 0}, {2, 0}), baseline[1], line_segment({2, 2}, {2, 2})};
+    const std::array<std::uint8_t, 2> baseline_flags{1, 3};
+    std::array<std::uint8_t, 5> flags{1, 1, 3, 1, 1};
+    const progpu_native_geometry_query_pen pen{2, 10, 0, 1, 3, 0, 1};
+    const auto query = [&](std::span<const segment> edges, std::span<const std::uint8_t> states,
+        const point* probe, progpu_native_image_rect& bounds, std::uint32_t& hit) {
+        const progpu_native_geometry_query_figure figure{{0, 0}, 0, static_cast<std::uint32_t>(edges.size()), 0};
+        std::uint32_t has = 0;
+        return progpu_native_geometry_stroke_query(&figure, 1, edges.data(), states.data(), figure.segment_count,
+            &pen, nullptr, 0, nullptr, probe, 0.01F, &bounds, &has, &hit);
+    };
+    progpu_native_image_rect expected{}, actual{};
+    std::uint32_t first = 0, second = 0;
+    if (query(baseline, baseline_flags, nullptr, expected, first) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        query(padded, flags, nullptr, actual, second) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        expected.x != actual.x || expected.y != actual.y || expected.width != actual.width || expected.height != actual.height)
+        return false;
+    for (int y = -5; y <= 13; ++y) for (int x = -5; x <= 13; ++x) {
+        const point probe{x * 0.25F, y * 0.25F};
+        if (query(baseline, baseline_flags, &probe, expected, first) != PROGPU_NATIVE_STATUS_SUCCESS ||
+            query(padded, flags, &probe, actual, second) != PROGPU_NATIVE_STATUS_SUCCESS || first != second) return false;
+    }
+    // Zero-distance gaps must suppress source caps, not heal endpoint identity.
+    flags.front() = flags.back() = 0;
+    const point before{-0.5F, 0}, after{2, 2.5F};
+    return query(padded, flags, &before, actual, second) == PROGPU_NATIVE_STATUS_SUCCESS && second == 0 &&
+        query(padded, flags, &after, actual, second) == PROGPU_NATIVE_STATUS_SUCCESS && second == 0;
 }
 
 bool dash_validation_matches_scalar_oracle()
@@ -284,7 +394,8 @@ int main()
     if (!modes_and_actual_boundaries() || !curved_result_matches_shared_core() || !failures_and_empty_ownership() ||
         !fill_queries_match_scalar_and_reject_bad_inputs() ||
         !stroke_queries_preserve_caps_gaps_dashes_and_world_order() ||
-        !stroke_queries_reject_incomplete_and_degenerate_transport() ||
+        !stroke_queries_reject_incomplete_transport() || !point_strokes_match_independent_cap_oracle() ||
+        !constant_edges_preserve_endpoint_and_join_eligibility() ||
         !dash_validation_matches_scalar_oracle()) {
         std::fputs("Native geometry utility conformance failed.\n", stderr);
         return 1;

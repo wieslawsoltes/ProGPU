@@ -2203,8 +2203,9 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_fill_contains(
  * Segment flags: bit 0 stroked, bit 1 forced-round incoming join. The incoming
  * flag of the first segment also describes the closed figure seam. Nonempty
  * closed figures must explicitly return to start, preserving closing-edge flags.
- * Constant stroked segments currently return UNSUPPORTED rather than silently
- * dropping point-cap coverage/endpoint eligibility in the query polyline core. */
+ * Constant edges retain endpoint/gap/join state. All-constant stroked runs use
+ * ProGPU's canonical X-axis point-cap pair (round pair for a closed run), with
+ * dash visibility resolved at the source phase. Empty figures emit no caps. */
 /* PROGPU_CSHARP_STRUCT: Public.NativeGeometryQueryFigure */
 typedef struct progpu_native_geometry_query_figure {
     progpu_native_point start;

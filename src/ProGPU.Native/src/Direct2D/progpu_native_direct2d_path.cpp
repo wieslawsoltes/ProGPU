@@ -1,6 +1,5 @@
 #include "progpu_native_direct2d_path.hpp"
 #include "../Mil/progpu_native_mil_curve_dash.hpp"
-#include "../Scene/progpu_native_semantic_path_stroke.hpp"
 
 #include <algorithm>
 #include <array>
@@ -454,6 +453,10 @@ template<typename BeginCallback, typename LineCallback,
                     return false;
                 }
                 point_2f cubic_start = current_target;
+                // A degenerate endpoint arc still owns stroke/gap flags and
+                // source endpoint eligibility, even when it emits no cubics.
+                if (cubic_count == 0U && flatten && !line_callback(current_target,
+                        end_target, segment_index, figure_index, segment.flags)) return false;
                 for (std::uint32_t cubic_index = 0U;
                      cubic_index < cubic_count;
                      ++cubic_index) {
@@ -3898,14 +3901,83 @@ struct flat_polyline final {
 
 enum class stroke_contour_usage { query, solid_outline, dashed_outline };
 
+// Original MIL resolve_degenerate_dash_visibility contract: an odd pattern
+// repeats twice and the visible interval owns its inclusive end. The prefix
+// walk is ordered O(D) work, not an independent-lane pixel kernel.
+[[nodiscard]] com::result resolve_point_stroke_caps(stroke_style* style, bool closed,
+    cap_style& start, cap_style& end, bool& visible)
+{
+    visible = true;
+    if (closed) start = end = cap_style::round;
+    if (style == nullptr || style->GetDashStyle() == dash_style::solid) return com::ok;
+    std::vector<double> intervals;
+    const com::result result = read_dash_intervals(*style, intervals);
+    if (com::failed(result)) return result;
+    if (intervals.empty() || intervals.size() > (std::numeric_limits<std::size_t>::max)() / 2U)
+        return com::invalid_argument;
+    const std::size_t count = intervals.size() * ((intervals.size() & 1U) != 0U ? 2U : 1U);
+    double length = 0.0;
+    for (std::size_t i = 0U; i < count; ++i) length += intervals[i % intervals.size()];
+    if (!std::isfinite(length) || length <= 0.0) return com::invalid_argument;
+    double offset = std::fmod(style->GetDashOffset(), length);
+    if (!std::isfinite(offset)) return com::invalid_argument;
+    if (offset < 0.0) offset += length;
+    std::size_t index = 0U;
+    double boundary = intervals.front();
+    while (index + 1U < count && boundary < offset) {
+        ++index;
+        boundary += intervals[index % intervals.size()];
+    }
+    visible = (index & 1U) == 0U;
+    return com::ok;
+}
+
+// Reuse the existing terminal-cap outline, in origin-relative coordinates so
+// a large source anchor cannot round away the canonical X-axis tangent. No
+// artificial spine is emitted. Both caps join the same positive-winding output.
+[[nodiscard]] com::result prepare_point_stroke_widen(point_2f anchor, float width,
+    cap_style start, cap_style end, const matrix_3x2_f* transform,
+    std::vector<widened_outline>& outlines)
+{
+    if (width == 0.0F) return com::ok;
+    const std::size_t first = outlines.size();
+    const matrix_3x2_f placement{1, 0, 0, 1, anchor.x, anchor.y};
+    const std::array caps{start, end};
+    for (std::size_t index = 0U; index < caps.size(); ++index) {
+        if (caps[index] == cap_style::flat) continue;
+        widened_outline piece;
+        com::result result = build_terminal_dash_outline({0, 0}, {-1, 0},
+            double{width} * 0.5, caps[index], index == 0U, piece);
+        if (com::failed(result)) return result;
+        result = append_positive_stroke_piece(std::move(piece), outlines);
+        if (com::failed(result)) return result;
+    }
+    auto appended = std::span(outlines).subspan(first);
+    const com::result result = transform_widened_outline_batch(appended, &placement);
+    return com::failed(result) ? result : transform_widened_outline_batch(appended, transform);
+}
+
+[[nodiscard]] bool point_stroke_contains(point_2f anchor, point_2f point,
+    double half_width, cap_style start, cap_style end) noexcept
+{
+    const double x = double{point.x} - anchor.x, y = double{point.y} - anchor.y;
+    if (std::abs(x) > half_width || std::abs(y) > half_width) return false;
+    const point_2f relative{static_cast<float>(x), static_cast<float>(y)};
+    // Ordinary round caps may include their inner half because the body covers
+    // it. A point has no body: keep each independent cap in its own half-plane.
+    return (relative.x <= 0.0F && stroke_cap_contains({0, 0}, {1, 0}, relative, half_width, start)) ||
+        (relative.x >= 0.0F && stroke_cap_contains({0, 0}, {-1, 0}, relative, half_width, end));
+}
+
 [[nodiscard]] bool prepare_closed_stroke_contour(
     flat_polyline& polyline, stroke_contour_usage usage) noexcept {
   while (polyline.points.size() > 1U &&
          same_point(polyline.points.front(), polyline.points.back())) {
+    polyline.round_joins.front() |= polyline.round_joins.back();
     polyline.points.pop_back();
     polyline.round_joins.pop_back();
   }
-  if (polyline.points.size() < (usage == stroke_contour_usage::query ? 2U : 3U) ||
+  if (polyline.points.size() < (usage == stroke_contour_usage::query ? 1U : 3U) ||
       polyline.round_joins.size() != polyline.points.size()) {
     return false;
   }
@@ -4003,9 +4075,6 @@ enum class stroke_contour_usage { query, solid_outline, dashed_outline };
               (std::numeric_limits<std::uint32_t>::max)();
           continue;
         }
-        if (same_point(edge.start, edge.end)) {
-          continue;
-        }
         if (current == nullptr) {
           polylines.emplace_back();
           current = &polylines.back();
@@ -4023,8 +4092,14 @@ enum class stroke_contour_usage { query, solid_outline, dashed_outline };
             has_path_segment_flag(edge.flags, path_segment::force_round_line_join))) {
           current->round_joins.back() = 1U;
         }
-        current->points.push_back(edge.end);
-        current->round_joins.push_back(0U);
+        // Keep one anchor for a point run; compact only its constant edges.
+        // Incoming joins accumulate on that anchor until a moving edge arrives.
+        // Leading/trailing constants still own the source endpoint, while an
+        // unstroked constant above is a real gap and resets that eligibility.
+        if (!same_point(edge.start, edge.end)) {
+          current->points.push_back(edge.end);
+          current->round_joins.push_back(0U);
+        }
         current->ends_at_figure_end =
             !source_closed && edge_index + 1U == figure_edges.size();
         previous_segment = edge.segment_index;
@@ -4038,7 +4113,7 @@ enum class stroke_contour_usage { query, solid_outline, dashed_outline };
         if (!prepare_closed_stroke_contour(polyline, usage)) {
           return not_implemented;
         }
-      } else if (polyline.points.size() < 2U ||
+      } else if (polyline.points.empty() ||
                  polyline.round_joins.size() != polyline.points.size()) {
         return not_implemented;
       }
@@ -5779,19 +5854,42 @@ public:
             }
             bool has_bounds = false;
             for (const flat_polyline& polyline : polylines) {
-                const cap_style run_start_cap =
+                cap_style run_start_cap =
                     polyline.starts_at_figure_start || polyline.closed
                     ? start_cap
                     : style != nullptr
                         ? style->GetDashCap()
                         : cap_style::flat;
-                const cap_style run_end_cap =
+                cap_style run_end_cap =
                     polyline.ends_at_figure_end || polyline.closed
                     ? end_cap
                     : style != nullptr
                         ? style->GetDashCap()
                         : cap_style::flat;
                 rectangle_f figure_bounds{};
+                if (polyline.points.size() == 1U) {
+                    bool visible = false;
+                    com::result result = resolve_point_stroke_caps(style, polyline.closed,
+                        run_start_cap, run_end_cap, visible);
+                    if (com::failed(result)) return result;
+                    if (!visible || stroke_width == 0.0F ||
+                        (run_start_cap == cap_style::flat && run_end_cap == cap_style::flat)) continue;
+                    std::vector<widened_outline> outlines;
+                    result = prepare_point_stroke_widen(polyline.points.front(), stroke_width,
+                        run_start_cap, run_end_cap, world_transform, outlines);
+                    if (com::failed(result)) return result;
+                    com::pointer<widened_bounds_sink> collector;
+                    collector.attach(new (std::nothrow) widened_bounds_sink());
+                    if (!collector) return com::out_of_memory;
+                    replay_widened_outlines(outlines, *collector.get());
+                    result = collector->Close();
+                    if (com::failed(result)) return result;
+                    figure_bounds = collector->bounds();
+                    if (!has_bounds) { *bounds = figure_bounds; has_bounds = true; }
+                    else *bounds = {std::min(bounds->left, figure_bounds.left), std::min(bounds->top, figure_bounds.top),
+                        std::max(bounds->right, figure_bounds.right), std::max(bounds->bottom, figure_bounds.bottom)};
+                    continue;
+                }
                 const com::result figure_status =
                     dashed && stroke_width != 0.0F
                     ? dashed_polyline_widened_bounds(
@@ -5909,18 +6007,30 @@ public:
                 return polyline_status;
             }
             for (const flat_polyline& polyline : polylines) {
-                const cap_style run_start_cap =
+                cap_style run_start_cap =
                     polyline.starts_at_figure_start || polyline.closed
                     ? start_cap
                     : style != nullptr
                         ? style->GetDashCap()
                         : cap_style::flat;
-                const cap_style run_end_cap =
+                cap_style run_end_cap =
                     polyline.ends_at_figure_end || polyline.closed
                     ? end_cap
                     : style != nullptr
                         ? style->GetDashCap()
                         : cap_style::flat;
+                if (polyline.points.size() == 1U) {
+                    bool visible = false;
+                    const com::result result = resolve_point_stroke_caps(style, polyline.closed,
+                        run_start_cap, run_end_cap, visible);
+                    if (com::failed(result)) return result;
+                    if (visible && point_stroke_contains(polyline.points.front(), local_point,
+                            half_width, run_start_cap, run_end_cap)) {
+                        *contains = 1;
+                        return com::ok;
+                    }
+                    continue;
+                }
                 if (dashed) {
                     std::int32_t figure_contains = 0;
                     const com::result figure_status = polyline.closed
@@ -7208,19 +7318,29 @@ public:
             const double half_width =
                 static_cast<double>(stroke_width) * 0.5;
             for (flat_polyline& polyline : polylines) {
-                const cap_style run_start_cap =
+                cap_style run_start_cap =
                     polyline.starts_at_figure_start || polyline.closed
                     ? start_cap
                     : style != nullptr
                         ? style->GetDashCap()
                         : cap_style::flat;
-                const cap_style run_end_cap =
+                cap_style run_end_cap =
                     polyline.ends_at_figure_end || polyline.closed
                     ? end_cap
                     : style != nullptr
                         ? style->GetDashCap()
                         : cap_style::flat;
                 const std::size_t first_outline = outlines.size();
+                if (polyline.points.size() == 1U) {
+                    bool visible = false;
+                    com::result result = resolve_point_stroke_caps(style, polyline.closed,
+                        run_start_cap, run_end_cap, visible);
+                    if (com::failed(result)) return result;
+                    if (visible) result = prepare_point_stroke_widen(polyline.points.front(), stroke_width,
+                        run_start_cap, run_end_cap, world_transform, outlines);
+                    if (com::failed(result)) return result;
+                    continue;
+                }
                 const auto compound_widen = [&]() {
                     return dashed ? prepare_joined_dashed_widen(polyline.points, polyline.round_joins,
                         polyline.closed, stroke_width, *style, run_start_cap, run_end_cap,
@@ -7764,11 +7884,6 @@ com::result create_native_query_geometry(factory* owner,
         for (std::size_t index = figure.first_segment; index < figure.first_segment + figure.segment_count; ++index) {
             const auto& segment = segments[index];
             if (flags[index] > 3U || !same_point(current, {segment.p0.x, segment.p0.y})) return com::invalid_argument;
-            // The query polyline builder discards constant edges. Do not lose
-            // point caps or endpoint eligibility through a successful empty hit.
-            // Reuse the same intrinsic classifier as MIL stroke preparation.
-            if ((flags[index] & 1U) != 0U && semantic_path_stroke::is_constant_segment(segment))
-                return not_implemented;
             const auto state = static_cast<path_segment>(
                 ((flags[index] & 1U) == 0U ? static_cast<std::uint32_t>(path_segment::force_unstroked) : 0U) |
                 ((flags[index] & 2U) != 0U ? static_cast<std::uint32_t>(path_segment::force_round_line_join) : 0U));
