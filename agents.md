@@ -225,6 +225,10 @@ client-size policy; never infer that choice from OS names or framebuffer ratios.
 Legacy popup device transport must be decoded to desktop units before applying
 the inverse owner-client mapping. Native input uses desktop vectors without
 subtracting monitor origins; native surfaces retain their independent client scale.
+Native-popup position-transport scale and framebuffer scale have separate owners.
+Owner-DPI notifications may update legacy coordinate decoding, not a separately
+surfaced popup's raster DPI. Only its own host geometry callbacks replace that
+initial source seed; composited owner-surface popups continue inheriting owner DPI.
 Synchronous WPF geometry utilities must use ProGPU-owned actual topology, not
 bounding-box substitutes. `NativeGeometryUtilities` exposes the shared C++
 Direct2D boundary algorithm without a device or native COM activation; preserve

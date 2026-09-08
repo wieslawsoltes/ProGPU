@@ -181,16 +181,51 @@ shader, C wire layout or C++ renderer algorithm changes apply. Fixtures cover th
 explicit policy, negative origins, fractional/unequal desktop scales, framebuffer
 changes, popup movement and local pointer routing. They are authored, not executed.
 
-Remaining core dependency: independent native-popup framebuffer ownership and
-owner-DPI notification ordering across monitor transitions. The native adapter
-still propagates owner framebuffer DPI into the popup host/source before its own
-surface geometry is resolved. This must be closed before Windows SDK admission;
-these changes do not claim mixed-monitor runtime, graphics or input parity.
+At this checkpoint the remaining core dependency was native-popup framebuffer
+ownership; the following connection removes those owner-driven writes. Neither
+checkpoint claims mixed-monitor runtime, graphics or input parity.
 
 Compile-only checkpoint: ProGPU.Tests Release 0 warnings/0 errors; LibreWPF bridge
 fixtures 21/0; source-built application harness 4/0. No tests, source verifiers,
 GPU/VM workloads, benchmarks or CI qualification executed. ProGPU's branch
 contains the latest fetched `origin/main` (zero upstream commits missing).
+
+## Independent native-popup framebuffer ownership
+
+The same MVP/Toolkit menu action exposed two source-backed overwrite paths:
+`WpfPortablePopupBridge.TrySetOwnerGeometry` wrote the popup source DPI directly,
+then the native adapter also forwarded owner DPI to its own host/source. This
+could replace independently resolved popup framebuffer geometry with owner scale.
+
+The adapter now accepts `SetOwnerTransportScale`, a position-decoding update only.
+Its fields explicitly name owner transport scale; `SetPosition` continues decoding
+legacy device coordinates before passing raw desktop positions to the native host.
+The popup bridge calls that setter for native popups and updates source DPI only
+for owner-surface popups. Native popup creation seeds source DPI once; the popup's
+own native host callbacks own subsequent framebuffer geometry. Parent-first
+scale/position publication and the single settled native move remain intact.
+
+This is LibreWPF host ownership integration over the existing ProGPU desktop
+contract, not a new renderer algorithm. Both managed and C++ renderers use the
+same host code; no C++ scene, shader, wire record or fallback change applies.
+The operation remains O(1) state assignment, with no new allocation, crossing,
+resource recreation, readback or per-frame work. Original in-repository host code
+is the implementation provenance; no third-party implementation was used.
+
+Authored fixtures extend the existing nested single-move cases with different
+native parent/child framebuffer scales, and cover the actual hidden adapter's
+transport setter while preserving its source DPI and desktop scale. These tests
+are compiled only, not executed. End-to-end mixed-monitor checks remain mandatory.
+
+Next Windows blocker: the portable native-popup factory still rejects Windows,
+and the LibreWPF decoration adapter has no Win32 popup-owner branch. Reuse the
+existing ProGPU Win32 platform primitives to connect owned nonactivating windows;
+do not remove the Windows SDK guard based on source/host compilation alone.
+
+Compile-only checkpoint: LibreWPF bridge fixtures 116 warnings/0 errors initially,
+20/0 on the final rebuild; source-built application harness 4/0. No tests, source
+verifiers, applications, VM/GPU workloads, benchmarks or CI qualification ran.
+The latest fetched ProGPU `origin/main` remains contained (zero missing commits).
 
 ## Placement selection coverage
 
