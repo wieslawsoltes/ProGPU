@@ -4,8 +4,9 @@
 
 LibreWPF's MVP contains a FlowDocumentScrollViewer with a heading, Hyperlink and
 list, plus FlowDocumentReader and FlowDocumentPageViewer. Its portable
-`FlowDocumentView` currently returns empty layout. This checkpoint implements
-the reusable placement layer, **not the finished viewer**.
+`FlowDocumentView` now consumes this reusable placement layer and the retained
+paragraph pipeline. Scroll-view implementation is connected, **not runtime-qualified**;
+the MVP's symbol-marker fonts and paginated viewer remain open dependencies.
 
 `NativeDocumentFlow.ResolveWidths` resolves constraints for a source-owned preorder
 block tree. The caller formats actual paragraphs using the existing retained native
@@ -17,10 +18,45 @@ The neutral `IPortableDocumentFlow` contract has a zero-copy LibreWPF adapter.
 Native SDK pre-host initialization, portable activation and direct-host startup
 install a lazy default. Explicit overrides retain priority and disposal restores
 the default. Registration performs no native loading, font work or GPU creation.
-The source-owned block/paragraph formatter and invalidation lifecycle now exist
-(checkpoint below). The actual FlowDocumentView visual/content consumer, text-view
-interaction and scroll integration remain unconnected. Pagination and Windows SDK
-admission remain separate open blockers.
+The source-owned block/paragraph formatter, invalidation lifecycle and actual
+FlowDocumentView drawing/content/text-view/scroll consumer now exist (checkpoints
+below). Pagination and Windows SDK admission remain separate open blockers.
+
+## Source scroll-view connection
+
+LibreWPF's actual FlowDocumentView selects portable ownership before PTS access on
+every OS. A real source DrawingVisual/IContentHost draws the live TextLines,
+numbered markers, block backgrounds and border rings. Native MIL receives normal
+typed source render data; there is no fake TextBlock tree or second composer.
+The source ITextView uses those same lines and original TextContainer pointers for
+content hits, selection, caret bounds, line/page navigation and bring-into-view.
+Page navigation here means scroll-viewport movement, not document pagination.
+
+Native line positions drive logarithmic line lookup. Scrolling retains the layout
+and drawing generation and applies a visual translation plus document-local clip;
+viewport text queries translate once, whereas IContentHost rectangles remain in
+document coordinates. Source edits reformat and replace the owned generation.
+Layout invalidation, suspension and document replacement invalidate interaction;
+no disposed lines remain an eligible text view. Published GlyphRuns are not
+rewritten for hit testing. Equivalent trailing caret affinities now use native
+logical boundaries rather than CharacterHit object equality, preserving source
+hidden edges and rejecting positions inside shaped clusters.
+
+Lazy paragraph defaults are registered by portable activation and direct managed
+hosts as well as native SDK pre-host initialization. Both renderer modes therefore
+share the source document path, without changing explicit-provider priority or
+the Windows SDK admission guard. Per-generation source traversal/drawing is
+ordered object work, not an additional pixel/compute fallback; this checkpoint
+does not claim incremental document layout, viewport virtualization or speedups.
+
+Authored source fixtures cover scrolling without reformat, real glyph drawing,
+Hyperlink content ownership, selection coordinates, trailing caret affinities,
+line/viewport navigation, edit replacement, suspension and detachment. Deterministic
+fixture providers are source-contract checks, not native typography or image
+oracles. Source fixture and host graphs compile; execution remains deferred to
+feature freeze. Required symbol faces, page formatting, exhausted zero-width
+wrapping, indentation/hyphenation, unsupported document objects and Windows SDK
+admission remain explicit. No application/package/VM/GPU/CI pass is claimed.
 
 ## Source formatter checkpoint — not viewer activation
 
@@ -61,8 +97,8 @@ block-property transport, numbered markers, generation reuse, edit invalidation,
 failure state and caught reentrancy. Their deterministic providers test source
 consumption only, not native shaping or block-layout correctness. Source production
 and fixture graphs compile; no tests, verifiers, apps, VM/GPU, benchmarks or CI ran.
-Next connect this formatter to the actual viewer visual/IContentHost/ITextView and
-IScrollInfo path; do not add another optional formatter family before doing so.
+That historical formatter-only checkpoint is superseded by the scroll-view
+connection above; it does not itself qualify application rendering.
 
 ## Contract and implementation
 
