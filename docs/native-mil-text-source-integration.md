@@ -20,6 +20,11 @@ source-run styling and actual end-of-paragraph semantics.
 
 ## Styled source TextLine connection — current implementation
 
+Standard run underlines now consume existing native range geometry and typed
+rectangle/guideline replay; see [underline connection and limits](native-mil-standard-underlines.md).
+Historical decoration gaps below remain applicable to the unsupported variants,
+not to this newly connected standard TextBlock/Hyperlink path.
+
 Intrinsic min/max widths and WrapWithOverflow now use the shared native configured
 flow API; see [core measurement and wrapping](native-mil-intrinsic-text.md) for
 the algorithm, application connection and unexecuted qualification coverage.
