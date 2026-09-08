@@ -30,6 +30,12 @@ semantic_content_hashes compute_content_hashes(
     const std::byte* bytes,
     const progpu_native_scene_header& header) noexcept;
 
+// Device-dependent identity; preserve the established full/uniform fast path.
+// Logical resource, brush and text-style identities remain unchanged.
+std::uint64_t presentation_content_hash(std::uint64_t content_hash,
+    const progpu_native_scene_frame& frame,
+    const progpu_native_scene_presentation& presentation) noexcept;
+
 // Exact, alignment-safe SIMD comparison; scalar tail only on supported ISAs.
 bool scene_bytes_equal(std::span<const std::byte> left, std::span<const std::byte> right) noexcept;
 

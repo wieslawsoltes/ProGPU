@@ -247,6 +247,19 @@ scissor resolve_semantic_target_scissor(
     std::uint32_t frame_height,
     float dpi_scale) noexcept;
 
+scissor resolve_semantic_target_scissor(const progpu_native_scene_state& state,
+    const scissor& target, std::uint32_t frame_width, std::uint32_t frame_height,
+    const progpu_native_scene_presentation& presentation) noexcept;
+
+// The final family projection multiplies this coordinate basis by raster_dpi
+// exactly once. Clip and guideline metadata stay logical and resolve separately.
+progpu_native_scene_state localize_semantic_state(progpu_native_scene_state state,
+    const scissor& target, const progpu_native_scene_presentation& presentation,
+    float raster_dpi) noexcept;
+
+void localize_semantic_point(float& x, float& y, const scissor& target,
+    const progpu_native_scene_presentation& presentation, float raster_dpi) noexcept;
+
 progpu_native_scene_state localize_semantic_state(
     progpu_native_scene_state state,
     const scissor& target,

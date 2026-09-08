@@ -59,11 +59,34 @@ O(1). Storage is fixed O(maximum materialized depth); there is no per-layer heap
 allocation or backwards scan. All seven render/preflight/budget layer cursors and
 six state cursors consume the normalized frame presentation record.
 
-This still does **not** enable advanced frame rendering. Geometry projection,
-target localization, masks/effects, raster scale/phase and cache keys must be
-completed together before the existing unsupported guard is removed. In
-particular, callers of target-local scissor/state helpers still use the legacy
-uniform paths and need the current layer domain during the next integration step.
+This still does **not** enable advanced frame rendering. Remaining projection,
+mask/effect, raster scale/phase and cache consumers must be completed together
+before the existing unsupported guard is removed.
+
+Geometry/cache checkpoint: preflight and analytic/vector/path/glyph/image
+preparation now map their logical transforms through the current layer's
+presentation domain. The mapping retains independent ratios to the family's
+existing raster-DPI basis; its final projection applies that basis once. It is
+not an average DPI or a stretched intermediate. Per-point path guidelines resolve
+in logical coordinates before points enter that same mapping. Transform
+coefficients and paired point mapping reuse the intrinsic lane helper. Physical
+origin differences are computed before float narrowing, retaining small local
+offsets between large nearby unsigned origins. Equal-axis, zero-origin calls
+retain the original localization arithmetic.
+
+Draw and composite rectangle-scissor calls now use the current layer domain and
+localize their physical intersection to the target. Logical clip/guideline
+metadata is deliberately not rewritten along with the draw transform. This
+separation is necessary for nested cache pages and exact mask consumers.
+
+Analytic, path, glyph and image compiled-page identities, path/glyph upload
+identities and the render-bundle identity now include all six viewport/axis
+fields when presentation differs from the legacy full/uniform mapping. Legacy
+hashes are preserved. The fixed 24-byte identity chain is O(1), allocation-free
+and sequentially dependent; it is not a SIMD-eligible whole-buffer workload.
+Brushes, text styles, logical resource snapshots and decoded color-glyph bitmap
+atlas identities remain independent of device placement. Layer/effect/picture
+and 3D identity consumers still need their own integration audit.
 
 | Consumer | Required implementation before enabling host support |
 | --- | --- |
@@ -101,6 +124,15 @@ separate. Managed Compositor also retains explicit viewport metadata. Neither
 managed algorithm is replaced by this native decoding fix. Source representations
 and rounding paths are not identical, so this applicability finding does not
 claim managed/native output parity; common-scene differentials remain mandatory.
+
+Geometry/localization and presentation identity work derives from original
+ProGPU `9080525c`: localize_semantic_state, semantic draw-family preparation,
+per-point path deformation, SIMD edge mapping and content-hash/cache code.
+Managed Compositor's viewport/DPI cache fields are the applicability reference;
+its representation is not replaced by native semantic wire interpretation.
+No new CPU rasterizer, shader, shaping pass, image copy or per-item native call is
+introduced. Glyph-basis/raster quality and mask/composite coordinates remain
+explicit pending output-qualification requirements.
 
 ## Primary research and design decisions
 
@@ -142,6 +174,17 @@ oracle, viewport clipping, independent cache dimensions, nested local-page
 isolation beyond root dimensions and mapping restoration. Both the production
 semantic-state translation unit and the internal fixture translation unit compile
 with Apple Clang C++20 and warnings-as-errors. This is compilation, not execution.
+
+Additional authored fixtures compare affine and point localization against an
+independent scalar device-coordinate formula, preserve logical clip metadata,
+check bit-identical legacy localization, cover large nearby physical origins,
+and vary each presentation identity field independently. The main semantic
+render-execution translation unit also compiles with Apple Clang C++20 `-O2`
+and warnings-as-errors using the exact header pins from
+`eng/build-progpu-native.sh`: wgpu-native `33133da4ec5a0174cb21539ef2d3346f75200411`
+and webgpu-headers `aef5e428a1fdab2ea770581ae7c95d8779984e0a`. Headers are external
+build inputs in temporary storage, not copied into product implementation.
+This does not qualify a fully linked renderer/provider, another ISA or runtime.
 
 Compilation checkpoints are recorded in the PR. Full renderer/provider builds,
 all tests/verifiers, macOS/Linux and Windows Parallels runs, text/clip/image

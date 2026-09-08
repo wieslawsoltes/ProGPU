@@ -3,6 +3,7 @@
 #include "progpu_native_draw_state.hpp"
 
 #include <array>
+#include <bit>
 #include <cstring>
 #if defined(__aarch64__) || defined(_M_ARM64)
 #include <arm_neon.h>
@@ -13,6 +14,22 @@
 #endif
 
 namespace progpu::native::semantic {
+std::uint64_t presentation_content_hash(std::uint64_t content_hash,
+    const progpu_native_scene_frame& frame,
+    const progpu_native_scene_presentation& presentation) noexcept {
+    if (presentation.viewport_x == 0U && presentation.viewport_y == 0U &&
+        presentation.viewport_width == frame.width && presentation.viewport_height == frame.height &&
+        presentation.dpi_scale_x == frame.dpi_scale && presentation.dpi_scale_y == frame.dpi_scale)
+        return content_hash;
+    // Fixed 24-byte FNV dependency chain, not an independent-lane pixel loop.
+    const std::array identity{presentation.viewport_x, presentation.viewport_y,
+        presentation.viewport_width, presentation.viewport_height,
+        std::bit_cast<std::uint32_t>(presentation.dpi_scale_x),
+        std::bit_cast<std::uint32_t>(presentation.dpi_scale_y)};
+    const auto hash = append_fnv1a64(content_hash, identity.data(), sizeof(identity));
+    return hash == 0U ? 1U : hash;
+}
+
 bool scene_bytes_equal(std::span<const std::byte> left, std::span<const std::byte> right) noexcept {
     if (left.size() != right.size()) return false;
     std::size_t offset = 0U;

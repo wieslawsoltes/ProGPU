@@ -603,6 +603,7 @@ progpu_native_status render_scene(
         const auto state = localize_semantic_state(
             preflight_state_cursor.advance(command),
             target_extent,
+            preflight_target_cursor.current_presentation(),
             frame->dpi_scale);
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE) {
@@ -1747,7 +1748,11 @@ progpu_native_status render_scene(
         }
     }
 
-    auto semantic_bundle_replay_hash = engine->semantic_scene_hash;
+    const auto analytic_replay_hash = semantic::presentation_content_hash(engine->semantic_hashes.analytic, *frame, presentation);
+    const auto path_replay_hash = semantic::presentation_content_hash(engine->semantic_hashes.path, *frame, presentation);
+    const auto glyph_replay_hash = semantic::presentation_content_hash(engine->semantic_hashes.glyph, *frame, presentation);
+    const auto image_replay_hash = semantic::presentation_content_hash(engine->semantic_hashes.image, *frame, presentation);
+    auto semantic_bundle_replay_hash = semantic::presentation_content_hash(engine->semantic_scene_hash, *frame, presentation);
     semantic_bundle_replay_hash = append_fnv1a64(
         semantic_bundle_replay_hash,
         &semantic_partial_damage_active,
@@ -1772,10 +1777,10 @@ progpu_native_status render_scene(
         engine->semantic_render_bundle_height == frame->height &&
         (semantic_path_draw_count == 0U ||
             engine->semantic_path_gpu_scene_hash ==
-                engine->semantic_hashes.path) &&
+                path_replay_hash) &&
         (semantic_glyph_draw_count == 0U ||
             engine->semantic_glyph_gpu_scene_hash ==
-                engine->semantic_hashes.glyph);
+                glyph_replay_hash);
     if (!semantic_render_bundle_hit) {
         engine->release_semantic_render_bundle();
     }
@@ -1787,7 +1792,7 @@ progpu_native_status render_scene(
         semantic_analytic_draw_count != 0U &&
         semantic_analytic_page.cache_valid &&
         semantic_analytic_page.scene_hash ==
-            engine->semantic_hashes.analytic &&
+            analytic_replay_hash &&
         semantic_analytic_page.dpi_scale == frame->dpi_scale &&
         semantic_analytic_page.target_width == frame->width &&
         semantic_analytic_page.target_height == frame->height &&
@@ -1824,6 +1829,7 @@ progpu_native_status render_scene(
                 const auto state = localize_semantic_state(
                     state_cursor.advance(command),
                     target_extent,
+                    target_cursor.current_presentation(),
                     frame->dpi_scale);
                 if (command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
@@ -2163,7 +2169,7 @@ progpu_native_status render_scene(
         semantic_analytic_page.vertex_bytes = compiled_vertex_bytes;
         semantic_analytic_page.index_bytes = compiled_index_bytes;
         semantic_analytic_page.scene_hash =
-            engine->semantic_hashes.analytic;
+            analytic_replay_hash;
         semantic_analytic_page.dpi_scale = frame->dpi_scale;
         semantic_analytic_page.target_width = frame->width;
         semantic_analytic_page.target_height = frame->height;
@@ -2176,7 +2182,7 @@ progpu_native_status render_scene(
     const bool semantic_path_page_hit =
         semantic_path_draw_count != 0U &&
         semantic_path_page.cache_valid &&
-        semantic_path_page.scene_hash == engine->semantic_hashes.path &&
+        semantic_path_page.scene_hash == path_replay_hash &&
         semantic_path_page.dpi_scale == frame->dpi_scale &&
         semantic_path_page.target_width == frame->width &&
         semantic_path_page.target_height == frame->height &&
@@ -2217,6 +2223,7 @@ progpu_native_status render_scene(
                 const auto state = localize_semantic_state(
                     target_state,
                     target_extent,
+                    target_cursor.current_presentation(),
                     frame->dpi_scale);
                 if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
                     continue;
@@ -2305,12 +2312,7 @@ progpu_native_status render_scene(
                         const auto transform = compose_affine(
                             path.transform,
                             target_state.transform);
-                        const float target_offset_x =
-                            static_cast<float>(target_extent.x) /
-                                frame->dpi_scale;
-                        const float target_offset_y =
-                            static_cast<float>(target_extent.y) /
-                                frame->dpi_scale;
+                        const auto target_presentation = target_cursor.current_presentation();
                         float min_x =
                             std::numeric_limits<float>::infinity();
                         float min_y =
@@ -2330,8 +2332,8 @@ progpu_native_status render_scene(
                                 target_state,
                                 point.x,
                                 point.y);
-                            point.x -= target_offset_x;
-                            point.y -= target_offset_y;
+                            semantic::localize_semantic_point(point.x, point.y, target_extent,
+                                target_presentation, frame->dpi_scale);
                             min_x = std::min(min_x, point.x);
                             min_y = std::min(min_y, point.y);
                             max_x = std::max(max_x, point.x);
@@ -2398,7 +2400,7 @@ progpu_native_status render_scene(
         semantic_path_page.brush_indices =
             std::move(compiled_brush_indices);
         semantic_path_page.draws = std::move(compiled_draws);
-        semantic_path_page.scene_hash = engine->semantic_hashes.path;
+        semantic_path_page.scene_hash = path_replay_hash;
         semantic_path_page.dpi_scale = frame->dpi_scale;
         semantic_path_page.target_width = frame->width;
         semantic_path_page.target_height = frame->height;
@@ -2408,7 +2410,7 @@ progpu_native_status render_scene(
 
     if (semantic_path_draw_count != 0U &&
         engine->semantic_path_gpu_scene_hash !=
-            engine->semantic_hashes.path) {
+            path_replay_hash) {
         engine->path_cache_valid = false;
         engine->path_gpu_cache_valid = false;
     }
@@ -2417,7 +2419,7 @@ progpu_native_status render_scene(
     const bool semantic_glyph_page_hit =
         semantic_glyph_draw_count != 0U &&
         semantic_glyph_page.cache_valid &&
-        semantic_glyph_page.scene_hash == engine->semantic_hashes.glyph &&
+        semantic_glyph_page.scene_hash == glyph_replay_hash &&
         semantic_glyph_page.dpi_scale == frame->dpi_scale &&
         semantic_glyph_page.target_width == frame->width &&
         semantic_glyph_page.target_height == frame->height &&
@@ -2478,6 +2480,7 @@ progpu_native_status render_scene(
                 const auto state = localize_semantic_state(
                     state_cursor.advance(command),
                     target_extent,
+                    target_cursor.current_presentation(),
                     frame->dpi_scale);
                 if (command.kind !=
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
@@ -2654,7 +2657,7 @@ progpu_native_status render_scene(
             std::move(compiled_color_bitmap_indices);
         semantic_glyph_page.color_rasters.clear();
         semantic_glyph_page.draws = std::move(compiled_draws);
-        semantic_glyph_page.scene_hash = engine->semantic_hashes.glyph;
+        semantic_glyph_page.scene_hash = glyph_replay_hash;
         semantic_glyph_page.dpi_scale = frame->dpi_scale;
         semantic_glyph_page.target_width = frame->width;
         semantic_glyph_page.target_height = frame->height;
@@ -2664,7 +2667,7 @@ progpu_native_status render_scene(
 
     if (semantic_glyph_draw_count != 0U &&
         engine->semantic_glyph_gpu_scene_hash !=
-            engine->semantic_hashes.glyph) {
+            glyph_replay_hash) {
         engine->glyph_cache_valid = false;
         engine->glyph_gpu_cache_valid = false;
     }
@@ -2690,7 +2693,7 @@ progpu_native_status render_scene(
     const bool semantic_image_page_hit =
         semantic_image_draw_count != 0U &&
         semantic_image_page.cache_valid &&
-        semantic_image_page.scene_hash == engine->semantic_hashes.image &&
+        semantic_image_page.scene_hash == image_replay_hash &&
         semantic_image_page.dpi_scale == frame->dpi_scale &&
         semantic_image_page.target_width == frame->width &&
         semantic_image_page.target_height == frame->height &&
@@ -2778,6 +2781,7 @@ progpu_native_status render_scene(
                 const auto state = localize_semantic_state(
                     state_cursor.advance(command),
                     target_extent,
+                    target_cursor.current_presentation(),
                     frame->dpi_scale);
                 if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
                     continue;
@@ -3207,7 +3211,7 @@ progpu_native_status render_scene(
         compiled_vertex_buffer = nullptr;
         semantic_image_page.vertex_bytes = vertex_bytes;
         semantic_image_page.draws = std::move(compiled_draws);
-        semantic_image_page.scene_hash = engine->semantic_hashes.image;
+        semantic_image_page.scene_hash = image_replay_hash;
         semantic_image_page.dpi_scale = frame->dpi_scale;
         semantic_image_page.target_width = frame->width;
         semantic_image_page.target_height = frame->height;
@@ -3340,7 +3344,7 @@ progpu_native_status render_scene(
 
     if (semantic_path_draw_count != 0U &&
         (engine->semantic_path_gpu_scene_hash !=
-                engine->semantic_hashes.path ||
+                path_replay_hash ||
             !engine->path_cache_valid ||
             !engine->path_gpu_cache_valid)) {
         progpu_native_path_frame family{};
@@ -3441,7 +3445,7 @@ progpu_native_status render_scene(
         family.segment_count = semantic_path_page.segments.size();
         family.flags =
             PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
-        family.content_revision = revision32(engine->semantic_hashes.path);
+        family.content_revision = revision32(path_replay_hash);
         progpu_native_path_frame_metrics family_metrics{};
         family_metrics.struct_size = sizeof(family_metrics);
         engine->semantic_prepare_only = true;
@@ -3463,12 +3467,12 @@ progpu_native_status render_scene(
             return status;
         }
         engine->semantic_path_gpu_scene_hash =
-            engine->semantic_hashes.path;
+            path_replay_hash;
     }
 
     if (semantic_glyph_draw_count != 0U &&
         (engine->semantic_glyph_gpu_scene_hash !=
-                engine->semantic_hashes.glyph ||
+                glyph_replay_hash ||
             !engine->glyph_cache_valid ||
             !engine->glyph_gpu_cache_valid)) {
         progpu_native_glyph_frame family{};
@@ -3534,7 +3538,7 @@ progpu_native_status render_scene(
         family.glyph_count = semantic_glyph_page.glyphs.size();
         family.flags =
             PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
-        family.content_revision = revision32(engine->semantic_hashes.glyph);
+        family.content_revision = revision32(glyph_replay_hash);
         progpu_native_glyph_frame_metrics family_metrics{};
         family_metrics.struct_size = sizeof(family_metrics);
         engine->semantic_prepare_only = true;
@@ -3554,7 +3558,7 @@ progpu_native_status render_scene(
             return status;
         }
         engine->semantic_glyph_gpu_scene_hash =
-            engine->semantic_hashes.glyph;
+            glyph_replay_hash;
     }
 
     if (semantic_has_masked_glyphs &&
@@ -4283,7 +4287,7 @@ progpu_native_status render_scene(
                                     target_extent,
                                     frame->width,
                                     frame->height,
-                                    frame->dpi_scale);
+                                    target_cursor.current_presentation());
                             composite_drawable = composite_scissor.drawable;
                         }
                     }
@@ -4578,7 +4582,7 @@ progpu_native_status render_scene(
                 target_extent,
                 frame->width,
                 frame->height,
-                frame->dpi_scale);
+                target_cursor.current_presentation());
             if (semantic_partial_damage_active &&
                 current_target_layer == PROGPU_NATIVE_SCENE_NO_INDEX) {
                 scissor = intersect_semantic_scissors(

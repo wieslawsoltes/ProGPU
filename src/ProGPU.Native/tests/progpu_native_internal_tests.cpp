@@ -17,6 +17,7 @@
 #include "progpu_native_semantic_draw_merge.hpp"
 #include "progpu_native_scene_builder_tests.hpp"
 #include "progpu_native_semantic_state.hpp"
+#include "progpu_native_semantic_identity.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_native_semantic_validation.hpp"
 #include "progpu_native_webgpu_synchronization.hpp"
@@ -1268,6 +1269,76 @@ void semantic_presentation_layers_keep_independent_device_domains() {
     require(cursor.current_presentation().viewport_x == 13U);
 }
 
+void semantic_presentation_geometry_maps_once_into_target_space() {
+    using namespace progpu::native::semantic;
+    const progpu_native_scene_presentation presentation{
+        sizeof(presentation), 13U, 17U, 100U, 80U, 2.0F, 3.0F, 0U};
+    const scissor target{21U, 32U, 40U, 30U, true};
+    auto state = semantic_identity_state();
+    state.transform = {2.0F, 0.5F, -0.25F, 1.5F, 4.0F, 5.0F};
+    state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+    state.clip_rect = {4.0F, 5.0F, 20.0F, 10.0F};
+    const auto localized = localize_semantic_state(state, target, presentation, 2.0F);
+    require(localized.transform.m11 == 2.0F && localized.transform.m12 == 0.75F);
+    require(localized.transform.m21 == -0.25F && localized.transform.m22 == 2.25F);
+    require(localized.transform.m31 == 0.0F && localized.transform.m32 == 0.0F);
+    require(std::memcmp(&localized.clip_rect, &state.clip_rect, sizeof(state.clip_rect)) == 0);
+    require(resolve_semantic_target_scissor(state, target, 200U, 160U, presentation) ==
+        scissor{0U, 0U, 40U, 30U, true});
+    for (const progpu_native_point point : {progpu_native_point{0.0F, 0.0F},
+             progpu_native_point{-2.5F, 3.25F}, progpu_native_point{20.0F, 10.0F}}) {
+        float logical_x = point.x * state.transform.m11 + point.y * state.transform.m21 + state.transform.m31;
+        float logical_y = point.x * state.transform.m12 + point.y * state.transform.m22 + state.transform.m32;
+        const float expected_x = (logical_x * 2.0F + 13.0F - 21.0F) / 2.0F;
+        const float expected_y = (logical_y * 3.0F + 17.0F - 32.0F) / 2.0F;
+        localize_semantic_point(logical_x, logical_y, target, presentation, 2.0F);
+        require(logical_x == expected_x && logical_y == expected_y);
+        float actual_x = 0.0F;
+        float actual_y = 0.0F;
+        progpu::native::transform_point(localized.transform, point.x, point.y, actual_x, actual_y);
+        require(actual_x == expected_x && actual_y == expected_y);
+    }
+    const progpu_native_scene_presentation uniform{sizeof(uniform), 0U, 0U, 200U, 160U, 2.0F, 2.0F, 0U};
+    const auto legacy = localize_semantic_state(state, target, 2.0F);
+    const auto compatible = localize_semantic_state(state, target, uniform, 2.0F);
+    require(std::memcmp(&legacy, &compatible, sizeof(legacy)) == 0);
+
+    auto large = presentation;
+    large.viewport_x = 16777217U;
+    large.viewport_y = 16777219U;
+    float x = 0.0F;
+    float y = 0.0F;
+    localize_semantic_point(x, y, {16777218U, 16777220U, 10U, 10U, true}, large, 2.0F);
+    require(x == -0.5F && y == -0.5F);
+}
+
+void semantic_presentation_identity_tracks_every_device_field() {
+    using progpu::native::semantic::presentation_content_hash;
+    progpu_native_scene_frame frame{};
+    frame.width = 200U;
+    frame.height = 160U;
+    frame.dpi_scale = 2.0F;
+    const progpu_native_scene_presentation uniform{sizeof(uniform), 0U, 0U, 200U, 160U, 2.0F, 2.0F, 0U};
+    require(presentation_content_hash(123U, frame, uniform) == 123U);
+    const progpu_native_scene_presentation mapped{sizeof(mapped), 13U, 17U, 100U, 80U, 2.0F, 3.0F, 0U};
+    const auto hash = presentation_content_hash(123U, frame, mapped);
+    require(hash != 123U);
+    require(hash == presentation_content_hash(123U, frame, mapped));
+    for (std::uint32_t field = 0U; field < 6U; ++field) {
+        auto changed = mapped;
+        switch (field) {
+        case 0U: ++changed.viewport_x; break;
+        case 1U: ++changed.viewport_y; break;
+        case 2U: ++changed.viewport_width; break;
+        case 3U: ++changed.viewport_height; break;
+        case 4U: changed.dpi_scale_x += 0.25F; break;
+        default: changed.dpi_scale_y += 0.25F; break;
+        }
+        require(hash != presentation_content_hash(123U, frame, changed));
+    }
+    require(hash != presentation_content_hash(124U, frame, mapped));
+}
+
 void semantic_static_guidelines_adjust_state_at_target_dpi() {
     std::array<std::byte, 512U> storage{};
     progpu_native_scene_header header{};
@@ -1646,6 +1717,8 @@ int main() {
     semantic_state_and_layer_cursors_restore_scopes();
     semantic_static_guidelines_adjust_state_at_target_dpi();
     semantic_presentation_layers_keep_independent_device_domains();
+    semantic_presentation_geometry_maps_once_into_target_space();
+    semantic_presentation_identity_tracks_every_device_field();
     semantic_payload_validation_is_bounded_and_cpu_only();
     draw_state_resolution_is_cpu_only_and_bounded();
     return 0;

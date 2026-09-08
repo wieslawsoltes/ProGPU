@@ -22,14 +22,8 @@ namespace {
 
 // Four independent clip-edge lanes; no FMA or reciprocal approximation.
 // O(1) fixed storage, unaligned-safe. Scalar is only the non-SIMD target path.
-std::array<float, 4U> presentation_clip_edges(const progpu_native_image_rect& clip,
-    const progpu_native_scene_presentation& presentation) noexcept {
-    const std::array coordinates{clip.x, clip.y, clip.x + clip.width, clip.y + clip.height};
-    const std::array scales{presentation.dpi_scale_x, presentation.dpi_scale_y,
-        presentation.dpi_scale_x, presentation.dpi_scale_y};
-    const std::array origins{static_cast<float>(presentation.viewport_x),
-        static_cast<float>(presentation.viewport_y), static_cast<float>(presentation.viewport_x),
-        static_cast<float>(presentation.viewport_y)};
+std::array<float, 4U> scale_translate_four(const std::array<float, 4U>& coordinates,
+    const std::array<float, 4U>& scales, const std::array<float, 4U>& origins) noexcept {
     std::array<float, 4U> result{};
 #if defined(__SSE2__) || defined(_M_X64)
     _mm_storeu_ps(result.data(), _mm_add_ps(
@@ -47,6 +41,15 @@ std::array<float, 4U> presentation_clip_edges(const progpu_native_image_rect& cl
         result[i] = coordinates[i] * scales[i] + origins[i];
 #endif
     return result;
+}
+
+std::array<float, 4U> presentation_clip_edges(const progpu_native_image_rect& clip,
+    const progpu_native_scene_presentation& presentation) noexcept {
+    return scale_translate_four({clip.x, clip.y, clip.x + clip.width, clip.y + clip.height},
+        {presentation.dpi_scale_x, presentation.dpi_scale_y,
+            presentation.dpi_scale_x, presentation.dpi_scale_y},
+        {static_cast<float>(presentation.viewport_x), static_cast<float>(presentation.viewport_y),
+            static_cast<float>(presentation.viewport_x), static_cast<float>(presentation.viewport_y)});
 }
 
 std::uint32_t target_domain_extent(std::uint32_t frame_extent,
@@ -694,6 +697,55 @@ progpu_native_scene_state localize_semantic_state(
     float dpi_scale) noexcept {
     state.transform.m31 -= static_cast<float>(target.x) / dpi_scale;
     state.transform.m32 -= static_cast<float>(target.y) / dpi_scale;
+    return state;
+}
+
+scissor resolve_semantic_target_scissor(const progpu_native_scene_state& state,
+    const scissor& target, std::uint32_t frame_width, std::uint32_t frame_height,
+    const progpu_native_scene_presentation& presentation) noexcept {
+    auto clipped = intersect_semantic_scissors(resolve_semantic_scissor(state,
+        target_domain_extent(frame_width, target.x, target.width),
+        target_domain_extent(frame_height, target.y, target.height), presentation), target);
+    if (!clipped.drawable) return {0U, 0U, 0U, 0U, false};
+    clipped.x -= target.x;
+    clipped.y -= target.y;
+    return clipped;
+}
+
+void localize_semantic_point(float& x, float& y, const scissor& target,
+    const progpu_native_scene_presentation& presentation, float raster_dpi) noexcept {
+    if (presentation.dpi_scale_x == raster_dpi && presentation.dpi_scale_y == raster_dpi &&
+        presentation.viewport_x == 0U && presentation.viewport_y == 0U) {
+        x -= static_cast<float>(target.x) / raster_dpi;
+        y -= static_cast<float>(target.y) / raster_dpi;
+        return;
+    }
+    // Subtract integer physical origins before narrowing, retaining small local
+    // displacements even when both origins exceed exact float integer range.
+    const float offset_x = static_cast<float>(static_cast<double>(presentation.viewport_x) - target.x) / raster_dpi;
+    const float offset_y = static_cast<float>(static_cast<double>(presentation.viewport_y) - target.y) / raster_dpi;
+    const auto mapped = scale_translate_four({x, y, 0.0F, 0.0F},
+        {presentation.dpi_scale_x / raster_dpi, presentation.dpi_scale_y / raster_dpi, 1.0F, 1.0F},
+        {offset_x, offset_y, 0.0F, 0.0F});
+    x = mapped[0];
+    y = mapped[1];
+}
+
+progpu_native_scene_state localize_semantic_state(progpu_native_scene_state state,
+    const scissor& target, const progpu_native_scene_presentation& presentation,
+    float raster_dpi) noexcept {
+    if (presentation.dpi_scale_x == raster_dpi && presentation.dpi_scale_y == raster_dpi &&
+        presentation.viewport_x == 0U && presentation.viewport_y == 0U)
+        return localize_semantic_state(state, target, raster_dpi);
+    const auto linear = scale_translate_four(
+        {state.transform.m11, state.transform.m12, state.transform.m21, state.transform.m22},
+        {presentation.dpi_scale_x / raster_dpi, presentation.dpi_scale_y / raster_dpi,
+            presentation.dpi_scale_x / raster_dpi, presentation.dpi_scale_y / raster_dpi}, {});
+    state.transform.m11 = linear[0];
+    state.transform.m12 = linear[1];
+    state.transform.m21 = linear[2];
+    state.transform.m22 = linear[3];
+    localize_semantic_point(state.transform.m31, state.transform.m32, target, presentation, raster_dpi);
     return state;
 }
 
