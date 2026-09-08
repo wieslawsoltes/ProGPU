@@ -16,3 +16,13 @@ public partial struct NativeTextFlowOptions
     public float TabOrigin;
     public uint Reserved;
 }
+
+// Native source: progpu_native_text_intrinsic_widths.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextIntrinsicWidths
+{
+    public uint StructSize;
+    public float Minimum;
+    public float Maximum;
+    public uint Reserved;
+}

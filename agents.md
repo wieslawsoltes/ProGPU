@@ -206,8 +206,11 @@ resources and must not initialize a GPU device or native font context. See
 Source text routing must honor that frozen media choice before simple-line or
 LineServices dispatch. A captured text service owns a request; retained paragraph
 continuations survive explicit-provider removal without reshaping or empty fallback.
-Intrinsic widths and optimal breaking need real shared native contracts, not a
-host-local full-line-width approximation. Keep these admission gaps explicit.
+Intrinsic widths use the shared native logical paragraph scan, not a host-local
+full-line-width approximation. Preserve whole-cluster trailing-space semantics,
+safe break opportunities, per-style scales and tab grids. Whole-word wrapping
+must not revert to emergency cluster splitting. See `docs/native-mil-intrinsic-text.md`.
+Optimal breaking and other remaining source contracts remain explicit gaps.
 Media transport must be selected
 before media objects or composition locks are acquired. Keep first-use selection
 immutable, reject late backend switches, and share the interop assembly between

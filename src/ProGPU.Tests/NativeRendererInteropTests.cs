@@ -16,11 +16,16 @@ public class NativeRendererInteropTests
     public void FlowParagraphContractsKeepPinnedOutputsAndContextLeases()
     {
         Assert.Equal(16, Unsafe.SizeOf<NativeTextFlowOptions>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeTextIntrinsicWidths>());
+        Assert.Equal(0U, (uint)NativeTextWrapping.Emergency);
+        Assert.Equal(1U, (uint)NativeTextWrapping.WholeWord);
+        Assert.Equal(8, Marshal.OffsetOf<NativeTextIntrinsicWidths>(nameof(NativeTextIntrinsicWidths.Maximum)).ToInt32());
         Assert.Equal(8, Marshal.OffsetOf<NativeTextFlowOptions>(nameof(NativeTextFlowOptions.TabOrigin)).ToInt32());
         string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend.Native", "NativeTextFlowParagraphInterop.cs"));
         Assert.Equal(2, source.Split("using var use = _owner.Acquire();").Length - 1);
         Assert.Contains("fixed (NativeTextParagraphRequirements* output = &requirements)", source, StringComparison.Ordinal);
         Assert.Contains("fixed (NativeTextParagraphResult* output = &result)", source, StringComparison.Ordinal);
+        Assert.Contains("fixed (NativeTextIntrinsicWidths* measured = &widths)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("ToArray()", source, StringComparison.Ordinal);
     }
 

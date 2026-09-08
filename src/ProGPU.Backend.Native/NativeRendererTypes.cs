@@ -108,6 +108,12 @@ public enum NativeTextTrimming : uint
     WordEllipsis = 2
 }
 
+public enum NativeTextWrapping : uint
+{
+    Emergency = 0,
+    WholeWord = 1
+}
+
 public enum NativeTextAlignment : uint
 {
     Left = 0,

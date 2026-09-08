@@ -91,13 +91,11 @@ reuse the existing portable source implementations; they are not a new Unicode
 algorithm or proof of classification parity. Portable context acquisition and
 optimal paragraph-cache creation reject before allocating native contexts.
 
-Intrinsic minimum/maximum paragraph measurement and forced optimal-break line
-reconstruction are not implemented by the current provider. They now reject
-explicitly instead of reporting a full formatted line as an intrinsic minimum or
-entering Windows LineServices. In particular, FormattedText.MinWidth and any core
-control that requests intrinsic paragraph widths remain application dependencies
-to close in ProGPU. Display hinting, trimming, embedded objects and the other
-document restrictions in the source-integration record remain open as well.
+Intrinsic minimum/maximum measurement and whole-word wrapping are now connected
+through the [shared native implementation](native-mil-intrinsic-text.md). Missing
+provider metrics still reject instead of reporting a formatted line as an intrinsic
+minimum. Forced optimal-break reconstruction, optimal paragraph caches, display
+hinting, trimming, embedded objects and the other source restrictions remain open.
 
 This change adapts the existing research decision—retain reusable shaped/layout
 results independently of rasterization—and does not change fonts, shaping,
@@ -109,7 +107,7 @@ No foreign code is imported and no speed claim is made.
 
 Authored fixtures cover public simple-Latin provider dispatch, provider errors/null
 results, cloned continuation after unregister/disposal, and explicit rejection of
-intrinsic widths/optimal contexts. These dispatch fixtures skip a Windows-MIL test
+missing intrinsic metrics/optimal contexts. These dispatch fixtures skip a Windows-MIL test
 process rather than mutating its frozen resource domain; explicit-portable Windows
 coverage belongs to the existing native application/VM gate. Source guards retain
 the Windows SDK admission barrier. All fixture execution remains deferred.

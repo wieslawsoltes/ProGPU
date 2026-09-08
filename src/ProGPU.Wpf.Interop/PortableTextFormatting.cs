@@ -9,6 +9,7 @@ public sealed class PortableTextFont(ReadOnlyMemory<byte> data, uint faceIndex, 
 }
 
 public enum PortableTextAlignment { Left, Center, Right, Justify }
+public enum PortableTextWrapping { Emergency, WholeWord }
 public readonly record struct PortableTextFeature(uint Tag, uint Value);
 
 /// <summary>
@@ -20,7 +21,10 @@ public readonly record struct PortableTextParagraphRequest(
     float LineHeight, float MaximumWidth, bool RightToLeft, PortableTextAlignment Alignment,
     ReadOnlyMemory<PortableTextFeature> Features = default,
     ReadOnlyMemory<PortableTextStyle> Styles = default,
-    float IncrementalTab = 0, float TabOrigin = 0);
+    float IncrementalTab = 0, float TabOrigin = 0, bool MeasureIntrinsicWidths = false,
+    PortableTextWrapping Wrapping = PortableTextWrapping.Emergency);
+
+public readonly record struct PortableTextIntrinsicWidths(float Minimum, float Maximum);
 
 public readonly record struct PortableTextStyle(int Start, int Length, PortableTextFont Font,
     float FontSize, ReadOnlyMemory<PortableTextFeature> Features = default, uint Language = 0);
@@ -34,6 +38,8 @@ public readonly record struct PortableTextHit(int Position, bool Trailing);
 /// <summary>Immutable owned layout output; no borrowed native handles survive formatting.</summary>
 public interface IPortableTextParagraph
 {
+    /// <summary>Optional native intrinsic widths, not the current formatted line's width.</summary>
+    PortableTextIntrinsicWidths? IntrinsicWidths => null;
     /// <summary>Opaque render-font annotation, as on PortableNativeGlyphRun; never inspected by source WPF.</summary>
     object? NativeFont => null;
     /// <summary>Exact context face annotation for each positioned glyph, not a family-name lookup.</summary>

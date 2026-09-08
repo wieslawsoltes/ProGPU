@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Text;
@@ -19,22 +20,28 @@ public sealed class NativeTextParagraphSnapshot
     public ReadOnlyMemory<sbyte> BidiLevels { get; }
     public ReadOnlyMemory<NativeTextClusterBox> Boxes { get; }
     public ReadOnlyMemory<NativeTextCaretStop> Carets { get; }
+    public NativeTextIntrinsicWidths? IntrinsicWidths { get; }
 
     private NativeTextParagraphSnapshot(NativePositionedTextGlyph[] glyphs,
         NativePositionedTextLine[] lines, int[] ends, sbyte[] levels,
-        ReadOnlyMemory<NativeTextClusterBox> boxes, ReadOnlyMemory<NativeTextCaretStop> carets)
+        ReadOnlyMemory<NativeTextClusterBox> boxes, ReadOnlyMemory<NativeTextCaretStop> carets,
+        NativeTextIntrinsicWidths? intrinsicWidths = null)
     {
         Glyphs = glyphs; Lines = lines; ClusterEnds = ends; BidiLevels = levels;
         Boxes = boxes; Carets = carets;
+        IntrinsicWidths = intrinsicWidths;
     }
 
     public static NativeTextParagraphSnapshot Create(NativeTextShapingContext context,
         ReadOnlySpan<char> text, NativeTextDirection direction, in NativeTextParagraphOptions options,
         ReadOnlySpan<NativeTextFeature> features = default,
         ReadOnlySpan<NativeTextParagraphStyle> styles = default,
-        float incrementalTab = 0, float tabOrigin = 0)
+        float incrementalTab = 0, float tabOrigin = 0, bool measureIntrinsicWidths = false,
+        NativeTextWrapping wrapping = NativeTextWrapping.Emergency)
     {
         ArgumentNullException.ThrowIfNull(context);
+        if (wrapping is not NativeTextWrapping.Emergency and not NativeTextWrapping.WholeWord)
+            throw new ArgumentOutOfRangeException(nameof(wrapping));
         if (!float.IsFinite(incrementalTab) || incrementalTab < 0 || !float.IsFinite(tabOrigin))
             throw new ArgumentException("Tab interval and origin must be finite; the interval cannot be negative.");
         if (text.Length > 1 << 20 || options.MaximumLines != 0 ||
@@ -44,7 +51,8 @@ public sealed class NativeTextParagraphSnapshot
         {
             if (!styles.IsEmpty) throw new ArgumentException("An empty paragraph cannot contain nonempty style ranges.");
             return new([], [new NativePositionedTextLine { Height = options.LineHeight }], [], [],
-                ReadOnlyMemory<NativeTextClusterBox>.Empty, ReadOnlyMemory<NativeTextCaretStop>.Empty);
+                ReadOnlyMemory<NativeTextClusterBox>.Empty, ReadOnlyMemory<NativeTextCaretStop>.Empty,
+                measureIntrinsicWidths ? new NativeTextIntrinsicWidths { StructSize = (uint)Unsafe.SizeOf<NativeTextIntrinsicWidths>() } : null);
         }
         var scalars = new NativeTextScalar[text.Length];
         int count = DecodeUtf16(text, scalars);
@@ -58,10 +66,18 @@ public sealed class NativeTextParagraphSnapshot
         var lineBuffer = new NativePositionedTextLine[checked((int)required.LineCapacity)];
         byte[] scratch = ArrayPool<byte>.Shared.Rent(checked((int)required.ScratchBytes));
         NativeTextParagraphResult result;
+        NativeTextIntrinsicWidths? intrinsicWidths = null;
         try
         {
-            Check(incrementalTab > 0 ? context.LayoutFlowParagraph(in input, in options, nativeStyles, in flow, glyphBuffer, lineBuffer, scratch, out result) :
-                context.LayoutStyledParagraph(in input, in options, nativeStyles, glyphBuffer, lineBuffer, scratch, out result));
+            if (measureIntrinsicWidths || wrapping != NativeTextWrapping.Emergency)
+            {
+                Check(context.LayoutConfiguredFlowParagraph(in input, in options, nativeStyles, in flow,
+                    glyphBuffer, lineBuffer, scratch, wrapping, measureIntrinsicWidths, out result, out var widths));
+                if (measureIntrinsicWidths) intrinsicWidths = widths;
+            }
+            else
+                Check(incrementalTab > 0 ? context.LayoutFlowParagraph(in input, in options, nativeStyles, in flow, glyphBuffer, lineBuffer, scratch, out result) :
+                    context.LayoutStyledParagraph(in input, in options, nativeStyles, glyphBuffer, lineBuffer, scratch, out result));
         }
         finally { ArrayPool<byte>.Shared.Return(scratch); }
         // Output arrays are retained ownership, not per-frame replay materialization.
@@ -117,7 +133,7 @@ public sealed class NativeTextParagraphSnapshot
         Check(NativeTextInteractionInterop.Build(in interaction, boxes, carets, out var interactionResult));
         return new(glyphBuffer, lineBuffer, ends, levels,
             boxes.AsMemory(0, checked((int)interactionResult.ClusterBoxCount)),
-            carets.AsMemory(0, checked((int)interactionResult.CaretStopCount)));
+            carets.AsMemory(0, checked((int)interactionResult.CaretStopCount)), intrinsicWidths);
     }
 
     internal static NativeTextStyleRun[] MapStyles(ReadOnlySpan<NativeTextParagraphStyle> styles,

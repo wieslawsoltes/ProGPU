@@ -2096,7 +2096,23 @@ inline constexpr std::uint32_t text_tab_glyph_id = 0xFFFFFFFFU;
 struct text_tab_options final {
     float interval = 0.0F;
     float origin = 0.0F; // text start relative to the paragraph's leading tab grid
+    bool allow_emergency_break = true;
 };
+
+struct text_intrinsic_widths final {
+    float minimum = 0.0F;
+    float maximum = 0.0F;
+};
+
+/* O(S + G), O(1) workspace over logical source scalars and shaped clusters.
+ * Minimum uses legal, shaping-safe breaks, never emergency cluster splitting.
+ * Maximum uses mandatory breaks only. Both exclude trailing Unicode whitespace;
+ * mixed visible/whitespace ligatures remain indivisible. Tab grids restart at
+ * each candidate line. Prefix/grid dependencies require ordered accumulation. */
+bool try_measure_text_intrinsic_widths(std::span<const unicode_scalar> input,
+    std::span<const shaping_glyph> glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const float> glyph_scales, const text_layout_options& options,
+    text_tab_options tabs, text_intrinsic_widths& result, font_error* error = nullptr) noexcept;
 
 bool try_get_tabbed_text_layout_requirements(
     std::span<const shaping_glyph> glyphs, std::span<const text_line_break_kind> breaks_after,

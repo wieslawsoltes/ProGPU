@@ -2064,17 +2064,26 @@ static progpu_native_status paragraph_layout_core(
     std::uint32_t line_capacity,
     void* scratch,
     std::size_t scratch_size,
-    progpu_native_text_paragraph_result* result) {
+    progpu_native_text_paragraph_result* result,
+    progpu_native_text_intrinsic_widths* widths = nullptr,
+    std::uint32_t wrapping = PROGPU_NATIVE_TEXT_WRAPPING_EMERGENCY) {
     if (result == nullptr ||
         result->struct_size < sizeof(progpu_native_text_paragraph_result)) {
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
     *result = {};
     result->struct_size = sizeof(*result);
+    if (widths != nullptr) {
+        if (widths->struct_size < sizeof(*widths)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        *widths = {};
+        widths->struct_size = sizeof(*widths);
+        if (layout == nullptr || layout->maximum_lines != 0U || layout->trimming != 0U)
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
     if (context == nullptr || !valid_request(shaping, false) ||
         shaping->direction > PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT ||
         !valid_paragraph_layout_options(layout) || !valid_style_runs(*context, *shaping, styles, style_count) ||
-        !valid_flow_options(flow, layout)) {
+        !valid_flow_options(flow, layout) || wrapping > PROGPU_NATIVE_TEXT_WRAPPING_WHOLE_WORD) {
         result->error_code =
             static_cast<std::uint32_t>(font_error::invalid_argument);
         result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
@@ -2422,6 +2431,17 @@ static progpu_native_status paragraph_layout_core(
             return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
         }
 
+        text_intrinsic_widths intrinsic{};
+        if (widths != nullptr && !try_measure_text_intrinsic_widths(native_input,
+                logical, glyph_breaks.first(logical_count),
+                style_count == 0U ? std::span<const float>{} : glyph_scales.first(logical_count),
+                convert_paragraph_layout_options(*layout, paragraph_level),
+                flow == nullptr ? text_tab_options{} : text_tab_options{flow->incremental_tab, flow->tab_origin},
+                intrinsic, &font_result)) {
+            result->error_code = static_cast<std::uint32_t>(font_result);
+            result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
+            return status_from_error(font_result);
+        }
         text_logical_layout_scratch logical_scratch{
             visual_groups, visual_indices};
         std::uint32_t positioned_count = 0U;
@@ -2433,7 +2453,8 @@ static progpu_native_status paragraph_layout_core(
                 style_count == 0U ? std::span<const float>{} : glyph_scales.first(logical_count),
                 paragraph_level,
                 convert_paragraph_layout_options(*layout, paragraph_level),
-                flow == nullptr ? text_tab_options{} : text_tab_options{flow->incremental_tab, flow->tab_origin},
+                text_tab_options{flow == nullptr ? 0.0F : flow->incremental_tab,
+                    flow == nullptr ? 0.0F : flow->tab_origin, wrapping == PROGPU_NATIVE_TEXT_WRAPPING_EMERGENCY},
                 tab_advances,
                 logical_scratch,
                 positioned,
@@ -2499,6 +2520,7 @@ static progpu_native_status paragraph_layout_core(
         result->measured_width = metrics.measured_width;
         result->measured_height = metrics.measured_height;
         result->scratch_bytes_used = arena.used();
+        if (widths != nullptr) { widths->minimum = intrinsic.minimum; widths->maximum = intrinsic.maximum; }
         return PROGPU_NATIVE_STATUS_SUCCESS;
     } catch (const std::bad_alloc&) {
         result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
@@ -2556,6 +2578,19 @@ progpu_native_status progpu_native_text_context_layout_flow_paragraph(
     void* scratch, std::size_t scratch_size, progpu_native_text_paragraph_result* result) {
     return paragraph_layout_core(context, shaping, layout, styles, style_count, flow,
         glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result);
+}
+
+progpu_native_status progpu_native_text_context_layout_configured_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    std::uint32_t style_count, const progpu_native_text_flow_options* flow,
+    progpu_native_positioned_text_glyph* glyphs, std::uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, std::uint32_t line_capacity,
+    void* scratch, std::size_t scratch_size, progpu_native_text_paragraph_result* result,
+    std::uint32_t wrapping, progpu_native_text_intrinsic_widths* widths) {
+    return paragraph_layout_core(context, shaping, layout, styles, style_count, flow,
+        glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result, widths,
+        wrapping);
 }
 
 } // extern "C"

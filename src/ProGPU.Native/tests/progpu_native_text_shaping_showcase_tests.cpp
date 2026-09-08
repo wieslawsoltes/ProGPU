@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
@@ -157,6 +158,20 @@ static void styled_context_preserves_font_scale_and_atomic_failure() {
     shaping.direction = PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT;
     require(flow_run() == PROGPU_NATIVE_STATUS_SUCCESS && glyphs[1].glyph_id == UINT32_MAX);
     require(std::abs(glyphs[1].advance_x - tab_advance) < 0.0001F);
+    progpu_native_text_intrinsic_widths widths{sizeof(widths), 0, 0, 0};
+    auto measured_run = [&] { return progpu_native_text_context_layout_configured_flow_paragraph(context.get(), &shaping, &layout,
+        styles.data(), static_cast<std::uint32_t>(styles.size()), &flow, glyphs.data(), static_cast<std::uint32_t>(glyphs.size()),
+        lines.data(), static_cast<std::uint32_t>(lines.size()), scratch.data(), scratch.size(), &result,
+        PROGPU_NATIVE_TEXT_WRAPPING_WHOLE_WORD, &widths); };
+    require(measured_run() == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(std::abs(widths.minimum - std::max(glyphs[0].advance_x, glyphs[2].advance_x)) < 0.0001F);
+    require(std::abs(widths.maximum - lines[0].width) < 0.0001F && widths.minimum < widths.maximum);
+    const float intrinsic_maximum = widths.maximum;
+    layout.maximum_width = 1;
+    require(measured_run() == PROGPU_NATIVE_STATUS_SUCCESS && std::abs(widths.maximum - intrinsic_maximum) < 0.0001F);
+    layout.maximum_lines = 1;
+    require(measured_run() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && widths.maximum == 0 && widths.minimum == 0);
+    layout.maximum_lines = 0; layout.maximum_width = 0;
     flow.reserved = 1; glyphs[0].x = 123;
     require(flow_run() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && result.glyph_count == 0 && glyphs[0].x == 123);
 }

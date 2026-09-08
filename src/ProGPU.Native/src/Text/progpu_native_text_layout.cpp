@@ -234,6 +234,11 @@ line_scan scan_line(
                 return line_scan{
                     last_break, break_width, final_allowed_line};
             }
+            if (!tabs.allow_emergency_break) {
+                if (break_here) return line_scan{index + 1U, next_width, final_allowed_line};
+                width = next_width;
+                continue;
+            }
             if (last_cluster_break > start) {
                 return line_scan{
                     last_cluster_break, cluster_width, final_allowed_line};
@@ -284,6 +289,69 @@ bool count_lines(
 }
 
 } // namespace
+
+bool try_measure_text_intrinsic_widths(std::span<const unicode_scalar> input,
+    std::span<const shaping_glyph> glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const float> scales, const text_layout_options& options,
+    text_tab_options tabs, text_intrinsic_widths& result, font_error* error) noexcept {
+    result = {};
+    const auto invalid = [&]() noexcept { set_error(error, font_error::invalid_argument); return false; };
+    if (breaks_after.size() != glyphs.size() || !valid_options(options) ||
+        !valid_scales(glyphs, scales) || !std::isfinite(tabs.interval) || tabs.interval < 0.0F ||
+        !std::isfinite(tabs.origin) || (input.empty() && !glyphs.empty())) return invalid();
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        if (input[i].input_length == 0U || (i != 0U &&
+            input[i].input_index < static_cast<std::uint64_t>(input[i - 1U].input_index) + input[i - 1U].input_length))
+            return invalid();
+    }
+    // Unicode White_Space plus zero-width break controls. Classification is
+    // based on the whole source cluster, not a ligature's first code point.
+    const auto trailing = [](std::uint32_t cp) noexcept {
+        return (cp >= 0x09U && cp <= 0x0DU) || cp == 0x20U || cp == 0x85U || cp == 0xA0U ||
+            cp == 0x1680U || (cp >= 0x2000U && cp <= 0x200BU) || cp == 0x2028U ||
+            cp == 0x2029U || cp == 0x202FU || cp == 0x205FU || cp == 0x3000U;
+    };
+    text_intrinsic_widths measured{};
+    float word = 0.0F, paragraph = 0.0F, word_visible = 0.0F, paragraph_visible = 0.0F;
+    std::size_t scalar = 0U, start = 0U;
+    while (start < glyphs.size()) {
+        const auto cluster = glyphs[start].cluster;
+        if (cluster < 0 || scalar >= input.size() || input[scalar].input_index != static_cast<std::uint32_t>(cluster))
+            return invalid();
+        std::size_t end = start + 1U;
+        while (end < glyphs.size() && glyphs[end].cluster == cluster) ++end;
+        if (end < glyphs.size() && glyphs[end].cluster <= cluster) return invalid();
+        const auto next = end < glyphs.size() ? static_cast<std::uint64_t>(glyphs[end].cluster) :
+            static_cast<std::uint64_t>(input.back().input_index) + input.back().input_length;
+        bool whitespace = true;
+        while (scalar < input.size() && input[scalar].input_index < next)
+            whitespace &= trailing(input[scalar++].code_point);
+        for (std::size_t i = start; i < end; ++i) {
+            if (static_cast<std::uint8_t>(breaks_after[i]) > static_cast<std::uint8_t>(text_line_break_kind::mandatory))
+                return invalid();
+            const auto scale = scale_at(scales, i, options);
+            word += layout_advance(glyphs[i], scale, word, tabs);
+            paragraph += layout_advance(glyphs[i], scale, paragraph, tabs);
+            if (!std::isfinite(word) || !std::isfinite(paragraph) || word < 0.0F || paragraph < 0.0F)
+                return invalid();
+        }
+        if (!whitespace) { word_visible = word; paragraph_visible = paragraph; }
+        if (can_break_after(glyphs, breaks_after, end - 1U)) {
+            measured.minimum = std::max(measured.minimum, word_visible);
+            word = word_visible = 0.0F;
+            if (breaks_after[end - 1U] == text_line_break_kind::mandatory) {
+                measured.maximum = std::max(measured.maximum, paragraph_visible);
+                paragraph = paragraph_visible = 0.0F;
+            }
+        }
+        start = end;
+    }
+    measured.minimum = std::max(measured.minimum, word_visible);
+    measured.maximum = std::max(measured.maximum, paragraph_visible);
+    result = measured;
+    set_error(error, font_error::none);
+    return true;
+}
 
 bool try_get_text_layout_requirements(
     std::span<const shaping_glyph> glyphs,

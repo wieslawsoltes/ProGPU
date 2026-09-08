@@ -32,9 +32,27 @@ public sealed unsafe partial class NativeTextShapingContext
         in NativeTextParagraphOptions options, ReadOnlySpan<NativeTextStyleRun> styles,
         in NativeTextFlowOptions flowOptions, Span<NativePositionedTextGlyph> glyphs,
         Span<NativePositionedTextLine> lines, Span<byte> scratch, out NativeTextParagraphResult result)
+        => LayoutFlowParagraphCore(in input, in options, styles, in flowOptions, glyphs, lines, scratch,
+            NativeTextWrapping.Emergency, false, out result, out _);
+
+    public NativeRendererStatus LayoutConfiguredFlowParagraph(in NativeTextShapeInput input,
+        in NativeTextParagraphOptions options, ReadOnlySpan<NativeTextStyleRun> styles,
+        in NativeTextFlowOptions flowOptions, Span<NativePositionedTextGlyph> glyphs,
+        Span<NativePositionedTextLine> lines, Span<byte> scratch, NativeTextWrapping wrapping,
+        bool measureIntrinsicWidths, out NativeTextParagraphResult result,
+        out NativeTextIntrinsicWidths widths)
+        => LayoutFlowParagraphCore(in input, in options, styles, in flowOptions, glyphs, lines, scratch,
+            wrapping, measureIntrinsicWidths, out result, out widths);
+
+    private NativeRendererStatus LayoutFlowParagraphCore(in NativeTextShapeInput input,
+        in NativeTextParagraphOptions options, ReadOnlySpan<NativeTextStyleRun> styles,
+        in NativeTextFlowOptions flowOptions, Span<NativePositionedTextGlyph> glyphs,
+        Span<NativePositionedTextLine> lines, Span<byte> scratch, NativeTextWrapping wrapping, bool measure,
+        out NativeTextParagraphResult result, out NativeTextIntrinsicWidths widths)
     {
         using var use = _owner.Acquire();
         result = new() { StructSize = (uint)Unsafe.SizeOf<NativeTextParagraphResult>() };
+        widths = new() { StructSize = (uint)Unsafe.SizeOf<NativeTextIntrinsicWidths>() };
         var flow = flowOptions; flow.StructSize = (uint)Unsafe.SizeOf<NativeTextFlowOptions>();
         fixed (NativeTextScalar* scalars = input.Input)
         fixed (NativeTextScalar* pre = input.PreContext)
@@ -46,10 +64,16 @@ public sealed unsafe partial class NativeTextShapingContext
         fixed (NativePositionedTextLine* positionedLines = lines)
         fixed (byte* scratchData = scratch)
         fixed (NativeTextParagraphResult* output = &result)
+        fixed (NativeTextIntrinsicWidths* measured = &widths)
         {
             var shaping = NativeTextShapingInterop.CreateRequest(in input, null, scalars, pre, post,
                 features, coordinates, null, includeOwnedResources: false);
             var layout = CreateParagraphLayoutOptions(in input, in options);
+            if (measure || wrapping != NativeTextWrapping.Emergency)
+                return NativeMethods.LayoutConfiguredFlowParagraph(use.Handle, &shaping, &layout, styleData,
+                checked((uint)styles.Length), &flow, positioned, checked((uint)glyphs.Length),
+                positionedLines, checked((uint)lines.Length), scratchData, checked((nuint)scratch.Length), output,
+                (uint)wrapping, measure ? measured : null);
             return NativeMethods.LayoutFlowParagraph(use.Handle, &shaping, &layout, styleData,
                 checked((uint)styles.Length), &flow, positioned, checked((uint)glyphs.Length),
                 positionedLines, checked((uint)lines.Length), scratchData, checked((nuint)scratch.Length), output);
@@ -71,4 +95,12 @@ internal static unsafe partial class NativeMethods
         NativeTextShapeRequest* shaping, NativeTextLayoutOptions* layout, NativeTextStyleRun* styles,
         uint styleCount, NativeTextFlowOptions* flow, NativePositionedTextGlyph* glyphs, uint glyphCapacity,
         NativePositionedTextLine* lines, uint lineCapacity, void* scratch, nuint scratchSize, NativeTextParagraphResult* result);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_layout_configured_flow_paragraph")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus LayoutConfiguredFlowParagraph(nint context,
+        NativeTextShapeRequest* shaping, NativeTextLayoutOptions* layout, NativeTextStyleRun* styles,
+        uint styleCount, NativeTextFlowOptions* flow, NativePositionedTextGlyph* glyphs, uint glyphCapacity,
+        NativePositionedTextLine* lines, uint lineCapacity, void* scratch, nuint scratchSize,
+        NativeTextParagraphResult* result, uint wrapping, NativeTextIntrinsicWidths* widths);
 }

@@ -12840,7 +12840,54 @@ static void incremental_tabs_keep_logical_width_after_bidi_and_wrap() {
     require(run(0, {32, 0}) && output[1].advance_x == 32 && output[2].x == 64);
 }
 
+static void intrinsic_widths_use_legal_clusters_and_exclude_trailing_space() {
+    using namespace progpu::native::text;
+    std::array<unicode_scalar, 6> text{{{'a', 0, 1}, {'b', 1, 1}, {' ', 2, 1},
+        {'c', 3, 1}, {' ', 4, 1}, {' ', 5, 1}}};
+    std::array<shaping_glyph, 6> glyphs{};
+    constexpr std::array advances{3, 5, 2, 11, 2, 2};
+    for (std::size_t i = 0; i < glyphs.size(); ++i)
+        glyphs[i] = {1, text[i].code_point, static_cast<std::int32_t>(i), shaping_glyph_flags::none, advances[i], 0, 0, 0};
+    std::array<text_line_break_kind, 6> breaks{};
+    breaks[2] = text_line_break_kind::opportunity; breaks[5] = text_line_break_kind::mandatory;
+    text_layout_options options{};
+    text_intrinsic_widths widths{};
+    auto run = [&](std::span<const float> scales = {}) {
+        return try_measure_text_intrinsic_widths(text, glyphs, breaks, scales, options, {}, widths);
+    };
+    require(run() && widths.minimum == 11 && widths.maximum == 21);
+    options.maximum_width = 1; // Intrinsic widths are independent of emergency wrapping.
+    require(run() && widths.minimum == 11 && widths.maximum == 21);
+    text_layout_requirements whole{}, emergency{};
+    require(try_get_tabbed_text_layout_requirements(glyphs, breaks, {}, options, {0, 0, false}, whole));
+    require(try_get_tabbed_text_layout_requirements(glyphs, breaks, {}, options, {0, 0, true}, emergency));
+    require(whole.line_capacity == 2 && emergency.line_capacity > whole.line_capacity);
+    glyphs[3].flags = shaping_glyph_flags::unsafe_to_break;
+    require(run() && widths.minimum == 21 && widths.maximum == 21);
+    glyphs[3].flags = shaping_glyph_flags::none;
+    constexpr std::array<float, 6> scales{2, 2, 1, 1, 1, 1};
+    require(run(scales) && widths.minimum == 16 && widths.maximum == 29);
+    text[2].code_point = '\n'; breaks[2] = text_line_break_kind::mandatory;
+    require(run() && widths.minimum == 11 && widths.maximum == 11);
+    options.scale = std::numeric_limits<float>::max();
+    require(!run() && widths.minimum == 0 && widths.maximum == 0);
+
+    const std::array<unicode_scalar, 3> tabs{{{'a', 0, 1}, {'\t', 1, 1}, {'b', 2, 1}}};
+    const std::array<shaping_glyph, 3> tab_glyphs{{{1, 'a', 0, {}, 4, 0, 0, 0},
+        {text_tab_glyph_id, '\t', 1, {}, 0, 0, 0, 0}, {1, 'b', 2, {}, 6, 0, 0, 0}}};
+    const std::array tab_breaks{text_line_break_kind::prohibited, text_line_break_kind::opportunity,
+        text_line_break_kind::mandatory};
+    require(try_measure_text_intrinsic_widths(tabs, tab_glyphs, tab_breaks, {}, {}, {16, 3}, widths));
+    require(widths.minimum == 6 && widths.maximum == 19);
+    const std::array<unicode_scalar, 2> mixed{{{' ', 0, 1}, {'a', 1, 1}}};
+    const std::array<shaping_glyph, 1> ligature{{{1, ' ', 0, {}, 9, 0, 0, 0}}};
+    const std::array final_break{text_line_break_kind::mandatory};
+    require(try_measure_text_intrinsic_widths(mixed, ligature, final_break, {}, {}, {}, widths));
+    require(widths.minimum == 9 && widths.maximum == 9); // Mixed-source cluster is not trailing space.
+}
+
 int main() {
+    intrinsic_widths_use_legal_clusters_and_exclude_trailing_space();
     incremental_tabs_keep_logical_width_after_bidi_and_wrap();
     mixed_scales_drive_wrapping_and_visual_positions();
     unicode_contract_and_strict_decoders_are_transactional();

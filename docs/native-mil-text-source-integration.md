@@ -20,6 +20,10 @@ source-run styling and actual end-of-paragraph semantics.
 
 ## Styled source TextLine connection — current implementation
 
+Intrinsic min/max widths and WrapWithOverflow now use the shared native configured
+flow API; see [core measurement and wrapping](native-mil-intrinsic-text.md) for
+the algorithm, application connection and unexecuted qualification coverage.
+
 ### Document source positions and property scopes
 
 Core consumer: the existing native host now includes an actual source-built
@@ -341,7 +345,7 @@ This is an incremental **single typography domain** connection, not complete
 TextBox/RichTextBox support. Mixed fonts/sizes/cultures/brushes, composite-font
 resolution and fallback-face mapping, tabs, document objects/modifiers/hidden
 runs, decorations/effects/baseline changes, enum-valued typography alternates,
-digit substitution, markers, justification, WrapWithOverflow and collapsing
+digit substitution, markers, justification and collapsing
 symbols remain explicit missing connections. Display-mode hinting is rejected;
 localization/variations, changed-width continuation, min/max paragraph measurement
 and full editing behavior remain unqualified. Close these against the existing
