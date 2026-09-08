@@ -32,12 +32,14 @@ PROGPU_CAD_BROWSER_USE_SWIFTSHADER=1 node eng/progpu-test-cad-browser.mjs
 
 For an installed Chrome, set `PROGPU_CAD_BROWSER_CHANNEL=chrome`. Omit the
 SwiftShader environment variable to exercise the available hardware adapter.
-On Linux the software lane now explicitly selects Vulkan SwiftShader and
-Chromium's headless Vulkan presentation flags. The previous ANGLE-only flag
+On Linux the software lane explicitly selects SwANGLE, Vulkan SwiftShader, and
+the WebGPU SwiftShader adapter, while keeping Vulkan surfaces enabled. The previous ANGLE-only flag
 selected an OpenGL driver, not necessarily the WebGPU adapter. Earlier local
 "with SwiftShader" results in this document mean that flag was enabled; they
 do not establish software WebGPU execution. Each run now saves `gpu.json` with
-Chrome's GPU report and launch arguments so the actual driver can be audited.
+Chrome's GPU report and launch arguments. `presentation.json` additionally records
+the actual WebGPU adapter and independently verifies canvas contents and page
+presentation; the ANGLE report alone does not identify the WebGPU device.
 The non-Linux launch configuration is unchanged.
 `ProGpuForkPackage=true` selects the dependency's net10.0-only source build and
 avoids requesting unrelated multi-target WebAssembly workloads.
@@ -121,3 +123,70 @@ adapter switch documented by [Dawn's CTS runner](https://dawn.googlesource.com/d
 The original exception is saved first in `failure.json`; DOM/canvas and page
 captures are independently bounded and cannot replace it. Linux success remains
 unproven until the new run completes; no screenshots or pixel checks are skipped.
+
+## Linux presentation isolation: 2026-09-08
+
+The final local AOT publish at ProGPU `11b87761` succeeds. Its macOS browser smoke
+passes with 78 frames, 100 dispatches, all 16 model entity types through save/reopen,
+and a 2880x1800 framebuffer after resize. These counters describe workflow
+liveness, not rendering speed.
+
+A running Ubuntu ARM64 VM with Google Chrome `151.0.7922.137` and Node `24.20.0`
+reproduced the blank drawing using the existing CI launch arguments. The app
+submitted 90 frames / 101 dispatches with no JavaScript errors, but the page
+remained blank. This local VM differs from the x64 CI runner and does not replace
+the required CI result. No VM configuration or desktop settings were changed.
+
+An independent 64x64 WebGPU clear, with no ProGPU renderer or shaders, isolated
+the failure. With `--disable-vulkan-surface`, direct canvas readback contains all
+4,096 expected red pixels while the page screenshot contains zero. Removing
+only that flag produces all 4,096 red pixels in both outputs, with the actual
+WebGPU adapter still reporting `google / swiftshader`. Other tested driver
+combinations either failed device creation or failed presentation; they were
+not adopted.
+
+The full CAD smoke with that single flag removed passes on the VM: 147 frames,
+169 dispatches, visible initial and expanded-workspace screenshots, pan/zoom,
+16 entity types through DXF save/reopen/resave, and 2880x1800 resize. The initial
+image was inspected, including the two MTEXT columns. Thus the observed blank
+page was not sufficient evidence of missing CAD geometry or an atlas defect.
+
+The launch correction preserves separate ANGLE and WebGPU adapter selection
+from the primary Chromium/Dawn references above. The headless example's
+surface-disabling flag is rejected for this measured Chrome configuration.
+No application algorithm, shader, raster quality, resource cache, managed/native
+contract, or screenshot threshold is changed.
+
+`eng/progpu-webgpu-presentation.mjs` now checks the clear in an independent
+browser process before the CAD smoke. It retains `presentation.json`, a direct
+canvas PNG, and a page PNG, and requires complete red coverage in both. The
+independent process keeps its device/cache lifetime out of the application's
+cold-start workload. A same-page probe experiment passed qualification but a
+subsequent Linux app screenshot timed out; that experiment is not claimed as
+a passing full smoke. An isolated-probe follow-up also timed out on a full-page
+capture after drawing pixels were visible, so probe isolation alone is not
+claimed to resolve screenshot stability.
+
+The Linux launch argument now also preserves `CDPScreenshotNewSurface` alongside
+Vulkan, matching the pinned Playwright runner's default screenshot feature
+([upstream launch contract](https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/server/chromium/chromiumSwitches.ts)).
+Adding a Vulkan-only enabled-feature argument must not remove that contract.
+Test-only readback and one clear pass add fixed bounded
+work; they are not production rendering or a performance measurement.
+
+CI run `34196455411` initially stopped on
+`WarmModernMeshSubobjectQueryAllocatesNothing` (7,312 bytes). Its isolated local
+check passes, and the failed job was rerun with the zero-allocation assertion
+unchanged. The retry passes CAD tests and AOT publishing, then reproduces the
+blank-frame assertion with the old surface-disabled configuration. This does
+not prove the intermittent allocation failure is permanently resolved.
+Both allocation stability and green Linux browser CI on the final
+commit remain required; a local pass does not satisfy those gates.
+
+The final isolated-probe smoke passes on macOS (75 frames / 97 dispatches) and,
+with the combined Vulkan/screenshot feature argument, on the Linux VM
+(114 frames / 136 dispatches). Both complete all drawing, interaction,
+save/reopen/resave, MTEXT column, and 2880x1800 resize assertions. The preflight
+records 4,096 direct red pixels and all 16,384 physical screenshot pixels at
+device scale 2. Linux uses RGBA8; macOS uses BGRA8. These are measured workflow
+passes on the same final AOT app, not a claim of x64 CI completion or performance.

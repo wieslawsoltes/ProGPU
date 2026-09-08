@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '../src/ProGPU.Native/browser/node_modules/playwright/index.mjs';
 import browserUtilities from '../src/ProGPU.Native/browser/node_modules/playwright-core/lib/utilsBundle.js';
+import { verifyWebGpuPresentation } from './progpu-webgpu-presentation.mjs';
 
 // Exercise the published CAD app through its canonical browser host. Reuse the
 // pinned browser-test dependency: npm ci --prefix src/ProGPU.Native/browser.
@@ -72,19 +73,33 @@ try {
   const args = ['--enable-unsafe-webgpu'];
   if (process.env.PROGPU_CAD_BROWSER_USE_SWIFTSHADER === '1') {
     if (process.platform === 'linux') {
-      // ANGLE selection alone does not select the Vulkan driver used by WebGPU.
-      // Use Chromium's documented headless Vulkan presentation configuration.
-      args.push('--enable-features=Vulkan', '--use-gl=angle', '--use-angle=swiftshader',
-        '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface');
+      // Select ANGLE and WebGPU independently. Do not disable Vulkan surfaces:
+      // SwiftShader can render/read back correctly while page presentation is blank.
+      // Preserve the pinned Playwright runner's screenshot feature when adding
+      // Vulkan: Chromium uses the final --enable-features argument.
+      args.push('--enable-features=Vulkan,CDPScreenshotNewSurface', '--use-gl=angle', '--use-angle=swiftshader',
+        '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader');
     } else {
       args.push('--use-angle=swiftshader');
     }
   }
-  browser = await chromium.launch({
+  const launchOptions = {
     channel: process.env.PROGPU_CAD_BROWSER_CHANNEL ?? 'chromium',
     headless: true,
     args,
-  });
+  };
+  // Qualify presentation in an independent browser process. Its device/cache
+  // lifetime must not alter the actual app's cold-start workload.
+  const presentationBrowser = await chromium.launch(launchOptions);
+  try {
+    const presentationPage = await presentationBrowser.newPage({
+      viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2,
+    });
+    await verifyWebGpuPresentation(presentationPage, `http://127.0.0.1:${server.address().port}`, evidence);
+  } finally {
+    await presentationBrowser.close();
+  }
+  browser = await chromium.launch(launchOptions);
   const diagnosticsSession = await browser.newBrowserCDPSession();
   try {
     const gpu = await diagnosticsSession.send('SystemInfo.getInfo');
