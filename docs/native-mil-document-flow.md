@@ -5,8 +5,9 @@
 LibreWPF's MVP contains a FlowDocumentScrollViewer with a heading, Hyperlink and
 list, plus FlowDocumentReader and FlowDocumentPageViewer. Its portable
 `FlowDocumentView` now consumes this reusable placement layer and the retained
-paragraph pipeline. Scroll-view implementation is connected, **not runtime-qualified**;
-the MVP's symbol-marker fonts and paginated viewer remain open dependencies.
+paragraph pipeline. Scroll-view and source paginated-viewer implementations are
+connected, **not runtime-qualified**; symbol-marker font integration and unsupported
+document policies remain explicit qualification/dependency items.
 
 `NativeDocumentFlow.ResolveWidths` resolves constraints for a source-owned preorder
 block tree. The caller formats actual paragraphs using the existing retained native
@@ -20,7 +21,59 @@ install a lazy default. Explicit overrides retain priority and disposal restores
 the default. Registration performs no native loading, font work or GPU creation.
 The source-owned block/paragraph formatter, invalidation lifecycle and actual
 FlowDocumentView drawing/content/text-view/scroll consumer now exist (checkpoints
-below). Pagination and Windows SDK admission remain separate open blockers.
+below). Paginated policy limitations and Windows SDK admission remain separate
+open requirements; the consumer connection does not establish application parity.
+
+## Source paginated-viewer connection
+
+LibreWPF now selects `PortableFlowDocumentPaginator` from the frozen media choice
+before constructing the Windows PTS paginator. Source page size, padding and column
+width policy feed the existing native block/paragraph pipeline followed by
+`IPortableDocumentFlow.Paginate`. The page provider returns actual DocumentPages,
+consumed by the existing DocumentPageView rather than replacing the application
+viewer with scrolling or a synthetic tree. Both portable renderer modes share this
+source adapter and ProGPU C++ fitter; no second managed fitting algorithm was added.
+
+Paragraph keep-together/keep-with-next and ancestor forced page/column boundaries
+travel as source-admitted breaks. Native content boxes reserve border/padding
+extents at block edges. Provider output is checked for ordered page/column indices,
+fragment counts, complete inset fit and unchanged interior line spacing before
+publication. A fragment translates the retained source drawing once: page-local
+text positions use that same mapping. Actual paragraphs, list markers, source
+brushes, column rules and original document indices remain source-owned.
+
+The shared ITextView serves scrolling and paginated consumers, with page-affinity
+boundaries, column-local point lookup, caret/selection rectangles, glyph ranges,
+cross-column line navigation and content hit testing. Continuation pages enumerate
+already-open original content ancestors as well as their local source edges.
+Page disposal clears its visual without disposing borrowed TextLines. Source edits,
+page-size changes and formatter replacement invalidate interaction and release the
+old generation. Background pagination coalesces a full synchronous generation on
+the owning dispatcher; it is not incremental or worker-thread document layout.
+
+Nonzero fragment-relative widow/orphan constraints, decorated blocks spanning
+page/column fragments and empty decorated blocks fail explicitly pending their
+native contracts. Column balancing, variable-width fragments, first-line indent,
+hyphenation, exhausted-width wrapping, RTL block layout and embedded objects/tables
+remain unsupported. No clipping, constraint relaxation, ordinary-font symbol
+substitution or fallback to PTS is authorized by those limitations.
+
+Source policy/ownership traversal is ordered document-object work. Building input
+and page indices costs O(B + N); each page visits its own lines, reachable ancestor
+blocks and marker range, with preorder sorting for paint order. Page/line lookup is
+logarithmic; nearest-column lookup is bounded by the native column limit. Native
+fitting keeps the complexity and SIMD metric validation documented below. No new
+pixel fallback, per-line P/Invoke or performance claim is introduced.
+
+Authored source fixtures cover the real DocumentPageView wrapper, columns and
+affinities, original Hyperlink ownership, continuation ancestors, invalid provider
+geometry, insets, explicit missing constraints, edits and disposal/suspension.
+They use prescribed provider output to exercise source contracts, not an independent
+native fitting oracle. Compilation is recorded in the LibreWPF delivery checkpoint;
+tests, applications, native typography/images, package consumption, Windows VM/GPU,
+benchmarks and CI are deferred until feature freeze. Windows SDK admission remains
+guarded. Next work follows the core application delivery queue, not optional
+pagination API expansion.
 
 ## Source scroll-view connection
 
@@ -60,7 +113,8 @@ admission remain explicit. No application/package/VM/GPU/CI pass is claimed.
 
 ## Sequential native pagination prerequisite
 
-The MVP's FlowDocumentPageViewer still reaches the PTS paginator unconditionally.
+Historical prerequisite checkpoint, superseded by the source consumer above:
+the MVP's FlowDocumentPageViewer then reached the PTS paginator unconditionally.
 `NativeDocumentFlow.Paginate` now provides the missing reusable sequential page/
 column fitting operation over already-shaped lines. The installed document C
 header owns its generated fixed records. Both wgpu-native and Dawn wrappers pin
