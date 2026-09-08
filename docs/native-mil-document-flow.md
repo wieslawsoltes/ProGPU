@@ -17,9 +17,52 @@ The neutral `IPortableDocumentFlow` contract has a zero-copy LibreWPF adapter.
 Native SDK pre-host initialization, portable activation and direct-host startup
 install a lazy default. Explicit overrides retain priority and disposal restores
 the default. Registration performs no native loading, font work or GPU creation.
-The source consumer still needs original block extraction, paragraph formatting,
-list markers, visual/content ownership, text-view interaction and invalidation.
-Pagination and Windows SDK admission remain separate open blockers.
+The source-owned block/paragraph formatter and invalidation lifecycle now exist
+(checkpoint below). The actual FlowDocumentView visual/content consumer, text-view
+interaction and scroll integration remain unconnected. Pagination and Windows SDK
+admission remain separate open blockers.
+
+## Source formatter checkpoint — not viewer activation
+
+LibreWPF now has `PortableDocumentParagraphSource`, `PortableFlowDocumentLayout`
+and `PortableFlowDocumentFormatter`. They consume the original TextContainer,
+Paragraph, Section, List and ListItem tree. WPF's existing MbpInfo, page-width/
+padding policy, TextProperties, LineProperties and MarkerProperties remain
+source-owned; no WPF implementation was copied into ProGPU. Real TextLines feed
+the native width/placement service and retain their original global source ranges.
+
+Hidden element edges remain source symbols; the paragraph closing edge terminates
+its range without adding an invented document position. Inline decoration and
+direction scopes flow through TextSpanModifier/TextEndOfSegment, with actual
+TextFormatter/native-provider rejection of unsupported semantics. Bounded copies
+use one UTF-16 lookahead unit to avoid splitting a surrogate pair. Empty styled
+inline metric contributions and embedded/anchored objects fail explicitly instead
+of becoming zero-width-space glyphs or disappearing.
+
+List markers use the existing generated marker TextSource as separate text,
+preserving source numbering, actual marker font and offset without pretending
+that marker characters exist in the document. Symbol markers require a real
+symbol face; a fallback font rendering ordinary text is rejected. Availability
+and fidelity of those symbol faces remain a required MVP dependency, not qualified
+by numbered-marker fixtures. First-line indentation, hyphenation and exhausted
+zero-width wrapping remain explicit missing native contracts.
+
+The portable formatter participates in FlowDocument's IFlowDocumentFormatter
+lifecycle. A source-only formatting scope initializes existing change/highlight
+notifications and detects reentrancy/caught illegal mutations without constructing
+a PTS page or context. Width/DPI/mode plus source invalidation own retained layout
+generations. Unchanged requests reuse output; invalidated requests currently do
+full source reformatting. Replacement/suspension disposes owned TextLines and
+continuations. Failed replacements leave the formatter invalid, never publish an
+empty successful layout. This is not an incremental-layout performance claim.
+
+Source fixtures cover hidden/scoped ranges, bounded surrogate copies, source
+block-property transport, numbered markers, generation reuse, edit invalidation,
+failure state and caught reentrancy. Their deterministic providers test source
+consumption only, not native shaping or block-layout correctness. Source production
+and fixture graphs compile; no tests, verifiers, apps, VM/GPU, benchmarks or CI ran.
+Next connect this formatter to the actual viewer visual/IContentHost/ITextView and
+IScrollInfo path; do not add another optional formatter family before doing so.
 
 ## Contract and implementation
 
