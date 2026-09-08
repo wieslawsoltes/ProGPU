@@ -206,6 +206,11 @@ Portable window hidden-source creation is a separate `CreateHidden` capability,
 not a Show/Hide sequence. Preserve detached visual roots until Show, stable
 source identity and factory-failure cleanup. Missing capability must fail closed;
 portable source handles must not be advertised as arbitrary native HWNDs.
+Popup placement queries must route only to the registrar owning the source and
+distinguish owner-surface from native-screen bounds before Show. Keep monitor
+selection/validation in the neutral interop contract, preserve desktop origins,
+and reject missing/invalid native monitor data rather than fabricate owner bounds.
+See `docs/native-mil-popup-placement.md` for coordinates and qualification limits.
 
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 

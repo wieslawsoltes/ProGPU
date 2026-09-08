@@ -168,6 +168,27 @@ public sealed class PortableWpfServiceRegistryTests
         }
     }
 
+    [Fact]
+    public void PopupBoundsQueryUsesOnlyItsRegisteredOwnerAndDoesNotFallThrough()
+    {
+        var key = new PortableWpfServiceKey($"PopupBounds-{Guid.NewGuid():N}");
+        var owner = new object();
+        var first = new TestPopupService(key, owner);
+        var other = new TestPopupService(key, new object());
+        using var firstRegistration = PortableWpfServiceRegistry.RegisterPopupService(first);
+        using var otherRegistration = PortableWpfServiceRegistry.RegisterPopupService(other);
+        Assert.True(PortableWpfServiceRegistry.TryGetPopupService(key, out var router));
+        Assert.True(router.TryCreatePopup(CreateRequest(owner), out var popup));
+        var target = new PortableRect(10, 20, 30, 40);
+        Assert.True(router.TryGetPopupPlacementBounds(popup!, target, out var bounds));
+        Assert.Equal(PortablePopupPlacementBoundsKind.OwnerSurface, bounds.Kind);
+        first.RejectBounds = true;
+        Assert.False(router.TryGetPopupPlacementBounds(popup!, target, out _));
+        Assert.False(router.TryGetPopupPlacementBounds(new object(), target, out _));
+        Assert.Equal(2, first.BoundsQueries);
+        Assert.Equal(0, other.BoundsQueries);
+    }
+
     private static PortablePopupCreateRequest CreateRequest(object owner)
     {
         return new PortablePopupCreateRequest(
@@ -191,6 +212,16 @@ public sealed class PortableWpfServiceRegistryTests
         public int CreateAttempts { get; private set; }
 
         public int OperationCount { get; private set; }
+
+        public int BoundsQueries { get; private set; }
+        public bool RejectBounds { get; set; }
+
+        public bool TryGetPopupPlacementBounds(object source, PortableRect target, out PortablePopupPlacementBounds bounds)
+        {
+            BoundsQueries++;
+            bounds = new(PortablePopupPlacementBoundsKind.OwnerSurface, PortableRect.Empty, PortableRect.Empty);
+            return !RejectBounds && _popups.Contains(source);
+        }
 
         public bool TryCreatePopup(PortablePopupCreateRequest request, out object? presentationSource)
         {

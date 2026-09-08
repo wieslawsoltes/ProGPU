@@ -90,6 +90,18 @@ public interface IPortablePopupServiceRegistrar
 
     bool TrySetPopupHitTestable(object presentationSource, bool hitTestable);
 
+    /// <summary>
+    /// Queries placement limits for an already-owned popup, before or after Show.
+    /// False means unavailable, not permission to constrain a native popup to its
+    /// owner. Query and result use the host's desktop placement coordinates.
+    /// </summary>
+    bool TryGetPopupPlacementBounds(object presentationSource, PortableRect targetBounds,
+        out PortablePopupPlacementBounds bounds)
+    {
+        bounds = default;
+        return false;
+    }
+
     bool TryDestroyPopup(object presentationSource);
 
     void Clear();
@@ -1255,6 +1267,19 @@ public static class PortableWpfServiceRegistry
                 }
             }
 
+            return false;
+        }
+
+        public bool TryGetPopupPlacementBounds(object presentationSource, PortableRect targetBounds,
+            out PortablePopupPlacementBounds bounds)
+        {
+            ArgumentNullException.ThrowIfNull(presentationSource);
+            // Unlike compatibility operation routing, an ownership query must
+            // never let another window's service guess bounds for this popup.
+            IPortablePopupServiceRegistrar? owner = GetPopupOwner(presentationSource);
+            if (owner != null)
+                return owner.TryGetPopupPlacementBounds(presentationSource, targetBounds, out bounds);
+            bounds = default;
             return false;
         }
 
