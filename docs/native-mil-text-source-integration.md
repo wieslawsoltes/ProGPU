@@ -272,6 +272,10 @@ included in the native install manifest. No fixture, verifier, installed-package
 consumer, app/VM/GPU run, benchmark or CI gate was executed. The latest fetched
 ProGPU `main` is contained by the feature branch.
 
+The [native document block-placement service](native-mil-document-flow.md) now
+accepts real formatted lines without reshaping. Its source FlowDocument consumer
+and pagination remain open; the utility is not document-viewer parity.
+
 ### Architecture sources and decisions
 
 This integration retains the wider cache/GPU/device comparison in

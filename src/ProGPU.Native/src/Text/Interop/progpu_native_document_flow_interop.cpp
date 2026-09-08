@@ -1,0 +1,211 @@
+#include "progpu_native_document_flow.h"
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <limits>
+#include <new>
+#include <span>
+#include <vector>
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#elif defined(__SSE2__) || defined(_M_X64)
+#include <emmintrin.h>
+#endif
+
+// Original ProGPU block-flow placement over already formatted paragraph lines.
+// Tree traversal and vertical prefixes are ordered dependencies, not GPU work.
+// Independent metric validation uses the desktop double-precision SIMD baseline.
+// O(B + L) time/storage per changed layout; replay retains the resulting boxes.
+namespace {
+constexpr std::uint32_t root = UINT32_MAX;
+constexpr std::uint32_t budget = 1U << 20U;
+using block = progpu_native_document_block;
+using box = progpu_native_document_box;
+using line = progpu_native_document_line;
+using position = progpu_native_document_line_position;
+struct state final { double height{}, content_height{}, before{}, after{}; bool through{}; };
+struct region final { std::uintptr_t start{}; std::size_t bytes{}; };
+
+bool finite_nonnegative_pair(double a, double b) noexcept {
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const double lanes[2]{a, b};
+    const auto v = vld1q_f64(lanes);
+    const auto valid = vandq_u64(vcgeq_f64(v, vdupq_n_f64(0.0)),
+        vcleq_f64(v, vdupq_n_f64(std::numeric_limits<double>::max())));
+    return vgetq_lane_u64(valid, 0) != 0U && vgetq_lane_u64(valid, 1) != 0U;
+#elif defined(__SSE2__) || defined(_M_X64)
+    const auto v = _mm_set_pd(b, a);
+    return _mm_movemask_pd(_mm_and_pd(_mm_cmpge_pd(v, _mm_setzero_pd()),
+        _mm_cmple_pd(v, _mm_set1_pd(std::numeric_limits<double>::max())))) == 3;
+#else
+    // Fixed two-value reference on targets without the desktop SIMD baseline.
+    return std::isfinite(a) && a >= 0.0 && std::isfinite(b) && b >= 0.0;
+#endif
+}
+template<class T> bool valid_buffer(const T* data, std::uint32_t count) noexcept {
+    return count <= budget && (count == 0U || (data != nullptr &&
+        reinterpret_cast<std::uintptr_t>(data) % alignof(T) == 0U));
+}
+template<class T> region bytes(const T* data, std::uint32_t count) noexcept {
+    return {reinterpret_cast<std::uintptr_t>(data), sizeof(T) * static_cast<std::size_t>(count)};
+}
+bool disjoint(std::span<const region> regions) noexcept {
+    for (std::size_t i = 0; i < regions.size(); ++i) {
+        const auto a = regions[i];
+        if (a.bytes == 0U) continue;
+        if (a.start > UINTPTR_MAX - a.bytes) return false;
+        for (std::size_t j = 0; j < i; ++j) {
+            const auto b = regions[j];
+            if (b.bytes != 0U && a.start < b.start + b.bytes && b.start < a.start + a.bytes) return false;
+        }
+    }
+    return true;
+}
+
+bool widths(std::span<const block> blocks, double width, std::span<box> output) noexcept {
+    std::array<std::uint32_t, 128> ancestors{};
+    std::size_t depth = 0U;
+    for (std::uint32_t i = 0; i < blocks.size(); ++i) {
+        while (depth != 0U && i == blocks[ancestors[depth - 1U]].subtree_end) --depth;
+        if (depth >= ancestors.size()) return false;
+        const auto& b = blocks[i];
+        const auto parent = depth == 0U ? root : ancestors[depth - 1U];
+        if (b.parent_index != parent || b.subtree_end <= i || b.subtree_end > blocks.size() ||
+            (parent != root && b.subtree_end > blocks[parent].subtree_end) ||
+            !finite_nonnegative_pair(b.margin_left, b.margin_right) ||
+            !finite_nonnegative_pair(b.margin_top, b.margin_bottom) ||
+            !finite_nonnegative_pair(b.inset_left, b.inset_right) ||
+            !finite_nonnegative_pair(b.inset_top, b.inset_bottom)) return false;
+        const auto parent_box = parent == root ? box{0.0, 0.0, width, 0.0} : output[parent];
+        const double left = b.margin_left + b.inset_left;
+        const double right = b.margin_right + b.inset_right;
+        const double used = left + right;
+        const double x = parent_box.x + left;
+        if (!std::isfinite(used) || !std::isfinite(x)) return false;
+        output[i] = {x, 0.0, std::max(0.0, parent_box.width - used), 0.0};
+        if (b.subtree_end != i + 1U) {
+            if (depth == ancestors.size()) return false;
+            ancestors[depth++] = i;
+        }
+    }
+    return true;
+}
+
+bool measure(std::span<const block> blocks, std::span<const line> lines, std::span<state> states) noexcept {
+    std::uint32_t cursor = 0U;
+    for (std::uint32_t i = 0U; i < blocks.size(); ++i) {
+        const auto& b = blocks[i];
+        if (b.subtree_end != i + 1U && b.line_count != 0U) return false;
+        if (b.line_start != cursor || b.line_count > lines.size() - cursor) return false;
+        cursor += b.line_count;
+    }
+    if (cursor != lines.size()) return false;
+    for (const auto& l : lines)
+        if (!finite_nonnegative_pair(l.width, l.height) || l.height == 0.0) return false;
+    for (std::size_t index = blocks.size(); index-- != 0U;) {
+        const auto& b = blocks[index];
+        auto& s = states[index];
+        s.before = b.margin_top; s.after = b.margin_bottom;
+        double content_height = 0.0, pending = 0.0;
+        bool content = b.line_count != 0U;
+        for (std::uint32_t j = 0; j < b.line_count; ++j) content_height += lines[b.line_start + j].height;
+        for (std::size_t child = index + 1U; child < b.subtree_end; child = blocks[child].subtree_end) {
+            const auto& c = states[child];
+            pending = std::max(pending, c.before);
+            if (c.through) { pending = std::max(pending, c.after); continue; }
+            if (!content && b.inset_top == 0.0) s.before = std::max(s.before, pending);
+            else content_height += pending;
+            content_height += c.height;
+            content = true; pending = c.after;
+        }
+        if (!content && b.inset_top == 0.0) {
+            s.before = std::max(s.before, pending); pending = 0.0;
+        }
+        if (b.inset_bottom == 0.0) s.after = std::max(s.after, pending);
+        else content_height += pending;
+        s.content_height = content_height;
+        s.height = b.inset_top + content_height + b.inset_bottom;
+        s.through = !content && b.inset_top == 0.0 && b.inset_bottom == 0.0;
+        if (s.through) s.before = s.after = std::max(s.before, s.after);
+        if (!std::isfinite(s.height)) return false;
+    }
+    return true;
+}
+
+bool place(std::span<const block> blocks, std::span<const line> lines, std::span<const state> states,
+    std::span<box> boxes, std::span<position> positions, double& extent_width, double& height) {
+    struct cursor final { double y{}, pending{}, trailing{}; bool content{}; };
+    // Preorder traversal lets each parent retain its next-child cursor. Empty
+    // transparent boxes share the collapsed gap and do not advance this cursor.
+    std::vector<cursor> cursors(blocks.size());
+    cursor forest{};
+    for (std::size_t i = 0; i < blocks.size(); ++i) {
+        const auto& b = blocks[i]; const auto& s = states[i];
+        auto& p = b.parent_index == root ? forest : cursors[b.parent_index];
+        p.pending = std::max(p.pending, s.before);
+        const bool top_collapse = b.parent_index != root && blocks[b.parent_index].inset_top == 0.0;
+        double y = p.y;
+        if (s.through) p.pending = std::max(p.pending, s.after);
+        else {
+            if (p.content || !top_collapse) y += p.pending;
+            p.y = y + s.height; p.pending = s.after; p.content = true;
+        }
+        boxes[i].y = y + b.inset_top;
+        boxes[i].height = s.content_height;
+        cursors[i].y = boxes[i].y;
+        cursors[i].trailing = p.trailing + b.inset_right + b.margin_right;
+        extent_width = std::max(extent_width, boxes[i].x + boxes[i].width + cursors[i].trailing);
+        double line_y = boxes[i].y;
+        for (std::uint32_t j = 0; j < b.line_count; ++j) {
+            const auto index = b.line_start + j;
+            positions[index] = {boxes[i].x, line_y};
+            line_y += lines[index].height;
+            extent_width = std::max(extent_width, boxes[i].x + lines[index].width + cursors[i].trailing);
+        }
+        if (!std::isfinite(boxes[i].y) || !std::isfinite(p.y) || !std::isfinite(line_y)) return false;
+    }
+    height = forest.y + forest.pending;
+    return std::isfinite(height) && std::isfinite(extent_width);
+}
+}
+
+extern "C" progpu_native_status progpu_native_document_resolve_widths(
+    const block* blocks, std::uint32_t count, double width, box* output, std::uint32_t capacity) {
+    if (!valid_buffer(blocks, count) || !valid_buffer(output, count) || capacity < count ||
+        !std::isfinite(width) || width < 0.0 ||
+        !disjoint(std::array{bytes(blocks, count), bytes(output, count)})) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    try {
+        std::vector<box> boxes(count);
+        if (!widths({blocks, count}, width, boxes)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        if (!boxes.empty()) std::copy(boxes.begin(), boxes.end(), output);
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) { return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
+    catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
+}
+
+extern "C" progpu_native_status progpu_native_document_arrange(
+    const block* blocks, std::uint32_t count, double width, const line* lines, std::uint32_t line_count,
+    box* output, std::uint32_t capacity, position* positions, std::uint32_t position_capacity,
+    progpu_native_document_flow_result* result) {
+    if (!valid_buffer(blocks, count) || !valid_buffer(lines, line_count) || !valid_buffer(output, count) ||
+        !valid_buffer(positions, line_count) || !valid_buffer(result, 1) || capacity < count || position_capacity < line_count ||
+        !std::isfinite(width) || width < 0.0 ||
+        !disjoint(std::array{bytes(blocks, count), bytes(lines, line_count), bytes(output, count),
+            bytes(positions, line_count), bytes(result, 1)}) || result->struct_size != sizeof(*result))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    try {
+        std::vector<box> boxes(count);
+        std::vector<state> states(count);
+        std::vector<position> placed(line_count);
+        double height = 0.0, extent_width = width;
+        if (!widths({blocks, count}, width, boxes) || !measure({blocks, count}, {lines, line_count}, states) ||
+            !place({blocks, count}, {lines, line_count}, states, boxes, placed, extent_width, height))
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        if (!boxes.empty()) std::copy(boxes.begin(), boxes.end(), output);
+        if (!placed.empty()) std::copy(placed.begin(), placed.end(), positions);
+        *result = {static_cast<std::uint32_t>(sizeof(*result)), count, line_count, 0U, extent_width, height};
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) { return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
+    catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
+}

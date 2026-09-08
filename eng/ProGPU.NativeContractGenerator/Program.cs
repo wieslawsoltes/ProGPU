@@ -219,6 +219,7 @@ static string MapType(string nativeType) => nativeType switch
     "size_t" => "nuint",
     "uintptr_t" => "nuint",
     "float" => "float",
+    "double" => "double",
     "progpu_native_color" => "NativeColor",
     "progpu_native_point" => "Vector2",
     "progpu_native_point_3d" => "NativePoint3D",

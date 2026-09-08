@@ -287,6 +287,14 @@ Keep mapped font scale in the actual em size, not just the paint or family label
 Do not import the WPF family-linking implementation into ProGPU or reconstruct it
 through reflection. Null-shape, device-font and synthetic-style cases are not
 qualified by resolving an ordinary physical face.
+Document block placement uses the shared native `NativeDocumentFlow` contract,
+not a WPF-local block composer. Source hosts resolve property policy and retain
+their original document positions, formatted lines and interaction ownership.
+Keep width resolution before formatting, line placement after formatting, and
+zero-width exhaustion distinct from an unbounded constraint. Positive margin
+collapse, nested insets and actual overflow share one native layout; pagination,
+lists/markers and source viewer activation are not implied by a utility fixture.
+See `docs/native-mil-document-flow.md`; do not flatten missing document semantics.
 Source document positions must use `PortableTextSourceMap` to distinguish hidden
 edges from contiguous shaping text. Preserve both boundary affinities and immutable
 range ownership; never insert fake glyphs or spaces for hidden source positions.

@@ -680,6 +680,7 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/Mil/progpu_native_mil_interop.cpp
     src/Text/Interop/progpu_native_text_shaping_interop.cpp
     src/Text/Interop/progpu_native_text_interaction_interop.cpp
+    src/Text/Interop/progpu_native_document_flow_interop.cpp
     include/progpu_native.h
     include/progpu_native_mil.h)
 
@@ -1783,6 +1784,18 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME progpu_native_text_interaction_interop_tests COMMAND progpu_native_text_interaction_interop_tests)
     set_tests_properties(progpu_native_text_interaction_interop_tests PROPERTIES TIMEOUT 60)
 
+    add_executable(progpu_native_document_flow_tests
+        tests/progpu_native_document_flow_tests.cpp
+        src/Text/Interop/progpu_native_document_flow_interop.cpp)
+    target_compile_features(progpu_native_document_flow_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_document_flow_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_compile_definitions(progpu_native_document_flow_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    progpu_native_enable_warnings(progpu_native_document_flow_tests)
+    progpu_native_enable_sanitizers(progpu_native_document_flow_tests)
+    add_test(NAME progpu_native_document_flow_tests COMMAND progpu_native_document_flow_tests)
+    set_tests_properties(progpu_native_document_flow_tests PROPERTIES TIMEOUT 60)
+
     target_compile_features(
         progpu_native_text_shaping_showcase_tests PRIVATE cxx_std_20)
     target_include_directories(
@@ -1902,6 +1915,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_text_interaction.h
         include/progpu_native_text_styles.h
         include/progpu_native_text_flow.h
+        include/progpu_native_document_flow.h
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     if(TARGET progpu_native_dawn)
         install(TARGETS progpu_native_dawn
