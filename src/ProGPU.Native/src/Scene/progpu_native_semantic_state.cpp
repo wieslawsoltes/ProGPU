@@ -82,6 +82,33 @@ float round_to_even(float value) noexcept {
 
 } // namespace
 
+bool try_resolve_semantic_effect(const progpu_native_group_effect& logical,
+    const progpu_native_scene_presentation& presentation,
+    progpu_native_group_effect& physical) noexcept {
+    const bool shadow = logical.kind == PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW;
+    const bool box = logical.kind == PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR;
+    if ((!shadow && !box && logical.kind != PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR) ||
+        !std::isfinite(presentation.dpi_scale_x) || presentation.dpi_scale_x <= 0.0F ||
+        !std::isfinite(presentation.dpi_scale_y) || presentation.dpi_scale_y <= 0.0F)
+        return false;
+    const auto mapped = scale_translate_four(
+        {logical.sigma_x, logical.sigma_y, logical.offset_x, logical.offset_y},
+        {presentation.dpi_scale_x, presentation.dpi_scale_y,
+            presentation.dpi_scale_x, presentation.dpi_scale_y}, {});
+    const float maximum = box ? 128.0F : 128.0F / 3.0F;
+    if (!std::isfinite(mapped[0]) || !std::isfinite(mapped[1]) ||
+        mapped[0] < 0.0F || mapped[1] < 0.0F ||
+        mapped[0] > maximum || mapped[1] > maximum ||
+        (shadow && (!std::isfinite(mapped[2]) || !std::isfinite(mapped[3]))))
+        return false;
+    physical = logical;
+    physical.sigma_x = mapped[0];
+    physical.sigma_y = mapped[1];
+    physical.offset_x = mapped[2];
+    physical.offset_y = mapped[3];
+    return true;
+}
+
 progpu_native_scene_state semantic_identity_state() noexcept {
     progpu_native_scene_state state{};
     state.struct_size = sizeof(state);

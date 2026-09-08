@@ -85,8 +85,32 @@ fields when presentation differs from the legacy full/uniform mapping. Legacy
 hashes are preserved. The fixed 24-byte identity chain is O(1), allocation-free
 and sequentially dependent; it is not a SIMD-eligible whole-buffer workload.
 Brushes, text styles, logical resource snapshots and decoded color-glyph bitmap
-atlas identities remain independent of device placement. Layer/effect/picture
-and 3D identity consumers still need their own integration audit.
+atlas identities remain independent of device placement. Picture and 3D identity
+consumers still need their own integration audit.
+
+Layer/effect checkpoint: local-cache quads reconstruct logical source distances
+using each cache axis, then apply the captured composite transform, logical
+guideline snapping and parent presentation exactly once. Tile-cache composites
+use that same parent localization. Already-physical isolation/backdrop quads
+retain the base raster projection; they must not apply the DPI a second time.
+The existing zero-origin uniform composite path retains its operation ordering.
+
+Gaussian/box blur distances and shadow offsets now share a typed physical-effect
+resolver between semantic preflight and dispatch. Its four independent lanes
+reuse the SSE2/NEON/Wasm SIMD128 mapping; viewport translation never changes
+effect distances. It rejects nonfinite/negative or over-limit physical kernels
+before resource preparation, preserving the existing 128-pixel radius contract.
+The same existing separable GPU shaders, intermediates, uniforms and quality
+constants execute the effect; no CPU pixels, shader fork or new fallback is added.
+Preparation remains fixed O(1) per node, with at most eight nodes per chain.
+
+Retained-layer content revisions and ordinary effect-output scene revisions now
+include presentation metadata. Owner/operation identities stay stable so a DPI
+change invalidates content without inventing new cache owners. Legacy content
+hashes are unchanged. This intentionally uses the complete root mapping even for
+local pages; it is conservative across viewport moves, not a maximal-reuse claim.
+Mask/picture mapping, glyph/path raster details, 3D, damage/clear behavior and
+their remaining cache consumers still block enabling advanced presentation.
 
 | Consumer | Required implementation before enabling host support |
 | --- | --- |
@@ -133,6 +157,18 @@ its representation is not replaced by native semantic wire interpretation.
 No new CPU rasterizer, shader, shaping pass, image copy or per-item native call is
 introduced. Glyph-basis/raster quality and mask/composite coordinates remain
 explicit pending output-qualification requirements.
+
+Layer/effect integration derives from original ProGPU `011a465d`:
+`append_semantic_transformed_layer_quad`, semantic effect preflight/dispatch,
+`presentation_content_hash` and the native effect-output cache key. Managed
+`Compositor.cs` effect rendering (`RenderOffscreen` and the subsequent
+`ApplyBoxBlur`/`ApplyGaussianBlur`/`ApplyDropShadow` calls) already converts logical
+distances by its scalar offscreen DPI and applies shadow placement during
+composition. That path has no native scene-presentation suffix and is unchanged;
+equal-axis behavior remains the common reference. The new unequal-axis native
+submission is not evidence of unequal-axis managed effect parity. Matched
+application images, cache invalidation and layer-composition differentials are
+still required at qualification; no shared shader algorithm was changed here.
 
 ## Primary research and design decisions
 
@@ -185,6 +221,14 @@ and warnings-as-errors using the exact header pins from
 and webgpu-headers `aef5e428a1fdab2ea770581ae7c95d8779984e0a`. Headers are external
 build inputs in temporary storage, not copied into product implementation.
 This does not qualify a fully linked renderer/provider, another ISA or runtime.
+
+The layer-resource execution source also compiles with these pinned headers and
+the repository's normal CMake shader embeddings. The state and internal fixture
+sources compile after adding effect-distance scalar-oracle cases for all three
+kinds, viewport independence, physical kernel limits, overflow, transactional
+failure and equal-axis behavior. The portable MIL fixture target builds as well.
+No fixture, shader, image, VM workload, verifier or benchmark was executed for
+this checkpoint. Full cached/tile-layer composite images remain unqualified.
 
 Compilation checkpoints are recorded in the PR. Full renderer/provider builds,
 all tests/verifiers, macOS/Linux and Windows Parallels runs, text/clip/image

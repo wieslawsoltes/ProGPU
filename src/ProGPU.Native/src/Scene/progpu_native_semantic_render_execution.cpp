@@ -436,21 +436,8 @@ progpu_native_status render_scene(
                     }
                     semantic_effect_pass_count += passes;
                     semantic_has_drop_shadows |= drop_shadow;
-                    const float maximum_physical_extent = effect.kind ==
-                            PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR
-                        ? 128.0F
-                        : 128.0F / 3.0F;
-                    const float sigma_x = effect.sigma_x * frame->dpi_scale;
-                    const float sigma_y = effect.sigma_y * frame->dpi_scale;
-                    const float offset_x = effect.offset_x * frame->dpi_scale;
-                    const float offset_y = effect.offset_y * frame->dpi_scale;
-                    if (!std::isfinite(sigma_x) ||
-                        !std::isfinite(sigma_y) ||
-                        sigma_x > maximum_physical_extent ||
-                        sigma_y > maximum_physical_extent ||
-                        (drop_shadow &&
-                            (!std::isfinite(offset_x) ||
-                             !std::isfinite(offset_y)))) {
+                    progpu_native_group_effect physical_effect{};
+                    if (!semantic::try_resolve_semantic_effect(effect, presentation, physical_effect)) {
                         return engine->fail(
                             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                             "A semantic effect exceeds the finite physical kernel contract.");
@@ -3989,7 +3976,7 @@ progpu_native_status render_scene(
             std::uint32_t resource_index,
             semantic_render_bundle_span& operation) {
             if (resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) {
-                return;
+                return true;
             }
             const auto resource = read_resource(resource_index);
             progpu_native_scene_effect_chain chain{};
@@ -4034,7 +4021,11 @@ progpu_native_status render_scene(
             for (std::uint32_t effect_index = 0U;
                  effect_index < chain.effect_count;
                  ++effect_index) {
-                const auto& effect = effects[effect_index];
+                progpu_native_group_effect effect{};
+                // The identical mapping was qualified during preflight, before
+                // resource allocation. The immutable stream cannot change here.
+                if (!semantic::try_resolve_semantic_effect(effects[effect_index], presentation, effect))
+                    return false;
                 semantic_effect_dispatch dispatch{};
                 dispatch.kind = effect.kind;
                 dispatch.source_texture = plan[effect_index].source;
@@ -4042,7 +4033,7 @@ progpu_native_status render_scene(
                     plan[effect_index].horizontal;
                 dispatch.vertical_texture = plan[effect_index].vertical;
                 dispatch.output_texture = plan[effect_index].output;
-                const auto create_blur = [frame](
+                const auto create_blur = [](
                                              const progpu_native_group_effect& node,
                                              bool horizontal) {
                     gpu_gaussian_blur_params parameters{};
@@ -4053,12 +4044,12 @@ progpu_native_status render_scene(
                         parameters.radius =
                             static_cast<std::uint32_t>(std::clamp(
                                 static_cast<int>(std::floor(
-                                    value * frame->dpi_scale)),
+                                    value)),
                                 0,
                                 128));
                         parameters.kernel_type = 1U;
                     } else {
-                        parameters.sigma = value * frame->dpi_scale;
+                        parameters.sigma = value;
                         parameters.radius =
                             static_cast<std::uint32_t>(std::clamp(
                                 static_cast<int>(std::ceil(
@@ -4077,8 +4068,8 @@ progpu_native_status render_scene(
                 if (effect.kind ==
                     PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW) {
                     gpu_drop_shadow_params drop{};
-                    drop.offset[0] = effect.offset_x * frame->dpi_scale;
-                    drop.offset[1] = effect.offset_y * frame->dpi_scale;
+                    drop.offset[0] = effect.offset_x;
+                    drop.offset[1] = effect.offset_y;
                     drop.color[0] = effect.color_r;
                     drop.color[1] = effect.color_g;
                     drop.color[2] = effect.color_b;
@@ -4088,6 +4079,7 @@ progpu_native_status render_scene(
                 }
                 compiled_effect_dispatches.push_back(dispatch);
             }
+            return true;
         };
 
         semantic_state_cursor state_cursor(
@@ -4197,7 +4189,7 @@ progpu_native_status render_scene(
                     operation.cache_content = cached;
                     operation.cache_identity = layer.composite_revision;
                     operation.cache_content_revision =
-                        layer.content_revision;
+                        semantic::presentation_content_hash(layer.content_revision, *frame, presentation);
                     operation.backdrop =
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
@@ -4208,9 +4200,10 @@ progpu_native_status render_scene(
                             target_extent.x - parent_extent.x;
                         operation.backdrop_source_y =
                             target_extent.y - parent_extent.y;
-                        append_effect_program(
+                        if (!append_effect_program(
                             layer.effect_resource_index,
-                            operation);
+                            operation))
+                            return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
                         if (operation.effect_count != 0U) {
                             operation.first_backdrop_resolve_vertex =
                                 static_cast<std::uint32_t>(
@@ -4310,24 +4303,32 @@ progpu_native_status render_scene(
                                 layer.opacity)) {
                             return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
                         }
-                        const float target_x = static_cast<float>(target_extent.x) / frame->dpi_scale;
-                        const float target_y = static_cast<float>(target_extent.y) / frame->dpi_scale;
+                        const auto target_presentation = target_cursor.current_presentation();
                         for (auto& vertex : quad) {
-                            vertex.position[0] -= target_x;
-                            vertex.position[1] -= target_y;
+                            semantic::localize_semantic_point(vertex.position[0], vertex.position[1],
+                                target_extent, target_presentation, frame->dpi_scale);
                         }
                         semantic_layer_vertices.insert(semantic_layer_vertices.end(), quad.begin(), quad.end());
                     } else if (local_cache) {
+                        const auto target_presentation = target_cursor.current_presentation();
+                        const bool legacy_mapping = target_presentation.viewport_x == 0U &&
+                            target_presentation.viewport_y == 0U &&
+                            presentation.dpi_scale_x == frame->dpi_scale &&
+                            presentation.dpi_scale_y == frame->dpi_scale;
+                        // Advanced mapping first reconstructs logical source coordinates
+                        // from each physical cache axis, then snaps and localizes once.
                         append_semantic_transformed_layer_quad(
                             semantic_layer_vertices,
                             source_extent,
-                            target_extent,
+                            legacy_mapping ? target_extent : semantic_scissor{},
                             engine->semantic_layer_slots[source_layer].width,
                             engine->semantic_layer_slots[source_layer].height,
                             frame->dpi_scale,
                             layer.opacity,
-                            composite_state.transform);
-                        if ((composite_state.flags &
+                            composite_state.transform,
+                            presentation.dpi_scale_x,
+                            presentation.dpi_scale_y);
+                        if (!legacy_mapping || (composite_state.flags &
                                 PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) !=
                             0U) {
                             const float target_x =
@@ -4343,15 +4344,22 @@ progpu_native_status render_scene(
                                 auto& vertex =
                                     semantic_layer_vertices[vertex_index];
                                 float absolute_x =
-                                    vertex.position[0] + target_x;
+                                    vertex.position[0] + (legacy_mapping ? target_x : 0.0F);
                                 float absolute_y =
-                                    vertex.position[1] + target_y;
+                                    vertex.position[1] + (legacy_mapping ? target_y : 0.0F);
                                 state_cursor.snap_composite_point(
                                     composite_state,
                                     absolute_x,
                                     absolute_y);
-                                vertex.position[0] = absolute_x - target_x;
-                                vertex.position[1] = absolute_y - target_y;
+                                if (legacy_mapping) {
+                                    vertex.position[0] = absolute_x - target_x;
+                                    vertex.position[1] = absolute_y - target_y;
+                                } else {
+                                    semantic::localize_semantic_point(absolute_x, absolute_y,
+                                        target_extent, target_presentation, frame->dpi_scale);
+                                    vertex.position[0] = absolute_x;
+                                    vertex.position[1] = absolute_y;
+                                }
                             }
                         }
                     } else {
@@ -4408,7 +4416,7 @@ progpu_native_status render_scene(
                     operation.cache_content = cached;
                     operation.cache_identity = layer.composite_revision;
                     operation.cache_content_revision =
-                        layer.content_revision;
+                        semantic::presentation_content_hash(layer.content_revision, *frame, presentation);
                     operation.has_composite_scissor =
                         has_composite_scissor;
                     operation.composite_drawable = composite_drawable;
@@ -4424,9 +4432,10 @@ progpu_native_status render_scene(
                     const bool advanced_blend =
                         is_advanced_group_blend(layer.blend_mode);
                     if (!operation.backdrop) {
-                        append_effect_program(
+                        if (!append_effect_program(
                             layer.effect_resource_index,
-                            operation);
+                            operation))
+                            return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
                     }
                     if (operation.effect_count != 0U &&
                         !operation.backdrop) {
@@ -5080,7 +5089,7 @@ progpu_native_status render_scene(
         std::uint32_t skipped_cached_depth = 0U;
         std::array<bool, semantic::layer_slot_count>
             cached_layer_replay{};
-        const auto output_cache_key = [&engine](
+        const auto output_cache_key = [&engine, frame, &presentation](
             const semantic_render_bundle_span& operation,
             const semantic_layer_slot& slot) noexcept {
             const bool effect_output = operation.effect_count != 0U;
@@ -5095,7 +5104,7 @@ progpu_native_status render_scene(
                     effect_output ? slot.effect_height : slot.height};
             }
             return progpu::native::effects::semantic_output_cache_key{
-                engine->semantic_scene_hash,
+                semantic::presentation_content_hash(engine->semantic_scene_hash, *frame, presentation),
                 operation.effect_cache_operation_id != 0U
                     ? operation.effect_cache_operation_id
                     : operation.operation_id,

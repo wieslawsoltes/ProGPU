@@ -87,6 +87,12 @@ inline bool try_uniform_guideline_translation(std::span<const std::byte> payload
 
 progpu_native_scene_state semantic_identity_state() noexcept;
 
+// Map effect distances (not positions) into the presentation's physical axes.
+// Preserves output on failure and the existing finite 128-pixel kernel limit.
+bool try_resolve_semantic_effect(const progpu_native_group_effect& logical,
+    const progpu_native_scene_presentation& presentation,
+    progpu_native_group_effect& physical) noexcept;
+
 class semantic_state_cursor final {
 public:
     semantic_state_cursor(

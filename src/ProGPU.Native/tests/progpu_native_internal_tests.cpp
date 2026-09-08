@@ -1269,6 +1269,49 @@ void semantic_presentation_layers_keep_independent_device_domains() {
     require(cursor.current_presentation().viewport_x == 13U);
 }
 
+void semantic_presentation_effects_use_independent_physical_distances() {
+    using namespace progpu::native::semantic;
+    progpu_native_scene_presentation presentation{
+        sizeof(presentation), 13U, 17U, 100U, 80U, 2.0F, 3.0F, 0U};
+    for (const auto kind : {PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR,
+            PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR, PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW}) {
+        auto logical = effect(kind);
+        logical.sigma_x = 1.25F;
+        logical.sigma_y = 2.5F;
+        logical.offset_x = -4.0F;
+        logical.offset_y = 5.0F;
+        logical.color_a = 0.75F;
+        progpu_native_group_effect physical{};
+        require(try_resolve_semantic_effect(logical, presentation, physical));
+        auto expected = logical;
+        expected.sigma_x *= presentation.dpi_scale_x;
+        expected.sigma_y *= presentation.dpi_scale_y;
+        expected.offset_x *= presentation.dpi_scale_x;
+        expected.offset_y *= presentation.dpi_scale_y;
+        require(std::memcmp(&physical, &expected, sizeof(expected)) == 0);
+        // Viewport translation affects positions, never blur or shadow distances.
+        presentation.viewport_x += 20U;
+        require(try_resolve_semantic_effect(logical, presentation, physical));
+        require(std::memcmp(&physical, &expected, sizeof(expected)) == 0);
+        logical.sigma_y = 128.0F;
+        require(!try_resolve_semantic_effect(logical, presentation, physical));
+        require(std::memcmp(&physical, &expected, sizeof(expected)) == 0);
+        logical.sigma_y = -1.0F;
+        require(!try_resolve_semantic_effect(logical, presentation, physical));
+    }
+    auto shadow = effect(PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW);
+    progpu_native_group_effect physical{};
+    shadow.offset_x = std::numeric_limits<float>::max();
+    require(!try_resolve_semantic_effect(shadow, presentation, physical));
+    shadow.offset_x = 0.0F;
+    presentation.dpi_scale_x = std::numeric_limits<float>::infinity();
+    require(!try_resolve_semantic_effect(shadow, presentation, physical));
+    presentation.dpi_scale_x = presentation.dpi_scale_y = 2.0F;
+    require(try_resolve_semantic_effect(shadow, presentation, physical));
+    require(physical.sigma_x == shadow.sigma_x * 2.0F);
+    require(physical.sigma_y == shadow.sigma_y * 2.0F);
+}
+
 void semantic_presentation_geometry_maps_once_into_target_space() {
     using namespace progpu::native::semantic;
     const progpu_native_scene_presentation presentation{
@@ -1717,6 +1760,7 @@ int main() {
     semantic_state_and_layer_cursors_restore_scopes();
     semantic_static_guidelines_adjust_state_at_target_dpi();
     semantic_presentation_layers_keep_independent_device_domains();
+    semantic_presentation_effects_use_independent_physical_distances();
     semantic_presentation_geometry_maps_once_into_target_space();
     semantic_presentation_identity_tracks_every_device_field();
     semantic_payload_validation_is_bounded_and_cpu_only();

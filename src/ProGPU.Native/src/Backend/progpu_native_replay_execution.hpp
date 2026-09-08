@@ -122,7 +122,9 @@ void append_semantic_transformed_layer_quad(
     std::uint32_t source_texture_height,
     float dpi_scale,
     float opacity,
-    const progpu_native_affine_2d& transform);
+    const progpu_native_affine_2d& transform,
+    float source_dpi_x = 0.0F,
+    float source_dpi_y = 0.0F);
 
 bool create_semantic_layer_mask_binding(
     progpu_native_engine& engine,

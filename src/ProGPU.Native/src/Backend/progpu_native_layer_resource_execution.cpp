@@ -813,13 +813,17 @@ void append_semantic_transformed_layer_quad(
     std::uint32_t source_texture_height,
     float dpi_scale,
     float opacity,
-    const progpu_native_affine_2d& transform) {
-    const float source_x0 = static_cast<float>(source.x) / dpi_scale;
-    const float source_y0 = static_cast<float>(source.y) / dpi_scale;
+    const progpu_native_affine_2d& transform,
+    float source_dpi_x,
+    float source_dpi_y) {
+    const float source_scale_x = source_dpi_x > 0.0F ? source_dpi_x : dpi_scale;
+    const float source_scale_y = source_dpi_y > 0.0F ? source_dpi_y : dpi_scale;
+    const float source_x0 = static_cast<float>(source.x) / source_scale_x;
+    const float source_y0 = static_cast<float>(source.y) / source_scale_y;
     const float source_x1 = source_x0 +
-        static_cast<float>(source.width) / dpi_scale;
+        static_cast<float>(source.width) / source_scale_x;
     const float source_y1 = source_y0 +
-        static_cast<float>(source.height) / dpi_scale;
+        static_cast<float>(source.height) / source_scale_y;
     const float target_x = static_cast<float>(target.x) / dpi_scale;
     const float target_y = static_cast<float>(target.y) / dpi_scale;
     const float u1 = static_cast<float>(source.width) /
