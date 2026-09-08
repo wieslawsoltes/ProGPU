@@ -111,6 +111,12 @@ public sealed class SilkWindowController : IDisposable
         return Apply((platform, _) => platform.SetTopMost(value));
     }
 
+    /// <summary>
+    /// Records the requested enabled state and reports whether the attached
+    /// platform accepted it. Decoration refresh cannot make a rejected request
+    /// succeed. Platform acceptance alone is not cross-platform modal input
+    /// suppression: some platforms implement enabled window chrome only.
+    /// </summary>
     public bool SetEnabled(bool value)
     {
         _state = _state with { Enabled = value };
@@ -118,10 +124,11 @@ public sealed class SilkWindowController : IDisposable
         {
             bool enabled =
                 platform.SetEnabled(value);
-            bool shadow =
-                platform.SetWindowShadow(
-                    state.AddShadow);
-            return enabled || shadow;
+            // Chrome refresh is independent of input-state admission. It must
+            // not turn an unsupported/rejected enabled-state request into success.
+            if (enabled)
+                platform.SetWindowShadow(state.AddShadow);
+            return enabled;
         });
     }
 

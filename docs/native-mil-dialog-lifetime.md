@@ -52,3 +52,53 @@ application harness with 0/0. No fixture, verifier, GPU/native application, VM,
 benchmark or CI gate was executed. Latest fetched ProGPU main is included in the
 feature branch. The C++ scene/compiler/render algorithms are unchanged: native
 and managed modes both consume this same host/source lifetime contract.
+
+## Native enabled-state admission prerequisite
+
+The MVP modal dialog's remaining other-window input blocker requires trustworthy
+native enable/disable admission. The shared `SilkWindowController.SetEnabled`
+previously combined enabled-state and shadow-refresh results with OR, allowing
+an unrelated decoration operation to hide unsupported input-state handling.
+It now returns the enabled-state result alone and refreshes shadow only after
+that operation was accepted. Desired controller state is still retained for
+later attachment/reapplication; a false return is not proof of effective state.
+
+On Windows the platform now checks local same-thread/process ownership before
+the call, uses source-generated integer-BOOL bindings, and checks ownership and
+actual enabled state after synchronous native callbacks. It deliberately ignores
+the native call's previous-state return value. A destroyed window or a callback
+that reverses the requested state produces false; unrelated failures propagate.
+The caller must still own the live native window lifetime; this is not protection
+against arbitrary HWND reuse or a native-window ownership lease.
+
+This original control-flow policy follows the public
+[EnableWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enablewindow)
+and [IsWindowEnabled](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-iswindowenabled)
+contracts: EnableWindow returns the previous disabled state and synchronously
+delivers notifications, while IsWindowEnabled reads current input availability.
+The implementation introduces no WPF source-copy, pixel/compute algorithm or
+SIMD-eligible loop. All host frameworks and both renderers share the same backend.
+
+Authored policy fixtures cover enable/disable/idempotent requests, invalid and
+foreign ownership, destruction, state reversal and exception propagation.
+They do not qualify actual WM_ENABLE ordering or native input suppression.
+The macOS implementation currently updates standard window-button state, not
+all keyboard/pointer input; X11/Wayland enabled-state support remains incomplete.
+Do not use a successful chrome update as cross-platform modal admission. The
+WPF other-window input coordinator, native ownership, nested scopes, activation
+restoration and actual Windows/macOS/Linux app validation remain open.
+
+Next core integration must keep application enabled intent separate from modal
+blocking. The existing ProGPU WinUI `AppWindow.ApplyModalOwner`/`AddModalChild`/
+`ReleaseModalChild` implementation directly assigns the window's IsEnabled value;
+that is not a suitable WPF adapter contract for preserving application-owned
+values. WPF host ingress, queued input dispatch and source captured-mouse routing
+must all use the same effective restriction, including popup surfaces owned by the
+active dialog. Restricting just the initial host event does not cover an event
+queued before modal entry or redirected afterward by mouse capture.
+
+Enabled-state checkpoint compilation: final ProGPU.Tests 0 warnings/0 errors;
+LibreWPF source application harness 5 warnings/0 errors. No policy fixture, native
+window/input workload, application, VM, benchmark or CI qualification was run.
+Latest fetched ProGPU main remains included. This is shared OS-host plumbing;
+managed/native scene and rendering implementations are unchanged and both use it.

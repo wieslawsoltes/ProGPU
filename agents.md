@@ -196,6 +196,11 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+Native enabled-state admission must not combine unrelated shadow/chrome success
+with input-state success. Win32 EnableWindow returns prior disabled state, not
+success; keep local host-thread ownership and actual post-callback state checks.
+Controller desired state is distinct from accepted native state. Cocoa button
+enabling is not full keyboard/pointer suppression or modal-window parity.
 Portable dialog pumping uses the optional typed RunDialog callback, separate from
 application Run. Borrow its source-owned continuation only during the synchronous
 host-thread call; hiding ends that dialog invocation without destroying the host.

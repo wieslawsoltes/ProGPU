@@ -153,8 +153,6 @@ internal sealed partial class Win32NativeWindowPlatform :
             SwpNoMove | SwpNoSize | SwpNoActivate);
     }
 
-    public override bool SetEnabled(bool value) => EnableWindow(_hwnd, value);
-
     public override bool SetShowInTaskbar(bool value)
     {
         var style = GetWindowLongPtr(_hwnd, GwlExStyle).ToInt64();
@@ -674,8 +672,6 @@ internal sealed partial class Win32NativeWindowPlatform :
     private static extern uint SetClassLong32(nint hwnd, int index, int value);
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(nint hwnd, nint insertAfter, int x, int y, int cx, int cy, uint flags);
-    [DllImport("user32.dll")]
-    private static extern bool EnableWindow(nint hwnd, bool enabled);
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
     [LibraryImport("user32.dll")]
