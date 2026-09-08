@@ -450,15 +450,22 @@ public sealed class PortablePopupCreateRequest
 
 public sealed class PortableWindowRegion
 {
+    private readonly PortableRect[] _excludedRects;
+
     public PortableWindowRegion(PortableRect bounds, IReadOnlyList<PortableRect>? excludedRects = null)
     {
         Bounds = bounds;
-        ExcludedRects = excludedRects ?? Array.Empty<PortableRect>();
+        // Capture once: a caller changing its list must not mutate a region
+        // already installed in a retained managed or native scene.
+        _excludedRects = excludedRects is null ? [] : excludedRects.ToArray();
+        ExcludedRects = Array.AsReadOnly(_excludedRects);
     }
 
     public PortableRect Bounds { get; }
 
     public IReadOnlyList<PortableRect> ExcludedRects { get; }
+
+    public ReadOnlySpan<PortableRect> ExcludedRectSpan => _excludedRects;
 
     public bool IsEmpty => Bounds.IsEmpty || Bounds.Width <= 0 || Bounds.Height <= 0;
 }

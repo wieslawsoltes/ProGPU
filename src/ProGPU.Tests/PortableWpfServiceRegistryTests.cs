@@ -5,6 +5,24 @@ namespace ProGPU.Tests;
 
 public sealed class PortableWpfServiceRegistryTests
 {
+    [Fact]
+    public void WindowRegionOwnsImmutableExclusionsForRetainedConsumers()
+    {
+        var original = new PortableRect(10, 20, 30, 40);
+        PortableRect[] rectangles = [original];
+        var region = new PortableWindowRegion(new(0, 0, 100, 100), rectangles);
+        rectangles[0] = new(0, 0, 1, 1);
+        Assert.Equal(original, Assert.Single(region.ExcludedRects));
+        Assert.Equal(original, region.ExcludedRectSpan[0]);
+        var mutableView = Assert.IsAssignableFrom<IList<PortableRect>>(region.ExcludedRects);
+        Assert.Throws<NotSupportedException>(() => mutableView[0] = rectangles[0]);
+        var list = new List<PortableRect> { original };
+        var fromList = new PortableWindowRegion(new(0, 0, 100, 100), list);
+        list.Clear();
+        Assert.Equal(original, Assert.Single(fromList.ExcludedRects));
+        Assert.True(new PortableWindowRegion(PortableRect.Empty).ExcludedRectSpan.IsEmpty);
+    }
+
     private static readonly PortableWpfServiceKey ServiceKey =
         new($"PopupTests-{Guid.NewGuid():N}");
 

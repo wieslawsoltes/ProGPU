@@ -3183,6 +3183,73 @@ bool placed_overlay_visuals_preserve_draw_order_and_local_clip() {
     return true;
 }
 
+bool host_region_holes_share_one_nonzero_leaf() {
+    std::vector<std::byte> batch;
+    append_create(batch, 1U, 39U);
+    append_create(batch, 2U, 43U);
+    append_create(batch, 3U, 47U);
+    append_create(batch, 4U, 75U);
+    append_create(batch, 5U, 69U);
+    append_create(batch, 6U, 71U);
+    append_create(batch, 7U, 72U);
+    append_command(batch, command::visual_create, 1U);
+    append_command(batch, command::visual_set_content, 1U, 2U);
+    append_command(batch, command::visual_set_clip, 1U, 7U);
+    append_command(batch, command::rectangle_geometry, 5U,
+        0.0, 0.0, 0.0, 0.0, 100.0, 80.0, 0U, 0U, 0U, 0U);
+    // More than the boolean-program node budget: ordinary same-winding
+    // rectangles must flatten to one nonzero leaf, not one node per hole.
+    std::array<std::uint32_t, 64U> holes{};
+    for (std::uint32_t i = 0U; i < holes.size(); ++i) {
+        holes[i] = 10U + i;
+        append_create(batch, holes[i], 69U);
+        append_command(batch, command::rectangle_geometry, holes[i],
+            0.0, 0.0, 10.0 + static_cast<double>(i) * 0.5, 10.0,
+            20.0, 20.0, 0U, 0U, 0U, 0U);
+    }
+    append_geometry_group(batch, 6U, 0U, 1U, holes);
+    append_command(batch, command::combined_geometry, 7U, 0U, 3U, 5U, 6U);
+    append_command(batch, command::solid_color_brush, 4U, 1.0,
+        progpu_native_color{0.2F, 0.7F, 1.0F, 1.0F}, 0U, 0U, 0U, 0U);
+    std::vector<std::byte> drawing;
+    append_command(drawing, command::draw_rectangle, 0.0, 0.0, 100.0, 80.0, 4U, 0U);
+    append_render_data(batch, 2U, drawing);
+    append_command(batch, command::generic_target_create, 3U,
+        std::uint64_t{0U}, std::uint64_t{0U}, 100U, 80U, 0U);
+    append_command(batch, command::target_set_root, 3U, 1U);
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(state.build_scene(3U, 9513U, 1U, stream) == status::success);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found = false;
+    for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+        const auto resource = read_value<progpu_native_scene_resource>(stream,
+            header.resource_offset + i * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) continue;
+        const auto mask = read_value<progpu_native_scene_layer_vector_mask>(stream, resource.payload_offset);
+        if (mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) continue;
+        PROGPU_REQUIRE(mask.path_count == 1U);
+        PROGPU_REQUIRE(mask.segment_count == 4U * (1U + holes.size()));
+        PROGPU_REQUIRE(mask.boolean_node_count == 3U);
+        const auto path = read_value<progpu_native_scene_clip_path>(stream, resource.auxiliary_offset);
+        PROGPU_REQUIRE(path.boolean_node_count == 3U);
+        const auto nodes = resource.auxiliary_offset + sizeof(progpu_native_scene_clip_path) +
+            mask.segment_count * sizeof(progpu_native_path_segment);
+        const auto hole_leaf = read_value<progpu_native_scene_path_boolean_node>(stream,
+            nodes + sizeof(progpu_native_scene_path_boolean_node));
+        const auto difference = read_value<progpu_native_scene_path_boolean_node>(stream,
+            nodes + 2U * sizeof(progpu_native_scene_path_boolean_node));
+        PROGPU_REQUIRE(hole_leaf.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF);
+        PROGPU_REQUIRE(hole_leaf.fill_rule == PROGPU_NATIVE_FILL_RULE_NON_ZERO);
+        PROGPU_REQUIRE(hole_leaf.segment_count == 4U * holes.size());
+        PROGPU_REQUIRE(difference.kind == PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE);
+        found = true;
+    }
+    PROGPU_REQUIRE(found);
+    return true;
+}
+
 bool visual_clips_compile_to_exact_semantic_state() {
     constexpr std::uint32_t root = 1U;
     constexpr std::uint32_t child = 2U;
@@ -22064,6 +22131,7 @@ int main() {
     PROGPU_REQUIRE(animated_pen_and_dash_resources_drive_strokes());
     PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
     PROGPU_REQUIRE(placed_overlay_visuals_preserve_draw_order_and_local_clip());
+    PROGPU_REQUIRE(host_region_holes_share_one_nonzero_leaf());
     PROGPU_REQUIRE(visual_geometry_clips_apply_after_effects());
     PROGPU_REQUIRE(viewport3d_geometry_clips_apply_to_isolated_outputs());
     PROGPU_REQUIRE(visual_geometry_clips_apply_after_local_caches());
