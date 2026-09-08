@@ -13,6 +13,30 @@ namespace Avalonia.ProGpu.UnitTests;
 public class NativeRendererInteropTests
 {
     [Fact]
+    public void RetainedNativeTextOperationsLeaseTheirPointerForTheEntireCall()
+    {
+        string source = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend.Native", "NativeTextShapingInterop.cs"));
+        int contextStart = source.IndexOf("public sealed unsafe class NativeTextShapingContext", StringComparison.Ordinal);
+        Assert.True(contextStart >= 0);
+        string context = source[contextStart..];
+        foreach (string method in new[] { "AddFallbackFont", "GetRequirements", "Shape", "GetParagraphRequirements", "LayoutParagraph" })
+        {
+            int start = context.IndexOf($"public NativeRendererStatus {method}(", StringComparison.Ordinal);
+            Assert.True(start >= 0);
+            int end = context.IndexOf("\n    public ", start + 1, StringComparison.Ordinal);
+            string body = end < 0 ? context[start..] : context[start..end];
+            int lease = body.IndexOf("using var use = _owner.Acquire();", StringComparison.Ordinal);
+            int call = body.IndexOf("NativeMethods.", StringComparison.Ordinal);
+            Assert.True(lease >= 0 && call > lease, method);
+            Assert.Contains("nint handle = use.Handle;", body, StringComparison.Ordinal);
+        }
+        Assert.DoesNotContain("GetHandle()", context, StringComparison.Ordinal);
+        Assert.DoesNotContain("Volatile.Read(ref _handle)", context, StringComparison.Ordinal);
+        Assert.Contains("_owner?.Dispose();", context, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NativeMilBuildersWritePointerFreeCanonicalD3DImagePackets()
     {
         var batch = new NativeMilBatchBuilder();

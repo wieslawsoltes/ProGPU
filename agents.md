@@ -230,6 +230,11 @@ Owner-DPI notifications may update legacy coordinate decoding, not a separately
 surfaced popup's raster DPI. Only its own host geometry callbacks replace that
 initial source seed; composited owner-surface popups continue inheriting owner DPI.
 Source memory bitmaps select storage by the frozen media backend, not the OS.
+Retained native text contexts must hold a same-thread use scope for every complete
+native operation, serializing mutable plans/fallback fonts and excluding disposal.
+Do not restore raw pointer reads followed by unleased native calls. Reuse the
+existing C++ paragraph pipeline for WPF text integration; never count an empty
+portable paragraph as shaped content. See `docs/native-mil-text-source-integration.md`.
 Source custom chrome must recognize ProGPU window ownership before HWND access,
 including registered/pre-source activation. A host HWND is not a WPF HwndSource;
 portable border updates and restoration stay on typed source/host contracts.

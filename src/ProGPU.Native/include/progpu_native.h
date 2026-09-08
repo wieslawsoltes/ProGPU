@@ -3085,6 +3085,12 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_create(
     progpu_native_text_context** context);
 PROGPU_NATIVE_API void progpu_native_text_context_destroy(
     progpu_native_text_context* context);
+
+/* Context plans and fallback-font storage are mutable. C/C++ callers must
+ * serialize operations and destruction on the same context. Distinct contexts
+ * may execute concurrently. The managed NativeTextShapingContext wrapper owns
+ * that per-call synchronization and pointer lifetime; separate requirements and
+ * execution calls are not one atomic transaction. */
 /* Adds one immutable fallback face snapshot during context initialization.
  * Returned indices start at one; zero always identifies the primary face. */
 PROGPU_NATIVE_API progpu_native_status

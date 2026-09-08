@@ -188,19 +188,22 @@ public readonly record struct NativeTextParagraphOptions(
 /// Owns an immutable native font snapshot and reusable OpenType plan storage.
 /// Create once per font/variation domain and reuse it for stable shaping and
 /// complete bidi-aware paragraph layout runs.
+/// Operations on one context are serialized because native plans are mutable.
+/// Disposal waits for another thread's active operation; no pointer is destroyed
+/// while that operation is in flight. Separate contexts can execute in parallel.
 /// </summary>
 public sealed unsafe class NativeTextShapingContext : IDisposable
 {
-    private nint _handle;
+    private readonly NativeTextContextOwner _owner;
 
     public NativeTextShapingContext(
         ReadOnlySpan<byte> fontData,
         uint faceIndex = 0,
         ReadOnlySpan<byte> normalizationData = default)
     {
+        nint context = 0;
         fixed (byte* fontPointer = fontData)
         fixed (byte* normalizationPointer = normalizationData)
-        fixed (nint* handle = &_handle)
         {
             NativeRendererStatus status = NativeMethods.CreateTextContext(
                 NativeMethods.AbiVersion,
@@ -209,12 +212,19 @@ public sealed unsafe class NativeTextShapingContext : IDisposable
                 faceIndex,
                 normalizationPointer,
                 checked((nuint)normalizationData.Length),
-                handle);
-            if (status != NativeRendererStatus.Success)
+                &context);
+            if (status != NativeRendererStatus.Success || context == 0)
             {
+                if (context != 0) NativeMethods.DestroyTextContext(context);
                 throw new InvalidOperationException(
                     $"Native text context creation failed with {status}.");
             }
+        }
+        try { _owner = new NativeTextContextOwner(context, NativeMethods.DestroyTextContext); }
+        catch
+        {
+            NativeMethods.DestroyTextContext(context);
+            throw;
         }
     }
 
@@ -230,7 +240,8 @@ public sealed unsafe class NativeTextShapingContext : IDisposable
         uint faceIndex = 0,
         ulong identity = 0)
     {
-        nint handle = GetHandle();
+        using var use = _owner.Acquire();
+        nint handle = use.Handle;
         fontIndex = 0;
         fixed (byte* fontPointer = fontData)
         fixed (uint* index = &fontIndex)
@@ -249,7 +260,8 @@ public sealed unsafe class NativeTextShapingContext : IDisposable
         in NativeTextShapeInput input,
         out NativeTextShapeRequirements requirements)
     {
-        nint handle = GetHandle();
+        using var use = _owner.Acquire();
+        nint handle = use.Handle;
         requirements = new NativeTextShapeRequirements
         {
             StructSize = (uint)Unsafe.SizeOf<NativeTextShapeRequirements>()
@@ -283,7 +295,8 @@ public sealed unsafe class NativeTextShapingContext : IDisposable
         Span<byte> scratch,
         out NativeTextShapeResult result)
     {
-        nint handle = GetHandle();
+        using var use = _owner.Acquire();
+        nint handle = use.Handle;
         result = new NativeTextShapeResult
         {
             StructSize = (uint)Unsafe.SizeOf<NativeTextShapeResult>()
@@ -322,7 +335,8 @@ public sealed unsafe class NativeTextShapingContext : IDisposable
         in NativeTextParagraphOptions options,
         out NativeTextParagraphRequirements requirements)
     {
-        nint handle = GetHandle();
+        using var use = _owner.Acquire();
+        nint handle = use.Handle;
         requirements = new NativeTextParagraphRequirements
         {
             StructSize = (uint)Unsafe.SizeOf<NativeTextParagraphRequirements>()
@@ -361,7 +375,8 @@ public sealed unsafe class NativeTextShapingContext : IDisposable
         Span<byte> scratch,
         out NativeTextParagraphResult result)
     {
-        nint handle = GetHandle();
+        using var use = _owner.Acquire();
+        nint handle = use.Handle;
         result = new NativeTextParagraphResult
         {
             StructSize = (uint)Unsafe.SizeOf<NativeTextParagraphResult>()
@@ -407,14 +422,6 @@ public sealed unsafe class NativeTextShapingContext : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private nint GetHandle()
-    {
-        nint handle = Volatile.Read(ref _handle);
-        return handle != 0
-            ? handle
-            : throw new ObjectDisposedException(nameof(NativeTextShapingContext));
-    }
-
     private static NativeTextLayoutOptions CreateParagraphLayoutOptions(
         in NativeTextShapeInput input,
         in NativeTextParagraphOptions options) => new()
@@ -433,8 +440,8 @@ public sealed unsafe class NativeTextShapingContext : IDisposable
 
     private void DisposeCore()
     {
-        nint handle = Interlocked.Exchange(ref _handle, 0);
-        if (handle != 0) NativeMethods.DestroyTextContext(handle);
+        // Null is possible when the native constructor or owner allocation failed.
+        _owner?.Dispose();
     }
 }
 
