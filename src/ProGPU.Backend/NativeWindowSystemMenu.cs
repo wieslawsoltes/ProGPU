@@ -4,16 +4,21 @@ namespace ProGPU.Backend;
 public static class NativeWindowSystemMenu
 {
     /// <summary>
-    /// Displays the Win32 owner window's existing system menu at native desktop
-    /// coordinates. Must run on the window thread. The modal native menu loop
-    /// may reenter application callbacks; selected commands are posted afterward.
+    /// Presents the owner window's system menu at native desktop coordinates.
+    /// The caller must keep its native window/display live on the window thread.
+    /// Win32 uses a modal loop which may reenter callbacks, then posts selection.
+    /// X11 requires a managed client and advertised window-manager support; true
+    /// means an asynchronous request was submitted, not that the menu was shown.
     /// Unsupported kinds and rejected native operations return false. No window
     /// or menu handle is retained, destroyed, replaced or transferred to callers.
     /// </summary>
     public static bool TryShow(NativeWindowHandle owner, NativeWindowPoint desktopPosition)
     {
-        if (!OperatingSystem.IsWindows() || owner.Kind != NativeWindowKind.Win32 || !owner.IsValid)
-            return false;
-        return Win32NativeWindowPlatform.TryShowSystemMenu(owner.Handle, desktopPosition);
+        if (!owner.IsValid) return false;
+        if (OperatingSystem.IsWindows() && owner.Kind == NativeWindowKind.Win32)
+            return Win32NativeWindowPlatform.TryShowSystemMenu(owner.Handle, desktopPosition);
+        if (OperatingSystem.IsLinux() && owner.Kind == NativeWindowKind.X11)
+            return X11NativeSystemMenu.TryShow(owner, desktopPosition);
+        return false;
     }
 }

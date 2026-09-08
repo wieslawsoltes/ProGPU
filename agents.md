@@ -322,7 +322,12 @@ System-menu presentation uses `NativeWindowSystemMenu` and an optional typed hos
 callback, never an opaque WPF source handle. Admit only local same-thread Win32
 top-level owners, preserve the existing native menu, and recheck owner/menu after
 modal tracking before posting a command. Keep desktop coordinates independent of
-framebuffer DPI; absent non-Windows providers remain explicit gaps. See
+framebuffer DPI. X11 menu requests require the owner's actual root and advertised
+WM support, use native-long property/event layouts and the actual owner-client
+pointer, and negotiate XI2 on a temporary connection rather than the host input
+display. Keep borrowed handles live on their owning thread, release all temporary
+connections/property buffers, and never equate asynchronous submission with menu
+display. Cocoa/Wayland and unsupported X11 environments remain explicit gaps. See
 `docs/native-mil-system-menu.md`; this capability does not admit Windows SDK mode.
 Synchronous WPF geometry utilities must use ProGPU-owned actual topology, not
 bounding-box substitutes. `NativeGeometryUtilities` exposes the shared C++
