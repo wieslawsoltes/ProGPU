@@ -32,6 +32,36 @@ AutoCAD-wide output certification. Existing implementations are not removed.
 Any discovery requiring one of these expansions is recorded as a limitation
 unless it blocks a required basic workflow.
 
+## Rendering-first workspace
+
+The shared desktop/browser sample reserves 104 logical pixels for two compact
+command rows instead of 532. File/view actions and common edits stay immediately
+available. "More tools" opens the existing advanced controls in a bounded,
+two-axis scrollable area; "Fewer tools" restores the drawing space. The toggle
+stays pinned at the right edge on narrow windows. Each compact row can scroll
+horizontally without scrolling the drawing.
+
+Controls are moved once during construction, not recreated or reparented on
+toggle. Document generation, control identity, and in-progress control
+values remain intact. The sample explicitly invalidates layout and pixels when
+the reserved toolbar height changes. This reuses the existing ProGPU `Grid`,
+`StackPanel`, `ScrollViewer`, and theme resources; it adds no scrolling engine,
+renderer algorithm, shader, native ABI, or rendering performance claim. The same
+application visual tree feeds managed/native rendering, so no C++ algorithm
+change applies.
+
+`CadSampleWorkspaceTests` verifies drawing height at 1280x800 and 800x600,
+expansion/collapse invalidation, retained controls, and unchanged document state.
+The browser smoke captures expanded controls as well as the drawing and continues
+to exercise pan, zoom, resize, save, and reopen from the compact toolbar.
+
+Validation for the compact workspace: 1,542 Release CAD tests pass, the browser
+Release AOT publish completes native linking, and the Chrome hardware/SwiftShader smoke
+passes with visible drawing pixels, pan/zoom, 15 retained model-space entity
+types through save/reopen/resave, and a 2880x1800 physical framebuffer after
+resize. Initial and expanded-panel screenshots were inspected. This is workflow
+validation, not a claim of comprehensive CAD visual fidelity or performance.
+
 ## Execution order and finish gate
 
 Spend the first part of the few-day window on rendering and host blockers, then

@@ -40,8 +40,9 @@ resolver disabled is not proof of AOT compilation. The smoke requires the CAD
 assembly's native AOT object in addition to the published site. The CI job uses
 a fresh checkout, performs native AOT linking, and runs the published application.
 
-The smoke checks startup errors, submitted frames/commands, a drawing-only pixel
-change after wheel zoom, DXF download, preservation of the 15-entity inventory,
+The smoke checks startup errors, submitted frames/commands, visible scene pixels
+before the initial capture, tool expansion, drawing-only pixel changes after wheel
+zoom and middle-button pan, DXF download, preservation of the 15-entity inventory,
 reopen and resave, and physical framebuffer resize at device scale 2. Screenshots
 and DXF evidence are uploaded by `.github/workflows/cad.yml` from the ignored
 `artifacts/progpu-cad/browser-smoke/` directory. This is a focused runtime gate,
@@ -67,6 +68,6 @@ implementation was copied.
 
 Remaining milestone gates include representative real drawings, desktop
 interaction, basic edit workflows, and green checks on the final PR commit.
-The command-heavy sample still needs a more usable drawing area at modest window
-sizes. Existing linker warnings remain visible. None of these checks establish
+The shared sample now uses the compact workspace described in the focused
+delivery scope. Existing linker warnings remain visible. None of these checks establish
 full CAD or writer certification.

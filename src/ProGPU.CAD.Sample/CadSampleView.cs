@@ -15,7 +15,7 @@ using Key = Silk.NET.Input.Key;
 namespace ProGPU.CAD.Sample;
 
 /// <summary>Shared desktop/browser CAD shell with real stream open and save workflows.</summary>
-public sealed class CadSampleView : Grid
+public sealed partial class CadSampleView : Grid
 {
     private const int MeshSelectionCycleCapacity = 64;
     private const float MeshSelectionCyclePointTolerance = 4.0f;
@@ -629,7 +629,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(532, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(CompactToolbarHeight, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -735,7 +735,6 @@ public sealed class CadSampleView : Grid
         toolbarRows.AddChild(printActions);
         toolbarRows.AddChild(pageSetupCreateActions);
         toolbarRows.AddChild(pageSetupFieldActions);
-        toolbar.Child = toolbarRows;
 
         _openButton = CreateButton("Open DXF/DWG", font, 132);
         _loadLineTypesButton = CreateButton("Load LIN", font, 88);
@@ -2432,6 +2431,8 @@ public sealed class CadSampleView : Grid
         pageSetupFieldActions.AddChild(_pageSetupCenterCheckBox);
         pageSetupFieldActions.AddChild(_pageSetupLineweightsCheckBox);
         pageSetupFieldActions.AddChild(_editPageSetupFieldsButton);
+
+        toolbar.Child = CreateWorkspaceToolbar(toolbarRows, font);
 
         _status = new TextBlock
         {

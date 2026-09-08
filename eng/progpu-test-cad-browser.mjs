@@ -4,6 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '../src/ProGPU.Native/browser/node_modules/playwright/index.mjs';
+import browserUtilities from '../src/ProGPU.Native/browser/node_modules/playwright-core/lib/utilsBundle.js';
 
 // Exercise the published CAD app through its canonical browser host. Reuse the
 // pinned browser-test dependency: npm ci --prefix src/ProGPU.Native/browser.
@@ -37,6 +38,12 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 let page;
 const errors = [];
+async function waitForFrames() {
+  const before = await page.locator('#counter-frames').textContent();
+  await page.waitForFunction(value =>
+    Number(document.querySelector('#counter-frames').textContent) >= Number(value) + 3,
+    before);
+}
 async function clickUntilEvent(eventName, x, y, timeout = 30_000) {
   let observed;
   let failure;
@@ -72,11 +79,30 @@ try {
     { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => Number(document.querySelector('#counter-frames')?.textContent) >= 3,
     undefined, { timeout: 120_000 });
+  const drawing = { x: 300, y: 160, width: 680, height: 500 };
+  // The host's frame counter can advance before application launch completes.
+  // Inspect the default scene, not toolbar chrome or opaque target alpha. Reuse
+  // the PNG decoder bundled with our pinned Playwright dependency.
+  let visiblePixels = 0;
+  const firstDrawingDeadline = Date.now() + 120_000;
+  while (visiblePixels < 100 && Date.now() < firstDrawingDeadline) {
+    const pixels = browserUtilities.PNG.sync.read(await page.screenshot({ clip: drawing })).data;
+    visiblePixels = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i] > 160 && pixels[i + 1] > 160 && pixels[i + 2] > 160) visiblePixels++;
+    }
+    if (visiblePixels < 100) await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  assert.ok(visiblePixels >= 100, 'The representative CAD drawing remained blank.');
   assert.deepEqual(errors, []);
   await page.screenshot({ path: path.join(evidence, 'initial.png') });
-  // The current sample has a tall command area; wheel inside the drawing itself.
-  const drawing = { x: 300, y: 560, width: 680, height: 200 };
-  await page.mouse.move(700, 680);
+  // File actions and basic edits occupy only the top 104 logical pixels.
+  await page.mouse.click(1210, 22); // More tools, pinned at the right edge.
+  await waitForFrames();
+  await page.screenshot({ path: path.join(evidence, 'expanded-tools.png') });
+  await page.mouse.click(1210, 22); // Fewer tools.
+  await waitForFrames();
+  await page.mouse.move(700, 400);
   const beforeZoom = await page.screenshot({ clip: drawing });
   const framesBeforeZoom = await page.locator('#counter-frames').textContent();
   await page.mouse.wheel(0, -250);
@@ -91,7 +117,13 @@ try {
   }
   await fs.writeFile(path.join(evidence, 'zoomed.png'), afterZoom);
   assert.ok(!afterZoom.equals(beforeZoom), 'Wheel input did not change the CAD drawing.');
-  const download = await clickUntilEvent('download', 650, 22, 60_000); // Save As.
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(780, 450, { steps: 5 });
+  await page.mouse.up({ button: 'middle' });
+  await waitForFrames();
+  const afterPan = await page.screenshot({ path: path.join(evidence, 'panned.png'), clip: drawing });
+  assert.ok(!afterPan.equals(afterZoom), 'Middle-button drag did not change the CAD drawing.');
+  const download = await clickUntilEvent('download', 195, 22, 60_000); // Save As.
   assert.match(download.suggestedFilename(), /\.dxf$/i);
   const savedDrawing = path.join(evidence, 'roundtrip.dxf');
   await download.saveAs(savedDrawing);
@@ -127,7 +159,7 @@ try {
   await chooser.setFiles(savedDrawing);
   // Saving is disabled while the document loads. Retry the button until the
   // load completes, then verify the new session name and entity inventory.
-  const reopenedDownload = await clickUntilEvent('download', 650, 22);
+  const reopenedDownload = await clickUntilEvent('download', 195, 22);
   assert.equal(reopenedDownload.suggestedFilename(), 'roundtrip.dxf',
     'Open did not replace the current document.');
   const reopenedDrawing = path.join(evidence, 'reopened.dxf');
@@ -138,6 +170,7 @@ try {
     const canvas = document.querySelector('#progpu-canvas');
     return canvas.width === 2880 && canvas.height === 1800;
   }, undefined, { timeout: 30_000 });
+  await waitForFrames();
   await page.screenshot({ path: path.join(evidence, 'resized.png') });
   assert.deepEqual(errors, []);
   const result = await page.evaluate(() => ({
