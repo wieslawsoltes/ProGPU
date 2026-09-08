@@ -94,7 +94,7 @@ async function clickUntilEvent(eventName, x, y, timeout = 30_000) {
   // File operations re-enable the toolbar after their asynchronous completion,
   // which can be later than the browser's download/filechooser event.
   while (!observed && !failure && Date.now() < deadline) {
-    await page.mouse.click(x, y);
+    await diagnosticDeadline(page.mouse.click(x, y), `${eventName} button input`, Math.max(1, deadline - Date.now()));
     await Promise.race([pending, new Promise(resolve => setTimeout(resolve, 500))]);
   }
   await pending;
@@ -263,14 +263,34 @@ try {
     assert.deepEqual(columns.filter(([code]) => code === '46')
       .map(([, value]) => Number(value)), [12, 12]);
   }
+  function assertImageClips(entities) {
+    for (const entity of entities.filter(value => value.type === 'WIPEOUT' || value.type === 'IMAGE')) {
+      const values = code => entity.tags.filter(([tag]) => tag === code).map(([, value]) => Number(value));
+      const xs = values('14');
+      const ys = values('24');
+      assert.equal(xs.length, values('91')[0], `${entity.type}: clip vertex count is inconsistent.`);
+      assert.equal(ys.length, xs.length);
+      if (values('71')[0] === 1) {
+        assert.equal(xs.length, 2, `${entity.type}: rectangle must retain two opposite corners.`);
+      } else {
+        assert.ok(xs.length >= 4, `${entity.type}: a closed polygon needs three distinct corners.`);
+        assert.deepEqual([xs[0], ys[0]], [xs.at(-1), ys.at(-1)]);
+        for (let i = 1; i < xs.length; i++) {
+          assert.ok(xs[i] !== xs[i - 1] || ys[i] !== ys[i - 1],
+            `${entity.type}: saving introduced a collapsed clipping edge.`);
+        }
+      }
+    }
+  }
   const savedEntities = modelEntities(await fs.readFile(savedDrawing));
   const savedTypes = savedEntities.map(entity => entity.type).sort();
   assertColumnedText(savedEntities);
+  assertImageClips(savedEntities);
   assert.equal(savedTypes.length, 16, 'The sample lost an entity during serialization.');
   assert.ok(savedTypes.includes('IMAGE'), 'The sample raster image was not serialized.');
   assert.ok(savedTypes.includes('MTEXT'), 'The sample columned text was not serialized.');
   const chooser = await clickUntilEvent('filechooser', 70, 22); // Open DXF/DWG.
-  await chooser.setFiles(savedDrawing);
+  await chooser.setFiles(savedDrawing, { timeout: 30_000 });
   // Saving is disabled while the document loads. Retry the button until the
   // load completes, then verify the new session name and entity inventory.
   const reopenedDownload = await clickUntilEvent('download', 195, 22);
@@ -281,6 +301,102 @@ try {
   const reopenedEntities = modelEntities(await fs.readFile(reopenedDrawing));
   assert.deepEqual(reopenedEntities.map(entity => entity.type).sort(), savedTypes);
   assertColumnedText(reopenedEntities);
+  assertImageClips(reopenedEntities);
+
+  // Exercise ordinary UI input, not a test-only document mutation seam. Saved
+  // entity coordinates are the oracle for edits and history; screenshots alone
+  // cannot establish that the live document changed or survived serialization.
+  const entityHandle = entity => entity.tags.find(([code]) => code === '5')?.[1];
+  const originalHandles = new Set(reopenedEntities.map(entityHandle));
+  const lineCoordinates = entity => ['10', '20', '30', '11', '21', '31'].map(code =>
+    Number(entity.tags.find(([tag]) => tag === code)?.[1] ?? 0));
+  async function saveEdit(name, count) {
+    const editDownload = await clickUntilEvent('download', 195, 22, 60_000);
+    const file = path.join(evidence, name + '.dxf');
+    await editDownload.saveAs(file);
+    const entities = modelEntities(await fs.readFile(file));
+    assert.equal(entities.length, count, `${name}: unexpected model-space entity count.`);
+    assertColumnedText(entities);
+    assertImageClips(entities);
+    for (const original of reopenedEntities) {
+      assert.deepEqual(entities.find(entity => entityHandle(entity) === entityHandle(original)),
+        original, `${name}: an unedited entity changed.`);
+    }
+    console.log(JSON.stringify({ editStage: name, entityCount: entities.length }));
+    return { file, entities, fileName: editDownload.suggestedFilename(),
+      added: entities.filter(entity => !originalHandles.has(entityHandle(entity))) };
+  }
+  async function editClick(x, y) {
+    await page.mouse.click(x, y);
+    await waitForPresentation();
+  }
+  function assertTranslation(before, after, dx, dy, label) {
+    const expected = before.map((value, i) => value + (i % 3 === 0 ? dx : i % 3 === 1 ? dy : 0));
+    for (let i = 0; i < expected.length; i++) {
+      // Pointer unprojection uses the host's float viewport. Bound only that
+      // input rounding to 1/256 logical pixel; saved/reopened values below must
+      // still match exactly, and a plan edit must retain Z exactly.
+      const tolerance = i % 3 === 2 ? 0 : Math.abs(authored[3] - authored[0]) / 120 / 256;
+      assert.ok(Math.abs(after[i] - expected[i]) <= tolerance,
+        `${label}: coordinate ${i} changed incorrectly (actual ${after[i]}, expected ${expected[i]}).`);
+    }
+  }
+  await editClick(285, 22); // Fit: use a known drawing-space camera for picks.
+  await editClick(40, 68); // Line.
+  await editClick(120, 190);
+  await editClick(240, 220);
+  await page.keyboard.press('Escape'); // Finish one accepted segment.
+  await waitForPresentation();
+  const created = await saveEdit('edit-created', 17);
+  assert.equal(created.added.length, 1);
+  assert.equal(created.added[0].type, 'LINE');
+  const authored = lineCoordinates(created.added[0]);
+  assert.ok(Math.abs(authored[3] - authored[0]) > 1e-8, 'The new line is degenerate.');
+  await editClick(360, 22); // Undo.
+  assert.equal((await saveEdit('edit-undone', 16)).added.length, 0);
+  await editClick(435, 22); // Redo.
+  const redone = await saveEdit('edit-redone', 17);
+  assert.deepEqual(lineCoordinates(redone.added[0]), authored);
+
+  await editClick(580, 68); // Clear selection.
+  await editClick(180, 205); // Pick the new line's midpoint.
+  await editClick(365, 68); // Move points.
+  await editClick(180, 205);
+  await editClick(230, 255);
+  const moved = await saveEdit('edit-moved', 17);
+  const translated = lineCoordinates(moved.added[0]);
+  const dx = (authored[3] - authored[0]) * 50 / 120;
+  const dy = (authored[4] - authored[1]) * 50 / 30;
+  assertTranslation(authored, translated, dx, dy, 'Move');
+
+  await editClick(475, 68); // Copy points, using the retained selection.
+  await editClick(230, 255);
+  await editClick(280, 305);
+  await page.keyboard.press('Escape'); // Finish after the placed copy.
+  await waitForPresentation();
+  const copied = await saveEdit('edit-copied', 18);
+  const copy = copied.added.find(entity => entityHandle(entity) !== entityHandle(moved.added[0]));
+  assert.ok(copy && copy.type === 'LINE', 'Copy did not create a distinct line.');
+  assertTranslation(translated, lineCoordinates(copy), dx, dy, 'Copy');
+  await editClick(580, 68); // Clear selection, then select only the copy.
+  await editClick(280, 305);
+  await editClick(515, 22); // Delete.
+  const deleted = await saveEdit('edit-deleted', 17);
+  assert.equal(deleted.added.length, 1);
+  assert.deepEqual(lineCoordinates(deleted.added[0]), translated);
+  await editClick(360, 22); // Undo deletion.
+  const restored = await saveEdit('edit-delete-undone', 18);
+  assert.ok(restored.added.some(entity => JSON.stringify(lineCoordinates(entity)) ===
+    JSON.stringify(lineCoordinates(copy))), 'Undo deletion did not restore the copied geometry.');
+  await editClick(435, 22); // Redo deletion.
+  const finalEdit = await saveEdit('edit-final', 17);
+  assert.deepEqual(lineCoordinates(finalEdit.added[0]), translated);
+  const editChooser = await clickUntilEvent('filechooser', 70, 22);
+  await diagnosticDeadline(editChooser.setFiles(finalEdit.file, { timeout: 30_000 }), 'Edited file input', 30_000);
+  const editReopened = await saveEdit('edit-reopened', 17);
+  assert.equal(editReopened.fileName, 'edit-final.dxf', 'Opening the edited file did not replace the session.');
+  assert.deepEqual(lineCoordinates(editReopened.added[0]), translated);
+  await screenshot({ path: path.join(evidence, 'edited.png') });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForFunction(() => {
     const canvas = document.querySelector('#progpu-canvas');
@@ -298,6 +414,7 @@ try {
   assert.ok(result.dispatches > 0, 'The CAD app submitted no GPU commands.');
   result.savedEntityTypes = savedTypes;
   result.reopenedFileName = reopenedDownload.suggestedFilename();
+  result.editing = ['line', 'undo', 'redo', 'selection', 'move', 'copy', 'delete', 'save', 'reopen'];
   result.visualTimeoutMs = visualTimeoutMs;
   await fs.writeFile(path.join(evidence, 'result.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result));

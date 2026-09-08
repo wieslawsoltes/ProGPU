@@ -9,6 +9,44 @@ namespace ProGPU.CAD.Tests;
 public sealed class CadSampleDocumentRoundTripTests
 {
     [Theory]
+    [InlineData(CadDocumentFormat.Dxf, false)]
+    [InlineData(CadDocumentFormat.Dxf, true)]
+    [InlineData(CadDocumentFormat.Dwg, false)]
+    public async Task RepeatedReopenPreservesWipeoutRenderingGeometry(
+        CadDocumentFormat format, bool binary)
+    {
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            CadDocumentSession session = Assert.IsType<CadDocumentSession>(canvas.CurrentSession);
+            var compiler = new CadSnapshotCompiler();
+            CadDocumentSnapshot original = compiler.Compile(session);
+            Assert.Single(original.Wipeouts.ToArray());
+            Assert.Equal(4, original.WipeoutClipPoints.Length);
+            var store = new CadDocumentStore();
+            for (int cycle = 0; cycle < 4; cycle++)
+            {
+                session.Edit("Add unrelated line", document => document.Entities.Add(
+                    new Line(new CSMath.XYZ(cycle, 0, 0), new CSMath.XYZ(cycle, 1, 0))));
+                using var output = new MemoryStream();
+                await store.SaveAsync(session, output, format,
+                    new CadSaveOptions { AllowUncertifiedWrite = true, BinaryDxf = binary });
+                output.Position = 0;
+                session = (await store.LoadAsync(output, format)).Session;
+                CadDocumentSnapshot reopened = compiler.Compile(session);
+                Assert.DoesNotContain(reopened.Diagnostics.ToArray(), diagnostic =>
+                    diagnostic.Code == "CADSNAP002" && diagnostic.Message.Contains("WIPEOUT", StringComparison.Ordinal));
+                Assert.Equal(original.Wipeouts.ToArray(), reopened.Wipeouts.ToArray());
+                Assert.Equal(original.WipeoutClipPoints.ToArray(), reopened.WipeoutClipPoints.ToArray());
+            }
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Theory]
     [InlineData(CadDocumentFormat.Dxf)]
     [InlineData(CadDocumentFormat.Dwg)]
     public async Task RepresentativeScenePreservesEveryEntityIncludingRasterImage(
