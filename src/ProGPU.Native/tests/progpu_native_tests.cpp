@@ -1,6 +1,7 @@
 #include "progpu_native.h"
 #include "progpu_native_geometry.hpp"
 #include "progpu_native_scene.hpp"
+#include "progpu_native_semantic_state.hpp"
 
 #include <cstddef>
 #include <cmath>
@@ -671,7 +672,9 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(sizeof(progpu_native_scene_path_fill) == 96U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_stroke) == 160U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_glyph_outline) == 40U);
-    PROGPU_REQUIRE(sizeof(progpu_native_scene_frame) == 80U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_frame) == 112U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_presentation) == 32U);
+    PROGPU_REQUIRE(offsetof(progpu_native_scene_frame, presentation) == 76U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_brush) == 256U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_gradient_stop) == 32U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_draw_brushes) == 16U);
@@ -2724,7 +2727,71 @@ void invalid_rectangles_fail_without_partial_append() {
 
 } // namespace
 
+void scene_presentation_descriptor_is_transactional_and_versioned() {
+    using progpu::native::semantic::try_resolve_scene_presentation;
+    progpu_native_scene_frame frame{};
+    frame.struct_size = sizeof(frame);
+    frame.width = 800U;
+    frame.height = 600U;
+    frame.dpi_scale = 2.0F;
+    progpu_native_scene_presentation resolved{};
+    PROGPU_REQUIRE(try_resolve_scene_presentation(frame, resolved));
+    PROGPU_REQUIRE(resolved.viewport_x == 0U && resolved.viewport_y == 0U);
+    PROGPU_REQUIRE(resolved.viewport_width == 800U && resolved.viewport_height == 600U);
+    PROGPU_REQUIRE(resolved.dpi_scale_x == 2.0F && resolved.dpi_scale_y == 2.0F);
+    frame.flags = PROGPU_NATIVE_SCENE_FRAME_PRESENTATION;
+    frame.presentation = {sizeof(frame.presentation), 13U, 17U, 640U, 480U, 1.25F, 1.5F, 0U};
+    PROGPU_REQUIRE(try_resolve_scene_presentation(frame, resolved));
+    PROGPU_REQUIRE(resolved.viewport_x == 13U && resolved.viewport_y == 17U);
+    PROGPU_REQUIRE(resolved.viewport_width == 640U && resolved.viewport_height == 480U);
+    PROGPU_REQUIRE(resolved.dpi_scale_x == 1.25F && resolved.dpi_scale_y == 1.5F);
+    const auto valid = frame.presentation;
+    const auto sentinel = resolved;
+    const auto rejected = [&]() {
+        PROGPU_REQUIRE(!try_resolve_scene_presentation(frame, resolved));
+        PROGPU_REQUIRE(std::memcmp(&resolved, &sentinel, sizeof(resolved)) == 0);
+    };
+    frame.struct_size = 80U; // Previous damage-capable descriptor has no suffix.
+    rejected();
+    frame.flags = PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET;
+    PROGPU_REQUIRE(try_resolve_scene_presentation(frame, resolved));
+    PROGPU_REQUIRE(resolved.viewport_width == 800U && resolved.dpi_scale_x == 2.0F);
+    frame.struct_size = offsetof(progpu_native_scene_frame, flags);
+    PROGPU_REQUIRE(try_resolve_scene_presentation(frame, resolved));
+    frame.struct_size = sizeof(frame);
+    frame.flags = PROGPU_NATIVE_SCENE_FRAME_PRESENTATION;
+    resolved = sentinel;
+    for (const float scale : {0.0F, -1.0F, std::numeric_limits<float>::infinity(),
+             std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::denorm_min()}) {
+        frame.presentation = valid;
+        frame.presentation.dpi_scale_x = scale;
+        rejected();
+        frame.presentation = valid;
+        frame.presentation.dpi_scale_y = scale;
+        rejected();
+    }
+    frame.presentation = valid;
+    frame.presentation.viewport_x = std::numeric_limits<std::uint32_t>::max();
+    rejected();
+    frame.presentation = valid;
+    frame.presentation.viewport_width = std::numeric_limits<std::uint32_t>::max();
+    rejected();
+    frame.presentation = valid;
+    frame.presentation.viewport_height = 0U;
+    rejected();
+    frame.presentation = valid;
+    frame.presentation.reserved = 1U;
+    rejected();
+    frame.presentation = valid;
+    frame.presentation.struct_size = 0U;
+    rejected();
+    frame.presentation = valid;
+    frame.flags |= 0x80000000U;
+    rejected();
+}
+
 int main() {
+    scene_presentation_descriptor_is_transactional_and_versioned();
     api_contract_is_versioned();
     semantic_scene_stream_validates_mixed_order_and_stack();
     semantic_scene_static_guideline_resource_validates();

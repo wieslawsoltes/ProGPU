@@ -12,6 +12,37 @@
 
 namespace progpu::native::semantic {
 
+// O(1) descriptor validation, without allocation, GPU work or state mutation.
+// Publish only after complete validation. Subtraction avoids uint32 edge overflow.
+inline bool try_resolve_scene_presentation(const progpu_native_scene_frame& frame,
+    progpu_native_scene_presentation& result) noexcept {
+    if (frame.struct_size < offsetof(progpu_native_scene_frame, flags) ||
+        frame.width == 0U || frame.height == 0U ||
+        !std::isfinite(frame.dpi_scale) || frame.dpi_scale <= 0.0F) return false;
+    constexpr auto damage_end = offsetof(progpu_native_scene_frame, damage_height) + sizeof(float);
+    const auto flags = frame.struct_size >= damage_end ? frame.flags : 0U;
+    if ((flags & ~(PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET |
+            PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT |
+            PROGPU_NATIVE_SCENE_FRAME_PRESENTATION)) != 0U) return false;
+    progpu_native_scene_presentation value{sizeof(value), 0U, 0U,
+        frame.width, frame.height, frame.dpi_scale, frame.dpi_scale, 0U};
+    if ((flags & PROGPU_NATIVE_SCENE_FRAME_PRESENTATION) != 0U) {
+        if (frame.struct_size < sizeof(progpu_native_scene_frame)) return false;
+        value = frame.presentation;
+    }
+    if (value.struct_size != sizeof(value) || value.reserved != 0U ||
+        value.viewport_width == 0U || value.viewport_height == 0U ||
+        value.viewport_x >= frame.width || value.viewport_y >= frame.height ||
+        value.viewport_width > frame.width - value.viewport_x ||
+        value.viewport_height > frame.height - value.viewport_y ||
+        !std::isfinite(value.dpi_scale_x) || value.dpi_scale_x <= 0.0F ||
+        !std::isfinite(value.dpi_scale_y) || value.dpi_scale_y <= 0.0F ||
+        !std::isfinite(static_cast<float>(value.viewport_width) / value.dpi_scale_x) ||
+        !std::isfinite(static_cast<float>(value.viewport_height) / value.dpi_scale_y)) return false;
+    result = value;
+    return true;
+}
+
 // Algorithm: WPF half-integer rounding toward the numerically larger integer.
 // Time/space: O(1); floats without fractional bits have zero displacement.
 inline float wpf_guideline_offset(float value) noexcept {

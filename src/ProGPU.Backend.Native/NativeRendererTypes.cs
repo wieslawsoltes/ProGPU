@@ -4050,6 +4050,38 @@ public readonly record struct NativeSceneDamageRect(
     float Height);
 
 /// <summary>
+/// Physical viewport and independent logical-to-device scales. This value owns
+/// no GPU state. Unsupported renderer mappings fail explicitly, without stretching
+/// an intermediate image or substituting a uniform scale.
+/// </summary>
+public readonly record struct NativeScenePresentation(
+    uint ViewportX, uint ViewportY, uint ViewportWidth, uint ViewportHeight,
+    float DpiScaleX, float DpiScaleY)
+{
+    public static NativeScenePresentation Full(uint width, uint height, float dpiScale) =>
+        new(0, 0, width, height, dpiScale, dpiScale);
+
+    internal NativeMethods.ScenePresentation ToNative(uint width, uint height)
+    {
+        if (width == 0 || height == 0 || ViewportWidth == 0 || ViewportHeight == 0 ||
+            ViewportX >= width || ViewportY >= height ||
+            ViewportWidth > width - ViewportX || ViewportHeight > height - ViewportY ||
+            !float.IsFinite(DpiScaleX) || DpiScaleX <= 0 ||
+            !float.IsFinite(DpiScaleY) || DpiScaleY <= 0 ||
+            !float.IsFinite(ViewportWidth / DpiScaleX) ||
+            !float.IsFinite(ViewportHeight / DpiScaleY))
+            throw new ArgumentOutOfRangeException(nameof(NativeScenePresentation));
+        return new NativeMethods.ScenePresentation
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.ScenePresentation>(),
+            ViewportX = ViewportX, ViewportY = ViewportY,
+            ViewportWidth = ViewportWidth, ViewportHeight = ViewportHeight,
+            DpiScaleX = DpiScaleX, DpiScaleY = DpiScaleY
+        };
+    }
+}
+
+/// <summary>
 /// A host-owned WebGPU texture view used as a semantic-scene render target.
 /// </summary>
 /// <remarks>

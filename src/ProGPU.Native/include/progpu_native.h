@@ -1682,10 +1682,33 @@ typedef enum progpu_native_scene_frame_flags {
      * translucent/blended content, or request a full cleared frame. */
     PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET = 1U << 0U,
     /* Restrict flat semantic replay to the logical-coordinate damage rect. */
-    PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT = 1U << 1U
+    PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT = 1U << 1U,
+    /* Explicit presentation suffix. Unsupported mappings must fail closed;
+     * the legacy dpi_scale field never substitutes for either axis. */
+    /* PROGPU_CSHARP_ULONG: SceneFramePresentationFlag */
+    PROGPU_NATIVE_SCENE_FRAME_PRESENTATION = 4ULL
 } progpu_native_scene_frame_flags;
 
 #define PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT_AVAILABLE 1
+
+/* Physical viewport inside the target; scene coordinates remain logical DIPs.
+ * Device position = viewport origin + logical position * per-axis scale.
+ * Extents are positive, wholly inside the target, with finite positive scales.
+ * The viewport clips presentation, not the retained scene's logical geometry.
+ * reserved must be zero. This descriptor owns no surface or resource lifetime.
+ * Availability of this record does not imply renderer support for every mapping.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.ScenePresentation */
+typedef struct progpu_native_scene_presentation {
+    uint32_t struct_size;
+    uint32_t viewport_x;
+    uint32_t viewport_y;
+    uint32_t viewport_width;
+    uint32_t viewport_height;
+    float dpi_scale_x;
+    float dpi_scale_y;
+    uint32_t reserved;
+} progpu_native_scene_presentation;
 
 /* PROGPU_CSHARP_STRUCT: NativeMethods.SceneFrame */
 typedef struct progpu_native_scene_frame {
@@ -1702,6 +1725,8 @@ typedef struct progpu_native_scene_frame {
     float damage_y;
     float damage_width;
     float damage_height;
+    /* Read only with PRESENTATION and a complete extended descriptor. */
+    progpu_native_scene_presentation presentation;
 } progpu_native_scene_frame;
 
 /* PROGPU_CSHARP_STRUCT: NativeMethods.SceneFrameMetrics */

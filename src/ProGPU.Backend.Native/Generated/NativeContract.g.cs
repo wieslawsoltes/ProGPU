@@ -19,6 +19,8 @@ internal static unsafe partial class NativeMethods
     internal const ulong EngineImageExplicitShaderSampling = 8UL;
     // Native source: PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING.
     internal const ulong EngineImageRequireNativeSampling = 16UL;
+    // Native source: PROGPU_NATIVE_SCENE_FRAME_PRESENTATION.
+    internal const ulong SceneFramePresentationFlag = 4UL;
 }
 
 // Native source: progpu_native_text_scalar.
@@ -696,6 +698,20 @@ internal static unsafe partial class NativeMethods
         internal float A;
     }
 
+    // Native source: progpu_native_scene_presentation.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct ScenePresentation
+    {
+        internal uint StructSize;
+        internal uint ViewportX;
+        internal uint ViewportY;
+        internal uint ViewportWidth;
+        internal uint ViewportHeight;
+        internal float DpiScaleX;
+        internal float DpiScaleY;
+        internal uint Reserved;
+    }
+
     // Native source: progpu_native_scene_frame.
     [StructLayout(LayoutKind.Sequential)]
     internal partial struct SceneFrame
@@ -713,6 +729,7 @@ internal static unsafe partial class NativeMethods
         internal float DamageY;
         internal float DamageWidth;
         internal float DamageHeight;
+        internal ScenePresentation Presentation;
     }
 
     // Native source: progpu_native_scene_frame_metrics.

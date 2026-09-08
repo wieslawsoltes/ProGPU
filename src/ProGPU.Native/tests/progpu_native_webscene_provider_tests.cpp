@@ -3471,6 +3471,27 @@ int main(int argc, char** argv) {
         semantic_metrics.payload_hash == semantic_payload_hash,
         "stable mixed semantic scene replay rebuilt retained resources");
 
+    auto mapped_frame = semantic_frame;
+    mapped_frame.flags = PROGPU_NATIVE_SCENE_FRAME_PRESENTATION;
+    mapped_frame.presentation = {sizeof(mapped_frame.presentation), 0U, 0U,
+        mapped_frame.width, mapped_frame.height, mapped_frame.dpi_scale, mapped_frame.dpi_scale, 0U};
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(engine, &mapped_frame, &semantic_metrics) ==
+            PROGPU_NATIVE_STATUS_SUCCESS && semantic_metrics.submission_count == 1U &&
+            semantic_metrics.vertex_upload_bytes == 0U,
+        "explicit legacy-equivalent presentation changed retained replay");
+    mapped_frame.presentation.dpi_scale_x *= 1.25F;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(engine, &mapped_frame, &semantic_metrics) ==
+            PROGPU_NATIVE_STATUS_UNSUPPORTED && semantic_metrics.submission_count == 0U,
+        "unimplemented independent-axis presentation was silently approximated");
+    mapped_frame.struct_size = 80U;
+    require(progpu_native_engine_render_scene(engine, &mapped_frame, &semantic_metrics) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && semantic_metrics.submission_count == 0U,
+        "truncated presentation suffix was accepted");
+
     auto invalid_damage_frame = semantic_frame;
     invalid_damage_frame.flags = PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT;
     invalid_damage_frame.damage_width = 8.0F;
@@ -3483,6 +3504,10 @@ int main(int argc, char** argv) {
         &semantic_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
         semantic_metrics.submission_count == 0U,
         "semantic damage replay accepted a non-preserved target");
+    invalid_damage_frame.struct_size = 80U;
+    require(progpu_native_engine_render_scene(engine, &invalid_damage_frame, &semantic_metrics) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && semantic_metrics.submission_count == 0U,
+        "previous damage-capable frame layout lost its flags after suffix extension");
 
     auto legacy_semantic_frame = semantic_frame;
     legacy_semantic_frame.struct_size = offsetof(

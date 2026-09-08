@@ -724,6 +724,25 @@ public sealed unsafe class NativeCompositor : IDisposable
             damage);
     }
 
+    /// <summary>
+    /// Submits explicit physical viewport and per-axis DPI metadata. The native
+    /// backend rejects mappings it cannot execute completely. Existing uniform
+    /// overloads retain their original full-target behavior.
+    /// </summary>
+    public NativeSceneFrameMetrics RenderScene(
+        NativeSceneExternalTarget target,
+        NativeScenePresentation presentation,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor,
+        bool preserveTarget = false,
+        NativeSceneDamageRect? damage = null)
+    {
+        ValidateExternalTarget(target);
+        return RenderSceneCore(target, presentation.DpiScaleY, sceneId, generation,
+            clearColor, preserveTarget, damage, presentation);
+    }
+
     private NativeSceneFrameMetrics RenderSceneCore(
         NativeSceneExternalTarget target,
         float dpiScale,
@@ -731,7 +750,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         ulong generation,
         Vector4 clearColor,
         bool preserveTarget,
-        NativeSceneDamageRect? damage)
+        NativeSceneDamageRect? damage,
+        NativeScenePresentation? presentation = null)
     {
         if (damage is { } value &&
             (!float.IsFinite(value.X) || !float.IsFinite(value.Y) ||
@@ -740,6 +760,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         {
             throw new ArgumentOutOfRangeException(nameof(damage));
         }
+        NativeMethods.ScenePresentation nativePresentation = presentation?.ToNative(target.Width, target.Height) ?? default;
         var frame = new NativeMethods.SceneFrame
         {
             StructSize = (uint)Unsafe.SizeOf<NativeMethods.SceneFrame>(),
@@ -757,11 +778,13 @@ public sealed unsafe class NativeCompositor : IDisposable
             SceneId = sceneId,
             Generation = generation,
             Flags = (preserveTarget ? SceneFramePreserveTargetFlag : 0U) |
-                (damage.HasValue ? SceneFrameDamageRectFlag : 0U),
+                (damage.HasValue ? SceneFrameDamageRectFlag : 0U) |
+                (presentation.HasValue ? (uint)NativeMethods.SceneFramePresentationFlag : 0U),
             DamageX = damage?.X ?? 0f,
             DamageY = damage?.Y ?? 0f,
             DamageWidth = damage?.Width ?? 0f,
-            DamageHeight = damage?.Height ?? 0f
+            DamageHeight = damage?.Height ?? 0f,
+            Presentation = nativePresentation
         };
         var metrics = new NativeMethods.SceneFrameMetrics
         {

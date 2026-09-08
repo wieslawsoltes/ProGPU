@@ -224,6 +224,7 @@ static string MapType(string nativeType) => nativeType switch
     "progpu_native_point_3d" => "NativePoint3D",
     "progpu_native_float_4" => "NativeFloat4",
     "progpu_native_matrix_4x4" => "NativeMatrix4x4",
+    "progpu_native_scene_presentation" => "ScenePresentation",
     _ => throw new InvalidDataException(
         $"Unsupported native contract field type: {nativeType}.")
 };

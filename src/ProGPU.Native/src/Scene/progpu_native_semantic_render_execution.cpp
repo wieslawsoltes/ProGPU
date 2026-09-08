@@ -53,10 +53,24 @@ progpu_native_status render_scene(
     }
     constexpr std::uint32_t allowed_frame_flags =
         PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET |
-        PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT;
+        PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT |
+        PROGPU_NATIVE_SCENE_FRAME_PRESENTATION;
     const bool has_extended_frame =
-        frame->struct_size >= sizeof(progpu_native_scene_frame);
+        frame->struct_size >= offsetof(progpu_native_scene_frame, damage_height) + sizeof(float);
     const auto frame_flags = has_extended_frame ? frame->flags : 0U;
+    progpu_native_scene_presentation presentation{};
+    if (!semantic::try_resolve_scene_presentation(*frame, presentation)) {
+        return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The semantic scene presentation descriptor is invalid.");
+    }
+    // Keep unsupported mappings explicit until paths, text, masks, layers,
+    // effects and retained cache keys all consume independent device axes.
+    if (presentation.viewport_x != 0U || presentation.viewport_y != 0U ||
+        presentation.viewport_width != frame->width || presentation.viewport_height != frame->height ||
+        presentation.dpi_scale_x != frame->dpi_scale || presentation.dpi_scale_y != frame->dpi_scale) {
+        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+            "Semantic viewport and independent-axis presentation execution is not yet available.");
+    }
     const bool damage_requested =
         (frame_flags & PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT) != 0U;
     const bool preserve_requested =
