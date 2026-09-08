@@ -64,6 +64,27 @@ validation, not a claim of comprehensive CAD visual fidelity or performance.
 
 ## Execution order and finish gate
 
+Planning target: **3–4 working days**, conditional on the final rendering and CI
+gates below. This is a timebox for the reduced milestone, not an estimate for
+the broad CAD goal or a guarantee of completion.
+
+- Days 1–2: close visible rendering and desktop/browser host blockers on the
+  representative fixtures. Prioritize missing common geometry/text, pan/zoom,
+  DPI, and the browser CI blank-frame failure. Do not start general-purpose
+  implementations for isolated unsupported entities.
+- Day 3: close only basic selection, move/copy, delete, undo/redo, primitive
+  creation, and save/reopen defects. Retain already working advanced tools
+  without expanding or certifying their full feature sets.
+- Final day: freeze features; validate final Release binaries, representative
+  screenshots and interactions, supported edit round trips, and PR CI. If a
+  required gate still fails, report that blocker and revise the target rather
+  than weakening the check or declaring the milestone complete.
+
+Admission rule: new work must fix a reproducible defect in one of these required
+workflows or unblock its validation. Broader entity coverage, architectural
+expansion, and extra editing commands go to the deferred roadmap. Run focused
+regressions with each fix; reserve extensive validation for the feature freeze.
+
 Spend the first part of the few-day window on rendering and host blockers, then
 basic editing gaps, with the final part reserved for regression fixes and CI.
 This is a target, not an evidence-backed completion date: adjust the estimate

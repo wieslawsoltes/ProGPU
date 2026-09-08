@@ -91,3 +91,12 @@ in both files, recorded entities rise from 556 to 557, and recorded commands
 become 586 (DXF) / 587 (DWG). Invalid counts remain 3 / 4, and the linetype,
 missing-image, and deferred-modeler counts remain unchanged. The baseline table
 and original priority list above are historical findings, not current totals.
+
+Follow-up: [exact fit-only cubic lowering](PROGPU_CAD_FIT_SPLINE_RESEARCH.md)
+now renders DWG SPLINE `434` using the same analytic controls as the paired DXF.
+With the same fixture/resolver, DWG invalid entities fall from 4 to 3, recorded
+entities rise from 557 to 558, and commands rise from 587 to 588. DXF remains
+557 recorded entities / 586 commands / 3 invalid entities. Both retain 12
+unsupported entities; linetype, missing-image, and modeler counts are unchanged.
+The fit-only curve preserves DWG round trips, but DXF export is explicitly
+blocked pending lossless control/knot serialization (`CADSAVE002`).

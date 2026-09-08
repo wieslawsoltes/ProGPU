@@ -9,6 +9,7 @@ using ACadSharp.Types.Units;
 using CSMath;
 using ProGPU.Text;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace ProGPU.CAD;
 
@@ -3424,22 +3425,53 @@ public sealed partial class CadSnapshotCompiler
         List<double> knots,
         List<double> weights)
     {
+        scoped ReadOnlySpan<XYZ> sourceControlPoints = CollectionsMarshal.AsSpan(spline.ControlPoints);
+        scoped ReadOnlySpan<double> sourceKnots = CollectionsMarshal.AsSpan(spline.Knots);
+        Span<XYZ> fittedControls = stackalloc XYZ[4];
+        if (sourceControlPoints.IsEmpty && sourceKnots.IsEmpty && spline.FitPoints.Count != 0)
+        {
+            if (spline.Degree < 1 || spline.Degree > Spline.MaxDegree || spline.FitPoints.Count < 2 ||
+                !double.IsFinite(spline.FitTolerance) || spline.FitTolerance < 0 || spline.Weights.Count != 0)
+            {
+                throw new ArgumentException("Fit-point spline degree, points, tolerance, or weights are invalid.");
+            }
+            foreach (XYZ point in spline.FitPoints)
+                EnsureFinite(ToPoint(point));
+            EnsureFinite(ToPoint(spline.StartTangent));
+            EnsureFinite(ToPoint(spline.EndTangent));
+            if (spline.Degree != 3 || spline.FitPoints.Count != 2 || spline.IsClosed || spline.IsPeriodic ||
+                spline.KnotParametrization != KnotParametrization.Uniform ||
+                spline.StartTangent == XYZ.Zero || spline.EndTangent == XYZ.Zero)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Fit-only splines require an open two-point uniform cubic with explicit endpoint derivatives; other fit systems require interpolation lowering.");
+            }
+
+            // For the unit-interval cubic, C'(0)=3(P1-P0) and
+            // C'(1)=3(P3-P2). Preserve tangent magnitudes, not just directions.
+            fittedControls[0] = spline.FitPoints[0];
+            fittedControls[1] = spline.FitPoints[0] + spline.StartTangent / 3.0;
+            fittedControls[2] = spline.FitPoints[1] - spline.EndTangent / 3.0;
+            fittedControls[3] = spline.FitPoints[1];
+            sourceControlPoints = fittedControls;
+            sourceKnots = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
+        }
         if (spline.Degree < 1 || spline.Degree > Spline.MaxDegree ||
-            spline.ControlPoints.Count < spline.Degree + 1 ||
-            spline.Knots.Count == 0)
+            sourceControlPoints.Length < spline.Degree + 1 ||
+            sourceKnots.IsEmpty)
         {
             throw new ArgumentException("Spline degree, control points, or knot vector is invalid.");
         }
 
-        if (spline.Weights.Count != 0 && spline.Weights.Count != spline.ControlPoints.Count)
+        if (spline.Weights.Count != 0 && spline.Weights.Count != sourceControlPoints.Length)
         {
             throw new ArgumentException("Spline weight count must be zero or match its control-point count.");
         }
 
         CadBounds3D bounds = CadBounds3D.Empty;
-        var transformedControlPoints = new CadPoint3D[spline.ControlPoints.Count];
+        var transformedControlPoints = new CadPoint3D[sourceControlPoints.Length];
         int transformedIndex = 0;
-        foreach (XYZ value in spline.ControlPoints)
+        foreach (XYZ value in sourceControlPoints)
         {
             CadPoint3D point = TransformPoint(transform, hasTransform, ToPoint(value));
             EnsureFinite(point);
@@ -3447,7 +3479,7 @@ public sealed partial class CadSnapshotCompiler
             bounds = bounds.Include(point);
         }
 
-        foreach (double knot in spline.Knots)
+        foreach (double knot in sourceKnots)
         {
             if (!double.IsFinite(knot))
             {
@@ -3466,15 +3498,15 @@ public sealed partial class CadSnapshotCompiler
         int controlOffset = controlPoints.Count;
         controlPoints.AddRange(transformedControlPoints);
         int knotOffset = knots.Count;
-        knots.AddRange(spline.Knots);
+        knots.AddRange(sourceKnots);
         int weightOffset = weights.Count;
         weights.AddRange(spline.Weights);
         int primitiveIndex = destination.Count;
         destination.Add(new CadSplinePrimitive(
             controlOffset,
-            spline.ControlPoints.Count,
+            sourceControlPoints.Length,
             knotOffset,
-            spline.Knots.Count,
+            sourceKnots.Length,
             weightOffset,
             spline.Weights.Count,
             spline.Degree,

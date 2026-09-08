@@ -328,6 +328,14 @@ public sealed class CadDocumentStore : ICadDocumentStore
                 "CADSAVE001: DXF WIPEOUT records do not encode inverted clipping. " +
                 "Save as DWG or change the WIPEOUT to an outside clip before saving.");
         }
+        if (format == CadDocumentFormat.Dxf &&
+            document.GetCadObjects<Spline>().Any(spline =>
+                spline.ControlPoints.Count == 0 && spline.FitPoints.Count != 0))
+        {
+            throw new NotSupportedException(
+                "CADSAVE002: The current DXF writer does not preserve fit-only SPLINE knot parameterization. " +
+                "Save as DWG; lossless DXF export requires explicit control-point and knot serialization.");
+        }
     }
 
     private static ICadReader CreateReader(
