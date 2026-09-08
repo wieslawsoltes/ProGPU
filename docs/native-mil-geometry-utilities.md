@@ -220,6 +220,91 @@ full application gates, Instruments/performance and CI remain unqualified.
 
 ## Authored gates; execution deferred
 
+### Stroke-query prerequisite — not yet source-WPF pen admission
+
+The next source-backed application dependency is contributing pens in
+`BoundsDrawingContextWalker.DrawGeometry` and
+`HitTestWithPointDrawingContextWalker.DrawGeometry`: ordinary stroked content
+needs actual stroke bounds and membership, not an inflated fill rectangle.
+This checkpoint implements reusable native query transport; it deliberately
+does **not** switch those source-WPF consumers before their complete transport
+and degenerate-cap handling are connected.
+
+`progpu_native_geometry_stroke_query` accepts complete figure records, canonical
+segments, per-segment stroke/incoming-smooth flags, a pen, dash intervals and an
+optional post-widen world transform. Figure ranges must partition the segment
+span in order; nonempty closed figures explicitly return to their start so the
+closing edge keeps its own flags. Hollow/filled figure identity is preserved,
+and gaps remain within the source figure rather than becoming unrelated contours.
+Geometry-local transforms belong on input spines; world transforms follow stroke
+expansion. A null point requests emitted stroke bounds; a point requests only
+membership, avoiding an unnecessary second query. Empty bounds, errors and hits
+have distinct output/status contracts, with outputs cleared before validation.
+
+The authoritative fixed-layout C records generate `NativeGeometryQueryFigure`
+and `NativeGeometryQueryPen` through the existing contract generator; handwritten
+partials add typed-cap/join constructors but do not duplicate field declarations.
+Both managed backend wrappers pin caller spans for one synchronous call, use
+blittable Matrix3x2/point/output records, retain no inputs and allocate no output
+objects. Native construction owns one factory/path/style for the query and
+releases them on every return. This is independent of GPU/device creation and
+does not activate operating-system COM. The ABI is additive; existing record
+layouts and ABI version remain unchanged. No named-module interface changes.
+
+Original ProGPU provenance: the canonical line/quadratic/cubic/arc emitter was
+factored from `create_native_geometry` in `progpu_native_direct2d_path.cpp` and
+is shared by existing MIL/fill construction and the new multi-figure adapter.
+Arc splitting retains unstroked flags on every internally emitted piece and
+forces only internal smooth joins. Bounds use `get_widened_outline_bounds`,
+the same emitted-coverage helper used by MIL; hits use the existing Direct2D
+`StrokeContainsPoint`. There is no second stroker or WPF-local coverage algorithm.
+Both managed and native hosts will consume this one backend utility once wired.
+The original core semantics, including approximation limits, remain subject to
+final Windows/MIL differential testing.
+
+Known integration blocker: `build_flat_polylines` currently discards constant
+stroked segments, which can lose point caps or endpoint eligibility. The new
+query adapter uses the existing intrinsic
+`semantic_path_stroke::is_constant_segment` classifier and returns Unsupported
+for those segments instead of a false successful empty query. This shared header
+reuse avoids a second constancy algorithm; it does not change legacy MIL
+preparation. Close point-cap coverage/endpoint compaction using the existing
+ProGPU implementations, then connect a source/host query encoder retaining all
+figure and stroke flags. Do not enable the Windows SDK selector in the interim.
+This is an unfinished goal requirement, not a permanent reduced parity profile.
+
+Style validation uses four intrinsic float lanes in managed code and in shared
+native `core::valid_stroke_style` (AArch64 NEON, SSE2, Wasm SIMD), with a bounded
+three-value scalar tail. Other platforms retain the documented scalar platform
+path. No repacking or allocation occurs in those validation kernels. State and
+topology traversal remain sequential and bounded. Setup costs O(F + S + D) time
+and O(F + S + D) retained temporary storage for F figures, S segments and D dash
+entries. Existing adaptive flattening, dash expansion and widening determine
+query cost; the wrapper adds no per-segment crossings, GPU work or readback.
+No throughput, latency or SIMD speedup claim is made without final measurements.
+
+Behavioral references: [WPF GetRenderBounds](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.geometry.getrenderbounds),
+[Direct2D GetWidenedBounds](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-getwidenedbounds)
+and [Direct2D Widen](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-widen%28float_id2d1strokestyle_constd2d1_matrix_3x2_f_float_id2d1simplifiedgeometrysink%29).
+Adopt the stroke/style and post-widen-transform contracts, reuse original ProGPU
+code, and reject bounds inflation and silent unsupported coverage. No third-party
+implementation text was introduced. This extends the documented synchronous
+utility boundary, not renderer, text, atlas or GPU pipeline architecture.
+
+Authored fixtures cover source gaps, square caps, post-widen nonuniform scale,
+dash-on/off probes, incomplete closed contours, invalid flags/ranges, explicit
+constant-segment rejection, generated ABI offsets, pre-load validation and
+unaligned dash arrays of lengths 1–17 against a scalar native oracle. Existing
+boolean/curve/fill fixtures still compile against the factored emitter. All
+fixture execution, final-module P/Invoke, SSE2/Wasm builds, Windows images,
+application interactions, benchmark/Instruments evidence and CI are deferred.
+
+Stroke checkpoint compilation: the strict AppleClang C++20 fixture target is
+up to date after successful compilation/linking; an initial fixture-only
+missing-field-initializer error was corrected with fully initialized segment
+construction. The final ProGPU.Tests Release build succeeds with 0 warnings and
+0 errors. These are compile-only results, not executed tests or parity evidence.
+
 `progpu_native_geometry_utility_tests` is a CTest-registered device-independent
 include-based C ABI consumer built from the same wrapper source. It covers four
 boolean modes, nonrectangular boundaries, holes, independent fill rules,

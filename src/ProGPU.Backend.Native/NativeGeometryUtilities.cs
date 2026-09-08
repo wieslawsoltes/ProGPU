@@ -34,7 +34,7 @@ public sealed class NativeGeometryOutline
 /// Device-independent C++ geometry operations shared with the native Direct2D/MIL
 /// geometry core. These synchronous CPU-topology queries create no GPU or window.
 /// </summary>
-public static unsafe class NativeGeometryUtilities
+public static unsafe partial class NativeGeometryUtilities
 {
     /// <summary>Tests filled canonical contours without GPU initialization or readback.</summary>
     public static bool FillContains(ReadOnlySpan<NativePathSegment> segments, NativeFillRule fillRule,

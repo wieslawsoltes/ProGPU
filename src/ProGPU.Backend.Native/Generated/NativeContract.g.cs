@@ -502,6 +502,29 @@ public partial struct NativeSceneMesh3DMaterials
     public uint Reserved0;
 }
 
+// Native source: progpu_native_geometry_query_figure.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeGeometryQueryFigure
+{
+    public Vector2 Start;
+    public uint FirstSegment;
+    public uint SegmentCount;
+    public uint Flags;
+}
+
+// Native source: progpu_native_geometry_query_pen.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeGeometryQueryPen
+{
+    public float Thickness;
+    public float MiterLimit;
+    public float DashOffset;
+    public uint StartCap;
+    public uint EndCap;
+    public uint DashCap;
+    public uint LineJoin;
+}
+
 // Native source: progpu_native_hit_test_primitive.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeGpuHitTestPrimitive

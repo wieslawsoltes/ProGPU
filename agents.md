@@ -228,6 +228,12 @@ double intrinsic edge metrics, ordered winding and half-open crossings; no GPU
 readback, bounds-only containment or implicit switch of the renderer is allowed.
 Unstroked bounds must preserve tight curve extrema, hollow-figure filtering and
 empty/zero-size distinction. Missing optional provider operations fail explicitly.
+Stroke queries must retain complete figure ranges, explicit closing edges, source
+gaps and incoming smooth-join flags. Reuse the canonical native segment emitter,
+stroke coverage and generated query records; never duplicate a WPF-local stroker.
+The current constant-stroked-segment rejection is an unfinished integration gap:
+close point caps/endpoint preparation before admitting the source-WPF pen route,
+and never reinterpret Unsupported as successful empty bounds or a missed hit.
 
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 

@@ -2,6 +2,7 @@
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
 #include <array>
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstdio>
@@ -13,6 +14,13 @@
 namespace {
 using point = progpu_native_point;
 using segment = progpu_native_path_segment;
+
+segment line_segment(point start, point end)
+{
+    segment value{};
+    value.p0 = start; value.p1 = end;
+    return value;
+}
 
 std::vector<segment> polygon(std::initializer_list<point> points)
 {
@@ -180,12 +188,104 @@ bool fill_queries_match_scalar_and_reject_bad_inputs()
     return progpu_native_geometry_fill_contains(nullptr, 0, 0, &bad, tolerance, &contains) ==
         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && contains == 0;
 }
+
+bool stroke_queries_preserve_caps_gaps_dashes_and_world_order()
+{
+    const std::array edges{line_segment({0, 0}, {2, 0}), line_segment({2, 0}, {8, 0}), line_segment({8, 0}, {10, 0})};
+    const std::array<progpu_native_geometry_query_figure, 1> figures{{{{0, 0}, 0, 3, 0}}};
+    const std::array<std::uint8_t, 3> flags{1, 0, 1};
+    progpu_native_geometry_query_pen pen{2, 10, 0, 0, 0, 0, 0};
+    progpu_native_image_rect bounds{};
+    std::uint32_t has = 0, contains = 0;
+    const auto query = [&](const point* p, const progpu_native_affine_2d* world = nullptr,
+        const float* dashes = nullptr, std::uint32_t dash_count = 0U) {
+        return progpu_native_geometry_stroke_query(figures.data(), 1, edges.data(), flags.data(), 3,
+            &pen, dashes, dash_count, world, p, 0.01F, &bounds, &has, &contains);
+    };
+    if (query(nullptr) != PROGPU_NATIVE_STATUS_SUCCESS || has != 1 ||
+        bounds.x != 0 || bounds.y != -1 || bounds.width != 10 || bounds.height != 2) return false;
+    const point gap{5, 0}, first{1, 0}, last{9, 0};
+    if (query(&gap) != PROGPU_NATIVE_STATUS_SUCCESS || contains != 0) return false;
+    if (query(&first) != PROGPU_NATIVE_STATUS_SUCCESS || contains != 1) return false;
+    if (query(&last) != PROGPU_NATIVE_STATUS_SUCCESS || contains != 1) return false;
+    pen.start_cap = pen.end_cap = 1; // square, applied before world scaling
+    const progpu_native_affine_2d world{2, 0, 0, 3, 7, 8};
+    if (query(nullptr, &world) != PROGPU_NATIVE_STATUS_SUCCESS || has != 1 ||
+        bounds.x != 5 || bounds.y != 5 || bounds.width != 24 || bounds.height != 6) return false;
+
+    const std::array line{line_segment({0, 0}, {10, 0})};
+    const std::array<progpu_native_geometry_query_figure, 1> one{{{{0, 0}, 0, 1, 0}}};
+    const std::array<std::uint8_t, 1> stroked{1};
+    const std::array<float, 2> dashes{1, 1};
+    pen.start_cap = pen.end_cap = 0;
+    const point dash_on{1, 0}, dash_off{3, 0};
+    for (const auto p : {dash_on, dash_off}) {
+        if (progpu_native_geometry_stroke_query(one.data(), 1, line.data(), stroked.data(), 1,
+            &pen, dashes.data(), 2, nullptr, &p, 0.01F, &bounds, &has, &contains) != PROGPU_NATIVE_STATUS_SUCCESS ||
+            contains != (p.x == 1 ? 1U : 0U)) return false;
+    }
+    return true;
+}
+
+bool stroke_queries_reject_incomplete_and_degenerate_transport()
+{
+    const std::array line{line_segment({0, 0}, {10, 0})};
+    std::array<progpu_native_geometry_query_figure, 1> figures{{{{0, 0}, 0, 1, 1}}};
+    std::array<std::uint8_t, 1> flags{1};
+    const progpu_native_geometry_query_pen pen{2, 10, 0, 0, 0, 0, 0};
+    progpu_native_image_rect bounds{1, 2, 3, 4};
+    std::uint32_t has = 99, contains = 99;
+    const auto query = [&](std::span<const segment> segments) {
+        return progpu_native_geometry_stroke_query(figures.data(), 1, segments.data(), flags.data(),
+            static_cast<std::uint32_t>(segments.size()), &pen, nullptr, 0, nullptr, nullptr, 0.01F,
+            &bounds, &has, &contains);
+    };
+    if (query(line) != PROGPU_NATIVE_STATUS_INVALID_ARGUMENT || has != 0 || contains != 0 || bounds.width != 0) return false;
+    figures[0].flags = 0;
+    flags[0] = 4;
+    if (query(line) != PROGPU_NATIVE_STATUS_INVALID_ARGUMENT) return false;
+    flags[0] = 1;
+    figures[0].first_segment = 1;
+    if (query(line) != PROGPU_NATIVE_STATUS_INVALID_ARGUMENT) return false;
+    figures[0].first_segment = 0;
+    const std::array<segment, 1> constant{};
+    return query(constant) == PROGPU_NATIVE_STATUS_UNSUPPORTED && has == 0 && contains == 0;
+}
+
+bool dash_validation_matches_scalar_oracle()
+{
+    namespace core = progpu::native::direct2d::core;
+    core::stroke_style_properties_f style{};
+    style.dash = core::dash_style::custom;
+    style.miter_limit = 10;
+    std::array<float, 18> storage{};
+    float* pattern = storage.data() + 1; // deliberately not 16-byte aligned
+    for (std::uint32_t count = 1; count <= 17; ++count) {
+        for (std::uint32_t changed = 0; changed < count; ++changed) {
+            for (float value : {0.0F, 2.0F, -1.0F, std::numeric_limits<float>::infinity(),
+                std::numeric_limits<float>::quiet_NaN()}) {
+                std::fill(pattern, pattern + count, 0.0F);
+                pattern[changed] = value;
+                bool valid = true, positive = false;
+                for (std::uint32_t i = 0; i < count; ++i) {
+                    valid &= std::isfinite(pattern[i]) && pattern[i] >= 0;
+                    positive |= pattern[i] > 0;
+                }
+                if (core::valid_stroke_style(style, pattern, count) != (valid && positive)) return false;
+            }
+        }
+    }
+    return true;
+}
 } // namespace
 
 int main()
 {
     if (!modes_and_actual_boundaries() || !curved_result_matches_shared_core() || !failures_and_empty_ownership() ||
-        !fill_queries_match_scalar_and_reject_bad_inputs()) {
+        !fill_queries_match_scalar_and_reject_bad_inputs() ||
+        !stroke_queries_preserve_caps_gaps_dashes_and_world_order() ||
+        !stroke_queries_reject_incomplete_and_degenerate_transport() ||
+        !dash_validation_matches_scalar_oracle()) {
         std::fputs("Native geometry utility conformance failed.\n", stderr);
         return 1;
     }

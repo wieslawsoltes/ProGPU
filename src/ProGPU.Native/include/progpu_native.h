@@ -2198,6 +2198,52 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_fill_contains(
     uint32_t fill_rule, const progpu_native_point* point, float tolerance,
     uint32_t* contains);
 
+/* Query figures partition the entire segment span in order, including empty
+ * figures. Flags: bit 0 closed, bit 1 filled; other bits must be zero.
+ * Segment flags: bit 0 stroked, bit 1 forced-round incoming join. The incoming
+ * flag of the first segment also describes the closed figure seam. Nonempty
+ * closed figures must explicitly return to start, preserving closing-edge flags.
+ * Constant stroked segments currently return UNSUPPORTED rather than silently
+ * dropping point-cap coverage/endpoint eligibility in the query polyline core. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeGeometryQueryFigure */
+typedef struct progpu_native_geometry_query_figure {
+    progpu_native_point start;
+    uint32_t first_segment;
+    uint32_t segment_count;
+    uint32_t flags;
+} progpu_native_geometry_query_figure;
+
+/* Caps and joins use the existing canonical stroke enums. Thickness is finite
+ * and nonnegative; miter_limit >= 1. Dash intervals are finite/nonnegative,
+ * in thickness units, and a nonempty pattern must have positive total length. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeGeometryQueryPen */
+typedef struct progpu_native_geometry_query_pen {
+    float thickness;
+    float miter_limit;
+    float dash_offset;
+    uint32_t start_cap;
+    uint32_t end_cap;
+    uint32_t dash_cap;
+    uint32_t line_join;
+} progpu_native_geometry_query_pen;
+
+/* Device-independent stroke query. Geometry-local transforms have already been
+ * applied to the spine; world_transform is applied AFTER widening (null=identity).
+ * Tolerance is positive/finite in pre-world coordinates. Inputs are borrowed for
+ * this call, with <=2^20 figures/segments/dashes; segment_flags has segment_count
+ * bytes. A null point queries emitted stroke bounds only. A nonnull point queries
+ * stroke containment only. All three output addresses are required and zeroed
+ * before input validation. Empty coverage is explicit through has_bounds=0.
+ * Query status/semantics are shared with the portable Direct2D path core; no
+ * engine/device, COM activation, GPU readback or renderer fallback is performed.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_stroke_query(
+    const progpu_native_geometry_query_figure* figures, uint32_t figure_count,
+    const progpu_native_path_segment* segments, const uint8_t* segment_flags, uint32_t segment_count,
+    const progpu_native_geometry_query_pen* pen, const float* dashes, uint32_t dash_count,
+    const progpu_native_affine_2d* world_transform, const progpu_native_point* point, float tolerance,
+    progpu_native_image_rect* bounds, uint32_t* has_bounds, uint32_t* contains);
+
 /* Values and storage intentionally match ProGPU.Vector.GpuHitTesting and the
  * canonical GpuHitTesting.wgsl storage-buffer contract. The C declarations
  * are the wire-layout authority for generated managed interop records. */

@@ -12,6 +12,13 @@ namespace progpu::native::direct2d::compat::detail {
     std::span<const progpu_native_path_segment> segments, fill_mode mode,
     path_geometry** value) noexcept;
 
+// Complete figure/segment query transport, including source gaps and explicit
+// incoming smooth joins. Uses the same canonical segment emitter as MIL paths.
+[[nodiscard]] com::result create_native_query_geometry(factory* owner,
+    std::span<const progpu_native_geometry_query_figure> figures,
+    std::span<const progpu_native_path_segment> segments,
+    std::span<const std::uint8_t> flags, path_geometry** value) noexcept;
+
 // One canonical stroke contour. Joins describe segment i -> i+1, including
 // the closing seam. Unlike fill conversion, returning to the start does not
 // close an open contour and disconnected segments are rejected.

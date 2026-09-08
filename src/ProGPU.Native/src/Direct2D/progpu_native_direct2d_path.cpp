@@ -1,5 +1,6 @@
 #include "progpu_native_direct2d_path.hpp"
 #include "../Mil/progpu_native_mil_curve_dash.hpp"
+#include "../Scene/progpu_native_semantic_path_stroke.hpp"
 
 #include <algorithm>
 #include <array>
@@ -7617,6 +7618,66 @@ private:
 // Algorithm: Stream canonical native fill segments into the portable Direct2D
 // path implementation. Full ellipses split into two endpoint arcs; no flattening
 // or CPU pixels are introduced here. Time/space: O(S) retained path records.
+static com::result append_native_query_segment(geometry_sink* sink,
+    const progpu_native_path_segment& segment, path_segment flags, bool stroke, point_2f& end) noexcept
+{
+    sink->SetSegmentFlags(flags);
+    switch (segment.kind) {
+    case PROGPU_NATIVE_PATH_SEGMENT_LINE:
+        end = {segment.p1.x, segment.p1.y};
+        sink->AddLine(end);
+        break;
+    case PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC: {
+        end = {segment.p2.x, segment.p2.y};
+        const quadratic_bezier_segment curve{{segment.p1.x, segment.p1.y}, end};
+        sink->AddQuadraticBezier(&curve);
+        break;
+    }
+    case PROGPU_NATIVE_PATH_SEGMENT_CUBIC: {
+        end = {segment.p3.x, segment.p3.y};
+        const bezier_segment curve{{segment.p1.x, segment.p1.y}, {segment.p2.x, segment.p2.y}, end};
+        sink->AddBezier(&curve);
+        break;
+    }
+    case PROGPU_NATIVE_PATH_SEGMENT_ARC: {
+        const float theta = std::bit_cast<float>(segment.pad0);
+        const float sweep = std::bit_cast<float>(segment.pad1);
+        const float rotation = std::bit_cast<float>(segment.pad2);
+        if (!std::isfinite(theta) || !std::isfinite(sweep) || !std::isfinite(rotation) ||
+            !finite_point({segment.p2.x, segment.p2.y}) ||
+            !std::isfinite(segment.p3.x) || !std::isfinite(segment.p3.y) ||
+            segment.p3.x <= 0.0F || segment.p3.y <= 0.0F ||
+            std::abs(sweep) > 2.0F * std::numbers::pi_v<float> + 0.000001F) return com::invalid_argument;
+        end = {segment.p1.x, segment.p1.y};
+        const std::uint32_t pieces = std::abs(sweep) > std::numbers::pi_v<float> ? 2U : 1U;
+        for (std::uint32_t index = 1U; index <= pieces; ++index) {
+            point_2f endpoint = end;
+            if (index != pieces) {
+                const float angle = theta + sweep * (static_cast<float>(index) / static_cast<float>(pieces));
+                const float x = segment.p3.x * std::cos(angle);
+                const float y = segment.p3.y * std::sin(angle);
+                endpoint = {segment.p2.x + x * std::cos(rotation) - y * std::sin(rotation),
+                    segment.p2.y + x * std::sin(rotation) + y * std::cos(rotation)};
+            }
+            const arc_segment arc{endpoint, {segment.p3.x, segment.p3.y},
+                rotation * (180.0F / std::numbers::pi_v<float>),
+                sweep < 0.0F ? sweep_direction::counter_clockwise : sweep_direction::clockwise,
+                arc_size::small_value};
+            sink->AddArc(&arc);
+            // An internal split in one smooth arc must not become a
+            // caller-selected bevel/miter join.
+            if (stroke) sink->SetSegmentFlags(static_cast<path_segment>(static_cast<std::uint32_t>(flags) |
+                    static_cast<std::uint32_t>(path_segment::force_round_line_join)));
+        }
+        break;
+    }
+    default:
+        return com::invalid_argument;
+    }
+    if (!finite_point(end)) return com::invalid_argument;
+    return com::ok;
+}
+
 static com::result create_native_geometry(factory* owner,
     std::span<const progpu_native_path_segment> segments, fill_mode mode,
     std::span<const std::uint8_t> smooth_joins, bool filled, bool closed,
@@ -7647,64 +7708,13 @@ static com::result create_native_geometry(factory* owner,
             start = first;
             open = true;
         }
-        if (!filled) {
-            const bool smooth = (segment_index != 0U || closed) &&
-                smooth_joins[segment_index == 0U ? segments.size() - 1U : segment_index - 1U] != 0U;
-            sink->SetSegmentFlags(smooth ? path_segment::force_round_line_join : path_segment::none);
-        }
         point_2f end{};
-        switch (segment.kind) {
-        case PROGPU_NATIVE_PATH_SEGMENT_LINE:
-            end = {segment.p1.x, segment.p1.y};
-            sink->AddLine(end);
-            break;
-        case PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC: {
-            end = {segment.p2.x, segment.p2.y};
-            const quadratic_bezier_segment curve{{segment.p1.x, segment.p1.y}, end};
-            sink->AddQuadraticBezier(&curve);
-            break;
-        }
-        case PROGPU_NATIVE_PATH_SEGMENT_CUBIC: {
-            end = {segment.p3.x, segment.p3.y};
-            const bezier_segment curve{{segment.p1.x, segment.p1.y}, {segment.p2.x, segment.p2.y}, end};
-            sink->AddBezier(&curve);
-            break;
-        }
-        case PROGPU_NATIVE_PATH_SEGMENT_ARC: {
-            const float theta = std::bit_cast<float>(segment.pad0);
-            const float sweep = std::bit_cast<float>(segment.pad1);
-            const float rotation = std::bit_cast<float>(segment.pad2);
-            if (!std::isfinite(theta) || !std::isfinite(sweep) || !std::isfinite(rotation) ||
-                !finite_point({segment.p2.x, segment.p2.y}) ||
-                !std::isfinite(segment.p3.x) || !std::isfinite(segment.p3.y) ||
-                segment.p3.x <= 0.0F || segment.p3.y <= 0.0F ||
-                std::abs(sweep) > 2.0F * std::numbers::pi_v<float> + 0.000001F) return com::invalid_argument;
-            end = {segment.p1.x, segment.p1.y};
-            const std::uint32_t pieces = std::abs(sweep) > std::numbers::pi_v<float> ? 2U : 1U;
-            for (std::uint32_t index = 1U; index <= pieces; ++index) {
-                point_2f endpoint = end;
-                if (index != pieces) {
-                    const float angle = theta + sweep * (static_cast<float>(index) / static_cast<float>(pieces));
-                    const float x = segment.p3.x * std::cos(angle);
-                    const float y = segment.p3.y * std::sin(angle);
-                    endpoint = {segment.p2.x + x * std::cos(rotation) - y * std::sin(rotation),
-                        segment.p2.y + x * std::sin(rotation) + y * std::cos(rotation)};
-                }
-                const arc_segment arc{endpoint, {segment.p3.x, segment.p3.y},
-                    rotation * (180.0F / std::numbers::pi_v<float>),
-                    sweep < 0.0F ? sweep_direction::counter_clockwise : sweep_direction::clockwise,
-                    arc_size::small_value};
-                sink->AddArc(&arc);
-                // An internal split in one smooth arc must not become a
-                // caller-selected bevel/miter join.
-                if (!filled) sink->SetSegmentFlags(path_segment::force_round_line_join);
-            }
-            break;
-        }
-        default:
-            return com::invalid_argument;
-        }
-        if (!finite_point(end)) return com::invalid_argument;
+        path_segment flags = path_segment::none;
+        if (!filled && (segment_index != 0U || closed) &&
+            smooth_joins[segment_index == 0U ? segments.size() - 1U : segment_index - 1U] != 0U)
+            flags = path_segment::force_round_line_join;
+        result = append_native_query_segment(sink.get(), segment, flags, !filled, end);
+        if (com::failed(result)) return result;
         previous = end;
         if (filled && same_point(end, start)) {
             sink->EndFigure(figure_end::closed);
@@ -7723,6 +7733,56 @@ com::result create_native_fill_geometry(factory* owner,
     path_geometry** value) noexcept
 {
     return create_native_geometry(owner, segments, mode, {}, true, true, value);
+}
+
+com::result create_native_query_geometry(factory* owner,
+    std::span<const progpu_native_geometry_query_figure> figures,
+    std::span<const progpu_native_path_segment> segments,
+    std::span<const std::uint8_t> flags, path_geometry** value) noexcept
+{
+    if (value == nullptr) return com::pointer_error;
+    *value = nullptr;
+    if (owner == nullptr || figures.size() > (1U << 20U) || segments.size() > (1U << 20U) ||
+        flags.size() != segments.size()) return com::invalid_argument;
+    std::size_t next = 0U;
+    for (const auto& figure : figures) {
+        if (figure.first_segment != next || figure.segment_count > segments.size() - next ||
+            figure.flags > 3U || !finite_point({figure.start.x, figure.start.y})) return com::invalid_argument;
+        next += figure.segment_count;
+    }
+    if (next != segments.size()) return com::invalid_argument;
+    com::pointer<path_geometry> path;
+    com::result result = owner->CreatePathGeometry(path.put());
+    if (com::failed(result)) return result;
+    com::pointer<geometry_sink> sink;
+    result = path->Open(sink.put());
+    if (com::failed(result)) return result;
+    sink->SetFillMode(fill_mode::winding);
+    for (const auto& figure : figures) {
+        point_2f current{figure.start.x, figure.start.y};
+        sink->BeginFigure(current, (figure.flags & 2U) != 0U ? figure_begin::filled : figure_begin::hollow);
+        for (std::size_t index = figure.first_segment; index < figure.first_segment + figure.segment_count; ++index) {
+            const auto& segment = segments[index];
+            if (flags[index] > 3U || !same_point(current, {segment.p0.x, segment.p0.y})) return com::invalid_argument;
+            // The query polyline builder discards constant edges. Do not lose
+            // point caps or endpoint eligibility through a successful empty hit.
+            // Reuse the same intrinsic classifier as MIL stroke preparation.
+            if ((flags[index] & 1U) != 0U && semantic_path_stroke::is_constant_segment(segment))
+                return not_implemented;
+            const auto state = static_cast<path_segment>(
+                ((flags[index] & 1U) == 0U ? static_cast<std::uint32_t>(path_segment::force_unstroked) : 0U) |
+                ((flags[index] & 2U) != 0U ? static_cast<std::uint32_t>(path_segment::force_round_line_join) : 0U));
+            result = append_native_query_segment(sink.get(), segment, state, true, current);
+            if (com::failed(result)) return result;
+        }
+        if ((figure.flags & 1U) != 0U && figure.segment_count != 0U &&
+            !same_point(current, {figure.start.x, figure.start.y})) return com::invalid_argument;
+        sink->EndFigure((figure.flags & 1U) != 0U ? figure_end::closed : figure_end::open);
+    }
+    result = sink->Close();
+    if (com::failed(result)) return result;
+    *value = path.detach();
+    return com::ok;
 }
 
 com::result combine_native_fill_contours(

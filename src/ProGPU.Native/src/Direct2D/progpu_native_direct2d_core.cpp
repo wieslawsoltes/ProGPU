@@ -694,7 +694,35 @@ bool valid_stroke_style(
         return false;
     }
     bool has_positive_dash = false;
-    for (std::uint32_t index = 0U; index < dash_count; ++index) {
+    std::uint32_t index = 0U;
+    // Independent interval validation, shared by query and render style creation.
+    // Four intrinsic lanes with at most three scalar tail values; no repacking.
+#if defined(__aarch64__) || defined(_M_ARM64)
+    for (; dash_count - index >= 4U; index += 4U) {
+        const auto values = vld1q_f32(dashes + index);
+        const auto valid = vandq_u32(vcgeq_f32(values, vdupq_n_f32(0.0F)),
+            vcleq_f32(values, vdupq_n_f32((std::numeric_limits<float>::max)())));
+        if (vminvq_u32(valid) == 0U) return false;
+        has_positive_dash |= vmaxvq_u32(vcgtq_f32(values, vdupq_n_f32(0.0F))) != 0U;
+    }
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+    for (; dash_count - index >= 4U; index += 4U) {
+        const auto values = _mm_loadu_ps(dashes + index);
+        const auto valid = _mm_and_ps(_mm_cmpge_ps(values, _mm_setzero_ps()),
+            _mm_cmple_ps(values, _mm_set1_ps((std::numeric_limits<float>::max)())));
+        if (_mm_movemask_ps(valid) != 15) return false;
+        has_positive_dash |= _mm_movemask_ps(_mm_cmpgt_ps(values, _mm_setzero_ps())) != 0;
+    }
+#elif defined(__wasm_simd128__)
+    for (; dash_count - index >= 4U; index += 4U) {
+        const auto values = wasm_v128_load(dashes + index);
+        const auto valid = wasm_v128_and(wasm_f32x4_ge(values, wasm_f32x4_splat(0.0F)),
+            wasm_f32x4_le(values, wasm_f32x4_splat((std::numeric_limits<float>::max)())));
+        if (!wasm_i32x4_all_true(valid)) return false;
+        has_positive_dash |= wasm_v128_any_true(wasm_f32x4_gt(values, wasm_f32x4_splat(0.0F)));
+    }
+#endif
+    for (; index < dash_count; ++index) {
         if (!std::isfinite(dashes[index]) || dashes[index] < 0.0F) {
             return false;
         }
