@@ -6,6 +6,35 @@ namespace ProGPU.Tests;
 public sealed class PortableWpfServiceRegistryTests
 {
     [Fact]
+    public void DialogLoopIsSeparateFromApplicationRunAndBorrowsSourceContinuation()
+    {
+        object activation = new();
+        int applicationRuns = 0, iterations = 0;
+        bool keepRunning = true;
+        var callbacks = new PortableWindowActivationCallbacks(_ => activation, run: _ => applicationRuns++)
+        {
+            RunDialog = (owner, continuation) =>
+            {
+                Assert.Same(activation, owner);
+                while (continuation())
+                {
+                    iterations++;
+                    keepRunning = false;
+                }
+            }
+        };
+        Assert.Null(new PortableWindowActivationCallbacks(_ => activation).RunDialog);
+        callbacks.RunDialog(activation, () => keepRunning);
+        Assert.Equal(1, iterations);
+        Assert.Equal(0, applicationRuns);
+        callbacks.RunDialog(activation, () => false);
+        Assert.Equal(1, iterations);
+        var failure = new InvalidOperationException("Source continuation failed.");
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() =>
+            callbacks.RunDialog(activation, () => throw failure)));
+    }
+
+    [Fact]
     public void HiddenWindowFactoryIsAnExplicitSeparateCapability()
     {
         object window = new(), visible = new(), hidden = new();

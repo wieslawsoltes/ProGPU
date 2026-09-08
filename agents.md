@@ -196,6 +196,13 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+Portable dialog pumping uses the optional typed RunDialog callback, separate from
+application Run. Borrow its source-owned continuation only during the synchronous
+host-thread call; hiding ends that dialog invocation without destroying the host.
+Do not retain the predicate, route it through HWND dispatcher frames, or swallow
+its failures in device/close recovery. This loop contract does not implement native
+owner configuration, application input modality or activation restoration; keep
+those requirements explicit. See `docs/native-mil-dialog-lifetime.md`.
 Source-built WPF media transport selection belongs in `PortableWpfRuntime`,
 and native host/SDK startup must install lazy source text/geometry defaults before
 application constructors can measure content. `PortableDefaultServiceSlot<T>` keeps

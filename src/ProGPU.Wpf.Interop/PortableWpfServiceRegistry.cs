@@ -566,6 +566,16 @@ public sealed class PortableWindowActivationCallbacks
 
     public Action<object>? Run { get; }
 
+    /// <summary>
+    /// Pumps an already shown dialog synchronously while the source-owned
+    /// continuation returns true. Check it between event/render iterations and
+    /// return without closing or disposing a hidden window. Invoke and borrow the
+    /// continuation only on the host thread for the duration of this call; do not
+    /// retain it. Exceptions propagate. This is distinct from the application Run
+    /// lifetime and does not itself implement owner disabling or native ownership.
+    /// </summary>
+    public Action<object, Func<bool>>? RunDialog { get; init; }
+
     public Action<object>? Dispose { get; }
 
     public Func<object, bool>? DragMove { get; }
