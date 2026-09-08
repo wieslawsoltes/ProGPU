@@ -29,8 +29,17 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+      - name: Install Linux WebGPU dependencies
+        run: >-
+          ./eng/progpu-install-linux-packages.sh
+          libvulkan1 mesa-vulkan-drivers libx11-xcb1 libxcb1
+          libxcb-randr0 libxcb-render0 libxcb-shape0 libxcb-shm0
+          libxcb-xfixes0 libxcb-present0 libxkbcommon0
       - name: Test CAD document and scene contracts
-        run: dotnet test src/ProGPU.CAD.Tests/ProGPU.CAD.Tests.csproj -c Release
+        env:
+          DOTNET_TieredCompilation: "0"
+          LD_LIBRARY_PATH: ${{ github.workspace }}/src/ProGPU.CAD.Tests/bin/Release/net10.0/linux-x64:${{ github.workspace }}/src/ProGPU.CAD.Tests/bin/Release/net10.0/linux-x64/runtimes/linux-x64/native
+        run: dotnet test src/ProGPU.CAD.Tests/ProGPU.CAD.Tests.csproj -c Release --runtime linux-x64
       - name: Install WebAssembly workload
         run: dotnet workload install wasm-tools --skip-manifest-update
       - name: Publish CAD with AOT and native linking
