@@ -316,3 +316,54 @@ qualification. The artifacts are retained locally under
 deadline increase, pixel-threshold reduction, or skipped screenshot has been
 introduced. The software presentation/performance blocker remains open and
 must be investigated independently of the file-serialization corrections.
+
+### Current basic-workflow Linux qualification (2026-09-08)
+
+The published `f78f2543` AOT app completes the full browser smoke on Ubuntu
+ARM64 with pinned Chromium 151.0.7922.34 and SwiftShader, restricted to two CPUs
+by process affinity. This run exercises line creation, selection, move/copy,
+delete, undo/redo, save/reopen, malformed polygon-clip rejection, and recovery
+by opening the valid file again. It preserves all 16 expected model-space
+entity types and finishes at 2880x1800 with `malformedClipRecovery: true`.
+The final screenshot was inspected: drawing geometry, both MTEXT columns,
+the WIPEOUT, and the added/moved line remain visible.
+
+Observed counters are 198 frames / 236 dispatches. The first cropped capture
+takes 31,088 ms; the following full-page capture takes 18,520 ms. These are
+diagnostic observations, not throughput measurements or proof of x64 CI
+reliability. Capture deadlines, pixel thresholds, geometry quality, and the
+independent presentation preflight are unchanged. The staged driver only logs
+capture start/end times. No VM configuration or security setting was changed.
+Evidence is retained under the existing shared validation directory
+`cad-render-stall.2nnKTc/artifacts/progpu-cad/browser-smoke/`, with the host log
+under `artifacts/progpu-cad/linux-current-two-cpu.log`; generated files remain
+outside Git.
+
+### Startup trace separates compilation from presentation waits
+
+Two separate startup-only diagnostic runs use Chromium's documented
+[startup tracing switches](https://www.chromium.org/developers/how-tos/trace-event-profiling-tool/recording-tracing-runs/).
+The second also enables `disabled-by-default-gpu.dawn`, the category exposed by
+the [pinned Chromium Dawn platform](https://github.com/chromium/chromium/blob/151.0.7922.34/gpu/command_buffer/service/dawn_platform.cc).
+These probes deliberately terminate after the initial captures and are **not**
+full smoke passes. Their traces are retained in separate `startup-trace/` and
+`startup-dawn-trace/` evidence directories beside the successful smoke run.
+
+The detailed trace contains 117,505 events. Two compute-pipeline creation calls
+total 4,050.912 ms; four render-pipeline creation calls total 973.495 ms. The
+longest enclosing WebGPU command-buffer flush takes 8,815.865 ms wall time but
+only 19.389 ms of GPU-main-thread time. Its queue submission finishes near the
+start; serializer-return events occur about 8.79 seconds later. Nested trace
+durations overlap and must not be added as independent CPU costs.
+
+This evidence distinguishes startup compilation from a later wait, but does
+not identify the wait's exact cause or establish a performance improvement.
+The [pinned WebGPU decoder](https://github.com/chromium/chromium/blob/151.0.7922.34/gpu/command_buffer/service/webgpu_decoder_impl.cc)
+has a synchronous staging-buffer readback in its shared-image fallback; that
+is a hypothesis to correlate with submission completion, not a demonstrated
+diagnosis of this run. The next diagnostic should distinguish queued shader
+execution from presentation/readback. Do not change raster quality, introduce
+application readback, remove captures, or extend deadlines on this evidence.
+Only public diagnostic contracts and observed trace behavior are used; no
+third-party implementation is copied into ProGPU. Managed/native rendering,
+canonical shaders, ABI, and application host scheduling remain unchanged.
