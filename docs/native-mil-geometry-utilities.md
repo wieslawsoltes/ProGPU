@@ -10,9 +10,10 @@ may lose its hole. Enabling that branch on Windows would not close the requireme
 
 This checkpoint exposes the existing C++ geometry algorithm through the main
 backend without a renderer engine, native window, GPU device, COM activation or
-Windows `d2d1.dll`. It is an implemented prerequisite, **not yet the source-WPF
-replacement**. The WPF utility route remains unchanged until its typed adapter
-preserves the complete required semantics below.
+Windows `d2d1.dll`. The subsequent LibreWPF connection now routes portable
+`PathGeometry.InternalCombine` through the typed adapter described below and
+removes its bounds-only substitute. This is implementation evidence, **not
+runtime-qualified WPF geometry parity or Windows SDK admission**.
 
 ## API and ownership
 
@@ -93,15 +94,61 @@ the overload distinguishes absolute and relative tolerance. The
 describes polygonal approximation with a supplied absolute error tolerance.
 These are behavioral references, not implementation sources.
 
-Next connect source-built WPF through a neutral typed service and ProGPU adapter,
-not a host shim reference or reflected geometry shapes. Preserve operand
-fill/figure semantics, groups/nested combinations, operand transforms, result
-transform ordering, absolute/relative tolerance, empty results and WPF bad-number
-behavior. Do not compute relative tolerance from the bounds-only combine being
-replaced. Native float ranges versus WPF doubles need explicit handling, not
-silent truncation. Register before the first layout query; ordinary unselected
-Windows WPF retains its native MIL behavior. Both ProGPU renderer modes need the
-correct result. Keep the Windows SDK guard until that route is qualified.
+### Source-built WPF connection
+
+`PortableGeometryOperand` is a separate bounds-free tree of path, group and
+combined nodes. It does not extend retained-rendering DTO kinds. The
+`IPortableGeometryOperations` provider is registered only through
+`PortableWpfServiceRegistry`; an explicit provider is not overwritten by default
+installation and disposing a superseded registration cannot clear its successor.
+Registration itself does not load native code or create a device.
+
+LibreWPF's `PortableGeometryOperationsBridge.Export` walks source-owned geometry
+without asking for `Bounds`. Groups retain their own fill rule/transform and
+children, combined nodes retain both operands/mode/transform, and leaves use the
+source's managed path export with empty metadata bounds. This avoids reentering
+Combine through CombinedGeometry.Bounds and avoids Windows geometry bounds calls
+during export. The source bridge materializes returned polygon contours as real
+WPF PathGeometry, including closed/filled/stroke state. Missing providers fail
+explicitly; the rectangle substitute has been deleted.
+
+The host adapter `WpfPortableGeometryOperations` uses the existing original
+LibreWPF portable-to-ProGPU path converter and ProGPU `PathGeometry.CreateTransformed`
+and `PathAtlas.CompileFillPath`. Groups collect figures (not a union of children),
+and nested combinations materialize through this native utility with the standard
+WPF tolerance. Before CompileFillPath, operands must be non-deferred so it cannot
+enter the GPU boolean/readback path. Canonical GpuPathSegment/NativePathSegment
+spans are reinterpreted without a repacking copy; authored fixtures cover layout.
+Result transforms are applied to both operands before boundary construction,
+matching source WPF's output-space tolerance evaluation.
+
+Tolerance uses the maximum axis of the union of tight transformed operand bounds,
+with the source WPF double-relative numeric floor. The behavioral sources are
+`WpfGfx/core/uce/geometry_api.cpp` (result transform order) and
+`WpfGfx/core/geometry/shapebase.cpp` (`CShapeBase::Combine`) in the LibreWPF
+source tree; no WPF implementation is copied into ProGPU. Nonfinite supplied
+geometry returns empty; unsupported finite values outside native float range
+throw explicitly. Quantization and native-core degeneracies remain qualification
+items; this does not claim double-exact WPF/native output identity. Validation
+uses paired intrinsic double lanes and boundary point export uses intrinsic
+float-to-double widening. Traversal is depth/budget bounded; native topology and
+owned result construction retain the cost described above.
+
+For transformed native path bounds, the adapter streams into the existing
+`WpfPortablePathBoundsReader` curve-extrema helpers rather than using the vector
+path's Bezier control-hull bounds. This adds no second extrema algorithm and
+does not allocate another portable path snapshot merely to measure it. A cubic
+fixture distinguishes actual extrema from its control hull after scaling.
+
+Both direct host construction and activation bootstrap install the same lazy
+default provider. The current LibreWPF WGPU-native host profile requires the
+matching `progpu_native` binary for geometry operations in **both** managed
+portable and native-MIL renderer modes. This shared CPU geometry dependency is
+not a switch to native rendering. Package staging already includes Backend.Native;
+actual package binary/export availability still needs final qualification.
+Ordinary unselected Windows WPF retains native MIL Combine. The portable transport
+choice, not OS detection, selects the new route. Other source-WPF geometry utility
+routes, especially Windows bounds/hit testing, remain open; keep the SDK guard.
 
 ## Authored gates; execution deferred
 
@@ -110,8 +157,11 @@ include-based C ABI consumer built from the same wrapper source. It covers four
 boolean modes, nonrectangular boundaries, holes, independent fill rules,
 curved-result identity with the core, empty-result ownership and invalid inputs.
 Its membership oracle is deliberately scalar test code. Managed tests cover
-pre-load rejection, canonical layout and contour access. Fixtures are authored
-and compiled, **not executed**.
+pre-load rejection, canonical layout and contour access. Additional connection
+fixtures cover registration ownership, bounds-free nested export, source contour
+reconstruction, policy forwarding, missing services, tolerance calculation,
+nonfinite input and explicit finite-range rejection. These are **not executed**
+during the implementation-first phase.
 
 Compile-only evidence: AppleClang C++20 Release builds the fixture and shared
 Direct2D core with strict warnings; `ProGPU.Tests` Release compilation succeeds

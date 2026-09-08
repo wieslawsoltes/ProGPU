@@ -701,7 +701,7 @@ public interface IPortableWindowActivationServiceRegistrar
     void Clear();
 }
 
-public static class PortableWpfServiceRegistry
+public static partial class PortableWpfServiceRegistry
 {
     private static readonly object SyncRoot = new();
     private static readonly Dictionary<PortableWpfServiceKey, IPortableWindowActivationServiceRegistrar> WindowActivationServices = new();
