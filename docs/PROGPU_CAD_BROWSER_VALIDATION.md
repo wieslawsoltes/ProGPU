@@ -112,3 +112,12 @@ and Chrome's [headless Linux WebGPU configuration](https://developer.chrome.com/
 No application rendering behavior, quality threshold, or input assertion is
 relaxed. `SystemInfo.getInfo` is a test-only browser diagnostic; no GPU readback
 or new dependency is added to production rendering.
+
+Run `34193459492` still failed. The browser GPU report selected Mesa llvmpipe
+for ANGLE, and failure screenshot capture timed out before DOM state was saved,
+masking the original smoke exception. The software lane now explicitly selects
+both SwANGLE and `--use-webgpu-adapter=swiftshader`, following the separate
+adapter switch documented by [Dawn's CTS runner](https://dawn.googlesource.com/dawn/+show/HEAD/webgpu-cts/README.md).
+The original exception is saved first in `failure.json`; DOM/canvas and page
+captures are independently bounded and cannot replace it. Linux success remains
+unproven until the new run completes; no screenshots or pixel checks are skipped.

@@ -74,8 +74,8 @@ try {
     if (process.platform === 'linux') {
       // ANGLE selection alone does not select the Vulkan driver used by WebGPU.
       // Use Chromium's documented headless Vulkan presentation configuration.
-      args.push('--enable-features=Vulkan', '--use-angle=vulkan',
-        '--use-vulkan=swiftshader', '--disable-vulkan-surface');
+      args.push('--enable-features=Vulkan', '--use-gl=angle', '--use-angle=swiftshader',
+        '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface');
     } else {
       args.push('--use-angle=swiftshader');
     }
@@ -240,29 +240,48 @@ try {
   console.log(JSON.stringify(result));
 } catch (error) {
   console.error('Browser errors:', errors);
+  console.error('Original smoke failure:', error);
+  await fs.writeFile(path.join(evidence, 'failure.json'), JSON.stringify({
+    name: error.name, message: error.message, stack: error.stack,
+  }, null, 2) + '\n');
   await fs.writeFile(path.join(evidence, 'errors.json'), JSON.stringify(errors, null, 2) + '\n');
   if (page && !page.isClosed()) {
-    await page.screenshot({ path: path.join(evidence, 'failed.png'), timeout: 10_000 });
-    const state = await page.evaluate(() => {
-      const canvas = document.querySelector('#progpu-canvas');
-      return {
-        userAgent: navigator.userAgent,
-        title: document.querySelector('#status-title')?.textContent,
-        detail: document.querySelector('#status-detail')?.textContent,
-        frames: document.querySelector('#counter-frames')?.textContent,
-        dispatches: document.querySelector('#counter-dispatches')?.textContent,
-        commandBytes: document.querySelector('#counter-bytes')?.textContent,
-        width: canvas?.width,
-        height: canvas?.height,
-        dpi: devicePixelRatio,
-        rootBackground: getComputedStyle(document.documentElement).backgroundColor,
-        canvasSnapshot: canvas?.toDataURL('image/png'),
-      };
-    });
-    const { canvasSnapshot, ...diagnostics } = state;
-    await fs.writeFile(path.join(evidence, 'state.json'), JSON.stringify(diagnostics, null, 2) + '\n');
-    if (canvasSnapshot?.startsWith('data:image/png;base64,'))
-      await fs.writeFile(path.join(evidence, 'failed-canvas.png'), Buffer.from(canvasSnapshot.split(',')[1], 'base64'));
+    // Diagnostic failures must not mask the assertion/startup error. Capture
+    // DOM state before attempting a potentially stalled browser screenshot.
+    let stateTimeout;
+    try {
+      const state = await Promise.race([page.evaluate(() => {
+        const canvas = document.querySelector('#progpu-canvas');
+        return {
+          userAgent: navigator.userAgent,
+          title: document.querySelector('#status-title')?.textContent,
+          detail: document.querySelector('#status-detail')?.textContent,
+          frames: document.querySelector('#counter-frames')?.textContent,
+          dispatches: document.querySelector('#counter-dispatches')?.textContent,
+          commandBytes: document.querySelector('#counter-bytes')?.textContent,
+          width: canvas?.width,
+          height: canvas?.height,
+          dpi: devicePixelRatio,
+          rootBackground: getComputedStyle(document.documentElement).backgroundColor,
+          canvasSnapshot: canvas?.toDataURL('image/png'),
+        };
+      }), new Promise((_, reject) => {
+        stateTimeout = setTimeout(() => reject(new Error('Failure-state capture timed out.')), 10_000);
+      })]);
+      const { canvasSnapshot, ...diagnostics } = state;
+      await fs.writeFile(path.join(evidence, 'state.json'), JSON.stringify(diagnostics, null, 2) + '\n');
+      if (canvasSnapshot?.startsWith('data:image/png;base64,'))
+        await fs.writeFile(path.join(evidence, 'failed-canvas.png'), Buffer.from(canvasSnapshot.split(',')[1], 'base64'));
+    } catch (diagnosticError) {
+      console.error('Failure-state capture:', diagnosticError.message);
+    } finally {
+      clearTimeout(stateTimeout);
+    }
+    try {
+      await page.screenshot({ path: path.join(evidence, 'failed.png'), timeout: 10_000 });
+    } catch (diagnosticError) {
+      console.error('Failure screenshot:', diagnosticError.message);
+    }
   }
   throw error;
 } finally {
