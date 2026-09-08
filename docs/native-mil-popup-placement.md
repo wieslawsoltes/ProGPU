@@ -84,15 +84,10 @@ copied. Each point conversion uses two intrinsic double lanes, O(1) time/storage
 no allocations, no native boundary and no GPU work. Both renderers use the same
 source/platform contract; no C++ renderer algorithm changes are applicable.
 
-**This prerequisite does not enable automatic host mapping or complete popup
-placement.** The stock host continues its existing desktop-scale policy. Its
-publication must be migrated together with popup child-interest points, size
-restrictions, relative offsets, owner-surface placement and input mapping; changing
-only the anchor would mix coordinate spaces. The source extent/limit connection
-below closes the named `Popup.GetChildInterestPoints` and `Popup.RestrictSize`
-consumer gap. Bridge popup-local offsets, input and host publication still assume
-the legacy transport scale and remain the next core dependency, not a deferred
-compatibility expansion. Keep Windows SDK admission closed.
+At this prerequisite checkpoint automatic host mapping was not enabled. The
+source extent/limit and host connections below supersede that implementation
+status; they do not establish complete popup parity. Keep Windows SDK admission
+closed pending the remaining independent native-surface ownership work.
 
 Authored fixtures compare intrinsic mapping against scalar forward/inverse
 oracles, retain negative/zero origins and unequal/fractional scales, reject
@@ -139,8 +134,8 @@ fixtures cover independent desktop/framebuffer scales, negative offsets,
 origin independence and size round trips. Existing source-contract fixtures
 require the actual child, nudge, offset and restriction consumers to use it.
 
-Host publication and bridge-local overlay/input coordinate conversion remain
-open; automatic mapping and Windows SDK admission are still unchanged. The
+At the extent/limit checkpoint, host publication and bridge-local overlay/input
+conversion remained open; the connection below implements them. The
 custom-placement callback path retains its existing contract. Full application
 placement, capture, mixed-monitor transitions and both renderer comparisons
 still require final qualification; these authored fixtures are not runtime proof.
@@ -148,6 +143,54 @@ Compile-only checkpoints: ProGPU.Tests 0 warnings/0 errors; source-built WPF
 application harness 4/0; PresentationCore.Tests 9/0 and PresentationFramework.Tests
 3/0 after normal dependency restore. Test-utility NU1701 warnings remain visible.
 No runtime fixtures, GPU/VM applications, source verifiers or CI qualification ran.
+
+## Host, overlay and pointer connection
+
+The acceptance action is opening, moving and clicking a menu/ComboBox in the
+existing MVP/Toolkit applications. Source inspection found that the popup bridge
+still treated legacy `(popupDevice - ownerDevice) / framebufferDpi` as owner DIPs,
+although it is a desktop vector. Native pointer normalization also used framebuffer
+geometry for native window coordinates. These are source-backed findings, not
+reproduced application failures.
+
+`PortableDesktopTransform.FromWindowCoordinates` now expresses the actual host
+client-size policy: scaled native client dimensions use content scale, otherwise
+desktop vectors use identity scale. Raw origins remain unchanged. The factory is
+allocation-free O(1) metadata selection; mappings use the existing intrinsic
+double-lane operations. Provenance is ProGPU's original transform and public GLFW
+window-coordinate contract linked above, not external implementation source.
+
+LibreWPF uses this shared policy for source geometry publication and native pointer
+normalization. The popup bridge preserves the public legacy device transport:
+decode framebuffer transport scale first, then use the owner's desktop inverse
+for local offsets. Overlay replay and input use those same local DIPs. Moving or
+rescaling an owner maps offsets forward before re-encoding the legacy transport.
+Publication remains parent before child, and combined desktop/framebuffer changes
+publish the new coordinate frame before moving native surfaces. Source capability
+failure releases the newly created source and propagates explicitly.
+
+Owner-surface popups inherit desktop scale. An independently surfaced popup keeps
+its own source desktop scale after initialization; native diagnostic point/bounds
+queries use that source transform rather than assuming owner scale. Native pointer
+events use client-local desktop vectors, with no desktop-origin subtraction and
+no framebuffer-ratio inference; existing Cocoa owner-relative input remains on its
+explicit path. Compatibility/diagnostic input keeps its separate legacy adapter.
+
+Both managed and C++ renderer modes share this host/source integration. No scene,
+shader, C wire layout or C++ renderer algorithm changes apply. Fixtures cover the
+explicit policy, negative origins, fractional/unequal desktop scales, framebuffer
+changes, popup movement and local pointer routing. They are authored, not executed.
+
+Remaining core dependency: independent native-popup framebuffer ownership and
+owner-DPI notification ordering across monitor transitions. The native adapter
+still propagates owner framebuffer DPI into the popup host/source before its own
+surface geometry is resolved. This must be closed before Windows SDK admission;
+these changes do not claim mixed-monitor runtime, graphics or input parity.
+
+Compile-only checkpoint: ProGPU.Tests Release 0 warnings/0 errors; LibreWPF bridge
+fixtures 21/0; source-built application harness 4/0. No tests, source verifiers,
+GPU/VM workloads, benchmarks or CI qualification executed. ProGPU's branch
+contains the latest fetched `origin/main` (zero upstream commits missing).
 
 ## Placement selection coverage
 

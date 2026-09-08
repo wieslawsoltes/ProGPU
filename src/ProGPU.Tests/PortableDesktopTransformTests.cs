@@ -6,6 +6,18 @@ namespace ProGPU.Tests;
 public class PortableDesktopTransformTests
 {
     [Theory]
+    [InlineData(false, 2, 2, 1, 1)]
+    [InlineData(true, 2, 2, 2, 2)]
+    [InlineData(true, 1.25, 1.75, 1.25, 1.75)]
+    public void WindowPolicyPreservesDesktopOrigin(bool scaled, double cx, double cy, double sx, double sy)
+    {
+        var geometry = PortableDesktopTransform.FromWindowCoordinates(-1920, 24, cx, cy, scaled);
+        Assert.Equal(new PortableDesktopTransform(-1920, 24, sx, sy), geometry);
+        Assert.Equal(new PortablePoint(-1920 + 20 * sx, 24 + 30 * sy),
+            geometry.ClientToDesktop(new PortablePoint(20, 30)));
+    }
+
+    [Theory]
     [InlineData(-1920, 24, 1, 1)]
     [InlineData(-1920, 24, 2, 2)]
     [InlineData(2560, -1440, 1.5, 2)]

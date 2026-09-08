@@ -220,6 +220,11 @@ limits, overlay placement and input consume the same coordinate frame.
 Popup offsets/extents use the transform's vector operations without origin
 translation. Inverse vector mapping divides by scale directly; do not introduce
 reciprocal overflow or route popup screen nudging through framebuffer DPI.
+`PortableDesktopTransform.FromWindowCoordinates` consumes the host's explicit
+client-size policy; never infer that choice from OS names or framebuffer ratios.
+Legacy popup device transport must be decoded to desktop units before applying
+the inverse owner-client mapping. Native input uses desktop vectors without
+subtracting monitor origins; native surfaces retain their independent client scale.
 Synchronous WPF geometry utilities must use ProGPU-owned actual topology, not
 bounding-box substitutes. `NativeGeometryUtilities` exposes the shared C++
 Direct2D boundary algorithm without a device or native COM activation; preserve

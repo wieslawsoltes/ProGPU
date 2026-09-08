@@ -28,6 +28,16 @@ public readonly record struct PortableDesktopTransform
 
     public static PortableDesktopTransform Identity { get; } = new(0, 0, 1, 1);
 
+    /// <summary>
+    /// Uses the host's actual client-size policy, not framebuffer size or OS identity.
+    /// Content scale affects desktop vectors only when native client dimensions are scaled.
+    /// </summary>
+    public static PortableDesktopTransform FromWindowCoordinates(
+        double originX, double originY, double contentScaleX, double contentScaleY,
+        bool windowSizeIsScaledByContentScale) => new(originX, originY,
+            windowSizeIsScaledByContentScale ? contentScaleX : 1,
+            windowSizeIsScaledByContentScale ? contentScaleY : 1);
+
     /// <summary>The zero-initialized value is deliberately invalid, not an inferred platform scale.</summary>
     public bool IsValid => double.IsFinite(OriginX) && double.IsFinite(OriginY) &&
         double.IsFinite(ScaleX) && ScaleX > 0 && double.IsFinite(ScaleY) && ScaleY > 0;
