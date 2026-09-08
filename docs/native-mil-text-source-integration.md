@@ -20,6 +20,61 @@ source-run styling and actual end-of-paragraph semantics.
 
 ## Styled source TextLine connection — current implementation
 
+### Document source positions and property scopes
+
+Core consumer: the existing native host now includes an actual source-built
+TextBlock with nested Run/Span content. Source `ComplexLine` represents its element
+edges as `TextHidden`; those positions must count in document navigation without
+becoming text, glyphs or width. `PortableTextSourceMap` provides a reusable neutral
+mapping between ordered visible source ranges and contiguous shaping text. It owns
+one immutable range snapshot, with an allocation-free identity query path. Hidden
+ranges map to a single text boundary; reverse mapping explicitly selects the source
+position before or after hidden content. Empty/hidden-only sources remain valid.
+
+WPF now consumes hidden runs and non-directional TextModifier/TextEndOfSegment
+scopes, reusing its existing source-owned `TextModifierScope.ModifyProperties`
+inside-out evaluation. No WPF implementation is imported into ProGPU. Original
+run spans, line lengths, glyph source indices, logical movement, hit affinity,
+selection ranges and dependent/trailing lengths use the source map. Hidden-only
+selection has no ink extent, and no synthetic whitespace, control or missing-glyph
+box is inserted. Wrapped lines share the immutable map/paragraph; open property
+scopes survive explicit line breaks and clone/disposal through source TextLineBreak.
+EndOfParagraph clears the scope. Malformed scope ends and excessive nesting fail.
+
+This closes ordinary hidden inline edges and property-only scope transport, not
+the whole document editor. Directional modifiers still need an explicit native
+embedding contract; decorations, embedded objects, display-mode hinting and the
+previously listed language/trimming/continuation-width gaps remain explicit.
+Do not enable Windows SDK admission or report RichTextBox parity from this change.
+
+Construction is O(R) time/storage for R visible source ranges; each boundary query
+is O(log R), O(1) workspace, and allocation-free. Ordered partition validation and
+binary-search branches depend on prior bounds; they are source topology work, not
+independent arithmetic lanes or a rejected GPU kernel. Existing intrinsic UTF
+decoding/metric scaling and native shaping, layout, bidi and interaction algorithms
+are unchanged. The source adapter is shared regardless of managed/native glyph
+renderer selection when the typed provider is registered; no backend-specific
+raster/scene/ABI change is applicable. No performance improvement is claimed.
+
+The primary-engine references in the research record below were refreshed for this
+batch. Adopt Skia/HarfBuzz's distinction between source clusters and shaped glyphs,
+DirectWrite/Win2D's range-based interaction, Parley's reusable layout and Vello/
+WebRender's separate rendering/cache ownership. This source map adds no cache key,
+atlas reset, worker/GPU submission, hinting or device-loss behavior. Reject treating
+document edges as drawable placeholders; real embedded objects need their own
+metrics. Existing source TextHidden/TextModifier contracts are the WPF authority.
+
+Authored regressions cover mapping affinities, snapshot ownership, hidden-only and
+identity inputs, invalid/overflow partitions, nested property order, source spans,
+wrapped continuations and explicit-break scope cloning. The existing native host
+requires positive inline document width and native font bindings in its scene.
+Fixture/application execution and cross-platform/Windows evidence remain deferred.
+Compile-only checkpoint: ProGPU fixtures finish with zero warnings/errors, source
+PresentationCore fixtures with eight warnings/zero errors, and the native host
+harness with one warning/zero errors. No tests, verifiers, applications, VM/GPU
+workloads, benchmarks or CI checks were executed. Native C++/C ABI files were not
+changed by this source-metadata connection. Latest fetched ProGPU main is included.
+
 ### Incremental tab connection
 
 Core action: editing tab-separated text in the existing MVP/source-host path.
@@ -76,7 +131,7 @@ with zero warnings/errors. These are compilation results, not passing tests or
 renderer qualification. No fixtures, verifiers, apps, VM/GPU workloads, benchmarks
 or CI checks were executed for this batch.
 
-The next source-backed editor blocker is concrete: source `ComplexLine` emits
+Historical next blocker at the tab checkpoint: source `ComplexLine` emits
 `TextHidden` for document element edges and `TextSpanModifier` for inline state,
 while `PortableTextLine.Create` rejects both. Normal document-backed text must
 preserve these source positions and scopes before its application path is closed.

@@ -272,6 +272,12 @@ Keep mapped font scale in the actual em size, not just the paint or family label
 Do not import the WPF family-linking implementation into ProGPU or reconstruct it
 through reflection. Null-shape, device-font and synthetic-style cases are not
 qualified by resolving an ordinary physical face.
+Source document positions must use `PortableTextSourceMap` to distinguish hidden
+edges from contiguous shaping text. Preserve both boundary affinities and immutable
+range ownership; never insert fake glyphs or spaces for hidden source positions.
+The map is source topology metadata shared by renderer consumers, not a replacement
+composer. WPF owns its property-modifier evaluation and scope lifetime; directional
+embedding, decorations and embedded-object metrics remain explicit until connected.
 Source custom chrome must recognize ProGPU window ownership before HWND access,
 including registered/pre-source activation. A host HWND is not a WPF HwndSource;
 portable border updates and restoration stay on typed source/host contracts.
