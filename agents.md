@@ -197,6 +197,13 @@ adapter.
 
 ### A0. Reflection-Free WPF Port Support
 Source-built WPF media transport selection belongs in `PortableWpfRuntime`,
+and native host/SDK startup must install lazy source text/geometry defaults before
+application constructors can measure content. `PortableDefaultServiceSlot<T>` keeps
+the process default separate from explicit overrides; disposing an override must
+not erase the default or resurrect an older override. Registration owns no service
+resources and must not initialize a GPU device or native font context. See
+`docs/native-mil-startup-services.md`; readiness is not Windows SDK admission.
+Media transport must be selected
 before media objects or composition locks are acquired. Keep first-use selection
 immutable, reject late backend switches, and share the interop assembly between
 host and source-built WPF. Device recovery must not reset that choice. Host

@@ -66,34 +66,17 @@ public interface IPortableGeometryOperations
 
 public static partial class PortableWpfServiceRegistry
 {
-    private sealed class GeometryRegistration(IPortableGeometryOperations service) : IDisposable
-    {
-        internal IPortableGeometryOperations Service { get; } = service;
-        public void Dispose() => Interlocked.CompareExchange(ref s_geometryOperations, null, this);
-    }
-
-    private static GeometryRegistration? s_geometryOperations;
+    private static readonly PortableDefaultServiceSlot<IPortableGeometryOperations> s_geometryOperations = new();
 
     public static bool TryGetGeometryOperations(out IPortableGeometryOperations service)
     {
-        service = Volatile.Read(ref s_geometryOperations)?.Service!;
+        service = s_geometryOperations.Current!;
         return service != null;
     }
 
-    /// <summary>Replaces the process geometry provider; disposal clears only this registration.</summary>
-    public static IDisposable RegisterGeometryOperations(IPortableGeometryOperations service)
-    {
-        ArgumentNullException.ThrowIfNull(service);
-        var registration = new GeometryRegistration(service);
-        Interlocked.Exchange(ref s_geometryOperations, registration);
-        return registration;
-    }
+    /// <summary>Replaces the explicit override; disposal reveals the installed default, if any.</summary>
+    public static IDisposable RegisterGeometryOperations(IPortableGeometryOperations service) => s_geometryOperations.Register(service);
 
     /// <summary>Installs a default without overriding an explicit provider; performs no native work.</summary>
-    public static void EnsureGeometryOperations(IPortableGeometryOperations service)
-    {
-        ArgumentNullException.ThrowIfNull(service);
-        if (Volatile.Read(ref s_geometryOperations) == null)
-            Interlocked.CompareExchange(ref s_geometryOperations, new GeometryRegistration(service), null);
-    }
+    public static void EnsureGeometryOperations(IPortableGeometryOperations service) => s_geometryOperations.EnsureDefault(service);
 }

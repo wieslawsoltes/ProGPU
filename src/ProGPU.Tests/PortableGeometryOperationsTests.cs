@@ -26,7 +26,8 @@ public class PortableGeometryOperationsTests
         Assert.True(PortableWpfServiceRegistry.TryGetGeometryOperations(out var current));
         Assert.Same(second, current);
         b.Dispose();
-        Assert.False(PortableWpfServiceRegistry.TryGetGeometryOperations(out _));
+        Assert.True(PortableWpfServiceRegistry.TryGetGeometryOperations(out current));
+        Assert.Same(first, current);
     }
 
     private sealed class Service : IPortableGeometryOperations

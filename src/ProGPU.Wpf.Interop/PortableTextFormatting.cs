@@ -54,31 +54,17 @@ public interface IPortableTextFormatting
 
 public static partial class PortableWpfServiceRegistry
 {
-    private sealed class TextFormattingRegistration(IPortableTextFormatting service) : IDisposable
-    {
-        internal IPortableTextFormatting Service { get; } = service;
-        public void Dispose() => Interlocked.CompareExchange(ref s_textFormatting, null, this);
-    }
-    private static TextFormattingRegistration? s_textFormatting;
+    private static readonly PortableDefaultServiceSlot<IPortableTextFormatting> s_textFormatting = new();
 
     public static bool TryGetTextFormatting(out IPortableTextFormatting service)
     {
-        service = Volatile.Read(ref s_textFormatting)?.Service!;
+        service = s_textFormatting.Current!;
         return service != null;
     }
 
-    public static IDisposable RegisterTextFormatting(IPortableTextFormatting service)
-    {
-        ArgumentNullException.ThrowIfNull(service);
-        var registration = new TextFormattingRegistration(service);
-        Interlocked.Exchange(ref s_textFormatting, registration);
-        return registration;
-    }
+    /// <summary>Replaces the explicit override; disposal reveals the installed default, if any.</summary>
+    public static IDisposable RegisterTextFormatting(IPortableTextFormatting service) => s_textFormatting.Register(service);
 
-    public static void EnsureTextFormatting(IPortableTextFormatting service)
-    {
-        ArgumentNullException.ThrowIfNull(service);
-        if (Volatile.Read(ref s_textFormatting) == null)
-            Interlocked.CompareExchange(ref s_textFormatting, new TextFormattingRegistration(service), null);
-    }
+    /// <summary>Installs the first process default without replacing an explicit provider or doing native work.</summary>
+    public static void EnsureTextFormatting(IPortableTextFormatting service) => s_textFormatting.EnsureDefault(service);
 }
