@@ -50,6 +50,10 @@ configuration establishes exact font fidelity: substitutions remain reported.
 
 ## Zoomed text finding
 
+Follow-up: the [late-camera coverage regression and correction](PROGPU_CAD_CAMERA_COVERAGE.md)
+now confirms the defect in the managed GPU-camera path. The initial investigation
+below examined the ordinary retained-transform route, which was not the cause.
+
 The browser screenshot raised a possible softness issue but does not by itself
 prove a rasterization defect. The source audit found:
 

@@ -7552,7 +7552,7 @@ SceneStateUploadComplete:
                 : 0f;
             pathCoverageGamma = MathF.Abs(fontSkewX) > 0.0001f || fontScaleX < 0f
                 ? TransformedTextPathCoverageGamma
-                : GetTextPathCoverageGamma(
+                : GetActiveTextPathCoverageGamma(
                     cmd.FontSize,
                     transform,
                     TransformMetrics.GetStrokeScale(transform),
@@ -7571,12 +7571,16 @@ SceneStateUploadComplete:
             var brush = cmd.Brush as SolidColorBrush;
             var color = brush?.Color ?? new Vector4(1f, 1f, 1f, 1f);
 
-            // Extract scale factor from transform
-            var scaleX = new Vector2(transform.M11, transform.M12).Length();
-            var scaleY = new Vector2(transform.M21, transform.M22).Length();
+            // Coverage is rasterized at the final camera scale while the quad
+            // remains in local coordinates for late GPU placement.
+            var coverageTransform = _useGpuTransformsActive
+                ? transform * _cameraViewMatrix
+                : transform;
+            var scaleX = new Vector2(coverageTransform.M11, coverageTransform.M12).Length();
+            var scaleY = new Vector2(coverageTransform.M21, coverageTransform.M22).Length();
             if (scaleX < 0.0001f) scaleX = 1f;
             if (scaleY < 0.0001f) scaleY = 1f;
-            if (!IsAxisAlignedClipTransform(transform))
+            if (!IsAxisAlignedClipTransform(coverageTransform))
             {
                 scaleX = scaleY = Math.Max(scaleX, scaleY);
             }
@@ -7591,8 +7595,8 @@ SceneStateUploadComplete:
                 cmd.Path,
                 scaleX,
                 scaleY,
-                GetSubpixelPhase(transform.M41 * rasterScale),
-                GetSubpixelPhase(transform.M42 * rasterScale),
+                GetSubpixelPhase(coverageTransform.M41 * rasterScale),
+                GetSubpixelPhase(coverageTransform.M42 * rasterScale),
                 cmd.PathSampleGrid,
                 subpixelPhaseGrid,
                 quantizeScale);
@@ -12964,7 +12968,7 @@ SceneStateUploadComplete:
             * MathF.Max(1f, MathF.Abs(fontScaleX));
         var textPathCoverageGamma = MathF.Abs(fontSkewX) > 0.0001f || fontScaleX < 0f
             ? TransformedTextPathCoverageGamma
-            : GetTextPathCoverageGamma(
+            : GetActiveTextPathCoverageGamma(
                 cmd.FontSize,
                 activeTransform,
                 transformScale,
@@ -13229,7 +13233,7 @@ SceneStateUploadComplete:
             * MathF.Max(1f, MathF.Abs(fontScaleX));
         var textPathCoverageGamma = MathF.Abs(fontSkewX) > 0.0001f || fontScaleX < 0f
             ? TransformedTextPathCoverageGamma
-            : GetTextPathCoverageGamma(
+            : GetActiveTextPathCoverageGamma(
                 cmd.FontSize,
                 activeTransform,
                 transformScale,
@@ -13701,6 +13705,20 @@ SceneStateUploadComplete:
             subpixelPhaseGrid: VectorGlyphDeviceSubpixelPhaseGrid,
             quantizeScale: true,
             rasterScale: rasterScale);
+    }
+
+    private float GetActiveTextPathCoverageGamma(
+        float fontSize,
+        Matrix4x4 transform,
+        float transformScale,
+        float effectiveDpiScale)
+    {
+        if (_useGpuTransformsActive)
+        {
+            transform *= _cameraViewMatrix;
+            transformScale = TransformMetrics.GetStrokeScale(transform);
+        }
+        return GetTextPathCoverageGamma(fontSize, transform, transformScale, effectiveDpiScale);
     }
 
     private static float GetTextPathCoverageGamma(
