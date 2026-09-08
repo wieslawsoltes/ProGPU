@@ -37,6 +37,34 @@ Direct2D ABI or expose application-facing pointers/reflection.
 
 ## Remaining execution work, in dependency order
 
+State/domain checkpoint: native state cursors now accept independent scales for
+uniform guideline translation, explicit physical offsets, nearest-guideline
+per-point deformation and composite snapping. Output stays logical; integer
+viewport placement contributes no fractional snapping phase. Source inspection
+while authoring mixed-axis coverage identified incorrect first-Y indexing after
+multiple X coordinates; that indexing is corrected with an authored regression.
+
+Native rectangle/layer scissor helpers now project four edges with independent
+scales and viewport origin, then intersect the physical viewport. Projection uses
+SSE2, NEON or Wasm SIMD128 lanes where available, with the fixed four-value scalar
+path only on targets without those intrinsics. It preserves separate multiply/add
+operations, existing near-integer tolerance and outward integer clipping. A scalar
+binary-fraction corpus is authored as the output oracle; no speed claim is made.
+
+Layer target cursors retain the presentation domain alongside each materialized
+extent. A local bitmap-cache page resets its origin to zero, sizes each dimension
+with its own scale, and may exceed the root window; nested isolation clips to that
+page, not the root viewport. Popping the scope restores the previous mapping in
+O(1). Storage is fixed O(maximum materialized depth); there is no per-layer heap
+allocation or backwards scan. All seven render/preflight/budget layer cursors and
+six state cursors consume the normalized frame presentation record.
+
+This still does **not** enable advanced frame rendering. Geometry projection,
+target localization, masks/effects, raster scale/phase and cache keys must be
+completed together before the existing unsupported guard is removed. In
+particular, callers of target-local scissor/state helpers still use the legacy
+uniform paths and need the current layer domain during the next integration step.
+
 | Consumer | Required implementation before enabling host support |
 | --- | --- |
 | Semantic state and guidelines | Apply physical mapping at the device boundary, keep per-axis pixel snapping and explicit physical guideline offsets correct, and avoid double application in nested scopes. |
@@ -62,6 +90,17 @@ proof that every independent-axis case is qualified. Both implementations requir
 matched output/cache/damage/text tests at final qualification. This checkpoint
 changes native submission metadata and validation, not either renderer's mapping
 algorithm; no managed raster algorithm is replaced.
+
+The subsequent native state/domain implementation ports the original ProGPU
+algorithms at `99772128`: semantic_state_cursor guideline resolution,
+resolve_semantic_scissor and semantic_layer_target_cursor. Uniform entry points
+delegate to equal-axis mappings. These native helpers interpret compiled semantic
+resources; managed WPF adapts typed source guideline data in
+ProGpuCompositionCommandSink.TrySnapGuidelineX/Y and already keeps the axes
+separate. Managed Compositor also retains explicit viewport metadata. Neither
+managed algorithm is replaced by this native decoding fix. Source representations
+and rounding paths are not identical, so this applicability finding does not
+claim managed/native output parity; common-scene differentials remain mandatory.
 
 ## Primary research and design decisions
 
@@ -96,6 +135,13 @@ Provider fixtures cover explicit legacy-equivalent retained replay, unsupported
 axis mappings without submission, truncated suffix rejection and old damage flags.
 Fixtures are authored, not executed. The generated managed contract is produced
 by the repository generator, not handwritten.
+
+Native internal fixtures additionally cover per-axis static/explicit/per-point
+snapping, multiple X/Y guideline indexing, SIMD edge projection versus a scalar
+oracle, viewport clipping, independent cache dimensions, nested local-page
+isolation beyond root dimensions and mapping restoration. Both the production
+semantic-state translation unit and the internal fixture translation unit compile
+with Apple Clang C++20 and warnings-as-errors. This is compilation, not execution.
 
 Compilation checkpoints are recorded in the PR. Full renderer/provider builds,
 all tests/verifiers, macOS/Linux and Windows Parallels runs, text/clip/image

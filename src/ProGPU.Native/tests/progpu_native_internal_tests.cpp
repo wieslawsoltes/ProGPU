@@ -1207,6 +1207,67 @@ void semantic_state_and_layer_cursors_restore_scopes() {
         progpu::native::semantic::scissor{0U, 0U, 64U, 48U, true});
 }
 
+void semantic_presentation_layers_keep_independent_device_domains() {
+    using namespace progpu::native::semantic;
+    const progpu_native_scene_presentation presentation{
+        sizeof(presentation), 13U, 17U, 100U, 80U, 2.0F, 3.0F, 0U};
+    auto state = semantic_identity_state();
+    require(resolve_semantic_scissor(state, 200U, 160U, presentation) ==
+        scissor{13U, 17U, 100U, 80U, true});
+    state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+    state.clip_rect = {4.0F, 5.0F, 20.0F, 10.0F};
+    require(resolve_semantic_scissor(state, 200U, 160U, presentation) ==
+        scissor{21U, 32U, 40U, 30U, true});
+    state.clip_rect = {-10.0F, -10.0F, 20.0F, 20.0F};
+    require(resolve_semantic_scissor(state, 200U, 160U, presentation) ==
+        scissor{13U, 17U, 20U, 30U, true});
+    state.clip_rect = {60.0F, 0.0F, 10.0F, 10.0F};
+    require(!resolve_semantic_scissor(state, 200U, 160U, presentation).drawable);
+    // Scalar oracle for the intrinsic four-edge mapper. Binary-fraction inputs
+    // avoid the separate near-integer scissor-tolerance policy in this fixture.
+    for (const float x : {-8.125F, 0.25F, 4.5F, 40.75F}) {
+        for (const float y : {-4.25F, 0.125F, 7.5F, 20.25F}) {
+            state.clip_rect = {x, y, 20.5F, 12.25F};
+            const auto left = static_cast<std::uint32_t>(std::floor(std::clamp(x * 2.0F + 13.0F, 13.0F, 113.0F)));
+            const auto top = static_cast<std::uint32_t>(std::floor(std::clamp(y * 3.0F + 17.0F, 17.0F, 97.0F)));
+            const auto right = static_cast<std::uint32_t>(std::ceil(std::clamp((x + 20.5F) * 2.0F + 13.0F, 13.0F, 113.0F)));
+            const auto bottom = static_cast<std::uint32_t>(std::ceil(std::clamp((y + 12.25F) * 3.0F + 17.0F, 17.0F, 97.0F)));
+            require(resolve_semantic_scissor(state, 200U, 160U, presentation) ==
+                scissor{left, top, right - left, bottom - top, true});
+        }
+    }
+
+    std::array<std::byte, sizeof(progpu_native_scene_layer)> storage{};
+    auto layer = semantic_default_layer();
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    layer.bounds = {4.0F, 5.0F, 20.0F, 10.0F};
+    std::memcpy(storage.data(), &layer, sizeof(layer));
+    semantic_layer_target_cursor cursor(storage.data(), 200U, 160U, presentation);
+    progpu_native_scene_command push{};
+    push.kind = PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER;
+    push.payload_size = sizeof(layer);
+    progpu_native_scene_command pop{};
+    pop.kind = PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
+    require(cursor.advance(push) == scissor{21U, 32U, 40U, 30U, true});
+    require(cursor.advance(pop) == scissor{13U, 17U, 100U, 80U, true});
+
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
+    layer.bounds = {0.0F, 0.0F, 128.0F, 128.0F};
+    std::memcpy(storage.data(), &layer, sizeof(layer));
+    require(cursor.advance(push) == scissor{0U, 0U, 256U, 384U, true});
+    const auto local = cursor.current_presentation();
+    require(local.viewport_x == 0U && local.viewport_y == 0U);
+    require(local.dpi_scale_x == 2.0F && local.dpi_scale_y == 3.0F);
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    layer.bounds = {72.0F, 80.0F, 80.0F, 64.0F};
+    std::memcpy(storage.data(), &layer, sizeof(layer));
+    require(cursor.advance(push) == scissor{144U, 240U, 112U, 144U, true});
+    require(cursor.advance(pop) == scissor{0U, 0U, 256U, 384U, true});
+    require(cursor.advance(pop) == scissor{13U, 17U, 100U, 80U, true});
+    require(cursor.current_presentation().viewport_x == 13U);
+}
+
 void semantic_static_guidelines_adjust_state_at_target_dpi() {
     std::array<std::byte, 512U> storage{};
     progpu_native_scene_header header{};
@@ -1264,6 +1325,11 @@ void semantic_static_guidelines_adjust_state_at_target_dpi() {
     const auto snapped = cursor.advance(save);
     require(snapped.transform.m31 == 9.75F);
     require(snapped.transform.m32 == 20.5F);
+    progpu::native::semantic::semantic_state_cursor independent_cursor(
+        storage.data(), header, 2.0F, 1.0F);
+    const auto independently_snapped = independent_cursor.advance(save);
+    require(independently_snapped.transform.m31 == 10.25F);
+    require(independently_snapped.transform.m32 == 20.5F);
 
     guidelines.flags = PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS;
     guideline_resource.payload_size =
@@ -1283,6 +1349,11 @@ void semantic_static_guidelines_adjust_state_at_target_dpi() {
     const auto explicitly_snapped = explicit_cursor.advance(save);
     require(explicitly_snapped.transform.m31 == 10.0625F);
     require(explicitly_snapped.transform.m32 == 19.875F);
+    progpu::native::semantic::semantic_state_cursor independent_explicit_cursor(
+        storage.data(), header, 2.0F, 1.0F);
+    const auto independent_explicit = independent_explicit_cursor.advance(save);
+    require(independent_explicit.transform.m31 == 10.0625F);
+    require(independent_explicit.transform.m32 == 19.75F);
 
     guidelines.flags = PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY;
     guidelines.guideline_x_count = 2U;
@@ -1336,6 +1407,25 @@ void semantic_static_guidelines_adjust_state_at_target_dpi() {
     per_point_cursor.snap_draw_point(
         per_point_state, upper_nearest_x, per_point_y);
     require(std::abs(upper_nearest_x - 11.76F) < 0.0001F);
+    progpu::native::semantic::semantic_state_cursor independent_point_cursor(
+        storage.data(), header, 2.0F, 1.0F);
+    float independent_point_x = 11.5F;
+    independent_point_cursor.snap_draw_point(per_point_state, independent_point_x, per_point_y);
+    require(independent_point_x == 11.75F);
+    require(per_point_y == 4.0F);
+    guidelines.flags = 0U;
+    guidelines.guideline_x_count = 2U;
+    guidelines.guideline_y_count = 2U;
+    guideline_resource.payload_size = sizeof(guidelines) + 4U * sizeof(double);
+    const std::array<double, 4U> both_axes{10.25, 12.75, 20.5, 23.5};
+    std::memcpy(storage.data() + header.resource_offset, &guideline_resource, sizeof(guideline_resource));
+    std::memcpy(storage.data() + guideline_resource.payload_offset, &guidelines, sizeof(guidelines));
+    std::memcpy(storage.data() + guideline_resource.payload_offset + sizeof(guidelines),
+        both_axes.data(), sizeof(both_axes));
+    progpu::native::semantic::semantic_state_cursor multiple_cursor(storage.data(), header, 2.0F, 1.0F);
+    const auto multiple_state = multiple_cursor.resolve_state(1U);
+    require(multiple_state.transform.m31 == 10.25F);
+    require(multiple_state.transform.m32 == 20.5F);
 }
 
 void semantic_payload_validation_is_bounded_and_cpu_only() {
@@ -1555,6 +1645,7 @@ int main() {
     semantic_state_is_cpu_only_and_target_relative();
     semantic_state_and_layer_cursors_restore_scopes();
     semantic_static_guidelines_adjust_state_at_target_dpi();
+    semantic_presentation_layers_keep_independent_device_domains();
     semantic_payload_validation_is_bounded_and_cpu_only();
     draw_state_resolution_is_cpu_only_and_bounded();
     return 0;

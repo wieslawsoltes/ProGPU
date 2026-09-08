@@ -56,9 +56,10 @@ inline float wpf_guideline_offset(float value) noexcept {
 // dynamic physical offsets. Time/space: O(1), alignment-safe fixed-size reads.
 // Multi-coordinate deformation is deliberately not a uniform translation.
 inline bool try_uniform_guideline_translation(std::span<const std::byte> payload,
-    float dpi, progpu_native_point& translation) noexcept {
+    float dpi_x, float dpi_y, progpu_native_point& translation) noexcept {
     if (payload.size() < sizeof(progpu_native_scene_guideline_set) ||
-        !std::isfinite(dpi) || dpi <= 0.0F) return false;
+        !std::isfinite(dpi_x) || dpi_x <= 0.0F ||
+        !std::isfinite(dpi_y) || dpi_y <= 0.0F) return false;
     progpu_native_scene_guideline_set header{};
     std::memcpy(&header, payload.data(), sizeof(header));
     if (header.struct_size != sizeof(header) || header.guideline_x_count > 1U || header.guideline_y_count > 1U ||
@@ -66,17 +67,22 @@ inline bool try_uniform_guideline_translation(std::span<const std::byte> payload
     const bool explicit_offsets = (header.flags & PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) != 0U;
     const auto count = header.guideline_x_count + header.guideline_y_count;
     if (payload.size() != sizeof(header) + count * sizeof(double) * (explicit_offsets ? 2U : 1U)) return false;
-    const auto axis = [&](std::uint32_t index) {
+    const auto axis = [&](std::uint32_t index, float dpi) {
         double value = 0.0;
         std::memcpy(&value, payload.data() + sizeof(header) +
             (index + (explicit_offsets ? count : 0U)) * sizeof(double), sizeof(value));
         return (explicit_offsets ? static_cast<float>(value) : wpf_guideline_offset(static_cast<float>(value) * dpi)) / dpi;
     };
-    const progpu_native_point result{header.guideline_x_count == 0U ? 0.0F : axis(0U),
-        header.guideline_y_count == 0U ? 0.0F : axis(header.guideline_x_count)};
+    const progpu_native_point result{header.guideline_x_count == 0U ? 0.0F : axis(0U, dpi_x),
+        header.guideline_y_count == 0U ? 0.0F : axis(header.guideline_x_count, dpi_y)};
     if (!std::isfinite(result.x) || !std::isfinite(result.y)) return false;
     translation = result;
     return true;
+}
+
+inline bool try_uniform_guideline_translation(std::span<const std::byte> payload,
+    float dpi, progpu_native_point& translation) noexcept {
+    return try_uniform_guideline_translation(payload, dpi, dpi, translation);
 }
 
 progpu_native_scene_state semantic_identity_state() noexcept;
@@ -87,6 +93,12 @@ public:
         const std::byte* bytes,
         const progpu_native_scene_header& header,
         float dpi_scale = 0.0F) noexcept;
+
+    // Scene state and results stay logical. Integer viewport placement adds no
+    // snapping phase; explicit guideline offsets are already physical per-axis.
+    semantic_state_cursor(const std::byte* bytes,
+        const progpu_native_scene_header& header,
+        float dpi_scale_x, float dpi_scale_y) noexcept;
 
     progpu_native_scene_state advance(
         const progpu_native_scene_command& command) noexcept;
@@ -129,7 +141,8 @@ private:
 
     const std::byte* bytes_;
     const progpu_native_scene_header& header_;
-    float dpi_scale_ = 0.0F;
+    float dpi_scale_x_ = 0.0F;
+    float dpi_scale_y_ = 0.0F;
     std::array<progpu_native_scene_state,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> stack_{};
     std::uint32_t depth_ = 0U;
@@ -215,6 +228,14 @@ scissor resolve_semantic_layer_scissor(
     std::uint32_t target_height,
     float dpi_scale) noexcept;
 
+scissor resolve_semantic_scissor(const progpu_native_scene_state& state,
+    std::uint32_t target_width, std::uint32_t target_height,
+    const progpu_native_scene_presentation& presentation) noexcept;
+
+scissor resolve_semantic_layer_scissor(const progpu_native_scene_layer& layer,
+    std::uint32_t target_width, std::uint32_t target_height,
+    const progpu_native_scene_presentation& presentation) noexcept;
+
 scissor intersect_semantic_scissors(
     const scissor& first,
     const scissor& second) noexcept;
@@ -239,21 +260,29 @@ public:
         std::uint32_t frame_height,
         float dpi_scale) noexcept;
 
+    semantic_layer_target_cursor(const std::byte* bytes,
+        std::uint32_t frame_width, std::uint32_t frame_height,
+        const progpu_native_scene_presentation& presentation) noexcept;
+
     scissor advance(
         const progpu_native_scene_command& command) noexcept;
 
     scissor current() const noexcept;
+
+    progpu_native_scene_presentation current_presentation() const noexcept;
 
 private:
     const std::byte* bytes_;
     scissor frame_extent_{};
     std::uint32_t frame_width_ = 0U;
     std::uint32_t frame_height_ = 0U;
-    float dpi_scale_ = 1.0F;
+    progpu_native_scene_presentation frame_presentation_{};
     std::array<bool,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> scope_materialized_{};
     std::array<scissor,
         PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> extents_{};
+    std::array<progpu_native_scene_presentation,
+        PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> presentations_{};
     std::uint32_t scope_depth_ = 0U;
     std::uint32_t materialized_depth_ = 0U;
 };

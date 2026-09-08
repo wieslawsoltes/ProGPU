@@ -270,7 +270,7 @@ progpu_native_status render_scene(
         bytes,
         frame->width,
         frame->height,
-        frame->dpi_scale);
+        presentation);
     bool semantic_has_materialized_layers = false;
     bool semantic_has_layer_masks = false;
     std::uint32_t semantic_layer_mask_kind =
@@ -581,12 +581,12 @@ progpu_native_status render_scene(
     bool semantic_has_masked_images = false;
     semantic_compilation_budget compilation_budget{};
     semantic_state_cursor preflight_state_cursor(
-        bytes, header, frame->dpi_scale);
+        bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
     semantic_layer_target_cursor preflight_target_cursor(
         bytes,
         frame->width,
         frame->height,
-        frame->dpi_scale);
+        presentation);
     std::vector<std::uint8_t> semantic_generated_masks_budgeted;
     std::vector<std::uint8_t> semantic_glyph_resources_budgeted;
     try {
@@ -1810,12 +1810,12 @@ progpu_native_status render_scene(
             engine->geometry_gpu_cache_valid = false;
 
             semantic_state_cursor state_cursor(
-                bytes, header, frame->dpi_scale);
+                bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
                 frame->height,
-                frame->dpi_scale);
+                presentation);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
@@ -2202,12 +2202,12 @@ progpu_native_status render_scene(
                 static_cast<std::size_t>(semantic_path_count));
             compiled_draws.reserve(semantic_path_draw_count);
             semantic_state_cursor state_cursor(
-                bytes, header, frame->dpi_scale);
+                bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
                 frame->height,
-                frame->dpi_scale);
+                presentation);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
@@ -2464,12 +2464,12 @@ progpu_native_status render_scene(
             compiled_draws.reserve(semantic_glyph_draw_count);
             compiled_resources.resize(header.resource_count);
             semantic_state_cursor state_cursor(
-                bytes, header, frame->dpi_scale);
+                bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
                 frame->height,
-                frame->dpi_scale);
+                presentation);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
@@ -2764,12 +2764,12 @@ progpu_native_status render_scene(
                 semantic_image_vertex_count));
             compiled_draws.reserve(semantic_image_draw_count);
             semantic_state_cursor state_cursor(
-                bytes, header, frame->dpi_scale);
+                bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
                 frame->height,
-                frame->dpi_scale);
+                presentation);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
@@ -4087,12 +4087,12 @@ progpu_native_status render_scene(
         };
 
         semantic_state_cursor state_cursor(
-            bytes, header, frame->dpi_scale);
+            bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
         semantic_layer_target_cursor target_cursor(
             bytes,
             frame->width,
             frame->height,
-            frame->dpi_scale);
+            presentation);
         std::array<bool,
             PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH>
             layer_scope_materialized{};
