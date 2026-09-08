@@ -297,3 +297,22 @@ through save/reopen/resave, and finish at a 2880x1800 physical framebuffer. Fram
 counts and capture times are diagnostic observations, not comparable throughput
 measurements. No VM configuration was changed; the Parallels guest-execution
 workflow reuses the existing shared validation stage.
+
+### New-head CI remains unreliable (2026-09-08)
+
+CAD run [34205114167](https://github.com/wieslawsoltes/ProGPU/actions/runs/34205114167)
+passed on `bd442c45`, but the next run
+[34207854625](https://github.com/wieslawsoltes/ProGPU/actions/runs/34207854625)
+failed on the fit-export commit `1723c256`. Tests and AOT publish passed. The
+first drawing capture completed in 100,018 ms with 27,669 visible pixels and
+1,286,337 background pixels; the immediately following full-page initial
+screenshot then exceeded 120 seconds. Failure-time canvas readback also timed
+out. DOM state remained readable at 18 frames / 29 dispatches, 627,184 command
+bytes, and a 2560x1600 framebuffer.
+
+This contradicts treating the prior successful run as reliable Linux CI
+qualification. The artifacts are retained locally under
+`artifacts/progpu-cad/ci-1723-browser/` and in the workflow upload. No further
+deadline increase, pixel-threshold reduction, or skipped screenshot has been
+introduced. The software presentation/performance blocker remains open and
+must be investigated independently of the file-serialization corrections.
