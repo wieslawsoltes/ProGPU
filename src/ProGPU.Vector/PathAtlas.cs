@@ -828,13 +828,40 @@ public unsafe class PathAtlas : IDisposable
             out localMaxY);
     }
 
+    /// <summary>
+    /// CPU-only complete-figure query encoding. Rejects deferred boolean paths;
+    /// preserves gaps and incoming joins, including degenerate source segments.
+    /// Segment flags are bit 0 stroked, bit 1 incoming forced-round join.
+    /// </summary>
+    public static (PathQueryFigure[] Figures, GpuPathSegment[] Segments, byte[] SegmentFlags) CompileStrokeQuery(PathGeometry path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        if (path.IsCombined) throw new ArgumentException("Materialize boolean geometry before querying strokes.", nameof(path));
+        long budget = 1 << 20;
+        budget -= path.Figures.Count;
+        for (int i = 0; i < path.Figures.Count; i++)
+        {
+            var figure = path.Figures[i];
+            budget -= (long)figure.Segments.Count + 1;
+            if (budget < 0) throw new ArgumentException("Stroke query segment budget exceeded.", nameof(path));
+            if (figure.StrokeStartLineCap.HasValue || figure.StrokeEndLineCap.HasValue)
+                throw new NotSupportedException("Per-figure cap overrides must be supplied as separate query pens.");
+        }
+        var figures = new List<PathQueryFigure>(path.Figures.Count);
+        var flags = new List<byte>();
+        var (_, segments) = CompilePathCore(path, false, out _, out _, out _, out _, figures, flags);
+        return (figures.ToArray(), segments, flags.ToArray());
+    }
+
     private static (GpuPathRecord[] Records, GpuPathSegment[] Segments) CompilePathCore(
         PathGeometry path,
         bool fillOnly,
         out float localMinX,
         out float localMinY,
         out float localMaxX,
-        out float localMaxY)
+        out float localMaxY,
+        List<PathQueryFigure>? queryFigures = null,
+        List<byte>? queryFlags = null)
     {
         if (path.IsCombined)
         {
@@ -905,9 +932,11 @@ public unsafe class PathAtlas : IDisposable
             var figureSegments = figure.Segments;
             if ((fillOnly && !figure.IsFilled) || figureSegments.Count == 0)
             {
+                queryFigures?.Add(new(figure.StartPoint, segments.Count, 0, figure.IsClosed, figure.IsFilled));
                 continue;
             }
 
+            int firstSegment = segments.Count;
             Vector2 currentPoint = figure.StartPoint;
             UpdateBounds(currentPoint);
 
@@ -1041,7 +1070,7 @@ public unsafe class PathAtlas : IDisposable
                         out Vector2 center, out float theta1, out float deltaTheta, out float rx, out float ry
                     ))
                     {
-                        if (currentPoint != arc.Point)
+                        if (currentPoint != arc.Point || queryFlags != null)
                         {
                             segments.Add(new GpuPathSegment
                             {
@@ -1053,6 +1082,7 @@ public unsafe class PathAtlas : IDisposable
 
                         UpdateBounds(arc.Point);
                         currentPoint = arc.Point;
+                        queryFlags?.Add((byte)((segment.IsStroked ? 1 : 0) | (segment.IsSmoothJoin ? 2 : 0)));
                         continue;
                     }
 
@@ -1081,6 +1111,8 @@ public unsafe class PathAtlas : IDisposable
 
                     currentPoint = arc.Point;
                 }
+                else if (queryFlags != null) throw new NotSupportedException("Unsupported query segment type.");
+                queryFlags?.Add((byte)((segment.IsStroked ? 1 : 0) | (segment.IsSmoothJoin ? 2 : 0)));
             }
 
             if ((fillOnly || figure.IsClosed) && currentPoint != figure.StartPoint)
@@ -1092,7 +1124,9 @@ public unsafe class PathAtlas : IDisposable
                     SegmentType = 0
                 });
                 UpdateBounds(figure.StartPoint);
+                queryFlags?.Add(1); // implicit closing edge is stroked, not a new source smooth join
             }
+            queryFigures?.Add(new(figure.StartPoint, firstSegment, segments.Count - firstSegment, figure.IsClosed, figure.IsFilled));
         }
 
         if (segments.Count == 0)
@@ -1105,6 +1139,8 @@ public unsafe class PathAtlas : IDisposable
         localMinY = minY;
         localMaxX = maxX;
         localMaxY = maxY;
+
+        if (queryFigures != null) return (Array.Empty<GpuPathRecord>(), CopySegments(segments));
 
         var records = new GpuPathRecord[1];
         records[0] = new GpuPathRecord

@@ -226,9 +226,9 @@ The next source-backed application dependency is contributing pens in
 `BoundsDrawingContextWalker.DrawGeometry` and
 `HitTestWithPointDrawingContextWalker.DrawGeometry`: ordinary stroked content
 needs actual stroke bounds and membership, not an inflated fill rectangle.
-This checkpoint implements reusable native query transport; it deliberately
-does **not** switch those source-WPF consumers before their complete transport
-and degenerate-cap handling are connected.
+The initial checkpoint implemented reusable native query transport without
+switching those consumers. The follow-up source connection is recorded below;
+neither checkpoint establishes runtime application parity.
 
 `progpu_native_geometry_stroke_query` accepts complete figure records, canonical
 segments, per-segment stroke/incoming-smooth flags, a pen, dash intervals and an
@@ -269,8 +269,8 @@ and incoming join flags; an unstroked constant remains a gap. Closed-seam flags
 survive compaction. Degenerate arcs emitting no cubics retain their edge state.
 An all-constant stroked run emits the original ProGPU X-axis cap pair, with a
 round pair for closed runs; an empty figure does not become a point stroke.
-Only the remaining source/host encoder and bounds/hit consumers are unconnected.
-Do not enable the Windows SDK selector before that integration and qualification.
+The subsequent source connection uses this preparation. Do not enable the
+Windows SDK selector before the remaining application integration and qualification.
 
 Point coverage provenance is original `resolve_degenerate_dash_visibility` and
 `try_transformed_line_stroke_bounds` in `Mil/progpu_native_mil.cpp`: odd patterns
@@ -335,6 +335,69 @@ The strict AppleClang C++20 geometry-utility, Direct2D core and Direct2D
 compatibility fixture targets compile and link successfully.
 Fixtures have not been executed; round-boundary approximation, direct COM and
 final-module managed/native comparisons still need the final differential gate.
+
+### Source-WPF pen query connection — implementation only
+
+MVP/Toolkit `BoundsDrawingContextWalker.DrawGeometry` and
+`HitTestWithPointDrawingContextWalker.DrawGeometry` now reach typed pen operations
+under the frozen portable media selection. The geometry provider exposes
+`GetRenderBounds` and `StrokeContains` with `PortablePenState`, not a shim-owned
+Pen or reflected brush. Missing operations on older explicit providers throw;
+the default provider remains registered for both managed portable and native MIL
+hosts, without loading a device at registration.
+
+Original ProGPU `PathAtlas.CompilePathCore` owns canonical line/quadratic/cubic/arc
+encoding. Its new `CompileStrokeQuery` entry point retains complete figure ranges,
+hollow/empty identity, incoming smooth joins, explicit closing edges and
+zero-distance gaps. Normal render/fill compilation keeps its existing output and
+does not allocate query metadata. Deferred boolean input fails before the GPU
+solver; the host provider first resolves the bounds-free operand tree through the
+existing CPU utility. Unknown segment classes and per-figure cap overrides fail
+explicitly. Source WPF figures have one supplied query pen and no such overrides.
+`PathQueryFigure` is backend-neutral topology, not a handwritten native layout;
+the host maps it to the existing generated native figure record and reinterprets
+the canonical segment span without copying its payload.
+
+The host provider measures actual fill bounds and unions them with emitted stroke
+bounds, preserving hollow filtering. Geometry-local/ancestor transforms change
+the spine before widening; drawing/world transforms are passed separately. Output
+tolerance uses tight transformed curve bounds, and its pre-world approximation
+is conservatively scaled by the transform's linear norm. Thickness uses its
+absolute value and miter limit is clamped to one as in existing ProGPU stroke
+preparation. Caps/joins/dashes retain their supplied values and native validation.
+Dash narrowing uses four runtime-intrinsic lanes with a bounded scalar tail and
+finite-range checks. Invalid nonfinite input follows the existing WPF empty/miss
+policy; missing native capability and unsupported finite input remain failures.
+
+Source `Geometry` bounds, serialized `PathGeometry` bounds, primitive MIL polygon
+transport, generic point queries and Rectangle/Ellipse/Line instance overrides
+now select this provider before legacy OS utilities. `LineGeometry` still has no
+filled-area membership. Existing mathematically exact static primitive bounds
+shortcuts are retained. No native stroke algorithm is copied into WPF, and the
+native SDK Windows guard remains unchanged. This is a source-level connection,
+not evidence that startup, package loading or the full application gate passes.
+
+Applicability: both renderer modes share the same query provider and C++ core.
+Canonical compiler provenance is the original ProGPU Vector encoder, not a
+third-party port. Existing public WPF/Direct2D behavior references above remain
+the specification inputs; renderer/text/cache architecture is unchanged.
+Setup remains O(F + S + D) time/storage plus the existing operand/curve algorithms,
+with one synchronous native query crossing after operand resolution. Exported
+snapshots and query arrays are owned per call; this is not a zero-allocation
+retained-query claim. No GPU submission, readback or fallback-policy change occurs.
+
+Authored connection fixtures cover canonical encoder equivalence, arc parameters,
+empty/hollow figures, gap/smooth flags, closing edges, source pen/brush/dash/transform
+transport, nonfinite rejection and SIMD narrowing against scalar casts for
+lengths 0–17. Test execution, final-module calls, Windows differentials, full
+application interactions, allocation/latency benchmarks and CI stay deferred.
+
+Connection compile checkpoint: final ProGPU.Tests Release builds with 0 warnings
+and 0 errors; LibreWPF bridge fixtures build with 116 warnings/0 errors; source
+PresentationCore fixtures with 8/0; the source-built PresentationFramework host
+harness with 0/0. No tests, application/native-module execution, VM comparisons,
+benchmarks or CI qualification ran. The warnings are not a cleanup claim, and
+these builds do not prove final native library staging or application fidelity.
 
 `progpu_native_geometry_utility_tests` is a CTest-registered device-independent
 include-based C ABI consumer built from the same wrapper source. It covers four

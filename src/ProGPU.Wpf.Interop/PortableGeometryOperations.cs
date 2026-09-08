@@ -22,6 +22,16 @@ public sealed class PortableGeometryOperand
 
 public interface IPortableGeometryOperations
 {
+    /// <summary>Union of actual fill bounds and emitted pen coverage after the world transform.</summary>
+    PortableRect GetRenderBounds(PortableGeometryOperand geometry, in PortablePenState pen,
+        PortableMatrix3x2 worldTransform, double tolerance, bool relativeTolerance, bool skipHollows)
+        => throw new PlatformNotSupportedException("The geometry provider does not support pen bounds queries.");
+
+    /// <summary>Actual stroke membership; brush identity does not change stroke geometry.</summary>
+    bool StrokeContains(PortableGeometryOperand geometry, in PortablePenState pen,
+        PortablePoint point, double tolerance, bool relativeTolerance)
+        => throw new PlatformNotSupportedException("The geometry provider does not support stroke queries.");
+
     /// <summary>
     /// Tight unstroked bounds after the additional world transform. Empty is
     /// distinct from a zero-size bound; skipHollows excludes non-filled figures.

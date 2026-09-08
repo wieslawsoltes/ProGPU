@@ -234,8 +234,12 @@ stroke coverage and generated query records; never duplicate a WPF-local stroker
 Constant-edge compaction must retain source endpoint eligibility, incoming joins
 and zero-distance gaps. All-constant runs retain one anchor and the existing MIL
 X-axis cap-pair/dash-phase policy; never emit a tiny artificial spine or broaden a
-single round cap into a full circle. Source-WPF pen admission still requires the
-complete-figure encoder and consumer hookup; Unsupported is never an empty hit.
+single round cap into a full circle. Source-WPF pen queries use the shared
+complete-figure encoder and typed provider; Unsupported is never an empty hit.
+`PathAtlas.CompileStrokeQuery` must reject deferred boolean operands before any
+GPU solver, preserve hollow/empty figures and zero-distance gaps, and reuse the
+canonical segment/arc encoder. Keep native wire layouts generated; Vector query
+topology is a separate value contract, not a duplicate blittable native record.
 
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 
