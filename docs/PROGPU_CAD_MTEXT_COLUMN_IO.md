@@ -111,5 +111,32 @@ The CAD suite uses CI's unchanged `DOTNET_TieredCompilation=0` setting. A
 separate diagnostic called the unchanged mesh-allocation test 100 times while
 another thread forced generation-0 collections; all passed with zero bytes on
 macOS arm64 / .NET 10.0.5. That experiment does not reproduce or explain the
-Linux CI failure and is not evidence that CI is fixed. Final browser AOT and CI
-qualification for this text change remain required.
+Linux CI failure and is not evidence that CI is fixed.
+
+The final `0081177f` browser Release AOT publish and local SwiftShader smoke
+also pass: 81 frames, 103 dispatches, a 2880x1800 physical framebuffer, visible
+columned text, pan/zoom/resize, and 16 entity types through save/reopen/resave.
+The presentation preflight confirms 4,096/4,096 direct and 16,384/16,384 page
+pixels for its independent red-clear probe. These counters identify the run;
+they are not performance measurements. PR CI qualification remains pending.
+
+## Separate Linux allocation investigation
+
+An isolated self-contained .NET 10.0.5 ARM64 diagnostic invokes the unchanged
+`CadMesh3DSelectionTests.WarmModernMeshSubobjectQueryAllocatesNothing` directly
+100 times, with `DOTNET_TieredCompilation=0`, outside the xUnit runner. On Ubuntu
+24.04 in the existing Parallels VM, the ordinary run fails 8/100 times, reporting
+5,680 or exactly 7,312 bytes (the CI value). With a separate thread forcing
+generation-0 collections every millisecond it fails 3/100 times, reporting
+5,400–7,296 bytes. The macOS forced-collection run passes 100/100.
+
+Two independent controls seed a small object outside measurement, then measure
+only `Thread.Sleep(20)` or `Thread.SpinWait(1_000_000)` under the same forced
+collection loop. Both Linux controls pass 100/100 with zero measured bytes.
+Consequently neither a generic garbage-collection accounting explanation nor
+an xUnit-runner-only explanation is established. The reproducer narrows further
+investigation to the query workload and runtime interaction; it does not yet
+identify an allocating source line. Keep the zero-byte assertion and runtime
+settings unchanged. Diagnostic programs and logs remain ignored under
+`artifacts/progpu-cad/`; the VM uses staged self-contained binaries and no
+configuration or system-package changes.
