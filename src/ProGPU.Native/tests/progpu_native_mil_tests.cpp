@@ -3119,6 +3119,70 @@ bool animated_pen_and_dash_resources_drive_strokes() {
     return true;
 }
 
+// Paired with LibreWPF owner-surface popup ingress: independent roots must not
+// inherit the main window visual transform, and clipping follows placement.
+bool placed_overlay_visuals_preserve_draw_order_and_local_clip() {
+    std::vector<std::byte> batch;
+    for (const std::uint32_t visual : {1U, 2U, 3U, 4U}) {
+        append_create(batch, visual, 39U);
+        append_command(batch, command::visual_create, visual);
+    }
+    append_create(batch, 5U, 43U);
+    append_create(batch, 6U, 47U);
+    append_create(batch, 7U, 75U);
+    append_create(batch, 8U, 69U);
+    append_command(batch, command::visual_insert_child_at, 1U, 2U, 0U);
+    append_command(batch, command::visual_insert_child_at, 1U, 3U, 1U);
+    append_command(batch, command::visual_insert_child_at, 3U, 4U, 0U);
+    append_command(batch, command::visual_set_offset, 2U, 5.0, 7.0);
+    append_command(batch, command::visual_set_content, 2U, 5U);
+    append_command(batch, command::visual_set_content, 4U, 5U);
+    append_command(batch, command::visual_set_clip, 3U, 8U);
+    append_command(batch, command::rectangle_geometry, 8U,
+        0.0, 0.0, 0.0, 0.0, 30.0, 20.0, 0U, 0U, 0U, 0U);
+    append_command(batch, command::solid_color_brush, 7U, 1.0,
+        progpu_native_color{0.2F, 0.7F, 1.0F, 1.0F}, 0U, 0U, 0U, 0U);
+    std::vector<std::byte> drawing;
+    append_command(drawing, command::draw_rectangle, -10.0, -10.0, 100.0, 100.0, 7U, 0U);
+    append_render_data(batch, 5U, drawing);
+    append_command(batch, command::generic_target_create, 6U,
+        std::uint64_t{0U}, std::uint64_t{0U}, 128U, 96U, 0U);
+    append_command(batch, command::target_set_root, 6U, 1U);
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::uint64_t generation = 0U;
+    for (const double x : {12.0, 15.0}) {
+        std::vector<std::byte> movement;
+        append_command(movement, command::visual_set_offset, 3U, x, 18.0);
+        PROGPU_REQUIRE(state.apply(movement) == status::success);
+        std::vector<std::byte> stream;
+        PROGPU_REQUIRE(state.build_scene(6U, 9512U, ++generation, stream) == status::success);
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        std::uint32_t draws = 0U;
+        for (std::uint32_t i = 0U; i < header.command_count; ++i) {
+            const auto draw = read_value<progpu_native_scene_command>(stream,
+                header.command_offset + i * sizeof(progpu_native_scene_command));
+            if (draw.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) continue;
+            PROGPU_REQUIRE(draw.state_index < header.resource_count);
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + draw.state_index * sizeof(progpu_native_scene_resource));
+            PROGPU_REQUIRE(resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE);
+            const auto value = read_value<progpu_native_scene_state>(stream, resource.payload_offset);
+            if (draws == 0U) {
+                PROGPU_REQUIRE(value.transform.m31 == 5.0F && value.transform.m32 == 7.0F);
+            } else {
+                PROGPU_REQUIRE(value.transform.m31 == static_cast<float>(x) && value.transform.m32 == 18.0F);
+                PROGPU_REQUIRE((value.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U);
+                PROGPU_REQUIRE(value.clip_rect.x == static_cast<float>(x) && value.clip_rect.y == 18.0F);
+                PROGPU_REQUIRE(value.clip_rect.width == 30.0F && value.clip_rect.height == 20.0F);
+            }
+            ++draws;
+        }
+        PROGPU_REQUIRE(draws == 2U);
+    }
+    return true;
+}
+
 bool visual_clips_compile_to_exact_semantic_state() {
     constexpr std::uint32_t root = 1U;
     constexpr std::uint32_t child = 2U;
@@ -21999,6 +22063,7 @@ int main() {
         animated_fixed_geometry_resources_drive_retained_geometry());
     PROGPU_REQUIRE(animated_pen_and_dash_resources_drive_strokes());
     PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
+    PROGPU_REQUIRE(placed_overlay_visuals_preserve_draw_order_and_local_clip());
     PROGPU_REQUIRE(visual_geometry_clips_apply_after_effects());
     PROGPU_REQUIRE(viewport3d_geometry_clips_apply_to_isolated_outputs());
     PROGPU_REQUIRE(visual_geometry_clips_apply_after_local_caches());

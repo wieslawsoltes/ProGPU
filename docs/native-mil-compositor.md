@@ -9803,6 +9803,19 @@ verifiers, SIMD/performance and exact-head CI qualification remain deferred.
 Main has zero missing commits. Managed scene contracts, shaders and ABI are
 unchanged. Broader MIL/DirectX/Direct2D/Win2D parity remains incomplete.
 
+## Core-delivery checkpoint: host popup composition
+
+LibreWPF now emits owner-surface popup placement as ordinary canonical MIL
+visuals after the main root and propagates native renderer selection to separate
+popup hosts. Existing C++ traversal owns rendering and exact local clips; a paired
+native fixture covers ordered roots and movement without inheriting main-root
+state. No MIL product source, ABI or shader change is required.
+
+See [host/native ownership, provenance, costs and remaining platform limits](native-mil-popup-composition.md).
+Native fixture compilation succeeds; tests, images, interaction, VM/platform/SDK,
+performance, verifiers and exact-head CI remain deferred. Core presentation
+region/viewport/DPI work and popup platform qualification remain open.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
