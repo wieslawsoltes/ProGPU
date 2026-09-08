@@ -32,6 +32,13 @@ PROGPU_CAD_BROWSER_USE_SWIFTSHADER=1 node eng/progpu-test-cad-browser.mjs
 
 For an installed Chrome, set `PROGPU_CAD_BROWSER_CHANNEL=chrome`. Omit the
 SwiftShader environment variable to exercise the available hardware adapter.
+On Linux the software lane now explicitly selects Vulkan SwiftShader and
+Chromium's headless Vulkan presentation flags. The previous ANGLE-only flag
+selected an OpenGL driver, not necessarily the WebGPU adapter. Earlier local
+"with SwiftShader" results in this document mean that flag was enabled; they
+do not establish software WebGPU execution. Each run now saves `gpu.json` with
+Chrome's GPU report and launch arguments so the actual driver can be audited.
+The non-Linux launch configuration is unchanged.
 `ProGpuForkPackage=true` selects the dependency's net10.0-only source build and
 avoids requesting unrelated multi-target WebAssembly workloads.
 
@@ -94,3 +101,14 @@ all 16 model-space entity types and the MTEXT column fields survive save/reopen,
 pan and zoom change drawing pixels, and resize produces a 2880x1800 framebuffer.
 The initial screenshot was inspected and both text columns are visible. This
 does not close the Linux-only failure or establish zoomed text-quality parity.
+
+Run `34192175781` also failed blank-frame validation: six submitted frames,
+17 dispatches, a 2560x1600 framebuffer, and no console messages. The page was
+white and the direct canvas snapshot was blank. This motivates testing the
+explicit Vulkan configuration; it does not prove that configuration is the cause.
+The flag selection follows Chromium's
+[SwiftShader driver documentation](https://chromium.googlesource.com/chromium/src/+/main/docs/gpu/swiftshader.md)
+and Chrome's [headless Linux WebGPU configuration](https://developer.chrome.com/blog/supercharge-web-ai-testing).
+No application rendering behavior, quality threshold, or input assertion is
+relaxed. `SystemInfo.getInfo` is a test-only browser diagnostic; no GPU readback
+or new dependency is added to production rendering.

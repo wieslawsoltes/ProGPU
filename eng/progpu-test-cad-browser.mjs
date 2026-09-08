@@ -70,12 +70,28 @@ async function clickUntilEvent(eventName, x, y, timeout = 30_000) {
 }
 try {
   const args = ['--enable-unsafe-webgpu'];
-  if (process.env.PROGPU_CAD_BROWSER_USE_SWIFTSHADER === '1') args.push('--use-angle=swiftshader');
+  if (process.env.PROGPU_CAD_BROWSER_USE_SWIFTSHADER === '1') {
+    if (process.platform === 'linux') {
+      // ANGLE selection alone does not select the Vulkan driver used by WebGPU.
+      // Use Chromium's documented headless Vulkan presentation configuration.
+      args.push('--enable-features=Vulkan', '--use-angle=vulkan',
+        '--use-vulkan=swiftshader', '--disable-vulkan-surface');
+    } else {
+      args.push('--use-angle=swiftshader');
+    }
+  }
   browser = await chromium.launch({
     channel: process.env.PROGPU_CAD_BROWSER_CHANNEL ?? 'chromium',
     headless: true,
     args,
   });
+  const diagnosticsSession = await browser.newBrowserCDPSession();
+  try {
+    const gpu = await diagnosticsSession.send('SystemInfo.getInfo');
+    await fs.writeFile(path.join(evidence, 'gpu.json'), JSON.stringify({ args, ...gpu }, null, 2));
+  } finally {
+    await diagnosticsSession.detach();
+  }
   page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
   const recordError = message => { errors.push(message); console.error(message); };
   page.on('pageerror', error => recordError(error.message));
