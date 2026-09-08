@@ -83,3 +83,11 @@ that DWG discarded the persisted column count. That is fixed independently of
 layout. The sample's zero DXF / negative DWG final-column heights still need
 defined semantics; the baseline entity totals above are not claimed to improve
 from the count fix alone.
+
+Follow-up: [mixed straight-width lowering](PROGPU_CAD_WIDE_POLYLINE_RESEARCH.md#2026-09-08-mixed-straight-widths)
+now retains `35B` as one CAD entity with a filled taper and connected thin runs.
+Against the same fixtures and resolver, unsupported entities fall from 13 to 12
+in both files, recorded entities rise from 556 to 557, and recorded commands
+become 586 (DXF) / 587 (DWG). Invalid counts remain 3 / 4, and the linetype,
+missing-image, and deferred-modeler counts remain unchanged. The baseline table
+and original priority list above are historical findings, not current totals.

@@ -253,7 +253,7 @@ public sealed class CadVariableWidthPolylineTests
     }
 
     [Fact]
-    public void VariableBulgesThicknessZeroSegmentsAndOverflowFailButFillOffOutlines()
+    public void VariableBulgesThicknessAndOverflowFailButMixedWidthsAndFillOffRender()
     {
         var bulgeDocument = CreateLightweightTaper();
         Assert.IsType<LwPolyline>(Assert.Single(bulgeDocument.Entities)).Vertices[0].Bulge = 0.5;
@@ -289,7 +289,9 @@ public sealed class CadVariableWidthPolylineTests
             Assert.True(figure.IsClosed);
             Assert.False(figure.IsFilled);
         });
-        AssertUnsupported(zeroSegmentSnapshot, "skinny-stroke");
+        Assert.Single(zeroSegmentSnapshot.Entities.ToArray());
+        using CadRecordedPlanScene mixedScene = new CadPlanSceneCompiler().Compile(zeroSegmentSnapshot);
+        Assert.Equal(2, mixedScene.DrawingContext.Commands.Count);
         Assert.Empty(overflow.Entities.ToArray());
         Assert.Equal(1, overflow.Statistics.InvalidEntityCount);
         Assert.Contains(overflow.Diagnostics.ToArray(), diagnostic =>

@@ -14,7 +14,7 @@ lower to one filled outline. Fill-off profiles retain one hollow entity command
 whose straight/tapered segment cells, straight bevel cells, and constant-width
 annular bulge sectors preserve their authored boundary seams.
 
-Genuinely variable-width bulges, mixed skinny/wide segment streams,
+Genuinely variable-width bulges,
 constant-width bulges whose inner signed boundary crosses the arc center, and
 patterned-wide cap exceptions remain typed unsupported geometry. None is
 approximated as a constant, cosmetic centerline, flattened curve, or boolean
@@ -222,10 +222,8 @@ allocate zero managed memory and do not initialize a GPU backend.
   path, including bulges. Open terminal-vertex widths do not describe a
   segment; the final vertex of a closed polyline does.
 - A variable-width bulge remains unsupported because its offset boundaries are
-  not circular arcs. A variable profile containing an entire zero-to-zero
-  segment also remains unsupported: that segment is a skinny stroke, so exact
-  output needs a mixed fill/stroke batch contract rather than silently dropping
-  a degenerate fill.
+  not circular arcs. Mixed straight profiles now retain zero-to-zero segments
+  as skinny strokes, as described in the follow-up below.
 - For FILLMODE off, a constant-width bulge whose half-width exceeds its source
   radius remains unsupported. Its inner signed boundary crosses the center and
   changes topology; a positive-radius annular sector would be incorrect. The
@@ -360,3 +358,71 @@ upstream ACadSharp, restores a byte-identical fork assembly, builds with 0
 warnings and 0 errors, and creates an AC1032 document.
 The grouped wrapper remains unavailable while the separately user-deleted
 browser sample project is absent; validation did not restore or stage it.
+
+## 2026-09-08: mixed straight widths
+
+Baseline `6adda996` rejects representative DXF/DWG entity `35B`: its first
+straight segment tapers from 0.2 to 0.1, followed by three zero-width segments.
+The final open-polyline vertex has widths but owns no outgoing segment.
+
+The shared CAD compiler now omits degenerate zero-area fill cells and retains
+consecutive zero-width segments as connected open figures using the ordinary
+resolved entity pen. Filled output uses one nonzero body fill and at most one
+thin-stroke command; hollow output appends the thin runs to its existing outline
+path. A closed polyline is traversed from just after a wide segment so a thin
+run crossing the authored start retains its join rather than gaining two caps.
+Uniform-width paths are unchanged. Additional traversal is O(S), additional
+retained storage is O(Z) for Z zero-width segments, and no additional path is
+allocated when Z is zero. No work is added to steady retained-picture recording.
+
+This extends the original `RecordVariableWidthPolyline` and
+`RecordWidePolylineOutline` implementations in `CadPlanSceneCompiler.cs` and
+removes only the straight zero-width rejection from `CadSnapshotCompiler.cs`.
+Existing `CadWidePolylineSelection` degenerates zero-width quadrilaterals to
+exact segment tests through `CadSelectionHitTester.DistanceToTriangle`; its
+point/crossing semantics need no replacement. No entity is split in the object
+model, so selection and file round trips retain one authored polyline.
+
+Both renderers consume these same retained fill/stroke commands. Native scene
+compilation and print-picture tests verify that the thin output survives each
+transport; no C++, canonical shader, C ABI, or generated wire declaration changes
+are applicable. This is not a claim of full native pixel differential coverage.
+
+The primary-source design review above was refreshed against Autodesk's
+[polyline model](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-392BF13C-D9E7-47A8-8E07-435296332279.htm)
+and [width records](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-DXF/files/GUID-748FC305-F3F2-4F74-825A-61F04D757A50.htm),
+[SkPaint](https://api.skia.org/classSkPaint.html), Direct2D's
+[retained geometry and stroke transforms](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-geometries-overview),
+[Win2D geometry](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasGeometry.htm),
+[WebRender](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+and the current [Vello overview](https://github.com/linebender/vello).
+Adopted: separate retained geometry and stroke style, immutable replay, and
+device-space skinny strokes alongside source-space filled widths. Rejected:
+dropping zero-area segments, giving every segment one average width, per-segment
+draw commands, and flattening curved tapers. The existing SkParagraph,
+DirectWrite, Parley, and HarfBuzz contracts were reviewed; text shaping/layout,
+fallback, hinting, variable fonts, and glyph identity remain unchanged.
+
+Startup/lazy initialization and worker preparation remain the existing snapshot
+and scene phases. Visibility uses the same conservative source bounds. Path-cache
+identity/eviction, demand upload, batching, DPI/subpixel policy, and device-loss
+generation recovery remain the shared renderer contracts; there is no new cache
+or backend. No performance improvement is claimed.
+
+The representative files now record 557 entities instead of 556 and report 12
+unsupported entities instead of 13. Other diagnostic counts are unchanged.
+`CadMixedWidthPolylineTests` adds ten cases for lightweight/legacy, filled/hollow,
+closed-run topology, selection, native/print transport, and DXF/DWG round trips.
+The full Release CAD suite passes 1,562 tests. Pixel tests cover both fill modes
+at 3x/7x zoom using an explicit white fixture and device-pixel-aligned camera.
+All four pixel cases and the full 272-test headless suite pass. The initial
+3,862-test core run had one unrelated PCM-mixer allocation assertion (1,312
+bytes); that test passed alone and the subsequent full run passed all 3,862.
+No allocation threshold or media code was changed. Test logs and diagnostic
+captures remain ignored; no performance improvement is inferred from the rerun.
+
+Remaining limitations: variable-width bulges and patterned-wide output retain
+their existing typed diagnostics. Filled bodies and skinny strokes are separate
+paint operations; translucent self-overlap across those two operations is not
+certified as an isolated one-entity coverage union. This work does not claim
+complete CAD transparency fidelity or whole-file rendering certification.

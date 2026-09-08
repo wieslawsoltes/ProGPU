@@ -3778,12 +3778,6 @@ public sealed partial class CadSnapshotCompiler
                 throw new CadUnsupportedEntityException(
                     $"Variable-width {role} bulges require analytic spiral-boundary lowering.");
             }
-            if (hasVariableWidth &&
-                vertex.StartWidth == 0.0 && vertex.EndWidth == 0.0)
-            {
-                throw new CadUnsupportedEntityException(
-                    $"Variable-width {role}s containing a zero-width segment require mixed filled-outline and skinny-stroke lowering.");
-            }
             if (!fillMode && constantWidth > 0.0 && vertex.Bulge != 0.0)
             {
                 CadPolylineVertex end = normalizedVertices[(i + 1) % normalizedVertices.Length];

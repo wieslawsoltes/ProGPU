@@ -3024,6 +3024,10 @@ public sealed class CadPlanSceneCompiler
             double endWidth = polyline.HasVariableWidth
                 ? start.EndWidth
                 : polyline.ConstantWidth;
+            if (startWidth == 0.0 && endWidth == 0.0)
+            {
+                continue;
+            }
             if (start.Bulge == 0.0)
             {
                 CadPolylineVertex widened = start with
@@ -3085,6 +3089,10 @@ public sealed class CadPlanSceneCompiler
             }
         }
 
+        if (polyline.HasVariableWidth)
+        {
+            AppendZeroWidthPolylineRuns(path, vertices, polyline.IsClosed);
+        }
         context.DrawPath(null, pen, path, transform);
     }
 
@@ -3182,7 +3190,8 @@ public sealed class CadPlanSceneCompiler
     /// Each segment contributes one trapezoid and each non-collinear interior
     /// vertex one bevel triangle. The shared fill command unions overlaps
     /// without translucent alpha seams. Work and storage are O(S) for S
-    /// segments; no curve approximation is performed.
+    /// segments; no curve approximation is performed. Zero-width runs use a
+    /// separate retained stroke with the entity's ordinary lineweight policy.
     /// </summary>
     private static void RecordVariableWidthPolyline(
         DrawingContext context,
@@ -3197,6 +3206,10 @@ public sealed class CadPlanSceneCompiler
         {
             CadPolylineVertex start = vertices[i];
             CadPolylineVertex end = vertices[(i + 1) % vertices.Length];
+            if (start.StartWidth == 0.0 && start.EndWidth == 0.0)
+            {
+                continue;
+            }
             if (!TryGetLineCorners(
                     start,
                     end,
@@ -3232,6 +3245,52 @@ public sealed class CadPlanSceneCompiler
         }
 
         context.DrawPath(pen.Brush, null, path, transform);
+        PathGeometry? skinny = AppendZeroWidthPolylineRuns(null, vertices, isClosed);
+        if (skinny is not null)
+        {
+            context.DrawPath(null, pen, skinny, transform);
+        }
+    }
+
+    private static PathGeometry? AppendZeroWidthPolylineRuns(
+        PathGeometry? path,
+        ReadOnlySpan<CadPolylineVertex> vertices,
+        bool isClosed)
+    {
+        int segmentCount = isClosed ? vertices.Length : vertices.Length - 1;
+        int first = 0;
+        if (isClosed)
+        {
+            // Start after a wide segment so a thin run crossing the authored
+            // closing vertex stays connected and retains its stroke join.
+            for (int i = 0; i < segmentCount; i++)
+            {
+                if (vertices[i].StartWidth != 0.0 || vertices[i].EndWidth != 0.0)
+                {
+                    first = (i + 1) % segmentCount;
+                    break;
+                }
+            }
+        }
+        PathFigure? run = null;
+        for (int offset = 0; offset < segmentCount; offset++)
+        {
+            int i = (first + offset) % segmentCount;
+            CadPolylineVertex start = vertices[i];
+            if (start.StartWidth != 0.0 || start.EndWidth != 0.0)
+            {
+                run = null;
+                continue;
+            }
+            if (run is null)
+            {
+                run = new PathFigure(ToVector(start)) { IsFilled = false };
+                path ??= new PathGeometry();
+                path.Figures.Add(run);
+            }
+            run.Segments.Add(new LineSegment(ToVector(vertices[(i + 1) % vertices.Length])));
+        }
+        return path;
     }
 
     private static bool TryGetLineCorners(
