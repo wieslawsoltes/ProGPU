@@ -203,6 +203,11 @@ the process default separate from explicit overrides; disposing an override must
 not erase the default or resurrect an older override. Registration owns no service
 resources and must not initialize a GPU device or native font context. See
 `docs/native-mil-startup-services.md`; readiness is not Windows SDK admission.
+Source text routing must honor that frozen media choice before simple-line or
+LineServices dispatch. A captured text service owns a request; retained paragraph
+continuations survive explicit-provider removal without reshaping or empty fallback.
+Intrinsic widths and optimal breaking need real shared native contracts, not a
+host-local full-line-width approximation. Keep these admission gaps explicit.
 Media transport must be selected
 before media objects or composition locks are acquired. Keep first-use selection
 immutable, reject late backend switches, and share the interop assembly between

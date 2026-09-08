@@ -57,12 +57,62 @@ ownership. Adopt lazy reusable CPU services; reject eager GPU creation or an emp
 paragraph as a substitute for source-service readiness. No foreign implementation
 is copied into ProGPU.
 
-Windows SDK admission remains guarded. `TextFormatterImp.IsNativeLineServicesAvailable`
-still selects Windows LineServices by OS, and remaining source text contracts and
-Windows media utility routes need their application-level connections. Early
-provider readiness does not prove that every consumer uses it. Keep the source/
-package startup trace on that dependency; do not enable Windows admission solely
-because this helper or the direct host compiles.
+Windows SDK admission remains guarded. The source text dispatch connection below
+replaces the OS-only LineServices choice, but remaining source text contracts and
+Windows media utility routes still need application-level closure. Early provider
+readiness does not prove that every consumer uses it. Do not enable Windows
+admission solely because this helper or the direct host compiles.
+
+## Source formatter dispatch connection
+
+Acceptance path: the existing native host's pre-host FormattedText and inline
+TextBlock, and the package-mode MVP constructor/first layout. Source inspection
+found that Windows still used LineServices and that even non-Windows simple text
+could bypass the registered native paragraph provider. This is a source-backed
+blocker, not a reproduced application failure during the deferred-test phase.
+
+`TextFormatterImp` now freezes/reads `PortableWpfRuntime` for text-engine ownership.
+Windows-MIL mode preserves native LineServices. Portable mode invokes the registered
+provider before any simple-line shortcut, capturing it once for the request. Errors
+and null provider results cannot turn into legacy empty paragraphs. Explicit
+portable Windows use without a provider fails before simple/native formatting;
+the preexisting provider-less non-Windows bring-up path remains transitional.
+
+Wrapped continuations resolve their owned immutable paragraph before querying the
+registry. Removing or replacing a provider cannot discard or reshape an already
+formatted paragraph. Changed continuation width/source positions remain explicit
+failures. A clone survives disposal of the preceding line and original break.
+
+The same frozen choice now guards Classification's native table initialization and
+LineServices control-string lookup: `TextRunCacheImp`/`TypefaceMap` need character
+classification, and `FormatSettings.FetchTextRun` needs TextStore's separator/hidden
+characters even when a native LineServices context is never created. These routes
+reuse the existing portable source implementations; they are not a new Unicode
+algorithm or proof of classification parity. Portable context acquisition and
+optimal paragraph-cache creation reject before allocating native contexts.
+
+Intrinsic minimum/maximum paragraph measurement and forced optimal-break line
+reconstruction are not implemented by the current provider. They now reject
+explicitly instead of reporting a full formatted line as an intrinsic minimum or
+entering Windows LineServices. In particular, FormattedText.MinWidth and any core
+control that requests intrinsic paragraph widths remain application dependencies
+to close in ProGPU. Display hinting, trimming, embedded objects and the other
+document restrictions in the source-integration record remain open as well.
+
+This change adapts the existing research decision—retain reusable shaped/layout
+results independently of rasterization—and does not change fonts, shaping,
+line-breaking algorithms, cache/atlas state or GPU work. Both rendering consumers
+can use the same typed paragraph; native startup installs its provider. Dispatch
+adds O(1) control/reference work, no additional per-request selection allocation,
+and no CPU pixel readback. Existing intrinsic metric work remains unchanged.
+No foreign code is imported and no speed claim is made.
+
+Authored fixtures cover public simple-Latin provider dispatch, provider errors/null
+results, cloned continuation after unregister/disposal, and explicit rejection of
+intrinsic widths/optimal contexts. These dispatch fixtures skip a Windows-MIL test
+process rather than mutating its frozen resource domain; explicit-portable Windows
+coverage belongs to the existing native application/VM gate. Source guards retain
+the Windows SDK admission barrier. All fixture execution remains deferred.
 
 ## Authored qualification
 
