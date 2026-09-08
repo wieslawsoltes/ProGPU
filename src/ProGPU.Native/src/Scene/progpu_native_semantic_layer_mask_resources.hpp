@@ -24,7 +24,8 @@ bool create_semantic_coverage_mask_binding(
     const semantic::scissor& target_extent,
     float dpi_scale,
     semantic_render_bundle_span& operation,
-    std::uint64_t& texture_upload_bytes);
+    std::uint64_t& texture_upload_bytes,
+    const progpu_native_scene_presentation& presentation);
 
 bool create_semantic_vector_mask_binding(
     progpu_native_engine& engine,
@@ -32,7 +33,8 @@ bool create_semantic_vector_mask_binding(
     const progpu_native_scene_resource& resource,
     const semantic::scissor& target_extent,
     float dpi_scale,
-    semantic_render_bundle_span& operation);
+    semantic_render_bundle_span& operation,
+    const progpu_native_scene_presentation* presentation = nullptr);
 
 bool create_semantic_brush_mask_binding(
     progpu_native_engine& engine,
@@ -41,14 +43,16 @@ bool create_semantic_brush_mask_binding(
     float dpi_scale,
     const semantic::semantic_state_cursor* composite_state_cursor,
     const progpu_native_scene_state* composite_state,
-    semantic_render_bundle_span& operation);
+    semantic_render_bundle_span& operation,
+    const progpu_native_scene_presentation* presentation = nullptr);
 
 bool create_semantic_geometry_mask_binding(
     progpu_native_engine& engine,
     const semantic::semantic_layer_mask& parsed,
     const semantic::scissor& target_extent,
     float dpi_scale,
-    semantic_render_bundle_span& operation);
+    semantic_render_bundle_span& operation,
+    const progpu_native_scene_presentation* presentation = nullptr);
 
 bool create_semantic_picture_mask_binding(
     progpu_native_engine& engine,
@@ -76,7 +80,8 @@ bool create_semantic_composite_mask_binding(
     float dpi_scale,
     const semantic::semantic_state_cursor* composite_state_cursor,
     const progpu_native_scene_state* composite_state,
-    semantic_render_bundle_span& operation);
+    semantic_render_bundle_span& operation,
+    const progpu_native_scene_presentation* presentation = nullptr);
 
 } // namespace execution
 } // namespace progpu::native

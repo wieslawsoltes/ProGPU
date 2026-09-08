@@ -266,6 +266,17 @@ progpu_native_scene_state localize_semantic_state(progpu_native_scene_state stat
 void localize_semantic_point(float& x, float& y, const scissor& target,
     const progpu_native_scene_presentation& presentation, float raster_dpi) noexcept;
 
+progpu_native_affine_2d localize_semantic_transform(progpu_native_affine_2d transform,
+    const scissor& target, const progpu_native_scene_presentation& presentation,
+    float raster_dpi) noexcept;
+
+// Fixed matrix inversion/setup, not a CPU coverage loop. UV row order is
+// [x coefficient, y coefficient, constant] for each of U and V.
+bool try_resolve_semantic_mask_uv(const progpu_native_affine_2d& transform,
+    const progpu_native_image_rect& bounds, const scissor& target,
+    const progpu_native_scene_presentation& presentation, float raster_dpi,
+    std::array<double, 6U>& uv) noexcept;
+
 progpu_native_scene_state localize_semantic_state(
     progpu_native_scene_state state,
     const scissor& target,

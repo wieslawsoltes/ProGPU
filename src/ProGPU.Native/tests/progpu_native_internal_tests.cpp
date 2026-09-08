@@ -1269,6 +1269,52 @@ void semantic_presentation_layers_keep_independent_device_domains() {
     require(cursor.current_presentation().viewport_x == 13U);
 }
 
+void semantic_presentation_masks_share_device_coordinates() {
+    using namespace progpu::native::semantic;
+    const progpu_native_affine_2d transform{2.0F, 0.5F, -0.25F, 1.5F, 4.0F, 5.0F};
+    const progpu_native_image_rect bounds{1.0F, 2.0F, 8.0F, 16.0F};
+    progpu_native_scene_presentation presentation{
+        sizeof(presentation), 13U, 17U, 100U, 80U, 2.0F, 3.0F, 0U};
+    scissor target{21U, 32U, 40U, 30U, true};
+    for (const bool large_origin : {false, true}) {
+        if (large_origin) {
+            presentation.viewport_x += 1U << 25U;
+            presentation.viewport_y += 1U << 25U;
+            target.x += 1U << 25U;
+            target.y += 1U << 25U;
+        }
+        std::array<double, 6U> uv{};
+        require(try_resolve_semantic_mask_uv(transform, bounds, target, presentation, 2.0F, uv));
+        const auto localized = localize_semantic_transform(transform, target, presentation, 2.0F);
+        for (const double u : {0.0, 0.25, 1.0}) {
+            for (const double v : {0.0, 0.75, 1.0}) {
+                const double x = bounds.x + u * bounds.width;
+                const double y = bounds.y + v * bounds.height;
+                const double logical_x = x * transform.m11 + y * transform.m21 + transform.m31;
+                const double logical_y = x * transform.m12 + y * transform.m22 + transform.m32;
+                const double physical_x = logical_x * presentation.dpi_scale_x +
+                    (static_cast<double>(presentation.viewport_x) - target.x);
+                const double physical_y = logical_y * presentation.dpi_scale_y +
+                    (static_cast<double>(presentation.viewport_y) - target.y);
+                require(std::abs(physical_x * uv[0] + physical_y * uv[1] + uv[2] - u) < 1e-12);
+                require(std::abs(physical_x * uv[3] + physical_y * uv[4] + uv[5] - v) < 1e-12);
+                require(std::abs((x * localized.m11 + y * localized.m21 + localized.m31) * 2.0 - physical_x) < 1e-12);
+                require(std::abs((x * localized.m12 + y * localized.m22 + localized.m32) * 2.0 - physical_y) < 1e-12);
+            }
+        }
+        const auto previous = uv;
+        auto singular = transform;
+        singular.m11 = singular.m12 = singular.m21 = singular.m22 = 0.0F;
+        require(!try_resolve_semantic_mask_uv(singular, bounds, target, presentation, 2.0F, uv));
+        require(uv == previous);
+    }
+    presentation = {sizeof(presentation), 0U, 0U, 100U, 80U, 2.0F, 2.0F, 0U};
+    std::array<double, 6U> uv{};
+    const progpu_native_affine_2d identity{1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    require(try_resolve_semantic_mask_uv(identity, bounds, {4U, 8U, 40U, 30U, true}, presentation, 2.0F, uv));
+    require(uv == std::array<double, 6U>{1.0 / 16.0, 0.0, 1.0 / 8.0, 0.0, 1.0 / 32.0, 1.0 / 8.0});
+}
+
 void semantic_presentation_effects_use_independent_physical_distances() {
     using namespace progpu::native::semantic;
     progpu_native_scene_presentation presentation{
@@ -1760,6 +1806,7 @@ int main() {
     semantic_state_and_layer_cursors_restore_scopes();
     semantic_static_guidelines_adjust_state_at_target_dpi();
     semantic_presentation_layers_keep_independent_device_domains();
+    semantic_presentation_masks_share_device_coordinates();
     semantic_presentation_effects_use_independent_physical_distances();
     semantic_presentation_geometry_maps_once_into_target_space();
     semantic_presentation_identity_tracks_every_device_field();

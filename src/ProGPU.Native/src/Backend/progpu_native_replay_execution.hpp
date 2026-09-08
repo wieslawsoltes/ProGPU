@@ -135,7 +135,8 @@ bool create_semantic_layer_mask_binding(
     const semantic::semantic_state_cursor* composite_state_cursor,
     const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation,
-    std::uint64_t& texture_upload_bytes);
+    std::uint64_t& texture_upload_bytes,
+    const progpu_native_scene_presentation& presentation);
 
 bool create_gaussian_effect_resources(progpu_native_engine& engine);
 bool create_drop_shadow_effect_resources(progpu_native_engine& engine);

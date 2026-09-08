@@ -758,22 +758,81 @@ void localize_semantic_point(float& x, float& y, const scissor& target,
     y = mapped[1];
 }
 
-progpu_native_scene_state localize_semantic_state(progpu_native_scene_state state,
+progpu_native_affine_2d localize_semantic_transform(progpu_native_affine_2d transform,
     const scissor& target, const progpu_native_scene_presentation& presentation,
     float raster_dpi) noexcept {
     if (presentation.dpi_scale_x == raster_dpi && presentation.dpi_scale_y == raster_dpi &&
-        presentation.viewport_x == 0U && presentation.viewport_y == 0U)
-        return localize_semantic_state(state, target, raster_dpi);
+        presentation.viewport_x == 0U && presentation.viewport_y == 0U) {
+        transform.m31 -= static_cast<float>(target.x) / raster_dpi;
+        transform.m32 -= static_cast<float>(target.y) / raster_dpi;
+        return transform;
+    }
     const auto linear = scale_translate_four(
-        {state.transform.m11, state.transform.m12, state.transform.m21, state.transform.m22},
+        {transform.m11, transform.m12, transform.m21, transform.m22},
         {presentation.dpi_scale_x / raster_dpi, presentation.dpi_scale_y / raster_dpi,
             presentation.dpi_scale_x / raster_dpi, presentation.dpi_scale_y / raster_dpi}, {});
-    state.transform.m11 = linear[0];
-    state.transform.m12 = linear[1];
-    state.transform.m21 = linear[2];
-    state.transform.m22 = linear[3];
-    localize_semantic_point(state.transform.m31, state.transform.m32, target, presentation, raster_dpi);
+    transform.m11 = linear[0];
+    transform.m12 = linear[1];
+    transform.m21 = linear[2];
+    transform.m22 = linear[3];
+    localize_semantic_point(transform.m31, transform.m32, target, presentation, raster_dpi);
+    return transform;
+}
+
+progpu_native_scene_state localize_semantic_state(progpu_native_scene_state state,
+    const scissor& target, const progpu_native_scene_presentation& presentation,
+    float raster_dpi) noexcept {
+    state.transform = localize_semantic_transform(state.transform, target, presentation, raster_dpi);
     return state;
+}
+
+bool try_resolve_semantic_mask_uv(const progpu_native_affine_2d& transform,
+    const progpu_native_image_rect& bounds, const scissor& target,
+    const progpu_native_scene_presentation& presentation, float raster_dpi,
+    std::array<double, 6U>& uv) noexcept {
+    if (!std::isfinite(raster_dpi) || raster_dpi <= 0.0F ||
+        !std::isfinite(presentation.dpi_scale_x) || presentation.dpi_scale_x <= 0.0F ||
+        !std::isfinite(presentation.dpi_scale_y) || presentation.dpi_scale_y <= 0.0F ||
+        !std::isfinite(bounds.width) || bounds.width <= 0.0F ||
+        !std::isfinite(bounds.height) || bounds.height <= 0.0F)
+        return false;
+    const bool legacy = presentation.viewport_x == 0U && presentation.viewport_y == 0U &&
+        presentation.dpi_scale_x == raster_dpi && presentation.dpi_scale_y == raster_dpi;
+    const double scale_x = static_cast<double>(presentation.dpi_scale_x) / raster_dpi;
+    const double scale_y = static_cast<double>(presentation.dpi_scale_y) / raster_dpi;
+    const double m11 = legacy ? transform.m11 : transform.m11 * scale_x;
+    const double m12 = legacy ? transform.m12 : transform.m12 * scale_y;
+    const double m21 = legacy ? transform.m21 : transform.m21 * scale_x;
+    const double m22 = legacy ? transform.m22 : transform.m22 * scale_y;
+    const double m31 = legacy
+        ? transform.m31 - static_cast<double>(target.x) / raster_dpi
+        : transform.m31 * scale_x + (static_cast<double>(presentation.viewport_x) - target.x) / raster_dpi;
+    const double m32 = legacy
+        ? transform.m32 - static_cast<double>(target.y) / raster_dpi
+        : transform.m32 * scale_y + (static_cast<double>(presentation.viewport_y) - target.y) / raster_dpi;
+    const double determinant = m11 * m22 - m12 * m21;
+    if (!std::isfinite(determinant) || determinant == 0.0) return false;
+    const double inverse_m11 = m22 / determinant;
+    const double inverse_m12 = -m12 / determinant;
+    const double inverse_m21 = -m21 / determinant;
+    const double inverse_m22 = m11 / determinant;
+    const double inverse_m31 = (m21 * m32 - m22 * m31) / determinant;
+    const double inverse_m32 = (m12 * m31 - m11 * m32) / determinant;
+    // Preserve the original float product before widening in the legacy path.
+    const double physical_x = legacy ? static_cast<double>(raster_dpi * bounds.width)
+        : static_cast<double>(raster_dpi) * bounds.width;
+    const double physical_y = legacy ? static_cast<double>(raster_dpi * bounds.height)
+        : static_cast<double>(raster_dpi) * bounds.height;
+    const std::array<double, 6U> candidate{
+        inverse_m11 / physical_x, inverse_m21 / physical_x,
+        (inverse_m31 - bounds.x) / bounds.width,
+        inverse_m12 / physical_y, inverse_m22 / physical_y,
+        (inverse_m32 - bounds.y) / bounds.height};
+    for (double value : candidate)
+        if (!std::isfinite(value) || std::abs(value) > std::numeric_limits<float>::max())
+            return false;
+    uv = candidate;
+    return true;
 }
 
 semantic_layer_target_cursor::semantic_layer_target_cursor(

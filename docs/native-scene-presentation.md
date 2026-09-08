@@ -112,6 +112,30 @@ local pages; it is conservative across viewport moves, not a maximal-reuse claim
 Mask/picture mapping, glyph/path raster details, 3D, damage/clear behavior and
 their remaining cache consumers still block enabling advanced presentation.
 
+Mask checkpoint: per-draw and layer-composite mask creation now receives the
+current target's presentation explicitly. Rounded/analytic chains and vector
+clip paths share the same intrinsic affine localization as draw geometry.
+Path/boolean topology, fill rules and sample grids remain unchanged; no path is
+replaced by its rectangle bounds. Vector-mask retained revisions include the
+presentation fields beyond the legacy DPI/dimensions/origin key.
+
+Coverage bitmap masks map target-local physical positions back to source UVs
+through a fixed double-precision affine inverse. Legacy mapping preserves the
+previous arithmetic; advanced mapping subtracts physical origins before
+narrowing. Invalid or nonrepresentable UV coefficients fail before GPU allocation,
+without partially publishing an output. This is O(1) matrix/uniform setup, not a
+CPU pixel loop. Existing source pixels and nearest/linear sampling remain intact.
+
+Brush and geometry masks localize their geometry while retaining source material
+coordinates. Composite guideline deformation resolves in logical coordinates
+before the device transform. Geometry-mask scissor culling uses the independent
+physical axes and viewport origin; its padded envelope only limits raster work,
+not the exact mask. Composite vector/brush/geometry children receive the same
+presentation and continue through their existing bounded GPU composition.
+Picture-backed masks (standalone or composite children) still fail explicitly for
+advanced mappings until nested-picture raster ownership and sampling are wired.
+The whole-renderer guard remains; this checkpoint is not enabled host support.
+
 | Consumer | Required implementation before enabling host support |
 | --- | --- |
 | Semantic state and guidelines | Apply physical mapping at the device boundary, keep per-axis pixel snapping and explicit physical guideline offsets correct, and avoid double application in nested scopes. |
@@ -169,6 +193,18 @@ equal-axis behavior remains the common reference. The new unequal-axis native
 submission is not evidence of unequal-axis managed effect parity. Matched
 application images, cache invalidation and layer-composition differentials are
 still required at qualification; no shared shader algorithm was changed here.
+
+Mask integration derives from original ProGPU `9f4ce9c6`: semantic layer-mask
+resource/binding creation, the coverage UV inverse, vector-mask revision and
+rebuild logic, brush/geometry mask compilation and composite-mask children.
+Managed `Compositor.cs` owns a separate retained mask/clip pipeline and does not
+decode this native presentation suffix. Its existing scalar frame plus logical
+transform path remains unchanged, as do the shared mask/vector shaders and source
+materials. This native metadata integration must still be compared against that
+managed output for common scenes at final qualification; it does not establish
+independent-axis parity by itself. The existing primary-research decisions below
+continue to apply: logical clips/materials are separate from device/layer mapping,
+and device-dependent masks are invalidated without rebuilding logical content.
 
 ## Primary research and design decisions
 
@@ -229,6 +265,15 @@ kinds, viewport independence, physical kernel limits, overflow, transactional
 failure and equal-axis behavior. The portable MIL fixture target builds as well.
 No fixture, shader, image, VM workload, verifier or benchmark was executed for
 this checkpoint. Full cached/tile-layer composite images remain unqualified.
+
+Mask additions include authored inverse-mapping/forward-mapping differentials
+for affine rotation/shear, unequal axes, cropped targets and large nearby physical
+origins, plus legacy UV values and singular transactional failure. They compile
+along with the state, main render execution, layer resources, bitmap/vector mask
+resources, brush/geometry mask resources and composite-mask resources under the
+same Apple Clang C++20 warnings-as-errors setup. Compilation is not execution;
+mask sampling/AA images, mixed cache guidelines and retained invalidation still
+require final runtime differentials.
 
 Compilation checkpoints are recorded in the PR. Full renderer/provider builds,
 all tests/verifiers, macOS/Linux and Windows Parallels runs, text/clip/image

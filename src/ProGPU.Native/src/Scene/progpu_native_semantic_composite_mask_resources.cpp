@@ -91,8 +91,15 @@ bool create_semantic_composite_mask_binding(
     float dpi_scale,
     const semantic::semantic_state_cursor* composite_state_cursor,
     const progpu_native_scene_state* composite_state,
-    semantic_render_bundle_span& operation) {
+    semantic_render_bundle_span& operation,
+    const progpu_native_scene_presentation* presentation) {
     const auto& source = parsed.composite;
+    // Nested picture raster domains are integrated separately; fail before
+    // allocating any child if that consumer cannot honor this presentation.
+    if (source.picture_mask_count != 0U && presentation != nullptr &&
+        (presentation->viewport_x != 0U || presentation->viewport_y != 0U ||
+            presentation->dpi_scale_x != dpi_scale || presentation->dpi_scale_y != dpi_scale))
+        return false;
     if (source.component_count < 2U ||
         source.component_count > 64U || target_extent.width == 0U ||
         target_extent.height == 0U || !std::isfinite(dpi_scale) ||
@@ -196,7 +203,8 @@ bool create_semantic_composite_mask_binding(
                 resource,
                 target_extent,
                 dpi_scale,
-                child_operation)) {
+                child_operation,
+                presentation)) {
             cleanup();
             return false;
         }
@@ -238,7 +246,8 @@ bool create_semantic_composite_mask_binding(
                 child,
                 target_extent,
                 dpi_scale,
-                child_operation)) {
+                child_operation,
+                presentation)) {
             cleanup();
             return false;
         }
@@ -259,7 +268,8 @@ bool create_semantic_composite_mask_binding(
                 dpi_scale,
                 composite_state_cursor,
                 composite_state,
-                child_operation)) {
+                child_operation,
+                presentation)) {
             cleanup();
             return false;
         }

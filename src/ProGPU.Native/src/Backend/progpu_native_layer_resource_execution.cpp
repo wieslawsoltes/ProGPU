@@ -16,6 +16,7 @@
 #include "progpu_native_replay_execution.hpp"
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_layer_mask_resources.hpp"
+#include "progpu_native_semantic_state.hpp"
 #include "progpu_native_webgpu_resources.hpp"
 #include "GaussianBlurHorizontalWgsl.generated.hpp"
 #include "GaussianBlurVerticalWgsl.generated.hpp"
@@ -861,7 +862,8 @@ bool create_semantic_layer_mask_binding(
     const semantic::semantic_state_cursor* composite_state_cursor,
     const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation,
-    std::uint64_t& texture_upload_bytes) {
+    std::uint64_t& texture_upload_bytes,
+    const progpu_native_scene_presentation& presentation) {
     texture_upload_bytes = 0U;
     semantic::semantic_layer_mask parsed{};
     std::uint32_t error_offset = resource.payload_offset;
@@ -877,7 +879,8 @@ bool create_semantic_layer_mask_binding(
             target_extent,
             dpi_scale,
             operation,
-            texture_upload_bytes);
+            texture_upload_bytes,
+            presentation);
     }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) {
         return create_semantic_vector_mask_binding(
@@ -886,8 +889,16 @@ bool create_semantic_layer_mask_binding(
             resource,
             target_extent,
             dpi_scale,
-            operation);
+            operation,
+            &presentation);
     }
+    // Picture consumers still have their own logical/raster domains. Do not
+    // silently run their legacy mapping when called with advanced presentation.
+    const bool advanced_presentation = presentation.viewport_x != 0U ||
+        presentation.viewport_y != 0U || presentation.dpi_scale_x != dpi_scale ||
+        presentation.dpi_scale_y != dpi_scale;
+    if (advanced_presentation && parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE)
+        return false;
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH) {
         return create_semantic_brush_mask_binding(
             engine,
@@ -896,7 +907,8 @@ bool create_semantic_layer_mask_binding(
             dpi_scale,
             composite_state_cursor,
             composite_state,
-            operation);
+            operation,
+            &presentation);
     }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY) {
         return create_semantic_geometry_mask_binding(
@@ -904,7 +916,8 @@ bool create_semantic_layer_mask_binding(
             parsed,
             target_extent,
             dpi_scale,
-            operation);
+            operation,
+            &presentation);
     }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) {
         return create_semantic_picture_mask_binding(
@@ -926,7 +939,8 @@ bool create_semantic_layer_mask_binding(
             dpi_scale,
             composite_state_cursor,
             composite_state,
-            operation);
+            operation,
+            &presentation);
     }
     if (!create_layer_mask_resources(engine)) {
         return false;
@@ -938,11 +952,8 @@ bool create_semantic_layer_mask_binding(
         mask.struct_size = sizeof(mask);
         mask.kind = PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
         mask.bounds = source.bounds;
-        mask.transform = source.transform;
-        mask.transform.m31 -=
-            static_cast<float>(target_extent.x) / dpi_scale;
-        mask.transform.m32 -=
-            static_cast<float>(target_extent.y) / dpi_scale;
+        mask.transform = semantic::localize_semantic_transform(
+            source.transform, target_extent, presentation, dpi_scale);
         std::copy_n(source.corner_radii_x, 4U, mask.corner_radii_x);
         std::copy_n(source.corner_radii_y, 4U, mask.corner_radii_y);
         mask.opacity = source.opacity;

@@ -3920,6 +3920,7 @@ progpu_native_status render_scene(
             std::uint32_t target_layer,
             std::uint32_t mask_resource_index,
             semantic_scissor target_extent,
+            const progpu_native_scene_presentation& target_presentation,
             bool uses_depth) {
             WGPURenderBundleEncoderDescriptor bundle_descriptor{};
             bundle_descriptor.label = progpu::native::webgpu::string_view(
@@ -3959,7 +3960,8 @@ progpu_native_status render_scene(
                         nullptr,
                         nullptr,
                         active_mask,
-                        mask_texture_upload_bytes)) {
+                        mask_texture_upload_bytes,
+                        target_presentation)) {
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                         "A retained per-draw semantic mask binding could not be prepared.");
@@ -4478,7 +4480,8 @@ progpu_native_status render_scene(
                                     ? &composite_state
                                     : nullptr,
                                 operation,
-                                mask_texture_upload_bytes)) {
+                                mask_texture_upload_bytes,
+                                target_cursor.current_presentation())) {
                             return fail_bundle(engine->fail(
                                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                                 "A retained semantic layer-mask binding could not be prepared."));
@@ -4621,6 +4624,7 @@ progpu_native_status render_scene(
                     current_target_layer,
                     mask_resource_index,
                     target_extent,
+                    target_cursor.current_presentation(),
                     command_uses_depth);
                 if (begin_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                     return fail_bundle(begin_status);
