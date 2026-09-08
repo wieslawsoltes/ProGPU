@@ -139,3 +139,69 @@ Linux screenshot failure is tracked separately in
 [browser validation](PROGPU_CAD_BROWSER_VALIDATION.md#new-head-ci-remains-unreliable-2026-09-08).
 Generated DXFs, screenshots, stacks, and logs remain ignored under
 `artifacts/progpu-cad/`.
+
+## Isolating malformed-clip rejection
+
+A temporary browser startup probe constructs one six-vertex WIPEOUT with two
+closing vertices and calls the ordinary snapshot compiler **before**
+`BrowserGpuRuntime.InitializeAsync`. The Release AOT app logs entry and fails to
+complete within the probe's 30-second deadline. No WebGPU device or CAD view has
+been created. This separates the malformed-input failure from Linux GPU
+presentation and the fixed DXF writer. A new desktop regression repeatedly
+rejects this clip, checks partial-clip rollback, and compiles a subsequent valid
+WIPEOUT; all 18 focused WIPEOUT tests pass on the existing handler.
+
+The correction moves the snapshot compiler's side-effect-free exception
+classification out of its filter and into the handler. Unsupported-entity
+handling retains priority; argument/arithmetic/invalid-operation/format failures
+retain CADSNAP002; document expansion limits and other exceptions are rethrown.
+All 1,629 CAD tests pass on desktop. The same browser AOT pre-GPU probe now
+returns CADSNAP002 for the collapsed edge and completes normally. This isolates
+the effect of the filter-to-handler change, without changing the malformed
+geometry or its rejection policy. The temporary startup probe is removed.
+The final uninstrumented hardware browser smoke passes: normal editing,
+opening/resaving a deliberately malformed clip without mutating its model-space
+entity tags, reopening a valid drawing, and 2880x1800 resize all complete.
+Its result records `malformedClipRecovery: true`, 1,423 frames, and 1,472
+dispatches. The malformed fixture is generated independently in the driver by
+adding one closing vertex to the correct DXF, not by changing production
+writer behavior or introducing a document-mutation test hook.
+The same final binaries also pass the macOS SwiftShader workflow with
+`malformedClipRecovery: true` (96 frames / 120 dispatches, 2880x1800). The
+recovered hardware screenshot was inspected. The final incremental desktop
+Release build completes with no warnings or errors; earlier dependency/linker
+warnings remain documented and are not claimed to have been eliminated.
+
+The final renderer gates also pass: 3,862 core tests and 280 headless tests.
+These supplement the 1,629 CAD tests; they do not certify comprehensive CAD
+interoperability or rendering performance.
+
+The relevant primary contract is the C# specification's
+[exception propagation and try statement](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/language-specification/statements#1311-the-try-statement):
+filters execute during handler search, whereas a catch body executes after
+selection; a bare rethrow preserves the current exception. An upstream
+[Mono/Wasm AOT exception-filter report](https://github.com/dotnet/runtime/issues/86978)
+motivates isolation but is not proof that this is the same runtime defect. No
+upstream implementation or reproducer code was copied.
+
+The [background scene research](PROGPU_CAD_BACKGROUND_PLAN_RESEARCH.md) remains
+applicable: retain the CPU snapshot/validation boundary from the Skia,
+Direct2D/Win2D, WebRender, Vello/Parley, and HarfBuzz comparison. Their public
+command-list, layout, and shaping contracts were rechecked; no new renderer,
+shaping, cache, startup, upload, or device-loss architecture is proposed. Vello's
+old vision URL was unavailable; its [current project overview](https://github.com/linebender/vello)
+was checked instead. Both managed and native picture consumers receive the
+same snapshot or propagated failure, and neither has a separate CAD exception
+classifier. Normal geometry algorithms and complexity remain unchanged; no
+performance improvement, timing parity, or quality reduction is claimed.
+The exact in-repository source is `CadSnapshotCompiler.CompileSpace`'s local
+`CompileEntityTree` handler at ProGPU `2c328dc6`; this is a refactoring of that
+original classifier. The guard adds no normal-path work, no state retained
+between compilations, and no additional exception-path allocation.
+
+CI `34214153089` on `2c328dc6` passes CAD tests and AOT linking, then fails the
+initial full-page screenshot after 120 seconds. This remains a separate
+rendering gate, not evidence about the temporary pre-GPU exception probe.
+Its preceding cropped drawing capture succeeds after 106,420 ms; failure DOM
+state reports 18 frames / 29 dispatches and 2560x1600. That does not qualify
+the subsequent page capture or the full Linux workflow.

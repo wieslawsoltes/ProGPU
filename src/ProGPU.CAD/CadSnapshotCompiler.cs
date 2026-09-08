@@ -930,10 +930,16 @@ public sealed partial class CadSnapshotCompiler
                         "CADSNAP003",
                         $"Entity path {FormatEntityPath(rootHandle, entity.Handle)} ({entity.ObjectName}) is not yet supported: {exception.Message}"));
             }
-            catch (Exception exception) when (
-                (exception is ArgumentException or ArithmeticException or InvalidOperationException or FormatException) &&
-                exception is not CadSnapshotExpansionLimitException)
+            catch (Exception exception)
             {
+                // Keep this classification inside the handler. The browser AOT
+                // runtime can stall in a filter during nested primitive rollback
+                // and rethrow (for example a malformed WIPEOUT clip).
+                if (exception is not (ArgumentException or ArithmeticException or InvalidOperationException or FormatException) ||
+                    exception is CadSnapshotExpansionLimitException)
+                {
+                    throw;
+                }
                 invalidCount++;
                 AddDiagnostic(
                     diagnostics,

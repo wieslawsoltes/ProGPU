@@ -411,6 +411,40 @@ public sealed class CadWipeoutTests
     }
 
     [Fact]
+    public void DuplicateClosingVertexIsRejectedWithoutLeakingClipPointsOrBlockingLaterEntities()
+    {
+        var document = new CadDocument();
+        Wipeout invalid = CreateWipeout();
+        invalid.ClipBoundaryVertices.Add(invalid.ClipBoundaryVertices[0]);
+        invalid.ClipBoundaryVertices.Add(invalid.ClipBoundaryVertices[0]);
+        document.Entities.Add(invalid);
+        Wipeout valid = CreateWipeout();
+        document.Entities.Add(valid);
+        var session = new CadDocumentSession(document);
+        var compiler = new CadSnapshotCompiler();
+        CadDocumentSnapshot expected = compiler.Compile(new CadDocumentSession(
+            CreateValidDocument()));
+
+        for (int repetition = 0; repetition < 3; repetition++)
+        {
+            CadDocumentSnapshot snapshot = compiler.Compile(session);
+            Assert.Equal(1, snapshot.Statistics.InvalidEntityCount);
+            Assert.Single(snapshot.Wipeouts.ToArray());
+            Assert.Equal(expected.WipeoutClipPoints.ToArray(), snapshot.WipeoutClipPoints.ToArray());
+            Assert.Equal(0, snapshot.Wipeouts.Span[0].ClipPointOffset);
+            Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+                diagnostic.Code == "CADSNAP002" && diagnostic.Message.Contains("collapsed edge", StringComparison.Ordinal));
+        }
+
+        static CadDocument CreateValidDocument()
+        {
+            var source = new CadDocument();
+            source.Entities.Add(CreateWipeout());
+            return source;
+        }
+    }
+
+    [Fact]
     public void InvalidClipIsDiagnosedAndConfiguredBudgetsAreEnforced()
     {
         Wipeout invalid = CreateWipeout();

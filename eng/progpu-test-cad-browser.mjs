@@ -397,6 +397,46 @@ try {
   assert.equal(editReopened.fileName, 'edit-final.dxf', 'Opening the edited file did not replace the session.');
   assert.deepEqual(lineCoordinates(editReopened.added[0]), translated);
   await screenshot({ path: path.join(evidence, 'edited.png') });
+
+  // An invalid primitive must produce a diagnostic, not hang exception
+  // propagation or prevent opening a subsequent valid drawing. Construct the
+  // old duplicate-closure defect independently from the now-correct writer.
+  const malformedLines = (await fs.readFile(finalEdit.file, 'utf8')).split(/\r?\n/);
+  let wipeoutStart = -1;
+  let wipeoutEnd = -1;
+  for (let i = 0; i < malformedLines.length - 1; i += 2) {
+    if (malformedLines[i].trim() !== '0') continue;
+    if (wipeoutStart >= 0) { wipeoutEnd = i; break; }
+    if (malformedLines[i + 1].trim() === 'WIPEOUT') wipeoutStart = i;
+  }
+  assert.ok(wipeoutStart >= 0 && wipeoutEnd > wipeoutStart);
+  let countIndex = -1;
+  let firstX;
+  let firstY;
+  for (let i = wipeoutStart + 2; i < wipeoutEnd; i += 2) {
+    const code = malformedLines[i].trim();
+    if (code === '91') countIndex = i + 1;
+    if (code === '14' && firstX === undefined) firstX = malformedLines[i + 1];
+    if (code === '24' && firstY === undefined) firstY = malformedLines[i + 1];
+  }
+  assert.ok(countIndex >= 0 && firstX !== undefined && firstY !== undefined);
+  malformedLines[countIndex] = String(Number(malformedLines[countIndex]) + 1);
+  malformedLines.splice(wipeoutEnd, 0, ' 14', firstX, ' 24', firstY);
+  const malformedFile = path.join(evidence, 'invalid-clip.dxf');
+  await fs.writeFile(malformedFile, malformedLines.join('\n'));
+  const malformedChooser = await clickUntilEvent('filechooser', 70, 22);
+  await diagnosticDeadline(malformedChooser.setFiles(malformedFile, { timeout: 30_000 }), 'Malformed file input', 30_000);
+  const malformedDownload = await clickUntilEvent('download', 195, 22, 60_000);
+  assert.equal(malformedDownload.suggestedFilename(), 'invalid-clip.dxf');
+  const malformedSaved = path.join(evidence, 'invalid-clip-resaved.dxf');
+  await malformedDownload.saveAs(malformedSaved);
+  assert.deepEqual(modelEntities(await fs.readFile(malformedSaved)),
+    modelEntities(await fs.readFile(malformedFile)), 'Rendering rejection mutated the source document.');
+  const recoveryChooser = await clickUntilEvent('filechooser', 70, 22);
+  await diagnosticDeadline(recoveryChooser.setFiles(finalEdit.file, { timeout: 30_000 }), 'Recovery file input', 30_000);
+  const recovered = await saveEdit('edit-recovered', 17);
+  assert.equal(recovered.fileName, 'edit-final.dxf');
+  assert.deepEqual(lineCoordinates(recovered.added[0]), translated);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForFunction(() => {
     const canvas = document.querySelector('#progpu-canvas');
@@ -415,6 +455,7 @@ try {
   result.savedEntityTypes = savedTypes;
   result.reopenedFileName = reopenedDownload.suggestedFilename();
   result.editing = ['line', 'undo', 'redo', 'selection', 'move', 'copy', 'delete', 'save', 'reopen'];
+  result.malformedClipRecovery = true;
   result.visualTimeoutMs = visualTimeoutMs;
   await fs.writeFile(path.join(evidence, 'result.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result));
