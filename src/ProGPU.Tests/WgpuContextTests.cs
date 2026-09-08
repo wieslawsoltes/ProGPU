@@ -17,6 +17,44 @@ public sealed class WgpuContextLossCollection
 [Collection(WgpuContextLossCollection.Name)]
 public sealed class WgpuContextTests
 {
+    [Theory]
+    [InlineData(SurfaceGetCurrentTextureStatus.Timeout)]
+    [InlineData(SurfaceGetCurrentTextureStatus.Outdated)]
+    [InlineData(SurfaceGetCurrentTextureStatus.Lost)]
+    public void RecoverableSurfaceAcquisitionRequestsAnotherFrame(
+        SurfaceGetCurrentTextureStatus status)
+    {
+        using var context = new WgpuContext();
+        Assert.True(context.HandleSurfaceAcquisitionFailure(status));
+        Assert.False(context.IsDeviceLost);
+    }
+
+    [Fact]
+    public void SurfaceDeviceLossIsTerminalAndDoesNotPoisonIndependentContexts()
+    {
+        using var lost = new WgpuContext();
+        using var independent = new WgpuContext();
+        Assert.False(lost.HandleSurfaceAcquisitionFailure(SurfaceGetCurrentTextureStatus.DeviceLost));
+        Assert.True(lost.IsDeviceLost);
+        Assert.False(independent.IsDeviceLost);
+        Assert.False(lost.HandleSurfaceAcquisitionFailure(SurfaceGetCurrentTextureStatus.Timeout));
+        Assert.False(lost.HandleSurfaceAcquisitionFailure(SurfaceGetCurrentTextureStatus.Outdated));
+        Assert.False(lost.HandleSurfaceAcquisitionFailure(SurfaceGetCurrentTextureStatus.Lost));
+    }
+
+    [Fact]
+    public void SurfaceAcquisitionDoesNotSilentlyRetryMemoryOrContractFailures()
+    {
+        using var context = new WgpuContext();
+        Assert.Throws<OutOfMemoryException>(() =>
+            context.HandleSurfaceAcquisitionFailure(SurfaceGetCurrentTextureStatus.OutOfMemory));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            context.HandleSurfaceAcquisitionFailure(SurfaceGetCurrentTextureStatus.Success));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            context.HandleSurfaceAcquisitionFailure((SurfaceGetCurrentTextureStatus)int.MaxValue));
+        Assert.False(context.IsDeviceLost);
+    }
+
     [Fact]
     public void SilkNativeContextsShareProcessWideRenderLock()
     {

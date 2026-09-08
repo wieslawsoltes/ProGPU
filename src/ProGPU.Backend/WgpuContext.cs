@@ -1965,6 +1965,36 @@ public unsafe class WgpuContext : IDisposable
         _hasSurfaceConfigurationCapabilities = false;
     }
 
+    /// <summary>
+    /// Applies the shared recovery policy after an unsuccessful surface acquisition.
+    /// The caller must release any returned texture before calling this method.
+    /// Returns true when the host should schedule another frame, or false for a
+    /// terminally lost device. Out-of-memory and invalid statuses fail explicitly.
+    /// No acquisition, configuration, device recreation or scheduling is performed.
+    /// </summary>
+    public bool HandleSurfaceAcquisitionFailure(SurfaceGetCurrentTextureStatus status)
+    {
+        switch (status)
+        {
+            case SurfaceGetCurrentTextureStatus.Timeout:
+                return !IsDeviceLost;
+            case SurfaceGetCurrentTextureStatus.Outdated:
+            case SurfaceGetCurrentTextureStatus.Lost:
+                InvalidateSurfaceConfiguration();
+                return !IsDeviceLost;
+            case SurfaceGetCurrentTextureStatus.DeviceLost:
+                ReportDeviceLost(DeviceLostReason.Unknown,
+                    "The presentation surface reported device loss.");
+                return false;
+            case SurfaceGetCurrentTextureStatus.OutOfMemory:
+                throw new OutOfMemoryException(
+                    "The WebGPU presentation surface ran out of memory.");
+            default:
+                throw new ArgumentOutOfRangeException(nameof(status), status,
+                    "Expected a known unsuccessful surface acquisition status.");
+        }
+    }
+
     public static bool CanConfigureSurface(
         ReadOnlySpan<TextureFormat> formats,
         ReadOnlySpan<CompositeAlphaMode> alphaModes,
