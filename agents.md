@@ -240,13 +240,23 @@ typed buffers, actual positioned-glyph cluster ends and resolved bidi levels.
 Do not repack glyphs into a second implementation, alias incompatible C/C++ record
 layouts, invent cluster boundaries, or publish capacities as output counts.
 Managed by-reference outputs must remain pinned across the complete native call.
-`NativeTextParagraphSnapshot` is a single-typography source/editor adapter, not a
-replacement styled composer. Keep its real UTF offsets, logical cluster successors,
+`NativeTextParagraphSnapshot` maps source/editor style ranges into the shared
+native paragraph; it is not a replacement composer. Keep real UTF offsets, logical cluster successors,
 native bidi metadata and successful output counts. Do not guess cluster end as
 start plus one or drive logical WPF navigation with visual caret order. Source
-mixed-style/fallback-font/document/trimming gaps remain explicit until connected
+fallback-font/document/trimming gaps remain explicit until connected
 to the shared native pipeline. UTF expansion uses intrinsic BMP/surrogate blocks;
 its mixed-sequence decoder and topology-dependent metadata are not GPU fallbacks.
+Styled native layout selects explicit context-owned faces, per-run feature/language
+ranges and floating-point design-unit scales before wrapping and visual ordering.
+Do not rescale font-unit integers or duplicate the paragraph composer. Empty styles
+preserve the uniform API. UTF-16 style ranges must cover input exactly at scalar
+boundaries; positioned glyphs retain their actual face index. Scalar topology and
+prefix scans are dependency-bound; four independent metric lanes use NEON/SSE2.
+Source run metrics and drawing brushes remain source-owned. Explicit faces are
+not a completed composite-font/fallback policy, and compiled styled fixtures are
+not application qualification. Single-face styled paragraphs reuse leased plans;
+multi-face contexts are isolated until a bounded palette cache is implemented.
 Source custom chrome must recognize ProGPU window ownership before HWND access,
 including registered/pre-source activation. A host HWND is not a WPF HwndSource;
 portable border updates and restoration stay on typed source/host contracts.

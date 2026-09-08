@@ -192,7 +192,7 @@ public readonly record struct NativeTextParagraphOptions(
 /// Disposal waits for another thread's active operation; no pointer is destroyed
 /// while that operation is in flight. Separate contexts can execute in parallel.
 /// </summary>
-public sealed unsafe class NativeTextShapingContext : IDisposable
+public sealed unsafe partial class NativeTextShapingContext : IDisposable
 {
     private readonly NativeTextContextOwner _owner;
 

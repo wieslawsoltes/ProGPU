@@ -12,16 +12,20 @@ public enum PortableTextAlignment { Left, Center, Right, Justify }
 public readonly record struct PortableTextFeature(uint Tag, uint Value);
 
 /// <summary>
-/// One horizontal typography domain. UTF-16 offsets are relative to Text. Source
-/// adapters must reject mixed typography until the styled paragraph contract is available.
+/// Horizontal paragraph. Optional styles partition Text at UTF-16 scalar boundaries;
+/// an empty style list preserves the uniform font/feature domain.
 /// </summary>
 public readonly record struct PortableTextParagraphRequest(
     ReadOnlyMemory<char> Text, PortableTextFont Font, float FontSize,
     float LineHeight, float MaximumWidth, bool RightToLeft, PortableTextAlignment Alignment,
-    ReadOnlyMemory<PortableTextFeature> Features = default);
+    ReadOnlyMemory<PortableTextFeature> Features = default,
+    ReadOnlyMemory<PortableTextStyle> Styles = default);
+
+public readonly record struct PortableTextStyle(int Start, int Length, PortableTextFont Font,
+    float FontSize, ReadOnlyMemory<PortableTextFeature> Features = default, uint Language = 0);
 
 public readonly record struct PortableTextGlyph(uint GlyphId, int Cluster, int ClusterEnd,
-    float X, float Y, float Advance, sbyte BidiLevel);
+    float X, float Y, float Advance, sbyte BidiLevel, uint FontIndex = 0);
 public readonly record struct PortableTextLineInfo(int GlyphStart, int GlyphCount,
     int InputStart, int InputEnd, float Width, float Y, float Height);
 public readonly record struct PortableTextHit(int Position, bool Trailing);
@@ -31,6 +35,9 @@ public interface IPortableTextParagraph
 {
     /// <summary>Opaque render-font annotation, as on PortableNativeGlyphRun; never inspected by source WPF.</summary>
     object? NativeFont => null;
+    /// <summary>Exact context face annotation for each positioned glyph, not a family-name lookup.</summary>
+    object? GetNativeFont(uint fontIndex) => fontIndex == 0 ? NativeFont :
+        throw new ArgumentOutOfRangeException(nameof(fontIndex));
     ReadOnlyMemory<PortableTextGlyph> Glyphs { get; }
     ReadOnlyMemory<PortableTextLineInfo> Lines { get; }
     PortableTextHit HitTest(int lineIndex, float distance);

@@ -13,6 +13,19 @@ namespace Avalonia.ProGpu.UnitTests;
 public class NativeRendererInteropTests
 {
     [Fact]
+    public void StyledParagraphContractsAreBorrowedPinnedAndLeased()
+    {
+        Assert.Equal(32, Unsafe.SizeOf<NativeTextStyleRun>());
+        Assert.Equal(12, Marshal.OffsetOf<NativeTextStyleRun>(nameof(NativeTextStyleRun.Scale)).ToInt32());
+        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend.Native", "NativeTextStyledParagraphInterop.cs"));
+        Assert.Equal(2, source.Split("using var use = _owner.Acquire();").Length - 1);
+        Assert.Contains("fixed (NativeTextParagraphRequirements* output = &requirements)", source, StringComparison.Ordinal);
+        Assert.Contains("fixed (NativeTextParagraphResult* output = &result)", source, StringComparison.Ordinal);
+        Assert.Contains("ReadOnlySpan<NativeTextStyleRun> styles", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ToArray()", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NativeTextInteractionUsesGeneratedBorrowedContracts()
     {
         Assert.Equal(32, Unsafe.SizeOf<NativeTextClusterBox>());
@@ -42,7 +55,7 @@ public class NativeRendererInteropTests
     {
         string source = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Backend.Native", "NativeTextShapingInterop.cs"));
-        int contextStart = source.IndexOf("public sealed unsafe class NativeTextShapingContext", StringComparison.Ordinal);
+        int contextStart = source.IndexOf("public sealed unsafe partial class NativeTextShapingContext", StringComparison.Ordinal);
         Assert.True(contextStart >= 0);
         string context = source[contextStart..];
         foreach (string method in new[] { "AddFallbackFont", "GetRequirements", "Shape", "GetParagraphRequirements", "LayoutParagraph" })

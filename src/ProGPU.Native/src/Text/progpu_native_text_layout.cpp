@@ -1,11 +1,17 @@
 #include "progpu_native_text.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <span>
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#elif defined(__SSE2__) || defined(_M_X64)
+#include <emmintrin.h>
+#endif
 
 // Native port of the allocation-free positioned-line ownership in ProGPU-owned
 // TextLayout. Unicode line-break classification remains an independent input so
@@ -57,6 +63,55 @@ float horizontal_advance(
     return static_cast<float>(glyph.advance_x) * scale;
 }
 
+float scale_at(std::span<const float> scales, std::size_t index,
+    const text_layout_options& options) noexcept {
+    return scales.empty() ? options.scale : scales[index];
+}
+
+std::array<float, 4> scale_metrics(const shaping_glyph& glyph, float scale) noexcept {
+    std::array<float, 4> output{};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const std::int32_t input[4]{glyph.advance_x, glyph.advance_y, glyph.offset_x, glyph.offset_y};
+    vst1q_f32(output.data(), vmulq_n_f32(vcvtq_f32_s32(vld1q_s32(input)), scale));
+#elif defined(__SSE2__) || defined(_M_X64)
+    const auto input = _mm_set_epi32(glyph.offset_y, glyph.offset_x, glyph.advance_y, glyph.advance_x);
+    _mm_storeu_ps(output.data(), _mm_mul_ps(_mm_cvtepi32_ps(input), _mm_set1_ps(scale)));
+#else
+    // Fixed four-lane reference on architectures without the desktop SIMD baseline.
+    output = {static_cast<float>(glyph.advance_x) * scale, static_cast<float>(glyph.advance_y) * scale,
+        static_cast<float>(glyph.offset_x) * scale, static_cast<float>(glyph.offset_y) * scale};
+#endif
+    return output;
+}
+
+bool valid_scales(std::span<const shaping_glyph> glyphs,
+    std::span<const float> scales) noexcept {
+    if (scales.empty()) return true;
+    if (scales.size() != glyphs.size()) return false;
+    // Four independent metric lanes per glyph; no integer rescaling or rounding.
+    // Non-SIMD architectures retain the scalar reference; supported desktop
+    // baselines use NEON or SSE2, without an alignment precondition.
+    for (std::size_t i = 0; i < scales.size(); ++i) {
+        const float scale = scales[i];
+        if (!std::isfinite(scale) || scale <= 0.0F) return false;
+        const auto metrics = scale_metrics(glyphs[i], scale);
+#if defined(__aarch64__) || defined(_M_ARM64)
+        const auto product = vld1q_f32(metrics.data());
+        if (vminvq_u32(vcleq_f32(vabsq_f32(product), vdupq_n_f32(std::numeric_limits<float>::max()))) == 0U)
+            return false;
+#elif defined(__SSE2__) || defined(_M_X64)
+        const auto product = _mm_loadu_ps(metrics.data());
+        const auto absolute = _mm_andnot_ps(_mm_set1_ps(-0.0F), product);
+        if (_mm_movemask_ps(_mm_cmple_ps(absolute, _mm_set1_ps(std::numeric_limits<float>::max()))) != 15)
+            return false;
+#else
+        for (const auto metric : metrics)
+            if (!std::isfinite(metric)) return false;
+#endif
+    }
+    return true;
+}
+
 bool has_flag(
     shaping_glyph_flags value,
     shaping_glyph_flags flag) noexcept {
@@ -99,7 +154,8 @@ trimmed_line trim_line(
     const text_layout_options& options,
     std::size_t start,
     std::size_t end,
-    float width) noexcept {
+    float width,
+    std::span<const float> scales = {}) noexcept {
     const float ellipsis_width = options.ellipsis_advance * options.scale;
     if (options.maximum_width <= 0.0F ||
         width + ellipsis_width <= options.maximum_width) {
@@ -114,7 +170,7 @@ trimmed_line trim_line(
         do {
             --candidate;
             candidate_width -= horizontal_advance(
-                glyphs[candidate], options.scale);
+                glyphs[candidate], scale_at(scales, candidate, options));
         } while (candidate > start &&
             glyphs[candidate - 1U].cluster == cluster);
     }
@@ -127,7 +183,7 @@ trimmed_line trim_line(
     float word_width = 0.0F;
     float scan_width = 0.0F;
     for (std::size_t index = start; index < candidate; ++index) {
-        scan_width += horizontal_advance(glyphs[index], options.scale);
+        scan_width += horizontal_advance(glyphs[index], scale_at(scales, index, options));
         if (can_break_after(glyphs, breaks_after, index)) {
             word_end = index + 1U;
             word_width = scan_width;
@@ -143,7 +199,8 @@ line_scan scan_line(
     std::span<const text_line_break_kind> breaks_after,
     const text_layout_options& options,
     std::size_t start,
-    bool final_allowed_line) noexcept {
+    bool final_allowed_line,
+    std::span<const float> scales = {}) noexcept {
     float width = 0.0F;
     float break_width = 0.0F;
     std::size_t last_break = start;
@@ -155,7 +212,7 @@ line_scan scan_line(
             cluster_width = width;
         }
         const float next_width = width + horizontal_advance(
-            glyphs[index], options.scale);
+            glyphs[index], scale_at(scales, index, options));
         const bool break_here = can_break_after(glyphs, breaks_after, index);
         const bool mandatory = break_here &&
             breaks_after[index] == text_line_break_kind::mandatory;
@@ -177,7 +234,7 @@ line_scan scan_line(
             while (hard_end < glyphs.size() &&
                 !is_safe_break_before(glyphs, hard_end)) {
                 hard_width += horizontal_advance(
-                    glyphs[hard_end], options.scale);
+                    glyphs[hard_end], scale_at(scales, hard_end, options));
                 ++hard_end;
             }
             return line_scan{
@@ -196,14 +253,15 @@ bool count_lines(
     std::span<const shaping_glyph> glyphs,
     std::span<const text_line_break_kind> breaks_after,
     const text_layout_options& options,
-    std::uint32_t& result) noexcept {
+    std::uint32_t& result,
+    std::span<const float> scales = {}) noexcept {
     result = 0U;
     std::size_t start = 0U;
     while (start < glyphs.size()) {
         const bool final_allowed = options.maximum_lines != 0U &&
             result + 1U >= options.maximum_lines;
         const line_scan line = scan_line(
-            glyphs, breaks_after, options, start, final_allowed);
+            glyphs, breaks_after, options, start, final_allowed, scales);
         if (line.end <= start || line.end > glyphs.size()) {
             return false;
         }
@@ -224,14 +282,24 @@ bool try_get_text_layout_requirements(
     const text_layout_options& options,
     text_layout_requirements& result,
     font_error* error) noexcept {
+    return try_get_scaled_text_layout_requirements(glyphs, breaks_after, {}, options, result, error);
+}
+
+bool try_get_scaled_text_layout_requirements(
+    std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    std::span<const float> glyph_scales,
+    const text_layout_options& options,
+    text_layout_requirements& result,
+    font_error* error) noexcept {
     result = {};
     if (glyphs.size() > std::numeric_limits<std::uint32_t>::max() ||
-        breaks_after.size() != glyphs.size() || !valid_options(options)) {
+        breaks_after.size() != glyphs.size() || !valid_options(options) || !valid_scales(glyphs, glyph_scales)) {
         set_error(error, font_error::invalid_argument);
         return false;
     }
     std::uint32_t line_count = 0U;
-    if (!count_lines(glyphs, breaks_after, options, line_count)) {
+    if (!count_lines(glyphs, breaks_after, options, line_count, glyph_scales)) {
         set_error(error, font_error::invalid_argument);
         return false;
     }
@@ -366,12 +434,30 @@ bool try_layout_logical_shaped_text(
     std::uint32_t& glyph_count,
     std::uint32_t& line_count,
     font_error* error) noexcept {
+    return try_layout_scaled_logical_shaped_text(logical_glyphs, breaks_after, bidi_levels, {}, paragraph_level,
+        options, scratch, positioned_glyphs, lines, glyph_count, line_count, error);
+}
+
+bool try_layout_scaled_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels,
+    std::span<const float> glyph_scales,
+    std::int8_t paragraph_level,
+    const text_layout_options& options,
+    text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs,
+    std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count,
+    std::uint32_t& line_count,
+    font_error* error) noexcept {
     glyph_count = 0U;
     line_count = 0U;
     text_layout_requirements requirements{};
-    if (!try_get_text_layout_requirements(
+    if (!try_get_scaled_text_layout_requirements(
             logical_glyphs,
             breaks_after,
+            glyph_scales,
             options,
             requirements,
             error) ||
@@ -412,7 +498,8 @@ bool try_layout_logical_shaped_text(
             breaks_after,
             options,
             input_start_index,
-            final_allowed);
+            final_allowed,
+            glyph_scales);
         const bool should_trim = options.trimming != text_trimming::none &&
             (line.clipped ||
                 (final_allowed && line.end < logical_glyphs.size()));
@@ -423,7 +510,8 @@ bool try_layout_logical_shaped_text(
                 options,
                 input_start_index,
                 line.end,
-                line.width)
+                line.width,
+                glyph_scales)
             : trimmed_line{line.end, line.width};
 
         const auto line_logical = logical_glyphs.subspan(
@@ -455,16 +543,15 @@ bool try_layout_logical_shaped_text(
             const std::size_t source_index = input_start_index +
                 scratch.visual_indices[visual_index];
             const shaping_glyph& glyph = logical_glyphs[source_index];
+            const float scale = scale_at(glyph_scales, source_index, options);
+            const auto metrics = scale_metrics(glyph, scale);
             positioned_glyphs[output_cursor++] = positioned_text_glyph{
                 static_cast<std::uint32_t>(source_index),
                 glyph.glyph_id,
                 glyph.cluster,
-                cursor_x + static_cast<float>(glyph.offset_x) * options.scale,
-                cursor_y + static_cast<float>(glyph.offset_y) * options.scale,
-                static_cast<float>(glyph.advance_x) * options.scale,
-                static_cast<float>(glyph.advance_y) * options.scale};
-            cursor_x += static_cast<float>(glyph.advance_x) * options.scale;
-            cursor_y += static_cast<float>(glyph.advance_y) * options.scale;
+                cursor_x + metrics[2], cursor_y + metrics[3], metrics[0], metrics[1]};
+            cursor_x += metrics[0];
+            cursor_y += metrics[1];
         }
         if (should_trim) {
             const std::int32_t cluster = visible.end > input_start_index

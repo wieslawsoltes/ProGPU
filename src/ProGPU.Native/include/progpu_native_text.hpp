@@ -2105,6 +2105,32 @@ bool try_layout_logical_shaped_text(
     std::uint32_t& line_count,
     font_error* error = nullptr) noexcept;
 
+/* Per-logical-glyph DIP/design-unit scales keep mixed-font/em-size metrics in
+ * floating point through wrapping and visual positioning. Empty scales selects
+ * options.scale. Synthetic ellipsis still uses options.scale and its caller font.
+ * Existing unscaled entry points retain their source and binary signatures. */
+bool try_get_scaled_text_layout_requirements(
+    std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    std::span<const float> glyph_scales,
+    const text_layout_options& options,
+    text_layout_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_layout_scaled_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels,
+    std::span<const float> glyph_scales,
+    std::int8_t paragraph_level,
+    const text_layout_options& options,
+    text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs,
+    std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count,
+    std::uint32_t& line_count,
+    font_error* error = nullptr) noexcept;
+
 struct text_cluster_box final {
     std::int32_t input_start = 0;
     std::int32_t input_end = 0;

@@ -8,7 +8,7 @@ namespace ProGPU.Backend.Native;
 /// <summary>
 /// Retained CPU-owned paragraph output for source text editors. Shaping, bidi,
 /// line breaking, positioning and interaction stay in the native implementations.
-/// One context is one typography/fallback domain; this is not a styled composer.
+/// Styles select context-owned faces; composition remains in the shared native pipeline.
 /// </summary>
 public sealed class NativeTextParagraphSnapshot
 {
@@ -29,24 +29,29 @@ public sealed class NativeTextParagraphSnapshot
 
     public static NativeTextParagraphSnapshot Create(NativeTextShapingContext context,
         ReadOnlySpan<char> text, NativeTextDirection direction, in NativeTextParagraphOptions options,
-        ReadOnlySpan<NativeTextFeature> features = default)
+        ReadOnlySpan<NativeTextFeature> features = default,
+        ReadOnlySpan<NativeTextParagraphStyle> styles = default)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (text.Length > 1 << 20 || options.MaximumLines != 0 ||
             options.Trimming != NativeTextTrimming.None)
             throw new ArgumentException("Editor snapshots require an untruncated paragraph within the input budget.");
         if (text.IsEmpty)
+        {
+            if (!styles.IsEmpty) throw new ArgumentException("An empty paragraph cannot contain nonempty style ranges.");
             return new([], [new NativePositionedTextLine { Height = options.LineHeight }], [], [],
                 ReadOnlyMemory<NativeTextClusterBox>.Empty, ReadOnlyMemory<NativeTextCaretStop>.Empty);
+        }
         var scalars = new NativeTextScalar[text.Length];
         int count = DecodeUtf16(text, scalars);
+        var nativeStyles = MapStyles(styles, scalars.AsSpan(0, count), text.Length);
         var input = new NativeTextShapeInput(default, scalars.AsSpan(0, count), direction: direction, features: features);
-        Check(context.GetParagraphRequirements(in input, in options, out var required));
+        Check(context.GetStyledParagraphRequirements(in input, in options, nativeStyles, out var required));
         var glyphBuffer = new NativePositionedTextGlyph[checked((int)required.GlyphCapacity)];
         var lineBuffer = new NativePositionedTextLine[checked((int)required.LineCapacity)];
         byte[] scratch = ArrayPool<byte>.Shared.Rent(checked((int)required.ScratchBytes));
         NativeTextParagraphResult result;
-        try { Check(context.LayoutParagraph(in input, in options, glyphBuffer, lineBuffer, scratch, out result)); }
+        try { Check(context.LayoutStyledParagraph(in input, in options, nativeStyles, glyphBuffer, lineBuffer, scratch, out result)); }
         finally { ArrayPool<byte>.Shared.Return(scratch); }
         // Output arrays are retained ownership, not per-frame replay materialization.
         Array.Resize(ref glyphBuffer, checked((int)result.GlyphCount));
@@ -102,6 +107,30 @@ public sealed class NativeTextParagraphSnapshot
         return new(glyphBuffer, lineBuffer, ends, levels,
             boxes.AsMemory(0, checked((int)interactionResult.ClusterBoxCount)),
             carets.AsMemory(0, checked((int)interactionResult.CaretStopCount)));
+    }
+
+    internal static NativeTextStyleRun[] MapStyles(ReadOnlySpan<NativeTextParagraphStyle> styles,
+        ReadOnlySpan<NativeTextScalar> scalars, int textLength)
+    {
+        if (styles.IsEmpty) return [];
+        var result = new NativeTextStyleRun[styles.Length];
+        int source = 0, scalar = 0;
+        for (int i = 0; i < styles.Length; i++)
+        {
+            var style = styles[i];
+            if (style.Start != source || style.Length <= 0 || style.Length > textLength - source)
+                throw new ArgumentException("Styles must partition the complete UTF-16 input in logical order.");
+            int first = scalar;
+            source += style.Length;
+            while (scalar < scalars.Length && scalars[scalar].InputIndex < source) scalar++;
+            if (first == scalar || (scalar < scalars.Length ? scalars[scalar].InputIndex : textLength) != source)
+                throw new ArgumentException("A style boundary cannot split a UTF-16 scalar.");
+            result[i] = new NativeTextStyleRun { ScalarStart = (uint)first, ScalarCount = (uint)(scalar - first),
+                FontIndex = style.FontIndex, Scale = style.Scale, FeatureStart = style.FeatureStart,
+                FeatureCount = style.FeatureCount, Language = style.Language };
+        }
+        if (source != textLength) throw new ArgumentException("Styles must cover the complete input.");
+        return result;
     }
 
     internal static int DecodeUtf16(ReadOnlySpan<char> text, Span<NativeTextScalar> output)
@@ -163,3 +192,7 @@ public sealed class NativeTextParagraphSnapshot
             throw new InvalidOperationException($"Native text operation failed: {status}.");
     }
 }
+
+/// <summary>Explicit face/feature domain over UTF-16 input; ranges must partition the paragraph.</summary>
+public readonly record struct NativeTextParagraphStyle(int Start, int Length, uint FontIndex,
+    float Scale, uint FeatureStart = 0, uint FeatureCount = 0, uint Language = 0);

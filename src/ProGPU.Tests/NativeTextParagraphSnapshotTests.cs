@@ -6,6 +6,30 @@ namespace Avalonia.ProGpu.UnitTests;
 
 public sealed class NativeTextParagraphSnapshotTests
 {
+    [Fact]
+    public void StyledUtf16RangesPreserveScalarBoundariesAndFaceMetadata()
+    {
+        const string text = "a\U0001f642bc";
+        var scalars = new NativeTextScalar[text.Length];
+        int count = NativeTextParagraphSnapshot.DecodeUtf16(text, scalars);
+        var mapped = NativeTextParagraphSnapshot.MapStyles(
+            [new(0, 3, 0, .01f), new(3, 2, 2, .025f, 3, 4, 123)], scalars.AsSpan(0, count), text.Length);
+        Assert.Equal(2U, mapped[0].ScalarCount);
+        Assert.Equal(2U, mapped[1].ScalarStart);
+        Assert.Equal(2U, mapped[1].ScalarCount);
+        Assert.Equal(2U, mapped[1].FontIndex);
+        Assert.Equal(.025f, mapped[1].Scale);
+        Assert.Equal(3U, mapped[1].FeatureStart);
+        Assert.Equal(4U, mapped[1].FeatureCount);
+        Assert.Equal(123U, mapped[1].Language);
+        Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapStyles(
+            [new(0, 2, 0, 1), new(2, 3, 0, 1)], scalars.AsSpan(0, count), text.Length));
+        Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapStyles(
+            [new(0, 3, 0, 1)], scalars.AsSpan(0, count), text.Length));
+        Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapStyles(
+            [new(0, 3, 0, 1), new(2, 3, 0, 1)], scalars.AsSpan(0, count), text.Length));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("abc")]

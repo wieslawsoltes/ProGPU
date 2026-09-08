@@ -18,7 +18,104 @@ positions and line ranges; the WPF TextLine adapter must preserve them
 for rendering, selection, caret navigation, wrapping and trimming, including
 source-run styling and actual end-of-paragraph semantics.
 
-## Source TextLine connection — current implementation checkpoint
+## Styled source TextLine connection — current implementation
+
+Core action: changing inline font size/face/foreground/background in the existing
+MVP editor or source-host FormattedText. The previous source adapter rejected
+these paragraphs as mixed typography. Explicit physical-font styles now reach
+the existing C++ paragraph through generated `NativeTextStyleRun` records and
+two borrowed, leased styled-context APIs. Existing uniform C and C++ entry points
+retain their signatures and route through the same implementation.
+
+Styles partition logical scalar input and select a context-owned face, floating
+DIP/design-unit scale, feature slice and OpenType language tag. The shared script,
+bidi and shaping stages intersect those boundaries. Per-glyph scales follow the
+logical glyph through line wrapping and visual reordering; metrics are not rounded
+back into another font's integer units. Scratch requirements include that scale
+stream. No second composer or third-party implementation was introduced.
+
+`NativeTextParagraphSnapshot` maps UTF-16 style ranges to its existing decoded
+scalar stream, rejecting gaps, overlaps and surrogate splits. The neutral WPF
+contract carries explicit style font/size/features and per-output font indices.
+The host retains exact render-font annotations for every selected context face.
+Single-face style/size/feature changes reuse the leased native plans; multi-face
+paragraphs use an isolated context disposed after owned output is produced, so
+they cannot change the cached uniform fallback policy. A bounded multi-face plan
+cache remains a performance qualification item, not a measured improvement.
+
+Source WPF retains run-specific GlyphTypeface, em size, brushes and source ranges.
+Actual GlyphRuns split at style/font/bidi boundaries and reject clusters crossing
+their style domain. Native annotations are selected by output face index. Each
+WPF line uses the maximum participating ascent and descent for natural height,
+or the explicit paragraph line height; a large run on a later wrapped line does
+not enlarge every preceding line. The native paragraph still has a uniform
+temporary vertical stride; WPF consumes line-relative glyph positions and native
+horizontal hit/selection extents, applying its own line height to selection and
+cached brush backgrounds. No full native variable-line-height contract is claimed.
+
+Still open for the core editor: source composite/fallback-font resolution, mixed
+languages/localization, tabs, document objects/modifiers/hidden runs, decorations,
+baseline changes, trimming and the remaining gaps listed in the initial checkpoint
+below. Boolean typography is transported; variations and synthetic font styles
+are not newly implemented. This removes the explicit mixed physical-face/size/
+brush rejection, not all RichTextBox blockers or Windows SDK admission.
+
+Four independent metric lanes use alignment-safe NEON on ARM64 and SSE2 on x64
+for conversion/scaling and finite-product checks. Other architectures have a fixed
+four-lane reference. Wrapping/cluster boundary scans and cursor accumulation are
+dependency-bound. This is CPU-owned typography, not a rejected GPU kernel; existing
+GPU raster/upload/composition and execution policy are unchanged. No SIMD throughput
+or whole-pipeline speed claim is made without the deferred benchmarks.
+
+Authored native fixtures cover scaled bidi order, wrapping, actual face indices,
+invalid style coverage and finite-product failure before publication. Managed
+fixtures cover layout/lease/pinning and UTF-16 style boundaries; typed source
+fixtures cover wrapped run metrics, exact render-font annotations and brushes.
+The existing native host text case now changes size and foreground within mixed-
+direction text. None has been executed. Compilation is not native or app parity.
+
+Compilation checkpoint: strict AppleClang C++20 builds of the native text and
+shaping-showcase fixture targets complete; the ProGPU managed fixture project
+builds in Release with zero warnings/errors. Public interaction/style headers are
+included in the native install manifest. No fixture, verifier, installed-package
+consumer, app/VM/GPU run, benchmark or CI gate was executed. The latest fetched
+ProGPU `main` is contained by the feature branch.
+
+### Architecture sources and decisions
+
+This integration retains the wider cache/GPU/device comparison in
+[the rendering research record](progpu-avalonia-rendering-research.md), with this
+focused primary-source refresh. These are conceptual comparisons, not imported
+implementation text or evidence of matching output:
+
+- [Skia shaped-text design](https://docs.skia.org/docs/dev/design/text_shaper/):
+  adopt separate shaped results and exact face identity with original text ranges;
+  keep arbitrary drawing annotations in the source adapter.
+- [DirectWrite layout](https://learn.microsoft.com/en-us/windows/win32/directwrite/text-formatting-and-layout)
+  and [Win2D CanvasTextLayout](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm):
+  adopt ranged formatting plus reusable interaction output, not platform COM
+  activation as a prerequisite for portable paragraph layout.
+- [Parley](https://docs.rs/parley/latest/parley/) and
+  [Vello](https://docs.rs/vello/latest/vello/): adopt source ranges and reusable
+  CPU layout feeding renderer glyph runs. Preserve lazy retained font contexts;
+  document the multi-face context-reuse gap instead of claiming equivalent reuse.
+- [HarfBuzz shaping concepts](https://harfbuzz.github.io/shaping-concepts.html):
+  retain actual selected-face glyph positioning and script processing in ProGPU's
+  existing native shaper, not source per-character nominal advances.
+- [WebRender](https://doc.servo.org/webrender/index.html): preserve the separation
+  between source/layout preparation and retained renderer resource/frame work.
+  This slice changes no display-list invalidation, visibility culling, demand upload,
+  worker scheduling, GPU batching, atlas eviction/keying or device-loss generation.
+
+Startup remains lazy for native contexts; output is immutable and reused through
+wrapped continuation. DPI/display hinting remains the existing Ideal-only source
+profile. Fallback and variable-face identity are explicit remaining dependencies,
+not atlas-cache guesses. Cold-start, editing/scroll percentiles, allocation/cache
+residency, image quality and exact-binary scalar/SIMD comparisons remain required
+at final qualification. The implementation-first instruction defers these runs;
+the source research does not substitute for them.
+
+## Source TextLine connection — initial single-domain checkpoint (historical)
 
 The source adapter now exists: `PortableTextLine` consumes the neutral
 `IPortableTextFormatting`/`IPortableTextParagraph` contract. A native-MIL host

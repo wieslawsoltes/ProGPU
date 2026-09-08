@@ -12760,7 +12760,46 @@ void production_inter_shaping_is_stable_and_reusable() {
 
 } // namespace
 
+static void mixed_scales_drive_wrapping_and_visual_positions() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 3> glyphs{};
+    for (std::uint32_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = 10U + i; glyphs[i].cluster = static_cast<std::int32_t>(i); glyphs[i].advance_x = 100;
+    }
+    std::array breaks{text_line_break_kind::opportunity, text_line_break_kind::opportunity, text_line_break_kind::opportunity};
+    std::array<std::int8_t, 3> levels{0, 1, 1};
+    std::array<float, 3> scales{0.1F, 0.25F, 0.1F};
+    text_layout_options options{}; options.scale = 1; options.line_height = 20;
+    std::array<text_visual_cluster_group, 3> groups{};
+    std::array<std::uint32_t, 3> indices{};
+    std::array<positioned_text_glyph, 3> output{};
+    std::array<positioned_text_line, 3> lines{};
+    std::uint32_t glyph_count = 0, line_count = 0;
+    require(try_layout_scaled_logical_shaped_text(glyphs, breaks, levels, scales, 0, options,
+        {groups, indices}, output, lines, glyph_count, line_count));
+    require(glyph_count == 3 && line_count == 1 && lines[0].width == 45);
+    require(output[0].glyph_index == 0 && output[0].advance_x == 10);
+    require(output[1].glyph_index == 2 && output[1].x == 10 && output[1].advance_x == 10);
+    require(output[2].glyph_index == 1 && output[2].x == 20 && output[2].advance_x == 25);
+    options.maximum_width = 40;
+    text_layout_requirements required{};
+    require(try_get_scaled_text_layout_requirements(glyphs, breaks, scales, options, required));
+    require(required.line_capacity == 2);
+    require(try_layout_scaled_logical_shaped_text(glyphs, breaks, levels, scales, 0, options,
+        {groups, indices}, output, lines, glyph_count, line_count));
+    require(line_count == 2 && lines[0].width == 35 && lines[1].width == 10);
+    require(output[2].y == 20);
+    output[0].x = 123;
+    for (float invalid : {0.0F, -1.0F, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::max()}) {
+        scales[2] = invalid;
+        require(!try_layout_scaled_logical_shaped_text(glyphs, breaks, levels, scales, 0, options,
+            {groups, indices}, output, lines, glyph_count, line_count));
+        require(glyph_count == 0 && line_count == 0 && output[0].x == 123);
+    }
+}
+
 int main() {
+    mixed_scales_drive_wrapping_and_visual_positions();
     unicode_contract_and_strict_decoders_are_transactional();
     unicode_bidi_resolution_is_bounded_and_source_preserving();
     unicode_grapheme_segmentation_covers_extended_rules();

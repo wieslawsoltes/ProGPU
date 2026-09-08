@@ -29,6 +29,13 @@ dotnet run --project \
   "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeTextInteractionContract.g.cs"
 
 dotnet run --project \
+  "${repo_root}/eng/ProGPU.NativeContractGenerator/ProGPU.NativeContractGenerator.csproj" \
+  --configuration Release -- \
+  --verify \
+  "${repo_root}/src/ProGPU.Native/include/progpu_native_text_styles.h" \
+  "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeTextStylesContract.g.cs"
+
+dotnet run --project \
   "${repo_root}/eng/ProGPU.NativeUnicodeCategoryGenerator/ProGPU.NativeUnicodeCategoryGenerator.csproj" \
   --configuration Release -- \
   --verify \

@@ -1,4 +1,5 @@
 #include "progpu_native_text_shaping_showcase.hpp"
+#include "progpu_native_text_styles.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -7,6 +8,9 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <array>
+#include <cmath>
+#include <memory>
 
 namespace {
 
@@ -89,7 +93,56 @@ void managed_feature_wall_port_is_retained_and_dpi_sensitive() {
 
 } // namespace
 
+static void styled_context_preserves_font_scale_and_atomic_failure() {
+    const auto font = read_font();
+    progpu_native_text_context* raw = nullptr;
+    require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
+        reinterpret_cast<const std::uint8_t*>(font.data()), font.size(), 0, nullptr, 0, &raw) == PROGPU_NATIVE_STATUS_SUCCESS);
+    std::unique_ptr<progpu_native_text_context, decltype(&progpu_native_text_context_destroy)> context(raw, progpu_native_text_context_destroy);
+    std::uint32_t second_font = 0;
+    require(progpu_native_text_context_add_fallback_font(context.get(),
+        reinterpret_cast<const std::uint8_t*>(font.data()), font.size(), 0, 42, &second_font) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(second_font != 0);
+    const std::array<progpu_native_text_scalar, 3> text{{{'M', 0, 1, 0, 0, 0}, {' ', 1, 1, 0, 0, 0}, {'M', 2, 1, 0, 0, 0}}};
+    progpu_native_text_shape_request shaping{};
+    shaping.struct_size = sizeof(shaping); shaping.abi_version = PROGPU_NATIVE_ABI_VERSION;
+    shaping.input = text.data(); shaping.input_count = static_cast<std::uint32_t>(text.size());
+    shaping.direction = PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT;
+    shaping.alternate_value = 1;
+    progpu_native_text_layout_options layout{};
+    layout.struct_size = sizeof(layout); layout.scale = 0.01F; layout.line_height = 24;
+    std::array<progpu_native_text_style_run, 2> styles{{{0, 2, 0, 0.01F, 0, 0, 0, 0}, {2, 1, second_font, 0.02F, 0, 0, 0, 0}}};
+    progpu_native_text_paragraph_requirements required{}; required.struct_size = sizeof(required);
+    require(progpu_native_text_context_get_styled_paragraph_requirements(context.get(), &shaping, &layout,
+        styles.data(), static_cast<std::uint32_t>(styles.size()), &required) == PROGPU_NATIVE_STATUS_SUCCESS);
+    std::vector<progpu_native_positioned_text_glyph> glyphs(required.glyph_capacity);
+    std::vector<progpu_native_positioned_text_line> lines(required.line_capacity);
+    std::vector<std::byte> scratch(required.scratch_bytes);
+    progpu_native_text_paragraph_result result{}; result.struct_size = sizeof(result);
+    auto run = [&] { return progpu_native_text_context_layout_styled_paragraph(context.get(), &shaping, &layout,
+        styles.data(), static_cast<std::uint32_t>(styles.size()), glyphs.data(), static_cast<std::uint32_t>(glyphs.size()),
+        lines.data(), static_cast<std::uint32_t>(lines.size()), scratch.data(), scratch.size(), &result); };
+    require(run() == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(result.glyph_count == 3 && result.line_count == 1);
+    require(glyphs[0].font_index == 0 && glyphs[2].font_index == second_font);
+    require(glyphs[0].glyph_id == glyphs[2].glyph_id);
+    require(std::abs(glyphs[2].advance_x - 2 * glyphs[0].advance_x) < 0.0001F);
+    const float first_width = glyphs[0].advance_x + glyphs[1].advance_x;
+    layout.maximum_width = first_width + 0.1F;
+    require(run() == PROGPU_NATIVE_STATUS_SUCCESS && result.line_count == 2);
+    require(lines[0].glyph_count == 2 && glyphs[2].font_index == second_font && glyphs[2].y == 24);
+    glyphs[0].x = 123;
+    styles[1].scalar_start = 1; // overlapping style coverage must not publish a paragraph
+    require(run() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(result.glyph_count == 0 && result.line_count == 0 && glyphs[0].x == 123);
+    required.glyph_capacity = 123;
+    require(progpu_native_text_context_get_styled_paragraph_requirements(context.get(), &shaping, &layout,
+        styles.data(), static_cast<std::uint32_t>(styles.size()), &required) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(required.glyph_capacity == 0);
+}
+
 int main() {
+    styled_context_preserves_font_scale_and_atomic_failure();
     managed_feature_wall_port_is_retained_and_dpi_sensitive();
     return 0;
 }
