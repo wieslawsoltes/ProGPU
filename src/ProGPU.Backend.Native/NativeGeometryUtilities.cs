@@ -4,6 +4,16 @@ using System.Runtime.InteropServices;
 
 namespace ProGPU.Backend.Native;
 
+/// <summary>Filled-area relation of the first operand relative to the second.</summary>
+public enum NativeGeometryRelation : uint
+{
+    Unknown = (uint)NativeMethods.GeometryRelationUnknown,
+    Disjoint = (uint)NativeMethods.GeometryRelationDisjoint,
+    IsContained = (uint)NativeMethods.GeometryRelationIsContained,
+    Contains = (uint)NativeMethods.GeometryRelationContains,
+    Overlap = (uint)NativeMethods.GeometryRelationOverlap
+}
+
 /// <summary>Owned polygonal boolean boundary with even-odd fill and closed contours.</summary>
 public sealed class NativeGeometryOutline
 {
@@ -36,6 +46,40 @@ public sealed class NativeGeometryOutline
 /// </summary>
 public static unsafe partial class NativeGeometryUtilities
 {
+    /// <summary>
+    /// Compares actual filled coverage in one synchronous call. Empty coverage
+    /// is disjoint; equal nonempty coverage is IsContained. Inputs are borrowed
+    /// only during this call; no GPU, output array or renderer fallback is used.
+    /// </summary>
+    public static NativeGeometryRelation CompareFill(
+        ReadOnlySpan<NativePathSegment> first, NativeFillRule firstFill,
+        ReadOnlySpan<NativePathSegment> second, NativeFillRule secondFill,
+        float tolerance = 0.25f, NativeMilBackend backend = NativeMilBackend.WgpuNative)
+    {
+        if (first.Length > 1 << 20) throw new ArgumentOutOfRangeException(nameof(first));
+        if (second.Length > 1 << 20) throw new ArgumentOutOfRangeException(nameof(second));
+        if ((uint)firstFill > (uint)NativeFillRule.EvenOdd) throw new ArgumentOutOfRangeException(nameof(firstFill));
+        if ((uint)secondFill > (uint)NativeFillRule.EvenOdd) throw new ArgumentOutOfRangeException(nameof(secondFill));
+        if (!float.IsFinite(tolerance) || tolerance <= 0) throw new ArgumentOutOfRangeException(nameof(tolerance));
+        if (backend is not NativeMilBackend.WgpuNative and not NativeMilBackend.Dawn)
+            throw new ArgumentOutOfRangeException(nameof(backend));
+        NativeGeometryRelation relation = NativeGeometryRelation.Unknown;
+        NativeRendererStatus status;
+        fixed (NativePathSegment* a = first)
+        fixed (NativePathSegment* b = second)
+            status = backend == NativeMilBackend.Dawn
+                ? NativeDawnGeometryMethods.CompareFill(a, (uint)first.Length, firstFill, b, (uint)second.Length,
+                    secondFill, tolerance, &relation)
+                : NativeGeometryMethods.CompareFill(a, (uint)first.Length, firstFill, b, (uint)second.Length,
+                    secondFill, tolerance, &relation);
+        if (status != NativeRendererStatus.Success)
+            throw new NativeRendererException(status, "Native geometry relation query failed.");
+        if (relation is not NativeGeometryRelation.Disjoint and not NativeGeometryRelation.IsContained
+            and not NativeGeometryRelation.Contains and not NativeGeometryRelation.Overlap)
+            throw new NativeRendererException(NativeRendererStatus.InternalError, "Invalid native geometry relation.");
+        return relation;
+    }
+
     /// <summary>Tests filled canonical contours without GPU initialization or readback.</summary>
     public static bool FillContains(ReadOnlySpan<NativePathSegment> segments, NativeFillRule fillRule,
         Vector2 point, float tolerance = 0.25f, NativeMilBackend backend = NativeMilBackend.WgpuNative)
@@ -126,6 +170,13 @@ public static unsafe partial class NativeGeometryUtilities
 
 internal static unsafe partial class NativeGeometryMethods
 {
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_geometry_compare_fill")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus CompareFill(
+        NativePathSegment* first, uint firstCount, NativeFillRule firstFill,
+        NativePathSegment* second, uint secondCount, NativeFillRule secondFill,
+        float tolerance, NativeGeometryRelation* relation);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_geometry_fill_contains")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus FillContains(NativePathSegment* segments, uint count,
@@ -146,6 +197,13 @@ internal static unsafe partial class NativeGeometryMethods
 
 internal static unsafe partial class NativeDawnGeometryMethods
 {
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_geometry_compare_fill")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus CompareFill(
+        NativePathSegment* first, uint firstCount, NativeFillRule firstFill,
+        NativePathSegment* second, uint secondCount, NativeFillRule secondFill,
+        float tolerance, NativeGeometryRelation* relation);
+
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_geometry_fill_contains")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus FillContains(NativePathSegment* segments, uint count,

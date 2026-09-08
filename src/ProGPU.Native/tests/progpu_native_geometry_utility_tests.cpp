@@ -65,6 +65,69 @@ struct outline final {
     }
 };
 
+bool filled_relations_preserve_topology_and_shared_com_results()
+{
+    const auto outer = polygon({{0, 0}, {10, 0}, {10, 10}, {0, 10}});
+    const auto inner = polygon({{2, 2}, {8, 2}, {8, 8}, {2, 8}});
+    const auto overlap = polygon({{5, 5}, {15, 5}, {15, 15}, {5, 15}});
+    const auto touching = polygon({{10, 0}, {20, 0}, {20, 10}, {10, 10}});
+    const auto far = polygon({{20, 20}, {30, 20}, {30, 30}, {20, 30}});
+    const auto triangle = polygon({{0, 0}, {10, 0}, {0, 10}});
+    const auto opposite_corner = polygon({{8, 8}, {9, 8}, {9, 9}, {8, 9}});
+    const auto check = [](std::span<const segment> a, std::span<const segment> b,
+        std::uint32_t expected, std::uint32_t fill = PROGPU_NATIVE_FILL_RULE_NON_ZERO) {
+        std::uint32_t relation = 99;
+        return progpu_native_geometry_compare_fill(a.data(), static_cast<std::uint32_t>(a.size()), fill,
+            b.data(), static_cast<std::uint32_t>(b.size()), PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            0.01F, &relation) == PROGPU_NATIVE_STATUS_SUCCESS && relation == expected;
+    };
+    if (!check(outer, inner, PROGPU_NATIVE_GEOMETRY_RELATION_CONTAINS) ||
+        !check(inner, outer, PROGPU_NATIVE_GEOMETRY_RELATION_IS_CONTAINED) ||
+        !check(outer, outer, PROGPU_NATIVE_GEOMETRY_RELATION_IS_CONTAINED) ||
+        !check(outer, overlap, PROGPU_NATIVE_GEOMETRY_RELATION_OVERLAP) ||
+        !check(outer, touching, PROGPU_NATIVE_GEOMETRY_RELATION_OVERLAP) ||
+        !check(outer, far, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT) ||
+        !check(triangle, opposite_corner, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT) ||
+        !check({}, outer, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT) ||
+        !check(outer, {}, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT) ||
+        !check({}, {}, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT)) return false;
+    auto ring = outer;
+    ring.insert(ring.end(), inner.begin(), inner.end());
+    if (!check(ring, opposite_corner, PROGPU_NATIVE_GEOMETRY_RELATION_CONTAINS,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD)) return false;
+    const auto center = polygon({{3, 3}, {7, 3}, {7, 7}, {3, 7}});
+    if (!check(ring, center, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD)) return false;
+    auto doubled = outer;
+    doubled.insert(doubled.end(), outer.begin(), outer.end());
+    if (!check(doubled, inner, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT, PROGPU_NATIVE_FILL_RULE_EVEN_ODD) ||
+        !check(doubled, inner, PROGPU_NATIVE_GEOMETRY_RELATION_CONTAINS)) return false;
+
+    // Public original-ProGPU COM entry and the new C entry share the same
+    // algorithm. Exercise an analytic cubic rather than only polygon transport.
+    namespace d2d = progpu::native::direct2d::compat;
+    namespace com = progpu::native::com;
+    segment curve{};
+    curve.kind = 2; curve.p0 = {0, 0}; curve.p1 = {0, 10}; curve.p2 = {10, 10}; curve.p3 = {10, 0};
+    const std::array<segment, 2> curved{curve, line_segment({10, 0}, {0, 0})};
+    com::pointer<d2d::factory> factory;
+    com::pointer<d2d::path_geometry> a, b;
+    if (com::failed(d2d::create_factory(factory.put())) ||
+        com::failed(d2d::detail::create_native_fill_geometry(factory.get(), curved, d2d::fill_mode::winding, a.put())) ||
+        com::failed(d2d::detail::create_native_fill_geometry(factory.get(), inner, d2d::fill_mode::winding, b.put()))) return false;
+    d2d::geometry_relation expected{};
+    if (com::failed(a->CompareWithGeometry(b.get(), nullptr, 0.01F, &expected)) ||
+        !check(curved, inner, static_cast<std::uint32_t>(expected))) return false;
+    std::uint32_t relation = 99;
+    if (progpu_native_geometry_compare_fill(nullptr, 1, 0, nullptr, 0, 0, 0.01F, &relation) !=
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT || relation != PROGPU_NATIVE_GEOMETRY_RELATION_UNKNOWN) return false;
+    relation = 99;
+    return progpu_native_geometry_compare_fill(nullptr, 0, 2, nullptr, 0, 0, 0.01F, &relation) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && relation == PROGPU_NATIVE_GEOMETRY_RELATION_UNKNOWN &&
+        progpu_native_geometry_compare_fill(nullptr, 0, 0, nullptr, 0, 0, 0.01F, nullptr) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+}
+
 bool modes_and_actual_boundaries()
 {
     const auto a = polygon({{0, 0}, {10, 0}, {10, 10}, {0, 10}});
@@ -391,7 +454,8 @@ bool dash_validation_matches_scalar_oracle()
 
 int main()
 {
-    if (!modes_and_actual_boundaries() || !curved_result_matches_shared_core() || !failures_and_empty_ownership() ||
+    if (!filled_relations_preserve_topology_and_shared_com_results() ||
+        !modes_and_actual_boundaries() || !curved_result_matches_shared_core() || !failures_and_empty_ownership() ||
         !fill_queries_match_scalar_and_reject_bad_inputs() ||
         !stroke_queries_preserve_caps_gaps_dashes_and_world_order() ||
         !stroke_queries_reject_incomplete_transport() || !point_strokes_match_independent_cap_oracle() ||

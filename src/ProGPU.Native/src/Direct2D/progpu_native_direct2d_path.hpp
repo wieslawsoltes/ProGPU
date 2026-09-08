@@ -47,6 +47,13 @@ namespace progpu::native::direct2d::compat::detail {
     combine_mode mode, float tolerance,
     std::vector<std::vector<point_2f>>& contours) noexcept;
 
+// Same normalized-boundary relation as CompareWithGeometry, but an empty
+// filled operand is disjoint. Equal nonempty coverage is is_contained.
+[[nodiscard]] com::result compare_native_fill_contours(
+    std::span<const progpu_native_path_segment> first, fill_mode first_fill,
+    std::span<const progpu_native_path_segment> second, fill_mode second_fill,
+    float tolerance, geometry_relation& relation) noexcept;
+
 [[nodiscard]] com::result create_path_geometry(
     factory* owner,
     path_geometry** value) noexcept;

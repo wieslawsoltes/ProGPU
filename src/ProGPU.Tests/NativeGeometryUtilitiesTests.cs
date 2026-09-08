@@ -15,6 +15,8 @@ public class NativeGeometryUtilitiesTests
     [InlineData(float.PositiveInfinity)]
     public void InvalidToleranceIsRejectedBeforeNativeLoading(float tolerance)
     {
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeGeometryUtilities.CompareFill(
+            [], NativeFillRule.NonZero, [], NativeFillRule.NonZero, tolerance));
         Assert.Throws<ArgumentOutOfRangeException>(() => NativeGeometryUtilities.FillContains(
             [], NativeFillRule.NonZero, Vector2.Zero, tolerance));
         Assert.Throws<ArgumentOutOfRangeException>(() => NativeGeometryUtilities.Combine(
@@ -24,6 +26,12 @@ public class NativeGeometryUtilitiesTests
     [Fact]
     public void InvalidPoliciesAreRejectedBeforeNativeLoading()
     {
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeGeometryUtilities.CompareFill(
+            [], (NativeFillRule)2, [], NativeFillRule.NonZero));
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeGeometryUtilities.CompareFill(
+            [], NativeFillRule.NonZero, [], (NativeFillRule)2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeGeometryUtilities.CompareFill(
+            [], NativeFillRule.NonZero, [], NativeFillRule.NonZero, backend: (NativeMilBackend)2));
         Assert.Throws<ArgumentOutOfRangeException>(() => NativeGeometryUtilities.FillContains([], (NativeFillRule)2, Vector2.Zero));
         Assert.Throws<ArgumentOutOfRangeException>(() => NativeGeometryUtilities.FillContains([], NativeFillRule.NonZero, new(float.NaN, 0)));
         Assert.Throws<ArgumentOutOfRangeException>(() => NativeGeometryUtilities.FillContains([], NativeFillRule.NonZero, Vector2.Zero,

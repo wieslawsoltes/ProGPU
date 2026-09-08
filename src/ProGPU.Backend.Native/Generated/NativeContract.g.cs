@@ -21,6 +21,16 @@ internal static unsafe partial class NativeMethods
     internal const ulong EngineImageRequireNativeSampling = 16UL;
     // Native source: PROGPU_NATIVE_SCENE_FRAME_PRESENTATION.
     internal const ulong SceneFramePresentationFlag = 4UL;
+    // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_UNKNOWN.
+    internal const ulong GeometryRelationUnknown = 0UL;
+    // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT.
+    internal const ulong GeometryRelationDisjoint = 1UL;
+    // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_IS_CONTAINED.
+    internal const ulong GeometryRelationIsContained = 2UL;
+    // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_CONTAINS.
+    internal const ulong GeometryRelationContains = 3UL;
+    // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_OVERLAP.
+    internal const ulong GeometryRelationOverlap = 4UL;
 }
 
 // Native source: progpu_native_text_scalar.

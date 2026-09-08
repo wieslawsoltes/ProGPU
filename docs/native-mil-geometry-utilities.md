@@ -1,5 +1,71 @@
 # Device-independent native geometry utilities
 
+## Filled relation connection — core selection traversal
+
+LibreWPF `Visual` geometry-hit traversal asks `FillContainsWithDetail` about
+content and clips. `PathGeometry.HitTestWithPathGeometry` previously entered the
+direct `MilUtility_PathGeometryHitTestPathGeometry` import in `Composition.cs`;
+its library is the source WPF graphics DLL, not a ProGPU utility redirect.
+The portable frozen-media branch now selects `IPortableGeometryOperations.CompareFill`
+before that import. Ordinary Windows-MIL selection keeps the original branch.
+
+The new `progpu_native_geometry_compare_fill` accepts two canonical segment spans,
+their independent fill rules and positive finite absolute tolerance. It returns
+one caller-owned 32-bit relation, reset to Unknown on failure. Inputs are borrowed
+only synchronously and limited to 2^20 segments each. There is no native output
+handle, managed result array, device creation, Windows COM activation, pixel
+readback or render submission. Both WGPU-native and Dawn managed imports share
+this C implementation. Constants are authoritative in `progpu_native.h` and
+generated into `NativeContract.g.cs`; the neutral portable enum is explicitly
+mapped rather than cast as native wire data.
+
+Original implementation provenance: `portable_path_geometry::CompareWithGeometry`
+in `src/ProGPU.Native/src/Direct2D/progpu_native_direct2d_path.cpp` at parent
+`f3b30893` supplies the unchanged comparison body, extracted into
+`compare_normalized_fill_contours`. The COM method still uses it and retains its
+existing empty-operand rejection. The new utility uses the same original
+`create_native_fill_geometry`, `extract_outline_contours`, ordered boolean
+arrangement and boundary-contact helpers. It outlines each operand once. Its
+filled-area contract treats either empty normalized coverage as Disjoint,
+including cancellation; equal nonempty coverage retains ProGPU's IsContained
+tie result. No Microsoft implementation text or algorithm structure is ported.
+
+This adds transport and source routing, not a second renderer or topology solver.
+Managed and C++ rendering modes consume the same synchronous provider. Existing
+intrinsic edge/coordinate kernels remain shared; ordered topology, contour
+ownership and stitching have data dependencies. Cost remains two outline
+preparations plus at most three existing arrangement queries and boundary contact,
+with the existing bounded topology workspace and potentially quadratic candidate
+work. The managed/native boundary adds constant result storage and one call for
+materialized operands. Nested CombinedGeometry operands still materialize through
+the existing provider before comparison. No speed improvement is claimed.
+
+The source adapter preserves operand direction, group fill rules, local transforms
+and hollow filtering. Relation tolerance uses the first operand's transformed
+tight extent (unlike Combine's union extent). Geometry envelopes set approximation
+accuracy only, never membership. Nonfinite source geometry returns Empty;
+unsupported finite inputs, missing providers/modules and invalid returned enums
+remain errors. Bounds-free export avoids recursive CombinedGeometry bounds.
+
+Public behavioral references are [WPF FillContainsWithDetail](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.geometry.fillcontainswithdetail?view=windowsdesktop-10.0)
+and [Direct2D CompareWithGeometry](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-comparewithgeometry).
+Their direction and approximation contracts inform the adapter, not implementation
+code. Native-Windows equality, touching-boundary, tiny/degenerate geometry and
+tolerance differentials remain mandatory final qualification, not proven parity.
+
+Authored fixtures cover all four relations, both containment directions, equal
+coverage, overlapping envelopes with disjoint interiors, holes, cancellation,
+empty operands, cubic comparison against the original public ProGPU COM entry,
+invalid input/output contracts, source policy forwarding and bad-number behavior.
+The existing source-built native host harness now also invokes real public WPF
+geometry selection and `VisualTreeHelper.HitTest` on its drawing visual with an
+actual triangular clip. It checks a visible selection and a selection inside
+paint bounds but outside the clip. Diagnostic public-API reflection stays confined
+to that dual-assembly harness with its documented removal condition; product
+source/bridge/provider paths are typed. All fixture/application execution, full
+native-module qualification, Windows SDK admission and PR CI remain deferred to
+the core feature freeze. Compilation is not a pass for these checks.
+
 ## Core delivery dependency
 
 LibreWPF's transformed layout clips (`FrameworkElement`) and editing-selection

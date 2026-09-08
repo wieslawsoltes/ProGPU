@@ -253,6 +253,11 @@ double intrinsic edge metrics, ordered winding and half-open crossings; no GPU
 readback, bounds-only containment or implicit switch of the renderer is allowed.
 Unstroked bounds must preserve tight curve extrema, hollow-figure filtering and
 empty/zero-size distinction. Missing optional provider operations fail explicitly.
+Filled-area relation queries share the original Direct2D normalized-boundary
+comparison; never substitute envelopes or per-point sampling. Keep the single
+caller-owned result, generated relation constants and explicit operand direction.
+Empty filled coverage is disjoint in the utility; do not silently alter the COM
+entry's distinct empty policy. Unsupported finite input remains an error.
 Stroke queries must retain complete figure ranges, explicit closing edges, source
 gaps and incoming smooth-join flags. Reuse the canonical native segment emitter,
 stroke coverage and generated query records; never duplicate a WPF-local stroker.

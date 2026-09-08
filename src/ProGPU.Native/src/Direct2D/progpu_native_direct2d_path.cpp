@@ -5611,6 +5611,90 @@ private:
     std::shared_ptr<path_data> data_;
 };
 
+// Original ProGPU CompareWithGeometry topology, shared by COM and synchronous
+// fill queries. Callers normalize each operand once; empty-fill policy belongs
+// to the calling contract. Ordered arrangement/stitching retains its shared
+// SIMD edge kernels and bounded workspace, not a bounds or point surrogate.
+com::result compare_normalized_fill_contours(
+    const std::vector<std::vector<point_2f>>& first,
+    const std::vector<std::vector<point_2f>>& second,
+    geometry_relation* relation)
+{
+    com::result result = com::ok;
+    const auto combination_is_empty = [
+        &first,
+        &second](combine_mode mode, bool reverse_operands,
+                 bool& empty) {
+        std::vector<std::vector<point_2f>> contours = first;
+        contours.insert(
+            contours.end(), second.begin(), second.end());
+        std::vector<std::uint8_t> operands(
+            contours.size(), reverse_operands ? 0U : 1U);
+        std::fill_n(
+            operands.begin(),
+            first.size(),
+            static_cast<std::uint8_t>(
+                reverse_operands ? 1U : 0U));
+        const std::vector<std::int8_t> contributions(
+            contours.size(), std::int8_t{1});
+        const com::result status =
+            normalize_interacting_contours(
+                contours,
+                contributions,
+                fill_mode::alternate,
+                operands,
+                mode);
+        if (com::succeeded(status)) {
+            empty = contours.empty();
+        }
+        return status;
+    };
+    bool first_minus_second_empty = false;
+    result = combination_is_empty(
+        combine_mode::exclude,
+        false,
+        first_minus_second_empty);
+    if (com::failed(result)) {
+        return result;
+    }
+    bool second_minus_first_empty = false;
+    result = combination_is_empty(
+        combine_mode::exclude,
+        true,
+        second_minus_first_empty);
+    if (com::failed(result)) {
+        return result;
+    }
+    if (first_minus_second_empty && second_minus_first_empty) {
+        *relation = geometry_relation::is_contained;
+        return com::ok;
+    }
+    if (first_minus_second_empty) {
+        *relation = geometry_relation::is_contained;
+        return com::ok;
+    }
+    if (second_minus_first_empty) {
+        *relation = geometry_relation::contains;
+        return com::ok;
+    }
+    if (normalized_contour_boundaries_contact(first, second)) {
+        *relation = geometry_relation::overlap;
+        return com::ok;
+    }
+    bool intersection_empty = false;
+    result = combination_is_empty(
+        combine_mode::intersect,
+        false,
+        intersection_empty);
+    if (com::failed(result)) {
+        return result;
+    }
+    *relation = intersection_empty
+        ? geometry_relation::disjoint
+        : geometry_relation::overlap;
+    return com::ok;
+}
+
 class portable_path_geometry final : public path_geometry {
 public:
     explicit portable_path_geometry(factory* owner)
@@ -6224,78 +6308,7 @@ public:
                 return not_implemented;
             }
 
-            const auto combination_is_empty = [
-                &first,
-                &second](combine_mode mode, bool reverse_operands,
-                         bool& empty) {
-                std::vector<std::vector<point_2f>> contours = first;
-                contours.insert(
-                    contours.end(), second.begin(), second.end());
-                std::vector<std::uint8_t> operands(
-                    contours.size(), reverse_operands ? 0U : 1U);
-                std::fill_n(
-                    operands.begin(),
-                    first.size(),
-                    static_cast<std::uint8_t>(
-                        reverse_operands ? 1U : 0U));
-                const std::vector<std::int8_t> contributions(
-                    contours.size(), std::int8_t{1});
-                const com::result status =
-                    normalize_interacting_contours(
-                        contours,
-                        contributions,
-                        fill_mode::alternate,
-                        operands,
-                        mode);
-                if (com::succeeded(status)) {
-                    empty = contours.empty();
-                }
-                return status;
-            };
-            bool first_minus_second_empty = false;
-            result = combination_is_empty(
-                combine_mode::exclude,
-                false,
-                first_minus_second_empty);
-            if (com::failed(result)) {
-                return result;
-            }
-            bool second_minus_first_empty = false;
-            result = combination_is_empty(
-                combine_mode::exclude,
-                true,
-                second_minus_first_empty);
-            if (com::failed(result)) {
-                return result;
-            }
-            if (first_minus_second_empty && second_minus_first_empty) {
-                *relation = geometry_relation::is_contained;
-                return com::ok;
-            }
-            if (first_minus_second_empty) {
-                *relation = geometry_relation::is_contained;
-                return com::ok;
-            }
-            if (second_minus_first_empty) {
-                *relation = geometry_relation::contains;
-                return com::ok;
-            }
-            if (normalized_contour_boundaries_contact(first, second)) {
-                *relation = geometry_relation::overlap;
-                return com::ok;
-            }
-            bool intersection_empty = false;
-            result = combination_is_empty(
-                combine_mode::intersect,
-                false,
-                intersection_empty);
-            if (com::failed(result)) {
-                return result;
-            }
-            *relation = intersection_empty
-                ? geometry_relation::disjoint
-                : geometry_relation::overlap;
-            return com::ok;
+            return compare_normalized_fill_contours(first, second, relation);
         } catch (const std::bad_alloc&) {
             return com::out_of_memory;
         } catch (...) {
@@ -7924,6 +7937,41 @@ com::result combine_native_fill_contours(
     if (com::failed(result)) return result;
     contours = sink->take_contours();
     return com::ok;
+}
+
+com::result compare_native_fill_contours(
+    std::span<const progpu_native_path_segment> first, fill_mode first_fill,
+    std::span<const progpu_native_path_segment> second, fill_mode second_fill,
+    float tolerance, geometry_relation& relation) noexcept
+{
+    relation = geometry_relation::unknown;
+    if (!valid_tolerance(tolerance)) return com::invalid_argument;
+    try {
+        com::pointer<factory> owner;
+        com::result status = create_factory(owner.put());
+        if (com::failed(status)) return status;
+        com::pointer<path_geometry> a, b;
+        status = create_native_fill_geometry(owner.get(), first, first_fill, a.put());
+        if (com::failed(status)) return status;
+        status = create_native_fill_geometry(owner.get(), second, second_fill, b.put());
+        if (com::failed(status)) return status;
+        std::vector<std::vector<point_2f>> first_contours, second_contours;
+        status = extract_outline_contours(a.get(), tolerance, first_contours);
+        if (com::failed(status)) return status;
+        status = extract_outline_contours(b.get(), tolerance, second_contours);
+        if (com::failed(status)) return status;
+        // Check normalized coverage, not segment count or a nonempty envelope:
+        // cancelling contours and zero-area figures have no filled intersection.
+        if (first_contours.empty() || second_contours.empty()) {
+            relation = geometry_relation::disjoint;
+            return com::ok;
+        }
+        return compare_normalized_fill_contours(first_contours, second_contours, &relation);
+    } catch (const std::bad_alloc&) {
+        return com::out_of_memory;
+    } catch (...) {
+        return failure;
+    }
 }
 
 com::result get_widened_outline_bounds(geometry* source,

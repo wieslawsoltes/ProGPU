@@ -2,6 +2,8 @@ namespace ProGPU.Wpf.Interop;
 
 public enum PortableGeometryOperandKind { Path, Group, Combined }
 public enum PortableGeometryCombineMode { Union, Intersect, Xor, Exclude }
+/// <summary>Filled relation of the first operand relative to the second; not native wire values.</summary>
+public enum PortableGeometryRelation { Disjoint, IsContained, Contains, Overlap }
 
 /// <summary>
 /// Bounds-free synchronous geometry snapshot. Path leaves own their transform;
@@ -22,6 +24,14 @@ public sealed class PortableGeometryOperand
 
 public interface IPortableGeometryOperations
 {
+    /// <summary>
+    /// Compares actual filled coverage, not envelopes. Empty coverage is
+    /// disjoint; equal nonempty coverage is IsContained. Unsupported queries throw.
+    /// </summary>
+    PortableGeometryRelation CompareFill(PortableGeometryOperand first, PortableGeometryOperand second,
+        double tolerance, bool relativeTolerance)
+        => throw new PlatformNotSupportedException("The geometry provider does not support relation queries.");
+
     /// <summary>Union of actual fill bounds and emitted pen coverage after the world transform.</summary>
     PortableRect GetRenderBounds(PortableGeometryOperand geometry, in PortablePenState pen,
         PortableMatrix3x2 worldTransform, double tolerance, bool relativeTolerance, bool skipHollows)

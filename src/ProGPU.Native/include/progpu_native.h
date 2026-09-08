@@ -2163,6 +2163,32 @@ typedef struct progpu_native_path_segment {
 
 typedef struct progpu_native_geometry_outline progpu_native_geometry_outline;
 
+typedef enum progpu_native_geometry_relation {
+    /* PROGPU_CSHARP_ULONG: GeometryRelationUnknown */
+    PROGPU_NATIVE_GEOMETRY_RELATION_UNKNOWN = 0ULL,
+    /* PROGPU_CSHARP_ULONG: GeometryRelationDisjoint */
+    PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT = 1ULL,
+    /* PROGPU_CSHARP_ULONG: GeometryRelationIsContained */
+    PROGPU_NATIVE_GEOMETRY_RELATION_IS_CONTAINED = 2ULL,
+    /* PROGPU_CSHARP_ULONG: GeometryRelationContains */
+    PROGPU_NATIVE_GEOMETRY_RELATION_CONTAINS = 3ULL,
+    /* PROGPU_CSHARP_ULONG: GeometryRelationOverlap */
+    PROGPU_NATIVE_GEOMETRY_RELATION_OVERLAP = 4ULL
+} progpu_native_geometry_relation;
+
+/* Filled-area relation of first relative to second, using the same canonical
+ * input/fill/tolerance/budget contract as geometry_combine. Empty normalized
+ * coverage in either operand is disjoint; equal nonempty coverage is contained.
+ * No GPU, COM activation, input retention or output allocation for the caller.
+ * A valid caller-owned uint32 output is reset to UNKNOWN before input validation;
+ * successful results are DISJOINT, IS_CONTAINED, CONTAINS or OVERLAP.
+ * Internal temporary topology storage is bounded by the shared geometry core.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_compare_fill(
+    const progpu_native_path_segment* first, uint32_t first_count, uint32_t first_fill,
+    const progpu_native_path_segment* second, uint32_t second_count, uint32_t second_fill,
+    float tolerance, uint32_t* relation);
+
 /* Device-independent filled-path boolean utility; no engine/window/GPU required.
  * Input segments use the canonical path layout above, already transformed into
  * one coordinate space. Discontinuous segments begin separate filled contours;

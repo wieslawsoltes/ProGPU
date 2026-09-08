@@ -117,6 +117,41 @@ extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_fill_co
     }
 }
 
+extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_compare_fill(
+    const progpu_native_path_segment* first, std::uint32_t first_count, std::uint32_t first_fill,
+    const progpu_native_path_segment* second, std::uint32_t second_count, std::uint32_t second_fill,
+    float tolerance, std::uint32_t* relation)
+{
+    if (relation == nullptr) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    *relation = PROGPU_NATIVE_GEOMETRY_RELATION_UNKNOWN;
+    if ((first_count != 0U && first == nullptr) || (second_count != 0U && second == nullptr) ||
+        first_count > (1U << 20U) || second_count > (1U << 20U) ||
+        first_fill > PROGPU_NATIVE_FILL_RULE_EVEN_ODD || second_fill > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
+        !std::isfinite(tolerance) || tolerance <= 0.0F) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    namespace d2d = progpu::native::direct2d::compat;
+    namespace com = progpu::native::com;
+    const auto fill = [](std::uint32_t value) {
+        return value == PROGPU_NATIVE_FILL_RULE_EVEN_ODD ? d2d::fill_mode::alternate : d2d::fill_mode::winding;
+    };
+    d2d::geometry_relation result = d2d::geometry_relation::unknown;
+    const com::result status = d2d::detail::compare_native_fill_contours(
+        {first, first_count}, fill(first_fill), {second, second_count}, fill(second_fill), tolerance, result);
+    if (com::failed(status)) {
+        if (status == com::out_of_memory) return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+        if (status == com::invalid_argument || status == com::pointer_error) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        if (status == d2d::not_implemented) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+        return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
+    switch (result) {
+    case d2d::geometry_relation::disjoint: *relation = PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT; break;
+    case d2d::geometry_relation::is_contained: *relation = PROGPU_NATIVE_GEOMETRY_RELATION_IS_CONTAINED; break;
+    case d2d::geometry_relation::contains: *relation = PROGPU_NATIVE_GEOMETRY_RELATION_CONTAINS; break;
+    case d2d::geometry_relation::overlap: *relation = PROGPU_NATIVE_GEOMETRY_RELATION_OVERLAP; break;
+    default: return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_combine(
     const progpu_native_path_segment* first, std::uint32_t first_count, std::uint32_t first_fill,
     const progpu_native_path_segment* second, std::uint32_t second_count, std::uint32_t second_fill,
