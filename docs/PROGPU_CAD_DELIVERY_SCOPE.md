@@ -73,3 +73,14 @@ Done means the bounded workflows above work on the agreed representative
 fixtures, known unsupported content is documented, and required checks are green
 on the final commit. Compilation, unit-test totals, or a blank running canvas
 alone do not satisfy that gate. The broad CAD roadmap remains unfinished.
+
+Current blockers and evidence are tracked in the
+[representative rendering audit](PROGPU_CAD_REPRESENTATIVE_RENDERING_AUDIT.md).
+The basic-editing [gradient data-preservation fix](PROGPU_CAD_GRADIENT_DATA_PRESERVATION.md)
+does not expand the milestone to gradient authoring or exhaustive entity support.
+The latest Linux CAD browser CI run produced an entirely white initial screenshot;
+local browser success does not close that blocker. The smoke test now rejects
+both blank light and blank dark frames and retains console diagnostics. Input
+settling no longer requires an arbitrary number of idle GPU submissions; actual
+pixel changes and file round trips remain required. CI must pass these checks
+before the milestone is ready.

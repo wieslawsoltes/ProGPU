@@ -38,11 +38,18 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 let page;
 const errors = [];
-async function waitForFrames() {
-  const before = await page.locator('#counter-frames').textContent();
-  await page.waitForFunction(value =>
-    Number(document.querySelector('#counter-frames').textContent) >= Number(value) + 3,
-    before);
+const browserLog = [];
+async function waitForPresentation() {
+  // A retained static app need not submit three GPU frames after an input.
+  // Let browser/host input and presentation callbacks run; pixel and file
+  // assertions below verify the actual result without demanding idle redraws.
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Browser presentation callbacks stalled.')), 10_000);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      clearTimeout(timeout);
+      resolve();
+    }));
+  }));
 }
 async function clickUntilEvent(eventName, x, y, timeout = 30_000) {
   let observed;
@@ -72,7 +79,10 @@ try {
   page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
   const recordError = message => { errors.push(message); console.error(message); };
   page.on('pageerror', error => recordError(error.message));
-  page.on('console', message => { if (message.type() === 'error') recordError(message.text()); });
+  page.on('console', message => {
+    browserLog.push({ type: message.type(), text: message.text() });
+    if (message.type() === 'error') recordError(message.text());
+  });
   // Exercise the supported input/download fallbacks without native OS dialogs.
   await page.addInitScript(() => { globalThis.showOpenFilePicker = undefined; });
   await page.goto(`http://127.0.0.1:${server.address().port}/?progpuSavePicker=download`,
@@ -84,31 +94,32 @@ try {
   // Inspect the default scene, not toolbar chrome or opaque target alpha. Reuse
   // the PNG decoder bundled with our pinned Playwright dependency.
   let visiblePixels = 0;
+  let backgroundPixels = 0;
   const firstDrawingDeadline = Date.now() + 120_000;
-  while (visiblePixels < 100 && Date.now() < firstDrawingDeadline) {
+  while ((visiblePixels < 100 || backgroundPixels < 1000) && Date.now() < firstDrawingDeadline) {
     const pixels = browserUtilities.PNG.sync.read(await page.screenshot({ clip: drawing })).data;
     visiblePixels = 0;
+    backgroundPixels = 0;
     for (let i = 0; i < pixels.length; i += 4) {
       if (pixels[i] > 160 && pixels[i + 1] > 160 && pixels[i + 2] > 160) visiblePixels++;
+      if (pixels[i] < 80 && pixels[i + 1] < 80 && pixels[i + 2] < 80) backgroundPixels++;
     }
-    if (visiblePixels < 100) await new Promise(resolve => setTimeout(resolve, 500));
+    if (visiblePixels < 100 || backgroundPixels < 1000) await new Promise(resolve => setTimeout(resolve, 500));
   }
-  assert.ok(visiblePixels >= 100, 'The representative CAD drawing remained blank.');
+  assert.ok(visiblePixels >= 100 && backgroundPixels >= 1000,
+    'The representative CAD drawing remained blank (light or dark).');
   assert.deepEqual(errors, []);
   await page.screenshot({ path: path.join(evidence, 'initial.png') });
   // File actions and basic edits occupy only the top 104 logical pixels.
   await page.mouse.click(1210, 22); // More tools, pinned at the right edge.
-  await waitForFrames();
+  await waitForPresentation();
   await page.screenshot({ path: path.join(evidence, 'expanded-tools.png') });
   await page.mouse.click(1210, 22); // Fewer tools.
-  await waitForFrames();
+  await waitForPresentation();
   await page.mouse.move(700, 400);
   const beforeZoom = await page.screenshot({ clip: drawing });
-  const framesBeforeZoom = await page.locator('#counter-frames').textContent();
   await page.mouse.wheel(0, -250);
-  await page.waitForFunction(before =>
-    Number(document.querySelector('#counter-frames').textContent) >= Number(before) + 3,
-    framesBeforeZoom);
+  await waitForPresentation();
   let afterZoom;
   for (let attempt = 0; attempt < 30; attempt++) {
     afterZoom = await page.screenshot({ clip: drawing });
@@ -120,7 +131,7 @@ try {
   await page.mouse.down({ button: 'middle' });
   await page.mouse.move(780, 450, { steps: 5 });
   await page.mouse.up({ button: 'middle' });
-  await waitForFrames();
+  await waitForPresentation();
   const afterPan = await page.screenshot({ path: path.join(evidence, 'panned.png'), clip: drawing });
   assert.ok(!afterPan.equals(afterZoom), 'Middle-button drag did not change the CAD drawing.');
   const download = await clickUntilEvent('download', 195, 22, 60_000); // Save As.
@@ -170,7 +181,7 @@ try {
     const canvas = document.querySelector('#progpu-canvas');
     return canvas.width === 2880 && canvas.height === 1800;
   }, undefined, { timeout: 30_000 });
-  await waitForFrames();
+  await waitForPresentation();
   await page.screenshot({ path: path.join(evidence, 'resized.png') });
   assert.deepEqual(errors, []);
   const result = await page.evaluate(() => ({
@@ -190,6 +201,7 @@ try {
   if (page && !page.isClosed()) await page.screenshot({ path: path.join(evidence, 'failed.png'), timeout: 10_000 });
   throw error;
 } finally {
+  await fs.writeFile(path.join(evidence, 'console.json'), JSON.stringify(browserLog, null, 2) + '\n');
   await browser?.close();
   await new Promise(resolve => server.close(resolve));
 }
