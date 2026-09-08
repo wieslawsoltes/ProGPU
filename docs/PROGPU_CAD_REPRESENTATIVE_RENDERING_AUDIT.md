@@ -73,3 +73,9 @@ rendering implementation.
 
 The full CAD objective remains open. These findings order the rendering-first
 work; they do not redefine unsupported output as acceptable completion.
+
+Follow-up: [column IO investigation](PROGPU_CAD_MTEXT_COLUMN_IO.md) confirms
+that DWG discarded the persisted column count. That is fixed independently of
+layout. The sample's zero DXF / negative DWG final-column heights still need
+defined semantics; the baseline entity totals above are not claimed to improve
+from the count fix alone.
