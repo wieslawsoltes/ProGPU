@@ -57,7 +57,55 @@ monitors. End-to-end coordinate projection, DPI transitions, native popup input
 and edge nudging still require application qualification. In particular, do not
 admit Windows package mode or remove its guard based on these unit fixtures.
 
-## Authored coverage and qualification boundary
+## Client-to-desktop source contract prerequisite
+
+`PortableDesktopTransform` separates client-DIP-to-desktop geometry from
+framebuffer DPI. It maps `desktop = origin + client * scale`, and maps back with
+`client = (desktop - origin) / scale`. Desktop origins stay unchanged, including
+negative monitor origins. The immutable snapshot rejects nonfinite origins and
+nonpositive/nonfinite scales; a default/zero snapshot is invalid rather than an
+implicit platform assumption. Point arithmetic preserves ordinary IEEE results.
+
+`IPortableDesktopGeometryHost` is an optional package-neutral source capability.
+Source-built WPF implements it and its `PointToScreen`/`PointFromScreen` paths,
+including portable HwndSource ownership, consume this shared transform. The
+source starts with explicit identity desktop scale for compatibility. Legacy
+origin-only changes preserve the desktop scale, and framebuffer-DPI changes do
+not replace it. Invalid snapshots fail before changing source state.
+
+The contract follows GLFW's public distinction between desktop screen units and
+framebuffer pixels. Windows/X11 screen coordinates map to pixels, whereas
+macOS/Wayland can resize the framebuffer independently. Client-to-desktop scale
+must follow the host's actual client-size policy, not an OS-name heuristic or an
+assumed framebuffer/window-size ratio. See the official
+[window coordinate and content-scale guide](https://www.glfw.org/docs/latest/window_guide.html#window_scale).
+This is original ProGPU contract/arithmetic code; no external implementation is
+copied. Each point conversion uses two intrinsic double lanes, O(1) time/storage,
+no allocations, no native boundary and no GPU work. Both renderers use the same
+source/platform contract; no C++ renderer algorithm changes are applicable.
+
+**This prerequisite does not enable automatic host mapping or complete popup
+placement.** The stock host continues its existing desktop-scale policy. Its
+publication must be migrated together with popup child-interest points, size
+restrictions, relative offsets, owner-surface placement and input mapping; changing
+only the anchor would mix coordinate spaces. In particular,
+`Popup.GetChildInterestPoints` and `Popup.RestrictSize` currently retain client-DIP
+dimensions for portable sources, and bridge popup-local offsets assume the
+legacy transport scale. Those named consumers remain the next core dependency,
+not a deferred compatibility expansion. Keep Windows SDK admission closed.
+
+Authored fixtures compare intrinsic mapping against scalar forward/inverse
+oracles, retain negative/zero origins and unequal/fractional scales, reject
+invalid/default geometry, and check source round trips, portable HwndSource,
+origin updates, independent framebuffer changes and disposal. They are not run
+until final qualification; neither compilation nor these CPU fixtures establish
+monitor-transition, native-window, image, input or performance parity.
+The ProGPU.Tests Release compile checkpoint succeeds with 0 warnings/0 errors.
+The paired source-WPF fixture build is incomplete: generated-file writes fail
+with MSB3491 / no space left on device. Retry that build after restoring disk
+space before treating the consumer compilation checkpoint as closed.
+
+## Placement selection coverage
 
 ProGPU regressions cover overlapping/offscreen/zero-sized targets, negative
 origins, deterministic ties, invalid rectangles/inventories and owner-only routing

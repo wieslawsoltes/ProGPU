@@ -211,6 +211,12 @@ distinguish owner-surface from native-screen bounds before Show. Keep monitor
 selection/validation in the neutral interop contract, preserve desktop origins,
 and reject missing/invalid native monitor data rather than fabricate owner bounds.
 See `docs/native-mil-popup-placement.md` for coordinates and qualification limits.
+Client-to-desktop placement uses `PortableDesktopTransform`, separate from
+framebuffer DPI. Translate after scaling client-local offsets; never scale raw
+desktop/monitor origins. Source geometry updates use `IPortableDesktopGeometryHost`
+as one validated snapshot, while legacy origin-only updates preserve its scale.
+Do not enable a new automatic host mapping until popup anchors, child extents,
+limits, overlay placement and input consume the same coordinate frame.
 Synchronous WPF geometry utilities must use ProGPU-owned actual topology, not
 bounding-box substitutes. `NativeGeometryUtilities` exposes the shared C++
 Direct2D boundary algorithm without a device or native COM activation; preserve
