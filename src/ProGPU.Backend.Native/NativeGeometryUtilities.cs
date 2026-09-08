@@ -36,6 +36,28 @@ public sealed class NativeGeometryOutline
 /// </summary>
 public static unsafe class NativeGeometryUtilities
 {
+    /// <summary>Tests filled canonical contours without GPU initialization or readback.</summary>
+    public static bool FillContains(ReadOnlySpan<NativePathSegment> segments, NativeFillRule fillRule,
+        Vector2 point, float tolerance = 0.25f, NativeMilBackend backend = NativeMilBackend.WgpuNative)
+    {
+        if (segments.Length > 1 << 20) throw new ArgumentOutOfRangeException(nameof(segments));
+        if ((uint)fillRule > (uint)NativeFillRule.EvenOdd) throw new ArgumentOutOfRangeException(nameof(fillRule));
+        if (!float.IsFinite(point.X) || !float.IsFinite(point.Y)) throw new ArgumentOutOfRangeException(nameof(point));
+        if (!float.IsFinite(tolerance) || tolerance <= 0) throw new ArgumentOutOfRangeException(nameof(tolerance));
+        if (backend is not NativeMilBackend.WgpuNative and not NativeMilBackend.Dawn)
+            throw new ArgumentOutOfRangeException(nameof(backend));
+        uint contains = 0;
+        NativeRendererStatus status;
+        fixed (NativePathSegment* source = segments)
+            status = backend == NativeMilBackend.Dawn
+                ? NativeDawnGeometryMethods.FillContains(source, (uint)segments.Length, fillRule, &point, tolerance, &contains)
+                : NativeGeometryMethods.FillContains(source, (uint)segments.Length, fillRule, &point, tolerance, &contains);
+        if (status != NativeRendererStatus.Success)
+            throw new NativeRendererException(status, "Native geometry fill query failed.");
+        if (contains > 1) throw new NativeRendererException(NativeRendererStatus.InternalError, "Invalid native fill query result.");
+        return contains != 0;
+    }
+
     /// <summary>
     /// Combines filled paths already in one coordinate space. Discontinuous
     /// segments start new contours and all contours are implicitly closed.
@@ -104,6 +126,11 @@ public static unsafe class NativeGeometryUtilities
 
 internal static unsafe partial class NativeGeometryMethods
 {
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_geometry_fill_contains")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus FillContains(NativePathSegment* segments, uint count,
+        NativeFillRule fillRule, Vector2* point, float tolerance, uint* contains);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_geometry_combine")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus Combine(
@@ -119,6 +146,11 @@ internal static unsafe partial class NativeGeometryMethods
 
 internal static unsafe partial class NativeDawnGeometryMethods
 {
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_geometry_fill_contains")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus FillContains(NativePathSegment* segments, uint count,
+        NativeFillRule fillRule, Vector2* point, float tolerance, uint* contains);
+
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_geometry_combine")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus Combine(

@@ -147,8 +147,76 @@ portable and native-MIL renderer modes. This shared CPU geometry dependency is
 not a switch to native rendering. Package staging already includes Backend.Native;
 actual package binary/export availability still needs final qualification.
 Ordinary unselected Windows WPF retains native MIL Combine. The portable transport
-choice, not OS detection, selects the new route. Other source-WPF geometry utility
-routes, especially Windows bounds/hit testing, remain open; keep the SDK guard.
+choice, not OS detection, selects the new route. The fill-query connection below
+closes another source route; contributing-pen bounds/stroke hit testing and other
+media utility consumers still prevent Windows SDK admission. Keep the SDK guard.
+
+### Fill bounds and point queries — core layout/input connection
+
+Acceptance path: source-built MVP and Toolkit/AvalonDock layout clips, content
+bounds and pointer input. Source inspection found OS-selected MIL calls in
+`PathGeometry.GetPathBoundsAsRB`, `Geometry.GetBoundsHelper` and fill containment.
+Those fill-only operations now select the frozen portable media backend and use
+the registered provider. Contributing pens keep their separate existing route;
+this change must not enable the older stroke-by-bounds approximations on Windows.
+
+`IPortableGeometryOperations.GetBounds` returns a neutral rectangle with explicit
+empty state, world transform and hollow-figure policy. The host reuses its exact
+materialized curve-extrema reader, including analytic arc bounds, rather than
+Bezier control hulls or a new flattened bounds algorithm. Generic geometry/group
+queries export the bounds-free operand directly. Serialized path queries retain
+their source fill rule and transform. Primitive line/cubic point/type arrays are
+decoded by source WPF into typed segments, with count/kind checks and closed,
+smooth and gap flags retained. This decoder is transport, not a WPF-local geometry
+algorithm. Existing source primitive identity fast paths remain in place.
+
+`progpu_native_geometry_fill_contains` and `NativeGeometryUtilities.FillContains`
+reuse `create_native_fill_geometry` and `portable_path_geometry::FillContainsPoint`
+in the original ProGPU-owned `progpu_native_direct2d_path.cpp`. The exported ABI
+is additive and uses existing point/path records plus a caller-owned uint result;
+no new wire record or module interface is introduced. Both WGPU-native and Dawn
+wrappers use the same source. There is one pinned span crossing and no output
+array, sizing retry, GPU/device creation, queue submission or pixel readback.
+Hollows are excluded by CompileFillPath and its implicit-closure semantics are
+retained. Nested combinations still use the shared native boolean utility.
+
+The existing core edge metric arithmetic now uses independent double x/y lanes
+on AArch64 NEON and SSE2, retaining ordered boundary/winding reduction and
+direction-aware half-open crossings. Platforms without double SIMD retain the
+documented scalar platform implementation. This also updates direct C++ Direct2D
+queries; both managed and native LibreWPF renderer modes call that same core.
+Geometry-query CPU execution is an explicit synchronous, device-independent
+layout contract, not a rejected compute-shader fallback or a change to the
+renderer execution policy. No GPU-capability probe is made and no speed claim is
+made. Representative final latency and allocation measurements remain required.
+
+Cost: bounded operand/segment export and metric traversal are O(S), native point
+queries cost O(S + E) time and O(S + E) temporary storage for S input segments and
+E adaptively flattened edges. Nested boolean operations retain their separately
+documented arrangement cost. There is no per-edge crossing or heap allocation
+inside the intrinsic metric kernel. Each source query currently exports a fresh
+snapshot; this is not a zero-allocation retained-query claim.
+
+Behavioral references are the official [WPF FillContains contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.geometry.fillcontains)
+and [Direct2D FillContainsPoint contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-fillcontainspoint%28d2d1_point_2f_constd2d1_matrix_3x2_f_float_bool%29).
+Adopt the supplied-coordinate fill query and explicit tolerance; reuse original
+ProGPU algorithms, not Microsoft implementation text. This extends the existing
+geometry utility architecture, not text shaping, atlases or rendering pipelines.
+Native boundary tolerance/float quantization and degenerate contours still need
+Windows differential qualification; compilation does not establish MIL parity.
+
+Authored additions cover scalar-oracle point grids with both fill rules, concave
+contours, nested contours, edge/vertex probes and C ABI rejection/empty output;
+managed pre-load rejection; source policy/point transport, path fill/transform,
+primitive cubic flags/truncation; and exact bounds, hollows, world transforms,
+nonfinite input and empty-versus-point results. No fixtures were executed.
+
+Compile checkpoint: the final fill-query C ABI fixture and shared Direct2D core
+compile/link with AppleClang C++20 strict warnings; ProGPU.Tests Release compiles
+with 0 warnings/0 errors. Source PresentationCore fixtures compile with 8 warnings
+and 0 errors. This native tree builds the device-independent fixture, not final
+WGPU/Dawn shared libraries. SSE2, final-module P/Invoke, Windows/MIL differentials,
+full application gates, Instruments/performance and CI remain unqualified.
 
 ## Authored gates; execution deferred
 

@@ -13,6 +13,44 @@ struct progpu_native_geometry_outline final {
     std::vector<std::uint32_t> offsets;
 };
 
+extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_fill_contains(
+    const progpu_native_path_segment* segments, std::uint32_t segment_count,
+    std::uint32_t fill_rule, const progpu_native_point* point, float tolerance,
+    std::uint32_t* contains)
+{
+    if (contains == nullptr) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    *contains = 0U;
+    if ((segment_count != 0U && segments == nullptr) || segment_count > (1U << 20U) ||
+        fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD || point == nullptr ||
+        !std::isfinite(point->x) || !std::isfinite(point->y) ||
+        !std::isfinite(tolerance) || tolerance <= 0.0F) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    namespace d2d = progpu::native::direct2d::compat;
+    namespace com = progpu::native::com;
+    try {
+        com::pointer<d2d::factory> owner;
+        com::pointer<d2d::path_geometry> path;
+        com::result status = d2d::create_factory(owner.put());
+        if (!com::failed(status)) status = d2d::detail::create_native_fill_geometry(owner.get(),
+            {segments, segment_count}, fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                ? d2d::fill_mode::alternate : d2d::fill_mode::winding, path.put());
+        std::int32_t result = 0;
+        if (!com::failed(status)) status = path->FillContainsPoint(
+            {point->x, point->y}, nullptr, tolerance, &result);
+        if (com::failed(status)) {
+            if (status == com::out_of_memory) return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+            if (status == com::invalid_argument || status == com::pointer_error) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            if (status == d2d::not_implemented) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+            return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+        }
+        *contains = result != 0 ? 1U : 0U;
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
+}
+
 extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_combine(
     const progpu_native_path_segment* first, std::uint32_t first_count, std::uint32_t first_fill,
     const progpu_native_path_segment* second, std::uint32_t second_count, std::uint32_t second_fill,

@@ -221,6 +221,49 @@ void include_cubic_bounds(
     return cross * cross / length_squared;
 }
 
+struct fill_edge_metrics final {
+    double projection;
+    double length_squared;
+    double cross;
+    double point_distance_squared;
+};
+
+// Independent x/y double lanes preserve float-endpoint subtraction precision.
+// Winding/early-boundary reduction is ordered; metric arithmetic is intrinsic.
+// Fixed O(1) work/storage per edge, no packed scratch or alignment requirement.
+[[nodiscard]] fill_edge_metrics measure_fill_edge(point_2f start, point_2f end,
+    point_2f point) noexcept
+{
+#if (defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_NEON) && (defined(__aarch64__) || defined(_M_ARM64))) || defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_SSE2)
+    std::array<double, 2U> projection{}, length{}, cross{}, distance{};
+#if defined(PROGPU_NATIVE_DIRECT2D_PATH_INTRINSICS_NEON)
+    const std::array<double, 2U> a{start.x, start.y}, b{end.x, end.y}, p{point.x, point.y};
+    const auto origin = vld1q_f64(a.data());
+    const auto delta = vsubq_f64(vld1q_f64(b.data()), origin);
+    const auto relative = vsubq_f64(vld1q_f64(p.data()), origin);
+    vst1q_f64(projection.data(), vmulq_f64(delta, relative));
+    vst1q_f64(length.data(), vmulq_f64(delta, delta));
+    vst1q_f64(cross.data(), vmulq_f64(delta, vextq_f64(relative, relative, 1)));
+    vst1q_f64(distance.data(), vmulq_f64(relative, relative));
+#else
+    const auto origin = _mm_set_pd(start.y, start.x);
+    const auto delta = _mm_sub_pd(_mm_set_pd(end.y, end.x), origin);
+    const auto relative = _mm_sub_pd(_mm_set_pd(point.y, point.x), origin);
+    _mm_storeu_pd(projection.data(), _mm_mul_pd(delta, relative));
+    _mm_storeu_pd(length.data(), _mm_mul_pd(delta, delta));
+    _mm_storeu_pd(cross.data(), _mm_mul_pd(delta, _mm_shuffle_pd(relative, relative, 1)));
+    _mm_storeu_pd(distance.data(), _mm_mul_pd(relative, relative));
+#endif
+    return {projection[0] + projection[1], length[0] + length[1],
+        cross[0] - cross[1], distance[0] + distance[1]};
+#else
+    // Reference/platform implementation when double SIMD is unavailable.
+    const double dx = double{end.x} - start.x, dy = double{end.y} - start.y;
+    const double px = double{point.x} - start.x, py = double{point.y} - start.y;
+    return {px * dx + py * dy, dx * dx + dy * dy, dx * py - dy * px, px * px + py * py};
+#endif
+}
+
 // Convex combinations of forward control-polygon tangents stay inside their
 // common angular cone. Bound pen-normal deviation conservatively by twice the
 // sine of that cone angle, reserving half the tolerance for centerline error.
@@ -5969,19 +6012,12 @@ public:
                 figure_begin::filled) {
                 continue;
             }
-            const double dx =
-                static_cast<double>(edge.end.x) - edge.start.x;
-            const double dy =
-                static_cast<double>(edge.end.y) - edge.start.y;
-            const double px =
-                static_cast<double>(point.x) - edge.start.x;
-            const double py =
-                static_cast<double>(point.y) - edge.start.y;
-            const double projection = px * dx + py * dy;
-            const double length_squared = dx * dx + dy * dy;
-            if (projection >= 0.0 && projection <= length_squared &&
-                point_line_distance_squared(
-                    point, edge.start, edge.end) <= tolerance_squared) {
+            const auto metrics = measure_fill_edge(edge.start, edge.end, point);
+            const double distance_squared = metrics.length_squared == 0.0
+                ? metrics.point_distance_squared
+                : metrics.cross * metrics.cross / metrics.length_squared;
+            if (metrics.projection >= 0.0 && metrics.projection <= metrics.length_squared &&
+                distance_squared <= tolerance_squared) {
                 boundary = true;
                 break;
             }
@@ -5992,9 +6028,8 @@ public:
             if (!upward && !downward) {
                 continue;
             }
-            const double cross = dx * py - dy * px;
-            if ((upward && cross > 0.0) ||
-                (downward && cross < 0.0)) {
+            if ((upward && metrics.cross > 0.0) ||
+                (downward && metrics.cross < 0.0)) {
                 alternate = !alternate;
                 winding += upward ? 1 : -1;
             }

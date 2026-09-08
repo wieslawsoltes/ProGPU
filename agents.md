@@ -222,6 +222,12 @@ Geometry operation operands are separate bounds-free Path/Group/Combined DTOs;
 do not reuse retained bounds queries during synchronous operation export or
 silently change retained renderer DTO kinds. Default geometry provider registration
 must not replace explicit host configuration or load a device at registration.
+Filled point queries reuse the native Direct2D core through the synchronous
+geometry C ABI, with canonical spans and a caller-owned boolean result. Preserve
+double intrinsic edge metrics, ordered winding and half-open crossings; no GPU
+readback, bounds-only containment or implicit switch of the renderer is allowed.
+Unstroked bounds must preserve tight curve extrema, hollow-figure filtering and
+empty/zero-size distinction. Missing optional provider operations fail explicitly.
 
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 

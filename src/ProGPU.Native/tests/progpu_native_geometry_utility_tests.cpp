@@ -95,6 +95,12 @@ bool curved_result_matches_shared_core()
     arc.p3 = {10, 10};
     arc.pad1 = std::bit_cast<std::uint32_t>(2.0F * std::numbers::pi_v<float>);
     const std::array first{arc};
+    const point center{}, outside{12, 0};
+    std::uint32_t contains = 0;
+    if (progpu_native_geometry_fill_contains(first.data(), 1, 0, &center, 0.01F, &contains) !=
+        PROGPU_NATIVE_STATUS_SUCCESS || contains != 1) return false;
+    if (progpu_native_geometry_fill_contains(first.data(), 1, 0, &outside, 0.01F, &contains) !=
+        PROGPU_NATIVE_STATUS_SUCCESS || contains != 0) return false;
     const auto second = polygon({{0, -20}, {20, -20}, {20, 20}, {0, 20}});
     std::vector<std::vector<d2d::point_2f>> expected;
     if (com::failed(d2d::detail::combine_native_fill_contours(first, d2d::fill_mode::winding,
@@ -127,11 +133,59 @@ bool failures_and_empty_ownership()
     return progpu_native_geometry_combine(nullptr, 1, 0, nullptr, 0, 0, 0, 0.1F,
         &output.value, &output.points, &output.point_count, &output.offsets, &output.contour_count) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
 }
+
+// Independent scalar oracle, including projected-edge tolerance and half-open
+// crossings. Exercises the intrinsic product path without using its helpers.
+bool scalar_fill(std::span<const segment> edges, point p, bool even_odd, double tolerance)
+{
+    int winding = 0;
+    for (const auto& edge : edges) {
+        const double x = double{edge.p1.x} - edge.p0.x, y = double{edge.p1.y} - edge.p0.y;
+        const double u = double{p.x} - edge.p0.x, v = double{p.y} - edge.p0.y;
+        const double length = x * x + y * y, projection = u * x + v * y;
+        const double cross = x * v - y * u;
+        const double distance = length == 0 ? u * u + v * v : cross * cross / length;
+        if (projection >= 0 && projection <= length && distance <= tolerance * tolerance) return true;
+        if (edge.p0.y <= p.y && edge.p1.y > p.y && cross > 0) ++winding;
+        if (edge.p0.y > p.y && edge.p1.y <= p.y && cross < 0) --winding;
+    }
+    return even_odd ? winding % 2 != 0 : winding != 0;
+}
+
+bool fill_queries_match_scalar_and_reject_bad_inputs()
+{
+    auto path = polygon({{0, 0}, {16, 0}, {16, 12}, {8, 5}, {0, 12}});
+    const auto inner = polygon({{3, 2}, {6, 2}, {6, 4}, {3, 4}});
+    path.insert(path.end(), inner.begin(), inner.end());
+    constexpr float tolerance = 0.03125F;
+    std::uint32_t contains = 99;
+    for (std::uint32_t fill = 0; fill < 2; ++fill) {
+        for (int y = -4; y <= 28; ++y) for (int x = -4; x <= 36; ++x) {
+            const point probe{static_cast<float>(x) * 0.5F, static_cast<float>(y) * 0.5F};
+            if (progpu_native_geometry_fill_contains(path.data(), static_cast<std::uint32_t>(path.size()),
+                fill, &probe, tolerance, &contains) != PROGPU_NATIVE_STATUS_SUCCESS ||
+                (contains != 0) != scalar_fill(path, probe, fill == 1, tolerance)) return false;
+        }
+    }
+    const point origin{};
+    if (progpu_native_geometry_fill_contains(nullptr, 0, 0, &origin, tolerance, &contains) !=
+        PROGPU_NATIVE_STATUS_SUCCESS || contains != 0) return false;
+    if (progpu_native_geometry_fill_contains(nullptr, 1, 0, &origin, tolerance, &contains) !=
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT || contains != 0) return false;
+    if (progpu_native_geometry_fill_contains(nullptr, 0, 2, &origin, tolerance, &contains) !=
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT || contains != 0) return false;
+    if (progpu_native_geometry_fill_contains(nullptr, 0, 0, &origin, 0, &contains) !=
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT || contains != 0) return false;
+    const point bad{std::numeric_limits<float>::quiet_NaN(), 0};
+    return progpu_native_geometry_fill_contains(nullptr, 0, 0, &bad, tolerance, &contains) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && contains == 0;
+}
 } // namespace
 
 int main()
 {
-    if (!modes_and_actual_boundaries() || !curved_result_matches_shared_core() || !failures_and_empty_ownership()) {
+    if (!modes_and_actual_boundaries() || !curved_result_matches_shared_core() || !failures_and_empty_ownership() ||
+        !fill_queries_match_scalar_and_reject_bad_inputs()) {
         std::fputs("Native geometry utility conformance failed.\n", stderr);
         return 1;
     }

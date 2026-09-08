@@ -2187,6 +2187,17 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_combine(
 PROGPU_NATIVE_API void progpu_native_geometry_outline_destroy(
     progpu_native_geometry_outline* result);
 
+/* Synchronous filled-path point query over the same canonical contours as
+ * geometry_combine. No engine, GPU or input retention. Tolerance is finite,
+ * positive and absolute in the already-transformed input coordinate space.
+ * Output is 0 or 1; a valid output address is zeroed before input validation.
+ * Input count is bounded to 2^20. Hollow figures must be excluded by the caller.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_fill_contains(
+    const progpu_native_path_segment* segments, uint32_t segment_count,
+    uint32_t fill_rule, const progpu_native_point* point, float tolerance,
+    uint32_t* contains);
+
 /* Values and storage intentionally match ProGPU.Vector.GpuHitTesting and the
  * canonical GpuHitTesting.wgsl storage-buffer contract. The C declarations
  * are the wire-layout authority for generated managed interop records. */

@@ -23,6 +23,17 @@ public sealed class PortableGeometryOperand
 public interface IPortableGeometryOperations
 {
     /// <summary>
+    /// Tight unstroked bounds after the additional world transform. Empty is
+    /// distinct from a zero-size bound; skipHollows excludes non-filled figures.
+    /// </summary>
+    PortableRect GetBounds(PortableGeometryOperand geometry, PortableMatrix3x2 worldTransform, bool skipHollows)
+        => throw new PlatformNotSupportedException("The geometry provider does not support bounds queries.");
+
+    /// <summary>Filled-area point membership in geometry output coordinates; never a bounds hit surrogate.</summary>
+    bool FillContains(PortableGeometryOperand geometry, PortablePoint point, double tolerance, bool relativeTolerance)
+        => throw new PlatformNotSupportedException("The geometry provider does not support fill queries.");
+
+    /// <summary>
     /// Synchronous CPU-owned result; no input retained. Preserve filled figures,
     /// groups and nested operations. Result transform is applied in output space.
     /// Output is a materialized path, not a deferred boolean or bounds surrogate.

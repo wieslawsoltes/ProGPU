@@ -6,6 +6,15 @@ namespace ProGPU.Tests;
 public class PortableGeometryOperationsTests
 {
     [Fact]
+    public void OlderProvidersRejectMissingQueryCapabilitiesExplicitly()
+    {
+        IPortableGeometryOperations service = new Service();
+        var operand = new PortableGeometryOperand { Path = new PortableGeometryPath() };
+        Assert.Throws<PlatformNotSupportedException>(() => service.GetBounds(operand, PortableMatrix3x2.Identity, false));
+        Assert.Throws<PlatformNotSupportedException>(() => service.FillContains(operand, new(0, 0), 0.25, false));
+    }
+
+    [Fact]
     public void ReplacementAndDefaultRegistrationPreserveExplicitProviderOwnership()
     {
         var first = new Service();
