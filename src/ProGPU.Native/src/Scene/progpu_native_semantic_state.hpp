@@ -277,6 +277,14 @@ bool try_resolve_semantic_mask_uv(const progpu_native_affine_2d& transform,
     const progpu_native_scene_presentation& presentation, float raster_dpi,
     std::array<double, 6U>& uv) noexcept;
 
+// Resolve the child raster domain before creating a picture texture or engine.
+// Explicit source extents own their DPI; target-space pictures inherit the
+// parent's axes/origin, clipped to the allocated source. Publishes on success.
+bool try_resolve_semantic_picture_frame(const progpu_native_scene_layer_picture_mask& picture,
+    const scissor& target, float raster_dpi,
+    const progpu_native_scene_presentation* parent,
+    progpu_native_scene_frame& frame) noexcept;
+
 progpu_native_scene_state localize_semantic_state(
     progpu_native_scene_state state,
     const scissor& target,

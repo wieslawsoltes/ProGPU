@@ -892,13 +892,6 @@ bool create_semantic_layer_mask_binding(
             operation,
             &presentation);
     }
-    // Picture consumers still have their own logical/raster domains. Do not
-    // silently run their legacy mapping when called with advanced presentation.
-    const bool advanced_presentation = presentation.viewport_x != 0U ||
-        presentation.viewport_y != 0U || presentation.dpi_scale_x != dpi_scale ||
-        presentation.dpi_scale_y != dpi_scale;
-    if (advanced_presentation && parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE)
-        return false;
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH) {
         return create_semantic_brush_mask_binding(
             engine,
@@ -928,7 +921,8 @@ bool create_semantic_layer_mask_binding(
             dpi_scale,
             composite_state_cursor,
             composite_state,
-            operation);
+            operation,
+            &presentation);
     }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
         return create_semantic_composite_mask_binding(

@@ -88,24 +88,20 @@ static bool create_semantic_picture_binding(
     semantic_image_draw* image_output,
     progpu_native_scene_frame_metrics* image_metrics,
     const progpu_native_color* source_clear,
-    WGPUTexture seed_texture = nullptr, std::uint32_t first_command = 0U) {
+    WGPUTexture seed_texture = nullptr, std::uint32_t first_command = 0U,
+    const progpu_native_scene_presentation* presentation = nullptr) {
+    progpu_native_scene_frame child_frame{};
     if (nested_scene == nullptr || picture.stream_size == 0U ||
-        target_extent.width == 0U || target_extent.height == 0U ||
-        !std::isfinite(dpi_scale) || dpi_scale <= 0.0F ||
-        target_extent.x > 16384U - target_extent.width ||
-        target_extent.y > 16384U - target_extent.height ||
+        !semantic::try_resolve_semantic_picture_frame(picture, target_extent,
+            dpi_scale, presentation, child_frame) ||
         (image_output == nullptr && !create_layer_mask_resources(engine))) {
         return false;
     }
 
     const bool source_extent =
         (picture.flags & PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT) != 0U;
-    const std::uint32_t source_width = source_extent
-        ? picture.reserved0
-        : target_extent.x + target_extent.width;
-    const std::uint32_t source_height = source_extent
-        ? picture.reserved1
-        : target_extent.y + target_extent.height;
+    const std::uint32_t source_width = child_frame.width;
+    const std::uint32_t source_height = child_frame.height;
     const std::uint64_t source_bytes =
         static_cast<std::uint64_t>(source_width) * source_height * 4U;
     if (source_bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES) {
@@ -221,23 +217,6 @@ static bool create_semantic_picture_binding(
     }
     progpu_native_scene_header nested_header{};
     std::memcpy(&nested_header, nested_scene, sizeof(nested_header));
-    progpu_native_scene_frame child_frame{};
-    child_frame.struct_size = sizeof(child_frame);
-    child_frame.width = source_width;
-    child_frame.height = source_height;
-    const float source_dpi_scale = source_extent
-        ? static_cast<float>(source_width) / picture.bounds.width
-        : dpi_scale;
-    const float source_dpi_scale_y = source_extent
-        ? static_cast<float>(source_height) / picture.bounds.height
-        : dpi_scale;
-    if (!std::isfinite(source_dpi_scale) || source_dpi_scale <= 0.0F ||
-        !std::isfinite(source_dpi_scale_y) || source_dpi_scale_y <= 0.0F ||
-        std::abs(source_dpi_scale - source_dpi_scale_y) > 0.0001F) {
-        cleanup();
-        return false;
-    }
-    child_frame.dpi_scale = source_dpi_scale;
     if (seed_texture != nullptr) child_frame.flags |= PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET;
     if (source_clear != nullptr) {
         child_frame.clear_color = {source_clear->r * source_clear->a,
@@ -268,40 +247,16 @@ static bool create_semantic_picture_binding(
     }
 
     gpu_mask_sampling_uniforms sampling{};
+    const progpu_native_scene_presentation legacy_presentation{
+        sizeof(legacy_presentation), 0U, 0U, target_extent.x + target_extent.width,
+        target_extent.y + target_extent.height, dpi_scale, dpi_scale, 0U};
+    const auto& parent_presentation = presentation != nullptr ? *presentation : legacy_presentation;
     if (source_extent) {
-        const double m11 = picture.transform.m11;
-        const double m12 = picture.transform.m12;
-        const double m21 = picture.transform.m21;
-        const double m22 = picture.transform.m22;
-        const double m31 = picture.transform.m31;
-        const double m32 = picture.transform.m32;
-        const double determinant = m11 * m22 - m12 * m21;
-        if (!std::isfinite(determinant) || std::abs(determinant) < 1.0e-12) {
+        std::array<double, 6U> uv_transform{};
+        if (!semantic::try_resolve_semantic_mask_uv(picture.transform, picture.bounds,
+                target_extent, parent_presentation, dpi_scale, uv_transform)) {
             cleanup();
             return false;
-        }
-        const double inverse_m11 = m22 / determinant;
-        const double inverse_m12 = -m12 / determinant;
-        const double inverse_m21 = -m21 / determinant;
-        const double inverse_m22 = m11 / determinant;
-        const double inverse_m31 =
-            (m21 * m32 - m22 * m31) / determinant;
-        const double inverse_m32 =
-            (m12 * m31 - m11 * m32) / determinant;
-        const std::array<double, 6U> uv_transform{
-            inverse_m11 / (dpi_scale * picture.bounds.width),
-            inverse_m21 / (dpi_scale * picture.bounds.width),
-            (inverse_m31 - picture.bounds.x) / picture.bounds.width,
-            inverse_m12 / (dpi_scale * picture.bounds.height),
-            inverse_m22 / (dpi_scale * picture.bounds.height),
-            (inverse_m32 - picture.bounds.y) / picture.bounds.height};
-        for (double value : uv_transform) {
-            if (!std::isfinite(value) ||
-                value < -std::numeric_limits<float>::max() ||
-                value > std::numeric_limits<float>::max()) {
-                cleanup();
-                return false;
-            }
         }
         sampling.coordinate0[0] = static_cast<float>(uv_transform[0]);
         sampling.coordinate0[1] = static_cast<float>(uv_transform[1]);
@@ -309,15 +264,20 @@ static bool create_semantic_picture_binding(
         sampling.coordinate1[0] = static_cast<float>(uv_transform[3]);
         sampling.coordinate1[1] = static_cast<float>(uv_transform[4]);
         sampling.coordinate1[2] = static_cast<float>(uv_transform[5]);
-        sampling.options[2] = 1.0F;
     } else {
-        sampling.coordinate1[0] =
+        // The child raster uses global parent coordinates. A standalone mask
+        // shader receives target-local fragment positions, so include the crop
+        // in its UV map instead of relying on composite-only texture offsets.
+        sampling.coordinate0[0] =
             1.0F / static_cast<float>(source_width);
         sampling.coordinate1[1] =
             1.0F / static_cast<float>(source_height);
+        sampling.coordinate0[2] = static_cast<float>(target_extent.x) / source_width;
+        sampling.coordinate1[2] = static_cast<float>(target_extent.y) / source_height;
     }
     sampling.options[0] = 1.0F;
     sampling.options[1] = picture.opacity;
+    sampling.options[2] = 1.0F;
     if (composite_state_cursor != nullptr && composite_state != nullptr &&
         (composite_state->flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U &&
         !composite_state_cursor->has_per_point_guidelines(*composite_state)) {
@@ -344,16 +304,12 @@ static bool create_semantic_picture_binding(
             return false;
         }
         if (!visible) sampling.options[1] = 0.0F;
-        if (!source_extent) {
-            sampling.coordinate0[0] = 1.0F / static_cast<float>(source_width);
-            sampling.coordinate0[1] = 0.0F;
-            sampling.coordinate0[2] = 0.0F;
-            sampling.coordinate1[0] = 0.0F;
-            sampling.coordinate1[1] = 1.0F / static_cast<float>(source_height);
-            sampling.coordinate1[2] = 0.0F;
-        }
-        const float tx = inverse.m31 * dpi_scale;
-        const float ty = inverse.m32 * dpi_scale;
+        // Conjugate logical inverse deformation into target-local physical
+        // coordinates. Integer viewport translation is not a snapping phase.
+        const float origin_x = static_cast<float>(static_cast<double>(parent_presentation.viewport_x) - target_extent.x);
+        const float origin_y = static_cast<float>(static_cast<double>(parent_presentation.viewport_y) - target_extent.y);
+        const float tx = inverse.m31 * parent_presentation.dpi_scale_x + (1.0F - inverse.m11) * origin_x;
+        const float ty = inverse.m32 * parent_presentation.dpi_scale_y + (1.0F - inverse.m22) * origin_y;
         for (auto* row : {sampling.coordinate0, sampling.coordinate1}) {
             row[2] += row[0] * tx + row[1] * ty;
             row[0] *= inverse.m11;
@@ -419,9 +375,11 @@ bool create_semantic_picture_mask_binding(
     const semantic::scissor& target_extent, float dpi_scale,
     const semantic::semantic_state_cursor* composite_state_cursor,
     const progpu_native_scene_state* composite_state,
-    semantic_render_bundle_span& operation) {
+    semantic_render_bundle_span& operation,
+    const progpu_native_scene_presentation* presentation) {
     return create_semantic_picture_binding(engine, picture, nested_scene, target_extent,
-        dpi_scale, composite_state_cursor, composite_state, operation, nullptr, nullptr, nullptr);
+        dpi_scale, composite_state_cursor, composite_state, operation, nullptr, nullptr, nullptr,
+        nullptr, 0U, presentation);
 }
 
 bool create_semantic_picture_image(

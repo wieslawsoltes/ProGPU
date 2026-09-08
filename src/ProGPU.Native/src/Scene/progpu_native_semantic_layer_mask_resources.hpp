@@ -62,7 +62,8 @@ bool create_semantic_picture_mask_binding(
     float dpi_scale,
     const semantic::semantic_state_cursor* composite_state_cursor,
     const progpu_native_scene_state* composite_state,
-    semantic_render_bundle_span& operation);
+    semantic_render_bundle_span& operation,
+    const progpu_native_scene_presentation* presentation = nullptr);
 
 bool create_semantic_picture_image(
     progpu_native_engine& engine,

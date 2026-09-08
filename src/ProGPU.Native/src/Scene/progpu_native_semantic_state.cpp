@@ -835,6 +835,47 @@ bool try_resolve_semantic_mask_uv(const progpu_native_affine_2d& transform,
     return true;
 }
 
+bool try_resolve_semantic_picture_frame(const progpu_native_scene_layer_picture_mask& picture,
+    const scissor& target, float raster_dpi,
+    const progpu_native_scene_presentation* parent,
+    progpu_native_scene_frame& frame) noexcept {
+    if (!std::isfinite(raster_dpi) || raster_dpi <= 0.0F ||
+        target.width == 0U || target.height == 0U ||
+        target.width > 16384U || target.height > 16384U ||
+        target.x > 16384U - target.width || target.y > 16384U - target.height)
+        return false;
+    const bool source_extent = (picture.flags & PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT) != 0U;
+    progpu_native_scene_frame candidate{};
+    candidate.struct_size = sizeof(candidate);
+    candidate.width = source_extent ? picture.reserved0 : target.x + target.width;
+    candidate.height = source_extent ? picture.reserved1 : target.y + target.height;
+    if (candidate.width == 0U || candidate.height == 0U ||
+        candidate.width > 16384U || candidate.height > 16384U)
+        return false;
+    candidate.dpi_scale = raster_dpi;
+    candidate.presentation = {sizeof(candidate.presentation), 0U, 0U,
+        candidate.width, candidate.height, raster_dpi, raster_dpi, 0U};
+    if (source_extent) {
+        if (!std::isfinite(picture.bounds.width) || picture.bounds.width <= 0.0F ||
+            !std::isfinite(picture.bounds.height) || picture.bounds.height <= 0.0F)
+            return false;
+        candidate.presentation.dpi_scale_x = static_cast<float>(candidate.width) / picture.bounds.width;
+        candidate.presentation.dpi_scale_y = static_cast<float>(candidate.height) / picture.bounds.height;
+        candidate.dpi_scale = candidate.presentation.dpi_scale_y;
+    } else if (parent != nullptr) {
+        if (parent->viewport_x >= candidate.width || parent->viewport_y >= candidate.height)
+            return false;
+        candidate.presentation = *parent;
+        candidate.presentation.viewport_width = std::min(parent->viewport_width, candidate.width - parent->viewport_x);
+        candidate.presentation.viewport_height = std::min(parent->viewport_height, candidate.height - parent->viewport_y);
+    }
+    candidate.flags = PROGPU_NATIVE_SCENE_FRAME_PRESENTATION;
+    progpu_native_scene_presentation validated{};
+    if (!try_resolve_scene_presentation(candidate, validated)) return false;
+    frame = candidate;
+    return true;
+}
+
 semantic_layer_target_cursor::semantic_layer_target_cursor(
     const std::byte* bytes,
     std::uint32_t frame_width,

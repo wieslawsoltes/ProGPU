@@ -1269,6 +1269,45 @@ void semantic_presentation_layers_keep_independent_device_domains() {
     require(cursor.current_presentation().viewport_x == 13U);
 }
 
+void semantic_picture_raster_domain_is_separate_from_parent_sampling() {
+    using namespace progpu::native::semantic;
+    progpu_native_scene_layer_picture_mask picture{};
+    picture.bounds = {4.0F, 8.0F, 32.0F, 16.0F};
+    const progpu_native_scene_presentation parent{
+        sizeof(parent), 13U, 17U, 100U, 80U, 2.0F, 3.0F, 0U};
+    const scissor target{21U, 32U, 40U, 30U, true};
+    progpu_native_scene_frame frame{};
+    require(try_resolve_semantic_picture_frame(picture, target, 2.0F, &parent, frame));
+    require(frame.width == 61U && frame.height == 62U);
+    require(frame.presentation.viewport_x == 13U && frame.presentation.viewport_y == 17U);
+    require(frame.presentation.viewport_width == 48U && frame.presentation.viewport_height == 45U);
+    require(frame.presentation.dpi_scale_x == 2.0F && frame.presentation.dpi_scale_y == 3.0F);
+    require(frame.dpi_scale == 2.0F);
+    require(frame.flags == PROGPU_NATIVE_SCENE_FRAME_PRESENTATION);
+
+    picture.flags = PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT;
+    picture.reserved0 = 64U;
+    picture.reserved1 = 64U;
+    require(try_resolve_semantic_picture_frame(picture, target, 2.0F, &parent, frame));
+    require(frame.width == 64U && frame.height == 64U);
+    require(frame.presentation.viewport_x == 0U && frame.presentation.viewport_y == 0U);
+    require(frame.presentation.viewport_width == 64U && frame.presentation.viewport_height == 64U);
+    require(frame.presentation.dpi_scale_x == 2.0F && frame.presentation.dpi_scale_y == 4.0F);
+    require(frame.dpi_scale == 4.0F);
+    const auto previous = frame;
+    picture.reserved0 = 0U;
+    require(!try_resolve_semantic_picture_frame(picture, target, 2.0F, &parent, frame));
+    require(std::memcmp(&frame, &previous, sizeof(frame)) == 0);
+    picture = {};
+    require(!try_resolve_semantic_picture_frame(picture,
+        {0U, 0U, 16385U, 1U, true}, 2.0F, nullptr, frame));
+    require(std::memcmp(&frame, &previous, sizeof(frame)) == 0);
+    require(try_resolve_semantic_picture_frame(picture,
+        {0U, 0U, 64U, 32U, true}, 1.5F, nullptr, frame));
+    require(frame.width == 64U && frame.height == 32U && frame.dpi_scale == 1.5F);
+    require(frame.presentation.dpi_scale_x == 1.5F && frame.presentation.dpi_scale_y == 1.5F);
+}
+
 void semantic_presentation_masks_share_device_coordinates() {
     using namespace progpu::native::semantic;
     const progpu_native_affine_2d transform{2.0F, 0.5F, -0.25F, 1.5F, 4.0F, 5.0F};
@@ -1807,6 +1846,7 @@ int main() {
     semantic_static_guidelines_adjust_state_at_target_dpi();
     semantic_presentation_layers_keep_independent_device_domains();
     semantic_presentation_masks_share_device_coordinates();
+    semantic_picture_raster_domain_is_separate_from_parent_sampling();
     semantic_presentation_effects_use_independent_physical_distances();
     semantic_presentation_geometry_maps_once_into_target_space();
     semantic_presentation_identity_tracks_every_device_field();

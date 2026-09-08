@@ -136,6 +136,34 @@ Picture-backed masks (standalone or composite children) still fail explicitly fo
 advanced mappings until nested-picture raster ownership and sampling are wired.
 The whole-renderer guard remains; this checkpoint is not enabled host support.
 
+Nested-picture checkpoint: the child frame is now resolved before creating its
+texture/engine. Explicit source extents derive independent raster axes from their
+own dimensions and logical bounds; they do not borrow or average the parent's
+DPI. Target-space pictures inherit the parent viewport/axes, intersected with
+their allocated source extent. The fixed resolver rejects invalid dimensions,
+scale and unsigned-bound overflows transactionally. Child submissions carry the
+same native presentation suffix; a still-unsupported child mapping propagates a
+failure rather than producing a stretched uniform-DPI approximation.
+
+Standalone picture-mask sampling now uses the shared inverse-UV mapper, including
+target-local physical crop offsets. Target-space pictures publish an affine UV
+map with the source crop, instead of relying on offsets previously consumed only
+by composite masks. Cache-guideline inverse deformation is conjugated from logical
+coordinates into the parent's target-local physical coordinates using each axis
+and viewport origin. The nested RGBA texture, alpha sampling, linear sampler,
+source leases and existing GPU submission model are unchanged. Ordinary picture
+images still rasterize from their own immutable source descriptor: their cache
+must not acquire a parent-viewport dependency simply because mask submission did.
+
+This supersedes the standalone picture-mask rejection in the preceding checkpoint,
+but **not** the global renderer/host guard. Composite picture masks remain gated:
+their current `ClipCompose.wgsl` consumer loads the source texture directly and
+does not evaluate a child's affine sampling uniforms or mask opacity. It needs
+shared sampled-mask composition before transformed/source-extent pictures and
+guideline deformation can be claimed correct in a composite. This is an existing
+composition contract gap, including legacy cropped/source-extent cases, not a
+reason to bypass the guard or claim parity from the child-frame compilation.
+
 | Consumer | Required implementation before enabling host support |
 | --- | --- |
 | Semantic state and guidelines | Apply physical mapping at the device boundary, keep per-axis pixel snapping and explicit physical guideline offsets correct, and avoid double application in nested scopes. |
@@ -206,6 +234,17 @@ independent-axis parity by itself. The existing primary-research decisions below
 continue to apply: logical clips/materials are separate from device/layer mapping,
 and device-dependent masks are invalidated without rebuilding logical content.
 
+Nested-picture work derives from original ProGPU `27c888f9`:
+`create_semantic_picture_binding`, `create_semantic_picture_image`, the shared
+mask-UV mapper and the generated native frame contract. Managed
+`Compositor.CreateMaskSamplingUniforms(MaskPixelBounds)` retains physical mask
+placement, and its affine-mask preparation explicitly composes logical-to-physical
+canvas placement before inversion. The native fix restores that coordinate
+separation for its nested semantic stream; it does not replace managed mask
+algorithms or shared shaders. Common cropped/affine picture scenes and mask
+opacity/guideline cases require matched managed/native output qualification.
+No foreign implementation is copied and no new CPU pixel fallback is introduced.
+
 ## Primary research and design decisions
 
 - [Direct2D DPI contracts](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-high-dpi)
@@ -274,6 +313,13 @@ resources, brush/geometry mask resources and composite-mask resources under the
 same Apple Clang C++20 warnings-as-errors setup. Compilation is not execution;
 mask sampling/AA images, mixed cache guidelines and retained invalidation still
 require final runtime differentials.
+
+Authored child-frame fixtures additionally cover inherited cropped viewport axes,
+source-owned unequal axes, unchanged scalar image descriptors, oversized and zero
+dimensions and transactional failure. State, picture-mask resources, layer
+resources, composite-mask resources and internal fixture translation units compile
+with the same strict C++20 setup. Child GPU rendering, composite mask sampling and
+cross-platform output remain unexecuted and unqualified at this checkpoint.
 
 Compilation checkpoints are recorded in the PR. Full renderer/provider builds,
 all tests/verifiers, macOS/Linux and Windows Parallels runs, text/clip/image
