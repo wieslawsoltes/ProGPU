@@ -538,6 +538,14 @@ public sealed class PortableWindowActivationCallbacks
     /// </remarks>
     public Func<object, object?>? CreateHidden { get; init; }
 
+    /// <summary>
+    /// Displays the existing activation's system menu at absolute native desktop
+    /// coordinates. Source handles are opaque; only the host resolves native
+    /// ownership. Return false when unsupported/rejected, not silent success.
+    /// May run a modal platform loop and reenter source callbacks.
+    /// </summary>
+    public Func<object, double, double, bool>? ShowSystemMenu { get; init; }
+
     public Action<object>? Show { get; }
 
     public Action<object>? Hide { get; }

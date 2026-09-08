@@ -46,6 +46,38 @@ public partial class NativePopupWindowWindowsTests
         }
     }
 
+    [WindowsFact]
+    public void SystemMenuRejectsForeignThreadsAndChildWindowsBeforeTracking()
+    {
+        nint owner = CreateWindowExW(0, "STATIC", "ProGPU system menu owner", 0x00cf0000,
+            0, 0, 32, 32, 0, 0, 0, 0);
+        Assert.NotEqual(0, owner);
+        nint child = 0;
+        try
+        {
+            child = CreateWindowExW(0, "STATIC", "ProGPU child", 0x40000000,
+                0, 0, 16, 16, owner, 0, 0, 0);
+            Assert.NotEqual(0, child);
+            Assert.False(NativeWindowSystemMenu.TryShow(new(NativeWindowKind.Win32, child, 0, "HWND"), default));
+            bool? accepted = null;
+            Exception? failure = null;
+            var thread = new System.Threading.Thread(() =>
+            {
+                try { accepted = NativeWindowSystemMenu.TryShow(new(NativeWindowKind.Win32, owner, 0, "HWND"), default); }
+                catch (Exception error) { failure = error; }
+            }) { IsBackground = true };
+            thread.Start();
+            Assert.True(thread.Join(TimeSpan.FromSeconds(10)));
+            Assert.Null(failure);
+            Assert.Equal(false, accepted);
+        }
+        finally
+        {
+            if (child != 0) _ = DestroyWindow(child);
+            _ = DestroyWindow(owner);
+        }
+    }
+
     private static uint ReadStyle(nint window, int index) => unchecked((uint)(nint.Size == 8
         ? GetWindowLongPtrW(window, index) : GetWindowLongW(window, index)));
 

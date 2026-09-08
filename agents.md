@@ -318,6 +318,12 @@ nonactivation separate from topmost state. The static subclass must return
 MA_NOACTIVATE without eating clicks, forward other messages, and remove itself
 at native destruction. Roll back failed configuration and require callers to
 destroy rejected hidden windows. Do not replace this with WPF-local Win32 shims.
+System-menu presentation uses `NativeWindowSystemMenu` and an optional typed host
+callback, never an opaque WPF source handle. Admit only local same-thread Win32
+top-level owners, preserve the existing native menu, and recheck owner/menu after
+modal tracking before posting a command. Keep desktop coordinates independent of
+framebuffer DPI; absent non-Windows providers remain explicit gaps. See
+`docs/native-mil-system-menu.md`; this capability does not admit Windows SDK mode.
 Synchronous WPF geometry utilities must use ProGPU-owned actual topology, not
 bounding-box substitutes. `NativeGeometryUtilities` exposes the shared C++
 Direct2D boundary algorithm without a device or native COM activation; preserve
