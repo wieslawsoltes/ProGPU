@@ -2161,6 +2161,32 @@ typedef struct progpu_native_path_segment {
     uint32_t pad2;
 } progpu_native_path_segment;
 
+typedef struct progpu_native_geometry_outline progpu_native_geometry_outline;
+
+/* Device-independent filled-path boolean utility; no engine/window/GPU required.
+ * Input segments use the canonical path layout above, already transformed into
+ * one coordinate space. Discontinuous segments begin separate filled contours;
+ * contours are implicitly closed. Mode uses canonical MIL values: union=0,
+ * intersect=1, xor=2, exclude=3. Tolerance is positive, finite and absolute.
+ * On success, result owns immutable point and contour-offset views until destroy.
+ * Offsets has contour_count+1 entries, starts at zero and ends at point_count.
+ * Each contour has >=3 points, is implicitly closed and uses even-odd fill.
+ * Empty success has no points, zero contours and offsets[0]=0.
+ * Copy each view at most once if managed ownership is needed; no sizing retry.
+ * Valid output addresses are required; after their validation, failures zero all
+ * outputs. Input count is limited to 2^20 segments per operand. No input retained.
+ * Calls on independent results are concurrent; destroy must not race a view read.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_combine(
+    const progpu_native_path_segment* first, uint32_t first_count, uint32_t first_fill,
+    const progpu_native_path_segment* second, uint32_t second_count, uint32_t second_fill,
+    uint32_t mode, float tolerance, progpu_native_geometry_outline** result,
+    const progpu_native_point** points, uint32_t* point_count,
+    const uint32_t** contour_offsets, uint32_t* contour_count);
+
+PROGPU_NATIVE_API void progpu_native_geometry_outline_destroy(
+    progpu_native_geometry_outline* result);
+
 /* Values and storage intentionally match ProGPU.Vector.GpuHitTesting and the
  * canonical GpuHitTesting.wgsl storage-buffer contract. The C declarations
  * are the wire-layout authority for generated managed interop records. */

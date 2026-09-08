@@ -585,6 +585,7 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_hit_test_readback_shader}")
 
 set(PROGPU_NATIVE_BACKEND_SOURCES
+    src/Backend/progpu_native_geometry_utility.cpp
     src/Backend/progpu_native_advanced_blend_execution.cpp
     src/Backend/progpu_native_backdrop_execution.cpp
     src/Backend/progpu_native.cpp
@@ -1413,6 +1414,17 @@ endif()
 endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+    add_executable(progpu_native_geometry_utility_tests
+        tests/progpu_native_geometry_utility_tests.cpp
+        src/Backend/progpu_native_geometry_utility.cpp)
+    target_compile_features(progpu_native_geometry_utility_tests PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_geometry_utility_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_geometry_utility_tests PRIVATE progpu_native_direct2d_core)
+    progpu_native_enable_warnings(progpu_native_geometry_utility_tests)
+    progpu_native_enable_sanitizers(progpu_native_geometry_utility_tests)
+    add_test(NAME progpu_native_geometry_utility_tests COMMAND progpu_native_geometry_utility_tests)
+    set_tests_properties(progpu_native_geometry_utility_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_com_tests
         tests/progpu_native_com_tests.cpp)
     target_compile_features(progpu_native_com_tests PRIVATE cxx_std_20)

@@ -211,6 +211,13 @@ distinguish owner-surface from native-screen bounds before Show. Keep monitor
 selection/validation in the neutral interop contract, preserve desktop origins,
 and reject missing/invalid native monitor data rather than fabricate owner bounds.
 See `docs/native-mil-popup-placement.md` for coordinates and qualification limits.
+Synchronous WPF geometry utilities must use ProGPU-owned actual topology, not
+bounding-box substitutes. `NativeGeometryUtilities` exposes the shared C++
+Direct2D boundary algorithm without a device or native COM activation; preserve
+single-call owned results and bulk span transfers. Connecting WPF requires full
+fill/figure/transform/tolerance semantics in a typed seam for both renderer modes.
+See `docs/native-mil-geometry-utilities.md`; this prerequisite is not Windows SDK
+admission or permission to silently approximate unsupported geometry.
 
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 

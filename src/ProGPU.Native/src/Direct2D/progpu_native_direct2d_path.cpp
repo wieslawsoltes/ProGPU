@@ -7690,6 +7690,32 @@ com::result create_native_fill_geometry(factory* owner,
     return create_native_geometry(owner, segments, mode, {}, true, true, value);
 }
 
+com::result combine_native_fill_contours(
+    std::span<const progpu_native_path_segment> first, fill_mode first_fill,
+    std::span<const progpu_native_path_segment> second, fill_mode second_fill,
+    combine_mode mode, float tolerance,
+    std::vector<std::vector<point_2f>>& contours) noexcept
+{
+    com::pointer<factory> owner;
+    com::result result = create_factory(owner.put());
+    if (com::failed(result)) return result;
+    com::pointer<path_geometry> a, b;
+    result = create_native_fill_geometry(owner.get(), first, first_fill, a.put());
+    if (com::failed(result)) return result;
+    result = create_native_fill_geometry(owner.get(), second, second_fill, b.put());
+    if (com::failed(result)) return result;
+    auto* raw_sink = new (std::nothrow) polygon_contours_sink();
+    if (raw_sink == nullptr) return com::out_of_memory;
+    com::pointer<polygon_contours_sink> sink;
+    sink.attach(raw_sink);
+    result = a->CombineWithGeometry(b.get(), mode, nullptr, tolerance, sink.get());
+    if (com::failed(result)) return result;
+    result = sink->status();
+    if (com::failed(result)) return result;
+    contours = sink->take_contours();
+    return com::ok;
+}
+
 com::result get_widened_outline_bounds(geometry* source,
     float width, stroke_style* style, const matrix_3x2_f* transform,
     float tolerance, rectangle_f& bounds, bool& has_outline) noexcept

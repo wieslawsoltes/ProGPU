@@ -32,6 +32,14 @@ namespace progpu::native::direct2d::compat::detail {
 [[nodiscard]] com::result extract_outline_contours(geometry* source, float tolerance,
     std::vector<std::vector<point_2f>>& contours) noexcept;
 
+// Device-independent reuse of the same boolean boundary implementation as
+// Direct2D and MIL combined strokes. Output changes only on success.
+[[nodiscard]] com::result combine_native_fill_contours(
+    std::span<const progpu_native_path_segment> first, fill_mode first_fill,
+    std::span<const progpu_native_path_segment> second, fill_mode second_fill,
+    combine_mode mode, float tolerance,
+    std::vector<std::vector<point_2f>>& contours) noexcept;
+
 [[nodiscard]] com::result create_path_geometry(
     factory* owner,
     path_geometry** value) noexcept;
