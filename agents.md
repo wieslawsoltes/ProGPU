@@ -217,6 +217,9 @@ desktop/monitor origins. Source geometry updates use `IPortableDesktopGeometryHo
 as one validated snapshot, while legacy origin-only updates preserve its scale.
 Do not enable a new automatic host mapping until popup anchors, child extents,
 limits, overlay placement and input consume the same coordinate frame.
+Popup offsets/extents use the transform's vector operations without origin
+translation. Inverse vector mapping divides by scale directly; do not introduce
+reciprocal overflow or route popup screen nudging through framebuffer DPI.
 Synchronous WPF geometry utilities must use ProGPU-owned actual topology, not
 bounding-box substitutes. `NativeGeometryUtilities` exposes the shared C++
 Direct2D boundary algorithm without a device or native COM activation; preserve

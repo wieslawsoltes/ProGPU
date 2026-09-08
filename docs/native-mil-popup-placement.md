@@ -88,11 +88,11 @@ source/platform contract; no C++ renderer algorithm changes are applicable.
 placement.** The stock host continues its existing desktop-scale policy. Its
 publication must be migrated together with popup child-interest points, size
 restrictions, relative offsets, owner-surface placement and input mapping; changing
-only the anchor would mix coordinate spaces. In particular,
-`Popup.GetChildInterestPoints` and `Popup.RestrictSize` currently retain client-DIP
-dimensions for portable sources, and bridge popup-local offsets assume the
-legacy transport scale. Those named consumers remain the next core dependency,
-not a deferred compatibility expansion. Keep Windows SDK admission closed.
+only the anchor would mix coordinate spaces. The source extent/limit connection
+below closes the named `Popup.GetChildInterestPoints` and `Popup.RestrictSize`
+consumer gap. Bridge popup-local offsets, input and host publication still assume
+the legacy transport scale and remain the next core dependency, not a deferred
+compatibility expansion. Keep Windows SDK admission closed.
 
 Authored fixtures compare intrinsic mapping against scalar forward/inverse
 oracles, retain negative/zero origins and unequal/fractional scales, reject
@@ -101,9 +101,53 @@ origin updates, independent framebuffer changes and disposal. They are not run
 until final qualification; neither compilation nor these CPU fixtures establish
 monitor-transition, native-window, image, input or performance parity.
 The ProGPU.Tests Release compile checkpoint succeeds with 0 warnings/0 errors.
-The paired source-WPF fixture build is incomplete: generated-file writes fail
-with MSB3491 / no space left on device. Retry that build after restoring disk
-space before treating the consumer compilation checkpoint as closed.
+The initial paired source-WPF fixture build stopped on MSB3491 / no space left
+on device. Space was subsequently restored. A fresh restore exposed a source-test
+NRBF downgrade; keeping its upstream test dependency separate from the portable
+product pin resolved it. PresentationCore.Tests now restores/builds with 9
+warnings/0 errors. NU1701 remains visible and runtime qualification is still open.
+
+## Popup extent and limit connection
+
+Source inspection of the same MVP/Toolkit menu/ComboBox path found a second
+mismatch: `Popup.UpdatePosition` used framebuffer DPI to size the root rectangle
+for screen-edge nudging even when portable placement used logical desktop units.
+For a Retina-style desktop scale of one and framebuffer scale of two, this
+treated a 100-unit popup as 200 desktop units while deciding whether to nudge it.
+This is a source-backed finding, not a reproduced graphical run.
+
+ProGPU now provides `ClientVectorToDesktop` and `DesktopVectorToClient` on the
+existing transform. These scale offsets and extents without translating origins;
+inverse mapping divides directly rather than multiplying by a potentially
+overflowed reciprocal. Work remains O(1), allocation-free, with intrinsic double
+x/y lanes and no GPU/native crossing. These are original ProGPU arithmetic
+extensions to its own transform, with matched scalar-oracle fixtures.
+
+WPF `PopupSecurityHelper.ClientOffsetToScreen`, `ClientSizeToScreen` and
+`ScreenSizeToClient` consume those operations through source-owned geometry.
+Portable child-interest points, root-size edge nudging, absolute-placement
+offsets and desired-size restrictions now share desktop units with placement
+anchors and monitor/work-area bounds. Restrictions return client-DIP sizes.
+Legacy HWND sources retain their device-transform path; portable child points
+are scaled only after their visual-to-client transform, never twice.
+
+The shared source helper follows portable HwndSource ownership and does not
+infer desktop scale from framebuffer DPI. Both renderer modes use this same
+source code. No C++ scene, shader or renderer algorithm is changed, and no new
+fallback or reduced rendering behavior is introduced. Authored source helper
+fixtures cover independent desktop/framebuffer scales, negative offsets,
+origin independence and size round trips. Existing source-contract fixtures
+require the actual child, nudge, offset and restriction consumers to use it.
+
+Host publication and bridge-local overlay/input coordinate conversion remain
+open; automatic mapping and Windows SDK admission are still unchanged. The
+custom-placement callback path retains its existing contract. Full application
+placement, capture, mixed-monitor transitions and both renderer comparisons
+still require final qualification; these authored fixtures are not runtime proof.
+Compile-only checkpoints: ProGPU.Tests 0 warnings/0 errors; source-built WPF
+application harness 4/0; PresentationCore.Tests 9/0 and PresentationFramework.Tests
+3/0 after normal dependency restore. Test-utility NU1701 warnings remain visible.
+No runtime fixtures, GPU/VM applications, source verifiers or CI qualification ran.
 
 ## Placement selection coverage
 

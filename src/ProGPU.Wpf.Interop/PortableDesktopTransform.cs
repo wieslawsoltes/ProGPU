@@ -49,6 +49,23 @@ public readonly record struct PortableDesktopTransform
         return new PortablePoint(mapped.GetElement(0), mapped.GetElement(1));
     }
 
+    /// <summary>Converts a client offset or extent without translating by the desktop origin.</summary>
+    public PortablePoint ClientVectorToDesktop(PortablePoint vector)
+    {
+        RequireValid();
+        var mapped = Vector128.Create(vector.X, vector.Y) * Vector128.Create(ScaleX, ScaleY);
+        return new PortablePoint(mapped.GetElement(0), mapped.GetElement(1));
+    }
+
+    /// <summary>Converts a desktop offset or extent without subtracting the desktop origin.</summary>
+    public PortablePoint DesktopVectorToClient(PortablePoint vector)
+    {
+        RequireValid();
+        // Divide directly, avoiding reciprocal overflow for a small valid scale.
+        var mapped = Vector128.Create(vector.X, vector.Y) / Vector128.Create(ScaleX, ScaleY);
+        return new PortablePoint(mapped.GetElement(0), mapped.GetElement(1));
+    }
+
     private void RequireValid()
     {
         if (!IsValid) throw new InvalidOperationException("Desktop geometry must be supplied before coordinate conversion.");
