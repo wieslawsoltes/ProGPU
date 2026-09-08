@@ -217,3 +217,83 @@ SwiftShader smoke against the unchanged final AOT application: 84 frames /
 state has six frames / 17 dispatches while the title still says the viewer is
 starting; the title alone is not an application-ready contract. No performance
 claim or screenshot-threshold change is made.
+
+## Cold software capture deadline (2026-09-08)
+
+Run `34202061035` passes the isolated allocation tests and AOT build, but still
+times out at the first page capture. The new DOM-only diagnostics succeed:
+both before capture and after the timeout they report six frames, 17 dispatches,
+521,776 command bytes, and a 2560x1600 canvas. Ordinary page JavaScript is
+responsive; the absence of GPU completion/readback is a separate observation.
+
+To distinguish a browser-version problem from insufficient capture time, the
+same pinned Playwright Chromium 151.0.7922.34 was staged in the existing Ubuntu
+ARM64 VM, together with the final AOT application and smoke script. No VM or
+system package configuration changed. CPU affinity below applies only to the
+test process and its browser children. These are diagnostic workload controls,
+not matched renderer performance benchmarks.
+
+| Experiment | Result |
+| --- | --- |
+| Pinned Chromium, four available CPUs | Full smoke passes: 111 frames / 133 dispatches. |
+| Same browser, two-CPU affinity | Full smoke passes; first drawing capture takes 28,305 ms. |
+| Same browser, one-CPU affinity, original capture timeout | First screenshot fails at 30,000 ms; later canvas readback contains the drawing. |
+| Same one-CPU startup, remaining 120-second deadline | First screenshot completes in 56,648 ms with 27,669 bright drawing pixels and 1,286,337 dark background pixels. |
+
+The last experiment stops after initial pixel assertions; it does not certify
+the full one-CPU editing workflow. Both complete runs retain the 16-type
+save/reopen/resave checks and 2880x1800 resize gate. The canvas from the timed-out
+run was visually inspected and contains the geometry and both MTEXT columns.
+
+The first-drawing loop already declared a 120-second readiness budget but did
+not pass its remaining time to
+[Playwright's screenshot operation](https://playwright.dev/docs/api/class-page#page-screenshot-option-timeout).
+The observed 30-second per-call default terminated that loop prematurely.
+Pass only the remaining budget for each initial screenshot; never reset the
+deadline on a retry. Keep all pixel counts, image quality, GPU flags, presentation
+preflight, and file assertions unchanged.
+`startup-capture.json` records elapsed time and the actual pixel counts.
+
+A complete two-CPU run of that startup-only correction recorded a 37,315 ms
+first capture, then failed the separate ten-second presentation-callback wait
+after opening More tools. A subsequent two-CPU run with a 30-second callback
+budget passes its 37,283 ms startup capture but times out at the following
+full-page screenshot. The delay is therefore not confined to the first capture.
+
+Use an explicit software-renderer correctness-test profile: when
+`PROGPU_CAD_BROWSER_USE_SWIFTSHADER=1`, visual operations have a bounded
+120-second budget; other runs retain 30-second screenshot/interaction budgets.
+The existing 120-second startup budget applies to both profiles. Presentation
+callbacks have both an in-page timer and an outer deadline, so unresponsive page
+JavaScript cannot leave the test hanging. Pan and zoom each share one deadline
+across presentation and screenshot retries. Keep two animation-frame callbacks,
+all pixel/file checks, and the existing file-event and ten-second failure-capture
+budgets; do not require extra GPU submissions from an idle scene. `result.json`
+records the selected visual budget. These are explicit bounded correctness-test
+waits, not interactive-performance acceptance thresholds.
+
+This resolves a reproduced smoke-test timeout mismatch, not a production
+rendering optimization or proof that all x64 CI stalls have this cause. Final
+CI qualification remains mandatory, and a capture that cannot complete within
+its bounded budget must still fail. Only the browser test driver changes:
+managed/native renderers, canonical shaders, ABI, production startup, and scene
+submission behavior are unchanged, so no paired rendering algorithm change
+applies. No third-party implementation was copied.
+
+Final-driver local validation against the unchanged final AOT application:
+
+- macOS Chrome / SwiftShader: full smoke passes, 69 frames / 91 dispatches,
+  6,774 ms initial capture, and the 120,000 ms visual profile recorded in results.
+- macOS Chrome / Apple M3 Pro Metal: full smoke passes, 1,365 frames / 1,393
+  dispatches, 184 ms initial capture, and the 30,000 ms visual profile recorded.
+- Ubuntu ARM64 / pinned Chromium 151.0.7922.34 / SwiftShader, two-CPU process
+  affinity: full smoke passes, 117 frames / 139 dispatches, 47,886 ms initial
+  capture, and the 120,000 ms visual profile recorded. Initial drawing and both
+  text columns were visually inspected; pan, zoom, file round trips, and resize
+  pass without extending the file-event deadlines.
+
+All three runs preserve 16 model-space entity types and the two-column MTEXT metadata
+through save/reopen/resave, and finish at a 2880x1800 physical framebuffer. Frame
+counts and capture times are diagnostic observations, not comparable throughput
+measurements. No VM configuration was changed; the Parallels guest-execution
+workflow reuses the existing shared validation stage.

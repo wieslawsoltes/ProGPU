@@ -40,6 +40,11 @@ let browser;
 let page;
 const errors = [];
 const browserLog = [];
+const softwareRendering = process.env.PROGPU_CAD_BROWSER_USE_SWIFTSHADER === '1';
+const visualTimeoutMs = softwareRendering ? 120_000 : 30_000;
+function screenshot(options) {
+  return page.screenshot({ timeout: visualTimeoutMs, ...options });
+}
 function captureHostState() {
   // DOM-only: canvas readback can block even while these diagnostics work.
   return page.evaluate(() => {
@@ -56,27 +61,28 @@ function captureHostState() {
     };
   });
 }
-async function diagnosticDeadline(operation, label) {
+async function diagnosticDeadline(operation, label, timeoutMs = 10_000) {
   let timeout;
   try {
     return await Promise.race([operation, new Promise((_, reject) => {
-      timeout = setTimeout(() => reject(new Error(`${label} timed out.`)), 10_000);
+      timeout = setTimeout(() => reject(new Error(`${label} timed out.`)), timeoutMs);
     })]);
   } finally {
     clearTimeout(timeout);
   }
 }
-async function waitForPresentation() {
+async function waitForPresentation(deadline = Date.now() + visualTimeoutMs) {
   // A retained static app need not submit three GPU frames after an input.
   // Let browser/host input and presentation callbacks run; pixel and file
   // assertions below verify the actual result without demanding idle redraws.
-  await page.evaluate(() => new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Browser presentation callbacks stalled.')), 10_000);
+  const remaining = Math.max(1, deadline - Date.now());
+  await diagnosticDeadline(page.evaluate(timeoutMs => new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Browser presentation callbacks stalled.')), timeoutMs);
     requestAnimationFrame(() => requestAnimationFrame(() => {
       clearTimeout(timeout);
       resolve();
     }));
-  }));
+  }), remaining), 'Browser presentation callbacks', remaining);
 }
 async function clickUntilEvent(eventName, x, y, timeout = 30_000) {
   let observed;
@@ -97,7 +103,7 @@ async function clickUntilEvent(eventName, x, y, timeout = 30_000) {
 }
 try {
   const args = ['--enable-unsafe-webgpu'];
-  if (process.env.PROGPU_CAD_BROWSER_USE_SWIFTSHADER === '1') {
+  if (softwareRendering) {
     if (process.platform === 'linux') {
       // Select ANGLE and WebGPU independently. Do not disable Vulkan surfaces:
       // SwiftShader can render/read back correctly while page presentation is blank.
@@ -155,9 +161,15 @@ try {
   // the PNG decoder bundled with our pinned Playwright dependency.
   let visiblePixels = 0;
   let backgroundPixels = 0;
-  const firstDrawingDeadline = Date.now() + 120_000;
+  const firstDrawingStarted = Date.now();
+  const firstDrawingDeadline = firstDrawingStarted + 120_000;
   while ((visiblePixels < 100 || backgroundPixels < 1000) && Date.now() < firstDrawingDeadline) {
-    const pixels = browserUtilities.PNG.sync.read(await page.screenshot({ clip: drawing })).data;
+    // A cold software-rendered capture can outlast Playwright's 30-second
+    // default. Use the remaining startup budget, without extending that budget
+    // for retries or changing the required visible/background pixel counts.
+    const pixels = browserUtilities.PNG.sync.read(await screenshot({
+      clip: drawing, timeout: Math.max(1, firstDrawingDeadline - Date.now()),
+    })).data;
     visiblePixels = 0;
     backgroundPixels = 0;
     for (let i = 0; i < pixels.length; i += 4) {
@@ -168,21 +180,26 @@ try {
   }
   assert.ok(visiblePixels >= 100 && backgroundPixels >= 1000,
     'The representative CAD drawing remained blank (light or dark).');
+  await fs.writeFile(path.join(evidence, 'startup-capture.json'), JSON.stringify({
+    elapsedMs: Date.now() - firstDrawingStarted, budgetMs: 120_000,
+    visiblePixels, backgroundPixels,
+  }, null, 2) + '\n');
   assert.deepEqual(errors, []);
-  await page.screenshot({ path: path.join(evidence, 'initial.png') });
+  await screenshot({ path: path.join(evidence, 'initial.png') });
   // File actions and basic edits occupy only the top 104 logical pixels.
   await page.mouse.click(1210, 22); // More tools, pinned at the right edge.
   await waitForPresentation();
-  await page.screenshot({ path: path.join(evidence, 'expanded-tools.png') });
+  await screenshot({ path: path.join(evidence, 'expanded-tools.png') });
   await page.mouse.click(1210, 22); // Fewer tools.
   await waitForPresentation();
   await page.mouse.move(700, 400);
-  const beforeZoom = await page.screenshot({ clip: drawing });
+  const beforeZoom = await screenshot({ clip: drawing });
   await page.mouse.wheel(0, -250);
-  await waitForPresentation();
-  let afterZoom;
-  for (let attempt = 0; attempt < 30; attempt++) {
-    afterZoom = await page.screenshot({ clip: drawing });
+  const zoomDeadline = Date.now() + visualTimeoutMs;
+  await waitForPresentation(zoomDeadline);
+  let afterZoom = beforeZoom;
+  for (let attempt = 0; attempt < 30 && Date.now() < zoomDeadline; attempt++) {
+    afterZoom = await screenshot({ clip: drawing, timeout: Math.max(1, zoomDeadline - Date.now()) });
     if (!afterZoom.equals(beforeZoom)) break;
     await new Promise(resolve => setTimeout(resolve, 500));
   }
@@ -191,10 +208,11 @@ try {
   await page.mouse.down({ button: 'middle' });
   await page.mouse.move(780, 450, { steps: 5 });
   await page.mouse.up({ button: 'middle' });
-  await waitForPresentation();
-  let afterPan;
-  for (let attempt = 0; attempt < 30; attempt++) {
-    afterPan = await page.screenshot({ clip: drawing });
+  const panDeadline = Date.now() + visualTimeoutMs;
+  await waitForPresentation(panDeadline);
+  let afterPan = afterZoom;
+  for (let attempt = 0; attempt < 30 && Date.now() < panDeadline; attempt++) {
+    afterPan = await screenshot({ clip: drawing, timeout: Math.max(1, panDeadline - Date.now()) });
     if (!afterPan.equals(afterZoom)) break;
     await new Promise(resolve => setTimeout(resolve, 500));
   }
@@ -267,9 +285,9 @@ try {
   await page.waitForFunction(() => {
     const canvas = document.querySelector('#progpu-canvas');
     return canvas.width === 2880 && canvas.height === 1800;
-  }, undefined, { timeout: 30_000 });
+  }, undefined, { timeout: visualTimeoutMs });
   await waitForPresentation();
-  await page.screenshot({ path: path.join(evidence, 'resized.png') });
+  await screenshot({ path: path.join(evidence, 'resized.png') });
   assert.deepEqual(errors, []);
   const result = await page.evaluate(() => ({
     frames: Number(document.querySelector('#counter-frames').textContent),
@@ -280,6 +298,7 @@ try {
   assert.ok(result.dispatches > 0, 'The CAD app submitted no GPU commands.');
   result.savedEntityTypes = savedTypes;
   result.reopenedFileName = reopenedDownload.suggestedFilename();
+  result.visualTimeoutMs = visualTimeoutMs;
   await fs.writeFile(path.join(evidence, 'result.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result));
 } catch (error) {
