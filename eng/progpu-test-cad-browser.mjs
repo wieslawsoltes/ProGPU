@@ -132,22 +132,29 @@ try {
   await page.mouse.move(780, 450, { steps: 5 });
   await page.mouse.up({ button: 'middle' });
   await waitForPresentation();
-  const afterPan = await page.screenshot({ path: path.join(evidence, 'panned.png'), clip: drawing });
+  let afterPan;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    afterPan = await page.screenshot({ clip: drawing });
+    if (!afterPan.equals(afterZoom)) break;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  await fs.writeFile(path.join(evidence, 'panned.png'), afterPan);
   assert.ok(!afterPan.equals(afterZoom), 'Middle-button drag did not change the CAD drawing.');
   const download = await clickUntilEvent('download', 195, 22, 60_000); // Save As.
   assert.match(download.suggestedFilename(), /\.dxf$/i);
   const savedDrawing = path.join(evidence, 'roundtrip.dxf');
   await download.saveAs(savedDrawing);
   assert.ok((await fs.stat(savedDrawing)).size > 100, 'Saved DXF is empty.');
-  function modelEntityTypes(bytes) {
+  function modelEntities(bytes) {
     const lines = bytes.toString('utf8').trim().split(/\r?\n/).map(line => line.trim());
     const entities = [];
     let inEntities = false;
     let recordType;
     let paperSpace = false;
+    let tags = [];
     const appendRecord = () => {
       if (recordType && !paperSpace && !['SEQEND', 'ATTRIB', 'VERTEX'].includes(recordType)) {
-        entities.push(recordType);
+        entities.push({ type: recordType, tags });
       }
     };
     for (let i = 0; i < lines.length - 1; i += 2) {
@@ -157,15 +164,33 @@ try {
         if (lines[i + 1] === 'ENDSEC') break;
         recordType = lines[i + 1];
         paperSpace = false;
-      } else if (inEntities && lines[i] === '67') {
-        paperSpace = lines[i + 1] === '1';
+        tags = [];
+      } else if (inEntities) {
+        tags.push([lines[i], lines[i + 1]]);
+        if (lines[i] === '67') paperSpace = lines[i + 1] === '1';
       }
     }
-    return entities.sort();
+    return entities;
   }
-  const savedTypes = modelEntityTypes(await fs.readFile(savedDrawing));
-  assert.equal(savedTypes.length, 15, 'The sample lost an entity during serialization.');
+  function assertColumnedText(entities) {
+    const texts = entities.filter(entity => entity.type === 'MTEXT');
+    assert.equal(texts.length, 1);
+    const tags = texts[0].tags;
+    assert.equal(tags.filter(([code]) => code === '1' || code === '3')
+      .map(([, value]) => value).join(''), 'Column one\\NColumn two');
+    const embedded = tags.findIndex(([code, value]) => code === '101' && value === 'Embedded Object');
+    assert.ok(embedded >= 0, 'The sample MTEXT lost its column specification.');
+    const columns = tags.slice(embedded + 1);
+    assert.equal(Number(columns.find(([code]) => code === '72')?.[1]), 2);
+    assert.deepEqual(columns.filter(([code]) => code === '46')
+      .map(([, value]) => Number(value)), [12, 12]);
+  }
+  const savedEntities = modelEntities(await fs.readFile(savedDrawing));
+  const savedTypes = savedEntities.map(entity => entity.type).sort();
+  assertColumnedText(savedEntities);
+  assert.equal(savedTypes.length, 16, 'The sample lost an entity during serialization.');
   assert.ok(savedTypes.includes('IMAGE'), 'The sample raster image was not serialized.');
+  assert.ok(savedTypes.includes('MTEXT'), 'The sample columned text was not serialized.');
   const chooser = await clickUntilEvent('filechooser', 70, 22); // Open DXF/DWG.
   await chooser.setFiles(savedDrawing);
   // Saving is disabled while the document loads. Retry the button until the
@@ -175,7 +200,9 @@ try {
     'Open did not replace the current document.');
   const reopenedDrawing = path.join(evidence, 'reopened.dxf');
   await reopenedDownload.saveAs(reopenedDrawing);
-  assert.deepEqual(modelEntityTypes(await fs.readFile(reopenedDrawing)), savedTypes);
+  const reopenedEntities = modelEntities(await fs.readFile(reopenedDrawing));
+  assert.deepEqual(reopenedEntities.map(entity => entity.type).sort(), savedTypes);
+  assertColumnedText(reopenedEntities);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForFunction(() => {
     const canvas = document.querySelector('#progpu-canvas');
@@ -198,7 +225,29 @@ try {
 } catch (error) {
   console.error('Browser errors:', errors);
   await fs.writeFile(path.join(evidence, 'errors.json'), JSON.stringify(errors, null, 2) + '\n');
-  if (page && !page.isClosed()) await page.screenshot({ path: path.join(evidence, 'failed.png'), timeout: 10_000 });
+  if (page && !page.isClosed()) {
+    await page.screenshot({ path: path.join(evidence, 'failed.png'), timeout: 10_000 });
+    const state = await page.evaluate(() => {
+      const canvas = document.querySelector('#progpu-canvas');
+      return {
+        userAgent: navigator.userAgent,
+        title: document.querySelector('#status-title')?.textContent,
+        detail: document.querySelector('#status-detail')?.textContent,
+        frames: document.querySelector('#counter-frames')?.textContent,
+        dispatches: document.querySelector('#counter-dispatches')?.textContent,
+        commandBytes: document.querySelector('#counter-bytes')?.textContent,
+        width: canvas?.width,
+        height: canvas?.height,
+        dpi: devicePixelRatio,
+        rootBackground: getComputedStyle(document.documentElement).backgroundColor,
+        canvasSnapshot: canvas?.toDataURL('image/png'),
+      };
+    });
+    const { canvasSnapshot, ...diagnostics } = state;
+    await fs.writeFile(path.join(evidence, 'state.json'), JSON.stringify(diagnostics, null, 2) + '\n');
+    if (canvasSnapshot?.startsWith('data:image/png;base64,'))
+      await fs.writeFile(path.join(evidence, 'failed-canvas.png'), Buffer.from(canvasSnapshot.split(',')[1], 'base64'));
+  }
   throw error;
 } finally {
   await fs.writeFile(path.join(evidence, 'console.json'), JSON.stringify(browserLog, null, 2) + '\n');

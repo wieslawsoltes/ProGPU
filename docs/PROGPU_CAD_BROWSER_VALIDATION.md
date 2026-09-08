@@ -42,16 +42,28 @@ a fresh checkout, performs native AOT linking, and runs the published applicatio
 
 The smoke checks startup errors, submitted frames/commands, visible scene pixels
 before the initial capture, tool expansion, drawing-only pixel changes after wheel
-zoom and middle-button pan, DXF download, preservation of the 15-entity inventory,
+zoom and middle-button pan, DXF download, preservation of the 16-entity inventory,
 reopen and resave, and physical framebuffer resize at device scale 2. Screenshots
 and DXF evidence are uploaded by `.github/workflows/cad.yml` from the ignored
 `artifacts/progpu-cad/browser-smoke/` directory. This is a focused runtime gate,
 not an AutoCAD pixel differential, performance benchmark, external raster-file
 packaging test, or DWG browser certification.
 
+The current fixture includes two-column MTEXT. Both save and reopen/resave must
+retain its content, two column heights, and column count; the paired desktop
+tests cover DXF and DWG. Pan, like zoom, waits for a bounded visible pixel change
+because software GPU presentation can finish after browser animation callbacks.
+The assertion still fails if the drawing never changes.
+
+Failure evidence includes console messages, page/browser identity, framebuffer
+and submission counters, a page screenshot, and a direct canvas PNG snapshot.
+The latter two distinguish a page-composition problem from blank canvas content.
+These are failure-only diagnostics, not production rendering work.
+
 ## Applicability and remaining work
 
-Local validation on 2026-09-08: 1,539/1,539 Release CAD tests passed; the
+Earlier local validation on 2026-09-08, using the 15-entity fixture:
+1,539/1,539 Release CAD tests passed; the
 normal-workload-resolver AOT publish completed native linking; Chrome with
 hardware rendering and with SwiftShader passed the complete smoke, including all
 15 model-space entity types
@@ -71,3 +83,14 @@ interaction, basic edit workflows, and green checks on the final PR commit.
 The shared sample now uses the compact workspace described in the focused
 delivery scope. Existing linker warnings remain visible. None of these checks establish
 full CAD or writer certification.
+
+CI run `34190851775` completed CAD tests and real AOT linking, then failed the
+strengthened blank-frame assertion on Linux. Its console-error and console-log
+arrays were empty. That remains unresolved; local browser success must not be
+reported as green Linux CI. The subsequent columned-text sample builds with
+real AOT, and all 1,552 CAD tests pass with CI's existing runtime settings.
+The updated local smoke passes on pinned Chromium 151.0.7922.34 with SwiftShader:
+all 16 model-space entity types and the MTEXT column fields survive save/reopen,
+pan and zoom change drawing pixels, and resize produces a 2880x1800 framebuffer.
+The initial screenshot was inspected and both text columns are visible. This
+does not close the Linux-only failure or establish zoomed text-quality parity.

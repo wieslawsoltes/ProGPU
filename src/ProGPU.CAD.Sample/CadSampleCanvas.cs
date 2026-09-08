@@ -12416,6 +12416,23 @@ public sealed class CadSampleCanvas : FrameworkElement
                 ObliqueAngle = 0.08,
             });
 
+            var columnText = new MText
+            {
+                Style = textStyle,
+                Value = @"Column one\NColumn two",
+                InsertPoint = new XYZ(-70, -55, 0),
+                Height = 3,
+                RectangleWidth = 35,
+                RectangleHeight = 12,
+                AttachmentPoint = AttachmentPointType.TopLeft,
+            };
+            columnText.ColumnData.ColumnType = ColumnType.DynamicColumns;
+            columnText.ColumnData.ColumnCount = 2;
+            columnText.ColumnData.Width = 35;
+            columnText.ColumnData.Gutter = 8;
+            columnText.ColumnData.Heights.AddRange([12, 12]);
+            document.Entities.Add(columnText);
+
             var block = new BlockRecord("ANALYTIC_SYMBOL");
             block.BlockEntity.BasePoint = new XYZ(5, 5, 0);
             block.Entities.Add(new Circle(new XYZ(5, 5, 0), 5));

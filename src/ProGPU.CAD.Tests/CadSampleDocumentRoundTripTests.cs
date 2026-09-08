@@ -35,6 +35,11 @@ public sealed class CadSampleDocumentRoundTripTests
                 Assert.Single(document.Entities.OfType<RasterImage>()));
             Assert.Equal(2, image.ClipBoundaryVertices.Count);
             Assert.Equal("progpu-cad-sample.png", image.Definition.FileName);
+            MText text = restored.Session.Read(document =>
+                Assert.Single(document.Entities.OfType<MText>()));
+            Assert.Equal(@"Column one\NColumn two", text.Value);
+            Assert.Equal(2, text.ColumnData.ColumnCount);
+            Assert.Equal(new double[] { 12, 12 }, text.ColumnData.Heights);
         }
         finally
         {
