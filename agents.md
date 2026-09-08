@@ -196,6 +196,13 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+Source-built WPF media transport selection belongs in `PortableWpfRuntime`,
+before media objects or composition locks are acquired. Keep first-use selection
+immutable, reject late backend switches, and share the interop assembly between
+host and source-built WPF. Device recovery must not reset that choice. Host
+callback registration and renderer mode alone are not proof that legacy Windows
+MIL utility, channel or popup paths have been bypassed.
+
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 
 Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or classes when package-mode apps load the real WPF transport assemblies. Prefer primitive values, package-neutral DTOs, typed registrars, and source-integrated WPF interfaces such as the portable geometry, brush, pen, effect, bitmap-effect input, shader-effect sampler kind/image-source metadata, drawing-content, render-data, invalidation, visual-state, visual-bounds, visual-layout, and bitmap-source pixel seams.
