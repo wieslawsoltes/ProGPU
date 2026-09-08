@@ -202,6 +202,13 @@ Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or cl
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Styled Direct2D primitive callbacks must route through genuine factory-owned
+geometry and the common semantic stroke compiler. Preserve closed rectangle
+joins, open line caps, dash/transform policy and primitive alias state; do not
+add a second stroker or independently blended cap draws. Normal zero-width
+primitives emit no coverage but explicit hairline styles retain device-width
+semantics. Keep null-style positive-width primitives on their direct fast paths.
+
 Full-target Direct2D brush domains must use the shared four-corner inverse-viewport
 envelope with outward float origin/extent rounding. Keep independent x/y work on
 intrinsic SIMD where available. This envelope is material domain metadata, never

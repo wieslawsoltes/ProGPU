@@ -9787,6 +9787,22 @@ provider/full-renderer compilation, native pixel conformance of affine content
 bounds, all runtime/platform/VM/package/image, source-verifier, SIMD/performance
 and exact-head CI qualification remain pending. Main has zero missing commits.
 
+## Implementation-first checkpoint: styled Direct2D primitive callbacks
+
+Windows command-stream DrawLine/DrawRectangle now reuse the existing semantic
+stroke compiler for explicit styles. Aliased DrawGeometry/FillGeometry preserve
+the native sample-grid and edge flags; both C++ producers accept normal
+zero-width primitives without emitting coverage, separately from hairline styles.
+Matched portable/Windows fixtures are authored, including primitive/geometry
+byte comparisons and per-resource alias assertions.
+
+See [contracts, original provenance, research, costs and open scope](direct2d-styled-primitives.md).
+Apple Clang C++20 portable fixtures compile/link; no tests were run. Windows
+provider/full-renderer compilation, pixel/runtime/platform/VM/package, source
+verifiers, SIMD/performance and exact-head CI qualification remain deferred.
+Main has zero missing commits. Managed scene contracts, shaders and ABI are
+unchanged. Broader MIL/DirectX/Direct2D/Win2D parity remains incomplete.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

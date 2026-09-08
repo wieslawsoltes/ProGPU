@@ -149,4 +149,41 @@ inline bool finite_affine_layer_contract(std::span<const std::byte> bytes,
     return true;
 }
 
+// Path fills and semantic straight/curved strokes must all preserve the same
+// primitive antialias policy. This checks every emitted descriptor, not a draw
+// count or the first primitive only; non-drawing resources are intentionally ignored.
+inline bool shape_aliasing_contract(std::span<const std::byte> bytes, bool aliased)
+{
+    progpu_native_scene_header header{};
+    if (!read_scene_value(bytes, 0U, header)) return false;
+    bool found = false;
+    for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+        progpu_native_scene_resource resource{};
+        if (!read_scene_value(bytes, header.resource_offset + std::uint64_t{i} * header.resource_stride,
+                resource)) return false;
+        const auto inspect = [&]<typename T>(auto predicate) {
+            if (resource.payload_size == 0U || resource.payload_size % sizeof(T) != 0U) return false;
+            for (std::uint64_t offset = 0U; offset < resource.payload_size; offset += sizeof(T)) {
+                T value{};
+                if (!read_scene_value(bytes, resource.payload_offset + offset, value) || !predicate(value)) return false;
+            }
+            found = true;
+            return true;
+        };
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH &&
+            !inspect.template operator()<progpu_native_scene_path_fill>([&](const auto& value) {
+                return value.sample_grid == (aliased ? 1U : 8U);
+            })) return false;
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH &&
+            !inspect.template operator()<progpu_native_scene_stroke>([&](const auto& value) {
+                return ((value.flags & PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED) != 0U) == aliased;
+            })) return false;
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH &&
+            !inspect.template operator()<progpu_native_geometry_primitive>([&](const auto& value) {
+                return ((value.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) != 0U) == aliased;
+            })) return false;
+    }
+    return found;
+}
+
 } // namespace progpu::native::direct2d::tests

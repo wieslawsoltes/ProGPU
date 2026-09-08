@@ -4261,9 +4261,13 @@ public:
         if (!can_draw()) {
             return;
         }
-        if (!valid_point(point0) || !valid_point(point1) ||
-            !std::isfinite(stroke_width) || stroke_width <= 0.0F) {
+        if (brush_value == nullptr || !valid_point(point0) || !valid_point(point1) ||
+            !std::isfinite(stroke_width) || stroke_width < 0.0F) {
             latch(com::invalid_argument);
+            return;
+        }
+        if (stroke_width == 0.0F) {
+            ++draw_count_;
             return;
         }
         progpu_native_geometry_primitive primitive{};
@@ -8349,10 +8353,13 @@ private:
         if (!can_draw()) {
             return;
         }
-        if (rectangle == nullptr || !valid_rectangle(*rectangle) ||
-            !std::isfinite(stroke_width) || stroke_width < 0.0F ||
-            (!fill && stroke_width == 0.0F)) {
+        if (brush_value == nullptr || rectangle == nullptr || !valid_rectangle(*rectangle) ||
+            !std::isfinite(stroke_width) || stroke_width < 0.0F) {
             latch(com::invalid_argument);
+            return;
+        }
+        if (!fill && stroke_width == 0.0F) {
+            ++draw_count_;
             return;
         }
         progpu_native_analytic_primitive primitive{};

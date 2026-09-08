@@ -6747,7 +6747,7 @@ int run_tests()
     target->DrawRectangle(
         &rectangle,
         static_cast<compat::brush*>(target_brush.get()),
-        0.0F,
+        -1.0F,
         nullptr);
     if (target->EndDraw(nullptr, nullptr) != com::invalid_argument ||
         scene_target->GetRequiredSceneSize() != 0U) {
@@ -9081,7 +9081,9 @@ int run_tests()
             return 413;
         }
 #endif
+        for (const bool aliased : {false, true})
         for (const bool curved : {false, true}) {
+            target->SetAntialiasMode(aliased ? compat::antialias_mode::aliased : compat::antialias_mode::per_primitive);
             target->SetTransform(&device_stroke_transform);
             target->BeginDraw();
             const float requested_width = mode == compat::stroke_transform_type::hairline
@@ -9100,7 +9102,8 @@ int run_tests()
                 static_cast<std::size_t>(scene_target->GetRequiredSceneSize()));
             std::uint64_t written{};
             if (scene_target->BuildScene(bytes.data(), bytes.size(), &written) != com::ok ||
-                written != bytes.size()) {
+                written != bytes.size() ||
+                !progpu::native::direct2d::tests::shape_aliasing_contract(bytes, aliased)) {
                 return 415;
             }
             const auto* header = reinterpret_cast<const progpu_native_scene_header*>(bytes.data());
@@ -9175,6 +9178,36 @@ int run_tests()
     }
     target->SetTransform(&saved_stroke_transform);
     target->SetDpi(saved_stroke_dpi_x, saved_stroke_dpi_y);
+    for (const bool aliased : {false, true}) {
+        target->SetAntialiasMode(aliased ? compat::antialias_mode::aliased : compat::antialias_mode::per_primitive);
+        for (const bool fill : {false, true}) {
+            target->BeginDraw();
+            if (fill) target->FillGeometry(path_base.get(), target_brush.get(), nullptr);
+            else target->DrawRectangle(&rectangle, target_brush.get(), 2.0F, stroke_style.get());
+            if (target->EndDraw(nullptr, nullptr) != com::ok) return 334;
+            std::vector<std::byte> bytes(static_cast<std::size_t>(scene_target->GetRequiredSceneSize()));
+            std::uint64_t written{};
+            if (scene_target->BuildScene(bytes.data(), bytes.size(), &written) != com::ok ||
+                written != bytes.size() ||
+                !progpu::native::direct2d::tests::shape_aliasing_contract(bytes, aliased)) return 335;
+        }
+    }
+    target->SetAntialiasMode(compat::antialias_mode::per_primitive);
+    target->BeginDraw();
+    target->DrawLine({1, 2}, {18, 12}, target_brush.get(), 0.0F, nullptr);
+    target->DrawRectangle(&rectangle, target_brush.get(), 0.0F, nullptr);
+    if (target->EndDraw(nullptr, nullptr) != com::ok) return 332;
+    scene_target->GetSummary(&styled_primitive_summary);
+    if (styled_primitive_summary.draw_count != 2U) return 333;
+    {
+        std::vector<std::byte> bytes(static_cast<std::size_t>(scene_target->GetRequiredSceneSize()));
+        std::uint64_t written{};
+        progpu_native_scene_header header{};
+        if (scene_target->BuildScene(bytes.data(), bytes.size(), &written) != com::ok ||
+            written != bytes.size() ||
+            !progpu::native::direct2d::tests::read_scene_value(std::span<const std::byte>(bytes), 0U, header) ||
+            header.command_count != 0U || header.resource_count != 0U) return 333;
+    }
     com::pointer<compat::stroke_style1> invalid_device_style;
     if (compat::create_stroke_style1(factory.get(), &device_stroke_properties,
             static_cast<compat::stroke_transform_type>(3U), nullptr, 0U,

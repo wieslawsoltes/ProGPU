@@ -5133,6 +5133,79 @@ int main()
     progpu_native_direct2d_scene_recorder_destroy(direct_recorder);
     direct_recorder = nullptr;
 
+    {
+        ComPtr<ID2D1PathGeometry> line_geometry;
+        require(compat_factory->CreatePathGeometry(line_geometry.GetAddressOf()) == S_OK,
+            "styled line reference geometry creation failed");
+        ComPtr<ID2D1GeometrySink> line_sink;
+        require(line_geometry->Open(line_sink.GetAddressOf()) == S_OK, "styled line reference sink failed");
+        line_sink->BeginFigure({1, 2}, D2D1_FIGURE_BEGIN_HOLLOW);
+        line_sink->AddLine({18, 12});
+        line_sink->EndFigure(D2D1_FIGURE_END_OPEN);
+        require(line_sink->Close() == S_OK, "styled line reference close failed");
+        const auto record = [&](bool primitive, unsigned shape, ID2D1StrokeStyle* style, bool aliased) {
+            progpu_native_direct2d_scene_recorder* recorder = nullptr;
+            require(progpu_native_direct2d_scene_recorder_create(7013U, 1U, nullptr,
+                &recorder, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                "styled primitive recorder creation failed");
+            void* raw_sink = nullptr;
+            require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder,
+                &raw_sink, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                "styled primitive recorder sink acquisition failed");
+            ComPtr<ID2D1CommandSink1> sink;
+            sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+            require(sink->BeginDraw() == S_OK && sink->SetTransform(&direct_device_stroke_transform) == S_OK &&
+                sink->SetAntialiasMode(aliased ? D2D1_ANTIALIAS_MODE_ALIASED : D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) == S_OK,
+                "styled primitive recorder setup failed");
+            HRESULT hr = E_FAIL;
+            if (shape == 4U) {
+                hr = sink->DrawLine({1, 2}, {18, 12}, compat_solid_brush.Get(), 0.0F, nullptr);
+                if (SUCCEEDED(hr)) hr = sink->DrawRectangle(&compat_rectangle_value, compat_solid_brush.Get(), 0.0F, nullptr);
+            }
+            else if (shape == 3U) hr = sink->FillGeometry(compat_path.Get(), compat_solid_brush.Get(), nullptr);
+            else if (primitive && shape == 0U)
+                hr = sink->DrawLine({1, 2}, {18, 12}, compat_solid_brush.Get(), 2.0F, style);
+            else if (primitive && shape == 1U)
+                hr = sink->DrawRectangle(&compat_rectangle_value, compat_solid_brush.Get(), 2.0F, style);
+            else {
+                ID2D1Geometry* geometry = shape == 0U ? static_cast<ID2D1Geometry*>(line_geometry.Get())
+                    : shape == 1U ? static_cast<ID2D1Geometry*>(compat_rectangle.Get())
+                    : static_cast<ID2D1Geometry*>(compat_path.Get());
+                hr = sink->DrawGeometry(geometry, compat_solid_brush.Get(), 2.0F, style);
+            }
+            require(hr == S_OK && sink->EndDraw() == S_OK, "styled/aliased geometry callback failed");
+            progpu_native_direct2d_scene_stream_result result{};
+            result.struct_size = static_cast<uint32_t>(sizeof(result));
+            require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U,
+                &result, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+                result.translated_draw_count == (shape == 4U ? 2U : 1U), "styled primitive measurement failed");
+            std::vector<uint8_t> bytes(static_cast<size_t>(result.required_bytes));
+            require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(),
+                &result, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                "styled primitive serialization failed");
+            if (shape == 4U) {
+                progpu_native_scene_header header{};
+                require(progpu::native::direct2d::tests::read_scene_value(std::as_bytes(std::span(bytes)), 0U, header) &&
+                    header.command_count == 0U && header.resource_count == 0U,
+                    "zero-width primitives emitted native coverage");
+            } else require(progpu::native::direct2d::tests::shape_aliasing_contract(std::as_bytes(std::span(bytes)), aliased),
+                "styled/aliased primitive lost native coverage metadata");
+            progpu_native_direct2d_scene_recorder_destroy(recorder);
+            return bytes;
+        };
+        for (const bool aliased : {false, true}) {
+            for (auto* style : std::array<ID2D1StrokeStyle*, 3U>{compat_solid_stroke_style.Get(),
+                     compat_stroke_style.Get(), compat_hairline_stroke_style.Get()}) {
+                for (unsigned shape = 0U; shape < 2U; ++shape)
+                    require(record(true, shape, style, aliased) == record(false, shape, style, aliased),
+                        "styled primitive differs from equivalent DrawGeometry");
+                (void)record(false, 2U, style, aliased);
+            }
+            (void)record(false, 3U, nullptr, aliased);
+            (void)record(true, 4U, nullptr, aliased);
+        }
+    }
+
     progpu_native_scene_header scene_header{};
     std::memcpy(&scene_header, scene_stream.data(), sizeof(scene_header));
     require(

@@ -6286,12 +6286,16 @@ public:
         if (!can_record()) {
             return fail_drawing_state();
         }
-        if (stroke_style != nullptr) {
-            return fail_unsupported_resource();
-        }
-        if (!finite_point(point0) || !finite_point(point1) ||
-            !std::isfinite(stroke_width) || stroke_width <= 0.0F) {
+        if (brush == nullptr || !finite_point(point0) || !finite_point(point1) ||
+            !std::isfinite(stroke_width) || stroke_width < 0.0F) {
             return fail_invalid_value();
+        }
+        if (stroke_style != nullptr) {
+            return draw_styled_line(point0, point1, brush, stroke_width, stroke_style);
+        }
+        if (stroke_width == 0.0F) {
+            record_draw();
+            return S_OK;
         }
         uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         HRESULT hr = add_brush(brush, brush_index);
@@ -6338,9 +6342,6 @@ public:
             !std::isfinite(stroke_width) || stroke_width < 0.0F) {
             return fail_invalid_value();
         }
-        if (antialias_mode_ != D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) {
-            return fail_unsupported_state();
-        }
         return draw_stroked_geometry(
             geometry,
             brush,
@@ -6358,12 +6359,22 @@ public:
         if (!can_record()) {
             return fail_drawing_state();
         }
-        if (stroke_style != nullptr) {
-            return fail_unsupported_resource();
-        }
-        if (!finite_rectangle(rectangle) || !std::isfinite(stroke_width) ||
-            stroke_width <= 0.0F) {
+        if (brush == nullptr || !finite_rectangle(rectangle) || !std::isfinite(stroke_width) ||
+            stroke_width < 0.0F) {
             return fail_invalid_value();
+        }
+        if (stroke_style != nullptr) {
+            ComPtr<ID2D1Factory> factory;
+            brush->GetFactory(factory.GetAddressOf());
+            if (!factory) return fail_unsupported_resource();
+            ComPtr<ID2D1RectangleGeometry> geometry;
+            const HRESULT hr = factory->CreateRectangleGeometry(rectangle, geometry.GetAddressOf());
+            if (FAILED(hr) || !geometry) return fail_geometry_creation(FAILED(hr) ? hr : E_FAIL);
+            return draw_stroked_geometry(geometry.Get(), brush, stroke_width, stroke_style);
+        }
+        if (stroke_width == 0.0F) {
+            record_draw();
+            return S_OK;
         }
         return draw_rectangle(*rectangle, brush, stroke_width);
     }
@@ -6426,9 +6437,6 @@ public:
         }
         if (opacity_brush != nullptr) {
             return fail_unsupported_resource();
-        }
-        if (antialias_mode_ != D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) {
-            return fail_unsupported_state();
         }
         return draw_filled_geometry(geometry, brush);
     }
@@ -7727,6 +7735,35 @@ private:
         return S_OK;
     }
 
+    HRESULT fail_geometry_creation(HRESULT hr) noexcept
+    {
+        return fail(hr == E_OUTOFMEMORY
+            ? PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER
+            : PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_RESOURCE, hr);
+    }
+
+    HRESULT draw_styled_line(D2D1_POINT_2F point0, D2D1_POINT_2F point1,
+        ID2D1Brush* brush, float width, ID2D1StrokeStyle* style) noexcept
+    {
+        // Original portable DrawLine lowering: one open typed geometry, then
+        // the shared semantic stroke compiler. No private COM shape or renderer.
+        ComPtr<ID2D1Factory> factory;
+        brush->GetFactory(factory.GetAddressOf());
+        if (!factory) return fail_unsupported_resource();
+        ComPtr<ID2D1PathGeometry> path;
+        HRESULT hr = factory->CreatePathGeometry(path.GetAddressOf());
+        if (FAILED(hr) || !path) return fail_geometry_creation(FAILED(hr) ? hr : E_FAIL);
+        ComPtr<ID2D1GeometrySink> sink;
+        hr = path->Open(sink.GetAddressOf());
+        if (FAILED(hr) || !sink) return fail_geometry_creation(FAILED(hr) ? hr : E_FAIL);
+        sink->BeginFigure(point0, D2D1_FIGURE_BEGIN_HOLLOW);
+        sink->AddLine(point1);
+        sink->EndFigure(D2D1_FIGURE_END_OPEN);
+        hr = sink->Close();
+        if (FAILED(hr)) return fail_geometry_creation(hr);
+        return draw_stroked_geometry(path.Get(), brush, width, style);
+    }
+
     HRESULT draw_stroked_geometry(
         ID2D1Geometry* geometry,
         ID2D1Brush* brush,
@@ -8390,7 +8427,7 @@ private:
             {1.0F, 1.0F, 1.0F, 1.0F},
             path_transform,
             path_sink->fill_rule(),
-            8U};
+            antialias_mode_ == D2D1_ANTIALIAS_MODE_ALIASED ? 1U : 8U};
         const progpu_native_image_rect bounds{
             target_bounds.left,
             target_bounds.top,
