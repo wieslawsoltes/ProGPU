@@ -1,4 +1,4 @@
-// Algorithm: Sample one retained path-atlas quad into an R8 node mask, or combine a red/alpha-channel node mask with prior ordered clip coverage using intersection or difference.
+// Algorithm: Sample one retained path-atlas quad into an R8 node mask, combine raw red/alpha texels with prior coverage, or compose a retained sampled mask through its shared affine/opacity contract.
 // Time complexity: O(P + W*H) per changed clip node for P covered quad fragments and a W by H target-wide composition; stable retained replay performs no work in this module.
 // Space complexity: O(1) shader-private storage and at most two texture reads plus one R8 attachment write per composed pixel; the native owner retains one node and two ping-pong target-sized R8 textures.
 struct ClipVertexInput {
@@ -22,6 +22,9 @@ struct ClipComposeUniforms {
 @group(0) @binding(1) var nodeOrAtlasTexture: texture_2d<f32>;
 @group(0) @binding(2) var previousTexture: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> compose: ClipComposeUniforms;
+@group(1) @binding(0) var childSampler: sampler;
+@group(1) @binding(1) var childTexture: texture_2d<f32>;
+@group(1) @binding(2) var<uniform> childSampling: MaskSamplingUniforms;
 
 @vertex
 fn vs_path(input: ClipVertexInput) -> ClipVertexOutput {
@@ -71,6 +74,18 @@ fn fs_compose(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> 
     let coverage = select(
         previous * node,
         previous * (1.0 - node),
+        (compose.operation & 1u) != 0u);
+    return vec4<f32>(coverage, 0.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_compose_sampled(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let node = sample_texture_mask_alpha(position.xy, childSampling, childTexture, childSampler);
+    let coordinate = clamp(vec2<i32>(position.xy), vec2<i32>(0),
+        vec2<i32>(i32(compose.width) - 1, i32(compose.height) - 1));
+    let previous = select(textureLoad(previousTexture, coordinate, 0).r, 1.0,
+        (compose.first & 1u) != 0u);
+    let coverage = select(previous * node, previous * (1.0 - node),
         (compose.operation & 1u) != 0u);
     return vec4<f32>(coverage, 0.0, 0.0, 1.0);
 }

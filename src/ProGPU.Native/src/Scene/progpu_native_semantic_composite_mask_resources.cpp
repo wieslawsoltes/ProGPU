@@ -42,12 +42,12 @@ void release_child_mask(
         child.mask_chain_bind_group = nullptr;
     }
     if (child.mask_uniform_buffer != nullptr) {
-        wgpuBufferDestroy(child.mask_uniform_buffer);
+        if (!submitted) wgpuBufferDestroy(child.mask_uniform_buffer);
         wgpuBufferRelease(child.mask_uniform_buffer);
         child.mask_uniform_buffer = nullptr;
     }
     if (child.mask_chain_uniform_buffer != nullptr) {
-        wgpuBufferDestroy(child.mask_chain_uniform_buffer);
+        if (!submitted) wgpuBufferDestroy(child.mask_chain_uniform_buffer);
         wgpuBufferRelease(child.mask_chain_uniform_buffer);
         child.mask_chain_uniform_buffer = nullptr;
     }
@@ -94,17 +94,11 @@ bool create_semantic_composite_mask_binding(
     semantic_render_bundle_span& operation,
     const progpu_native_scene_presentation* presentation) {
     const auto& source = parsed.composite;
-    // Nested picture raster domains are integrated separately; fail before
-    // allocating any child if that consumer cannot honor this presentation.
-    if (source.picture_mask_count != 0U && presentation != nullptr &&
-        (presentation->viewport_x != 0U || presentation->viewport_y != 0U ||
-            presentation->dpi_scale_x != dpi_scale || presentation->dpi_scale_y != dpi_scale))
-        return false;
     if (source.component_count < 2U ||
         source.component_count > 64U || target_extent.width == 0U ||
         target_extent.height == 0U || !std::isfinite(dpi_scale) ||
         dpi_scale <= 0.0F || !create_layer_mask_resources(engine) ||
-        !create_clip_chain_resources(engine)) {
+        !create_sampled_mask_composition_resources(engine)) {
         return false;
     }
 
@@ -223,7 +217,8 @@ bool create_semantic_composite_mask_binding(
                 dpi_scale,
                 composite_state_cursor,
                 composite_state,
-                child_operation)) {
+                child_operation,
+                presentation)) {
             cleanup();
             return false;
         }
@@ -311,10 +306,8 @@ bool create_semantic_composite_mask_binding(
     }
     for (std::uint32_t index = 0U; index < source.component_count; ++index) {
         const gpu_clip_compose_uniforms uniforms{
-            (children[index].mask_source_x << 16U) |
-                (children[index].mask_uses_alpha_channel ? 2U : 0U),
-            (children[index].mask_source_y << 16U) |
-                (index == 0U ? 1U : 0U),
+            0U,
+            index == 0U ? 1U : 0U,
             target_extent.width,
             target_extent.height};
         std::memcpy(
@@ -385,13 +378,14 @@ bool create_semantic_composite_mask_binding(
             return false;
         }
         const std::uint32_t dynamic_offset = index * 256U;
-        wgpuRenderPassEncoderSetPipeline(pass, engine.clip_compose_pipeline);
+        wgpuRenderPassEncoderSetPipeline(pass, engine.sampled_mask_compose_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass,
             0U,
             compose_bind_groups[index],
             1U,
             &dynamic_offset);
+        wgpuRenderPassEncoderSetBindGroup(pass, 1U, children[index].mask_bind_group, 0U, nullptr);
         wgpuRenderPassEncoderDraw(pass, 3U, 1U, 0U, 0U);
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);

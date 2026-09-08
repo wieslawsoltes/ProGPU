@@ -164,6 +164,32 @@ guideline deformation can be claimed correct in a composite. This is an existing
 composition contract gap, including legacy cropped/source-extent cases, not a
 reason to bypass the guard or claim parity from the child-frame compilation.
 
+Sampled-composition checkpoint: composite masks now bind each child's existing
+sampler, texture and 96-byte mask-sampling uniform record. A dedicated lazy
+fragment entry point in `ClipCompose.wgsl` evaluates the child's affine UV,
+outside-coverage behavior, alpha/red channel and opacity before multiplying the
+previous R8 accumulation. This replaces the composite-only direct-texel shortcut;
+ordinary vector clip-node composition keeps its existing raw-texel entry point.
+The picture-specific advanced-presentation gate is removed and the parent mapping
+is forwarded to picture children. The global renderer/host guard remains until
+the other raster, 3D and damage/clear consumers are complete.
+
+`SampledMaskCommon.wgsl` is the original ProGPU sampled-texture-mask function
+extracted from `Texture.wgsl`, with the same arithmetic, filtering and quality
+contract. Managed texture rendering and native texture/composite rendering consume
+this exact source. Managed loading concatenates it once in static initialization;
+native CMake embedding prefixes it for both modules and tracks it as a dependency.
+No shader text is generated per frame and no backend-specific WGSL fork is added.
+
+For K mask children and P target pixels, composition remains O(K * P) GPU work,
+one existing draw/pass per child, two reads per pixel and two ping-pong R8 targets.
+The new pipeline is created only when a composite mask first needs it, and released
+with native clip resources. The change adds no intermediate resolve, CPU pixel
+readback/repacking or per-child queue submission. Child mask uniforms are released
+without destroying their GPU backing after encoding/submission, matching texture
+ownership; otherwise their new sampled use could outlive a destroyed buffer.
+Actual lifetime and output correctness still require final runtime qualification.
+
 | Consumer | Required implementation before enabling host support |
 | --- | --- |
 | Semantic state and guidelines | Apply physical mapping at the device boundary, keep per-axis pixel snapping and explicit physical guideline offsets correct, and avoid double application in nested scopes. |
@@ -245,6 +271,16 @@ algorithms or shared shaders. Common cropped/affine picture scenes and mask
 opacity/guideline cases require matched managed/native output qualification.
 No foreign implementation is copied and no new CPU pixel fallback is introduced.
 
+Sampled composition derives from original ProGPU `117c4d5d`:
+`Texture.wgsl:sample_mask_alpha`, `ClipCompose.wgsl:fs_compose`, native clip resource
+creation, layer-mask bind-group layout and composite child ownership. The managed
+and native texture paths are both updated to consume the extracted common function;
+the new composite entry point uses it directly. Managed compositor mask placement
+remains authoritative for common-scene comparisons; it does not use the native
+semantic composite stream or its former direct-texel shortcut. Shader initialization
+is static/lazy as before, with no per-frame resource loading. No performance claim
+is made until representative managed/native measurements and images are available.
+
 ## Primary research and design decisions
 
 - [Direct2D DPI contracts](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-high-dpi)
@@ -320,6 +356,21 @@ dimensions and transactional failure. State, picture-mask resources, layer
 resources, composite-mask resources and internal fixture translation units compile
 with the same strict C++20 setup. Child GPU rendering, composite mask sampling and
 cross-platform output remain unexecuted and unqualified at this checkpoint.
+
+Sampled-composition source fixtures assert that managed texture and native
+composition call the same embedded function and that both native embeddings track
+the common prefix. The managed ProGPU tests project builds with zero warnings and
+errors. Native clip, composite-mask and main render-execution sources compile with
+Apple Clang C++20 `-O2` and warnings-as-errors against regenerated embeddings.
+The native image/layer resource source also compiles against the shared texture
+embedding. LibreWPF's tests project builds with 116 warnings and zero errors;
+these are build results, not executed tests or a green-CI assertion.
+These checks are compilation/source-contract evidence only: WGSL pipeline creation,
+rendered affine/cropped picture masks, child opacity products, outside-UV coverage,
+stable replay and in-flight lifetime tests have not been executed. Final GPU image
+differentials must compare composite masks to the same children applied through
+ordinary managed/native sampled-mask rendering, including fractional transforms
+and nested cache guidelines.
 
 Compilation checkpoints are recorded in the PR. Full renderer/provider builds,
 all tests/verifiers, macOS/Linux and Windows Parallels runs, text/clip/image

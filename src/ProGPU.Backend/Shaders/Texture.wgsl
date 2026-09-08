@@ -53,15 +53,6 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 @group(2) @binding(0) var maskSampler: sampler;
 @group(2) @binding(1) var maskTexture: texture_2d<f32>;
 
-struct MaskSamplingUniforms {
-    coordinate0: vec4<f32>,
-    coordinate1: vec4<f32>,
-    bounds: vec4<f32>,
-    cornerRadiiX: vec4<f32>,
-    cornerRadiiY: vec4<f32>,
-    options: vec4<f32>,
-};
-
 @group(2) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
 @group(3) @binding(2) var<uniform> colorMatrixSampling: MaskSamplingUniforms;
 
@@ -152,18 +143,7 @@ fn sample_mask_alpha(position: vec2<f32>) -> f32 {
         return analytic_rounded_mask_alpha(targetPosition) *
             maskSampling.options.y;
     }
-    var uv = (targetPosition - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
-    if (maskSampling.options.z > 0.5) {
-        uv = vec2<f32>(
-            dot(vec3<f32>(targetPosition, 1.0), maskSampling.coordinate0.xyz),
-            dot(vec3<f32>(targetPosition, 1.0), maskSampling.coordinate1.xyz));
-    }
-    let sample = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)));
-    let sampled = select(sample.r, sample.a, maskSampling.options.w > 1.5);
-    let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
-    let textureOpacity = select(1.0, maskSampling.options.y,
-        maskSampling.options.w > 0.5);
-    return select(0.0, sampled * textureOpacity, inside);
+    return sample_texture_mask_alpha(targetPosition, maskSampling, maskTexture, maskSampler);
 }
 
 fn cubic_weight(x: f32, b: f32, c: f32) -> f32 {

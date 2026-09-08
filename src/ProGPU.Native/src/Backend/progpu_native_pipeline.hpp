@@ -102,6 +102,7 @@ bool ensure_advanced_group_blend_source(
     std::uint32_t height);
 
 bool create_clip_chain_resources(progpu_native_engine& engine);
+bool create_sampled_mask_composition_resources(progpu_native_engine& engine);
 
 bool ensure_clip_buffer(
     progpu_native_engine& engine,

@@ -15,6 +15,28 @@ namespace ProGPU.Tests;
 public class ShaderResourceTests
 {
     [Fact]
+    public void TextureAndNativeMaskCompositionShareSampledMaskContract()
+    {
+        string common = ShaderResource.Load(typeof(Shaders), "SampledMaskCommon.wgsl");
+        string compose = ShaderResource.Load(typeof(Shaders), "ClipCompose.wgsl");
+        Assert.StartsWith(common, Shaders.TextureShader);
+        Assert.Single(Regex.Matches(Shaders.TextureShader, "struct MaskSamplingUniforms"));
+        Assert.Contains("sample_texture_mask_alpha(targetPosition, maskSampling, maskTexture, maskSampler)",
+            Shaders.TextureShader, StringComparison.Ordinal);
+        Assert.Contains("sample_texture_mask_alpha(position.xy, childSampling, childTexture, childSampler)",
+            compose, StringComparison.Ordinal);
+        Assert.Contains("fn fs_compose_sampled", compose, StringComparison.Ordinal);
+        Assert.Contains("sampling.options.w > 1.5", common, StringComparison.Ordinal);
+        Assert.Contains("sampled * textureOpacity", common, StringComparison.Ordinal);
+        Assert.Contains("dot(vec3<f32>(position, 1.0), sampling.coordinate0.xyz)", common, StringComparison.Ordinal);
+
+        string cmake = File.ReadAllText(Path.Combine(FindRepositoryRoot().FullName,
+            "src", "ProGPU.Native", "CMakeLists.txt"));
+        Assert.Equal(2, Regex.Matches(cmake,
+            "-DPREFIX_INPUT=\\$\\{CMAKE_CURRENT_SOURCE_DIR\\}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl").Count);
+    }
+
+    [Fact]
     public void TextureShaderKeepsAddressFallbackOnGpu()
     {
         Assert.Contains(
