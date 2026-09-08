@@ -229,6 +229,13 @@ Native-popup position-transport scale and framebuffer scale have separate owners
 Owner-DPI notifications may update legacy coordinate decoding, not a separately
 surfaced popup's raster DPI. Only its own host geometry callbacks replace that
 initial source seed; composited owner-surface popups continue inheriting owner DPI.
+Windows native popups use the shared `NativePopupWindow` contract. Configure only
+same-thread, same-process top-level owners and hidden popup HWNDs; preserve
+unrelated styles, establish ownership without reparenting as a child, and keep
+nonactivation separate from topmost state. The static subclass must return
+MA_NOACTIVATE without eating clicks, forward other messages, and remove itself
+at native destruction. Roll back failed configuration and require callers to
+destroy rejected hidden windows. Do not replace this with WPF-local Win32 shims.
 Synchronous WPF geometry utilities must use ProGPU-owned actual topology, not
 bounding-box substitutes. `NativeGeometryUtilities` exposes the shared C++
 Direct2D boundary algorithm without a device or native COM activation; preserve

@@ -26,6 +26,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\ProGPU.Backend\Win32PopupConfiguration.cs"
+             Link="Backend\Win32PopupConfiguration.cs" />
     <Compile Include="..\ProGPU.Android\AndroidStorageNamePolicy.cs"
              Link="Android\AndroidStorageNamePolicy.cs" />
     <Compile Include="..\ProGPU.Android\AndroidScrollDeltaPolicy.cs"

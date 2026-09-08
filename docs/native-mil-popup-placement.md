@@ -227,6 +227,63 @@ Compile-only checkpoint: LibreWPF bridge fixtures 116 warnings/0 errors initiall
 verifiers, applications, VM/GPU workloads, benchmarks or CI qualification ran.
 The latest fetched ProGPU `origin/main` remains contained (zero missing commits).
 
+## Windows owned nonactivating native popup connection
+
+The existing MVP/Toolkit menu/ComboBox action could not create a native portable
+popup on Windows: the factory rejected Windows and the decoration adapter only
+configured Cocoa/X11 ownership. This is source-backed, not a reproduced VM run.
+
+ProGPU now provides `NativePopupWindow.TryConfigureOwner` over neutral native
+handles. `Win32NativeWindowPlatform.Popup.cs` reuses original ProGPU Win32 window
+attribute/frame accessors from `Win32NativeWindowPlatform.cs`. Its original
+configuration planner validates same-thread/process top-level windows and a hidden
+popup, sets its owner and popup/nonactivating/tool-window styles, removes ordinary
+overlapped chrome and taskbar-forcing style, and preserves unrelated bits. The
+frame refresh has no show, move, resize, activation or topmost promotion. A failed
+apply rolls back the captured attributes and removes the activation hook; the
+caller must destroy the hidden popup even if rollback itself cannot succeed.
+
+The implementation follows public contracts, not third-party implementation code:
+
+- [SetWindowLongPtrW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowlongptrw): top-level ownership is GWLP_HWNDPARENT, not child reparenting; zero previous values are valid and cached styles need frame refresh.
+- [Extended styles](https://learn.microsoft.com/en-us/windows/win32/winmsg/extended-window-styles): nonactivation and tool-window state are separate from app-window and topmost state.
+- [CreateWindowExW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-createwindowexw) and [WM_MOUSEACTIVATE](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-mouseactivate): click queue activation needs explicit handling; MA_NOACTIVATE preserves delivery of the click.
+- [SetWindowSubclass](https://learn.microsoft.com/en-us/windows/win32/api/commctrl/nf-commctrl-setwindowsubclass) and [DefSubclassProc](https://learn.microsoft.com/en-us/windows/win32/api/commctrl/nf-commctrl-defsubclassproc): callback identity/lifetime is per window, subclassing stays on the owning thread, and unhandled messages continue through the chain.
+- [.NET SetLastError interop behavior](https://learn.microsoft.com/en-us/dotnet/api/system.runtime.interopservices.dllimportattribute.setlasterror?view=net-10.0): the supported .NET runtime clears native last-error before flagged calls and caches the result for distinguishing valid zero returns from failures.
+
+The native subclass uses one static `UnmanagedCallersOnly` entry, no managed
+delegate/GCHandle or per-message allocation. It returns MA_NOACTIVATE for click
+activation, otherwise forwards to DefSubclassProc, and removes its own hook on
+WM_NCDESTROY. The backend assembly must outlive every configured native window.
+Installation and each callback use O(1) state/work; the native subclass facility
+owns one bounded registration per popup. Flag manipulation and ordered OS calls
+have no independent data-parallel workload for SIMD or GPU execution. No renderer
+submission, device initialization or readback is introduced.
+
+LibreWPF's Win32 decoration branch consumes this API. Its portable factory now
+admits Windows; the actual hidden native popup must configure ownership before
+Show. Rejection or exception disposes it and fails explicitly rather than showing
+an unowned window. Existing nonactivating GLFW show, owner transport decoding,
+independent framebuffer ownership and renderer inheritance remain in place.
+This is shared platform/host behavior for both managed and C++ renderers, with
+no C++ scene, canonical shader, native C wire or rendering algorithm changes.
+
+CPU planner fixtures exercise style preservation, each mutation/hook/frame failure
+and rollback, plus invalid/foreign/child/visible rejection. A Windows-only fixture
+creates real hidden system-class HWNDs, checks resulting ownership/styles and the
+click-activation response, and destroys both windows through the native subclass
+chain. It explicitly skips non-Windows hosts and does not prove real menu focus,
+GPU output, monitor transitions or package activation. These fixtures are authored
+for final qualification and have not run. The Windows SDK guard remains until
+source media startup and the complete package application path are connected.
+
+Compile-only checkpoint: ProGPU.Tests 0 warnings/0 errors, LibreWPF bridge fixtures
+21/0 on the final rebuild and source-built application harness 5/0. The initial
+parallel bridge build succeeded with one shared-output copy retry; overlapping
+build graphs were serialized thereafter. Tests (including the Windows fixture),
+source verifiers, GPU/VM applications, benchmarks and CI qualification were not
+executed. The latest fetched `origin/main` is contained in this branch.
+
 ## Placement selection coverage
 
 ProGPU regressions cover overlapping/offscreen/zero-sized targets, negative
