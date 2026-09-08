@@ -1,5 +1,6 @@
 #include "progpu_native_text_shaping_showcase.hpp"
 #include "progpu_native_text_styles.h"
+#include "progpu_native_text_flow.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -139,6 +140,25 @@ static void styled_context_preserves_font_scale_and_atomic_failure() {
     require(progpu_native_text_context_get_styled_paragraph_requirements(context.get(), &shaping, &layout,
         styles.data(), static_cast<std::uint32_t>(styles.size()), &required) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(required.glyph_capacity == 0);
+    styles[1].scalar_start = 2;
+    auto tab_text = text; tab_text[1].code_point = 9;
+    shaping.input = tab_text.data(); layout.maximum_width = 0;
+    progpu_native_text_flow_options flow{sizeof(flow), 40, 3, 0};
+    require(progpu_native_text_context_get_flow_paragraph_requirements(context.get(), &shaping, &layout,
+        styles.data(), static_cast<std::uint32_t>(styles.size()), &flow, &required) == PROGPU_NATIVE_STATUS_SUCCESS);
+    scratch.resize(required.scratch_bytes);
+    auto flow_run = [&] { return progpu_native_text_context_layout_flow_paragraph(context.get(), &shaping, &layout,
+        styles.data(), static_cast<std::uint32_t>(styles.size()), &flow, glyphs.data(), static_cast<std::uint32_t>(glyphs.size()),
+        lines.data(), static_cast<std::uint32_t>(lines.size()), scratch.data(), scratch.size(), &result); };
+    require(flow_run() == PROGPU_NATIVE_STATUS_SUCCESS && result.glyph_count == 3 && result.line_count == 1);
+    require(glyphs[1].glyph_id == UINT32_MAX && glyphs[1].cluster == 1 && glyphs[1].advance_x > 0);
+    require(std::abs(glyphs[2].x - 37) < 0.0001F && glyphs[2].font_index == second_font);
+    const float tab_advance = glyphs[1].advance_x;
+    shaping.direction = PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT;
+    require(flow_run() == PROGPU_NATIVE_STATUS_SUCCESS && glyphs[1].glyph_id == UINT32_MAX);
+    require(std::abs(glyphs[1].advance_x - tab_advance) < 0.0001F);
+    flow.reserved = 1; glyphs[0].x = 123;
+    require(flow_run() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && result.glyph_count == 0 && glyphs[0].x == 123);
 }
 
 int main() {

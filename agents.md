@@ -257,6 +257,14 @@ Source run metrics and drawing brushes remain source-owned. Explicit faces are
 not a completed composite-font/fallback policy, and compiled styled fixtures are
 not application qualification. Single-face styled paragraphs reuse leased plans;
 multi-face contexts are isolated until a bounded palette cache is implemented.
+Incremental tabs belong in native paragraph measurement, before wrapping and bidi
+visual ordering. Use `NativeTextFlowOptions` and preserve the resolved advance in
+caller scratch. Its `UINT32_MAX` glyph-id sentinel is a non-ink source tab, never a
+font atlas entry. Source adapters must retain tab caret/selection/background bounds
+without manufacturing space glyphs or missing-glyph boxes. Custom stops/leaders,
+disabled-grid substitution and tab trimming remain explicit unsupported contracts.
+Tab-grid and wrapping scans are prefix-dependent; independent metric lanes retain
+NEON/SSE2. Do not move tab expansion into a WPF-local paragraph composer.
 LibreWPF source composite/fallback linking now feeds explicit physical style ranges
 through `GlyphingCache.GetPortableFontRuns`. WPF owns its family map/culture/cache
 policy and source line metrics; ProGPU owns the shared native shaping/paragraph.

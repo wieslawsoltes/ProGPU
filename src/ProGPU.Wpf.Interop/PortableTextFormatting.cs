@@ -19,13 +19,14 @@ public readonly record struct PortableTextParagraphRequest(
     ReadOnlyMemory<char> Text, PortableTextFont Font, float FontSize,
     float LineHeight, float MaximumWidth, bool RightToLeft, PortableTextAlignment Alignment,
     ReadOnlyMemory<PortableTextFeature> Features = default,
-    ReadOnlyMemory<PortableTextStyle> Styles = default);
+    ReadOnlyMemory<PortableTextStyle> Styles = default,
+    float IncrementalTab = 0, float TabOrigin = 0);
 
 public readonly record struct PortableTextStyle(int Start, int Length, PortableTextFont Font,
     float FontSize, ReadOnlyMemory<PortableTextFeature> Features = default, uint Language = 0);
 
 public readonly record struct PortableTextGlyph(uint GlyphId, int Cluster, int ClusterEnd,
-    float X, float Y, float Advance, sbyte BidiLevel, uint FontIndex = 0);
+    float X, float Y, float Advance, sbyte BidiLevel, uint FontIndex = 0, bool IsTab = false);
 public readonly record struct PortableTextLineInfo(int GlyphStart, int GlyphCount,
     int InputStart, int InputEnd, float Width, float Y, float Height);
 public readonly record struct PortableTextHit(int Position, bool Trailing);

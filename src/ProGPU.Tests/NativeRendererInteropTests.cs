@@ -13,6 +13,18 @@ namespace Avalonia.ProGpu.UnitTests;
 public class NativeRendererInteropTests
 {
     [Fact]
+    public void FlowParagraphContractsKeepPinnedOutputsAndContextLeases()
+    {
+        Assert.Equal(16, Unsafe.SizeOf<NativeTextFlowOptions>());
+        Assert.Equal(8, Marshal.OffsetOf<NativeTextFlowOptions>(nameof(NativeTextFlowOptions.TabOrigin)).ToInt32());
+        string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend.Native", "NativeTextFlowParagraphInterop.cs"));
+        Assert.Equal(2, source.Split("using var use = _owner.Acquire();").Length - 1);
+        Assert.Contains("fixed (NativeTextParagraphRequirements* output = &requirements)", source, StringComparison.Ordinal);
+        Assert.Contains("fixed (NativeTextParagraphResult* output = &result)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ToArray()", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void StyledParagraphContractsAreBorrowedPinnedAndLeased()
     {
         Assert.Equal(32, Unsafe.SizeOf<NativeTextStyleRun>());

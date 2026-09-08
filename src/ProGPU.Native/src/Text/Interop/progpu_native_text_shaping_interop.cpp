@@ -1,5 +1,6 @@
 #include "progpu_native.h"
 #include "progpu_native_text_styles.h"
+#include "progpu_native_text_flow.h"
 #include "progpu_native_text.hpp"
 
 #include <algorithm>
@@ -879,6 +880,7 @@ bool try_build_paragraph_capacities(
         !size.add<text_line_break_kind>(input_count) ||
         !size.add<shaping_glyph>(glyph_count) ||
         !size.add<std::int8_t>(glyph_count) ||
+        !size.add<float>(glyph_count) ||
         !size.add<float>(glyph_count) ||
         !size.add<std::uint32_t>(glyph_count) ||
         !size.add<text_line_break_kind>(glyph_count) ||
@@ -2002,11 +2004,19 @@ static bool valid_style_runs(const progpu_native_text_context& context,
     return expected == shaping.input_count;
 }
 
+static bool valid_flow_options(const progpu_native_text_flow_options* flow,
+    const progpu_native_text_layout_options* layout) noexcept {
+    return flow == nullptr || (flow->struct_size >= sizeof(*flow) && flow->reserved == 0U &&
+        std::isfinite(flow->incremental_tab) && flow->incremental_tab >= 0.0F &&
+        std::isfinite(flow->tab_origin) && (flow->incremental_tab == 0.0F || layout->trimming == 0U));
+}
+
 static progpu_native_status paragraph_requirements_core(
     progpu_native_text_context* context,
     const progpu_native_text_shape_request* shaping,
     const progpu_native_text_layout_options* layout,
     const progpu_native_text_style_run* styles, std::uint32_t style_count,
+    const progpu_native_text_flow_options* flow,
     progpu_native_text_paragraph_requirements* requirements) {
     if (requirements == nullptr ||
         requirements->struct_size <
@@ -2017,7 +2027,8 @@ static progpu_native_status paragraph_requirements_core(
     requirements->struct_size = sizeof(*requirements);
     if (context == nullptr || !valid_request(shaping, false) ||
         shaping->direction > PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT ||
-        !valid_paragraph_layout_options(layout) || !valid_style_runs(*context, *shaping, styles, style_count)) {
+        !valid_paragraph_layout_options(layout) || !valid_style_runs(*context, *shaping, styles, style_count) ||
+        !valid_flow_options(flow, layout)) {
         requirements->error_code =
             static_cast<std::uint32_t>(font_error::invalid_argument);
         requirements->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
@@ -2046,6 +2057,7 @@ static progpu_native_status paragraph_layout_core(
     const progpu_native_text_shape_request* shaping,
     const progpu_native_text_layout_options* layout,
     const progpu_native_text_style_run* styles, std::uint32_t style_count,
+    const progpu_native_text_flow_options* flow,
     progpu_native_positioned_text_glyph* glyphs,
     std::uint32_t glyph_capacity,
     progpu_native_positioned_text_line* lines,
@@ -2061,7 +2073,8 @@ static progpu_native_status paragraph_layout_core(
     result->struct_size = sizeof(*result);
     if (context == nullptr || !valid_request(shaping, false) ||
         shaping->direction > PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT ||
-        !valid_paragraph_layout_options(layout) || !valid_style_runs(*context, *shaping, styles, style_count)) {
+        !valid_paragraph_layout_options(layout) || !valid_style_runs(*context, *shaping, styles, style_count) ||
+        !valid_flow_options(flow, layout)) {
         result->error_code =
             static_cast<std::uint32_t>(font_error::invalid_argument);
         result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
@@ -2117,6 +2130,7 @@ static progpu_native_status paragraph_layout_core(
         std::span<shaping_glyph> logical_glyphs{};
         std::span<std::int8_t> glyph_levels{};
         std::span<float> glyph_scales{};
+        std::span<float> tab_advances{};
         std::span<std::uint32_t> glyph_font_indices{};
         std::span<text_line_break_kind> glyph_breaks{};
         std::span<text_visual_cluster_group> visual_groups{};
@@ -2140,6 +2154,7 @@ static progpu_native_status paragraph_layout_core(
             !arena.take(glyph_limit, logical_glyphs) ||
             !arena.take(glyph_limit, glyph_levels) ||
             !arena.take(glyph_limit, glyph_scales) ||
+            !arena.take(glyph_limit, tab_advances) ||
             !arena.take(glyph_limit, glyph_font_indices) ||
             !arena.take(glyph_limit, glyph_breaks) ||
             !arena.take(glyph_limit, visual_groups) ||
@@ -2303,10 +2318,26 @@ static progpu_native_status paragraph_layout_core(
                 return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
             }
             const std::int8_t level = scalar_levels[scalar_start].level;
+            const bool tab_flow = flow != nullptr && flow->incremental_tab > 0.0F;
+            if (tab_flow && shaping->input[scalar_start].code_point == 9U) {
+                if (logical_count >= logical_glyphs.size()) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+                shaping_glyph tab{};
+                tab.glyph_id = text_tab_glyph_id;
+                tab.code_point = 9U;
+                tab.cluster = static_cast<std::int32_t>(shaping->input[scalar_start].input_index);
+                logical_glyphs[logical_count] = tab;
+                glyph_levels[logical_count] = paragraph_level;
+                glyph_font_indices[logical_count] = fallback_run.font_index;
+                glyph_scales[logical_count] = layout->scale;
+                ++logical_count;
+                ++scalar_start;
+                continue;
+            }
             std::size_t scalar_end = scalar_start + 1U;
             while (scalar_end < input_count && scalar_end < script_end &&
                 scalar_end < fallback_end &&
-                scalar_levels[scalar_end].level == level) {
+                scalar_levels[scalar_end].level == level &&
+                (!tab_flow || shaping->input[scalar_end].code_point != 9U)) {
                 ++scalar_end;
             }
             auto run_request = *shaping;
@@ -2395,13 +2426,15 @@ static progpu_native_status paragraph_layout_core(
             visual_groups, visual_indices};
         std::uint32_t positioned_count = 0U;
         std::uint32_t written_lines = 0U;
-        if (!try_layout_scaled_logical_shaped_text(
+        if (!try_layout_tabbed_logical_shaped_text(
                 logical,
                 glyph_breaks.first(logical_count),
                 glyph_levels.first(logical_count),
                 style_count == 0U ? std::span<const float>{} : glyph_scales.first(logical_count),
                 paragraph_level,
                 convert_paragraph_layout_options(*layout, paragraph_level),
+                flow == nullptr ? text_tab_options{} : text_tab_options{flow->incremental_tab, flow->tab_origin},
+                tab_advances,
                 logical_scratch,
                 positioned,
                 native_lines,
@@ -2479,14 +2512,14 @@ static progpu_native_status paragraph_layout_core(
 progpu_native_status progpu_native_text_context_get_paragraph_requirements(
     progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
     const progpu_native_text_layout_options* layout, progpu_native_text_paragraph_requirements* requirements) {
-    return paragraph_requirements_core(context, shaping, layout, nullptr, 0U, requirements);
+    return paragraph_requirements_core(context, shaping, layout, nullptr, 0U, nullptr, requirements);
 }
 
 progpu_native_status progpu_native_text_context_get_styled_paragraph_requirements(
     progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
     const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
     std::uint32_t style_count, progpu_native_text_paragraph_requirements* requirements) {
-    return paragraph_requirements_core(context, shaping, layout, styles, style_count, requirements);
+    return paragraph_requirements_core(context, shaping, layout, styles, style_count, nullptr, requirements);
 }
 
 progpu_native_status progpu_native_text_context_layout_paragraph(
@@ -2494,7 +2527,7 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
     const progpu_native_text_layout_options* layout, progpu_native_positioned_text_glyph* glyphs,
     std::uint32_t glyph_capacity, progpu_native_positioned_text_line* lines, std::uint32_t line_capacity,
     void* scratch, std::size_t scratch_size, progpu_native_text_paragraph_result* result) {
-    return paragraph_layout_core(context, shaping, layout, nullptr, 0U, glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result);
+    return paragraph_layout_core(context, shaping, layout, nullptr, 0U, nullptr, glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result);
 }
 
 progpu_native_status progpu_native_text_context_layout_styled_paragraph(
@@ -2503,7 +2536,26 @@ progpu_native_status progpu_native_text_context_layout_styled_paragraph(
     std::uint32_t style_count, progpu_native_positioned_text_glyph* glyphs, std::uint32_t glyph_capacity,
     progpu_native_positioned_text_line* lines, std::uint32_t line_capacity,
     void* scratch, std::size_t scratch_size, progpu_native_text_paragraph_result* result) {
-    return paragraph_layout_core(context, shaping, layout, styles, style_count, glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result);
+    return paragraph_layout_core(context, shaping, layout, styles, style_count, nullptr, glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result);
+}
+
+progpu_native_status progpu_native_text_context_get_flow_paragraph_requirements(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    std::uint32_t style_count, const progpu_native_text_flow_options* flow,
+    progpu_native_text_paragraph_requirements* requirements) {
+    return paragraph_requirements_core(context, shaping, layout, styles, style_count, flow, requirements);
+}
+
+progpu_native_status progpu_native_text_context_layout_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    std::uint32_t style_count, const progpu_native_text_flow_options* flow,
+    progpu_native_positioned_text_glyph* glyphs, std::uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, std::uint32_t line_capacity,
+    void* scratch, std::size_t scratch_size, progpu_native_text_paragraph_result* result) {
+    return paragraph_layout_core(context, shaping, layout, styles, style_count, flow,
+        glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result);
 }
 
 } // extern "C"

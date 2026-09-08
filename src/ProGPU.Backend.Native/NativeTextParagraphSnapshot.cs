@@ -12,6 +12,7 @@ namespace ProGPU.Backend.Native;
 /// </summary>
 public sealed class NativeTextParagraphSnapshot
 {
+    public const uint TabGlyphId = uint.MaxValue;
     public ReadOnlyMemory<NativePositionedTextGlyph> Glyphs { get; }
     public ReadOnlyMemory<NativePositionedTextLine> Lines { get; }
     public ReadOnlyMemory<int> ClusterEnds { get; }
@@ -30,9 +31,12 @@ public sealed class NativeTextParagraphSnapshot
     public static NativeTextParagraphSnapshot Create(NativeTextShapingContext context,
         ReadOnlySpan<char> text, NativeTextDirection direction, in NativeTextParagraphOptions options,
         ReadOnlySpan<NativeTextFeature> features = default,
-        ReadOnlySpan<NativeTextParagraphStyle> styles = default)
+        ReadOnlySpan<NativeTextParagraphStyle> styles = default,
+        float incrementalTab = 0, float tabOrigin = 0)
     {
         ArgumentNullException.ThrowIfNull(context);
+        if (!float.IsFinite(incrementalTab) || incrementalTab < 0 || !float.IsFinite(tabOrigin))
+            throw new ArgumentException("Tab interval and origin must be finite; the interval cannot be negative.");
         if (text.Length > 1 << 20 || options.MaximumLines != 0 ||
             options.Trimming != NativeTextTrimming.None)
             throw new ArgumentException("Editor snapshots require an untruncated paragraph within the input budget.");
@@ -46,12 +50,19 @@ public sealed class NativeTextParagraphSnapshot
         int count = DecodeUtf16(text, scalars);
         var nativeStyles = MapStyles(styles, scalars.AsSpan(0, count), text.Length);
         var input = new NativeTextShapeInput(default, scalars.AsSpan(0, count), direction: direction, features: features);
-        Check(context.GetStyledParagraphRequirements(in input, in options, nativeStyles, out var required));
+        var flow = new NativeTextFlowOptions { IncrementalTab = incrementalTab, TabOrigin = tabOrigin };
+        NativeTextParagraphRequirements required;
+        Check(incrementalTab > 0 ? context.GetFlowParagraphRequirements(in input, in options, nativeStyles, in flow, out required) :
+            context.GetStyledParagraphRequirements(in input, in options, nativeStyles, out required));
         var glyphBuffer = new NativePositionedTextGlyph[checked((int)required.GlyphCapacity)];
         var lineBuffer = new NativePositionedTextLine[checked((int)required.LineCapacity)];
         byte[] scratch = ArrayPool<byte>.Shared.Rent(checked((int)required.ScratchBytes));
         NativeTextParagraphResult result;
-        try { Check(context.LayoutStyledParagraph(in input, in options, nativeStyles, glyphBuffer, lineBuffer, scratch, out result)); }
+        try
+        {
+            Check(incrementalTab > 0 ? context.LayoutFlowParagraph(in input, in options, nativeStyles, in flow, glyphBuffer, lineBuffer, scratch, out result) :
+                context.LayoutStyledParagraph(in input, in options, nativeStyles, glyphBuffer, lineBuffer, scratch, out result));
+        }
         finally { ArrayPool<byte>.Shared.Return(scratch); }
         // Output arrays are retained ownership, not per-frame replay materialization.
         Array.Resize(ref glyphBuffer, checked((int)result.GlyphCount));

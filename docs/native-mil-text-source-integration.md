@@ -20,6 +20,79 @@ source-run styling and actual end-of-paragraph semantics.
 
 ## Styled source TextLine connection — current implementation
 
+### Incremental tab connection
+
+Core action: editing tab-separated text in the existing MVP/source-host path.
+`NativeTextFlowOptions` and two generated, borrowed/leased C/.NET paragraph
+entry points now pass the incremental tab interval and text-start grid origin
+into the existing native composer. A positive interval enables the flow behavior;
+zero preserves the prior API behavior. Existing uniform/styled C and C++ entry
+points keep their signatures. The install and contract-generation manifests
+include the new header/record.
+
+The native paragraph intercepts U+0009 as a non-ink layout item before shaping,
+preserving its scalar/input cluster and selected face domain. Its positioned
+`glyph_id` is the reserved `UINT32_MAX` tab sentinel, **not a drawable font glyph**.
+The original Unicode/bidi/line-break stages still run; the control is not replaced
+with spaces, a missing-glyph box or a count of guessed character cells. Logical
+line scanning computes distance to the next leading-edge tab-grid stop, including
+the supplied origin, before deciding wrap boundaries. An exact stop advances a
+full interval. Per-line resolved advances are carried through bidi visual ordering
+in caller-owned scratch, so RTL does not recompute tabs from the visual left edge.
+Nonfinite or nonprogressing extents fail before output publication.
+
+The source WPF adapter supplies `DefaultIncrementalTab` and its existing text indent
+when a paragraph contains tabs. The neutral positioned glyph adds a typed `IsTab`
+flag. Source GlyphRun creation excludes these non-ink items, while native caret/
+selection buffers, source character indices, trailing-whitespace widths and cached
+background rectangles retain their actual extent. The source selection-range list
+includes tab-only ranges independently of drawable glyph runs. The existing host
+case now includes a tab in its styled mixed-direction composite-family text.
+
+Custom left/center/right/character-aligned stop collections, leaders and tab trimming
+remain explicit unsupported contracts; a disabled incremental grid is not silently
+replaced with a guessed width. This connects the default editor tab path, not all
+tab APIs, document objects or complete WPF line semantics. Changed-width continuation,
+first-versus-following-line paragraph indentation and the other existing editor
+qualification gaps remain outside this connection's completion claim.
+
+Tab widths and wrap/cursor scans depend on preceding advances, so that work is a
+scalar prefix calculation rather than independent SIMD lanes. Independent native
+metric conversion/scaling retains its shared NEON/SSE2 implementation; no new
+CPU rasterizer, GPU fallback, readback or per-character submission is introduced.
+Paragraph scratch grows by one float per glyph capacity. No latency, allocation
+or throughput improvement is claimed before the deferred measurements.
+
+Authored fixtures cover exact stops, indentation, LTR/RTL placement, wrapping,
+overflow/invalid descriptors, styled face indices and borrowed output/lease
+contracts. Source fixtures cover tab width, logical caret traversal, tab-only
+selection and exclusion from ink glyph runs. None is executed evidence.
+
+Compile-only checkpoint: the native text targets build with the existing strict
+AppleClang configuration (WebGPU disabled); ProGPU managed fixtures finish with
+zero warnings/errors, source PresentationCore fixtures with one warning/zero
+errors, bridge fixtures with 116 warnings/zero errors, and the source-host harness
+with zero warnings/errors. These are compilation results, not passing tests or
+renderer qualification. No fixtures, verifiers, apps, VM/GPU workloads, benchmarks
+or CI checks were executed for this batch.
+
+The next source-backed editor blocker is concrete: source `ComplexLine` emits
+`TextHidden` for document element edges and `TextSpanModifier` for inline state,
+while `PortableTextLine.Create` rejects both. Normal document-backed text must
+preserve these source positions and scopes before its application path is closed.
+Do not treat this tab checkpoint as complete RichTextBox support, or expand custom
+tab APIs ahead of that required connection and package-startup closure.
+
+The focused primary-source references are
+[DirectWrite's incremental tab interval](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextformat-setincrementaltabstop)
+and [Unicode bidi L1/L2](https://www.unicode.org/reports/tr9/#L1). Adopt a real
+layout interval and keep logical measurement distinct from visual ordering.
+The existing Skia/Win2D/Parley/Vello/HarfBuzz/WebRender ownership comparisons below
+remain applicable: reuse CPU layout results, retain exact font identity, and leave
+glyph atlas/cache/device lifetime and GPU scene execution unchanged. No foreign
+implementation was copied. Full renderer/package/native-versus-Windows evidence
+and CI still belong to final qualification.
+
 ### Source composite and fallback connection
 
 The core source-host text case now selects WPF's `#GLOBAL USER INTERFACE` composite

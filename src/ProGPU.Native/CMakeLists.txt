@@ -1901,6 +1901,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_text.hpp
         include/progpu_native_text_interaction.h
         include/progpu_native_text_styles.h
+        include/progpu_native_text_flow.h
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     if(TARGET progpu_native_dawn)
         install(TARGETS progpu_native_dawn

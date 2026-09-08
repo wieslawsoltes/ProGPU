@@ -25,3 +25,9 @@ dotnet run --project \
   --configuration Release -- \
   "${repo_root}/src/ProGPU.Native/include/progpu_native_text_styles.h" \
   "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeTextStylesContract.g.cs"
+
+dotnet run --project \
+  "${repo_root}/eng/ProGPU.NativeContractGenerator/ProGPU.NativeContractGenerator.csproj" \
+  --configuration Release -- \
+  "${repo_root}/src/ProGPU.Native/include/progpu_native_text_flow.h" \
+  "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeTextFlowContract.g.cs"

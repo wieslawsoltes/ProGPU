@@ -2090,6 +2090,27 @@ struct text_logical_layout_scratch final {
     std::span<std::uint32_t> visual_indices{};
 };
 
+// Non-ink layout item, never a font glyph. Its cluster and resolved advance
+// remain available to caret/selection consumers. Enabled only by tab options.
+inline constexpr std::uint32_t text_tab_glyph_id = 0xFFFFFFFFU;
+struct text_tab_options final {
+    float interval = 0.0F;
+    float origin = 0.0F; // text start relative to the paragraph's leading tab grid
+};
+
+bool try_get_tabbed_text_layout_requirements(
+    std::span<const shaping_glyph> glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const float> glyph_scales, const text_layout_options& options,
+    text_tab_options tabs, text_layout_requirements& result, font_error* error = nullptr) noexcept;
+
+bool try_layout_tabbed_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    std::span<float> advance_scratch, text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count, std::uint32_t& line_count, font_error* error = nullptr) noexcept;
+
 /* Wraps logical shaped glyphs, applies per-line UAX #9 L1/L2 ordering, and
  * publishes positioned glyphs with their original logical input indices. */
 bool try_layout_logical_shaped_text(

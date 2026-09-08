@@ -12798,7 +12798,50 @@ static void mixed_scales_drive_wrapping_and_visual_positions() {
     }
 }
 
+static void incremental_tabs_keep_logical_width_after_bidi_and_wrap() {
+    using progpu::native::text::text_tab_glyph_id;
+    using progpu::native::text::text_tab_options;
+    std::array<shaping_glyph, 5> glyphs{};
+    std::array<std::int8_t, 5> levels{};
+    std::array<text_line_break_kind, 5> breaks{};
+    for (std::uint32_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = i; glyphs[i].cluster = static_cast<std::int32_t>(i);
+        glyphs[i].advance_x = i == 2 ? 20 : 10;
+        breaks[i] = text_line_break_kind::opportunity;
+    }
+    for (auto i : {1U, 3U}) { glyphs[i].glyph_id = text_tab_glyph_id; glyphs[i].code_point = 9; glyphs[i].advance_x = 0; }
+    text_layout_options options{}; options.line_height = 20;
+    std::array<positioned_text_glyph, 5> output{};
+    std::array<positioned_text_line, 5> lines{};
+    std::array<text_visual_cluster_group, 5> groups{};
+    std::array<std::uint32_t, 5> indices{};
+    std::array<float, 5> advances{};
+    std::uint32_t count = 0, line_count = 0;
+    auto run = [&](std::int8_t direction, text_tab_options tabs) {
+        return try_layout_tabbed_logical_shaped_text(glyphs, breaks, levels, {}, direction, options, tabs,
+            advances, {groups, indices}, output, lines, count, line_count);
+    };
+    require(run(0, {32, 0}) && count == 5 && line_count == 1 && lines[0].width == 74);
+    require(output[1].advance_x == 22 && output[2].x == 32 && output[3].advance_x == 12 && output[4].x == 64);
+    levels.fill(1);
+    require(run(1, {32, 0}) && output[0].glyph_index == 4 && output[4].glyph_index == 0);
+    require(output[1].advance_x == 12 && output[3].advance_x == 22 && output[4].x == 64);
+    levels.fill(0);
+    require(run(0, {32, 7}) && lines[0].width == 67 && output[2].x == 25);
+    options.maximum_width = 50;
+    require(run(0, {32, 0}) && line_count == 2 && lines[0].width == 32 && lines[1].width == 42);
+    require(output[2].x == 0 && output[3].advance_x == 12 && output[4].x == 32);
+    output[0].x = 123;
+    require(!run(0, {-1, 0}) && count == 0 && line_count == 0 && output[0].x == 123);
+    options.maximum_width = 0;
+    require(!run(0, {std::numeric_limits<float>::max(), 0}) && count == 0 && output[0].x == 123);
+    // One tab at an exact stop advances a full interval, not zero.
+    glyphs[0].advance_x = 32;
+    require(run(0, {32, 0}) && output[1].advance_x == 32 && output[2].x == 64);
+}
+
 int main() {
+    incremental_tabs_keep_logical_width_after_bidi_and_wrap();
     mixed_scales_drive_wrapping_and_visual_positions();
     unicode_contract_and_strict_decoders_are_transactional();
     unicode_bidi_resolution_is_bounded_and_source_preserving();
