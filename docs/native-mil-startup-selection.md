@@ -32,6 +32,54 @@ not a request to migrate live resources.
 
 ## Paired consumers and remaining implementation
 
+### Input device ownership connection
+
+The package MVP/Toolkit action is to focus an editor, hold a modifier, type and
+select with the mouse on a ProGPU-hosted Windows window. Source inspection found
+that InputManager still selected Win32 keyboard/mouse devices by OS, while the
+typed portable input bridge updates PortableKeyboardDevice/PortableMouseDevice.
+It also allowed WPF TSF to promote host-delivered keys and attach source editor
+text stores despite having no WPF-owned HWND composition geometry.
+
+InputManager now freezes the shared media choice before constructing devices.
+Portable media selects host-owned keyboard/button state on every OS; native Windows
+MIL retains Win32 devices. This is process/domain startup ownership, not a live
+per-event device switch. ProGPU input reports continue through the existing typed
+source raw-input pipeline. The source TSF manager skips promotion for portable
+devices and leaves WPF's TSF message pump disabled. Automatic focus does not
+associate WPF IMM contexts. Source editors do not schedule or attach WPF TSF stores
+under portable input ownership; native WPF keeps its existing behavior.
+
+Committed character delivery is not an IME implementation. Nondefault automatic
+input-method preferences fail explicitly until the host composition contract can
+apply them. Composition updates/cancellation, candidate positioning, reconversion,
+host input-scope policy and public input-method state/configuration semantics remain
+separate work. No process-wide TSF service availability override, blanket removal
+of Windows text-service checks, invented composition state or native SDK admission
+is introduced. Actual Windows language/keyboard/system settings remain OS services.
+
+This adapter change applies equally to managed and C++ ProGPU renderers. The
+reusable host event contract and native event producer are unchanged; there is no
+renderer algorithm, C ABI or shader change to mirror. Selection is O(1) startup
+configuration; event ownership checks are O(1) and allocation-free. No compute or
+CPU fallback was added and no performance improvement is claimed.
+
+Authored source fixtures cover selected device types (including an independent
+Windows-MIL lane), host key/button state, one committed-text delivery, rejected
+unsupported preferences and a live source text-view/editor update without a WPF
+TSF store. These are compilation-only checkpoints until feature freeze. Windows
+package startup, real keyboard/IME behavior and VM/GPU/CI qualification remain open.
+
+Both source fixture assemblies now accept the test-process-only startup setting
+`LIBREWPF_TEST_MEDIA_BACKEND=Portable` or `WindowsMil`. Their shared module initializer
+selects before source object/device construction; invalid values fail explicitly.
+Unset preserves the platform default. Windows native and portable qualification
+must run as separate processes: there is no production reset or admission bypass.
+In particular, portable-only fixtures must not be counted as Windows evidence when
+they were skipped under the default Windows-MIL selection.
+
+### Media transport connection
+
 LibreWPF routes `MediaSystem` startup/connect/shutdown/redirection behavior,
 `CompositionEngineLock`, and `MediaContextNotificationWindow` through the policy.
 Portable media contexts use a managed lock for their shared registration list;

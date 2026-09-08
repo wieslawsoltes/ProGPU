@@ -9,7 +9,7 @@ public enum PortableWpfMediaBackend
 
 /// <summary>
 /// Startup-only media selection shared by source-built WPF and its host. Configure
-/// before constructing WPF objects; the first media/lock consumer freezes the choice.
+/// before constructing WPF objects; the first media/lock/input consumer freezes the choice.
 /// Selecting Portable does not create a device or choose managed versus native ProGPU.
 /// </summary>
 public static class PortableWpfRuntime
