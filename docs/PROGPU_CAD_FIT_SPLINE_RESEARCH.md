@@ -69,13 +69,12 @@ origins. Normal/control/fit-point transformation retains the existing object
 model path. The fix is in the dependency, not a ProGPU-specific edit workaround.
 
 DWG save/reopen preserves the two fit points, parameterization, derivatives,
-and derived control geometry. The current DXF writer does not serialize the
+and derived control geometry. The original DXF writer did not serialize the
 Uniform fit parameterization: a direct writer/readback characterization observes
-Chord instead, with controls still absent. `CadDocumentStore` therefore rejects
+Chord instead, with controls still absent. `CadDocumentStore` initially rejected
 fit-only DXF writes with `CADSAVE002` before touching the destination or saved
-generation. Saving as DWG remains available. Lossless DXF conversion requires
-exact control/knot serialization; that work is still open. Do not claim that a
-renderable fit-only DWG has a certified DXF round trip.
+generation. The follow-up below closes exact control/knot serialization for
+the admitted representation only; it is not general writer certification.
 
 ## Complexity, parity, and validation
 
@@ -116,3 +115,65 @@ of this final fit change remain open release gates.
 
 Generated logs and images remain ignored under `artifacts/progpu-cad/` or test
 build output; no screenshots, traces, or benchmark outputs are source commits.
+
+## Exact DXF export and DWG control precedence (2026-09-08)
+
+The dependency's allocation-free `Spline.TryGetFitPointCubicBezier` query now
+recognizes the same open two-point Uniform cubic contract. The DXF writer emits
+four exact controls and eight clamped knots for that case, retaining the authored
+fit points, derivatives, and fit tolerance. It does not modify the spline's
+collections, flags, or parameterization. ASCII and binary DXF use the same path.
+DXF has no corresponding Uniform parameterization field in its
+[published SPLINE group-code contract](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-DXF/files/GUID-E1F884F8-AA90-4864-A215-3182D47A9C74.htm);
+the explicit control representation therefore preserves the curve on reopen
+and subsequent saves. This is geometric preservation, not preservation of every
+authoring-mode distinction.
+
+`CadDocumentStore` admits precisely that export and retains `CADSAVE002` for
+other fit-only systems, before touching the destination or saved generation.
+The conversion uses the endpoint identities cited above and the original
+ProGPU-owned `CadSnapshotCompiler.CompileSpline` contract at commit
+`bd442c450b6d0b9c5dda3e9e1247f580cbdb7f65`. No third-party solver was copied or
+translated. The query is fixed `O(1)` work/storage; serialization remains
+`O(C + K + F)` for controls, knots, and fit points, with no temporary curve clone.
+
+Testing DXF-to-DWG exposed a second defect: the DWG writer chose fit records even
+when explicit controls were present, discarding the authoritative curve. It now
+selects the control record when controls exist and encodes scenario flags in
+local variables instead of mutating the live entity. That record cannot retain
+the fit-point authoring payload, so saving emits a warning naming the spline.
+The original in-memory fit data remains unchanged. This limitation is visible
+to `CadSaveResult.Diagnostics`; it is not described as a lossless metadata round
+trip. Fit-only Uniform DWG continues using its fit record.
+
+The real fixture's `434` curve has identical control/knot data, managed retained
+geometry, and native semantic scene bytes before and after ASCII/binary DXF
+export. Shared rendering, shaders, ABI, caches, resource lifetimes, and replay
+costs are unchanged; no separate native CAD file writer exists to update. These
+are serialization and normalized-scene regressions, not a new native pixel or
+performance measurement.
+
+The follow-up passes 1,625 Release CAD tests, 3,862 core renderer tests, and
+280 headless tests. CAD regressions include exact DXF export,
+DXF resave and DWG conversion, representative-fixture scene equivalence, and
+transactional rejection of unsupported fits. All 39 dependency spline cases
+pass, including 19 new cases for conversion rejection, source immutability,
+and control precedence in DWG AC1024/AC1027/AC1032. Dependency net9.0 tests run with Major roll-forward on
+.NET 10; they do not certify a native .NET 9 runtime. Release browser AOT publish
+also completes for this source revision. The published macOS hardware browser
+smoke passes with visible drawing/column text, pan/zoom, save/reopen/resave,
+16 retained entity types, 660 frames, 688 dispatches, and a resized 2880x1800
+framebuffer. The initial image was inspected. The sample smoke establishes host
+workflow health, while the focused fixture tests establish this fit export.
+
+Linux CAD browser CI run `34205114167` passes on the preceding browser-deadline
+commit `bd442c45`; the new serialization commit still requires its own CI. The
+earlier blank-frame failures above are historical, not a current failing result.
+No performance improvement or exhaustive writer compatibility is claimed.
+
+Precommit source/history marker scans reviewed all implementation additions on
+the parent feature branch relative to `origin/main` and the dependency branch
+relative to `master`. Matches referred only to original ProGPU-owned algorithms
+or ordinary geometric derivation; no foreign implementation attribution or new
+vendored implementation was identified. New tests use explicit mathematical
+expectations and the existing independently authored fixture.

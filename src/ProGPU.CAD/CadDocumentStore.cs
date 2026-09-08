@@ -330,11 +330,12 @@ public sealed class CadDocumentStore : ICadDocumentStore
         }
         if (format == CadDocumentFormat.Dxf &&
             document.GetCadObjects<Spline>().Any(spline =>
-                spline.ControlPoints.Count == 0 && spline.FitPoints.Count != 0))
+                spline.ControlPoints.Count == 0 && spline.FitPoints.Count != 0 &&
+                !spline.TryGetFitPointCubicBezier(out _, out _, out _, out _)))
         {
             throw new NotSupportedException(
-                "CADSAVE002: The current DXF writer does not preserve fit-only SPLINE knot parameterization. " +
-                "Save as DWG; lossless DXF export requires explicit control-point and knot serialization.");
+                "CADSAVE002: This fit-only SPLINE cannot yet be exported with exact control points and knots. " +
+                "Save as DWG; DXF export currently supports open two-point uniform cubics with explicit endpoint derivatives.");
         }
     }
 

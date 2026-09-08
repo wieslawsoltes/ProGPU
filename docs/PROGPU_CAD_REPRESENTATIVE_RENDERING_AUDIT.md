@@ -110,3 +110,15 @@ and deferred modeler surfaces remain separate limitations. Six fixture cases
 compare managed-positioned/native-serialized scene and print results; six
 headless cases compare pixels at two zoom levels. These checks establish this
 specific rendering correction, not comprehensive AutoCAD fidelity.
+
+Follow-up: [exact fit export](PROGPU_CAD_FIT_SPLINE_RESEARCH.md#exact-dxf-export-and-dwg-control-precedence-2026-09-08)
+now preserves the supported `434` curve through ASCII/binary DXF export and
+reopen, including identical managed geometry and native semantic scene bytes.
+DXF-to-DWG conversion retains explicit controls and warns that its control
+record omits fit-point authoring metadata. Other fit systems remain guarded;
+this does not certify arbitrary drawing saves or change rendering totals.
+
+The [gradient rendering research](PROGPU_CAD_GRADIENT_RENDERING_RESEARCH.md)
+records actual `371`/`376` metadata and the remaining spatial-mapping evidence
+gap. Their gradient fills remain unsupported; no guessed falloff or solid-fill
+substitution has been introduced.

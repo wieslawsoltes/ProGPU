@@ -194,7 +194,9 @@ public sealed class CadFitSplineTests
     public async Task FitOnlyDxfWriteFailsBeforeTouchingDestinationOrSavedGeneration()
     {
         var session = CadDocumentSession.CreateNew();
-        session.Edit("Add fit spline", document => document.Entities.Add(CreateFitSpline()));
+        Spline unsupported = CreateFitSpline();
+        unsupported.KnotParametrization = KnotParametrization.Chord;
+        session.Edit("Add fit spline", document => document.Entities.Add(unsupported));
         using var output = new MemoryStream();
         output.Write([1, 2, 3]);
         output.Position = 1;
@@ -207,21 +209,91 @@ public sealed class CadFitSplineTests
         Assert.True(session.IsDirty);
     }
 
-    [Fact]
-    public void DependencyDxfWriterCurrentlyLosesUniformFitParameterization()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FitOnlyDxfRoundTripPreservesExactCurveWithoutMutatingSource(bool binary)
     {
         var document = new CadDocument(ACadVersion.AC1032);
-        document.Entities.Add(CreateFitSpline());
+        Spline source = CreateFitSpline();
+        document.Entities.Add(source);
+        var session = new CadDocumentSession(document);
+        var compiler = new CadSnapshotCompiler();
+        CadDocumentSnapshot before = compiler.Compile(session);
         using var output = new MemoryStream();
-        DxfWriter.Write(output, document, false, new DxfWriterConfiguration { CloseStream = false });
+        var store = new CadDocumentStore();
+        await store.SaveAsync(session, output, CadDocumentFormat.Dxf,
+            new CadSaveOptions { AllowUncertifiedWrite = true, BinaryDxf = binary });
         using var input = new MemoryStream(output.ToArray());
-        CadDocument reopened = DxfReader.Read(input);
-        Spline spline = Assert.IsType<Spline>(Assert.Single(reopened.Entities));
-        Assert.Equal(2, spline.FitPoints.Count);
-        Assert.Empty(spline.ControlPoints);
-        Assert.Equal(KnotParametrization.Chord, spline.KnotParametrization);
-        // Replace this characterization and CADSAVE002 together when the writer
-        // can emit an exact control representation without mutating the source.
+        CadLoadResult reopened = await store.LoadAsync(input, CadDocumentFormat.Dxf);
+        CadDocumentSnapshot after = compiler.Compile(reopened.Session);
+        Assert.Equal(before.SplineControlPoints.ToArray(), after.SplineControlPoints.ToArray());
+        Assert.Equal(before.SplineKnots.ToArray(), after.SplineKnots.ToArray());
+        Assert.Empty(source.ControlPoints);
+        Assert.Empty(source.Knots);
+        Assert.Equal(KnotParametrization.Uniform, source.KnotParametrization);
+        Assert.Equal(SplineFlags1.MethodFitPoints | SplineFlags1.UseKnotParameter, source.Flags1);
+        reopened.Session.Read(value =>
+        {
+            Spline restored = Assert.IsType<Spline>(Assert.Single(value.Entities));
+            Assert.Equal(source.FitPoints, restored.FitPoints);
+            Assert.Equal(source.StartTangent, restored.StartTangent);
+            Assert.Equal(source.EndTangent, restored.EndTangent);
+            Assert.Equal(source.FitTolerance, restored.FitTolerance);
+            Assert.Equal(4, restored.ControlPoints.Count);
+            Assert.Equal(8, restored.Knots.Count);
+            return true;
+        });
+
+        // Re-saving must keep the explicit curve rather than deriving a new
+        // interpolation from DXF's absent knot-parameterization metadata.
+        using var resaved = new MemoryStream();
+        await store.SaveAsync(reopened.Session, resaved, CadDocumentFormat.Dxf,
+            new CadSaveOptions { AllowUncertifiedWrite = true, BinaryDxf = binary });
+        resaved.Position = 0;
+        CadDocumentSnapshot again = compiler.Compile((await store.LoadAsync(resaved, CadDocumentFormat.Dxf)).Session);
+        Assert.Equal(before.SplineControlPoints.ToArray(), again.SplineControlPoints.ToArray());
+        Assert.Equal(before.SplineKnots.ToArray(), again.SplineKnots.ToArray());
+
+        using var dwg = new MemoryStream();
+        CadSaveResult dwgSave = await store.SaveAsync(reopened.Session, dwg, CadDocumentFormat.Dwg,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        Assert.Contains(dwgSave.Diagnostics, diagnostic =>
+            diagnostic.Severity == CadDiagnosticSeverity.Warning &&
+            diagnostic.Message.Contains("fit-point authoring data", StringComparison.Ordinal));
+        dwg.Position = 0;
+        CadDocumentSnapshot dwgAgain = compiler.Compile((await store.LoadAsync(dwg, CadDocumentFormat.Dwg)).Session);
+        Assert.Equal(before.SplineControlPoints.ToArray(), dwgAgain.SplineControlPoints.ToArray());
+        Assert.Equal(before.SplineKnots.ToArray(), dwgAgain.SplineKnots.ToArray());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RepresentativeDwgFitCurveSurvivesDxfExportAndReopen(bool binary)
+    {
+        string path = Path.Combine(FindRepositoryRoot(), "external", "ACadSharp", "samples", "sample_AC1032.dwg");
+        CadDocument fixture = DwgReader.Read(path);
+        Spline curve = (Spline)Assert.Single(fixture.Entities.OfType<Spline>(), spline => spline.Handle == 0x434).Clone();
+        var document = new CadDocument(ACadVersion.AC1032);
+        document.Entities.Add(curve);
+        var session = new CadDocumentSession(document);
+        var compiler = new CadSnapshotCompiler();
+        CadDocumentSnapshot before = compiler.Compile(session);
+        using var output = new MemoryStream();
+        var store = new CadDocumentStore();
+        await store.SaveAsync(session, output, CadDocumentFormat.Dxf,
+            new CadSaveOptions { AllowUncertifiedWrite = true, BinaryDxf = binary });
+        output.Position = 0;
+        CadDocumentSnapshot after = compiler.Compile((await store.LoadAsync(output, CadDocumentFormat.Dxf)).Session);
+        Assert.Equal(before.SplineControlPoints.ToArray(), after.SplineControlPoints.ToArray());
+        Assert.Equal(before.SplineKnots.ToArray(), after.SplineKnots.ToArray());
+        using var oldScene = new CadPlanSceneCompiler().Compile(before);
+        using var newScene = new CadPlanSceneCompiler().Compile(after);
+        using GpuPicture oldPicture = oldScene.CreatePicture();
+        using GpuPicture newPicture = newScene.CreatePicture();
+        Assert.Equal(oldPicture.DoubleBuffer.ToArray(), newPicture.DoubleBuffer.ToArray());
+        Assert.Equal(NativeStream(oldPicture), NativeStream(newPicture));
     }
 
     [Fact]
