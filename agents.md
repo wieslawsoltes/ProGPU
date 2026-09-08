@@ -230,6 +230,10 @@ Owner-DPI notifications may update legacy coordinate decoding, not a separately
 surfaced popup's raster DPI. Only its own host geometry callbacks replace that
 initial source seed; composited owner-surface popups continue inheriting owner DPI.
 Source memory bitmaps select storage by the frozen media backend, not the OS.
+Source custom chrome must recognize ProGPU window ownership before HWND access,
+including registered/pre-source activation. A host HWND is not a WPF HwndSource;
+portable border updates and restoration stay on typed source/host contracts.
+See `docs/native-mil-window-chrome.md` for the SDK consumer and qualification gaps.
 Source decoder/cache integration follows that same policy; unsupported portable
 formats or missing pixel ownership must fail before Windows WIC handle access.
 Both renderer modes consume typed pixel snapshots and native MIL sidebands with
