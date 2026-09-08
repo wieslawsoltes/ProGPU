@@ -100,3 +100,13 @@ entities rise from 557 to 558, and commands rise from 587 to 588. DXF remains
 unsupported entities; linetype, missing-image, and modeler counts are unchanged.
 The fit-only curve preserves DWG round trips, but DXF export is explicitly
 blocked pending lossless control/knot serialization (`CADSAVE002`).
+
+Follow-up: [dynamic/manual final-column placement](PROGPU_CAD_MTEXT_COLUMN_IO.md#dynamicmanual-final-column-placement)
+now restores MTEXT `3EC`, `3F6`, and `779` without rewriting the persisted zero
+DXF or negative DWG heights. Both fixtures now have zero invalid entities and
+12 explicitly unsupported entities. DXF records 560 entities / 589 commands;
+DWG records 561 / 591. Vertical text, gradient hatches, unresolved resources,
+and deferred modeler surfaces remain separate limitations. Six fixture cases
+compare managed-positioned/native-serialized scene and print results; six
+headless cases compare pixels at two zoom levels. These checks establish this
+specific rendering correction, not comprehensive AutoCAD fidelity.

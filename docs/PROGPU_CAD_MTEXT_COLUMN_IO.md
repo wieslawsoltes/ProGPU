@@ -38,15 +38,16 @@ glyphs. The integration tests compare positions before/after file round trips,
 then verify managed retained glyph-run recording and native picture compilation.
 There is no independent C++ CAD file reader to update.
 
-## Representative-file follow-up
+## Representative-file follow-up (resolved 2026-09-08)
 
 The audited DXF sample has one dynamic/manual column with height zero for
 MTEXT `3EC`, `3F5`, `3F6`, and `779`. The paired DWG contains a negative final
 height (for example approximately -2.9442928603910867 for `3EC`). The DXF
 embedded rectangle height is also zero, so retaining that redundant field
 alone would not restore the text. Do not replace those values with arbitrary
-positive heights, drop column boundaries, or claim this count fix resolves
-those sample entities. Their final-column semantics remain a rendering blocker.
+positive heights or drop column boundaries. The count fix alone did not resolve
+these entities; the separate final-column placement correction below now restores
+`3EC`, `3F6`, and `779`. Vertical TrueType `3F5` remains explicitly unsupported.
 
 The focused tests use explicit valid heights and verify static, manual-dynamic,
 and automatic-dynamic round trips without changing their layout contracts.
@@ -60,3 +61,55 @@ reported 5,712 bytes in the unrelated rectangle preview allocation check; that
 unchanged check then passed in isolation with zero bytes. No allocation threshold
 or runtime setting was changed by this patch, and the observation is not proof
 of its cause.
+
+## Dynamic/manual final-column placement
+
+The maintainer's [public dynamic/manual column API contract](https://ezdxf.readthedocs.io/en/stable/layouts/layouts.html#ezdxf.layouts.BaseLayout.add_mtext_dynamic_manual_height_columns)
+is more definitive than the earlier tentative internal-file notes: only earlier
+columns use persisted height limits; the final column receives remaining content
+and its height value is ignored. Adopt that behavioral contract, not the external
+implementation. Extending the ignored finite value rule to negative DWG sentinels
+is an inference supported by the paired fixtures, not licensed AutoCAD pixel
+certification. Non-finite metadata is still rejected.
+
+`CadSnapshotCompiler.MText.cs` now owns one original shared height-limit resolver,
+also used by `CadSnapshotCompiler.ShxMText.cs`. Only dynamic/manual final columns
+receive an internal unlimited placement bound. All published bounds come from
+measured lines. Static and earlier manual-column limits remain finite and
+positive; overflow on conversion to float is rejected. Width, gutter, explicit
+column breaks, reversed flow, automatic layout, and raw object-model data remain
+unchanged. No arbitrary replacement height is persisted or exported.
+
+The [cross-engine paragraph research](PROGPU_CAD_MTEXT_PARAGRAPH_RESEARCH.md)
+continues to apply: SkParagraph, DirectWrite/Win2D, HarfBuzz, WebRender, and
+Vello/Parley separate reusable CPU text layout from retained GPU replay. This
+correction adapts the CAD column contract only after existing shaping. Column
+placement remains O(L + C) for L lines and C columns, with O(C) limit storage.
+Startup, discovery/fallback, variable fonts, worker preparation, culling, cache
+keys/eviction, demand upload, batching, DPI/subpixel coverage, and device-loss
+invalidation are unchanged. No renderer performance improvement is claimed.
+
+Managed/native applicability: both TrueType and SHX snapshot paths use the same
+resolver; both backends consume their positioned retained commands. There is no
+independent C++ CAD column layout to patch, and no shader or wire-contract change.
+Six real-file cases compare native serialized scene and print commands against
+equivalent ample-height inputs, preserving glyph positions and source ownership.
+Synthetic tests cover two-column flow in both directions for TrueType and SHX,
+zero/negative/tiny/ample final heights, malformed active limits, and DXF/DWG
+save/reopen preservation. Six headless regressions compare exact pixel buffers
+at two zoom levels and independently require visible text in both columns.
+
+The representative audit now has zero invalid entities in both files (previously
+three), with unsupported entities unchanged at 12. DXF records 560 entities /
+589 commands; DWG records 561 / 591. Unsupported line styles (4), unresolved
+images (1), and deferred modeler surfaces (3) remain reported. This does not
+certify complete file fidelity or eliminate the separate CI allocation blocker.
+
+Final local Release validation: 1,621 CAD tests (including 35 new cases), 3,862
+core renderer tests, and 280 headless tests (including six new pixel cases) pass.
+The CAD suite uses CI's unchanged `DOTNET_TieredCompilation=0` setting. A
+separate diagnostic called the unchanged mesh-allocation test 100 times while
+another thread forced generation-0 collections; all passed with zero bytes on
+macOS arm64 / .NET 10.0.5. That experiment does not reproduce or explain the
+Linux CI failure and is not evidence that CI is fixed. Final browser AOT and CI
+qualification for this text change remain required.

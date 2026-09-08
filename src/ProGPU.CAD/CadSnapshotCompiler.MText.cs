@@ -768,18 +768,26 @@ public sealed partial class CadSnapshotCompiler
         }
 
         for (int index = 0; index < count; index++)
-        {
-            double value = index < mtext.ColumnData.Heights.Count
-                ? mtext.ColumnData.Heights[index]
-                : mtext.RectangleHeight;
-            if (!double.IsFinite(value) || value <= 0.0)
-            {
-                throw new ArgumentException(
-                    "MTEXT columns require finite positive persisted or automatic heights.");
-            }
-            result[index] = checked((float)value);
-        }
+            result[index] = ResolveMTextPersistedColumnHeight(mtext, index, count);
         return result;
+    }
+
+    private static float ResolveMTextPersistedColumnHeight(MText mtext, int index, int count)
+    {
+        double value = index < mtext.ColumnData.Heights.Count
+            ? mtext.ColumnData.Heights[index]
+            : mtext.RectangleHeight;
+        if (!double.IsFinite(value))
+            throw new ArgumentException("MTEXT persisted column heights must be finite.");
+        // Dynamic/manual flow uses the final column for all remaining lines.
+        // Its stored height (including zero/negative sentinels) is not a limit.
+        // Infinity is internal placement state; published bounds use measured lines.
+        if (mtext.ColumnData.ColumnType == ColumnType.DynamicColumns &&
+            !mtext.ColumnData.AutoHeight && index == count - 1)
+            return float.PositiveInfinity;
+        if (value <= 0 || value > float.MaxValue)
+            throw new ArgumentException("MTEXT active column height limits must be finite and positive.");
+        return (float)value;
     }
 
     private static float FindMTextAutomaticColumnHeight(

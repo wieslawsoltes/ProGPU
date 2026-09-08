@@ -1530,15 +1530,7 @@ public sealed partial class CadSnapshotCompiler
             return result;
         }
         for (int index = 0; index < count; index++)
-        {
-            double value = index < mtext.ColumnData.Heights.Count
-                ? mtext.ColumnData.Heights[index]
-                : mtext.RectangleHeight;
-            if (!double.IsFinite(value) || value <= 0.0)
-                throw new ArgumentException(
-                    "SHX MTEXT columns require finite positive persisted or automatic heights.");
-            result[index] = checked((float)value);
-        }
+            result[index] = ResolveMTextPersistedColumnHeight(mtext, index, count);
         return result;
     }
 

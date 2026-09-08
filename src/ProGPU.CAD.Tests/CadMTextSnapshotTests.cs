@@ -147,6 +147,48 @@ public sealed class CadMTextSnapshotTests
         Assert.True(text.ContentHeight > 0.0f);
     }
 
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(-3, false)]
+    [InlineData(0.01, false)]
+    [InlineData(1000, false)]
+    [InlineData(0, true)]
+    [InlineData(-3, true)]
+    [InlineData(0.01, true)]
+    [InlineData(1000, true)]
+    public void DynamicManualFinalColumnConsumesRemainingLines(double finalHeight, bool reversed)
+    {
+        var document = new CadDocument();
+        var source = new MText
+        {
+            Value = @"AA\PBB\PAA\PBB", Height = 10,
+            AttachmentPoint = AttachmentPointType.TopLeft,
+        };
+        source.ColumnData.ColumnType = ColumnType.DynamicColumns;
+        source.ColumnData.ColumnCount = 2;
+        source.ColumnData.Width = 40;
+        source.ColumnData.Gutter = 5;
+        source.ColumnData.FlowReversed = reversed;
+        source.ColumnData.Heights.AddRange([20, finalHeight]);
+        document.Entities.Add(source);
+        CadDocumentSnapshot snapshot = Compile(new CadDocumentSession(document));
+        CadMTextPrimitive text = Assert.Single(snapshot.MTexts.ToArray());
+        Assert.Equal(2, text.ColumnCount);
+        Assert.Equal(8, text.GlyphCount);
+        Assert.True(float.IsFinite(text.ContentHeight));
+        Assert.True(text.ContentHeight > 20);
+        Assert.Equal(new double[] { 20, finalHeight }, source.ColumnData.Heights);
+        var positions = snapshot.TextGlyphPositions.ToArray();
+        Assert.Contains(positions, position => position.X < 40);
+        Assert.Contains(positions, position => position.X >= 45);
+        Assert.Equal(reversed, positions[0].X >= 45);
+        using var scene = new CadPlanSceneCompiler().Compile(snapshot);
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(picture, 96U, 1U,
+            out NativeCompiledPicture? native, out NativePictureCompileFailure failure), failure.ToString());
+        Assert.True(native!.NativeDrawCount > 0);
+    }
+
     [Fact]
     public void ParagraphIndentsTabsAndSpacingLowerToRetainedTrueTypeGeometry()
     {
