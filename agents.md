@@ -6,6 +6,14 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Native caret mirrors belong to the real native window, not a portable source
+handle. Keep typed source owner identity and client coordinates, one hidden
+bitmap-free Win32 queue caret, thread-bound mutation and stale-release protection.
+Never draw a second OS caret or overwrite source shaping/blink/bidi semantics.
+Release before native window disposal; failed release retains explicit ownership.
+Unavailable mirrors do not authorize source-local HWND calls or accessibility
+parity claims. Same-HWND external caret replacement needs host coordination.
+
 Portable application lifetime belongs to the source shutdown policy, not the first
 native host loop. Shared PortableApplicationRunLoop callbacks borrow live source
 identities and must return only on retirement or actual shutdown; hostless waits
