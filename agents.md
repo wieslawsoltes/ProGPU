@@ -196,6 +196,14 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+Native top-level ownership uses live SilkWindowController instances on their
+creating thread and actual platform handles. TrySetOwner must reject self/cyclic,
+foreign-platform/display, disposed and closing relations before native mutation;
+retain accepted ownership only, never install popup/nonactivation styles for an
+ordinary dialog. Win32 uses local top-level owner chains and checked attribute
+writes, not SetParent child reparenting. Cocoa validates before removing its old
+owner; X11 transient hints are submission, not WM/display qualification. Keep
+Wayland capability gaps and modality/activation restoration separate.
 PortableModalInputScope is the shared thread-bound source dialog input policy.
 Enter before Show, preserve nested identity and LIFO/owning-thread release, and
 clear scope references on disposal. Host ingress and queued delivery must both

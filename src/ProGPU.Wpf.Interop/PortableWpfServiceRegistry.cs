@@ -576,6 +576,13 @@ public sealed class PortableWindowActivationCallbacks
     /// </summary>
     public Action<object, Func<bool>>? RunDialog { get; init; }
 
+    /// <summary>
+    /// Sets the source Window owner (null clears it). The host resolves its own
+    /// live native identity, never an opaque presentation-source handle. Reject
+    /// unsupported ownership explicitly. This does not establish input modality.
+    /// </summary>
+    public Action<object, object?>? SetOwner { get; init; }
+
     public Action<object>? Dispose { get; }
 
     public Func<object, bool>? DragMove { get; }

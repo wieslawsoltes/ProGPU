@@ -170,8 +170,8 @@ internal sealed partial class Win32NativeWindowPlatform :
             return false;
         }
 
-        SetWindowLongPtr(_hwnd, GwlpHwndParent, parent.IsValid ? parent.Handle : 0);
-        return true;
+        var operations = new WindowOwnerOperations();
+        return Win32WindowOwnerState.Apply(_hwnd, parent.IsValid ? parent.Handle : 0, ref operations);
     }
 
     public override bool SetClientAreaExtension(bool enabled, double titleBarHeight)

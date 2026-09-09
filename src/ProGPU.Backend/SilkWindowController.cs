@@ -11,6 +11,8 @@ public sealed class SilkWindowController : IDisposable
     private DragState? _drag;
     private bool _isApplying;
     private bool _disposed;
+    private readonly int _threadId = Environment.CurrentManagedThreadId;
+    private SilkWindowController? _ownerController;
 
     public SilkWindowController(IWindow window)
     {
@@ -140,8 +142,40 @@ public sealed class SilkWindowController : IDisposable
 
     public bool SetParent(NativeWindowHandle parent)
     {
+        _ownerController = null;
         _state = _state with { Parent = parent };
         return Apply((platform, _) => platform.SetParent(parent));
+    }
+
+    /// <summary>
+    /// Establishes top-level ownership between live attached controllers on their
+    /// creating thread. Does not change activation, popup style or enabled intent.
+    /// Null clears ownership. Rejected requests do not replace retained owner state.
+    /// </summary>
+    public bool TrySetOwner(SilkWindowController? owner)
+    {
+        ThrowIfDisposed();
+        if (_threadId != Environment.CurrentManagedThreadId || _platform == null ||
+            !_window.IsInitialized || _window.IsClosing || !Handle.IsValid)
+            return false;
+
+        NativeWindowHandle parent = NativeWindowHandle.Empty;
+        if (owner != null)
+        {
+            if (ReferenceEquals(this, owner) || owner._disposed || owner._threadId != _threadId ||
+                owner._platform == null || !owner._window.IsInitialized || owner._window.IsClosing)
+                return false;
+            parent = owner.Handle;
+            if (!parent.IsValid || parent.Kind != Handle.Kind || parent.Display != Handle.Display)
+                return false;
+            for (SilkWindowController? ancestor = owner; ancestor != null; ancestor = ancestor._ownerController)
+                if (ReferenceEquals(ancestor, this)) return false;
+        }
+
+        if (!_platform.SetParent(parent)) return false;
+        _ownerController = owner;
+        _state = _state with { Parent = parent };
+        return true;
     }
 
     public bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum)
@@ -462,6 +496,7 @@ public sealed class SilkWindowController : IDisposable
         }
         _disposed = true;
         _drag = null;
+        _ownerController = null;
         _platform?.Dispose();
         _platform = null;
     }

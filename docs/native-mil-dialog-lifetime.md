@@ -1,5 +1,59 @@
 # Source-controlled portable dialog lifetime
 
+## Native top-level owner connection
+
+Acceptance action: the existing LibreWPF MVP About dialog assigns its source
+`Window.Owner`, then opens through `ShowDialog`. Source inspection found that the
+host retained that identity only as an activation hint; source owner assignment
+could also enter WPF's hidden-HWND taskbar-owner path. The owner is now resolved
+through the registered live ProGPU host, not its opaque presentation-source handle.
+
+`SilkWindowController.TrySetOwner` reuses the original ProGPU native platform
+adapters. Both renderer modes share this host operation. Controllers must already
+be attached on their creating thread, use the same native kind/display, and not be
+disposed, closing or cyclic. The child host initializes hidden when necessary;
+the bridge applies ownership before Show and rejects unsupported native admission.
+Accepted state is retained separately from a failed request. Clearing removes the
+native relation. No renderer implementation or shader is changed.
+
+Win32 checks same-thread/process top-level windows, walks the native owner chain
+(bounded at 1024 ancestors for malformed external chains), and checks the write
+and resulting owner. Existing ProGPU window-attribute bindings are reused, with
+no popup style, nonactivation subclass or child reparenting. Cocoa rejects wrong
+kind/self/native ancestor cycles before detaching the old owner. X11 requires the
+same display and flushes the existing transient hint; its return is submission
+acceptance, not proof of window-manager behavior. Wayland remains unsupported.
+The source callback rejects missing support, updates source collections only after
+admission, and rejects raw WindowInteropHelper owner handles before HWND access.
+Ownership chain walks are dependent control flow, not data-parallel CPU kernels.
+
+Provenance: original ProGPU `SilkWindowController.SetParent`,
+`Win32NativeWindowPlatform.Popup.cs` checked attribute access, and Cocoa/X11
+`SetParent` adapters. No third-party implementation was copied. Public contracts:
+[Microsoft top-level owner attributes](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowlongptrw),
+[Apple child-window ordering](https://developer.apple.com/documentation/appkit/nswindow/addchildwindow%28_%3Aordered%3A%29),
+and [Xlib transient hints](https://xorg.freedesktop.org/archive/current/doc/libX11/libX11/libX11.html).
+Adopted owner-versus-child distinction, explicit native rejection, and cycle
+prohibition; rejected treating normal dialogs as nonactivating popups.
+
+Authored policy/source/bridge fixtures cover assign/replace/clear, rejected native
+writes, foreign/cyclic handles, disposed source owners, enabled-independent host
+routing and source collection preservation. These are not executed evidence.
+Native OS ordering/close behavior, cross-monitor startup placement, input
+suppression and previous activation/focus restoration still require completion or
+qualification. Windows package admission stays guarded. The package-mode MVP
+still needs fresh package production; source compilation does not bypass its feed.
+
+Compile-only checkpoint: ProGPU.Tests 0 warnings/0 errors, source
+PresentationFramework fixtures 2/0, final bridge fixtures 21/0, and the source
+RealPresentationFrameworkHarness 0/0. Corrected four
+test-only assertions that treated non-generic WindowCollection as a generic
+collection after the initial source-fixture build failure. No fixture, native
+window, VM, image/lifetime/performance gate or CI qualification ran.
+The additional LibreWPF RealApplicationRunHarness no-restore build stopped with
+NETSDK1004 (missing restore assets). This is separate from source compilation;
+fresh SDK/package production and consumption remain required.
+
 ## Shared source input admission
 
 `PortableModalInputScope` now owns the active dialog identity for a synchronous

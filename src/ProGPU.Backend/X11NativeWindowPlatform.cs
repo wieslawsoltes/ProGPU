@@ -115,6 +115,8 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
 
     public override bool SetParent(NativeWindowHandle parent)
     {
+        if (parent.IsValid && (parent.Kind != NativeWindowKind.X11 || parent.Display != _display ||
+            (nuint)parent.Handle == _window)) return false;
         if (!parent.IsValid)
         {
             var transientFor = XInternAtom(_display, "WM_TRANSIENT_FOR", false);
@@ -123,8 +125,9 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
             return true;
         }
 
-        return parent.Kind == NativeWindowKind.X11 &&
-            XSetTransientForHint(_display, _window, (nuint)parent.Handle) != 0;
+        bool accepted = XSetTransientForHint(_display, _window, (nuint)parent.Handle) != 0;
+        if (accepted) XFlush(_display);
+        return accepted;
     }
 
     public override bool SetClientAreaExtension(bool enabled, double titleBarHeight) => true;
