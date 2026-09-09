@@ -205,6 +205,12 @@ NativeWindowModalSession owns AppKit modal event dispatch and scoped native host
 identity. Every participating poll must consult it before GLFW/default polling;
 do not free a retained host while a session begin/end or event callback is active.
 Release nested/native callbacks before ending their sessions and native windows.
+Window release completion must follow native End and identity cleanup, outside
+native transitions. Failed End retains the host/session and faults further polling
+and release: never retry a possibly consumed native token. Never
+notify successful release on cleanup failure. Drain other ready callbacks despite
+callback exceptions. Hosts must recheck current visibility/disposal and any newly
+entered native lease before acting on deferred Hide completion.
 WPF automatic Cocoa session admission remains pending actual native popup and
 source release/focus ordering contracts. NSWindow mouse transparency or a local
 event monitor is not full modality; monitors miss native tracking loops. Do not

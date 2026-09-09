@@ -15,6 +15,8 @@ public sealed class NativeWindowModalSession : IDisposable
     private nint _session;
     private int _pollDepth;
     private bool _releaseRequested;
+    private Action? _releasedCallbacks;
+    private System.Runtime.ExceptionServices.ExceptionDispatchInfo? _endFailure;
 
     internal const int ContinueResponse = -1002;
 
@@ -37,6 +39,35 @@ public sealed class NativeWindowModalSession : IDisposable
         for (var current = s_current; current != null; current = current._previous)
             if (current._operations?.Window == window.Handle) return true;
         return false;
+    }
+
+    /// <summary>
+    /// Requests release of every session borrowing this window on the current
+    /// thread. Returns false, without invoking the callback, when none owns it.
+    /// Otherwise invokes the callback once after native End and identity release,
+    /// possibly synchronously. Nested sessions and active polls defer completion.
+    /// Native release failure propagates instead of reporting successful release;
+    /// callback failures propagate after the other ready callbacks have run.
+    /// The caller must retain its host and recheck current intent in the callback.
+    /// </summary>
+    public static bool TryReleaseWindow(NativeWindowHandle window, Action onReleased)
+    {
+        ArgumentNullException.ThrowIfNull(onReleased);
+        EnsureNotTransitioning();
+        if (window.Kind != NativeWindowKind.Cocoa || !window.IsValid) return false;
+        NativeWindowModalSession? oldest = null;
+        for (var current = s_current; current != null; current = current._previous)
+        {
+            if (current._operations?.Window != window.Handle) continue;
+            current._endFailure?.Throw();
+            current._releaseRequested = true;
+            oldest = current;
+        }
+        if (oldest == null) return false;
+        // Notify only after all existing leases for this identity have ended.
+        oldest._releasedCallbacks += onReleased;
+        DrainReleasedSessions();
+        return true;
     }
 
     /// <summary>
@@ -110,6 +141,7 @@ public sealed class NativeWindowModalSession : IDisposable
         if (s_transitioning) return true; // Native begin/end already owns dispatch.
         var current = s_current;
         if (current == null) return false;
+        current._endFailure?.Throw();
         if (current._pollDepth != 0 || current._releaseRequested) return true;
         current._pollDepth++;
         try
@@ -137,33 +169,70 @@ public sealed class NativeWindowModalSession : IDisposable
             throw new InvalidOperationException("A native modal session must be released on its creating thread.");
         if (IsReleased) return;
         EnsureNotTransitioning();
+        _endFailure?.Throw();
         _releaseRequested = true;
         DrainReleasedSessions();
     }
 
     private static void DrainReleasedSessions()
     {
+        List<Exception>? failures = null;
         while (s_current is { _releaseRequested: true, _pollDepth: 0 } current)
         {
+            if (current._endFailure != null)
+            {
+                (failures ??= []).Add(current._endFailure.SourceException);
+                break;
+            }
             var operations = current._operations!;
             s_transitioning = true;
             try { operations.End(current._session); }
+            catch (Exception error)
+            {
+                // A failed End does not prove AppKit relinquished the session.
+                // Retain the host. End may have failed after its native call, so
+                // repeating it could use an already-freed native session token.
+                current._endFailure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+                current._releasedCallbacks = null;
+                s_transitioning = false;
+                (failures ??= []).Add(error);
+                break;
+            }
+
+            Action? callbacks = current._releasedCallbacks;
+            current._releasedCallbacks = null;
+            bool released = false;
+            try { operations.Dispose(); released = true; }
+            catch (Exception error) { (failures ??= []).Add(error); }
             finally
             {
                 s_current = current._previous;
                 current._previous = null;
                 current._session = 0;
                 current._operations = null;
-                try { operations.Dispose(); }
-                finally { s_transitioning = false; }
+                s_transitioning = false;
+            }
+            // Invoke outside native transitions, after restoring the parent.
+            // A callback may close another host or enter a new modal session.
+            if (released && callbacks != null)
+            {
+                foreach (Action callback in Delegate.EnumerateInvocationList<Action>(callbacks))
+                {
+                    try { callback(); }
+                    catch (Exception error) { (failures ??= []).Add(error); }
+                }
             }
         }
+        if (failures is { Count: 1 })
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        if (failures != null) throw new AggregateException("Native modal-session release failed.", failures);
     }
 
     private static void EnsureNotTransitioning()
     {
         if (s_transitioning)
             throw new InvalidOperationException("Native modal-session lifetime cannot reenter during begin/end.");
+        s_current?._endFailure?.Throw();
     }
 }
 

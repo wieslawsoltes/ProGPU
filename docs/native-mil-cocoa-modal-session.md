@@ -39,6 +39,59 @@ hosts, and retries on subsequent deferred-disposal drains. Callers must dispose
 every session and continue host cleanup after release; retaining an NSWindow does
 not by itself keep GLFW callback data alive. No managed finalizer invokes AppKit.
 
+### Deferred native Hide completion
+
+`TryReleaseWindow(window, onReleased)` requests release of every existing session
+for that native identity on the calling thread. An unrelated nested session stays
+live; completion waits for it and any active outer poll to unwind. The callback
+is attached to the oldest matching session, runs once after End and identity
+cleanup, and may run synchronously. False means no session owns the window and
+the callback was not retained or called. Callers must recheck current host intent
+and any newly entered lease before hiding a window or restoring focus.
+
+Ready callbacks run outside native transitions, with the previous session already
+restored. Callback failures do not prevent other ready callbacks or parent release;
+errors are propagated, preserving a single exception or aggregating multiple ones.
+A native End failure keeps the session and native identities retained and drops
+success callbacks. Its completion is uncertain: End might have thrown after the
+native call consumed its token. Poll/release attempts therefore rethrow the stored
+failure instead of retrying End, using default polling or destroying the host.
+This is a terminal coordinator failure, not a generic recovery loop.
+Identity-cleanup failure after
+successful End is reported without a success callback. `IsReleased` alone is not
+a successful-cleanup notification.
+
+LibreWPF Hide now requests this shared release before changing native visibility.
+Repeated pending hides coalesce; completion checks disposal and latest Show/Hide
+intent and rechecks native leases. A subsequent Show therefore supersedes the
+pending hide. Nonmodal and non-Cocoa windows retain their existing immediate path.
+This connection is shared by managed portable and native MIL renderers; it changes
+neither renderer's scene implementation. It does not yet connect source modal-gate
+release/focus restoration or enable automatic Cocoa ShowDialog sessions.
+
+The release lookup is O(D) for D nested sessions; completion is O(C) for C callbacks
+on released sessions. Callback storage is allocated only at a release transition,
+not in steady event polling. Exceptional error collection is lazy. This is ordered
+lifetime control flow, with no data-parallel CPU/GPU kernel or performance claim.
+The implementation extends original ProGPU `NativeWindowModalSession` and the
+LibreWPF host Hide path. No third-party implementation code is incorporated;
+AppKit's [session-end contract](https://developer.apple.com/documentation/appkit/nsapplication/endmodalsession(_:))
+is the native completion boundary, while the host callback policy is ProGPU-owned.
+
+Authored additional fixtures cover release after poll/End/identity cleanup, multiple
+leases for one window, unrelated nested windows, independent callback failures,
+failed End without unsafe retry, failed cleanup without notification, reentrant new
+sessions, and unowned identities. The WPF fixture guards release-before-hide and
+current-intent checks in the real host source; it is not a native interaction test.
+Fixtures are compiled, not executed. Actual Hide/Show/Close/cancellation and focus
+ordering in the package MVP remain final application qualification requirements.
+
+Deferred-Hide checkpoint (2026-09-09): the final ProGPU.Tests graph compiles with
+0 warnings/0 errors. Eight additional backend lifecycle fixtures and one WPF
+source-contract fixture are authored, not executed. Latest fetched ProGPU main
+is included. The separate source gate-release/focus ordering and genuine native
+popup admission are still required before automatic Cocoa session activation.
+
 ## Required next integration — not enabled automatically
 
 WPF `RunDialog` does **not** automatically create an AppKit session yet. The
