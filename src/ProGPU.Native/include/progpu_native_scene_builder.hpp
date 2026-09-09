@@ -30,7 +30,10 @@ enum class scene_layer_hit_test_mode : std::uint32_t {
     source_opacity,
     // Source-owned identity input mapping through built-in blur/shadow. Raster
     // bounds are not input bounds; an optional final composite clip still applies.
-    source_identity_effect
+    source_identity_effect,
+    // Cached commands use a separate raster-local frame. The caller supplies
+    // its unsnapped content-to-parent input transform; storage bounds are not clips.
+    source_local_cache
 };
 
 enum class scene_hit_test_opacity_mode : std::uint32_t {
@@ -306,7 +309,8 @@ public:
     bool add_tile_composite(const progpu_native_scene_tile_composite& tile,
         std::uint32_t& resource_index) noexcept;
     bool push_layer(const progpu_native_scene_layer& layer,
-        scene_layer_hit_test_mode hit_test_mode = scene_layer_hit_test_mode::unspecified) noexcept;
+        scene_layer_hit_test_mode hit_test_mode = scene_layer_hit_test_mode::unspecified,
+        const progpu_native_affine_2d* source_content_to_parent = nullptr) noexcept;
     bool pop_layer() noexcept;
 
     bool draw_analytic(

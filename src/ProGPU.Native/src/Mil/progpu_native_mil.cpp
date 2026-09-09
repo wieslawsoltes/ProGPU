@@ -20441,7 +20441,8 @@ struct channel::implementation {
         bool& skip_content,
         bool& pushed_content_state,
         render_scope_state& content_state,
-        const cache_brush_capture_policy* capture = nullptr) const {
+        const cache_brush_capture_policy* capture = nullptr,
+        bool record_hit_input = false) const {
         pushed = false;
         skip_content = false;
         pushed_content_state = false;
@@ -20471,6 +20472,9 @@ struct channel::implementation {
         }
         render_at_scale = std::max(0.0, render_at_scale);
         if (render_at_scale == 0.0) {
+            // Input-only command retention is still required for zero-scale
+            // caches. Never report an empty successful native index here.
+            if (record_hit_input) return status::unsupported_command;
             skip_content = true;
             return status::success;
         }
@@ -20482,6 +20486,9 @@ struct channel::implementation {
             capture == nullptr && cache_visual.alpha_mask_handle != 0U &&
             (gradient_brushes.contains(cache_visual.alpha_mask_handle) ||
                 is_sampled_brush(cache_visual.alpha_mask_handle));
+        if (record_hit_input && (has_spatial_opacity_mask ||
+            state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX))
+            return status::unsupported_command;
         // Local cached pixels are independent of the cache-root Visual's
         // properties. WPF applies those properties while drawing the retained
         // bitmap. Typed gradients use GPU brush masks and tile sources use
@@ -20575,6 +20582,9 @@ struct channel::implementation {
         affine_2d_double mask_transform = state.transform;
         affine_2d_double composite_transform = compose_affine(
             raster_to_local, state.transform);
+        progpu_native_affine_2d source_content_to_parent{};
+        if (record_hit_input && !try_to_native_affine(composite_transform, source_content_to_parent))
+            return status::invalid_graph;
         if (capture == nullptr && cache_state.snaps_to_device_pixels) {
             const auto* frame = mask_context.frame;
             if (frame != nullptr && frame->request.dpi_scale_x != frame->request.dpi_scale_y)
@@ -20716,7 +20726,10 @@ struct channel::implementation {
             static_cast<float>(raster_width),
             static_cast<float>(raster_height)};
         layer.reserved0 = composite_state_index;
-        if (!builder.push_layer(layer)) {
+        if (!builder.push_layer(layer,
+                record_hit_input ? native::scene_layer_hit_test_mode::source_local_cache
+                    : native::scene_layer_hit_test_mode::unspecified,
+                record_hit_input ? &source_content_to_parent : nullptr)) {
             return status::invalid_graph;
         }
         pushed = true;
@@ -20756,12 +20769,6 @@ struct channel::implementation {
         }
         const bool record_hit_owner = compile_context != nullptr &&
             compile_context->records_hit_test_owners();
-        // A cache hit may omit this visual's commands. Until hit coverage has
-        // independent cache ownership, reject rather than publish an empty index.
-        if (record_hit_owner && visual->second.cache_mode_handle != 0U) {
-            active_visuals.erase(handle);
-            return status::unsupported_command;
-        }
         affine_2d_double local_transform{};
         if (visual->second.transform_handle != 0U) {
             const status transform_status = resolve_transform(
@@ -21085,7 +21092,9 @@ struct channel::implementation {
             cache_layer_pushed,
             skip_cached_content,
             cache_content_state_pushed,
-            content_scope);
+            content_scope,
+            nullptr,
+            record_hit_owner);
         if (cache_status != status::success) {
             if (cache_content_state_pushed) {
                 builder.restore();

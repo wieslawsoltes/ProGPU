@@ -52,7 +52,12 @@ struct semantic_scene_builder::implementation final {
         bool point_only{};
     };
     std::vector<hit_rectangle_scope> hit_rectangle_scopes{};
-    std::vector<std::size_t> source_geometry_hit_layers{};
+    struct source_hit_layer final {
+        std::size_t command_index{};
+        bool changes_frame{};
+        progpu_native_affine_2d content_to_parent{};
+    };
+    std::vector<source_hit_layer> source_geometry_hit_layers{};
     // One-based sparse scope indices, zero for ordinary saves. Layer slots are
     // never read here: restore admits only a matching save stack kind.
     std::array<std::size_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> hit_rectangle_stack{};

@@ -53,6 +53,34 @@ bool transform_hit_coordinates(std::array<float, 4U>& x, std::array<float, 4U>& 
 }
 
 // Native counterpart of ProGPU.Vector/GpuHitTesting.cs primitive encoding.
+// Three independent affine rows, with translation added only to the origin row.
+// Preserve compose_affine's multiply/add order without a whole-scene scalar loop.
+bool compose_input_frame(const progpu_native_affine_2d& first,
+    const progpu_native_affine_2d& second, progpu_native_affine_2d& result) noexcept {
+    [[maybe_unused]] const std::array<float, 4U> x{first.m11, first.m21, first.m31, 0.0F};
+    [[maybe_unused]] const std::array<float, 4U> y{first.m12, first.m22, first.m32, 0.0F};
+    [[maybe_unused]] const std::array<float, 4U> tx{0.0F, 0.0F, second.m31, 0.0F};
+    [[maybe_unused]] const std::array<float, 4U> ty{0.0F, 0.0F, second.m32, 0.0F};
+    std::array<float, 4U> out_x{}, out_y{};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const auto xs = vld1q_f32(x.data()), ys = vld1q_f32(y.data());
+    vst1q_f32(out_x.data(), vaddq_f32(vaddq_f32(vmulq_n_f32(xs, second.m11),
+        vmulq_n_f32(ys, second.m21)), vld1q_f32(tx.data())));
+    vst1q_f32(out_y.data(), vaddq_f32(vaddq_f32(vmulq_n_f32(xs, second.m12),
+        vmulq_n_f32(ys, second.m22)), vld1q_f32(ty.data())));
+#elif defined(__SSE2__) || defined(_M_X64)
+    const auto xs = _mm_loadu_ps(x.data()), ys = _mm_loadu_ps(y.data());
+    _mm_storeu_ps(out_x.data(), _mm_add_ps(_mm_add_ps(_mm_mul_ps(xs, _mm_set1_ps(second.m11)),
+        _mm_mul_ps(ys, _mm_set1_ps(second.m21))), _mm_loadu_ps(tx.data())));
+    _mm_storeu_ps(out_y.data(), _mm_add_ps(_mm_add_ps(_mm_mul_ps(xs, _mm_set1_ps(second.m12)),
+        _mm_mul_ps(ys, _mm_set1_ps(second.m22))), _mm_loadu_ps(ty.data())));
+#else
+    return false;
+#endif
+    result = {out_x[0], out_y[0], out_x[1], out_y[1], out_x[2], out_y[2]};
+    return is_finite(result);
+}
+
 // Bounds are broad phase only; local analytic/path data retains exact coverage.
 bool place_primitive(progpu_native_hit_test_primitive& output,
     progpu_native_point minimum, progpu_native_point maximum,
@@ -174,6 +202,29 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
         std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_scope_stack{};
         std::vector<progpu_native_image_rect> layer_clips(1U); // scope zero has no layer clip
         std::uint32_t layer_clip_scope = 0U;
+        std::vector<progpu_native_affine_2d> input_frames(1U, identity_transform());
+        std::uint32_t input_frame = 0U;
+        std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> frame_stack{};
+        const auto map_rectangle = [&](progpu_native_image_rect& rectangle) {
+            if (input_frame == 0U) return true;
+            const auto& transform = input_frames[input_frame];
+            // Axis-preserving rectangles retain exact rectangle clipping. Other
+            // frames need composed polygon clips, not their enclosing AABB.
+            if (!((transform.m12 == 0.0F && transform.m21 == 0.0F) ||
+                (transform.m11 == 0.0F && transform.m22 == 0.0F))) return false;
+            if (rectangle.width < 0.0F || rectangle.height < 0.0F) return false;
+            progpu_native_hit_test_primitive bounds{};
+            if (!place_primitive(bounds, {rectangle.x, rectangle.y},
+                {rectangle.x + rectangle.width, rectangle.y + rectangle.height}, transform)) return false;
+            rectangle = {bounds.bounds_min.x, bounds.bounds_min.y,
+                bounds.bounds_max.x - bounds.bounds_min.x, bounds.bounds_max.y - bounds.bounds_min.y};
+            return std::isfinite(rectangle.width) && std::isfinite(rectangle.height);
+        };
+        const auto map_state = [&](progpu_native_scene_state& state) {
+            if (input_frame == 0U) return true;
+            return compose_input_frame(state.transform, input_frames[input_frame], state.transform) &&
+                ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U || map_rectangle(state.clip_rect));
+        };
         std::size_t depth = 0U, boundary = 0U, glyph_bounds_index = 0U, rectangle_scope_index = 0U;
         std::size_t source_layer_index = 0U;
         std::uint32_t current_state = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -182,10 +233,11 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
         std::optional<std::int32_t> owner;
         constexpr std::size_t exact_float_integer_limit = 1U << 24U;
         // Rectangular clip payloads are reused by state identity, not per primitive.
-        struct clip_entry { std::uint32_t scope{}; std::optional<std::uint32_t> start; };
+        struct clip_entry { std::uint32_t scope{}, frame{}; std::optional<std::uint32_t> start; };
         std::vector<clip_entry> clip_starts(implementation_->resources.size() + 1U);
         struct vector_clip_entry {
             bool loaded{};
+            std::uint32_t frame{};
             std::uint32_t start{}, count{}, rule{};
             progpu_native_point minimum{}, maximum{};
         };
@@ -194,7 +246,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             if (index >= implementation_->resources.size()) return nullptr;
             if (vector_clips.empty()) vector_clips.resize(implementation_->resources.size());
             auto& cached = vector_clips[index];
-            if (cached.loaded) return &cached;
+            if (cached.loaded && cached.frame == input_frame) return &cached;
             const auto& resource = implementation_->resources[index];
             if (!resource.source_geometry_clip || resource.record.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
                 resource.payload.size() != sizeof(progpu_native_scene_layer_vector_mask)) return nullptr;
@@ -206,7 +258,9 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 path.segment_count == 0U || path.segment_count > exact_float_integer_limit ||
                 segments.size() > exact_float_integer_limit - path.segment_count) return nullptr;
             progpu_native_hit_test_primitive bounds{};
-            if (!place_primitive(bounds, {path.min_x, path.min_y}, {path.max_x, path.max_y}, path.transform)) return nullptr;
+            auto transform = path.transform;
+            if (input_frame != 0U && !compose_input_frame(transform, input_frames[input_frame], transform)) return nullptr;
+            if (!place_primitive(bounds, {path.min_x, path.min_y}, {path.max_x, path.max_y}, transform)) return nullptr;
             cached.minimum = bounds.bounds_min; cached.maximum = bounds.bounds_max;
             cached.start = static_cast<std::uint32_t>(segments.size());
             cached.count = static_cast<std::uint32_t>(path.segment_count);
@@ -219,12 +273,13 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     return nullptr;
                 std::array<float, 4U> x{segment.p0.x, segment.p1.x, segment.p2.x, segment.p3.x};
                 std::array<float, 4U> y{segment.p0.y, segment.p1.y, segment.p2.y, segment.p3.y};
-                if (!transform_hit_coordinates(x, y, path.transform)) return nullptr;
+                if (!transform_hit_coordinates(x, y, transform)) return nullptr;
                 segment.p0 = {x[0], y[0]}; segment.p1 = {x[1], y[1]};
                 segment.p2 = {x[2], y[2]}; segment.p3 = {x[3], y[3]};
                 segments.push_back(segment);
             }
             cached.loaded = true;
+            cached.frame = input_frame;
             return &cached;
         };
         const auto append = [&](progpu_native_hit_test_primitive primitive,
@@ -271,8 +326,9 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     return true;
                 auto& cached = clip_starts[state_index == PROGPU_NATIVE_SCENE_NO_INDEX
                     ? implementation_->resources.size() : state_index];
-                if (cached.scope != layer_clip_scope) {
+                if (cached.scope != layer_clip_scope || cached.frame != input_frame) {
                     cached.scope = layer_clip_scope;
+                    cached.frame = input_frame;
                     cached.start.reset();
                 }
                 auto& start = cached.start;
@@ -361,6 +417,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE) {
                 if (depth == stack.size()) return unsupported();
                 clip_scope_stack[depth] = layer_clip_scope;
+                frame_stack[depth] = input_frame;
                 query_stack[depth] = query_participation;
                 const auto& scopes = implementation_->hit_rectangle_scopes;
                 while (rectangle_scope_index < scopes.size() &&
@@ -373,9 +430,9 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                             PROGPU_NATIVE_SCENE_COMMAND_RESTORE) return unsupported();
                     const auto state_index = command.record.state_index == PROGPU_NATIVE_SCENE_NO_INDEX
                         ? current_state : command.record.state_index;
-                    const auto state = state_index == PROGPU_NATIVE_SCENE_NO_INDEX ? identity_state() :
+                    auto state = state_index == PROGPU_NATIVE_SCENE_NO_INDEX ? identity_state() :
                         read_record<progpu_native_scene_state>(implementation_->resources[state_index].payload);
-                    if ((state.flags & ~input_state_flags) != 0U) return unsupported();
+                    if ((state.flags & ~input_state_flags) != 0U || !map_state(state)) return unsupported();
                     if (scope.point_only) {
                         if (query_participation != PROGPU_NATIVE_HIT_TEST_REGION_ONLY) {
                             query_participation = PROGPU_NATIVE_HIT_TEST_POINT_ONLY;
@@ -402,33 +459,43 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 if (depth == 0U || layer_stack[depth - 1U]) return unsupported();
                 current_state = stack[--depth];
                 layer_clip_scope = clip_scope_stack[depth];
+                input_frame = frame_stack[depth];
                 query_participation = query_stack[depth];
                 continue;
             }
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
                 const auto& layers = implementation_->source_geometry_hit_layers;
-                while (source_layer_index < layers.size() && layers[source_layer_index] < i)
+                while (source_layer_index < layers.size() && layers[source_layer_index].command_index < i)
                     ++source_layer_index;
                 // Only explicitly admitted source layers preserve input geometry.
                 // Their storage/effect padding is never a geometric clip.
-                if (source_layer_index == layers.size() || layers[source_layer_index] != i ||
+                if (source_layer_index == layers.size() || layers[source_layer_index].command_index != i ||
                     depth == stack.size()) return unsupported();
-                ++source_layer_index;
+                const auto& input_layer = layers[source_layer_index++];
                 layer_stack[depth] = true;
                 clip_scope_stack[depth] = layer_clip_scope;
+                frame_stack[depth] = input_frame;
                 query_stack[depth] = query_participation;
                 const auto layer = read_record<progpu_native_scene_layer>(command.payload);
-                if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U) {
+                if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U || input_layer.changes_frame) {
                     const auto composite = read_record<progpu_native_scene_state>(
                         implementation_->resources[layer.reserved0].payload);
                     if ((composite.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) {
-                        const auto clip = layer_clip_scope == 0U ? composite.clip_rect :
-                            intersect_hit_clips(composite.clip_rect, layer_clips[layer_clip_scope]);
+                        auto clip = composite.clip_rect;
+                        if (!map_rectangle(clip)) return unsupported();
+                        if (layer_clip_scope != 0U) clip = intersect_hit_clips(clip, layer_clips[layer_clip_scope]);
                         if (!std::isfinite(clip.x + clip.width) || !std::isfinite(clip.y + clip.height))
                             return unsupported();
                         layer_clip_scope = static_cast<std::uint32_t>(layer_clips.size());
                         layer_clips.push_back(clip);
                     }
+                }
+                if (input_layer.changes_frame) {
+                    progpu_native_affine_2d transform{};
+                    if (!compose_input_frame(input_layer.content_to_parent, input_frames[input_frame], transform))
+                        return unsupported();
+                    input_frame = static_cast<std::uint32_t>(input_frames.size());
+                    input_frames.push_back(transform);
                 }
                 stack[depth++] = current_state;
                 continue;
@@ -437,15 +504,16 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 if (depth == 0U || !layer_stack[depth - 1U]) return unsupported();
                 current_state = stack[--depth];
                 layer_clip_scope = clip_scope_stack[depth];
+                input_frame = frame_stack[depth];
                 query_participation = query_stack[depth];
                 continue;
             }
             if (!owner) continue;
             const auto state_index = command.record.state_index == PROGPU_NATIVE_SCENE_NO_INDEX
                 ? current_state : command.record.state_index;
-            const auto state = state_index == PROGPU_NATIVE_SCENE_NO_INDEX ? identity_state() :
+            auto state = state_index == PROGPU_NATIVE_SCENE_NO_INDEX ? identity_state() :
                 read_record<progpu_native_scene_state>(implementation_->resources[state_index].payload);
-            if ((state.flags & ~input_state_flags) != 0U) return unsupported();
+            if ((state.flags & ~input_state_flags) != 0U || !map_state(state)) return unsupported();
             if (!source_geometry && state.opacity <= 0.0001F) continue;
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
                 while (glyph_bounds_index < implementation_->glyph_hit_bounds.size() &&

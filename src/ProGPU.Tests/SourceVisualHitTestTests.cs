@@ -11,6 +11,39 @@ namespace ProGPU.Tests;
 
 public sealed class SourceVisualHitTestTests
 {
+    [Fact]
+    public void NestedCachedSourceFramesKeepSourceCoordinatesAndSiblingClipOwnership()
+    {
+        // Paired with native scene 9834 (its cached records use raster-local frames).
+        var root = new SourceVisual();
+        Matrix4x4 Outer() => Matrix4x4.CreateScale(0.5f, 0.5f, 1) * Matrix4x4.CreateTranslation(5.25f, 6.5f, 0);
+        Matrix4x4 Inner() => Matrix4x4.CreateScale(0.5f, 0.5f, 1) * Matrix4x4.CreateTranslation(2, 3, 0);
+        var outer = new SourceVisual { CacheAsLayer = true, Transform = Outer() };
+        var inner = new SourceVisual { CacheAsLayer = true, Transform = Inner() };
+        Matrix4x4 drawTransform = Matrix4x4.CreateScale(2, 2, 1) * Matrix4x4.CreateTranslation(-4, -6, 0);
+        SourceVisual Draw(int owner)
+        {
+            var source = new SourceVisual { HitTestId = owner, Transform = drawTransform,
+                OuterClipBounds = new Rect(0, 0, 50, 60) };
+            source.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(8, 10, 10, 12));
+            return source;
+        }
+        inner.AddChild(Draw(1)); outer.AddChild(inner); outer.AddChild(Draw(2));
+        root.AddChild(outer); root.AddChild(Draw(3));
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        capture.AddSourceVisual(root, Matrix4x4.Identity);
+        var hits = capture.BuildIndex().Primitives;
+        Assert.Equal(3, hits.Count);
+        Matrix4x4[] transforms = [drawTransform * Inner() * Outer(), drawTransform * Outer(), drawTransform];
+        for (int i = 0; i < hits.Count; i++)
+        {
+            Assert.Equal(i + 1, hits[i].Id);
+            Assert.Equal(Vector2.Transform(new Vector2(8, 10), transforms[i]), hits[i].BoundsMin);
+            Assert.Equal(Vector2.Transform(new Vector2(18, 22), transforms[i]), hits[i].BoundsMax);
+        }
+        Assert.Equal(0, outer.RenderCalls + inner.RenderCalls);
+    }
+
     [Theory]
     [InlineData(0f)]
     [InlineData(1f)]

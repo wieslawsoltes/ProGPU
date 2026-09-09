@@ -89,3 +89,38 @@ than the larger cache allocation. Required cached-picture rejection remains.
 These fixtures are authored and compiled, not executed. Native cache parity and
 matched native fixtures remain unfinished. Final application, shader, module,
 platform/package, differential/performance and exact-head CI gates stay mandatory.
+
+## Native positive-scale frame connection
+
+The next implementation now connects ordinary positive-scale native caches.
+`source_local_cache` builder metadata carries a copied unsnapped
+content-to-parent affine at PushLayer. The raster layer, cache revisions, bounds
+and composite transform remain unchanged. MIL selects it only for source-owned
+visual caches, never brush-source traversal. Source primitive states, image/point
+scopes, glyph bounds and vector clip controls pass through the retained input
+frame. Nested layers compose frame mappings; save/layer pops restore their prior
+frame and clip identity. Clip resource reuse is qualified by both input frame
+and layer scope, not resource ID alone.
+
+Three independent affine rows use NEON/SSE2, retaining multiply/add ordering;
+corner/clip-control mapping reuses the existing four-lane producer. No GPU
+readback, CPU rasterization or second scene decoding is added. Mapping is O(1)
+per state and O(S) per clip's segments; frame storage is O(L) for cached layers.
+Stable native index bytes still enter the canonical retained hash/upload path.
+
+Known gaps remain explicit: zero raster scale still requires input-only command
+retention; source masks on the cache boundary are rejected; non-axis-preserving
+rectangle clips inside a cached frame require exact composed clip topology.
+These branches are not successful empty results or permission to expand a clip
+to its envelope. Positive-scale admission does not finish cache parity or close
+the application gate. The historical blanket rejection above is superseded only
+for the newly connected branch.
+
+Native canonical fixtures match managed scales 1/2, fractional placement,
+movement, source clipping and replacement/clear. Cached Blur/DropShadow variants
+also retain their existing point-only child/update cases. A nested builder fixture
+compares intrinsic frame mapping with the scalar affine oracle and verifies
+clip-cache separation, sibling restoration, malformed mapping rejection and
+reset. Managed source traversal has the matching nested placement fixture; the
+module consumer exercises the same public overload. All execution remains
+deferred; build results are recorded separately in LibreWPF's delivery report.

@@ -7,6 +7,25 @@ import progpu.native.scene_builder;
 
 int main() {
     {
+        progpu::native::semantic_scene_builder cache_builder(9832U, 1U);
+        auto composite = cache_builder.identity_state();
+        unsigned int composite_index{}, hit_index{};
+        if (!cache_builder.add_state(composite, composite_index)) return 1;
+        progpu::native::progpu_native_scene_layer layer{};
+        layer.flags = progpu::native::PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+            progpu::native::PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
+            progpu::native::PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+        layer.bounds = {0, 0, 16, 16}; layer.opacity = 1;
+        layer.blend_mode = progpu::native::PROGPU_NATIVE_BLEND_SRC_OVER;
+        layer.mask_resource_index = layer.effect_resource_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+        layer.content_revision = layer.composite_revision = 1;
+        layer.reserved0 = composite_index;
+        auto input_frame = cache_builder.identity_transform();
+        input_frame.m31 = 0.25F;
+        if (!cache_builder.push_layer(layer, progpu::native::scene_layer_hit_test_mode::source_local_cache, &input_frame) ||
+            !cache_builder.pop_layer() || !cache_builder.add_recorded_hit_test_index(hit_index)) return 1;
+    }
+    {
         progpu::native::semantic_scene_builder point_builder(9830U, 1U);
         const progpu::native::progpu_native_image_rect rectangle{0.0F, 0.0F, 80.0F, 20.0F};
         unsigned int state_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;

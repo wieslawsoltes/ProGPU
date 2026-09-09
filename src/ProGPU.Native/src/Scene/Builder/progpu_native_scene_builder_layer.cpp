@@ -1,6 +1,7 @@
 #include "progpu_native_scene_builder_internal.hpp"
 
 #include "progpu_native_scene.hpp"
+#include "progpu_native_geometry_base.hpp"
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_validation.hpp"
 
@@ -606,15 +607,35 @@ bool semantic_scene_builder::add_tile_composite(
 
 bool semantic_scene_builder::push_layer(
     const progpu_native_scene_layer& source,
-    scene_layer_hit_test_mode hit_test_mode) noexcept {
+    scene_layer_hit_test_mode hit_test_mode,
+    const progpu_native_affine_2d* source_content_to_parent) noexcept {
     if (hit_test_mode != scene_layer_hit_test_mode::unspecified &&
         hit_test_mode != scene_layer_hit_test_mode::source_opacity &&
-        hit_test_mode != scene_layer_hit_test_mode::source_identity_effect) {
+        hit_test_mode != scene_layer_hit_test_mode::source_identity_effect &&
+        hit_test_mode != scene_layer_hit_test_mode::source_local_cache) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     const bool source_opacity = hit_test_mode == scene_layer_hit_test_mode::source_opacity;
     const bool source_effect = hit_test_mode == scene_layer_hit_test_mode::source_identity_effect;
-    const bool source_geometry = source_opacity || source_effect;
+    const bool source_cache = hit_test_mode == scene_layer_hit_test_mode::source_local_cache;
+    const bool source_geometry = source_opacity || source_effect || source_cache;
+    if (source_cache != (source_content_to_parent != nullptr))
+        return implementation_->fail(scene_build_error::invalid_argument);
+    if (source_cache) {
+        constexpr std::uint32_t required = PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
+        constexpr std::uint32_t allowed = required | PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED | PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT;
+        const auto& frame = *source_content_to_parent;
+        const double determinant = double{frame.m11} * frame.m22 - double{frame.m12} * frame.m21;
+        if ((source.flags & required) != required || (source.flags & ~allowed) != 0U ||
+            source.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
+            source.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            source.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            !is_finite(frame) || !std::isfinite(determinant) || determinant == 0.0)
+            return implementation_->fail(scene_build_error::invalid_argument);
+    }
     if (source_opacity &&
         ((source.flags & ~(PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
             PROGPU_NATIVE_SCENE_LAYER_BOUNDS)) != 0U ||
@@ -744,7 +765,8 @@ bool semantic_scene_builder::push_layer(
         if (source_geometry && hit_layers.size() == hit_layers.capacity()) {
             hit_layers.reserve(std::max<std::size_t>(16U, hit_layers.size() * 2U));
         }
-        if (source_geometry) hit_layers.push_back(implementation_->commands.size());
+        if (source_geometry) hit_layers.push_back({implementation_->commands.size(), source_cache,
+            source_cache ? *source_content_to_parent : identity_transform()});
         implementation_->commands.push_back(std::move(command));
         implementation_->stack_kinds[implementation_->stack_depth] =
             materialized ? 3U : 2U;
