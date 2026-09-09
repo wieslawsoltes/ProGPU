@@ -6,6 +6,12 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Canonical MIL EllipseGeometry strokes use full elliptical arc records. Keep their
+native input encoding shared with analytic ellipse draws and managed ellipse
+queries, preserving actual radii, pen width, affine placement and source clips.
+Do not reject the ordinary full ellipse as an unknown line, approximate it by a
+rectangle, or silently promote partial/skew-basis/device-width arcs to ellipses.
+
 Source drawing PushOpacityMask is input-neutral, not a geometry clip. Native MIL
 uses the explicit source_opacity_mask layer annotation; managed typed source
 capture consumes balanced mask scopes. Keep raster masks and real source clips

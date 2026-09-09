@@ -237,6 +237,26 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void NativeFullEllipseArcUsesCanonicalStrokeAndAffinePlacement()
+    {
+        // Paired with native builder scene 9837 (arc and analytic encoders).
+        var transform = Matrix4x4.CreateTranslation(4, 6, 0) *
+            new Matrix4x4(2, 0.25f, 0, 0, 0.5f, 3, 0, 0, 0, 0, 1, 0, 5, 7, 0, 1);
+        var hit = GpuHitTestPrimitive.EllipseStroke(701, new Vector2(-22, 4), new Vector2(42, 36), 3, 0, transform);
+        Assert.Equal(new Vector4(-22, 4, 42, 36), hit.Data0);
+        Assert.Equal(new Vector4(3, 0, 0, 0), hit.Data1);
+        Assert.Equal(new Vector4(10, 20, 1f / 32, 1f / 16), hit.Data2);
+        Vector2[] corners = [new(-23.5f, 2.5f), new(43.5f, 2.5f), new(43.5f, 37.5f), new(-23.5f, 37.5f)];
+        Vector2 min = new(float.PositiveInfinity), max = new(float.NegativeInfinity);
+        foreach (var corner in corners)
+        {
+            var placed = Vector2.Transform(corner, transform);
+            min = Vector2.Min(min, placed); max = Vector2.Max(max, placed);
+        }
+        Assert.Equal(min, hit.BoundsMin); Assert.Equal(max, hit.BoundsMax);
+    }
+
+    [Fact]
     public void DiagonalSquareCapCornersRemainInsideBroadPhaseBounds()
     {
         var line = GpuHitTestPrimitive.LineStroke(1, Vector2.Zero, new Vector2(10), 4,

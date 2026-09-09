@@ -11,6 +11,38 @@ namespace ProGPU.Tests;
 
 public sealed class SourceVisualHitTestTests
 {
+    [Fact]
+    public void MvpEllipseGeometryInputRetainsFillStrokeAndUpdates()
+    {
+        // WPF Ellipse arranges the 54x54 box by half of its 3-DIP pen.
+        // Paired with native canonical EllipseGeometry scene 9838.
+        var source = new SourceVisual { HitTestId = 1, Offset = new Vector2(104, 16) };
+        var brush = new SolidColorBrush(Vector4.One);
+        var pen = new Pen(brush, 3);
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        for (int phase = 0; phase < 3; phase++)
+        {
+            source.SourceHitTestCommands.Clear();
+            if (phase != 2)
+                source.SourceHitTestCommands.DrawEllipse(brush, pen, new Vector2(phase == 0 ? 27 : 37, 27),
+                    phase == 0 ? 25.5f : 35.5f, 25.5f);
+            capture.Clear();
+            capture.AddSourceVisual(source, Matrix4x4.Identity);
+            var hits = capture.BuildIndex().Primitives;
+            Assert.Equal(phase == 2 ? 0 : 2, hits.Count);
+            if (phase == 2) continue;
+            Assert.Equal(GpuHitTestPrimitiveKind.EllipseFill, hits[0].Kind);
+            Assert.Equal(GpuHitTestPrimitiveKind.EllipseStroke, hits[1].Kind);
+            Assert.Equal(1, hits[1].Id);
+            Assert.Equal(new Vector2(105.5f, 17.5f), hits[0].BoundsMin);
+            Assert.Equal(new Vector2(104, 16), hits[1].BoundsMin);
+            Assert.Equal(new Vector2(phase == 0 ? 158 : 178, 70), hits[1].BoundsMax);
+            Assert.Equal(new Vector4(3, 0, 0, 0), hits[1].Data1);
+            Assert.Equal(hits[0].Data0, hits[1].Data0);
+        }
+        Assert.Equal(0, source.RenderCalls);
+    }
+
     [Theory]
     [InlineData(0f)]
     [InlineData(1f)]
@@ -48,7 +80,7 @@ public sealed class SourceVisualHitTestTests
             Assert.Equal(1, hits[0].Id);
             Assert.Equal(new Vector2(phase == 0 ? 10 : 20, 12), hits[0].BoundsMin);
             Assert.Equal(new Vector2(30, 30), hits[0].BoundsMax);
-            Assert.Equal(4u, hits[0].ClipSegmentCount);
+            Assert.Equal(0u, hits[0].ClipSegmentCount); // exact axis-aligned clip is retained in bounds
             Assert.Equal(new Vector2(1, 2), hits[1].BoundsMin);
             Assert.Equal(new Vector2(4, 6), hits[1].BoundsMax);
             Assert.Equal(0u, hits[1].ClipSegmentCount);

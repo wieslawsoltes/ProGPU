@@ -21112,6 +21112,123 @@ int main() {
         return hits;
     };
     {
+        // Full EllipseGeometry arcs and direct analytic ellipses share one
+        // canonical input encoding. Paired with NativeFullEllipseArcUsesCanonicalStrokeAndAffinePlacement.
+        progpu::native::semantic_scene_builder builder(9837U, 1U);
+        auto state = builder.identity_state();
+        state.transform = {2, 0.25F, 0.5F, 3, 5, 7};
+        std::uint32_t state_index{};
+        PROGPU_REQUIRE(builder.add_state(state, state_index));
+        PROGPU_REQUIRE(builder.set_hit_test_owner(701));
+        PROGPU_REQUIRE(builder.save(state_index));
+        progpu_native_geometry_primitive arc{};
+        arc.kind = PROGPU_NATIVE_GEOMETRY_ARC;
+        arc.p0 = {10, 20}; arc.p1 = {32, 0}; arc.p2 = {0, 16};
+        arc.p3 = {0, std::numbers::pi_v<float> * 2.0F}; arc.stroke_thickness = 3;
+        arc.transform = builder.identity_transform(); arc.transform.m31 = 4; arc.transform.m32 = 6;
+        arc.color = {1, 1, 1, 1};
+        PROGPU_REQUIRE(builder.draw_geometry(std::span(&arc, 1U), {}, {-23.5F, 2.5F, 67, 35}));
+        progpu_native_analytic_primitive ellipse{};
+        ellipse.kind = PROGPU_NATIVE_PRIMITIVE_ELLIPSE;
+        ellipse.x = -22; ellipse.y = 4; ellipse.width = 64; ellipse.height = 32;
+        ellipse.stroke_thickness = 3; ellipse.transform = arc.transform; ellipse.color = arc.color;
+        PROGPU_REQUIRE(builder.draw_analytic(std::span(&ellipse, 1U), {}, {-23.5F, 2.5F, 67, 35}));
+        PROGPU_REQUIRE(builder.restore());
+        const auto hits = capture_hits(builder);
+        PROGPU_REQUIRE(hits.size() == 2U && hits[0].kind == PROGPU_NATIVE_HIT_TEST_ELLIPSE_STROKE);
+        PROGPU_REQUIRE(std::memcmp(&hits[0].data0, &hits[1].data0, sizeof(hits[0].data0)) == 0);
+        PROGPU_REQUIRE(std::memcmp(&hits[0].data1, &hits[1].data1, sizeof(hits[0].data1)) == 0);
+        PROGPU_REQUIRE(std::memcmp(&hits[0].data2, &hits[1].data2, sizeof(hits[0].data2)) == 0);
+        PROGPU_REQUIRE(hits[0].data2.x == 10 && hits[0].data2.y == 20);
+        PROGPU_REQUIRE(hits[0].data2.z == 1.0F / 32 && hits[0].data2.w == 1.0F / 16);
+        const auto transform = progpu::native::compose_affine(arc.transform, state.transform);
+        progpu_native_point minimum{std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()};
+        progpu_native_point maximum{-minimum.x, -minimum.y};
+        for (const auto point : {progpu_native_point{-23.5F, 2.5F}, progpu_native_point{43.5F, 2.5F},
+            progpu_native_point{43.5F, 37.5F}, progpu_native_point{-23.5F, 37.5F}}) {
+            const float x = point.x * transform.m11 + point.y * transform.m21 + transform.m31;
+            const float y = point.x * transform.m12 + point.y * transform.m22 + transform.m32;
+            minimum.x = std::min(minimum.x, x); minimum.y = std::min(minimum.y, y);
+            maximum.x = std::max(maximum.x, x); maximum.y = std::max(maximum.y, y);
+        }
+        for (const auto& hit : hits) {
+            PROGPU_REQUIRE(hit.id == 701 && hit.bounds_min.x == minimum.x && hit.bounds_min.y == minimum.y);
+            PROGPU_REQUIRE(hit.bounds_max.x == maximum.x && hit.bounds_max.y == maximum.y);
+        }
+        for (std::uint32_t variant = 0U; variant < 3U; ++variant) {
+            PROGPU_REQUIRE(builder.reset(9837U, variant + 2U));
+            PROGPU_REQUIRE(builder.set_hit_test_owner(701));
+            auto rejected = arc;
+            if (variant == 0U) rejected.p3.y = std::numbers::pi_v<float>;
+            if (variant == 1U) rejected.p1.y = 0.5F;
+            if (variant == 2U) rejected.flags = PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE;
+            PROGPU_REQUIRE(builder.draw_geometry(std::span(&rejected, 1U), {}, {-23.5F, 2.5F, 67, 35}));
+            std::uint32_t index{};
+            PROGPU_REQUIRE(!builder.add_recorded_hit_test_index(index));
+            PROGPU_REQUIRE(index == PROGPU_NATIVE_SCENE_NO_INDEX);
+            PROGPU_REQUIRE(builder.last_error() == progpu::native::scene_build_error::unsupported_hit_test);
+        }
+    }
+    {
+        // Actual MvpShapeEllipse: WPF's 54x54 layout produces a 51x51 spine
+        // inset by half the 3-DIP pen. Preserve both fill and full-arc stroke.
+        channel state;
+        std::vector<std::byte> batch, content;
+        append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
+        append_create(batch, 3U, 47U); append_create(batch, 4U, 75U);
+        append_create(batch, 5U, 85U); append_create(batch, 6U, 70U);
+        append_command(batch, command::visual_create, 1U);
+        append_command(batch, command::visual_set_offset, 1U, 104.0, 16.0);
+        append_command(batch, command::solid_color_brush, 4U, 1.0,
+            progpu_native_color{1, 1, 1, 1}, 0U, 0U, 0U, 0U);
+        append_command(batch, command::pen, 5U, 3.0, 10.0, 4U, 0U, 0U, 0U, 0U, 0U, 0U);
+        append_command(batch, command::ellipse_geometry, 6U, 25.5, 25.5, 27.0, 27.0, 0U, 0U, 0U, 0U);
+        append_command(content, command::draw_geometry, 4U, 5U, 6U, 0U);
+        append_render_data(batch, 2U, content);
+        append_command(batch, command::visual_set_content, 1U, 2U);
+        append_command(batch, command::generic_target_create, 3U,
+            std::uint64_t{0}, std::uint64_t{0}, 200U, 100U, 0U);
+        append_command(batch, command::target_set_root, 3U, 1U);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        scene_build_request request{};
+        request.flags = scene_build_request_flags::hit_test_index;
+        request.target_handle = 3U; request.scene_id = 9838U;
+        request.dpi_scale_x = request.dpi_scale_y = 1.0;
+        for (std::uint32_t phase = 0U; phase < 3U; ++phase) {
+            batch.clear();
+            if (phase == 1U) append_command(batch, command::ellipse_geometry, 6U, 35.5, 25.5, 37.0, 27.0, 0U, 0U, 0U, 0U);
+            if (phase == 2U) append_command(batch, command::visual_set_content, 1U, 0U);
+            if (!batch.empty()) PROGPU_REQUIRE(state.apply(batch) == status::success);
+            request.generation = request.request_serial = phase + 1U;
+            std::span<const std::byte> compiled;
+            PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+            const std::vector<std::byte> stream(compiled.begin(), compiled.end());
+            const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+            bool found = false;
+            for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+                const auto resource = read_value<progpu_native_scene_resource>(stream,
+                    header.resource_offset + i * sizeof(progpu_native_scene_resource));
+                if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+                const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+                PROGPU_REQUIRE(page.primitive_count == (phase == 2U ? 0U : 2U));
+                if (phase != 2U) {
+                    const auto fill = read_value<progpu_native_hit_test_primitive>(stream,
+                        resource.auxiliary_offset + page.primitive_offset);
+                    const auto stroke = read_value<progpu_native_hit_test_primitive>(stream,
+                        resource.auxiliary_offset + page.primitive_offset + sizeof(fill));
+                    PROGPU_REQUIRE(fill.kind == PROGPU_NATIVE_HIT_TEST_ELLIPSE_FILL && stroke.kind == PROGPU_NATIVE_HIT_TEST_ELLIPSE_STROKE);
+                    PROGPU_REQUIRE(fill.bounds_min.x == 105.5F && fill.bounds_min.y == 17.5F);
+                    PROGPU_REQUIRE(stroke.id == 1 && stroke.bounds_min.x == 104 && stroke.bounds_min.y == 16);
+                    PROGPU_REQUIRE(stroke.bounds_max.x == (phase == 0U ? 158.0F : 178.0F) && stroke.bounds_max.y == 70);
+                    PROGPU_REQUIRE(stroke.data1.x == 3.0F);
+                    PROGPU_REQUIRE(std::memcmp(&fill.data0, &stroke.data0, sizeof(fill.data0)) == 0);
+                }
+                found = true;
+            }
+            PROGPU_REQUIRE(found);
+        }
+    }
+    {
         // Paired with DrawingMasksPreserveSourceInputAndActualClips. Source
         // PushOpacityMask is input-neutral, including a fully transparent brush.
         for (std::uint32_t variant = 0U; variant < 3U; ++variant) {

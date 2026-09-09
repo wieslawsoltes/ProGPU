@@ -10,6 +10,7 @@
 #include <cstring>
 #include <limits>
 #include <new>
+#include <numbers>
 
 #if defined(__aarch64__) || defined(_M_ARM64)
 #include <arm_neon.h>
@@ -355,6 +356,24 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             return true;
         };
         const auto unsupported = [&] { return implementation_->fail(scene_build_error::unsupported_hit_test); };
+        // Both analytic draws and canonical MIL full-ellipse arc strokes use the
+        // existing managed/native ellipse query contract, not a bounds-only hit.
+        const auto append_ellipse = [&](progpu_native_point minimum, progpu_native_point maximum,
+            float thickness, const progpu_native_affine_2d& transform,
+            const progpu_native_scene_state& state, std::uint32_t state_index) {
+            progpu_native_hit_test_primitive hit{};
+            hit.kind = thickness > 0.0F ? PROGPU_NATIVE_HIT_TEST_ELLIPSE_STROKE : PROGPU_NATIVE_HIT_TEST_ELLIPSE_FILL;
+            hit.data0 = {minimum.x, minimum.y, maximum.x, maximum.y};
+            hit.data1 = {thickness, 0.0F, 0.0F, 0.0F};
+            const float rx = (maximum.x - minimum.x) * 0.5F;
+            const float ry = (maximum.y - minimum.y) * 0.5F;
+            hit.data2 = {(minimum.x + maximum.x) * 0.5F, (minimum.y + maximum.y) * 0.5F,
+                std::abs(rx) > 0.0001F ? 1.0F / rx : 0.0F,
+                std::abs(ry) > 0.0001F ? 1.0F / ry : 0.0F};
+            const float padding = thickness * 0.5F;
+            return place_primitive(hit, {minimum.x - padding, minimum.y - padding},
+                {maximum.x + padding, maximum.y + padding}, transform) && append(hit, state, state_index);
+        };
         const auto append_line = [&](progpu_native_point first, progpu_native_point last,
             float width, std::uint32_t start_cap, std::uint32_t end_cap,
             const progpu_native_affine_2d& transform, const progpu_native_scene_state& state,
@@ -559,6 +578,19 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 const auto& resource = implementation_->resources[command.record.resource_index];
                 for (std::size_t j = 0U; j < resource.payload.size() / sizeof(progpu_native_geometry_primitive); ++j) {
                     const auto source = read_record<progpu_native_geometry_primitive>(resource.payload, j);
+                    if (source.kind == PROGPU_NATIVE_GEOMETRY_ARC) {
+                        // EllipseGeometry emits this canonical full sweep. Partial,
+                        // skew-basis and device-width arcs need their own contract.
+                        if ((source.flags & ~PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) != 0U ||
+                            source.p1.x <= 0.0F || source.p2.y <= 0.0F ||
+                            source.p1.y != 0.0F || source.p2.x != 0.0F || source.p3.x != 0.0F ||
+                            source.p3.y != std::numbers::pi_v<float> * 2.0F) return unsupported();
+                        if (source.stroke_thickness <= 0.0F) continue;
+                        if (!append_ellipse({source.p0.x - source.p1.x, source.p0.y - source.p2.y},
+                            {source.p0.x + source.p1.x, source.p0.y + source.p2.y}, source.stroke_thickness,
+                            compose_affine(source.transform, state.transform), state, state_index)) return unsupported();
+                        continue;
+                    }
                     constexpr std::uint32_t allowed = PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED |
                         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK | PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
                     if (source.kind != PROGPU_NATIVE_GEOMETRY_LINE || (source.flags & ~allowed) != 0U)
@@ -621,23 +653,20 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     const auto source = read_record<progpu_native_analytic_primitive>(resource.payload, j);
                     if ((source.flags & ~PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) != 0U) return unsupported();
                     if (source.width <= 0.0F || source.height <= 0.0F) return unsupported();
-                    progpu_native_hit_test_primitive hit{};
                     const bool ellipse = source.kind == PROGPU_NATIVE_PRIMITIVE_ELLIPSE;
+                    if (ellipse) {
+                        if (!append_ellipse({source.x, source.y}, {source.x + source.width, source.y + source.height},
+                            source.stroke_thickness, compose_affine(source.transform, state.transform), state, state_index))
+                            return unsupported();
+                        continue;
+                    }
+                    progpu_native_hit_test_primitive hit{};
                     const bool stroke = source.stroke_thickness > 0.0F;
                     const float radius = source.kind == PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE ?
                         std::clamp(source.corner_radius, 0.0F, std::min(source.width, source.height) * 0.5F) : 0.0F;
-                    hit.kind = ellipse ? (stroke ? PROGPU_NATIVE_HIT_TEST_ELLIPSE_STROKE : PROGPU_NATIVE_HIT_TEST_ELLIPSE_FILL) :
-                        (stroke ? PROGPU_NATIVE_HIT_TEST_RECTANGLE_STROKE : PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL);
+                    hit.kind = stroke ? PROGPU_NATIVE_HIT_TEST_RECTANGLE_STROKE : PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL;
                     hit.data0 = {source.x, source.y, source.x + source.width, source.y + source.height};
-                    hit.data1 = ellipse ? progpu_native_float_4{source.stroke_thickness, 0.0F, 0.0F, 0.0F} :
-                        progpu_native_float_4{radius, radius, source.stroke_thickness, 0.0F};
-                    if (ellipse) {
-                        const float rx = (hit.data0.z - hit.data0.x) * 0.5F;
-                        const float ry = (hit.data0.w - hit.data0.y) * 0.5F;
-                        hit.data2 = {(hit.data0.x + hit.data0.z) * 0.5F, (hit.data0.y + hit.data0.w) * 0.5F,
-                            std::abs(rx) > 0.0001F ? 1.0F / rx : 0.0F,
-                            std::abs(ry) > 0.0001F ? 1.0F / ry : 0.0F};
-                    }
+                    hit.data1 = {radius, radius, source.stroke_thickness, 0.0F};
                     const float padding = source.stroke_thickness * 0.5F;
                     if (!place_primitive(hit, {source.x - padding, source.y - padding},
                         {hit.data0.z + padding, hit.data0.w + padding}, compose_affine(source.transform, state.transform)) ||
