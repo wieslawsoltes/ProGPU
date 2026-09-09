@@ -39,6 +39,9 @@ command/index machinery. Its existing wire-neutral flag retains the historical
 name `IsImageHitTestScope`; its semantics are one source rectangle replacing its
 internal raster draws. No command format or snapshot-field migration is needed.
 Nonrectangular geometry bounds are never admitted as rectangular source input.
+Managed rectangle DTOs and paths accepted by the existing exact rectangle clip
+readers share this entry. Other source geometry representations and geometry-local
+transform combinations remain separate input contracts, not bounds fallbacks.
 
 Cost is O(1) additional metadata/state per eligible source fill, independent of
 brush pixels/tiles. Stable retained snapshots preserve those scopes. The existing
