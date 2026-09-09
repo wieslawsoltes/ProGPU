@@ -720,9 +720,6 @@ public struct RenderCommand
 {
     public RenderCommandType Type;
     public int HitTestId;
-    // PushClip only: source image input is the destination rectangle, not the
-    // flattened drawing inside its balanced clip scope. Rendering is unchanged.
-    public bool IsImageHitTestScope;
     public Rect Rect;
     public Brush? Brush;
     public Pen? Pen;
@@ -736,6 +733,9 @@ public struct RenderCommand
     public Vector2 Position;
     public bool IsBold;
     public bool IsItalic;
+    // PushClip only: source image input is the destination rectangle, not the
+    // flattened drawing inside its balanced clip scope. Rendering is unchanged.
+    public bool IsImageHitTestScope;
     public TextShapingOptions? TextShapingOptions;
     public TextAlignment TextAlignment;
     public Vector2 FontTransform;
@@ -1167,7 +1167,6 @@ internal readonly struct RetainedRenderCommand
 {
     private readonly RenderCommandType _type;
     private readonly int _hitTestId;
-    private readonly bool _isImageHitTestScope;
     private readonly Rect _rect;
     private readonly Brush? _brush;
     private readonly Pen? _pen;
@@ -1177,6 +1176,7 @@ internal readonly struct RetainedRenderCommand
     private readonly RenderCommandPresentationDependencies _presentationDependencies;
     private readonly bool _isEdgeAliased;
     private readonly bool _isPenThicknessLocal;
+    private readonly bool _isImageHitTestScope;
     private readonly uint _pathSampleGrid;
     private readonly float _pathCoverageGamma;
 
