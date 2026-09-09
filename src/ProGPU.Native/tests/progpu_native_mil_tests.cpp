@@ -21093,7 +21093,9 @@ int main() {
             progpu_native_group_effect effect{};
             effect.kind = kind; effect.revision = 1U;
             effect.sigma_x = effect.sigma_y = 3.0F;
-            effect.color_a = 0.55F; effect.offset_x = effect.offset_y = 4.0F;
+            if (kind == PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW) {
+                effect.color_a = 0.55F; effect.offset_x = effect.offset_y = 4.0F;
+            }
             std::uint32_t effect_index{};
             PROGPU_REQUIRE(builder.add_effect_chain(std::span(&effect, 1U), 1U, effect_index));
             auto composite = builder.identity_state();
