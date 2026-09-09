@@ -58,6 +58,39 @@ struct semantic_scene_builder::implementation final {
         progpu_native_affine_2d content_to_parent{};
     };
     std::vector<source_hit_layer> source_geometry_hit_layers{};
+    struct input_only_range final {
+        std::size_t first_command{}, last_command{};
+    };
+    // Balanced source-only saves remain available to input capture but are not
+    // serialized as raster commands. Nested ranges are covered by their parent.
+    std::vector<input_only_range> input_only_ranges{};
+    std::array<std::size_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> input_only_stack{};
+
+    std::size_t render_command_count() const noexcept {
+        std::size_t count = commands.size(), covered_end = 0U;
+        for (const auto& range : input_only_ranges) {
+            if (range.first_command < covered_end) continue;
+            count -= range.last_command - range.first_command + 1U;
+            covered_end = range.last_command + 1U;
+        }
+        return count;
+    }
+
+    template<class Visitor>
+    bool visit_render_commands(Visitor&& visit) const {
+        std::size_t range_index = 0U;
+        for (std::size_t index = 0U; index < commands.size(); ++index) {
+            while (range_index < input_only_ranges.size() &&
+                input_only_ranges[range_index].first_command < index) ++range_index;
+            if (range_index < input_only_ranges.size() &&
+                input_only_ranges[range_index].first_command == index) {
+                index = input_only_ranges[range_index++].last_command;
+                continue;
+            }
+            if (!visit(commands[index])) return false;
+        }
+        return true;
+    }
     // One-based sparse scope indices, zero for ordinary saves. Layer slots are
     // never read here: restore admits only a matching save stack kind.
     std::array<std::size_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> hit_rectangle_stack{};

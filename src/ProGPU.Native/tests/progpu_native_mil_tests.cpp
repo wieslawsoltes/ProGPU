@@ -21112,8 +21112,44 @@ int main() {
         return hits;
     };
     {
+        // Input-only ownership stays in this builder; only balanced draw scopes
+        // are removed from the raster stream, including nested input-only saves.
+        progpu::native::semantic_scene_builder builder(9835U, 1U);
+        progpu_native_analytic_primitive rectangle{};
+        rectangle.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;
+        rectangle.x = 1; rectangle.y = 2; rectangle.width = 3; rectangle.height = 4;
+        rectangle.transform = builder.identity_transform();
+        const auto draw = [&](int owner) {
+            PROGPU_REQUIRE(builder.set_hit_test_owner(owner));
+            PROGPU_REQUIRE(builder.draw_analytic(std::span(&rectangle, 1U), {}, {1, 2, 3, 4}));
+        };
+        PROGPU_REQUIRE(builder.save(PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, false, true));
+        draw(1);
+        PROGPU_REQUIRE(builder.save(PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, false, true));
+        draw(2); PROGPU_REQUIRE(builder.restore()); PROGPU_REQUIRE(builder.restore());
+        draw(3);
+        const auto hits = capture_hits(builder);
+        PROGPU_REQUIRE(hits.size() == 3U);
+        PROGPU_REQUIRE(hits[0].id == 1 && hits[1].id == 2 && hits[2].id == 3);
+        std::vector<std::byte> stream;
+        progpu::native::scene_build_metrics metrics{};
+        PROGPU_REQUIRE(builder.build(stream, &metrics));
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        PROGPU_REQUIRE(header.command_count == 1U && metrics.command_count == 1U);
+        PROGPU_REQUIRE(metrics.maximum_stack_depth == 0U);
+        PROGPU_REQUIRE(builder.required_stream_size() == stream.size());
+        const auto command_record = read_value<progpu_native_scene_command>(stream, header.command_offset);
+        PROGPU_REQUIRE(command_record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC);
+        PROGPU_REQUIRE(builder.reset(9835U, 2U));
+        draw(4);
+        PROGPU_REQUIRE(capture_hits(builder).size() == 1U);
+        PROGPU_REQUIRE(builder.save(PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, false, true));
+        PROGPU_REQUIRE(builder.required_stream_size() == 0U); // open scopes cannot be published
+        PROGPU_REQUIRE(builder.restore());
+    }
+    {
         // Paired with CachedSourceInputRetainsUnsnappedGeometryAcrossReuseAndUpdates.
-        for (double scale : {1.0, 2.0}) {
+        for (double scale : {0.0, 1.0, 2.0}) {
             channel state;
             std::vector<std::byte> batch, content;
             for (auto handle : {1U, 7U, 8U}) {
@@ -21164,6 +21200,16 @@ int main() {
                 PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
                 const std::vector<std::byte> stream(compiled.begin(), compiled.end());
                 const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+                if (scale == 0.0) {
+                    std::uint32_t draws = 0U;
+                    for (std::uint32_t i = 0U; i < header.command_count; ++i) {
+                        const auto command_record = read_value<progpu_native_scene_command>(stream,
+                            header.command_offset + i * sizeof(progpu_native_scene_command));
+                        if (command_record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) ++draws;
+                        PROGPU_REQUIRE(command_record.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER);
+                    }
+                    PROGPU_REQUIRE(draws == 1U); // only the sibling, never the zero-scale source
+                }
                 bool found = false;
                 for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
                     const auto resource = read_value<progpu_native_scene_resource>(stream,
@@ -21190,13 +21236,22 @@ int main() {
                 }
                 PROGPU_REQUIRE(found);
             }
-            // No false empty success while input-only zero-scale retention is unfinished.
+            // Restore raster admission and source content without changing source ownership.
             batch.clear();
-            append_command(batch, command::bitmap_cache, 6U, 0.0, 0U, 1U, 0U);
+            append_command(batch, command::bitmap_cache, 6U, 1.0, 0U, 1U, 0U);
+            append_command(batch, command::visual_set_content, 1U, 2U);
             PROGPU_REQUIRE(state.apply(batch) == status::success);
             ++request.generation; ++request.request_serial;
-            PROGPU_REQUIRE(state.build_scene(request, compiled) == status::unsupported_command);
-            PROGPU_REQUIRE(compiled.empty());
+            PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+            const std::vector<std::byte> restored(compiled.begin(), compiled.end());
+            const auto restored_header = read_value<progpu_native_scene_header>(restored, 0U);
+            bool restored_layer = false;
+            for (std::uint32_t i = 0U; i < restored_header.command_count; ++i) {
+                const auto command_record = read_value<progpu_native_scene_command>(restored,
+                    restored_header.command_offset + i * sizeof(progpu_native_scene_command));
+                restored_layer |= command_record.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER;
+            }
+            PROGPU_REQUIRE(restored_layer);
         }
     }
     {
@@ -21542,7 +21597,7 @@ int main() {
     }
     {
         // Source visual with MVP Blur/DropShadow settings, through canonical MIL.
-        for (std::uint32_t variant = 0U; variant < 6U; ++variant) {
+        for (std::uint32_t variant = 0U; variant < 9U; ++variant) {
             channel state;
             std::vector<std::byte> batch, content;
             append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
@@ -21559,7 +21614,7 @@ int main() {
             else append_command(batch, command::blur_effect, 5U, effect_variant == 0U ? 2.5 : 0.0, 0U, 0U, 1U);
             if (variant >= 3U) {
                 append_create(batch, 11U, 94U);
-                append_command(batch, command::bitmap_cache, 11U, 2.0, 0U, 1U, 0U);
+                append_command(batch, command::bitmap_cache, 11U, variant >= 6U ? 0.0 : 2.0, 0U, 1U, 0U);
                 append_command(batch, command::visual_set_cache_mode, 1U, 11U);
             }
             append_command(batch, command::visual_set_effect, 1U, 5U);
@@ -21581,6 +21636,7 @@ int main() {
             PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
             const std::vector<std::byte> stream(compiled.begin(), compiled.end());
             const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+            if (variant >= 6U) PROGPU_REQUIRE(header.command_count == 0U); // no effect or cache raster work
             bool found = false;
             for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
                 const auto resource = read_value<progpu_native_scene_resource>(stream,

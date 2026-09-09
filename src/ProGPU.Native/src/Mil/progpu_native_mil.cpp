@@ -20442,7 +20442,8 @@ struct channel::implementation {
         bool& pushed_content_state,
         render_scope_state& content_state,
         const cache_brush_capture_policy* capture = nullptr,
-        bool record_hit_input = false) const {
+        bool record_hit_input = false,
+        bool input_only_cache = false) const {
         pushed = false;
         skip_content = false;
         pushed_content_state = false;
@@ -20472,9 +20473,18 @@ struct channel::implementation {
         }
         render_at_scale = std::max(0.0, render_at_scale);
         if (render_at_scale == 0.0) {
-            // Input-only command retention is still required for zero-scale
-            // caches. Never report an empty successful native index here.
-            if (record_hit_input) return status::unsupported_command;
+            // The caller's input-only save encloses this entire visual, including
+            // effects and descendants. Keep original source coordinates here;
+            // the zero-sized raster frame has no inverse and is never produced.
+            if (record_hit_input) {
+                const auto& source_visual = visuals.at(visual_handle);
+                if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+                    (source_visual.alpha_mask_handle != 0U &&
+                        (gradient_brushes.contains(source_visual.alpha_mask_handle) ||
+                            is_sampled_brush(source_visual.alpha_mask_handle))))
+                    return status::unsupported_command;
+                return input_only_cache ? status::success : status::unsupported_command;
+            }
             skip_content = true;
             return status::success;
         }
@@ -20769,6 +20779,22 @@ struct channel::implementation {
         }
         const bool record_hit_owner = compile_context != nullptr &&
             compile_context->records_hit_test_owners();
+        bool zero_scale_source_cache = false;
+        if (record_hit_owner && visual->second.cache_mode_handle != 0U) {
+            const auto cache = bitmap_caches.find(visual->second.cache_mode_handle);
+            if (cache == bitmap_caches.end()) {
+                active_visuals.erase(handle);
+                return status::invalid_handle;
+            }
+            double scale{};
+            const status resolved = resolve_animated_double(cache->second.render_at_scale,
+                cache->second.render_at_scale_animation_handle, scale);
+            if (resolved != status::success || !std::isfinite(scale)) {
+                active_visuals.erase(handle);
+                return resolved == status::success ? status::invalid_graph : resolved;
+            }
+            zero_scale_source_cache = scale <= 0.0;
+        }
         affine_2d_double local_transform{};
         if (visual->second.transform_handle != 0U) {
             const status transform_status = resolve_transform(
@@ -20968,6 +20994,10 @@ struct channel::implementation {
                 current.guideline_resource_index;
         }
         std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (zero_scale_source_cache && !builder.save(PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, false, true)) {
+            active_visuals.erase(handle);
+            return status::capacity_exceeded;
+        }
         if (!builder.add_state(state, state_index) ||
             !builder.save(state_index)) {
             active_visuals.erase(handle);
@@ -21094,7 +21124,8 @@ struct channel::implementation {
             cache_content_state_pushed,
             content_scope,
             nullptr,
-            record_hit_owner);
+            record_hit_owner,
+            zero_scale_source_cache);
         if (cache_status != status::success) {
             if (cache_content_state_pushed) {
                 builder.restore();
@@ -21244,6 +21275,8 @@ struct channel::implementation {
         if (!builder.restore() && result == status::success) {
             result = status::invalid_graph;
         }
+        if (zero_scale_source_cache && !builder.restore() && result == status::success)
+            result = status::invalid_graph;
         active_visuals.erase(handle);
         return result;
     }

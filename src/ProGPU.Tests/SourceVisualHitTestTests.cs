@@ -106,16 +106,24 @@ public sealed class SourceVisualHitTestTests
         cached.SourceHitTestCommands.Clear();
         cached.Invalidate();
         RenderAndCheck(null, null);
+        cached.LayerCacheRenderScale = 1;
+        cached.SourceHitTestCommands.DrawRectangle(brush, null, new Rect(60, 20, 30, 10));
+        cached.Invalidate();
+        RenderAndCheck(new(70.75f, 28.25f), new(85.75f, 38.25f));
+        Assert.NotNull(cached.LayerTexture);
     }
 
     [Theory]
-    [InlineData(0, false)] // Gaussian blur
-    [InlineData(1, false)] // Zero-radius blur still uses the source input policy
-    [InlineData(2, false)] // Shadow and source are not two input rectangles
-    [InlineData(0, true)]
-    [InlineData(1, true)]
-    [InlineData(2, true)]
-    public unsafe void CompositedSourceEffectsRetainOwnAndChildInputWithoutPadding(int variant, bool cached)
+    [InlineData(0, -1f)] // Gaussian blur, no cache
+    [InlineData(1, -1f)] // Zero-radius blur still uses the source input policy
+    [InlineData(2, -1f)] // Shadow and source are not two input rectangles
+    [InlineData(0, 2f)]
+    [InlineData(1, 2f)]
+    [InlineData(2, 2f)]
+    [InlineData(0, 0f)]
+    [InlineData(1, 0f)]
+    [InlineData(2, 0f)]
+    public unsafe void CompositedSourceEffectsRetainOwnAndChildInputWithoutPadding(int variant, float cacheScale)
     {
         using var window = new HeadlessWindow(128, 96);
         using var target = new GpuTexture(window.Context, 128, 96,
@@ -125,7 +133,8 @@ public sealed class SourceVisualHitTestTests
         var root = new SourceVisual { Size = new Vector2(128, 96) };
         var effectRoot = new SourceVisual { HitTestId = 701, Offset = new Vector2(5, 6),
             Size = new Vector2(100, 80), ClipBounds = new Rect(0, 0, 75, 70),
-            EffectContentBounds = new Rect(0, 0, 90, 60), CacheAsLayer = cached,
+            EffectContentBounds = new Rect(0, 0, 90, 60), CacheAsLayer = cacheScale >= 0,
+            LayerCacheRenderScale = Math.Max(0, cacheScale),
             Effect = variant == 2 ? new DropShadowEffect { BlurRadius = 9, Offset = new Vector2(4, 4) }
                 : new BlurEffect { BlurRadius = variant == 0 ? 2.5f : 0 } };
         var brush = new SolidColorBrush(Vector4.One);

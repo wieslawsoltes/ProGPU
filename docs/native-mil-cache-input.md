@@ -124,3 +124,46 @@ clip-cache separation, sibling restoration, malformed mapping rejection and
 reset. Managed source traversal has the matching nested placement fixture; the
 module consumer exercises the same public overload. All execution remains
 deferred; build results are recorded separately in LibreWPF's delivery report.
+
+## Zero-scale input-only source connection
+
+Zero-scale native caches now retain their original source state through a
+balanced input-only builder save. The scope encloses the entire source visual,
+including effect layers and descendants, so restoring a later positive scale
+does not depend on stale cache pixels. The normal MIL traversal and existing
+hit producer consume the same typed commands and resources; no second decoder,
+source composer or render-to-texture fallback is involved. Native cache setup
+does not create a zero-sized raster frame or invert its scale.
+
+Serialization skips only the declared balanced command ranges, including their
+save/restore delimiters. Nested ranges form one excluded outer span. Raster
+command IDs remain stable and unique; stream sizing, payload offsets, command
+counts and reported raster stack depth use the same filtered traversal. The
+hit index is built before serialization from the retained original commands.
+CPU resource snapshots remain owned/serialized with their stable indices because
+they can be shared with visible commands; no resource-index remapping or pruning
+pass is introduced. The command-driven native renderer has no draw/effect/cache
+work for the excluded subtree. CPU storage/validation overhead still requires
+measurement; this connection is not a zero-allocation claim.
+
+Sparse range metadata grows only when an input-only scope is requested; ordinary
+command records do not grow. Range counting is O(R), filtered serialization is
+O(C + R), and its extra metadata is O(R + D) for ranges R, commands C and bounded
+save depth D. These are dependent scope/ownership operations, not numeric CPU
+fallbacks. The existing intrinsic geometry mapping and GPU query execution are
+unchanged. Reset clears range ownership; unbalanced scopes fail before publishing.
+
+Native canonical fixtures now include scale zero, content updates/clear and
+restoration to scale one. They assert the original source hits alongside the
+absence of source raster commands. Zero-scale Blur/DropShadow fixtures exclude
+the whole effect subtree while retaining its source/child hits. Builder fixtures
+cover nested exclusion, visible siblings, measured stream size, reported stack
+depth, reset and unbalanced rejection; the module consumer includes point-only
+coverage inside an input-only scope. Managed cache/effect fixtures have the same
+zero-scale/update/restore variants. Execution remains deferred.
+
+The earlier zero-scale rejection in this history is superseded. Boundary masks,
+required cached-picture refresh sources and remaining exact clip combinations
+still require their explicit contracts; the input-only scope cannot bypass a
+failed hit-index capture. Full application/cache parity and all final platform,
+resource-lifetime, performance, package and CI gates remain open.

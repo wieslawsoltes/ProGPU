@@ -601,7 +601,12 @@ Preserve source input at zero raster scale and keep required cached-picture
 refresh sources explicit. Native positive-scale cache input uses copied unsnapped
 frame metadata; never use a texture rectangle or snapped composite matrix. Restore
 frame/clip identity on save/layer exit and qualify clip reuse by its source frame.
-Keep zero-scale/native boundary-mask and non-axis rectangle-clip gaps explicit.
+Zero-scale native caches use balanced input-only builder scopes: keep source
+commands for index capture, exclude the entire scope (effects/descendants included)
+from raster serialization, and retain shared resource indices. Sizing and writing
+must use identical range filtering; unbalanced scopes cannot publish. No tiny
+cache texture, second source composer or CPU pixel fallback is permitted.
+Keep native boundary-mask and non-axis rectangle-clip gaps explicit.
 See docs/native-mil-cache-input.md; this staged connection is not full cache parity.
 
 ### A. Rendering Quality & DPI-Aware Text Snapping

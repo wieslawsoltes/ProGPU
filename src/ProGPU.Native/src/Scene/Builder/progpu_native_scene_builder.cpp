@@ -69,6 +69,8 @@ bool semantic_scene_builder::reset(
     implementation_->glyph_hit_bounds.clear();
     implementation_->hit_rectangle_scopes.clear();
     implementation_->source_geometry_hit_layers.clear();
+    implementation_->input_only_ranges.clear();
+    implementation_->input_only_stack.fill(0U);
     implementation_->hit_rectangle_stack.fill(0U);
     implementation_->brushes.clear();
     implementation_->gradient_stops.clear();
@@ -375,7 +377,8 @@ bool semantic_scene_builder::add_guideline_set_with_offsets(
 bool semantic_scene_builder::save(
     std::uint32_t state_resource_index,
     const progpu_native_image_rect* local_hit_rectangle,
-    bool point_only_rectangle) noexcept {
+    bool point_only_rectangle,
+    bool input_only) noexcept {
     if (point_only_rectangle && local_hit_rectangle == nullptr)
         return implementation_->fail(scene_build_error::invalid_argument);
     const bool record_hit = local_hit_rectangle != nullptr &&
@@ -408,12 +411,17 @@ bool semantic_scene_builder::save(
         if (record_hit && scopes.size() == scopes.capacity()) {
             scopes.reserve(std::max<std::size_t>(16U, scopes.size() * 2U));
         }
+        auto& input_ranges = implementation_->input_only_ranges;
+        if (input_only && input_ranges.size() == input_ranges.capacity())
+            input_ranges.reserve(std::max<std::size_t>(8U, input_ranges.size() * 2U));
         if (record_hit) {
             scopes.push_back({implementation_->commands.size(),
                 implementation_->commands.size(), *local_hit_rectangle, point_only_rectangle});
         }
         implementation_->hit_rectangle_stack[implementation_->stack_depth] =
             record_hit ? scopes.size() : 0U;
+        if (input_only) input_ranges.push_back({implementation_->commands.size(), implementation_->commands.size()});
+        implementation_->input_only_stack[implementation_->stack_depth] = input_only ? input_ranges.size() : 0U;
         implementation_->commands.push_back(std::move(command));
         implementation_->stack_kinds[implementation_->stack_depth] = 1U;
         ++implementation_->stack_depth;
@@ -457,6 +465,10 @@ bool semantic_scene_builder::restore() noexcept {
                 implementation_->commands.size() - 1U;
         }
         implementation_->hit_rectangle_stack[implementation_->stack_depth] = 0U;
+        const auto input_scope = implementation_->input_only_stack[implementation_->stack_depth];
+        if (input_scope != 0U)
+            implementation_->input_only_ranges[input_scope - 1U].last_command = implementation_->commands.size() - 1U;
+        implementation_->input_only_stack[implementation_->stack_depth] = 0U;
         implementation_->stack_kinds[implementation_->stack_depth] = 0U;
         implementation_->error = scene_build_error::none;
         return true;
