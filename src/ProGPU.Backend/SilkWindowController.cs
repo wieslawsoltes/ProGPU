@@ -13,6 +13,7 @@ public sealed class SilkWindowController : IDisposable
     private bool _disposed;
     private readonly int _threadId = Environment.CurrentManagedThreadId;
     private SilkWindowController? _ownerController;
+    private bool _inputAllowed = true;
 
     public SilkWindowController(IWindow window)
     {
@@ -124,8 +125,7 @@ public sealed class SilkWindowController : IDisposable
         _state = _state with { Enabled = value };
         return Apply((platform, state) =>
         {
-            bool enabled =
-                platform.SetEnabled(value);
+            bool enabled = ApplyInputState(platform);
             // Chrome refresh is independent of input-state admission. It must
             // not turn an unsupported/rejected enabled-state request into success.
             if (enabled)
@@ -138,6 +138,33 @@ public sealed class SilkWindowController : IDisposable
     {
         _state = _state with { ShowInTaskbar = value };
         return Apply((platform, _) => platform.SetShowInTaskbar(value));
+    }
+
+    /// <summary>
+    /// Applies native input admission independently of application enabled intent.
+    /// SetEnabled continues updating that intent while blocked; releasing the gate
+    /// restores its latest value. Only Win32 currently provides full native blocking.
+    /// </summary>
+    public bool SetInputAllowed(bool allowed)
+    {
+        ThrowIfDisposed();
+        if (_threadId != Environment.CurrentManagedThreadId || !EnsureAttached() ||
+            _platform!.Handle.Kind != NativeWindowKind.Win32) return false;
+        _inputAllowed = allowed;
+        return Apply((platform, _) => ApplyInputState(platform));
+    }
+
+    private bool ApplyInputState(INativeWindowPlatform platform)
+    {
+        // Native enable callbacks can update application intent while Apply is
+        // guarded. Reconcile that new intent before reporting admission.
+        for (int attempt = 0; attempt < 8; attempt++)
+        {
+            bool enabled = _state.Enabled && _inputAllowed;
+            if (!platform.SetEnabled(enabled)) return false;
+            if (enabled == (_state.Enabled && _inputAllowed)) return true;
+        }
+        return false; // An oscillating callback did not reach a stable policy.
     }
 
     public bool SetParent(NativeWindowHandle parent)
@@ -423,7 +450,7 @@ public sealed class SilkWindowController : IDisposable
         platform.ApplyChrome(_state);
         platform.SetSizeConstraints(_state.MinimumSize, _state.MaximumSize);
         platform.SetTopMost(_state.TopMost);
-        platform.SetEnabled(_state.Enabled);
+        ApplyInputState(platform);
         platform.SetShowInTaskbar(_state.ShowInTaskbar);
         if (_state.Parent.IsValid)
         {

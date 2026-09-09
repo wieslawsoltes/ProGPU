@@ -1,5 +1,81 @@
 # Source-controlled portable dialog lifetime
 
+## Win32 input gates and source focus restoration
+
+Acceptance path: open/close/hide/reopen the MVP About dialog, including an owned
+nested dialog and popups. `PortableModalInputScope.RegisterWindow` binds each
+native surface to its source Window identity. The host owns the registration;
+the thread index holds weak references so registration does not root abandoned
+window graphs. Newly registered surfaces receive current permission immediately.
+Scope boundaries snapshot registrations, permit callback-driven surface creation
+or disposal, and notify all survivors even after one callback fails. Failed entry
+restores the previous scope and republishes it. Failed exit releases the scope
+but exposes `IsNativeInputPolicySynchronized == false`, preventing speculative
+focus restoration. Failures propagate; no generic renderer recovery is added.
+Recursive scope mutation during native publication is explicitly rejected.
+
+The shared Silk controller has an independent input gate. Effective Win32 enabled
+state is application-enabled intent AND input admission. Application SetEnabled
+and controller Reapply retain this composition; release uses the latest intent,
+not a saved IsEnabled assignment. Synchronous callback changes are reconciled,
+with explicit failure after eight oscillating attempts. Unsupported platforms
+cannot report accepted input gating. The existing checked Win32 enable adapter
+remains authoritative for actual native state. Both renderers share this code.
+
+LibreWPF registers root activations and native popups under their actual source
+owner identity. Registered Win32 windows initialize hidden and apply the gate
+before native Show; inactive windows created inside a dialog stay blocked.
+Rendering/geometry/lifetime work continues. Accepted source Hide/Close releases
+the gate before native hide/destruction. If an outer dialog closes with an owned
+nested dialog still active, source disposal retries after owned windows close.
+Canceled closing retains the gate. Normal scope disposal remains idempotent.
+Gate-release failures still unwind accepted source-close/host disposal; they do
+not strand an already-disposed source with a live native host. The failure remains
+reported, and uncertain predecessor gates prevent speculative focus restoration.
+
+Source capture precedes native disabling and records the actually active Window,
+original PresentationSource and focused element, not an arbitrary Owner fallback.
+After the prior policy is successfully restored, the source requests activation
+through the typed host, then restores an element only if it remains in its original
+live source. Hidden, disabled, disposed, moved and no-longer-admitted targets do
+not regain focus. IsActive is never fabricated; host activation rejection is a
+normal unsuccessful request. Capture is not restored as a stale mouse grab.
+
+This is implemented Win32/source integration, **not runtime qualification or
+full cross-platform/application-wide modality**. Cocoa and Linux native input
+suppression, other UI threads, unrelated native/custom-host windows, native
+startup placement and actual focus/close/keyboard/pointer behavior remain explicit
+requirements. Registered-policy synchronization does not prove OS qualification.
+Windows SDK admission stays guarded. Source/package application gates and exact-head
+CI remain mandatory after implementation freeze.
+
+Provenance: original ProGPU PortableModalInputScope, SilkWindowController and
+Win32WindowEnabledState; original source-integrated LibreWPF host/dialog/input
+seams. No external implementation was copied. Public contracts consulted:
+[Win32 enabled input and pre-destruction ordering](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enablewindow)
+and [WPF previous-active-window semantics](https://learn.microsoft.com/en-us/dotnet/api/system.windows.window.showdialog).
+Adopted distinct enabled intent, enable-before-destroy ordering and actual prior
+activation; rejected assigning WPF IsEnabled or always activating Window.Owner.
+Publication is O(W) time/snapshot storage per boundary for W registered windows;
+normal input remains allocation-free. Native callbacks and owner/focus walks are
+dependent control flow, not SIMD kernels, GPU work or per-frame scanning.
+
+Authored fixtures cover nested/new/popup admission, failed entry rollback, failed
+exit diagnostics, callback removal/reentry, source focus/native admission and
+Hide/Close ordering. A Windows-only hidden-window fixture exercises the actual
+controller enabled gate and Reapply. These fixtures have not been executed.
+
+Compile-only checkpoint (2026-09-09): final ProGPU.Tests and LibreWPF bridge
+fixtures both compile with 0 warnings/0 errors; source PresentationFramework
+fixtures compile with 2 warnings/0 errors and RealPresentationFrameworkHarness
+with 0/0. Callback-created surface admission and active-then-hidden restoration
+fixtures are included. Builds use the workspace SDK and `--no-restore -m:1`;
+no tests, verifier scripts, application/VM/GPU runs, benchmarks or CI polling ran.
+Latest fetched ProGPU main (`102e39e5088b462624da6296ff70a43ed2c5d8b4`) is
+already included. The unrelated native semantic-state edits and performance
+artifact deletions are excluded from this batch. Fresh package production and
+package-mode startup remain separate open gates, not established by these builds.
+
 ## Native top-level owner connection
 
 Acceptance action: the existing LibreWPF MVP About dialog assigns its source
@@ -81,10 +157,10 @@ missing/disposed roots and cycles with allocation-free cycle detection. A popup
 of an inactive owner cannot inherit the active dialog's permission merely by
 receiving a native event. Only original source Window identities are admitted.
 
-This connects source/host input filtering on each participating UI thread, **not
-full native modality**. Other UI threads are independent. Native nonclient input
-suppression, real window owner configuration, application-wide coordination where
-required and restoration of previous native activation/focus remain open. OS
+This source layer alone is **not full native modality**. Native ownership and
+Win32 gates/source restoration are connected in the sections above; Cocoa/Linux
+native suppression and application-wide coordination remain open. Other UI
+threads are independent. OS
 activation may occur before the host rejects its notification; a successful
 source filter is not proof that the OS prevented that activation. Custom hosts
 must use the source input registrar; arbitrary direct application event injection
@@ -137,10 +213,10 @@ continuation, not copied WPF implementation. Public contract references consulte
 - [Window.ShowDialog](https://learn.microsoft.com/en-us/dotnet/api/system.windows.window.showdialog):
   synchronous result, application modality and owner/activation semantics.
 
-Scope: this connects loop lifetime, not full modality. Native owner-window
-configuration, disabling other application windows (including newly created
-windows), nested-modal input restriction and previous activation restoration
-remain required integration work. Do not infer them from ComponentDispatcher's
+Scope: this connects loop lifetime, not full modality. The additional owner,
+Win32 gate and source restoration connections are described above; their remaining
+platform/application qualification requirements are not closed by the loop.
+Do not infer them from ComponentDispatcher's
 modal notification or the presence of this callback. Windows SDK admission remains
 guarded; no native menu, popup or rendering algorithm is replaced here.
 

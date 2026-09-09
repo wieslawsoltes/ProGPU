@@ -205,6 +205,19 @@ writes, not SetParent child reparenting. Cocoa validates before removing its old
 owner; X11 transient hints are submission, not WM/display qualification. Keep
 Wayland capability gaps and modality/activation restoration separate.
 PortableModalInputScope is the shared thread-bound source dialog input policy.
+Its native-surface registrations must be weakly indexed and host-owned, immediately
+publish current permission for new windows, and release references on disposal.
+Snapshot only at scope transitions; callback removal/creation cannot corrupt the
+publication traversal. Roll back failed entry and publish exit to every surviving
+gate even after a failure. Reject recursive scope mutation during publication;
+surface registration/removal remains allowed. Report failed synchronization so
+source focus restoration cannot activate a still-blocked predecessor.
+SilkWindowController input admission is separate from application enabled intent.
+Only supported Win32 gates may report acceptance; Cocoa button changes are not
+native input suppression. Reapply and SetEnabled must preserve the input gate and
+reconcile callback-updated intent before returning, with bounded explicit failure
+for oscillation. Source hosts create registered surfaces hidden until admission,
+including popups using actual owner identities. Keep other OS/thread gaps explicit.
 Enter before Show, preserve nested identity and LIFO/owning-thread release, and
 clear scope references on disposal. Host ingress and queued delivery must both
 check it; source adapters resolve actual popup ownership and check capture/focus
