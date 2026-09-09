@@ -21292,6 +21292,130 @@ int main() {
         PROGPU_REQUIRE(found);
     }
     {
+        // Paired with NativeClosedStrokeCaptureUsesSharedMvpJoins. Three
+        // connected edges, including the closing seam; endpoint caps do not apply.
+        const std::array points{progpu_native_point{0.0F, 40.0F},
+            progpu_native_point{24.0F, 0.0F}, progpu_native_point{48.0F, 40.0F}};
+        for (std::uint32_t join = 0U; join < 3U; ++join) {
+            progpu::native::semantic_scene_builder builder(9814U, 1U);
+            auto state = builder.identity_state();
+            state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+            state.clip_rect = {-100.0F, -100.0F, 400.0F, 400.0F};
+            state.transform = {2.0F, 0.0F, 0.0F, 3.0F, 5.0F, 7.0F};
+            std::uint32_t state_index{};
+            PROGPU_REQUIRE(builder.add_state(state, state_index));
+            PROGPU_REQUIRE(builder.set_hit_test_owner(-74));
+            progpu_native_scene_stroke stroke{};
+            stroke.struct_size = sizeof(stroke);
+            stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+            stroke.flags = PROGPU_NATIVE_POLYLINE_FLAG_CLOSED | PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS;
+            stroke.point_count = points.size(); stroke.stroke_thickness = 2.0F;
+            stroke.miter_limit = 10.0F; stroke.line_join = join;
+            stroke.start_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+            stroke.end_cap = PROGPU_NATIVE_STROKE_CAP_TRIANGLE;
+            stroke.transform = builder.identity_transform();
+            PROGPU_REQUIRE(builder.draw_strokes(std::span(&stroke, 1U), points, {}, {},
+                {-10.0F, -10.0F, 70.0F, 60.0F}, state_index));
+            const auto hits = capture_hits(builder);
+            const std::size_t triangles_per_corner = join == PROGPU_NATIVE_STROKE_JOIN_MITER ? 2U :
+                join == PROGPU_NATIVE_STROKE_JOIN_BEVEL ? 1U : 6U;
+            PROGPU_REQUIRE(hits.size() == 3U * (1U + triangles_per_corner));
+            if (join == PROGPU_NATIVE_STROKE_JOIN_MITER)
+                PROGPU_REQUIRE(std::abs(hits[2U].data0.y + std::sqrt(24.0F * 24.0F + 40.0F * 40.0F) / 24.0F) < 0.00001F);
+            for (std::size_t edge = 0U; edge < 3U; ++edge) {
+                const auto offset = edge * (1U + triangles_per_corner);
+                const auto& line = hits[offset];
+                PROGPU_REQUIRE(line.id == -74 && line.kind == PROGPU_NATIVE_HIT_TEST_LINE_STROKE);
+                PROGPU_REQUIRE(line.data0.x == points[edge].x && line.data0.y == points[edge].y);
+                PROGPU_REQUIRE(line.data0.z == points[(edge + 1U) % 3U].x && line.data0.w == points[(edge + 1U) % 3U].y);
+                PROGPU_REQUIRE(line.data1.x == 2.0F && line.data1.z == 0.0F && line.data1.w == 0.0F);
+                PROGPU_REQUIRE(line.inverse_transform0.x == 0.5F && line.clip_segment_count == 4U);
+                for (std::size_t k = 1U; k <= triangles_per_corner; ++k) {
+                    const auto& triangle = hits[offset + k];
+                    PROGPU_REQUIRE(triangle.id == -74 && triangle.kind == PROGPU_NATIVE_HIT_TEST_PATH_FILL);
+                    PROGPU_REQUIRE(triangle.data1.y == 3.0F && triangle.data1.z == 1.0F);
+                    PROGPU_REQUIRE(triangle.clip_segment_count == 4U);
+                }
+            }
+            PROGPU_REQUIRE(builder.reset(9814U, 2U));
+            PROGPU_REQUIRE(builder.set_hit_test_owner(-74));
+            // Keep ordinary open stroke batches explicit, without publishing
+            // the earlier successful closed stroke as a partial whole index.
+            PROGPU_REQUIRE(builder.draw_strokes(std::span(&stroke, 1U), points, {}, {}, {0, 0, 48, 40}));
+            stroke.flags &= ~PROGPU_NATIVE_POLYLINE_FLAG_CLOSED;
+            PROGPU_REQUIRE(builder.draw_strokes(std::span(&stroke, 1U), points, {}, {}, {0, 0, 48, 40}));
+            std::uint32_t rejected{};
+            PROGPU_REQUIRE(!builder.add_recorded_hit_test_index(rejected));
+            PROGPU_REQUIRE(rejected == PROGPU_NATIVE_SCENE_NO_INDEX);
+            PROGPU_REQUIRE(builder.last_error() == progpu::native::scene_build_error::unsupported_hit_test);
+        }
+    }
+    {
+        // Actual MvpShapePath: M 0,40 L 24,0 L 48,40 Z, fill plus width-2 miter pen.
+        channel state;
+        std::vector<std::byte> batch, content, figures;
+        append_value(figures, 152U); append_value(figures, 2U);
+        append_value(figures, 0.0); append_value(figures, 0.0);
+        append_value(figures, 48.0); append_value(figures, 40.0);
+        append_value(figures, 1U); append_value(figures, 0U);
+        append_value(figures, 0U); append_value(figures, 0x0cU);
+        append_value(figures, 2U); append_value(figures, 104U);
+        append_value(figures, 0.0); append_value(figures, 40.0);
+        append_value(figures, 72U); append_value(figures, 0U);
+        for (std::uint32_t edge = 0U; edge < 2U; ++edge) {
+            append_value(figures, 1U); append_value(figures, 0U);
+            append_value(figures, edge * 32U); append_value(figures, 0U);
+            append_value(figures, edge == 0U ? 24.0 : 48.0);
+            append_value(figures, edge == 0U ? 0.0 : 40.0);
+        }
+        append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
+        append_create(batch, 3U, 47U); append_create(batch, 4U, 75U);
+        append_create(batch, 5U, 85U); append_create(batch, 6U, 73U);
+        append_command(batch, command::visual_create, 1U);
+        append_command(batch, command::visual_set_offset, 1U, 178.0, 20.0);
+        append_command(batch, command::solid_color_brush, 4U, 1.0,
+            progpu_native_color{1.0F, 0.69F, 0.13F, 1.0F}, 0U, 0U, 0U, 0U);
+        append_command(batch, command::pen, 5U, 2.0, 10.0, 4U, 0U, 0U, 0U, 0U, 0U, 0U);
+        append_path_geometry(batch, 6U, 0U, 0U, figures);
+        append_command(content, command::draw_geometry, 4U, 5U, 6U, 0U);
+        append_render_data(batch, 2U, content);
+        append_command(batch, command::visual_set_content, 1U, 2U);
+        append_command(batch, command::generic_target_create, 3U,
+            std::uint64_t{0U}, std::uint64_t{0U}, 300U, 120U, 0U);
+        append_command(batch, command::target_set_root, 3U, 1U);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        scene_build_request request{};
+        request.flags = scene_build_request_flags::hit_test_index;
+        request.target_handle = 3U; request.scene_id = 9815U;
+        request.generation = request.request_serial = 1U;
+        request.dpi_scale_x = request.dpi_scale_y = 1.0;
+        std::span<const std::byte> compiled;
+        PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+        const std::vector<std::byte> stream(compiled.begin(), compiled.end());
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        bool found = false;
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + i * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+            const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+            PROGPU_REQUIRE(page.primitive_count == 10U); // fill, three bodies, six join triangles
+            std::size_t line_count = 0U;
+            for (std::uint32_t j = 0U; j < page.primitive_count; ++j) {
+                const auto hit = read_value<progpu_native_hit_test_primitive>(stream,
+                    resource.auxiliary_offset + page.primitive_offset + j * sizeof(progpu_native_hit_test_primitive));
+                PROGPU_REQUIRE(hit.id == 1);
+                if (hit.kind == PROGPU_NATIVE_HIT_TEST_LINE_STROKE) {
+                    PROGPU_REQUIRE(hit.inverse_transform0.z == -178.0F && hit.inverse_transform1.z == -20.0F);
+                    ++line_count;
+                }
+            }
+            PROGPU_REQUIRE(line_count == 3U);
+            found = true;
+        }
+        PROGPU_REQUIRE(found);
+    }
+    {
         // Source image coverage, not render contents. Paired with the managed
         // RenderCommandCacheUsesExplicitTextureHitTestId rectangle/transform.
         progpu::native::semantic_scene_builder builder(9803U, 1U);

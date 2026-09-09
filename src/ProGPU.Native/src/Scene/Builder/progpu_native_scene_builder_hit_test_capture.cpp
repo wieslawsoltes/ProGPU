@@ -1,6 +1,7 @@
 #include "progpu_native_scene_builder_internal.hpp"
 #include "progpu_native_hit_testing.hpp"
 #include "progpu_native_geometry_base.hpp"
+#include "progpu_native_geometry_stroke.hpp"
 #include "progpu_native_semantic_image.hpp"
 
 #include <algorithm>
@@ -186,6 +187,47 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             return true;
         };
         const auto unsupported = [&] { return implementation_->fail(scene_build_error::unsupported_hit_test); };
+        const auto append_line = [&](progpu_native_point first, progpu_native_point last,
+            float width, std::uint32_t start_cap, std::uint32_t end_cap,
+            const progpu_native_affine_2d& transform, const progpu_native_scene_state& state,
+            std::uint32_t state_index) {
+            progpu_native_hit_test_primitive hit{};
+            hit.kind = PROGPU_NATIVE_HIT_TEST_LINE_STROKE;
+            hit.data0 = {first.x, first.y, last.x, last.y};
+            hit.data1 = {width, 0.0F, static_cast<float>(start_cap), static_cast<float>(end_cap)};
+            if (!line_hit_data(first, last, hit.data2)) return false;
+            float padding = width * 0.5F;
+            // Broad phase must include diagonal square-cap corners.
+            if (start_cap == PROGPU_NATIVE_STROKE_CAP_SQUARE || end_cap == PROGPU_NATIVE_STROKE_CAP_SQUARE)
+                padding *= std::sqrt(2.0F);
+            return place_primitive(hit,
+                {std::min(first.x, last.x) - padding, std::min(first.y, last.y) - padding},
+                {std::max(first.x, last.x) + padding, std::max(first.y, last.y) + padding}, transform) &&
+                append(hit, state, state_index);
+        };
+        const auto append_join_triangle = [&](const stroke_triangle& triangle,
+            const progpu_native_affine_2d& transform, const progpu_native_scene_state& state,
+            std::uint32_t state_index) {
+            if (!is_finite(triangle.p0) || !is_finite(triangle.p1) || !is_finite(triangle.p2) ||
+                segments.size() > exact_float_integer_limit - 3U) return false;
+            const progpu_native_point minimum{std::min({triangle.p0.x, triangle.p1.x, triangle.p2.x}),
+                std::min({triangle.p0.y, triangle.p1.y, triangle.p2.y})};
+            const progpu_native_point maximum{std::max({triangle.p0.x, triangle.p1.x, triangle.p2.x}),
+                std::max({triangle.p0.y, triangle.p1.y, triangle.p2.y})};
+            progpu_native_hit_test_primitive hit{};
+            hit.kind = PROGPU_NATIVE_HIT_TEST_PATH_FILL;
+            hit.data0 = {minimum.x, minimum.y, maximum.x, maximum.y};
+            hit.data1 = {static_cast<float>(segments.size()), 3.0F, 1.0F, 0.0F};
+            if (!place_primitive(hit, minimum, maximum, transform)) return false;
+            const std::array points{triangle.p0, triangle.p1, triangle.p2};
+            for (std::size_t edge = 0U; edge < 3U; ++edge) {
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segment.p0 = points[edge]; segment.p1 = points[(edge + 1U) % 3U];
+                segments.push_back(segment);
+            }
+            return append(hit, state, state_index);
+        };
         const auto append_rectangle = [&](const progpu_native_image_rect& rectangle,
                                           const progpu_native_affine_2d& transform,
                                           const progpu_native_scene_state& state,
@@ -311,24 +353,52 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     if (source.kind != PROGPU_NATIVE_GEOMETRY_LINE || (source.flags & ~allowed) != 0U)
                         return unsupported();
                     if (source.stroke_thickness <= 0.0F) continue;
-                    progpu_native_hit_test_primitive hit{};
-                    hit.kind = PROGPU_NATIVE_HIT_TEST_LINE_STROKE;
-                    hit.data0 = {source.p0.x, source.p0.y, source.p1.x, source.p1.y};
                     const auto start_cap = (source.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >> PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
                     const auto end_cap = (source.flags & PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK) >> PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT;
-                    hit.data1 = {source.stroke_thickness, 0.0F, static_cast<float>(start_cap), static_cast<float>(end_cap)};
-                    if (!line_hit_data(source.p0, source.p1, hit.data2)) return unsupported();
-                    float padding = source.stroke_thickness * 0.5F;
-                    // A diagonal square cap can extend sqrt(2)*radius on one
-                    // coordinate. This is conservative pruning, not hit geometry.
-                    if (start_cap == PROGPU_NATIVE_STROKE_CAP_SQUARE || end_cap == PROGPU_NATIVE_STROKE_CAP_SQUARE)
-                        padding *= std::sqrt(2.0F);
-                    const progpu_native_point minimum{std::min(source.p0.x, source.p1.x) - padding,
-                        std::min(source.p0.y, source.p1.y) - padding};
-                    const progpu_native_point maximum{std::max(source.p0.x, source.p1.x) + padding,
-                        std::max(source.p0.y, source.p1.y) + padding};
-                    if (!place_primitive(hit, minimum, maximum, compose_affine(source.transform, state.transform)) ||
-                        !append(hit, state, state_index)) return unsupported();
+                    if (!append_line(source.p0, source.p1, source.stroke_thickness, start_cap, end_cap,
+                        compose_affine(source.transform, state.transform), state, state_index)) return unsupported();
+                }
+                continue;
+            }
+            if (kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
+                const auto& resource = implementation_->resources[command.record.resource_index];
+                for (std::size_t j = 0U; j < resource.payload.size() / sizeof(progpu_native_scene_stroke); ++j) {
+                    const auto source = read_record<progpu_native_scene_stroke>(resource.payload, j);
+                    constexpr std::uint32_t allowed = PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED |
+                        PROGPU_NATIVE_POLYLINE_FLAG_CLOSED | PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS;
+                    if (source.kind != PROGPU_NATIVE_SCENE_STROKE_POLYLINE || source.dash_interval_count != 0U ||
+                        (source.flags & ~allowed) != 0U || (source.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) == 0U ||
+                        source.point_count < 3U || source.stroke_thickness <= 0.0001F) return unsupported();
+                    const auto transform = compose_affine(source.transform, state.transform);
+                    float maximum_scale{}, minimum_scale{};
+                    if (!try_get_stroke_scales(transform, maximum_scale, minimum_scale)) return unsupported();
+                    const bool affine_outline = requires_affine_stroke_geometry(transform);
+                    const auto join_transform = affine_outline ? transform : identity_transform();
+                    const auto point = [&](std::size_t index) {
+                        return read_record<progpu_native_point>(resource.auxiliary, source.point_offset + index);
+                    };
+                    const bool wpf_joins = (source.flags & PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS) != 0U;
+                    // Same closed traversal and join construction as append_polyline.
+                    // Flat line bodies plus real join triangles form a union under
+                    // one owner; canonical query output deduplicates that owner.
+                    for (std::size_t edge = 0U; edge < source.point_count; ++edge) {
+                        const auto first = point(edge), corner = point((edge + 1U) % source.point_count);
+                        const auto last = point((edge + 2U) % source.point_count);
+                        if (!append_line(first, corner, source.stroke_thickness, PROGPU_NATIVE_STROKE_CAP_FLAT,
+                            PROGPU_NATIVE_STROKE_CAP_FLAT, transform, state, state_index)) return unsupported();
+                        std::array<stroke_triangle, 8U> joins{};
+                        const progpu_native_point incoming{corner.x - first.x, corner.y - first.y};
+                        const progpu_native_point outgoing{last.x - corner.x, last.y - corner.y};
+                        // Match append_polyline's local-affine versus world-conformal
+                        // join domain, including its scale-sensitive miter threshold.
+                        const auto count = create_join_triangles(joins, source.line_join,
+                            affine_outline ? source.stroke_thickness : source.stroke_thickness * maximum_scale,
+                            source.miter_limit, affine_outline ? corner : transformed_point(transform, corner),
+                            affine_outline ? incoming : transformed_direction(transform, incoming),
+                            affine_outline ? outgoing : transformed_direction(transform, outgoing), wpf_joins);
+                        for (std::size_t k = 0U; k < count; ++k)
+                            if (!append_join_triangle(joins[k], join_transform, state, state_index)) return unsupported();
+                    }
                 }
                 continue;
             }

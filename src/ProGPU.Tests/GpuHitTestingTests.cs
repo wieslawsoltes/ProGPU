@@ -206,6 +206,35 @@ public sealed class GpuHitTestingTests
         Assert.Equal((float)LineGeometryCap.Square, line.Data1.Z);
     }
 
+    [Theory]
+    [InlineData(PenLineJoin.Miter, 2)]
+    [InlineData(PenLineJoin.Bevel, 1)]
+    [InlineData(PenLineJoin.Round, 6)]
+    public void NativeClosedStrokeCaptureUsesSharedMvpJoins(PenLineJoin join, int trianglesPerCorner)
+    {
+        // Same closed MVP contour, width and placement as native scene 9814.
+        Vector2[] points = [new(0, 40), new(24, 0), new(48, 40)];
+        Span<StrokeJoinTriangle> triangles = stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
+        var transform = Matrix4x4.CreateScale(2, 3, 1) * Matrix4x4.CreateTranslation(5, 7, 0);
+        for (int edge = 0; edge < points.Length; edge++)
+        {
+            Vector2 first = points[edge], corner = points[(edge + 1) % points.Length];
+            Vector2 next = points[(edge + 2) % points.Length];
+            var line = GpuHitTestPrimitive.LineStroke(-74, first, corner, 2,
+                LineGeometryCap.Flat, LineGeometryCap.Flat, 0, transform);
+            Assert.Equal(new Vector4(first.X, first.Y, corner.X, corner.Y), line.Data0);
+            Assert.Equal(new Vector4(2, 0, 0, 0), line.Data1);
+            int count = StrokeJoinGeometry.WriteWpfLineJoin(triangles, join, 2, 10, first, corner, next);
+            Assert.Equal(trianglesPerCorner, count);
+            if (join == PenLineJoin.Miter && edge == 0)
+            {
+                // Apex miter extends above the spine by 1 / sin(atan(24/40)).
+                float top = MathF.Min(triangles[1].P0.Y, MathF.Min(triangles[1].P1.Y, triangles[1].P2.Y));
+                Assert.Equal(-MathF.Sqrt(24 * 24 + 40 * 40) / 24, top, 5);
+            }
+        }
+    }
+
     [Fact]
     public void EllipseCachesCenterAndInverseRadiiForGpuHitTesting()
     {

@@ -370,6 +370,56 @@ deferred to final qualification.
 
 ## Remaining implementation and final qualification
 
+### Closed solid stroke batches — MVP connection, 2026-09-09
+
+Acceptance action: pointer/selection queries on LibreWPF package MVP
+`MvpShapePath` (`M 0,40 L 24,0 L 48,40 Z`, width 2, miter join, offset 178/20).
+MIL already emits its fill and a closed polyline stroke batch. Native hit capture
+now accepts that batch and retains every edge and its closing join. This is an
+implementation connection, not a claim that native host queries are enabled.
+
+Original ProGPU provenance is `Backend/progpu_native_geometry_dash.hpp`
+`append_polyline` (closed traversal/domain selection),
+`Backend/progpu_native_geometry_stroke.hpp` `create_join_triangles` (the actual
+renderer join algorithm), and the existing canonical `GpuHitTesting.cs`/WGSL
+LineStroke and PathFill representations. Each flat body and join triangle keeps
+the source owner and clip. The canonical all-hit query deduplicates owner IDs;
+these are index records, not separately blended coverage draws or submissions.
+Triangle payloads contain their three real boundary segments, not AABB hits or
+antialias-expanded render vertices. Raster rendering is unchanged. Affine joins
+use local geometry then the outer transform; conformal joins use the renderer's
+world-domain construction, preserving its scale-sensitive miter threshold.
+
+Managed rendering already uses `StrokeJoinGeometry.WriteWpfLineJoin` and retains
+closed contours through `StrokeCoverageGeometry.TryPrepareLinearPath`. No new
+managed stroker or shader is needed. Matched managed/native fixtures use the
+MVP's contour for miter, bevel and round joins, with an independent apex-miter
+oracle. Native fixtures additionally exercise source ownership, anisotropic
+placement, actual state clips, ignored closed endpoint caps, transactional
+rejection after a supported batch, and canonical MIL fill-plus-stroke scene 9815.
+These are authored fixtures; execution stays in the final qualification phase.
+
+This uses the existing engine research record above. The public
+[Direct2D stroke containment contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-strokecontainspoint(d2d1_point_2f_float_id2d1strokestyle_constd2d1_matrix_3x2_f_float_bool))
+was revisited: stroke style and transform remain inputs, not bounds substitutes.
+No third-party implementation was copied. Retained/input ownership stays
+independent of raster effects; text engines and shaping caches are unaffected.
+
+For E closed edges, preparation adds O(E) time and O(E) retained records, bounded
+by one line plus eight join triangles (24 segments) per edge, before the existing
+quadtree build. Scratch is eight stack triangles. Existing NEON/SSE2 line metrics
+and four-corner placement are shared. The existing join helper's bounded scalar
+topology/math is reused unchanged, not claimed as newly SIMD-qualified. There is
+no CPU pixel readback, outline rasterization or additional managed/native call.
+Round joins retain the renderer's existing eight-triangle quality bound; this
+does not establish mathematical-circle or native-Windows pixel parity.
+
+Open/dashed/spline/device-width batches and degenerate edges remain explicit
+unsupported inputs; none can publish a successful partial index. Other semantic
+geometry, exact geometry clips, effects/caches and host query routing still need
+application closure. No ABI, module interface, shader, or `progpu_native_mil.cpp`
+source-digest change is involved. Full platform/module/package/CI gates remain.
+
 1. Complete retained hit primitives and the shared C++ `hit_test_index` from MIL visual
    traversal. IDs must be source visual handle bits, not resource IDs or draw
    ordinals. Reuse semantic fill/stroke/path/text preparation; preserve visual

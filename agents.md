@@ -548,6 +548,13 @@ lines at the query shader's degenerate threshold unsupported until their exact
 contract exists; never replace them with its generic disk branch. Other geometry
 and stroke-batch families remain explicit until connected, not successful omissions.
 
+Closed solid polyline input reuses the renderer's actual join triangles and
+canonical flat line bodies, with one source owner and exact per-record clips.
+Preserve the closing seam, WPF miter semantics and local-affine/world-conformal
+join domains. Index decomposition is not permission to split raster coverage
+draws, use antialias padding as hit geometry, or silently omit open/dashed/device
+stroke batches. Keep paired MVP join fixtures and reject partial index publication.
+
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
 Styled Direct2D primitive callbacks must route through genuine factory-owned
