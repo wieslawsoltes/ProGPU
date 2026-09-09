@@ -7,10 +7,14 @@ param(
     [string] $Generator = $(if ($env:PROGPU_NATIVE_WINDOWS_GENERATOR) { $env:PROGPU_NATIVE_WINDOWS_GENERATOR } else { "Ninja" }),
     [ValidateSet("Full", "Smoke")]
     [string] $BenchmarkProfile = $(if ($env:PROGPU_NATIVE_WINDOWS_BENCHMARK_PROFILE) { $env:PROGPU_NATIVE_WINDOWS_BENCHMARK_PROFILE } else { "Full" }),
-    [switch] $SkipExtendedIntegration
+    [switch] $SkipExtendedIntegration,
+    [switch] $BuildOnly
 )
 
 $ErrorActionPreference = "Stop"
+if ($BuildOnly -and $SkipExtendedIntegration) {
+    throw "-BuildOnly cannot use a reduced compiler-qualification profile."
+}
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $ExpectedCommit = "33133da4ec5a0174cb21539ef2d3346f75200411"
 $ExpectedHeadersCommit = "aef5e428a1fdab2ea770581ae7c95d8779984e0a"
@@ -169,6 +173,55 @@ $Direct2DDll = Join-Path $BinaryDirectory "progpu_native_direct2d.dll"
 if (-not (Test-Path $Direct2DDll)) {
     throw "The Direct2D COM provider DLL was not produced: $Direct2DDll"
 }
+function Stage-NativePackage {
+    $SdkLibraries = @(
+        "progpu_native_dawn.lib",
+        "progpu_native_compression.lib",
+        "progpu_native_hit_testing.lib",
+        "progpu_native_image.lib",
+        "progpu_native_mil.lib",
+        "progpu_native_text.lib",
+        "progpu_native_scene_builder.lib"
+    )
+    # Require every DLL and SDK library before changing the staged payload set.
+    foreach ($Payload in @($NativeDll, $DawnDll, $Direct2DDll)) {
+        if (-not (Test-Path $Payload -PathType Leaf) -or (Get-Item $Payload).Length -eq 0) {
+            throw "The native package DLL was not produced: $Payload"
+        }
+    }
+    foreach ($SdkLibraryName in $SdkLibraries) {
+        $SdkLibrary = Join-Path $BinaryDirectory $SdkLibraryName
+        if (-not (Test-Path $SdkLibrary -PathType Leaf) -or (Get-Item $SdkLibrary).Length -eq 0) {
+            throw "The native C++ SDK library was not produced: $SdkLibrary"
+        }
+    }
+    Copy-Item $NativeDll (Join-Path $PackageStage "progpu_native.dll") -Force
+    Copy-Item $DawnDll (Join-Path $PackageStage "progpu_native_dawn.dll") -Force
+    Copy-Item $Direct2DDll (Join-Path $PackageStage "progpu_native_direct2d.dll") -Force
+    $SdkPackageStage = Join-Path $PackageStage "sdk"
+    New-Item -ItemType Directory -Force -Path $SdkPackageStage | Out-Null
+    foreach ($SdkLibraryName in $SdkLibraries) {
+        Copy-Item (Join-Path $BinaryDirectory $SdkLibraryName) (Join-Path $SdkPackageStage $SdkLibraryName) -Force
+    }
+    $NativePdb = Join-Path $BinaryDirectory "progpu_native.pdb"
+    $DawnPdb = Join-Path $BinaryDirectory "progpu_native_dawn.pdb"
+    $Direct2DPdb = Join-Path $BinaryDirectory "progpu_native_direct2d.pdb"
+    if ((Test-Path $NativePdb) -or (Test-Path $DawnPdb) -or (Test-Path $Direct2DPdb)) {
+        $SymbolStage = Join-Path $RepoRoot "artifacts/progpu-native/symbols/$Rid"
+        New-Item -ItemType Directory -Force -Path $SymbolStage | Out-Null
+        if (Test-Path $NativePdb) { Copy-Item $NativePdb $SymbolStage -Force }
+        if (Test-Path $DawnPdb) { Copy-Item $DawnPdb $SymbolStage -Force }
+        if (Test-Path $Direct2DPdb) { Copy-Item $Direct2DPdb $SymbolStage -Force }
+    }
+}
+
+if ($BuildOnly) {
+    Stage-NativePackage
+    Write-Host "Built unqualified native package payload for $Rid in $PackageStage."
+    Write-Host "No tests, samples, export verification, benchmarks or release qualification executed."
+    return
+}
+
 $ExpectedNativeExports = Get-Content (Join-Path $RepoRoot "eng/progpu-native-exports.txt") |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
     Sort-Object -Unique
@@ -222,43 +275,7 @@ if (-not $SkipExtendedIntegration) {
     if ($DawnImports | Select-String -Pattern '\bwgpu[A-Z]' -CaseSensitive) {
         throw "The ProGPU Dawn adapter imports WebGPU procedures directly."
     }
-    Copy-Item $NativeDll (Join-Path $PackageStage "progpu_native.dll") -Force
-    Copy-Item $DawnDll (Join-Path $PackageStage "progpu_native_dawn.dll") -Force
-    Copy-Item $Direct2DDll (Join-Path $PackageStage "progpu_native_direct2d.dll") -Force
-    $SdkPackageStage = Join-Path $PackageStage "sdk"
-    New-Item -ItemType Directory -Force -Path $SdkPackageStage | Out-Null
-    $SdkLibraries = @(
-        "progpu_native_dawn.lib",
-        "progpu_native_compression.lib",
-        "progpu_native_hit_testing.lib",
-        "progpu_native_image.lib",
-        "progpu_native_mil.lib",
-        "progpu_native_text.lib",
-        "progpu_native_scene_builder.lib"
-    )
-    foreach ($SdkLibraryName in $SdkLibraries) {
-        $SdkLibrary = Join-Path $BinaryDirectory $SdkLibraryName
-        if (-not (Test-Path $SdkLibrary)) {
-            throw "The native C++ SDK library was not produced: $SdkLibrary"
-        }
-        Copy-Item $SdkLibrary (Join-Path $SdkPackageStage $SdkLibraryName) -Force
-    }
-    $NativePdb = Join-Path $BinaryDirectory "progpu_native.pdb"
-    $DawnPdb = Join-Path $BinaryDirectory "progpu_native_dawn.pdb"
-    $Direct2DPdb = Join-Path $BinaryDirectory "progpu_native_direct2d.pdb"
-    if ((Test-Path $NativePdb) -or (Test-Path $DawnPdb) -or (Test-Path $Direct2DPdb)) {
-        $SymbolStage = Join-Path $RepoRoot "artifacts/progpu-native/symbols/$Rid"
-        New-Item -ItemType Directory -Force -Path $SymbolStage | Out-Null
-        if (Test-Path $NativePdb) {
-            Copy-Item $NativePdb $SymbolStage -Force
-        }
-        if (Test-Path $DawnPdb) {
-            Copy-Item $DawnPdb $SymbolStage -Force
-        }
-        if (Test-Path $Direct2DPdb) {
-            Copy-Item $Direct2DPdb $SymbolStage -Force
-        }
-    }
+    Stage-NativePackage
 }
 
 $CurrentArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture

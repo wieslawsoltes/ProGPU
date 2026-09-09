@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Deliberately CLI-only: an inherited environment variable must not bypass CI.
+build_only=0
+if [[ "$#" == 1 && "$1" == --build-only ]]; then
+  build_only=1
+elif [[ "$#" != 0 ]]; then
+  echo "Usage: $0 [--build-only]" >&2
+  exit 2
+fi
+if [[ "${build_only}" == 1 && "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" == 1 ]]; then
+  echo "--build-only cannot use a reduced compiler-qualification profile." >&2
+  exit 2
+fi
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="${PROGPU_NATIVE_WGPU_SOURCE:-${repo_root}/artifacts/wgpu-native-src}"
 build_dir="${PROGPU_NATIVE_BUILD_DIR:-${repo_root}/artifacts/progpu-native/build}"
@@ -34,10 +47,12 @@ command -v python3 >/dev/null 2>&1 || {
   echo "python3 is required to verify generated MIL protocol artifacts." >&2
   exit 1
 }
-python3 "${repo_root}/eng/progpu-generate-mil-protocol.py" --check
-python3 "${repo_root}/eng/progpu-generate-mil-coverage.py" --check
-if [[ "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" != "1" ]]; then
-  python3 "${repo_root}/eng/progpu-prepare-win2d-source.py"
+if [[ "${build_only}" == 0 ]]; then
+  python3 "${repo_root}/eng/progpu-generate-mil-protocol.py" --check
+  python3 "${repo_root}/eng/progpu-generate-mil-coverage.py" --check
+  if [[ "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" != "1" ]]; then
+    python3 "${repo_root}/eng/progpu-prepare-win2d-source.py"
+  fi
 fi
 
 dotnet restore \
@@ -66,15 +81,19 @@ global_packages="$(dotnet nuget locals global-packages --list | sed -E 's/^[^:]+
 package_root="${global_packages%/}/silk.net.webgpu.native.wgpu/${package_version}"
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64)
+    package_rid=osx-arm64
     package_library="${package_root}/runtimes/osx-arm64/native/libwgpu_native.dylib"
     ;;
   Darwin-x86_64)
+    package_rid=osx-x64
     package_library="${package_root}/runtimes/osx-x64/native/libwgpu_native.dylib"
     ;;
   Linux-x86_64)
+    package_rid=linux-x64
     package_library="${package_root}/runtimes/linux-x64/native/libwgpu_native.so"
     ;;
   Linux-aarch64|Linux-arm64)
+    package_rid=linux-arm64
     package_library="${package_root}/runtimes/linux-arm64/native/libwgpu_native.so"
     ;;
   *)
@@ -115,10 +134,37 @@ cmake_options=(
   -DPROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY=
   -DPROGPU_NATIVE_BUILD_SAMPLE=ON
   -DBUILD_TESTING=ON)
+if [[ "${build_only}" == 1 ]]; then
+  source "${repo_root}/eng/progpu-native-dawn-headers.sh"
+  progpu_prepare_native_dawn_headers "${dawn_header_source}" "${repo_root}/eng/progpu-native-dawn.version.json"
+  cmake_options+=("-DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR=${dawn_header_source}")
+fi
 if ((${#module_options[@]})); then
   cmake_options+=("${module_options[@]}")
 fi
 cmake "${cmake_options[@]}"
+if [[ "${build_only}" == 1 ]]; then
+  cmake --build "${build_dir}" --config Release --parallel "${PROGPU_NATIVE_BUILD_JOBS:-4}"
+  # Require all renderer/SDK outputs before touching the package staging set.
+  if [[ "$(uname -s)" == Darwin ]]; then native_extension=dylib; else native_extension=so; fi
+  payload_files=("libprogpu_native.${native_extension}" "libprogpu_native_dawn.${native_extension}")
+  sdk_files=(libprogpu_native_compression.a libprogpu_native_hit_testing.a
+    libprogpu_native_image.a libprogpu_native_mil.a libprogpu_native_text.a
+    libprogpu_native_scene_builder.a)
+  for payload_file in "${payload_files[@]}" "${sdk_files[@]}"; do
+    if [[ ! -s "${build_dir}/${payload_file}" ]]; then
+      echo "Missing native package payload: ${build_dir}/${payload_file}" >&2
+      exit 1
+    fi
+  done
+  package_stage="${repo_root}/artifacts/progpu-native/package/runtimes/${package_rid}/native"
+  mkdir -p "${package_stage}/sdk"
+  for payload_file in "${payload_files[@]}"; do cp "${build_dir}/${payload_file}" "${package_stage}/"; done
+  for payload_file in "${sdk_files[@]}"; do cp "${build_dir}/${payload_file}" "${package_stage}/sdk/"; done
+  echo "Built unqualified native package payload for ${package_rid}: ${package_stage}"
+  echo "No tests, samples, export/protocol verification, benchmarks or release qualification executed."
+  exit 0
+fi
 cmake --build "${build_dir}" --config Release --parallel
 ctest --test-dir "${build_dir}" -C Release --output-on-failure
 direct2d_oracle_dir="${repo_root}/artifacts/progpu-native/direct2d-oracle"

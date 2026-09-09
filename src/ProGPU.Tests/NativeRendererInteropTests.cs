@@ -13,6 +13,64 @@ namespace Avalonia.ProGpu.UnitTests;
 public class NativeRendererInteropTests
 {
     [Fact]
+    public void NativeBuildOnlyLaneIsExplicitAndStopsBeforeQualification()
+    {
+        string unix = File.ReadAllText(FindRepoFile("eng", "build-progpu-native.sh"));
+        string windows = File.ReadAllText(FindRepoFile("eng", "build-progpu-native-windows.ps1"));
+        Assert.Contains("build_only=0", unix, StringComparison.Ordinal);
+        Assert.Contains("\"$1\" == --build-only", unix, StringComparison.Ordinal);
+        Assert.Contains("if [[ \"${build_only}\" == 0 ]]; then\n  python3", unix, StringComparison.Ordinal);
+        Assert.Contains("--build-only cannot use a reduced compiler-qualification profile", unix, StringComparison.Ordinal);
+        Assert.Contains("-DBUILD_TESTING=ON", unix, StringComparison.Ordinal);
+        Assert.Contains("-DPROGPU_NATIVE_BUILD_SAMPLE=ON", unix, StringComparison.Ordinal);
+        Assert.Contains("libprogpu_native_dawn.${native_extension}", unix, StringComparison.Ordinal);
+        Assert.Contains("libprogpu_native_scene_builder.a", unix, StringComparison.Ordinal);
+        int unixStop = unix.IndexOf("No tests, samples, export/protocol verification", StringComparison.Ordinal);
+        Assert.True(unixStop > unix.IndexOf("cmake --build", StringComparison.Ordinal));
+        Assert.True(unixStop < unix.IndexOf("ctest --test-dir", StringComparison.Ordinal));
+        Assert.StartsWith("No tests, samples, export/protocol verification, benchmarks or release qualification executed.\"\n  exit 0", unix[unixStop..], StringComparison.Ordinal);
+        Assert.Contains("[switch] $BuildOnly", windows, StringComparison.Ordinal);
+        Assert.DoesNotContain("$env:PROGPU_NATIVE_BUILD_ONLY", windows, StringComparison.Ordinal);
+        Assert.Contains("if ($BuildOnly -and $SkipExtendedIntegration)", windows, StringComparison.Ordinal);
+        int windowsStop = windows.IndexOf("if ($BuildOnly) {\n    Stage-NativePackage", StringComparison.Ordinal);
+        Assert.True(windowsStop > windows.IndexOf("cmake --build", StringComparison.Ordinal));
+        Assert.True(windowsStop < windows.IndexOf("$ExpectedNativeExports", StringComparison.Ordinal));
+        Assert.True(windowsStop < windows.IndexOf("ctest --test-dir", StringComparison.Ordinal));
+        Assert.Contains("qualification executed.\"\n    return\n}", windows, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_direct2d.dll", windows, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_dawn.lib", windows, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_scene_builder.lib", windows, StringComparison.Ordinal);
+        foreach (string file in new[] { "build.yml", "release.yml" })
+        {
+            string workflow = File.ReadAllText(FindRepoFile(".github", "workflows", file));
+            Assert.DoesNotContain("--build-only", workflow, StringComparison.Ordinal);
+            Assert.DoesNotContain("-BuildOnly", workflow, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void BuildOnlyAndDawnQualificationSharePinnedHeaderPreparation()
+    {
+        string helper = File.ReadAllText(FindRepoFile("eng", "progpu-native-dawn-headers.sh"));
+        Assert.Contains("webGpuHeadersRevision", helper, StringComparison.Ordinal);
+        Assert.Contains("webGpuHeadersRepository", helper, StringComparison.Ordinal);
+        Assert.Contains("Refusing to change a modified Dawn WebGPU header checkout", helper, StringComparison.Ordinal);
+        Assert.Contains("git -C \"${source_dir}\" checkout --detach \"${expected_commit}\"", helper, StringComparison.Ordinal);
+        Assert.DoesNotContain("ctest", helper, StringComparison.Ordinal);
+        Assert.DoesNotContain("dotnet run", helper, StringComparison.Ordinal);
+        foreach (string file in new[] { "build-progpu-native.sh", "progpu-verify-native-dawn-header.sh" })
+        {
+            string caller = File.ReadAllText(FindRepoFile("eng", file));
+            Assert.Contains("source \"${repo_root}/eng/progpu-native-dawn-headers.sh\"", caller, StringComparison.Ordinal);
+            Assert.Contains("progpu_prepare_native_dawn_headers", caller, StringComparison.Ordinal);
+        }
+        string verifier = File.ReadAllText(FindRepoFile("eng", "progpu-verify-native-dawn-header.sh"));
+        Assert.Contains("ctest --test-dir", verifier, StringComparison.Ordinal);
+        Assert.Contains("progpu-verify-native-exports.sh", verifier, StringComparison.Ordinal);
+        Assert.Contains("imports WebGPU procedures directly", verifier, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FlowParagraphContractsKeepPinnedOutputsAndContextLeases()
     {
         Assert.Equal(16, Unsafe.SizeOf<NativeTextFlowOptions>());

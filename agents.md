@@ -131,6 +131,13 @@ contract suitable for desktop, mobile, NativeAOT, and browser/Wasm hosts.
 
 ### A-2.1. Mandatory Managed and Native Rendering Parity
 
+Before implementation freeze, native payload production may use only the explicit
+--build-only / -BuildOnly entry modes when qualification must be deferred. Keep
+both native providers, required SDK/Direct2D payloads and test/sample compilation;
+never enable this mode through environment state or normal release/CI workflows.
+Staged output remains unqualified. Pinned dependency preparation is a build step,
+not permission to execute renderer/verifier workloads or weaken final gates.
+
 Retained picture seed copies must submit through `progpu_native_engine::submit`,
 just like other native render/mask work. Never call raw `wgpuQueueSubmit` or
 increment submission metrics locally: the engine owns provider dispatch, latest
