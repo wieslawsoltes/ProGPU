@@ -1764,6 +1764,21 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeRetainedPictureCopiesUseProviderAwareTrackedSubmission()
+    {
+        string source = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "Scene",
+            "progpu_native_semantic_picture_mask_resources.cpp"));
+        Assert.Contains("engine.submit(copy_commands);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("wgpuQueueSubmit(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("++engine.submission_count;", source, StringComparison.Ordinal);
+        int submit = source.IndexOf("engine.submit(copy_commands);", StringComparison.Ordinal);
+        int release = source.IndexOf("wgpuCommandBufferRelease(copy_commands);", StringComparison.Ordinal);
+        Assert.True(submit >= 0 && release > submit);
+        Assert.Contains("wgpuCommandEncoderCopyTextureToTexture", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PublicRectangleMatchesNativePodLayout()
     {
         Assert.Equal(32, Unsafe.SizeOf<NativeSolidRectangle>());

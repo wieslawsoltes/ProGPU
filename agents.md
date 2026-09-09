@@ -131,6 +131,11 @@ contract suitable for desktop, mobile, NativeAOT, and browser/Wasm hosts.
 
 ### A-2.1. Mandatory Managed and Native Rendering Parity
 
+Retained picture seed copies must submit through `progpu_native_engine::submit`,
+just like other native render/mask work. Never call raw `wgpuQueueSubmit` or
+increment submission metrics locally: the engine owns provider dispatch, latest
+completion identity and bounded retirement for wgpu-native and Dawn alike.
+
 Treat the managed C# renderer and the native C++ renderer as two implementations of one
 ProGPU rendering contract. Every rendering, scene-compilation, resource-lifetime, cache,
 text, glyph, path, image, effect, invalidation, device-loss, or performance change must

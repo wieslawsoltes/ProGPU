@@ -199,9 +199,8 @@ static bool create_semantic_picture_binding(
         WGPUCommandBuffer copy_commands = wgpuCommandEncoderFinish(copy_encoder, nullptr);
         wgpuCommandEncoderRelease(copy_encoder);
         if (copy_commands == nullptr) { cleanup(); return false; }
-        wgpuQueueSubmit(engine.queue, 1U, &copy_commands);
+        engine.submit(copy_commands);
         wgpuCommandBufferRelease(copy_commands);
-        ++engine.submission_count;
     }
     if (progpu_native_engine_bind_scene_external_images(
             child.get(),
