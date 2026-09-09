@@ -1,5 +1,9 @@
 # Source-controlled portable dialog lifetime
 
+The X11 dialog path now has an owned advisory EWMH modal-hint connection and
+failure-driven source hiding. See the [X11 modal-hint contract](native-mil-x11-modal-hint.md).
+This does not close Linux native input suppression or the qualification gaps below.
+
 ## Native completion before source input and focus restoration
 
 Acceptance action: Hide or Close the LibreWPF MVP About dialog from a native event

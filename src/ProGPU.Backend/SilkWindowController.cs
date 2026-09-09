@@ -14,6 +14,7 @@ public sealed class SilkWindowController : IDisposable
     private readonly int _threadId = Environment.CurrentManagedThreadId;
     private SilkWindowController? _ownerController;
     private bool _inputAllowed = true;
+    private NativeWindowModalHint? _modalHint;
 
     public SilkWindowController(IWindow window)
     {
@@ -172,6 +173,26 @@ public sealed class SilkWindowController : IDisposable
         _ownerController = null;
         _state = _state with { Parent = parent };
         return Apply((platform, _) => platform.SetParent(parent));
+    }
+
+    /// <summary>
+    /// Borrows this live X11 window for an advisory EWMH modal hint. Does not
+    /// alter ownership, application enabled intent, source input policy or event
+    /// polling. Unsupported hosts, duplicate live leases and foreign threads
+    /// reject explicitly. Release before hiding; controller disposal also releases.
+    /// If entry rollback throws, the out lease and controller retain cleanup
+    /// ownership; do not destroy the native window before releasing it.
+    /// </summary>
+    public bool TryBeginModalHint(out NativeWindowModalHint? hint)
+    {
+        ThrowIfDisposed();
+        hint = null;
+        if (_threadId != Environment.CurrentManagedThreadId || _platform == null ||
+            !_window.IsInitialized || _window.IsClosing || !Handle.IsValid ||
+            _modalHint is { IsReleased: false } ||
+            _platform is not X11NativeWindowPlatform x11) return false;
+        try { return NativeWindowModalHint.TryAcquire(x11, out _modalHint); }
+        finally { hint = _modalHint; } // Keep ownership even after failed rollback.
     }
 
     /// <summary>
@@ -521,6 +542,8 @@ public sealed class SilkWindowController : IDisposable
         {
             return;
         }
+        _modalHint?.Dispose();
+        _modalHint = null;
         _disposed = true;
         _drag = null;
         _ownerController = null;

@@ -257,6 +257,12 @@ native input suppression. Reapply and SetEnabled must preserve the input gate an
 reconcile callback-updated intent before returning, with bounded explicit failure
 for oscillation. Source hosts create registered surfaces hidden until admission,
 including popups using actual owner identities. Keep other OS/thread gaps explicit.
+X11 NativeWindowModalHint is advisory state, never an enabled-input gate or native
+event session. Preserve preexisting modal bits, current unrelated atoms, actual
+window roots and queued-removal/reopen ownership. Release the borrowed window hint
+before source focus cleanup, hide or destruction; retain failed cleanup ownership.
+Do not promote EWMH submission into qualified native input suppression or silently
+truncate property data. Keep explicit native X11 and visible application gates.
 Enter before Show, preserve nested identity and LIFO/owning-thread release, and
 clear scope references on disposal. Host ingress and queued delivery must both
 check it; source adapters resolve actual popup ownership and check capture/focus
