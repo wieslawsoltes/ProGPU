@@ -12886,7 +12886,69 @@ static void intrinsic_widths_use_legal_clusters_and_exclude_trailing_space() {
     require(widths.minimum == 9 && widths.maximum == 9); // Mixed-source cluster is not trailing space.
 }
 
+static void trimming_preserves_tab_metrics_and_safe_shaping_boundaries() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 5> glyphs{};
+    std::array<text_line_break_kind, 5> breaks{};
+    std::array<std::int8_t, 5> levels{};
+    std::array<float, 5> scales{}; scales.fill(1.0F);
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i] = {static_cast<std::uint32_t>(i + 1), 'a', static_cast<std::int32_t>(i),
+            shaping_glyph_flags::none, 10, 0, 0, 0};
+        breaks[i] = text_line_break_kind::opportunity;
+    }
+    glyphs[1].glyph_id = text_tab_glyph_id; glyphs[1].advance_x = 0;
+    text_layout_options options{};
+    options.maximum_lines = 1; options.maximum_width = 35; options.line_height = 20;
+    options.trimming = text_trimming::character_ellipsis;
+    options.ellipsis_glyph_id = 99; options.ellipsis_advance = 6;
+    std::array<positioned_text_glyph, 6> output{};
+    std::array<positioned_text_line, 5> lines{};
+    std::array<text_visual_cluster_group, 5> groups{};
+    std::array<std::uint32_t, 5> indices{};
+    std::array<float, 5> advances{};
+    std::uint32_t count = 0, line_count = 0;
+    auto run = [&](text_tab_options tabs) {
+        return try_layout_tabbed_logical_shaped_text(glyphs, breaks, levels, scales, 0, options, tabs,
+            advances, {groups, indices}, output, lines, count, line_count);
+    };
+    // The tab reaches 32, leaving no room for the sign. Removing it must
+    // recover the actual prefix width 10, not the tab's zero font advance.
+    output.back().x = 123;
+    require(run({32, 0}) && count == 2 && line_count == 1 && lines[0].width == 16);
+    require(output[0].glyph_id == 1 && output[1].glyph_id == 99 && output[1].x == 10);
+    require(output.back().x == 123 && lines[0].input_end == 1);
+    options.maximum_width = 39;
+    require(run({32, 0}) && count == 3 && lines[0].width == 38);
+    require(output[1].advance_x == 22 && output[2].x == 32);
+    options.maximum_width = 35;
+    require(run({32, 7}) && count == 3 && lines[0].width == 31 && output[2].x == 25);
+    scales[0] = 2;
+    require(run({32, 0}) && count == 2 && lines[0].width == 26 && output[1].x == 20);
+    scales.fill(1);
+    glyphs[1].glyph_id = 2; glyphs[1].advance_x = 10;
+    glyphs[2].flags = shaping_glyph_flags::unsafe_to_break;
+    options.maximum_width = 30;
+    // A prefix ending before glyph 2 would fit, but its shaping boundary is unsafe.
+    for (auto mode : {text_trimming::character_ellipsis, text_trimming::word_ellipsis}) {
+        options.trimming = mode;
+        require(run({}) && count == 2 && lines[0].width == 16 && lines[0].input_end == 1);
+        std::array<positioned_text_glyph, 6> direct{};
+        std::array<positioned_text_line, 5> direct_lines{};
+        std::uint32_t direct_count = 0, direct_line_count = 0;
+        require(try_layout_shaped_text(glyphs, breaks, options, direct, direct_lines,
+            direct_count, direct_line_count));
+        require(direct_count == count && direct_line_count == line_count && direct_lines[0].width == lines[0].width);
+        for (std::size_t i = 0; i < count; ++i)
+            require(direct[i].glyph_id == output[i].glyph_id && direct[i].x == output[i].x &&
+                direct[i].advance_x == output[i].advance_x);
+    }
+    glyphs[1].flags = shaping_glyph_flags::unsafe_to_break;
+    require(run({}) && count == 1 && lines[0].width == 6 && output[0].glyph_id == 99);
+}
+
 int main() {
+    trimming_preserves_tab_metrics_and_safe_shaping_boundaries();
     intrinsic_widths_use_legal_clusters_and_exclude_trailing_space();
     incremental_tabs_keep_logical_width_after_bidi_and_wrap();
     mixed_scales_drive_wrapping_and_visual_positions();

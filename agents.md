@@ -213,6 +213,13 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+Source text collapse must keep an immutable original paragraph and actual hidden
+source ranges. Reuse the native forward tab/scale and safe-shaping boundary policy;
+never infer a cut from codepoint counts or subtract a tab's nominal font advance.
+The native trim scan is only a prerequisite: do not admit truncated editor
+snapshots until synthetic sign identity, source ranges, RTL and interaction agree.
+See docs/native-mil-text-collapse.md; the Toolkit header remains a core dependency.
+
 NativeWindowModalSession owns AppKit modal event dispatch and scoped native host
 identity. Every participating poll must consult it before GLFW/default polling;
 do not free a retained host while a session begin/end or event callback is active.

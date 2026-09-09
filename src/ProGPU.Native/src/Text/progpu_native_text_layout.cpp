@@ -163,43 +163,31 @@ trimmed_line trim_line(
     std::size_t start,
     std::size_t end,
     float width,
-    std::span<const float> scales = {}) noexcept {
+    std::span<const float> scales = {}, text_tab_options tabs = {}) noexcept {
     const float ellipsis_width = options.ellipsis_advance * options.scale;
     if (options.maximum_width <= 0.0F ||
         width + ellipsis_width <= options.maximum_width) {
         return trimmed_line{end, width};
     }
 
-    std::size_t candidate = end;
-    float candidate_width = width;
-    while (candidate > start &&
-        candidate_width + ellipsis_width > options.maximum_width) {
-        const std::int32_t cluster = glyphs[candidate - 1U].cluster;
-        do {
-            --candidate;
-            candidate_width -= horizontal_advance(
-                glyphs[candidate], scale_at(scales, candidate, options));
-        } while (candidate > start &&
-            glyphs[candidate - 1U].cluster == cluster);
-    }
-    if (options.trimming != text_trimming::word_ellipsis ||
-        candidate == start) {
-        return trimmed_line{candidate, candidate_width};
-    }
-
-    std::size_t word_end = start;
-    float word_width = 0.0F;
+    // Reuse the forward line metric policy: tab advances depend on the
+    // preceding width and cannot be recovered by subtracting font advances.
+    // Only retain safe shaping boundaries; a changed cluster id alone does
+    // not authorize cutting context-dependent shaping without reshaping.
+    // This prefix/state scan is dependency-bound, O(N), allocation-free.
+    trimmed_line character{start, 0.0F};
+    trimmed_line word{start, 0.0F};
     float scan_width = 0.0F;
-    for (std::size_t index = start; index < candidate; ++index) {
-        scan_width += horizontal_advance(glyphs[index], scale_at(scales, index, options));
-        if (can_break_after(glyphs, breaks_after, index)) {
-            word_end = index + 1U;
-            word_width = scan_width;
+    for (std::size_t index = start; index < end; ++index) {
+        scan_width += layout_advance(glyphs[index], scale_at(scales, index, options), scan_width, tabs);
+        if (scan_width + ellipsis_width <= options.maximum_width &&
+            is_safe_break_before(glyphs, index + 1U)) {
+            character = {index + 1U, scan_width};
+            if (can_break_after(glyphs, breaks_after, index)) word = character;
         }
     }
-    return word_end > start
-        ? trimmed_line{word_end, word_width}
-        : trimmed_line{candidate, candidate_width};
+    return options.trimming == text_trimming::word_ellipsis && word.end > start
+        ? word : character;
 }
 
 line_scan scan_line(
@@ -610,7 +598,7 @@ bool try_layout_tabbed_logical_shaped_text(
                 input_start_index,
                 line.end,
                 line.width,
-                glyph_scales)
+                glyph_scales, tabs)
             : trimmed_line{line.end, line.width};
 
         const auto line_logical = logical_glyphs.subspan(
