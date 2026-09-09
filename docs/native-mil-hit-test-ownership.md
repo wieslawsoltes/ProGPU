@@ -160,8 +160,8 @@ generic policy preservation, unsupported blend/layer rejection and canonical
 MIL regular/animated scopes with zero-opacity visual parents, with/without typed
 isolation bounds. Header and module consumers share the enum/signature contract.
 This is not full input qualification: managed retained visual traversal still
-has an opacity-zero early rejection in `Compositor.CompileVisual`/its subtree
-path, independently of command replay. That source-specific policy connection
+has an opacity-zero early rejection in `Compositor.CompileVisualTreeCore` and
+`AddVisualHitTestBoundsSubtree`, independently of command replay. That source-specific policy connection
 remains in the application queue, alongside masks/effects/cache coverage and
 native host query routing. Do not report zero-opacity retained visual parity.
 
