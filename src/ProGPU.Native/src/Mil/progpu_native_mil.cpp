@@ -11482,7 +11482,7 @@ struct channel::implementation {
                 clip_segments,
                 clip_boolean_nodes,
                 1.0F,
-                mask_resource_index)) {
+                mask_resource_index, true)) {
             clip_paths.pop_back();
             clip_segments.resize(segment_offset);
             clip_boolean_nodes.resize(boolean_node_offset);
@@ -12549,7 +12549,7 @@ struct channel::implementation {
                     clip_segments,
                     clip_boolean_nodes,
                     1.0F,
-                    mask_resource_index)) {
+                    mask_resource_index, true)) {
                 clip_paths.pop_back();
                 clip_segments.resize(segment_offset);
                 return status::invalid_graph;

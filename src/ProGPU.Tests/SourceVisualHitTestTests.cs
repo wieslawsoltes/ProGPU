@@ -11,6 +11,46 @@ namespace ProGPU.Tests;
 
 public sealed class SourceVisualHitTestTests
 {
+    [Fact]
+    public void SourceTriangleClipRetainsWorldEdgesAndRestoresSiblingInput()
+    {
+        // Native scene 9820; the source harness selects through this triangle.
+        var path = new PathGeometry { FillRule = FillRule.Nonzero };
+        var figure = new PathFigure(new Vector2(8, 8), isClosed: true);
+        figure.Segments.Add(new LineSegment(new Vector2(88, 8)));
+        figure.Segments.Add(new LineSegment(new Vector2(8, 88)));
+        path.Figures.Add(figure);
+        var root = new SourceVisual();
+        var clipped = new SourceVisual { HitTestId = 701, Opacity = 0,
+            ClipBounds = new Rect(0, 0, 200, 200),
+            GeometryClip = path.CreateTransformed(Matrix4x4.CreateTranslation(5, 6, 0)) };
+        var command = new RenderCommand { Type = RenderCommandType.DrawRect,
+            Rect = new Rect(8, 8, 144, 80), Brush = new SolidColorBrush(Vector4.One),
+            Transform = Matrix4x4.CreateTranslation(2, 3, 0) };
+        clipped.SourceHitTestCommands.Commands.Add(command);
+        clipped.SourceHitTestCommands.Commands.Add(command);
+        root.AddChild(clipped);
+        var sibling = new SourceVisual { HitTestId = 702 };
+        sibling.SourceHitTestCommands.DrawRectangle(command.Brush, null, command.Rect);
+        root.AddChild(sibling);
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        capture.AddSourceVisual(root, Matrix4x4.Identity);
+        var index = capture.BuildIndex();
+        Assert.Equal(3, index.Primitives.Count);
+        var hit = index.Primitives[0];
+        Assert.Equal(701, hit.Id);
+        Assert.Equal(new Vector2(13, 14), hit.BoundsMin);
+        Assert.Equal(new Vector2(93, 91), hit.BoundsMax);
+        Assert.Equal(3u, hit.ClipSegmentCount);
+        Assert.Equal(hit.ClipStartSegment, index.Primitives[1].ClipStartSegment);
+        Assert.Equal(702, index.Primitives[2].Id);
+        Assert.Equal(0u, index.Primitives[2].ClipSegmentCount);
+        var first = index.PathSegments[(int)hit.ClipStartSegment];
+        Assert.Equal(new Vector2(13, 14), first.P0);
+        Assert.Equal(new Vector2(93, 14), first.P1);
+        Assert.Equal(0, clipped.RenderCalls);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

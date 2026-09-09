@@ -263,13 +263,17 @@ public:
         std::span<const progpu_native_scene_clip_path> paths,
         std::span<const progpu_native_path_segment> segments,
         float opacity,
-        std::uint32_t& resource_index) noexcept;
+        std::uint32_t& resource_index,
+        bool source_geometry_clip = false) noexcept;
+    // Source annotation declares original input clipping, not raster/material
+    // coverage. The hit producer separately admits its supported exact topology.
     bool add_vector_clip_mask(
         std::span<const progpu_native_scene_clip_path> paths,
         std::span<const progpu_native_path_segment> segments,
         std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
         float opacity,
-        std::uint32_t& resource_index) noexcept;
+        std::uint32_t& resource_index,
+        bool source_geometry_clip = false) noexcept;
     bool add_composite_mask(
         std::span<const progpu_native_scene_layer_brush_mask> brush_masks,
         std::span<const progpu_native_scene_layer_geometry_mask> geometry_masks,

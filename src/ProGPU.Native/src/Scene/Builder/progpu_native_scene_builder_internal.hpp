@@ -22,6 +22,7 @@ struct semantic_scene_builder::implementation final {
         bool bgra8_image = false;
         bool r8_image = false;
         bool picture_image = false;
+        bool source_geometry_clip = false;
         std::uint32_t image_width = 0U;
         std::uint32_t image_height = 0U;
         std::uint32_t image_row_bytes = 0U;

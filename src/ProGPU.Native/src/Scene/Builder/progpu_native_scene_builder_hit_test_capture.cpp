@@ -24,28 +24,10 @@ namespace {
 // Nonzero=1), the reverse of the semantic scene path enum.
 constexpr std::uint32_t hit_nonzero_fill_rule = 1U;
 
-// Native counterpart of ProGPU.Vector/GpuHitTesting.cs primitive encoding.
-// Four independent corner lanes use NEON/SSE2, without alignment assumptions.
-// Bounds are broad phase only; local analytic/path data retains exact coverage.
-bool place_primitive(progpu_native_hit_test_primitive& output,
-    progpu_native_point minimum, progpu_native_point maximum,
+// Shared four-coordinate transform for bounds corners and polynomial clip controls.
+bool transform_hit_coordinates(std::array<float, 4U>& x, std::array<float, 4U>& y,
     const progpu_native_affine_2d& transform) noexcept {
     if (!is_finite(transform)) return false;
-    const double determinant = double{transform.m11} * transform.m22 -
-        double{transform.m12} * transform.m21;
-    if (!std::isfinite(determinant) || determinant == 0.0) return false;
-    const double inverse = 1.0 / determinant;
-    const double a = transform.m22 * inverse, b = -transform.m12 * inverse;
-    const double c = -transform.m21 * inverse, d = transform.m11 * inverse;
-    output.inverse_transform0 = {static_cast<float>(a), static_cast<float>(c),
-        static_cast<float>(-(transform.m31 * a + transform.m32 * c)), 0.0F};
-    output.inverse_transform1 = {static_cast<float>(b), static_cast<float>(d),
-        static_cast<float>(-(transform.m31 * b + transform.m32 * d)), 0.0F};
-    if (!std::isfinite(output.inverse_transform0.x) || !std::isfinite(output.inverse_transform0.y) ||
-        !std::isfinite(output.inverse_transform0.z) || !std::isfinite(output.inverse_transform1.x) ||
-        !std::isfinite(output.inverse_transform1.y) || !std::isfinite(output.inverse_transform1.z)) return false;
-    std::array<float, 4U> x{minimum.x, maximum.x, maximum.x, minimum.x};
-    std::array<float, 4U> y{minimum.y, minimum.y, maximum.y, maximum.y};
 #if defined(__aarch64__) || defined(_M_ARM64)
     const auto xs = vld1q_f32(x.data()), ys = vld1q_f32(y.data());
     const auto world_x = vaddq_f32(vaddq_f32(vmulq_n_f32(xs, transform.m11),
@@ -67,6 +49,31 @@ bool place_primitive(progpu_native_hit_test_primitive& output,
     // Fixed four-lane reduction/finite validation, not a whole-buffer scalar path.
     for (std::size_t i = 0; i < 4U; ++i)
         if (!std::isfinite(x[i]) || !std::isfinite(y[i])) return false;
+    return true;
+}
+
+// Native counterpart of ProGPU.Vector/GpuHitTesting.cs primitive encoding.
+// Bounds are broad phase only; local analytic/path data retains exact coverage.
+bool place_primitive(progpu_native_hit_test_primitive& output,
+    progpu_native_point minimum, progpu_native_point maximum,
+    const progpu_native_affine_2d& transform) noexcept {
+    if (!is_finite(transform)) return false;
+    const double determinant = double{transform.m11} * transform.m22 -
+        double{transform.m12} * transform.m21;
+    if (!std::isfinite(determinant) || determinant == 0.0) return false;
+    const double inverse = 1.0 / determinant;
+    const double a = transform.m22 * inverse, b = -transform.m12 * inverse;
+    const double c = -transform.m21 * inverse, d = transform.m11 * inverse;
+    output.inverse_transform0 = {static_cast<float>(a), static_cast<float>(c),
+        static_cast<float>(-(transform.m31 * a + transform.m32 * c)), 0.0F};
+    output.inverse_transform1 = {static_cast<float>(b), static_cast<float>(d),
+        static_cast<float>(-(transform.m31 * b + transform.m32 * d)), 0.0F};
+    if (!std::isfinite(output.inverse_transform0.x) || !std::isfinite(output.inverse_transform0.y) ||
+        !std::isfinite(output.inverse_transform0.z) || !std::isfinite(output.inverse_transform1.x) ||
+        !std::isfinite(output.inverse_transform1.y) || !std::isfinite(output.inverse_transform1.z)) return false;
+    std::array<float, 4U> x{minimum.x, maximum.x, maximum.x, minimum.x};
+    std::array<float, 4U> y{minimum.y, minimum.y, maximum.y, maximum.y};
+    if (!transform_hit_coordinates(x, y, transform)) return false;
     output.bounds_min = {*std::min_element(x.begin(), x.end()), *std::min_element(y.begin(), y.end())};
     output.bounds_max = {*std::max_element(x.begin(), x.end()), *std::max_element(y.begin(), y.end())};
     return true;
@@ -155,7 +162,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
         return implementation_->fail(scene_build_error::invalid_argument);
     const bool source_geometry = opacity_mode == scene_hit_test_opacity_mode::source_geometry;
     const std::uint32_t input_state_flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
-        (source_geometry ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) : 0U);
+        (source_geometry ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET |
+            PROGPU_NATIVE_SCENE_STATE_MASK) : 0U);
     if (implementation_->stack_depth != 0U)
         return implementation_->fail(scene_build_error::unbalanced_stack);
     try {
@@ -174,12 +182,70 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
         // Rectangular clip payloads are reused by state identity, not per primitive.
         struct clip_entry { std::uint32_t scope{}; std::optional<std::uint32_t> start; };
         std::vector<clip_entry> clip_starts(implementation_->resources.size() + 1U);
+        struct vector_clip_entry {
+            bool loaded{};
+            std::uint32_t start{}, count{}, rule{};
+            progpu_native_point minimum{}, maximum{};
+        };
+        std::vector<vector_clip_entry> vector_clips;
+        const auto load_vector_clip = [&](std::uint32_t index) -> const vector_clip_entry* {
+            if (index >= implementation_->resources.size()) return nullptr;
+            if (vector_clips.empty()) vector_clips.resize(implementation_->resources.size());
+            auto& cached = vector_clips[index];
+            if (cached.loaded) return &cached;
+            const auto& resource = implementation_->resources[index];
+            if (!resource.source_geometry_clip || resource.record.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+                resource.payload.size() != sizeof(progpu_native_scene_layer_vector_mask)) return nullptr;
+            const auto mask = read_record<progpu_native_scene_layer_vector_mask>(resource.payload);
+            if (mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN || mask.opacity != 1.0F ||
+                mask.path_count != 1U || mask.boolean_node_count != 0U) return nullptr;
+            const auto path = read_record<progpu_native_scene_clip_path>(resource.auxiliary);
+            if (path.boolean_node_count != 0U || path.operation != PROGPU_NATIVE_CLIP_INTERSECT ||
+                path.segment_count == 0U || path.segment_count > exact_float_integer_limit ||
+                segments.size() > exact_float_integer_limit - path.segment_count) return nullptr;
+            progpu_native_hit_test_primitive bounds{};
+            if (!place_primitive(bounds, {path.min_x, path.min_y}, {path.max_x, path.max_y}, path.transform)) return nullptr;
+            cached.minimum = bounds.bounds_min; cached.maximum = bounds.bounds_max;
+            cached.start = static_cast<std::uint32_t>(segments.size());
+            cached.count = static_cast<std::uint32_t>(path.segment_count);
+            cached.rule = path.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD ? 0U : hit_nonzero_fill_rule;
+            const auto path_data = std::span<const std::byte>(resource.auxiliary).subspan(sizeof(progpu_native_scene_clip_path));
+            for (std::size_t j = 0U; j < path.segment_count; ++j) {
+                auto segment = read_record<progpu_native_path_segment>(path_data, path.segment_offset + j);
+                if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+                    segment.kind != PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC && segment.kind != PROGPU_NATIVE_PATH_SEGMENT_CUBIC)
+                    return nullptr;
+                std::array<float, 4U> x{segment.p0.x, segment.p1.x, segment.p2.x, segment.p3.x};
+                std::array<float, 4U> y{segment.p0.y, segment.p1.y, segment.p2.y, segment.p3.y};
+                if (!transform_hit_coordinates(x, y, path.transform)) return nullptr;
+                segment.p0 = {x[0], y[0]}; segment.p1 = {x[1], y[1]};
+                segment.p2 = {x[2], y[2]}; segment.p3 = {x[3], y[3]};
+                segments.push_back(segment);
+            }
+            cached.loaded = true;
+            return &cached;
+        };
         const auto append = [&](progpu_native_hit_test_primitive primitive,
                                 const progpu_native_scene_state& state, std::uint32_t state_index) {
             if (primitives.size() >= exact_float_integer_limit) return false;
             primitive.id = *owner;
             primitive.z_index = static_cast<float>(primitives.size());
             primitive.flags = PROGPU_NATIVE_HIT_TEST_VISIBLE | PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT;
+            const vector_clip_entry* vector_clip = nullptr;
+            if ((state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
+                vector_clip = load_vector_clip(state.mask_resource_index);
+                if (vector_clip == nullptr) return false;
+                primitive.bounds_min.x = std::max(primitive.bounds_min.x, vector_clip->minimum.x);
+                primitive.bounds_min.y = std::max(primitive.bounds_min.y, vector_clip->minimum.y);
+                primitive.bounds_max.x = std::min(primitive.bounds_max.x, vector_clip->maximum.x);
+                primitive.bounds_max.y = std::min(primitive.bounds_max.y, vector_clip->maximum.y);
+                if (primitive.bounds_min.x > primitive.bounds_max.x || primitive.bounds_min.y > primitive.bounds_max.y)
+                    return true;
+                primitive.clip_start_segment = vector_clip->start;
+                primitive.clip_segment_count = vector_clip->count;
+                primitive.clip_fill_rule = vector_clip->rule;
+                primitive.clip_flags = 1U;
+            }
             const bool state_clip = (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U;
             if (state_clip || layer_clip_scope != 0U) {
                 const auto clip = !state_clip ? layer_clips[layer_clip_scope] : layer_clip_scope == 0U
@@ -187,6 +253,14 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 if (clip.width <= 0.0F || clip.height <= 0.0F) return true;
                 const float right = clip.x + clip.width, bottom = clip.y + clip.height;
                 if (!std::isfinite(right) || !std::isfinite(bottom)) return false;
+                if (vector_clip != nullptr) {
+                    // A containing rectangle is redundant. Nonredundant intersections
+                    // need composed clip topology; never overwrite the actual path.
+                    if (clip.x > vector_clip->minimum.x || clip.y > vector_clip->minimum.y ||
+                        right < vector_clip->maximum.x || bottom < vector_clip->maximum.y) return false;
+                    primitives.push_back(primitive);
+                    return true;
+                }
                 primitive.bounds_min.x = std::max(primitive.bounds_min.x, clip.x);
                 primitive.bounds_min.y = std::max(primitive.bounds_min.y, clip.y);
                 primitive.bounds_max.x = std::min(primitive.bounds_max.x, right);

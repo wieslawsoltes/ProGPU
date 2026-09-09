@@ -565,6 +565,16 @@ Keep zero-alpha source input, renderer alpha and non-source behavior separate.
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Native source vector clips require explicit source_geometry_clip builder
+metadata, not inference from a generic mask resource. Retain actual polynomial
+segments/fill rules in world coordinates through their clip-owned transform and
+cache one segment range per mask/index build. A containing rectangle may be
+redundant; a nonredundant intersection requires actual composed topology, never
+overwritten path data or winding-unioned contours. Keep unsupported multi-path,
+boolean, arc, material/opacity-mask and layer combinations explicit. See
+docs/native-mil-vector-clip-input.md; source utility success is not native host
+query qualification.
+
 Source hit geometry remains independent of raster guideline snapping. Native
 source_geometry capture may ignore guideline displacement, not clip/mask/cache
 contracts. Managed primitive recorders publish SourceHitTestGeometry before

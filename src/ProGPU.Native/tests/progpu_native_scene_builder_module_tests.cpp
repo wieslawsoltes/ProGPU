@@ -7,6 +7,13 @@ import progpu.native.scene_builder;
 
 int main() {
     {
+        progpu::native::semantic_scene_builder clip_builder(9702U, 1U);
+        // Public source-clip overload remains available to module consumers;
+        // empty topology is invalid rather than an implicit rectangle.
+        unsigned int clip_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (clip_builder.add_vector_clip_mask({}, {}, 1.0F, clip_index, true)) return 1;
+    }
+    {
         progpu::native::semantic_scene_builder hit_builder(9700U, 1U);
         unsigned int hit_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!hit_builder.set_hit_test_owner(-17) ||
