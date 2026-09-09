@@ -95,8 +95,8 @@ bool semantic_scene_builder::set_hit_test_owner(std::optional<std::int32_t> owne
     }
 }
 
-// O(C + P + S + P*D) time and O(P + S + C) bounded storage for commands C,
-// hit primitives P, retained segments S and quadtree depth D (existing default 8).
+// O(C + P + S + P*D) time and O(R + P + S + D) storage for commands C,
+// resources R, hit primitives P, copied segments S and quadtree depth D (default 8).
 // Directly consumes builder-owned typed resources; no serialize/parse round trip.
 bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource_index) noexcept {
     resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;

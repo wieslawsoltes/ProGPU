@@ -21069,6 +21069,8 @@ bool c_abi_is_typed_and_size_versioned() {
 } // namespace
 
 int main() {
+    static_assert(static_cast<std::uint32_t>(scene_build_request_flags::hit_test_index) ==
+        PROGPU_NATIVE_MIL_SCENE_BUILD_REQUEST_HIT_TEST_INDEX);
     {
         // Paired with GpuHitTestPrimitive.RectangleFill/EllipseFill: ownership
         // changes must not depend on draw IDs, grouping, or unsigned handle sign.
@@ -21220,6 +21222,16 @@ int main() {
         request.flags = static_cast<scene_build_request_flags>(3U);
         ++request.request_serial;
         PROGPU_REQUIRE(state.build_scene(request, compiled) == status::invalid_argument);
+        PROGPU_REQUIRE(compiled.empty());
+        batch.clear();
+        append_create(batch, 6U, 94U);
+        append_command(batch, command::bitmap_cache, 6U, 1.0, 0U, 0U, 0U);
+        append_command(batch, command::visual_set_cache_mode, 2U, 6U);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        request.flags = scene_build_request_flags::hit_test_index;
+        ++request.request_serial;
+        PROGPU_REQUIRE(state.build_scene(request, compiled) == status::unsupported_command);
+        PROGPU_REQUIRE(compiled.empty());
     }
     {
         static_assert(sizeof(progpu_native_scene_tile_composite) == 64U);
