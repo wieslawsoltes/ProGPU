@@ -392,10 +392,98 @@ if (metrics.DrawCallCount != 1 || pixels.All(static value => value == 0))
     throw new InvalidOperationException("The packaged native renderer did not draw.");
 }
 
+ValidateNativeHitTestOwnerSnapshots(context, compositor);
+
 Console.WriteLine(
     $"ProGPU.Backend.Native package smoke passed: ABI {info.AbiVersion}, " +
     $"Dawn ABI {NativeDawnAdapter.AdapterAbiVersion}, " +
     $"draws={metrics.DrawCallCount}, pixels={pixels.Length}.");
+
+static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompositor compositor)
+{
+    const ulong sceneId = 817;
+    var firstOwner = new object();
+    var secondOwner = new object();
+    InstallIndex(compositor, sceneId, 1);
+    var before = compositor.BindGpuHitTestOwners(
+        new NativeGpuHitTestOwnerMap<object>([new(42, firstOwner)]), sceneId, 1);
+    var query = NativeGpuHitTestQuery.PointQuery(new Vector2(5, 5), 1);
+    NativeGpuHitTestRequestToken firstToken = before.BeginQuery(query);
+    Span<NativeGpuHitTestResult> results = stackalloc NativeGpuHitTestResult[1];
+    var deadline = System.Diagnostics.Stopwatch.StartNew();
+    int count;
+    NativeGpuHitTestResult summary;
+    while (!before.TryPoll(firstToken, results, out count, out summary))
+    {
+        if (deadline.Elapsed > TimeSpan.FromSeconds(10))
+            throw new TimeoutException("Native owner-query GPU readback did not complete.");
+        Thread.Yield();
+    }
+    NativeGpuHitTestResult firstResult = results[0];
+    if (count != 1 || summary.Hit != 1 || firstToken.SceneId != sceneId ||
+        firstToken.Generation != 1 || !before.TryGetOwner(firstToken, firstResult, out object? owner) ||
+        !ReferenceEquals(owner, firstOwner))
+        throw new InvalidOperationException("The native query did not resolve its submitted source owner.");
+
+    InstallIndex(compositor, sceneId, 2);
+    var after = compositor.BindGpuHitTestOwners(
+        new NativeGpuHitTestOwnerMap<object>([new(42, secondOwner)]), sceneId, 2);
+    NativeGpuHitTestRequestToken secondToken = after.BeginQuery(query);
+    deadline.Restart();
+    while (!after.TryPoll(secondToken, results, out count, out summary))
+    {
+        if (deadline.Elapsed > TimeSpan.FromSeconds(10))
+            throw new TimeoutException("Replacement native owner-query GPU readback did not complete.");
+        Thread.Yield();
+    }
+    if (count != 1 || summary.Hit != 1 ||
+        !after.TryGetOwner(secondToken, results[0], out owner) || !ReferenceEquals(owner, secondOwner))
+        throw new InvalidOperationException("The replacement scene did not publish its new source owner.");
+    ExpectFailure<ArgumentException>(() => after.TryGetOwner(firstToken, firstResult, out _));
+    ExpectFailure<InvalidOperationException>(() => before.BeginQuery(query));
+    ExpectFailure<InvalidOperationException>(() => compositor.BindGpuHitTestOwners(
+        NativeGpuHitTestOwnerMap<object>.Empty, sceneId, 1));
+    // Completed old results still resolve through their original immutable map.
+    if (!before.TryGetOwner(firstToken, firstResult, out owner) || !ReferenceEquals(owner, firstOwner))
+        throw new InvalidOperationException("Replacing native scene handles changed an earlier source owner.");
+    using var other = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
+    InstallIndex(other, sceneId, 1);
+    var foreign = other.BindGpuHitTestOwners(
+        new NativeGpuHitTestOwnerMap<object>([new(42, secondOwner)]), sceneId, 1);
+    ExpectFailure<ArgumentException>(() => foreign.TryGetOwner(firstToken, firstResult, out _));
+    Console.WriteLine("package-consumer: native GPU owner snapshot/generation isolation");
+
+    static void ExpectFailure<TException>(Action action) where TException : Exception
+    {
+        try { action(); }
+        catch (TException) { return; }
+        throw new InvalidOperationException($"Native owner snapshot did not reject with {typeof(TException).Name}.");
+    }
+
+    static void InstallIndex(NativeCompositor compositor, ulong sceneId, ulong generation)
+    {
+        Span<byte> bytes = stackalloc byte[2048];
+        var builder = new NativeSceneStreamBuilder(bytes, sceneId, generation, 0, 1);
+        NativeGpuHitTestPrimitive primitive = new()
+        {
+            BoundsMin = Vector2.Zero, BoundsMax = new(20, 10),
+            Data0 = new NativeFloat4 { Z = 20, W = 10 },
+            InverseTransform0 = new NativeFloat4 { X = 1 },
+            InverseTransform1 = new NativeFloat4 { Y = 1 },
+            Kind = (uint)NativeGpuHitTestPrimitiveKind.RectangleFill,
+            Flags = (uint)(NativeGpuHitTestPrimitiveFlags.Visible | NativeGpuHitTestPrimitiveFlags.HitTestVisible),
+            Id = 42
+        };
+        NativeGpuHitTestNode node = new()
+        {
+            BoundsMin = Vector2.Zero, BoundsMax = new(20, 10), PrimitiveCount = 1
+        };
+        if (!builder.TryAddHitTestIndexResource(1, generation, [primitive], [node], [0U], [], out _) ||
+            !builder.TryBuild(out ReadOnlySpan<byte> stream))
+            throw new InvalidOperationException("Could not build the native owner-query fixture.");
+        compositor.UpdateScene(stream);
+    }
+}
 
 static void ValidateNativeMilSceneBuildTiming()
 {

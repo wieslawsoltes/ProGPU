@@ -1961,7 +1961,7 @@ public class NativeRendererInteropTests
         Assert.Equal(40, Unsafe.SizeOf<NativeGpuHitTestQuery>());
         Assert.Equal(32, Unsafe.SizeOf<NativeGpuHitTestResult>());
         Assert.Equal(
-            IntPtr.Size == 8 ? 16 : 12,
+            32,
             Unsafe.SizeOf<NativeGpuHitTestRequestToken>());
         Assert.Equal(40, Unsafe.SizeOf<NativeSceneHitTestIndex>());
         Assert.Equal(IntPtr.Size == 8 ? 96 : 80, Unsafe.SizeOf<NativePathFill>());

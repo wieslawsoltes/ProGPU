@@ -2726,25 +2726,34 @@ public readonly struct NativeSubmissionToken : IEquatable<NativeSubmissionToken>
 public readonly struct NativeGpuHitTestRequestToken :
     IEquatable<NativeGpuHitTestRequestToken>
 {
-    internal NativeGpuHitTestRequestToken(ulong value, nint owner)
+    internal NativeGpuHitTestRequestToken(
+        ulong value, long owner, ulong sceneId, ulong generation)
     {
         Value = value;
         Owner = owner;
+        SceneId = sceneId;
+        Generation = generation;
     }
 
     public ulong Value { get; }
 
-    internal nint Owner { get; }
+    // Managed compositor identity, not a native pointer that an allocator can reuse.
+    internal long Owner { get; }
 
-    public bool IsValid => Value != 0 && Owner != 0;
+    public ulong SceneId { get; }
+
+    public ulong Generation { get; }
+
+    public bool IsValid => Value != 0 && Owner != 0 && SceneId != 0 && Generation != 0;
 
     public bool Equals(NativeGpuHitTestRequestToken other) =>
-        Value == other.Value && Owner == other.Owner;
+        Value == other.Value && Owner == other.Owner &&
+        SceneId == other.SceneId && Generation == other.Generation;
 
     public override bool Equals(object? obj) =>
         obj is NativeGpuHitTestRequestToken other && Equals(other);
 
-    public override int GetHashCode() => HashCode.Combine(Value, Owner);
+    public override int GetHashCode() => HashCode.Combine(Value, Owner, SceneId, Generation);
 
     public static bool operator ==(
         NativeGpuHitTestRequestToken left,

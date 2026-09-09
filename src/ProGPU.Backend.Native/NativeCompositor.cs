@@ -29,6 +29,10 @@ public sealed unsafe class NativeCompositor : IDisposable
     private readonly WgpuContext _context;
     private readonly TextureFormat _targetFormat;
     private readonly NativeRendererInteropKind _interopKind;
+    private static long s_nextHitTestOwner;
+    private readonly long _hitTestOwner = AllocateHitTestOwner();
+    private ulong _installedSceneId;
+    private ulong _installedSceneGeneration;
     private nint _engine;
     private int _disposeState;
 
@@ -510,6 +514,8 @@ public sealed unsafe class NativeCompositor : IDisposable
                     streamPointer,
                     (nuint)stream.Length,
                     &metrics));
+                _installedSceneId = metrics.SceneId;
+                _installedSceneGeneration = metrics.Generation;
             }
         }
         return ToSceneMetrics(metrics);
@@ -522,19 +528,72 @@ public sealed unsafe class NativeCompositor : IDisposable
     /// </summary>
     public NativeGpuHitTestRequestToken BeginGpuHitTest(
         in NativeGpuHitTestQuery query)
+        => BeginGpuHitTestCore(query, 0, 0);
+
+    /// <summary>
+    /// Starts a query only if the requested immutable scene is still installed.
+    /// The identity check and native submission share the render lock. Use this
+    /// overload with an owner map retained for that exact scene generation.
+    /// </summary>
+    public NativeGpuHitTestRequestToken BeginGpuHitTest(
+        in NativeGpuHitTestQuery query, ulong sceneId, ulong generation)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(sceneId);
+        ArgumentOutOfRangeException.ThrowIfZero(generation);
+        return BeginGpuHitTestCore(query, sceneId, generation);
+    }
+
+    private NativeGpuHitTestRequestToken BeginGpuHitTestCore(
+        in NativeGpuHitTestQuery query, ulong sceneId, ulong generation)
     {
         var nativeQuery = query;
         ulong token = 0;
         lock (_context.RenderLock)
         {
             ThrowIfGpuUnavailable();
+            if (sceneId != 0 &&
+                (sceneId != _installedSceneId || generation != _installedSceneGeneration))
+            {
+                throw new InvalidOperationException(
+                    "The hit-test owner snapshot is not the installed native scene generation.");
+            }
             ThrowForStatus(NativeRendererInterop.BeginHitTest(
                 _interopKind,
                 _engine,
                 &nativeQuery,
                 &token));
+            return new NativeGpuHitTestRequestToken(
+                token, _hitTestOwner, _installedSceneId, _installedSceneGeneration);
         }
-        return new NativeGpuHitTestRequestToken(token, _engine);
+    }
+
+    private static long AllocateHitTestOwner()
+    {
+        long identity = Interlocked.Increment(ref s_nextHitTestOwner);
+        if (identity <= 0)
+            throw new InvalidOperationException("The native hit-test compositor identity space was exhausted.");
+        return identity;
+    }
+
+    /// <summary>
+    /// Binds copied source owners to the currently installed scene without GPU
+    /// work. Querying remains unsupported until that scene carries a native index.
+    /// </summary>
+    public NativeGpuHitTestOwnerSnapshot<TOwner> BindGpuHitTestOwners<TOwner>(
+        NativeGpuHitTestOwnerMap<TOwner> owners, ulong sceneId, ulong generation)
+        where TOwner : class
+    {
+        ArgumentNullException.ThrowIfNull(owners);
+        ArgumentOutOfRangeException.ThrowIfZero(sceneId);
+        ArgumentOutOfRangeException.ThrowIfZero(generation);
+        lock (_context.RenderLock)
+        {
+            ThrowIfGpuUnavailable();
+            if (sceneId != _installedSceneId || generation != _installedSceneGeneration)
+                throw new InvalidOperationException(
+                    "Source owners must be bound to the installed native scene generation.");
+            return new(this, _hitTestOwner, owners, sceneId, generation);
+        }
     }
 
     /// <summary>
@@ -551,7 +610,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         out int resultCount,
         out NativeGpuHitTestResult summary)
     {
-        if (!token.IsValid || token.Owner != _engine)
+        if (!token.IsValid || token.Owner != _hitTestOwner)
         {
             throw new ArgumentException(
                 "The GPU hit-test token belongs to another native compositor.",
