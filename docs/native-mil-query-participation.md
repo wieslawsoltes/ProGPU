@@ -116,3 +116,38 @@ adds sideband-only layout updates and a source-built native host assertion that
 blank TextBlock space is a point hit but not a geometry-region hit. Tests are not
 executed before feature freeze. Build results and artifact provenance belong in
 LibreWPF's `reports/native-mil-source-point-region-2026-09-09.md`.
+
+## Managed effect composition connection
+
+The MVP Blur/DropShadow borders exposed a remaining ordinary managed path:
+`PrepareAndDrawEffect` emitted padded output textures with the source owner's ID,
+then rebuilt only descendants. Typed source capture existed but was used for
+opacity culling rather than the visible effect root. The pre-effect source tree
+is now captured by `ApplyAndDrawEffect` before raster admission. Its rendering
+then runs with hit-index writes suspended, restored in finally, so composite clips,
+source/shadow textures and the descendant pass cannot add duplicate input.
+Capture owns source clips, transforms, query kinds, children and z-order once;
+empty ink can retain a point descriptor even when no effect target is allocated.
+
+The existing `PreservesSourceHitGeometry` contract remains authoritative. Unknown
+effect mappings, bitmap caches and spatial masks are not silently admitted.
+Generic ProGPU visuals, disabled GPU hit testing and offscreen-only preparation
+retain their previous paths. Raster shaders, target sizing, filtering, retained
+effect texture keys and GPU execution policy are unchanged. This adds a typed
+O(C + V) source-command traversal when rebuilding an effect's main-scene index,
+not per query or a new CPU geometry fallback. Stable compiled-scene reuse and
+existing pooled/sparse input storage remain owned by the compositor; performance
+qualification is still required before any speed or allocation claim.
+
+C++ MIL already captures own/descendant commands through source-identity effect
+layers; it does not use the managed output-texture indexing path. No duplicate
+native algorithm is needed. Native scene 9817 is extended with the same point-only
+child, source clipping, repeated compilation, child movement and own-content clear
+as the managed compositor fixture. Managed fixtures exercise actual effect
+composition, including zero-radius blur and shadow/source layering. LibreWPF's
+retained effect sink fixture confirms one source-coordinate normalization for
+point-only bounds and region-only drawing. Existing nested clip, zero-opacity
+and undeclared-effect rejection fixtures remain applicable. All fixtures are
+authored, not executed; see the LibreWPF effect-composition report for build-only
+provenance. The earlier root-effect gap above is closed in implementation for
+these admitted effects, not qualified at runtime or extended to cached effects.

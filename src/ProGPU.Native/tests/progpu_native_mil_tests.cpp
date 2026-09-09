@@ -21444,6 +21444,72 @@ int main() {
                 found = true;
             }
             PROGPU_REQUIRE(found);
+
+            // Paired with CompositedSourceEffectsRetainOwnAndChildInputWithoutPadding.
+            // Retain this effect's canonical MIL graph, adding a point-only child
+            // and an ordinary sibling outside its clip. No effect texture is input.
+            batch.clear();
+            for (const auto visual_handle : {6U, 7U, 8U}) {
+                append_create(batch, visual_handle, 39U);
+                append_command(batch, command::visual_create, visual_handle);
+            }
+            append_create(batch, 9U, 69U); append_create(batch, 10U, 43U);
+            append_command(batch, command::target_set_root, 3U, 6U);
+            append_command(batch, command::visual_insert_child_at, 6U, 1U, 0U);
+            append_command(batch, command::visual_insert_child_at, 6U, 8U, 1U);
+            append_command(batch, command::visual_insert_child_at, 1U, 7U, 0U);
+            append_command(batch, command::visual_set_alpha, 1U, 1.0);
+            append_command(batch, command::visual_set_offset, 1U, 5.0, 6.0);
+            append_command(batch, command::visual_set_offset, 7U, 30.0, 30.0);
+            append_command(batch, command::rectangle_geometry, 9U,
+                0.0, 0.0, 0.0, 0.0, 75.0, 70.0, 0U, 0U, 0U, 0U);
+            append_command(batch, command::visual_set_clip, 1U, 9U);
+            content.clear();
+            append_command(content, command::draw_rectangle, 1.0, 2.0, 3.0, 4.0, 4U, 0U);
+            append_render_data(batch, 10U, content);
+            append_command(batch, command::visual_set_content, 8U, 10U);
+            PROGPU_REQUIRE(state.apply(batch) == status::success);
+            PROGPU_REQUIRE(state.set_visual_cache_bounds(1U, 0, 0, 90, 60) == status::success);
+            const progpu_native_mil_point_hit_rectangle point_region{7U, 0U, 0, 0, 60, 16};
+            PROGPU_REQUIRE(state.set_point_hit_rectangles({&point_region, 1U}) == status::success);
+            for (std::uint64_t phase = 0U; phase < 4U; ++phase) {
+                batch.clear();
+                if (phase == 2U) append_command(batch, command::visual_set_offset, 7U, 40.0, 30.0);
+                if (phase == 3U) append_command(batch, command::visual_set_content, 1U, 0U);
+                if (!batch.empty()) PROGPU_REQUIRE(state.apply(batch) == status::success);
+                request.generation = request.request_serial = phase + 2U;
+                PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+                const std::vector<std::byte> scene(compiled.begin(), compiled.end());
+                const auto scene_header = read_value<progpu_native_scene_header>(scene, 0U);
+                bool found_index = false;
+                for (std::uint32_t i = 0U; i < scene_header.resource_count; ++i) {
+                    const auto resource = read_value<progpu_native_scene_resource>(scene,
+                        scene_header.resource_offset + i * sizeof(progpu_native_scene_resource));
+                    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+                    const auto page = read_value<progpu_native_scene_hit_test_index>(scene, resource.payload_offset);
+                    PROGPU_REQUIRE(page.primitive_count == (phase == 3U ? 2U : 3U));
+                    const auto at = [&](std::uint32_t index) {
+                        return read_value<progpu_native_hit_test_primitive>(scene,
+                            resource.auxiliary_offset + page.primitive_offset + index * sizeof(progpu_native_hit_test_primitive));
+                    };
+                    if (phase != 3U) {
+                        const auto own = at(0U);
+                        PROGPU_REQUIRE(own.id == 1 && own.flags == 3U);
+                        PROGPU_REQUIRE(own.bounds_min.x == 13 && own.bounds_min.y == 16);
+                        PROGPU_REQUIRE(own.bounds_max.x == 45 && own.bounds_max.y == 40);
+                    }
+                    const auto point = at(page.primitive_count - 2U);
+                    const auto sibling = at(page.primitive_count - 1U);
+                    PROGPU_REQUIRE(point.id == 7 && point.flags == 7U);
+                    PROGPU_REQUIRE(point.bounds_min.x == (phase < 2U ? 35 : 45) && point.bounds_min.y == 36);
+                    PROGPU_REQUIRE(point.bounds_max.x == 80 && point.bounds_max.y == 52);
+                    PROGPU_REQUIRE(sibling.id == 8 && sibling.flags == 3U);
+                    PROGPU_REQUIRE(sibling.bounds_min.x == 1 && sibling.bounds_min.y == 2);
+                    PROGPU_REQUIRE(sibling.bounds_max.x == 4 && sibling.bounds_max.y == 6);
+                    found_index = true;
+                }
+                PROGPU_REQUIRE(found_index);
+            }
         }
     }
     {

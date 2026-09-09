@@ -12,6 +12,67 @@ namespace ProGPU.Tests;
 public sealed class SourceVisualHitTestTests
 {
     [Theory]
+    [InlineData(0)] // Gaussian blur
+    [InlineData(1)] // Zero-radius blur still uses the source input policy
+    [InlineData(2)] // Shadow and source are not two input rectangles
+    public unsafe void CompositedSourceEffectsRetainOwnAndChildInputWithoutPadding(int variant)
+    {
+        using var window = new HeadlessWindow(128, 96);
+        using var target = new GpuTexture(window.Context, 128, 96,
+            TextureFormat.Rgba8Unorm, TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Source effect input");
+        using var compositor = new Compositor(window.Context, TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with { EnableGpuHitTesting = true, EnableCompiledSceneCache = true });
+        var root = new SourceVisual { Size = new Vector2(128, 96) };
+        var effectRoot = new SourceVisual { HitTestId = 701, Offset = new Vector2(5, 6),
+            Size = new Vector2(100, 80), ClipBounds = new Rect(0, 0, 75, 70),
+            EffectContentBounds = new Rect(0, 0, 90, 60),
+            Effect = variant == 2 ? new DropShadowEffect { BlurRadius = 9, Offset = new Vector2(4, 4) }
+                : new BlurEffect { BlurRadius = variant == 0 ? 2.5f : 0 } };
+        var brush = new SolidColorBrush(Vector4.One);
+        effectRoot.SourceHitTestCommands.DrawRectangle(brush, null, new Rect(8, 10, 32, 24));
+        var child = new SourceVisual { HitTestId = 702, Offset = new Vector2(30, 30), Size = new Vector2(60, 16) };
+        child.SourceHitTestCommands.Commands.Add(new RenderCommand { Type = RenderCommandType.PushOpacity, FontSize = 1,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleBegin, new Vector4(0, 0, 60, 16)) });
+        child.SourceHitTestCommands.Commands.Add(new RenderCommand { Type = RenderCommandType.PopOpacity,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleEnd, default) });
+        effectRoot.AddChild(child); root.AddChild(effectRoot);
+        var sibling = new SourceVisual { HitTestId = 703 };
+        sibling.SourceHitTestCommands.DrawRectangle(brush, null, new Rect(1, 2, 3, 4));
+        root.AddChild(sibling);
+
+        void RenderAndCheck(float childX, bool ownContent)
+        {
+            compositor.RenderScene(root, 128, 96, target.ViewPtr);
+            var hits = Assert.IsType<GpuHitTestIndex>(compositor.LastHitTestIndex).Primitives;
+            Assert.Equal(ownContent ? 3 : 2, hits.Count);
+            if (ownContent)
+            {
+                Assert.Equal(701, hits[0].Id);
+                Assert.Equal(new Vector2(13, 16), hits[0].BoundsMin);
+                Assert.Equal(new Vector2(45, 40), hits[0].BoundsMax);
+                Assert.Equal(GpuHitTestPrimitiveFlags.Visible | GpuHitTestPrimitiveFlags.HitTestVisible, hits[0].Flags);
+            }
+            var point = hits[^2];
+            Assert.Equal(702, point.Id);
+            Assert.True(point.Flags.HasFlag(GpuHitTestPrimitiveFlags.PointOnly));
+            Assert.Equal(new Vector2(childX, 36), point.BoundsMin);
+            Assert.Equal(new Vector2(80, 52), point.BoundsMax);
+            Assert.Equal(703, hits[^1].Id);
+            Assert.Equal(new Vector2(1, 2), hits[^1].BoundsMin);
+            Assert.Equal(new Vector2(4, 6), hits[^1].BoundsMax);
+        }
+
+        RenderAndCheck(35, true);
+        int rasterCalls = effectRoot.RenderCalls;
+        RenderAndCheck(35, true);
+        Assert.Equal(rasterCalls, effectRoot.RenderCalls);
+        child.Offset = new Vector2(40, 30);
+        RenderAndCheck(45, true);
+        effectRoot.SourceHitTestCommands.Clear(); effectRoot.Invalidate();
+        RenderAndCheck(45, false);
+    }
+
+    [Theory]
     [InlineData(0f)]
     [InlineData(1f)]
     public unsafe void SourcePointRegionDoesNotAlsoPublishVisualSizeForSelection(float opacity)

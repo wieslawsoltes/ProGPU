@@ -16241,7 +16241,28 @@ SceneStateUploadComplete:
     // Helper methods for real-time drop shadows and Gaussian/backdrop blurs
     private void ApplyAndDrawEffect(Visual fe, Matrix4x4 parentTransform)
     {
-        PrepareAndDrawEffect(fe, parentTransform, drawOnMain: true);
+        if (!Options.EnableGpuHitTesting || _suspendHitTestCacheWrites ||
+            fe is not ISourceGeometryHitTestCommands)
+        {
+            PrepareAndDrawEffect(fe, parentTransform, drawOnMain: true);
+            return;
+        }
+
+        // Source input is the retained pre-effect tree, not either output texture.
+        // Capture before raster admission so empty ink can still own point input.
+        // This also validates effect mapping and outer clips before GPU work.
+        _hitTestCacheBuilder.AddSourceVisual(fe, parentTransform,
+            null, true, true, _sourceHitTestEmbeddedVisualObserver);
+        bool savedSuspendHitTestCacheWrites = _suspendHitTestCacheWrites;
+        _suspendHitTestCacheWrites = true;
+        try
+        {
+            PrepareAndDrawEffect(fe, parentTransform, drawOnMain: true);
+        }
+        finally
+        {
+            _suspendHitTestCacheWrites = savedSuspendHitTestCacheWrites;
+        }
     }
 
     private void PrepareEffectTexture(Visual fe)

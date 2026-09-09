@@ -589,6 +589,12 @@ Never hit effect padding or layer storage bounds, discard final clipping, or
 generalize this declaration to caches, masks or custom mappings. Managed source
 capture consumes EffectBase.PreservesSourceHitGeometry with a false default.
 Keep zero-alpha source input, renderer alpha and non-source behavior separate.
+Ordinary managed source effect composition must capture the complete typed input
+tree before raster admission, then suspend hit writes through effect preparation
+and final composite scopes. Restore that flag on failure; never index padded blur,
+shadow or source textures as source input, nor add descendants a second time.
+Empty ink may still own source point coverage. Cached/unmapped/spatial-mask
+contracts remain explicit; do not broaden this identity-effect declaration.
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
