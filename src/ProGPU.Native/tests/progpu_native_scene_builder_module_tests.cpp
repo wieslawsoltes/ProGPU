@@ -63,6 +63,9 @@ int main() {
         if (!hit_builder.push_layer(opacity, progpu::native::scene_layer_hit_test_mode::source_opacity) ||
             !hit_builder.pop_layer() || !hit_builder.add_recorded_hit_test_index(hit_index,
                 progpu::native::scene_hit_test_opacity_mode::source_geometry)) return 1;
+        if (!hit_builder.push_layer(opacity, progpu::native::scene_layer_hit_test_mode::source_opacity_mask) ||
+            !hit_builder.pop_layer() || !hit_builder.add_recorded_hit_test_index(hit_index,
+                progpu::native::scene_hit_test_opacity_mode::source_geometry)) return 1;
     }
     static_assert(progpu::native::PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED == (1U << 9U));
     {

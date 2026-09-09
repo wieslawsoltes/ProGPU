@@ -16095,7 +16095,10 @@ struct channel::implementation {
                 layer.mask_resource_index = mask_resource_index;
                 layer.effect_resource_index =
                     PROGPU_NATIVE_SCENE_NO_INDEX;
-                if (!builder.push_layer(layer)) {
+                if (!builder.push_layer(layer,
+                        compile_context != nullptr && compile_context->records_hit_test_owners()
+                            ? native::scene_layer_hit_test_mode::source_opacity_mask
+                            : native::scene_layer_hit_test_mode::unspecified)) {
                     return status::invalid_graph;
                 }
                 scope_states.push_back(current);

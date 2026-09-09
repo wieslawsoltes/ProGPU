@@ -11,6 +11,51 @@ namespace ProGPU.Tests;
 
 public sealed class SourceVisualHitTestTests
 {
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(1f)]
+    public void DrawingMasksPreserveSourceInputAndActualClips(float alpha)
+    {
+        // Paired with canonical native MIL scene 9836. Mask bounds are smaller
+        // than drawing bounds and cannot substitute for the actual geometry clip.
+        var source = new SourceVisual { HitTestId = 1, Opacity = alpha };
+        var commands = source.SourceHitTestCommands;
+        var brush = new SolidColorBrush(Vector4.One);
+        void Populate(float x)
+        {
+            commands.Clear();
+            commands.PushClip(new Rect(10, 12, 20, 18));
+            commands.Commands.Add(new RenderCommand { Type = RenderCommandType.PushOpacityMask,
+                Brush = new SolidColorBrush(new Vector4(1, 1, 1, alpha)), Rect = new Rect(16, 17, 2, 2) });
+            commands.Commands.Add(new RenderCommand { Type = RenderCommandType.PushOpacityMask,
+                Brush = new SolidColorBrush(Vector4.Zero), Rect = new Rect(16, 17, 2, 2) });
+            commands.DrawRectangle(brush, null, new Rect(x, 10, 32, 24));
+            commands.Commands.Add(new RenderCommand { Type = RenderCommandType.PopOpacityMask });
+            commands.Commands.Add(new RenderCommand { Type = RenderCommandType.PopOpacityMask });
+            commands.PopClip();
+            commands.DrawRectangle(brush, null, new Rect(1, 2, 3, 4));
+        }
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        for (int phase = 0; phase < 3; phase++)
+        {
+            Populate(phase == 0 ? 8 : 20);
+            if (phase == 2) commands.Clear();
+            capture.Clear();
+            capture.AddSourceVisual(source, Matrix4x4.Identity);
+            var hits = capture.BuildIndex().Primitives;
+            Assert.Equal(phase == 2 ? 0 : 2, hits.Count);
+            if (phase == 2) continue;
+            Assert.Equal(1, hits[0].Id);
+            Assert.Equal(new Vector2(phase == 0 ? 10 : 20, 12), hits[0].BoundsMin);
+            Assert.Equal(new Vector2(30, 30), hits[0].BoundsMax);
+            Assert.Equal(4u, hits[0].ClipSegmentCount);
+            Assert.Equal(new Vector2(1, 2), hits[1].BoundsMin);
+            Assert.Equal(new Vector2(4, 6), hits[1].BoundsMax);
+            Assert.Equal(0u, hits[1].ClipSegmentCount);
+        }
+        Assert.Equal(0, source.RenderCalls);
+    }
+
     [Fact]
     public void NestedCachedSourceFramesKeepSourceCoordinatesAndSiblingClipOwnership()
     {
@@ -445,7 +490,6 @@ public sealed class SourceVisualHitTestTests
     }
 
     [Theory]
-    [InlineData(RenderCommandType.PushOpacityMask)]
     [InlineData(RenderCommandType.DrawStaticDxf)]
     [InlineData(RenderCommandType.DrawGlyphRun)]
     public void UnsupportedSourceCommandCannotPublishPartialGeometry(RenderCommandType unsupported)
@@ -464,6 +508,8 @@ public sealed class SourceVisualHitTestTests
     [InlineData(RenderCommandType.PopClip)]
     [InlineData(RenderCommandType.PushClip)]
     [InlineData(RenderCommandType.PopOpacity)]
+    [InlineData(RenderCommandType.PushOpacityMask)]
+    [InlineData(RenderCommandType.PopOpacityMask)]
     public void CommandScopesCannotEscapeTheirVisual(RenderCommandType invalid)
     {
         var visual = new SourceVisual { ClipBounds = new Rect(0, 0, 10, 10) };

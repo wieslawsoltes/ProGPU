@@ -153,6 +153,7 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
         int opacityDepth = _opacityStack.Count;
         int imageDepth = _imageHitClipDepth;
         int pointRegionDepth = _pointRegionStack.Count;
+        int maskDepth = 0;
         for (int i = 0; i < commands.Count; i++)
         {
             RenderCommand command = commands[i];
@@ -220,6 +221,17 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
                 case RenderCommandType.PushOpacity:
                     AddCommand(command, resolvedTransform, provider, id);
                     break;
+                case RenderCommandType.PushOpacityMask:
+                    // WPF source drawing masks affect raster alpha, not point
+                    // or region input. Do not inspect their brush or bounds.
+                    if (++maskDepth >= 256)
+                        throw new InvalidOperationException("Source opacity mask nesting exceeded its bounded depth.");
+                    break;
+                case RenderCommandType.PopOpacityMask:
+                    if (maskDepth == 0)
+                        throw new InvalidOperationException("Source commands cannot pop an enclosing opacity mask.");
+                    maskDepth--;
+                    break;
                 case RenderCommandType.DrawRect:
                 case RenderCommandType.DrawRoundedRect:
                 case RenderCommandType.DrawEllipse:
@@ -247,7 +259,7 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
                     throw new NotSupportedException($"Source hit-only command capture does not support {command.Type}.");
             }
         }
-        if (_clipStack.Count != clipDepth || _opacityStack.Count != opacityDepth || _imageHitClipDepth != imageDepth || _pointRegionStack.Count != pointRegionDepth)
+        if (maskDepth != 0 || _clipStack.Count != clipDepth || _opacityStack.Count != opacityDepth || _imageHitClipDepth != imageDepth || _pointRegionStack.Count != pointRegionDepth)
             throw new InvalidOperationException("Source retained command scopes must be balanced.");
     }
 

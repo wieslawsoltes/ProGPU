@@ -612,13 +612,15 @@ bool semantic_scene_builder::push_layer(
     if (hit_test_mode != scene_layer_hit_test_mode::unspecified &&
         hit_test_mode != scene_layer_hit_test_mode::source_opacity &&
         hit_test_mode != scene_layer_hit_test_mode::source_identity_effect &&
-        hit_test_mode != scene_layer_hit_test_mode::source_local_cache) {
+        hit_test_mode != scene_layer_hit_test_mode::source_local_cache &&
+        hit_test_mode != scene_layer_hit_test_mode::source_opacity_mask) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     const bool source_opacity = hit_test_mode == scene_layer_hit_test_mode::source_opacity;
     const bool source_effect = hit_test_mode == scene_layer_hit_test_mode::source_identity_effect;
     const bool source_cache = hit_test_mode == scene_layer_hit_test_mode::source_local_cache;
-    const bool source_geometry = source_opacity || source_effect || source_cache;
+    const bool source_mask = hit_test_mode == scene_layer_hit_test_mode::source_opacity_mask;
+    const bool source_geometry = source_opacity || source_effect || source_cache || source_mask;
     if (source_cache != (source_content_to_parent != nullptr))
         return implementation_->fail(scene_build_error::invalid_argument);
     if (source_cache) {
@@ -636,11 +638,11 @@ bool semantic_scene_builder::push_layer(
             !is_finite(frame) || !std::isfinite(determinant) || determinant == 0.0)
             return implementation_->fail(scene_build_error::invalid_argument);
     }
-    if (source_opacity &&
+    if ((source_opacity || source_mask) &&
         ((source.flags & ~(PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
             PROGPU_NATIVE_SCENE_LAYER_BOUNDS)) != 0U ||
          source.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
-         source.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+         (!source_mask && source.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) ||
          source.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX)) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
@@ -728,6 +730,10 @@ bool semantic_scene_builder::push_layer(
             layer.effect_resource_index,
             PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) ||
         !valid_composite_state()) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    if (source_mask && layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
+        implementation_->resources[layer.mask_resource_index].source_geometry_clip) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     if (source_effect && layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {

@@ -33,7 +33,11 @@ enum class scene_layer_hit_test_mode : std::uint32_t {
     source_identity_effect,
     // Cached commands use a separate raster-local frame. The caller supplies
     // its unsnapped content-to-parent input transform; storage bounds are not clips.
-    source_local_cache
+    source_local_cache,
+    // Source drawing PushOpacityMask changes alpha only. Its mask and storage
+    // bounds do not clip input; actual source geometry clips stay in draw state.
+    // Never use this annotation for a geometric clipping layer.
+    source_opacity_mask
 };
 
 enum class scene_hit_test_opacity_mode : std::uint32_t {

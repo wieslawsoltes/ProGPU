@@ -21112,6 +21112,93 @@ int main() {
         return hits;
     };
     {
+        // Paired with DrawingMasksPreserveSourceInputAndActualClips. Source
+        // PushOpacityMask is input-neutral, including a fully transparent brush.
+        for (std::uint32_t variant = 0U; variant < 3U; ++variant) {
+            channel state;
+            std::vector<std::byte> batch;
+            append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
+            append_create(batch, 3U, 47U); append_create(batch, 4U, 75U);
+            append_create(batch, 5U, 69U); append_create(batch, 6U, variant == 2U ? 77U : 75U);
+            append_create(batch, 7U, 75U);
+            append_command(batch, command::visual_create, 1U);
+            append_command(batch, command::solid_color_brush, 4U, 1.0,
+                progpu_native_color{1, 1, 1, 1}, 0U, 0U, 0U, 0U);
+            append_command(batch, command::solid_color_brush, 7U, 1.0,
+                progpu_native_color{1, 1, 1, 0}, 0U, 0U, 0U, 0U);
+            if (variant == 2U) {
+                const std::array stops{mil_gradient_stop{0.0, {1, 1, 1, 0}},
+                    mil_gradient_stop{1.0, {1, 1, 1, 1}}};
+                append_linear_gradient_brush(batch, 6U, 1.0, 0.0, 0.0, 1.0, 0.0,
+                    0U, 0U, 0U, 1U, 1U, 0U, 0U, 0U, stops);
+            } else append_command(batch, command::solid_color_brush, 6U, 1.0,
+                progpu_native_color{1, 1, 1, static_cast<float>(variant)}, 0U, 0U, 0U, 0U);
+            append_command(batch, command::rectangle_geometry, 5U,
+                0.0, 0.0, 10.0, 12.0, 20.0, 18.0, 0U, 0U, 0U, 0U);
+            append_command(batch, command::visual_set_content, 1U, 2U);
+            append_command(batch, command::generic_target_create, 3U,
+                std::uint64_t{0}, std::uint64_t{0}, 64U, 64U, 0U);
+            append_command(batch, command::target_set_root, 3U, 1U);
+            PROGPU_REQUIRE(state.apply(batch) == status::success);
+            scene_build_request request{};
+            request.flags = scene_build_request_flags::hit_test_index;
+            request.target_handle = 3U; request.scene_id = 9836U;
+            request.dpi_scale_x = request.dpi_scale_y = 1.0;
+            for (std::uint32_t phase = 0U; phase < 3U; ++phase) {
+                std::vector<std::byte> content;
+                if (phase != 2U) {
+                    append_command(content, command::push_clip, 5U, 0U);
+                    append_command(content, command::push_opacity_mask, 16.0F, 17.0F, 18.0F, 19.0F, 6U, 0U);
+                    append_command(content, command::push_opacity_mask, 16.0F, 17.0F, 18.0F, 19.0F, 7U, 0U);
+                    append_command(content, command::draw_rectangle, phase == 0U ? 8.0 : 20.0, 10.0, 32.0, 24.0, 4U, 0U);
+                    append_command(content, command::pop); append_command(content, command::pop);
+                    append_command(content, command::pop);
+                    append_command(content, command::draw_rectangle, 1.0, 2.0, 3.0, 4.0, 4U, 0U);
+                }
+                batch.clear(); append_render_data(batch, 2U, content);
+                PROGPU_REQUIRE(state.apply(batch) == status::success);
+                request.generation = request.request_serial = phase + 1U;
+                std::span<const std::byte> compiled;
+                PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+                const std::vector<std::byte> stream(compiled.begin(), compiled.end());
+                const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+                bool found = false;
+                for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+                    const auto resource = read_value<progpu_native_scene_resource>(stream,
+                        header.resource_offset + i * sizeof(progpu_native_scene_resource));
+                    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+                    const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+                    PROGPU_REQUIRE(page.primitive_count == (phase == 2U ? 0U : 2U));
+                    if (phase != 2U) {
+                        const auto first = read_value<progpu_native_hit_test_primitive>(stream,
+                            resource.auxiliary_offset + page.primitive_offset);
+                        const auto second = read_value<progpu_native_hit_test_primitive>(stream,
+                            resource.auxiliary_offset + page.primitive_offset + sizeof(first));
+                        PROGPU_REQUIRE(first.id == 1 && first.bounds_min.x == (phase == 0U ? 10.0F : 20.0F));
+                        PROGPU_REQUIRE(first.bounds_min.y == 12 && first.bounds_max.x == 30 && first.bounds_max.y == 30);
+                        PROGPU_REQUIRE(first.clip_segment_count == 4U);
+                        PROGPU_REQUIRE(second.id == 1 && second.bounds_min.x == 1 && second.bounds_min.y == 2);
+                        PROGPU_REQUIRE(second.bounds_max.x == 4 && second.bounds_max.y == 6 && second.clip_segment_count == 0U);
+                    }
+                    found = true;
+                }
+                PROGPU_REQUIRE(found);
+                std::uint32_t layer_count = 0U;
+                for (std::uint32_t i = 0U; i < header.command_count; ++i) {
+                    const auto record = read_value<progpu_native_scene_command>(stream,
+                        header.command_offset + i * sizeof(progpu_native_scene_command));
+                    if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) continue;
+                    const auto layer = read_value<progpu_native_scene_layer>(stream, record.payload_offset);
+                    if (layer_count == 0U && variant == 2U)
+                        PROGPU_REQUIRE(layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX);
+                    if (layer_count == 1U) PROGPU_REQUIRE(layer.opacity == 0.0F);
+                    ++layer_count;
+                }
+                PROGPU_REQUIRE(layer_count == (phase == 2U ? 0U : 2U)); // raster masks are not deleted
+            }
+        }
+    }
+    {
         // Input-only ownership stays in this builder; only balanced draw scopes
         // are removed from the raster stream, including nested input-only saves.
         progpu::native::semantic_scene_builder builder(9835U, 1U);

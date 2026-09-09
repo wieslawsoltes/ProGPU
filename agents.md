@@ -6,6 +6,13 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Source drawing PushOpacityMask is input-neutral, not a geometry clip. Native MIL
+uses the explicit source_opacity_mask layer annotation; managed typed source
+capture consumes balanced mask scopes. Keep raster masks and real source clips
+intact, never use mask bounds/pixels as selection geometry, and never tag a
+geometric clipping layer as an alpha-only layer. Visual mask/cache/effect boundary
+admission remains separate until its source-state ownership is implemented.
+
 Source-specific point regions must remain distinct from geometry selection.
 Use shared PointOnly/RegionOnly hit-primitive flags, preserving actual transforms,
 clips and owner order. Neither flag keeps all-query behavior; both/unknown bits
