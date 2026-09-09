@@ -540,7 +540,7 @@ public partial struct NativeGeometryQueryPen
 public partial struct NativeMilPointHitRectangle
 {
     public uint Handle;
-    public uint Reserved;
+    public uint IsEmpty;
     public double X;
     public double Y;
     public double Width;

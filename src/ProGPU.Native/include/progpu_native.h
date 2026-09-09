@@ -2285,11 +2285,13 @@ typedef enum progpu_native_hit_test_primitive_kind {
     PROGPU_NATIVE_HIT_TEST_PATH_STROKE = 7
 } progpu_native_hit_test_primitive_kind;
 
-/* Source-owned MIL point input, submitted as one sorted retained snapshot. */
+/* Source-owned MIL point input, submitted as one sorted retained snapshot.
+ * is_empty: 0 rectangle (including zero extent), 1 no own point coverage.
+ * Empty input requires all four coordinates zero. Region drawing is retained. */
 /* PROGPU_CSHARP_STRUCT: Public.NativeMilPointHitRectangle */
 typedef struct progpu_native_mil_point_hit_rectangle {
     uint32_t handle;
-    uint32_t reserved;
+    uint32_t is_empty;
     double x;
     double y;
     double width;

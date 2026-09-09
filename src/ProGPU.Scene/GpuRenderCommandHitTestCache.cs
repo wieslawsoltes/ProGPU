@@ -101,11 +101,12 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
     {
         activeTransform = NormalizeTransform(activeTransform);
 
-        if (command.SourceHitGeometry.Kind is SourceHitTestGeometryKind.PointRectangleBegin or SourceHitTestGeometryKind.PointRectangleEnd)
+        if (command.SourceHitGeometry.Kind is SourceHitTestGeometryKind.PointRectangleBegin or SourceHitTestGeometryKind.PointEmptyBegin or SourceHitTestGeometryKind.PointRectangleEnd)
         {
             try
             {
-                bool begin = command.SourceHitGeometry.Kind == SourceHitTestGeometryKind.PointRectangleBegin;
+                bool begin = command.SourceHitGeometry.Kind != SourceHitTestGeometryKind.PointRectangleEnd;
+                bool empty = command.SourceHitGeometry.Kind == SourceHitTestGeometryKind.PointEmptyBegin;
                 if (command.Type != (begin ? RenderCommandType.PushOpacity : RenderCommandType.PopOpacity) ||
                     (begin && command.FontSize != 1f))
                     throw new NotSupportedException("Source point regions require identity render scopes.");
@@ -114,11 +115,11 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 if (begin)
                 {
                     var c = command.SourceHitGeometry.Coordinates;
-                    if (!float.IsFinite(c.X) || !float.IsFinite(c.Y) || !float.IsFinite(c.Z) || !float.IsFinite(c.W) ||
+                    if ((empty && c != Vector4.Zero) || !float.IsFinite(c.X) || !float.IsFinite(c.Y) || !float.IsFinite(c.Z) || !float.IsFinite(c.W) ||
                         !float.IsFinite(c.X + c.Z) || !float.IsFinite(c.Y + c.W) || c.Z < 0 || c.W < 0)
                         throw new NotSupportedException("Source point regions require finite nonnegative extents.");
                     _pointRegionStack.Push(_queryParticipation);
-                    if (_queryParticipation != GpuHitTestPrimitiveFlags.RegionOnly && IsFiniteInvertibleAffine2D(activeTransform))
+                    if (!empty && _queryParticipation != GpuHitTestPrimitiveFlags.RegionOnly && IsFiniteInvertibleAffine2D(activeTransform))
                     {
                         _queryParticipation = GpuHitTestPrimitiveFlags.PointOnly;
                         AddPrimitive(GpuHitTestPrimitive.RectangleFill(ResolvePrimitiveId(id, command.HitTestId),

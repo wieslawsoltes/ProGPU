@@ -8,6 +8,57 @@ namespace ProGPU.Tests;
 
 public sealed class SourceHitTestGeometryTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EmptyPointScopePreservesRegionDrawingAndRestoresChildPolicy(bool suppressChild)
+    {
+        var drawing = new DrawingContext();
+        void Begin(int id) => drawing.Commands.Add(new RenderCommand {
+            Type = RenderCommandType.PushOpacity, FontSize = 1, HitTestId = id,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointEmptyBegin, default) });
+        void End() => drawing.Commands.Add(new RenderCommand { Type = RenderCommandType.PopOpacity,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleEnd, default) });
+        Begin(701);
+        drawing.Commands.Add(new RenderCommand { Type = RenderCommandType.DrawRect,
+            HitTestId = 701, Rect = new Rect(-2, 2, 12, 8), Brush = new SolidColorBrush(Vector4.One) });
+        End();
+        if (suppressChild) Begin(702);
+        drawing.Commands.Add(new RenderCommand { Type = RenderCommandType.DrawRect,
+            HitTestId = 702, Rect = new Rect(1, 6, 12, 8), Brush = new SolidColorBrush(Vector4.One) });
+        if (suppressChild) End();
+        using var original = drawing.CreatePictureSnapshot();
+        using var picture = original.Clone();
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        for (int i = 0; i < picture.CommandCount; i++)
+            capture.AddCommand(picture.GetCommand(i), Matrix4x4.CreateTranslation(10, 20, 0));
+        var hits = capture.BuildIndex().Primitives;
+        Assert.Equal(2, hits.Count);
+        Assert.Equal(701, hits[0].Id);
+        Assert.Equal(702, hits[1].Id);
+        Assert.Equal(new Vector2(8, 22), hits[0].BoundsMin);
+        Assert.True(hits[0].Flags.HasFlag(GpuHitTestPrimitiveFlags.RegionOnly));
+        Assert.Equal(suppressChild, hits[1].Flags.HasFlag(GpuHitTestPrimitiveFlags.RegionOnly));
+        Assert.False(hits[0].Flags.HasFlag(GpuHitTestPrimitiveFlags.PointOnly));
+    }
+
+    [Fact]
+    public void EmptyPointScopeRejectsGeometryAndRequiresBalancedClose()
+    {
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        var begin = new RenderCommand { Type = RenderCommandType.PushOpacity, FontSize = 1,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointEmptyBegin, Vector4.One) };
+        Assert.Throws<NotSupportedException>(() => capture.AddCommand(begin, Matrix4x4.Identity));
+        Assert.Throws<InvalidOperationException>(() => capture.BuildIndex());
+        capture.Clear();
+        begin.SourceHitGeometry = new(SourceHitTestGeometryKind.PointEmptyBegin, default);
+        capture.AddCommand(begin, Matrix4x4.Identity);
+        Assert.Throws<InvalidOperationException>(() => capture.BuildIndex());
+        capture.AddCommand(new RenderCommand { Type = RenderCommandType.PopOpacity,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleEnd, default) }, Matrix4x4.Identity);
+        Assert.Empty(capture.BuildIndex().Primitives);
+    }
+
     [Fact]
     public void PointRegionRejectsOverflowAndRequiresClearAfterFailure()
     {

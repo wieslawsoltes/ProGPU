@@ -378,8 +378,10 @@ bool semantic_scene_builder::save(
     std::uint32_t state_resource_index,
     const progpu_native_image_rect* local_hit_rectangle,
     bool point_only_rectangle,
-    bool input_only) noexcept {
-    if (point_only_rectangle && local_hit_rectangle == nullptr)
+    bool input_only,
+    bool empty_point_region) noexcept {
+    if ((point_only_rectangle && local_hit_rectangle == nullptr) ||
+        (empty_point_region && !point_only_rectangle))
         return implementation_->fail(scene_build_error::invalid_argument);
     const bool record_hit = local_hit_rectangle != nullptr &&
         !implementation_->hit_test_owners.empty() &&
@@ -416,7 +418,7 @@ bool semantic_scene_builder::save(
             input_ranges.reserve(std::max<std::size_t>(8U, input_ranges.size() * 2U));
         if (record_hit) {
             scopes.push_back({implementation_->commands.size(),
-                implementation_->commands.size(), *local_hit_rectangle, point_only_rectangle});
+                implementation_->commands.size(), *local_hit_rectangle, point_only_rectangle, empty_point_region});
         }
         implementation_->hit_rectangle_stack[implementation_->stack_depth] =
             record_hit ? scopes.size() : 0U;

@@ -6,6 +6,12 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Successful source point-region Empty means no own point hits, not unavailable
+metadata or a zero-sized rectangle. Preserve source region drawing, descendants,
+clips and owners through the paired native/managed point scopes. Caret/selection
+rejection must not become subtree invisibility or a raster-alpha hit rule. Keep
+the native is_empty discriminator validated and source snapshot updates batched.
+
 Source rectangular image/drawing/visual-brush fills own their actual geometry,
 not brush pixels, viewport or inner visuals. Reuse the logical rectangle scope
 before brush mapping/isolation and close it before separate pen replay. Preserve

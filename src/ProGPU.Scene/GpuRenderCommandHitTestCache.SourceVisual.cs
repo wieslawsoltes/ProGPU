@@ -170,7 +170,7 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
                 continue;
             }
             int id = command.HitTestId != 0 ? command.HitTestId : ownerId;
-            if (command.SourceHitGeometry.Kind is SourceHitTestGeometryKind.PointRectangleBegin or SourceHitTestGeometryKind.PointRectangleEnd)
+            if (command.SourceHitGeometry.Kind is SourceHitTestGeometryKind.PointRectangleBegin or SourceHitTestGeometryKind.PointEmptyBegin or SourceHitTestGeometryKind.PointRectangleEnd)
             {
                 if (command.SourceHitGeometry.Kind == SourceHitTestGeometryKind.PointRectangleEnd && _pointRegionStack.Count <= pointRegionDepth)
                     throw new InvalidOperationException("Source commands cannot pop an enclosing point region.");

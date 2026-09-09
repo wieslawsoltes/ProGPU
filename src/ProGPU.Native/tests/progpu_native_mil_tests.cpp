@@ -22537,9 +22537,9 @@ int main() {
         PROGPU_REQUIRE(state.apply(batch) == status::success);
         progpu_native_mil_point_hit_rectangle rectangle{1U, 0U, 0.0, 0.0, 80.0, 20.0};
         PROGPU_REQUIRE(state.set_point_hit_rectangles({&rectangle, 1U}) == status::success);
-        rectangle.reserved = 1U;
+        rectangle.is_empty = 2U;
         PROGPU_REQUIRE(state.set_point_hit_rectangles({&rectangle, 1U}) == status::invalid_argument);
-        rectangle.reserved = 0U;
+        rectangle.is_empty = 0U;
         scene_build_request request{};
         request.flags = scene_build_request_flags::hit_test_index;
         request.target_handle = 4U; request.scene_id = 9830U;
@@ -22567,6 +22567,28 @@ int main() {
         PROGPU_REQUIRE(captured[0U].flags == 7U && captured[1U].flags == 11U && captured[2U].flags == 3U);
         PROGPU_REQUIRE(captured[0U].bounds_min.x == 10.0F && captured[0U].bounds_min.y == 20.0F && captured[0U].bounds_max.x == 90.0F);
         PROGPU_REQUIRE(captured[1U].bounds_min.x == 8.0F);
+        // Caret/selection own point rejection must not remove region drawing
+        // or suppress a descendant whose source policy still accepts points.
+        rectangle = {1U, 1U, 0.0, 0.0, 0.0, 0.0};
+        PROGPU_REQUIRE(state.set_point_hit_rectangles({&rectangle, 1U}) == status::success);
+        captured = hits();
+        PROGPU_REQUIRE(captured.size() == 2U && captured[0U].id == 1 && captured[1U].id == 2);
+        PROGPU_REQUIRE(captured[0U].flags == 11U && captured[1U].flags == 3U);
+        PROGPU_REQUIRE(captured[0U].bounds_min.x == 8.0F);
+        rectangle.x = 1.0;
+        PROGPU_REQUIRE(state.set_point_hit_rectangles({&rectangle, 1U}) == status::invalid_argument);
+        rectangle.x = 0.0;
+        const progpu_native_mil_point_hit_rectangle empty_regions[]{rectangle, {2U, 1U, 0.0, 0.0, 0.0, 0.0}};
+        PROGPU_REQUIRE(state.set_point_hit_rectangles(empty_regions) == status::success);
+        captured = hits();
+        PROGPU_REQUIRE(captured.size() == 2U && captured[0U].flags == 11U && captured[1U].flags == 11U);
+        // Zero extents remain distinct from Empty, retaining the boundary point.
+        rectangle.is_empty = 0U;
+        PROGPU_REQUIRE(state.set_point_hit_rectangles({&rectangle, 1U}) == status::success);
+        captured = hits();
+        PROGPU_REQUIRE(captured.size() == 3U && captured[0U].flags == 7U);
+        rectangle = {1U, 0U, 0.0, 0.0, 80.0, 20.0};
+        PROGPU_REQUIRE(state.set_point_hit_rectangles({&rectangle, 1U}) == status::success);
         batch.clear(); append_command(batch, command::visual_set_content, 1U, 0U);
         PROGPU_REQUIRE(state.apply(batch) == status::success);
         captured = hits();

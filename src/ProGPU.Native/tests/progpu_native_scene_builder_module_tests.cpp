@@ -33,6 +33,8 @@ int main() {
         if (!point_builder.add_state(progpu::native::semantic_scene_builder::identity_state(), state_index) ||
             !point_builder.set_hit_test_owner(1) || !point_builder.save(state_index, &rectangle, true, true) ||
             !point_builder.restore() || !point_builder.add_recorded_hit_test_index(hit_index)) return 1;
+        if (!point_builder.save(state_index, &rectangle, true, false, true) ||
+            !point_builder.restore() || !point_builder.add_recorded_hit_test_index(hit_index)) return 1;
     }
     {
         progpu::native::semantic_scene_builder clip_builder(9702U, 1U);

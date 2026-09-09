@@ -454,7 +454,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                         read_record<progpu_native_scene_state>(implementation_->resources[state_index].payload);
                     if ((state.flags & ~input_state_flags) != 0U || !map_state(state)) return unsupported();
                     if (scope.point_only) {
-                        if (query_participation != PROGPU_NATIVE_HIT_TEST_REGION_ONLY) {
+                        if (!scope.empty_point_region && query_participation != PROGPU_NATIVE_HIT_TEST_REGION_ONLY) {
                             query_participation = PROGPU_NATIVE_HIT_TEST_POINT_ONLY;
                             if (!append_rectangle(scope.local_bounds, state.transform, state, state_index)) return unsupported();
                         }

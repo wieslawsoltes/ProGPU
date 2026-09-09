@@ -21216,7 +21216,8 @@ struct channel::implementation {
             const progpu_native_image_rect point_bounds{static_cast<float>(rectangle.x),
                 static_cast<float>(rectangle.y), static_cast<float>(rectangle.width), static_cast<float>(rectangle.height)};
             std::uint32_t point_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder.add_state(point_state, point_state_index) || !builder.save(point_state_index, &point_bounds, true)) {
+            if (!builder.add_state(point_state, point_state_index) ||
+                !builder.save(point_state_index, &point_bounds, true, false, rectangle.is_empty != 0U)) {
                 active_visuals.erase(handle);
                 return status::capacity_exceeded;
             }
@@ -21695,7 +21696,9 @@ status channel::set_point_hit_rectangles(
     if (rectangles.size() > implementation_->visuals.size()) return status::invalid_argument;
     std::uint32_t previous = 0U;
     for (const auto& rectangle : rectangles) {
-        if (rectangle.handle <= previous || rectangle.reserved != 0U ||
+        if (rectangle.handle <= previous || rectangle.is_empty > 1U ||
+            (rectangle.is_empty != 0U && (rectangle.x != 0.0 || rectangle.y != 0.0 ||
+                rectangle.width != 0.0 || rectangle.height != 0.0)) ||
             !finite_double_as_float(rectangle.x) || !finite_double_as_float(rectangle.y) ||
             !finite_double_as_float(rectangle.width) || !finite_double_as_float(rectangle.height) ||
             !finite_double_as_float(rectangle.x + rectangle.width) ||
