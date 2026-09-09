@@ -12,10 +12,77 @@ namespace ProGPU.Tests;
 public sealed class SourceVisualHitTestTests
 {
     [Theory]
-    [InlineData(0)] // Gaussian blur
-    [InlineData(1)] // Zero-radius blur still uses the source input policy
-    [InlineData(2)] // Shadow and source are not two input rectangles
-    public unsafe void CompositedSourceEffectsRetainOwnAndChildInputWithoutPadding(int variant)
+    [InlineData(0f)]
+    [InlineData(1f)]
+    [InlineData(2f)]
+    public unsafe void CachedSourceInputRetainsUnsnappedGeometryAcrossReuseAndUpdates(float cacheScale)
+    {
+        using var window = new HeadlessWindow(128, 96);
+        using var target = new GpuTexture(window.Context, 128, 96,
+            TextureFormat.Rgba8Unorm, TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Cached source input");
+        using var compositor = new Compositor(window.Context, TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with { EnableGpuHitTesting = true, EnableCompiledSceneCache = false });
+        var root = new SourceVisual { Size = new Vector2(128, 96) };
+        var cached = new SourceVisual { HitTestId = 701, Offset = new Vector2(5.25f, 6.5f),
+            Size = new Vector2(100, 80), ClipBounds = new Rect(0, 0, 75, 70), CacheAsLayer = true,
+            LayerCacheRenderScale = cacheScale, LayerCacheSnapsToDevicePixels = true };
+        var brush = new SolidColorBrush(Vector4.One);
+        cached.SourceHitTestCommands.DrawRectangle(brush, null, new Rect(8, 10, 32, 24));
+        root.AddChild(cached);
+        var sibling = new SourceVisual { HitTestId = 703 };
+        sibling.SourceHitTestCommands.DrawRectangle(brush, null, new Rect(1, 2, 3, 4));
+        root.AddChild(sibling);
+
+        void RenderAndCheck(Vector2? sourceMin, Vector2? sourceMax)
+        {
+            compositor.RenderScene(root, 128, 96, target.ViewPtr);
+            var hits = Assert.IsType<GpuHitTestIndex>(compositor.LastHitTestIndex).Primitives;
+            Assert.Equal(sourceMin.HasValue ? 2 : 1, hits.Count);
+            if (sourceMin.HasValue)
+            {
+                Assert.Equal(701, hits[0].Id);
+                Assert.Equal(sourceMin.Value, hits[0].BoundsMin);
+                Assert.Equal(sourceMax!.Value, hits[0].BoundsMax);
+                Assert.Equal(GpuHitTestPrimitiveFlags.Visible | GpuHitTestPrimitiveFlags.HitTestVisible, hits[0].Flags);
+            }
+            Assert.Equal(703, hits[^1].Id); // outside the cache: hit writes and clipping restored
+            Assert.Equal(new Vector2(1, 2), hits[^1].BoundsMin);
+            Assert.Equal(new Vector2(4, 6), hits[^1].BoundsMax);
+        }
+
+        RenderAndCheck(new(13.25f, 16.5f), new(45.25f, 40.5f));
+        var texture = cached.LayerTexture;
+        int renderCalls = cached.RenderCalls;
+        RenderAndCheck(new(13.25f, 16.5f), new(45.25f, 40.5f));
+        Assert.Same(texture, cached.LayerTexture);
+        Assert.Equal(renderCalls, cached.RenderCalls);
+        if (cacheScale == 0)
+        {
+            Assert.Null(texture);
+            Assert.Equal(0, renderCalls); // input exists even when raster cache production is suppressed
+        }
+        else
+            Assert.NotNull(texture);
+
+        cached.Offset = new Vector2(10.75f, 8.25f);
+        RenderAndCheck(new(18.75f, 18.25f), new(50.75f, 42.25f));
+        cached.SourceHitTestCommands.Clear();
+        cached.SourceHitTestCommands.DrawRectangle(brush, null, new Rect(60, 20, 30, 10));
+        cached.Invalidate();
+        RenderAndCheck(new(70.75f, 28.25f), new(85.75f, 38.25f)); // actual source clip, not cache bounds
+        cached.SourceHitTestCommands.Clear();
+        cached.Invalidate();
+        RenderAndCheck(null, null);
+    }
+
+    [Theory]
+    [InlineData(0, false)] // Gaussian blur
+    [InlineData(1, false)] // Zero-radius blur still uses the source input policy
+    [InlineData(2, false)] // Shadow and source are not two input rectangles
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    public unsafe void CompositedSourceEffectsRetainOwnAndChildInputWithoutPadding(int variant, bool cached)
     {
         using var window = new HeadlessWindow(128, 96);
         using var target = new GpuTexture(window.Context, 128, 96,
@@ -25,7 +92,7 @@ public sealed class SourceVisualHitTestTests
         var root = new SourceVisual { Size = new Vector2(128, 96) };
         var effectRoot = new SourceVisual { HitTestId = 701, Offset = new Vector2(5, 6),
             Size = new Vector2(100, 80), ClipBounds = new Rect(0, 0, 75, 70),
-            EffectContentBounds = new Rect(0, 0, 90, 60),
+            EffectContentBounds = new Rect(0, 0, 90, 60), CacheAsLayer = cached,
             Effect = variant == 2 ? new DropShadowEffect { BlurRadius = 9, Offset = new Vector2(4, 4) }
                 : new BlurEffect { BlurRadius = variant == 0 ? 2.5f : 0 } };
         var brush = new SolidColorBrush(Vector4.One);
@@ -365,12 +432,12 @@ public sealed class SourceVisualHitTestTests
     }
 
     [Fact]
-    public void MissingSourceContractAndCacheFailExplicitly()
+    public void MissingSourceContractAndRequiredCacheFailExplicitly()
     {
         using var capture = new GpuRenderCommandHitTestCacheBuilder();
         Assert.Throws<NotSupportedException>(() => capture.AddSourceVisual(new DrawingVisual(), Matrix4x4.Identity));
         capture.Clear();
-        Assert.Throws<NotSupportedException>(() => capture.AddSourceVisual(new SourceVisual { CacheAsLayer = true }, Matrix4x4.Identity));
+        Assert.Throws<NotSupportedException>(() => capture.AddSourceVisual(new RequiredCacheSourceVisual(), Matrix4x4.Identity));
     }
 
     [Fact]
@@ -432,7 +499,12 @@ public sealed class SourceVisualHitTestTests
         Assert.Throws<InvalidOperationException>(() => capture.BuildIndex());
     }
 
-    internal sealed class SourceVisual : ContainerVisual, ISourceGeometryHitTestCommands
+    private sealed class RequiredCacheSourceVisual : SourceVisual
+    {
+        internal override bool RequiresLayerCache => true;
+    }
+
+    internal class SourceVisual : ContainerVisual, ISourceGeometryHitTestCommands
     {
         public DrawingContext SourceHitTestCommands { get; } = new();
         public int RenderCalls { get; private set; }

@@ -16241,18 +16241,12 @@ SceneStateUploadComplete:
     // Helper methods for real-time drop shadows and Gaussian/backdrop blurs
     private void ApplyAndDrawEffect(Visual fe, Matrix4x4 parentTransform)
     {
-        if (!Options.EnableGpuHitTesting || _suspendHitTestCacheWrites ||
-            fe is not ISourceGeometryHitTestCommands)
+        if (!TryCaptureSourceCompositeInput(fe, parentTransform))
         {
             PrepareAndDrawEffect(fe, parentTransform, drawOnMain: true);
             return;
         }
 
-        // Source input is the retained pre-effect tree, not either output texture.
-        // Capture before raster admission so empty ink can still own point input.
-        // This also validates effect mapping and outer clips before GPU work.
-        _hitTestCacheBuilder.AddSourceVisual(fe, parentTransform,
-            null, true, true, _sourceHitTestEmbeddedVisualObserver);
         bool savedSuspendHitTestCacheWrites = _suspendHitTestCacheWrites;
         _suspendHitTestCacheWrites = true;
         try
@@ -16263,6 +16257,18 @@ SceneStateUploadComplete:
         {
             _suspendHitTestCacheWrites = savedSuspendHitTestCacheWrites;
         }
+    }
+
+    private bool TryCaptureSourceCompositeInput(Visual source, Matrix4x4 parentTransform)
+    {
+        if (!Options.EnableGpuHitTesting || _suspendHitTestCacheWrites ||
+            source is not ISourceGeometryHitTestCommands)
+            return false;
+        // Capture the original source frame before raster sizing, cache snapping
+        // or effect padding. Empty/suppressed raster content can still own input.
+        _hitTestCacheBuilder.AddSourceVisual(source, parentTransform,
+            null, true, true, _sourceHitTestEmbeddedVisualObserver);
+        return true;
     }
 
     private void PrepareEffectTexture(Visual fe)
@@ -16561,6 +16567,25 @@ SceneStateUploadComplete:
     }
 
     private void ApplyAndDrawLayer(Visual node, Matrix4x4 parentTransform)
+    {
+        if (!TryCaptureSourceCompositeInput(node, parentTransform))
+        {
+            ApplyAndDrawLayerCore(node, parentTransform);
+            return;
+        }
+        bool savedSuspendHitTestCacheWrites = _suspendHitTestCacheWrites;
+        _suspendHitTestCacheWrites = true;
+        try
+        {
+            ApplyAndDrawLayerCore(node, parentTransform);
+        }
+        finally
+        {
+            _suspendHitTestCacheWrites = savedSuspendHitTestCacheWrites;
+        }
+    }
+
+    private void ApplyAndDrawLayerCore(Visual node, Matrix4x4 parentTransform)
     {
         if (!EnsureLayerTexture(node)) return;
 

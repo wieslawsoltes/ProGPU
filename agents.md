@@ -595,6 +595,12 @@ and final composite scopes. Restore that flag on failure; never index padded blu
 shadow or source textures as source input, nor add descendants a second time.
 Empty ink may still own source point coverage. Cached/unmapped/spatial-mask
 contracts remain explicit; do not broaden this identity-effect declaration.
+Optional source CacheAsLayer input uses the shared pre-composite source capture,
+before raster scaling/snapping, with hit writes suspended only during rendering.
+Preserve source input at zero raster scale and keep required cached-picture
+refresh sources explicit. Native cache-local input still needs unsnapped frame
+metadata; never admit it using a texture rectangle or a snapped composite matrix.
+See docs/native-mil-cache-input.md; this staged connection is not paired parity.
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
