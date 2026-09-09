@@ -533,6 +533,12 @@ source_opacity layer annotations and source_geometry state policy separate from
 render alpha; managed IsSourceOpacityScope must survive scalar/general snapshots.
 Do not apply this policy to arbitrary effects, blend layers or geometric masks,
 and do not equate command capture with opacity-zero retained visual qualification.
+Opacity-culled source visuals publish ISourceGeometryHitTestCommands and use the
+shared hit-only traversal, not OnRender or size/bounds substitution. Borrow their
+stable commands and retain real visibility, source IDs, picture transforms and
+local/outer clip stacks. Unsupported nodes/scopes fault index publication until
+Clear; effects, caches and spatial masks remain separate contracts. Generic
+ProGPU opacity culling and disabled-hit-testing paths must remain unchanged.
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 

@@ -1,0 +1,280 @@
+using System;
+using System.Numerics;
+using ProGPU.Scene;
+using ProGPU.Backend;
+using ProGPU.Tests.Headless;
+using ProGPU.Vector;
+using Silk.NET.WebGPU;
+using Xunit;
+
+namespace ProGPU.Tests;
+
+public sealed class SourceVisualHitTestTests
+{
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public unsafe void CompositorCapturesZeroOpacitySourceWithoutRendering(bool enableHitTesting)
+    {
+        using var window = new HeadlessWindow(64, 64);
+        using var target = new GpuTexture(window.Context, 64, 64,
+            TextureFormat.Rgba8Unorm, TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Source opacity input target");
+        using var compositor = new Compositor(window.Context, TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with { EnableGpuHitTesting = enableHitTesting });
+        var source = new SourceVisual { Opacity = 0, HitTestId = 4321, Size = new Vector2(64) };
+        source.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(new Vector4(1, 0, 0, 1)),
+            null, new Rect(10, 20, 30, 40));
+        compositor.RenderScene(source, 64, 64, target.ViewPtr);
+        Assert.Equal(0, source.RenderCalls);
+        Assert.Equal(0, compositor.Metrics.VectorVerticesCount);
+        if (enableHitTesting)
+        {
+            var hit = Assert.Single(Assert.IsType<GpuHitTestIndex>(compositor.LastHitTestIndex).Primitives);
+            Assert.Equal(4321, hit.Id);
+            Assert.Equal(new Vector2(10, 20), hit.BoundsMin);
+            Assert.Equal(new Vector2(40, 60), hit.BoundsMax);
+        }
+        else
+        {
+            Assert.Null(compositor.LastHitTestIndex);
+        }
+        byte[] pixels = target.ReadPixels();
+        Assert.Equal(0, pixels[(25 * 64 + 15) * 4]); // no red source pixel
+        source.SourceHitTestCommands.Clear();
+        source.Invalidate();
+        compositor.RenderScene(source, 64, 64, target.ViewPtr);
+        if (enableHitTesting)
+            Assert.Empty(Assert.IsType<GpuHitTestIndex>(compositor.LastHitTestIndex).Primitives);
+        var generic = new DrawingVisual { Opacity = 0, HitTestId = 4322, Size = new Vector2(64) };
+        generic.Context.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(0, 0, 64, 64));
+        compositor.RenderScene(generic, 64, 64, target.ViewPtr);
+        if (enableHitTesting)
+            Assert.Empty(Assert.IsType<GpuHitTestIndex>(compositor.LastHitTestIndex).Primitives);
+    }
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(0.5f)]
+    [InlineData(1f)]
+    public void SourceOpacityRetainsRealGeometryClipsAndOwners(float opacity)
+    {
+        // Matches the source-layer fixture's two owners and transformed clip.
+        var root = new SourceVisual { Opacity = opacity, Size = new Vector2(1000) };
+        var child = new SourceVisual
+        {
+            HitTestId = 4321, Opacity = 0, Offset = new Vector2(5, 6),
+            ClipBounds = new Rect(10, 20, 10, 10), Size = new Vector2(200)
+        };
+        child.SourceHitTestCommands.PushOpacity(0, affectsHitTesting: false);
+        child.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(10, 20, 30, 40));
+        child.SourceHitTestCommands.PopOpacity();
+        root.AddChild(child);
+        var sibling = new SourceVisual { HitTestId = 4322 };
+        sibling.SourceHitTestCommands.DrawEllipse(new SolidColorBrush(Vector4.One), null, new Vector2(30, 40), 10, 5);
+        root.AddChild(sibling);
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        capture.AddSourceVisual(root, Matrix4x4.Identity);
+        var index = capture.BuildIndex();
+        Assert.Equal(2, index.Primitives.Count); // no root/child Size rectangle
+        Assert.Equal(4321, index.Primitives[0].Id);
+        Assert.Equal(new Vector2(15, 26), index.Primitives[0].BoundsMin);
+        Assert.Equal(new Vector2(25, 36), index.Primitives[0].BoundsMax);
+        Assert.Equal(0u, index.Primitives[0].ClipSegmentCount); // exact axis-aligned bounds clip
+        Assert.Equal(4322, index.Primitives[1].Id);
+        Assert.Equal(GpuHitTestPrimitiveKind.EllipseFill, index.Primitives[1].Kind);
+        Assert.Equal(0u, index.Primitives[1].ClipSegmentCount);
+        Assert.Equal(opacity, root.Opacity);
+        Assert.Equal(0f, child.SourceHitTestCommands.Commands[0].FontSize);
+        Assert.Equal(0, root.RenderCalls + child.RenderCalls + sibling.RenderCalls);
+
+        child.IsVisible = false;
+        capture.Clear();
+        capture.AddSourceVisual(root, Matrix4x4.Identity);
+        Assert.Equal(4322, Assert.Single(capture.BuildIndex().Primitives).Id);
+        sibling.SourceHitTestCommands.Clear();
+        sibling.Invalidate();
+        capture.Clear();
+        capture.AddSourceVisual(root, Matrix4x4.Identity);
+        Assert.Empty(capture.BuildIndex().Primitives);
+    }
+
+    [Fact]
+    public void SourceCapturePreservesPictureTransformsAndLogicalImages()
+    {
+        var nested = new DrawingContext();
+        nested.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(1, 2, 3, 4));
+        using var picture = nested.CreatePictureSnapshot();
+        var visual = new SourceVisual { HitTestId = 71, Offset = new Vector2(10, 20) };
+        visual.SourceHitTestCommands.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPicture, Picture = picture,
+            Transform = Matrix4x4.CreateTranslation(5, 6, 0)
+        });
+        visual.SourceHitTestCommands.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.PushClip, IsImageHitTestScope = true,
+            Rect = new Rect(30, 40, 50, 60), HitTestId = 72
+        });
+        visual.SourceHitTestCommands.Commands.Add(new RenderCommand { Type = RenderCommandType.PushOpacityMask });
+        visual.SourceHitTestCommands.Commands.Add(new RenderCommand { Type = RenderCommandType.PopOpacityMask });
+        visual.SourceHitTestCommands.PopClip();
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        capture.AddSourceVisual(visual, Matrix4x4.Identity);
+        var index = capture.BuildIndex();
+        Assert.Equal(2, index.Primitives.Count);
+        Assert.Equal(new Vector2(16, 28), index.Primitives[0].BoundsMin);
+        Assert.Equal(new Vector2(19, 32), index.Primitives[0].BoundsMax);
+        Assert.Equal(72, index.Primitives[1].Id);
+        Assert.Equal(new Vector2(40, 60), index.Primitives[1].BoundsMin);
+        Assert.Equal(new Vector2(90, 120), index.Primitives[1].BoundsMax);
+    }
+
+    [Fact]
+    public unsafe void EmbeddedSourceMutationInvalidatesAnOpacityCulledScene()
+    {
+        using var window = new HeadlessWindow(32, 32);
+        using var target = new GpuTexture(window.Context, 32, 32,
+            TextureFormat.Rgba8Unorm, TextureUsage.RenderAttachment,
+            "Embedded source opacity target");
+        using var compositor = new Compositor(window.Context, TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with { EnableGpuHitTesting = true, EnableCompiledSceneCache = true });
+        var parent = new SourceVisual { Opacity = 0 };
+        var child = new SourceVisual { HitTestId = 73 };
+        child.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(1, 2, 3, 4));
+        parent.SourceHitTestCommands.Commands.Add(new RenderCommand { Type = RenderCommandType.DrawVisual, Visual = child });
+        compositor.RenderScene(parent, 32, 32, target.ViewPtr);
+        Assert.Single(Assert.IsType<GpuHitTestIndex>(compositor.LastHitTestIndex).Primitives);
+        compositor.RenderScene(parent, 32, 32, target.ViewPtr);
+        Assert.Single(Assert.IsType<GpuHitTestIndex>(compositor.LastHitTestIndex).Primitives);
+        long parentVersion = parent.ChangeVersion;
+        child.SourceHitTestCommands.Clear();
+        child.Invalidate();
+        Assert.Equal(parentVersion, parent.ChangeVersion); // embedded, not parented
+        compositor.RenderScene(parent, 32, 32, target.ViewPtr);
+        Assert.Empty(Assert.IsType<GpuHitTestIndex>(compositor.LastHitTestIndex).Primitives);
+        Assert.Equal(0, parent.RenderCalls + child.RenderCalls);
+    }
+
+    [Fact]
+    public void RotatedSourceRectangleClipRetainsItsEdges()
+    {
+        var visual = new SourceVisual
+        {
+            HitTestId = 74, Opacity = 0,
+            LocalCompositeClip = new VisualCompositeClip(new Rect(-5, -5, 10, 10), Matrix4x4.CreateRotationZ(0.5f))
+        };
+        visual.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(-20, -20, 40, 40));
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        capture.AddSourceVisual(visual, Matrix4x4.Identity);
+        Assert.True(Assert.Single(capture.BuildIndex().Primitives).ClipSegmentCount >= 4);
+    }
+
+    [Theory]
+    [InlineData(RenderCommandType.PushOpacityMask)]
+    [InlineData(RenderCommandType.DrawStaticDxf)]
+    [InlineData(RenderCommandType.DrawGlyphRun)]
+    public void UnsupportedSourceCommandCannotPublishPartialGeometry(RenderCommandType unsupported)
+    {
+        var visual = new SourceVisual { HitTestId = 1 };
+        visual.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(0, 0, 10, 10));
+        visual.SourceHitTestCommands.Commands.Add(new RenderCommand { Type = unsupported });
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        Assert.Throws<NotSupportedException>(() => capture.AddSourceVisual(visual, Matrix4x4.Identity));
+        Assert.Throws<InvalidOperationException>(() => capture.BuildIndex());
+        capture.Clear();
+        Assert.Empty(capture.BuildIndex().Primitives);
+    }
+
+    [Theory]
+    [InlineData(RenderCommandType.PopClip)]
+    [InlineData(RenderCommandType.PushClip)]
+    [InlineData(RenderCommandType.PopOpacity)]
+    public void CommandScopesCannotEscapeTheirVisual(RenderCommandType invalid)
+    {
+        var visual = new SourceVisual { ClipBounds = new Rect(0, 0, 10, 10) };
+        visual.SourceHitTestCommands.Commands.Add(new RenderCommand { Type = invalid, Rect = new Rect(0, 0, 5, 5) });
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        Assert.Throws<InvalidOperationException>(() => capture.AddSourceVisual(visual, Matrix4x4.Identity));
+        Assert.Throws<InvalidOperationException>(() => capture.BuildIndex());
+    }
+
+    [Fact]
+    public void MissingSourceContractAndCacheFailExplicitly()
+    {
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        Assert.Throws<NotSupportedException>(() => capture.AddSourceVisual(new DrawingVisual(), Matrix4x4.Identity));
+        capture.Clear();
+        Assert.Throws<NotSupportedException>(() => capture.AddSourceVisual(new SourceVisual { CacheAsLayer = true }, Matrix4x4.Identity));
+    }
+
+    [Fact]
+    public void ExistingGeometryClipCannotHideAnUnavailableNestedClip()
+    {
+        var visual = new SourceVisual
+        {
+            GeometryClip = PrimitivePathGeometry.CreateRectangle(0, 0, 20, 20)
+        };
+        visual.SourceHitTestCommands.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.PushGeometryClip, Path = new PathGeometry { IsCombined = true }
+        });
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        Assert.Throws<NotSupportedException>(() => capture.AddSourceVisual(visual, Matrix4x4.Identity));
+        Assert.Throws<InvalidOperationException>(() => capture.BuildIndex());
+    }
+
+    [Fact]
+    public void UnownedLogicalImageDoesNotInventAnInputOwner()
+    {
+        var visual = new SourceVisual();
+        visual.SourceHitTestCommands.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.PushClip, IsImageHitTestScope = true,
+            Rect = new Rect(0, 0, 10, 10)
+        });
+        visual.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(0, 0, 5, 5));
+        visual.SourceHitTestCommands.PopClip();
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        capture.AddSourceVisual(visual, Matrix4x4.Identity);
+        Assert.Empty(capture.BuildIndex().Primitives);
+    }
+
+    [Fact]
+    public void EnclosingImageScopeDoesNotEnterSourceVisualClips()
+    {
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        capture.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.PushClip, IsImageHitTestScope = true,
+            Rect = new Rect(10, 20, 30, 40), HitTestId = 75
+        }, Matrix4x4.Identity);
+        capture.AddSourceVisual(new SourceVisual
+        {
+            Opacity = 0, ClipBounds = new Rect(0, 0, 5, 5), CacheAsLayer = true
+        }, Matrix4x4.Identity);
+        capture.AddCommand(new RenderCommand { Type = RenderCommandType.PopClip }, Matrix4x4.Identity);
+        Assert.Equal(75, Assert.Single(capture.BuildIndex().Primitives).Id);
+    }
+
+    [Fact]
+    public void RecursiveEmbeddedSourceFailsAtBoundedDepth()
+    {
+        var visual = new SourceVisual();
+        visual.SourceHitTestCommands.Commands.Add(new RenderCommand { Type = RenderCommandType.DrawVisual, Visual = visual });
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        Assert.Throws<InvalidOperationException>(() => capture.AddSourceVisual(visual, Matrix4x4.Identity));
+        Assert.Throws<InvalidOperationException>(() => capture.BuildIndex());
+    }
+
+    internal sealed class SourceVisual : ContainerVisual, ISourceGeometryHitTestCommands
+    {
+        public DrawingContext SourceHitTestCommands { get; } = new();
+        public int RenderCalls { get; private set; }
+        public override void OnRender(DrawingContext context)
+        {
+            RenderCalls++;
+            context.Append(SourceHitTestCommands);
+        }
+    }
+}

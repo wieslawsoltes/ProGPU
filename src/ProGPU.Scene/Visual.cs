@@ -9,6 +9,17 @@ using ProGPU.Vector;
 namespace ProGPU.Scene;
 
 /// <summary>
+/// Publishes already recorded source geometry whose input visibility is independent
+/// of visual opacity. The context is borrowed synchronously; producers must keep
+/// commands/resources stable during capture and invalidate the visual on changes.
+/// This contract does not authorize replacing geometry with visual bounds.
+/// </summary>
+public interface ISourceGeometryHitTestCommands
+{
+    DrawingContext SourceHitTestCommands { get; }
+}
+
+/// <summary>
 /// Marks a visual whose <see cref="Visual.OnRender"/> implementation already owns
 /// an immutable-until-invalidated command cache. The compositor must not retain a
 /// second copy of that command stream.

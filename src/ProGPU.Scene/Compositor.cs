@@ -1442,6 +1442,7 @@ public unsafe partial class Compositor : IDisposable
     private bool _compiledSceneContainsDrawingVisual;
     private readonly List<CompiledVisualVersion> _compiledEmbeddedVisuals = new();
     private readonly List<CompiledVisualVersion> _embeddedVisualsInFrame = new();
+    private readonly Action<Visual> _sourceHitTestEmbeddedVisualObserver;
     private readonly HashSet<Visual> _embeddedVisualsBeingCompiled = new();
     private readonly object _offscreenRenderLock = new();
     private int _offscreenRenderDepth;
@@ -1832,6 +1833,7 @@ public unsafe partial class Compositor : IDisposable
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
 
+        _sourceHitTestEmbeddedVisualObserver = TrackEmbeddedVisual;
         _context = context;
         _imageSamplingPath = context.ImageSamplingPath;
         Options = options;
@@ -5375,10 +5377,20 @@ SceneStateUploadComplete:
             _compiledSceneContainsDrawingVisual = true;
         }
 
-        if (!node.IsVisible
-            || (includeLocalVisualState && node.Opacity <= 0.0001f)
+        if (!node.IsVisible)
+        {
+            node.IsDirty = false;
+            return;
+        }
+
+        if ((includeLocalVisualState && node.Opacity <= 0.0001f)
             || _activeOpacity <= 0.0001f)
         {
+            if (Options.EnableGpuHitTesting && !_suspendHitTestCacheWrites &&
+                node is ISourceGeometryHitTestCommands)
+                _hitTestCacheBuilder.AddSourceVisual(node, parentTransform,
+                    offsetOverride, includeLocalTransform, includeLocalVisualState,
+                    _sourceHitTestEmbeddedVisualObserver);
             node.IsDirty = false;
             return;
         }
@@ -6350,21 +6362,7 @@ SceneStateUploadComplete:
             // resulting version, not the pre-capture version, so the next stable
             // frame does not incur a synthetic embedded-visual cache miss.
             visual.PrepareLayerCache();
-            bool alreadyTracked = false;
-            for (int i = 0; i < _embeddedVisualsInFrame.Count; i++)
-            {
-                if (ReferenceEquals(_embeddedVisualsInFrame[i].Visual, visual))
-                {
-                    alreadyTracked = true;
-                    break;
-                }
-            }
-
-            if (!alreadyTracked)
-            {
-                _embeddedVisualsInFrame.Add(
-                    new CompiledVisualVersion(visual, visual.ChangeVersion));
-            }
+            TrackEmbeddedVisual(visual);
 
             CompileVisualTree(visual, parentTransform);
         }
@@ -6372,6 +6370,14 @@ SceneStateUploadComplete:
         {
             _embeddedVisualsBeingCompiled.Remove(visual);
         }
+    }
+
+    private void TrackEmbeddedVisual(Visual visual)
+    {
+        for (int i = 0; i < _embeddedVisualsInFrame.Count; i++)
+            if (ReferenceEquals(_embeddedVisualsInFrame[i].Visual, visual))
+                return;
+        _embeddedVisualsInFrame.Add(new CompiledVisualVersion(visual, visual.ChangeVersion));
     }
 
     private static void TransformCommandBrushes(
@@ -16678,8 +16684,13 @@ SceneStateUploadComplete:
 
     private void AddVisualHitTestBoundsSubtree(Visual visual, Matrix4x4 parentTransform)
     {
-        if (!visual.IsVisible || visual.Opacity <= 0.0001f)
+        if (!visual.IsVisible)
+            return;
+        if (visual.Opacity <= 0.0001f)
         {
+            if (visual is ISourceGeometryHitTestCommands)
+                _hitTestCacheBuilder.AddSourceVisual(visual, parentTransform,
+                    null, true, true, _sourceHitTestEmbeddedVisualObserver);
             return;
         }
 

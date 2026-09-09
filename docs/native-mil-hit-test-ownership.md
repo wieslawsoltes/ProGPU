@@ -159,11 +159,9 @@ outer transforms and actual clips, subsequent owners, retained alpha, reset,
 generic policy preservation, unsupported blend/layer rejection and canonical
 MIL regular/animated scopes with zero-opacity visual parents, with/without typed
 isolation bounds. Header and module consumers share the enum/signature contract.
-This is not full input qualification: managed retained visual traversal still
-has an opacity-zero early rejection in `Compositor.CompileVisualTreeCore` and
-`AddVisualHitTestBoundsSubtree`, independently of command replay. That source-specific policy connection
-remains in the application queue, alongside masks/effects/cache coverage and
-native host query routing. Do not report zero-opacity retained visual parity.
+This is not full input qualification. The managed retained visual connection
+below handles its separate opacity-culling branch; masks/effects/cache coverage
+and native host query routing remain in the application queue.
 
 Provenance is the original ProGPU builder/state and managed opacity-stack code.
 The research references above were revisited; additionally
@@ -177,6 +175,65 @@ copied. New native metadata is O(L) for L annotated layers with geometric growth
 and capacity reuse; stack traversal is dependent O(C), not a numeric CPU fallback.
 Existing SIMD primitive placement and the canonical GPU shader are unchanged.
 No new readback, per-item submission, pixel work or performance claim is added.
+
+### Retained source visuals without raster work
+
+`ISourceGeometryHitTestCommands` publishes an existing source-owned command buffer,
+stable for synchronous capture. LibreWPF's retained visual implements it directly;
+no second recording, reflection, OnRender call or WPF-local hit encoder is added.
+When `CompileVisualTreeCore` culls an opacity-zero source node, the enabled hit
+builder traverses those commands and children, preserving local/parent transforms,
+template order, local/outer/composite/geometry clips and actual command owner IDs.
+The matching zero-opacity branch in the existing cached-descendant traversal uses
+the same capture. Invisible nodes stay excluded; generic untyped zero-opacity
+visuals and disabled/suspended hit testing retain their old culling behavior.
+Visual Size is never source hit geometry. Explicit command opacity still uses
+its recorded source/generic policy; visual alpha and raster state are unchanged.
+
+Nested pictures borrow retained snapshots and providers; nested visuals must
+publish the same typed source contract. Embedded visuals join the compositor's
+existing version tracking through one cached observer, preventing an unchanged
+parent from reusing stale input after an embedded child changes. The observer is
+borrowed only during capture. Logical image scopes retain their source
+rectangle, including empty contents, and suppress only internal render commands.
+Unknown draw commands, effects, caches and masks outside logical images reject.
+Glyphs require nonempty declared ink bounds rather than falling through to the
+legacy position estimate; authoritative-empty glyph metadata needs a distinct
+future representation. Command scopes cannot pop enclosing visual state or
+remain open. Failed capture faults publication until Clear, so callers cannot
+publish the accumulated prefix after catching an unsupported/invalid input.
+Visual/picture recursion shares a 256-level bound. Normal primitive/clip encoding
+still uses the existing builder and its coverage limits; this does not qualify
+all input families or replace the outstanding native host-query connection.
+
+Original provenance is `Compositor.CompileVisualTreeCore` command ordering,
+`ResolveHitTestTransform` placement, `AddVisualHitTestBoundsSubtree` clip ordering,
+`GpuPicture` retained storage and `GpuRenderCommandHitTestCacheBuilder` encoding.
+The native counterpart is the already connected MIL source-geometry/layer mode
+and canonical scene 9811 fixtures; C++ has no corresponding managed-visual early
+return to change. No native/shader/ABI edit is required for this connection.
+Managed fixtures now cover the retained zero-opacity path, real clips/owners,
+pictures/images, empty updates, disabled input, generic policy, bounded cycles,
+failure/reset, and a compositor fixture asserting no source rendering at zero
+alpha. They are authored/compiled, not executed parity evidence.
+
+The primary references above were revisited for this connection. WebRender's
+separation of scene/spatial state motivates retaining input independently from
+raster culling; Skia's [canvas scopes](https://api.skia.org/classSkCanvas.html),
+Direct2D/Win2D layers and Vello inform balanced composition metadata. ProGPU's
+existing algorithms supply the implementation, not those engines' source code.
+SkParagraph/Parley/HarfBuzz layout/shaping reuse, startup, worker scheduling,
+font/fallback/variation state, DPI/hinting, atlas keys/eviction and device lifetime
+are unchanged. Input capture does not eagerly render or upload invisible content.
+Axis-preserving rectangular clips keep the allocation-free bounds path; rotated
+rectangles use actual four-edge ProGPU paths, and failed geometry-clip encoding
+cannot degrade into bounds. Scheduling is O(V + C) plus existing primitive/clip
+encoding and the existing embedded-version tracker's O(E squared) worst-case
+identity lookup for E distinct embedded visuals, with O(D) bounded traversal
+storage and existing O(E) retained version storage. The ordered scope/tree metadata is dependency-bound; numeric
+placement retains the existing intrinsic vector operations. GPU query execution
+and configurable fallbacks are unchanged. Final matched performance, output,
+resource-lifetime and cross-platform qualification remain required.
 
 ## Image and glyph-run producer connection
 

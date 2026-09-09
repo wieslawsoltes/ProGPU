@@ -9,7 +9,7 @@ using ProGPU.Vector;
 
 namespace ProGPU.Scene;
 
-public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
+public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
 {
     private const int MaxLineSeriesSegmentsPerPathPrimitive = 128;
     private const int MinimumDeviceStrokeArcSubdivisions = 32;
@@ -35,6 +35,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
     private Vector2 _boundsMax;
     private bool _hasBounds;
     private int _imageHitClipDepth;
+    private bool _sourceCaptureFailed;
 
     public GpuRenderCommandHitTestCacheBuilder()
     {
@@ -73,6 +74,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         _boundsMax = default;
         _hasBounds = false;
         _imageHitClipDepth = 0;
+        _sourceCaptureFailed = false;
     }
 
     public void Dispose()
@@ -271,6 +273,8 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
     public GpuHitTestIndex BuildIndex(int maxDepth = 8, int maxPrimitivesPerNode = 32)
     {
+        if (_sourceCaptureFailed)
+            throw new InvalidOperationException("Clear the hit-test builder after a failed source capture before publishing an index.");
         if (_imageHitClipDepth != 0)
             throw new InvalidOperationException("An image hit-test scope must be closed before publishing its index.");
         return GpuHitTestIndex.Build(
@@ -2127,10 +2131,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         _clipStack.Push(new ClipState(clipMin, clipMax));
     }
 
-    private void PushGeometryClip(RenderCommand command, Matrix4x4 activeTransform)
+    private void PushGeometryClip(RenderCommand command, Matrix4x4 activeTransform, bool requireExact = false)
     {
         if (command.Path == null || !command.Path.TryGetBounds(out Vector2 min, out Vector2 max))
         {
+            if (requireExact)
+                throw new NotSupportedException("Source geometry clipping requires available path bounds and coverage.");
             _clipStack.Push(_clipStack.TryPeek(out ClipState active) ? active : ClipState.Unbounded);
             return;
         }
@@ -2170,6 +2176,8 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             return;
         }
 
+        if (requireExact)
+            throw new NotSupportedException("Source geometry clip encoding cannot fall back to its bounds.");
         _clipStack.Push(
             _clipStack.TryPeek(out ClipState inherited)
                 ? inherited.WithBounds(clipMin, clipMax)
