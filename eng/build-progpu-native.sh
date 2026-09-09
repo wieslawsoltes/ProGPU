@@ -7,23 +7,28 @@ requested_rid=
 if [[ ( "$#" == 1 || "$#" == 3 ) && "$1" == --build-only ]]; then
   build_only=1
   if [[ "$#" == 3 ]]; then
-    if [[ "$2" != --rid || ( "$3" != linux-x64 && "$3" != linux-arm64 ) ]]; then
-      echo "Usage: $0 [--build-only [--rid linux-x64|linux-arm64]]" >&2
+    if [[ "$2" != --rid || ( "$3" != linux-x64 && "$3" != linux-arm64 && "$3" != osx-x64 && "$3" != osx-arm64 ) ]]; then
+      echo "Usage: $0 [--build-only [--rid linux-x64|linux-arm64|osx-x64|osx-arm64]]" >&2
       exit 2
     fi
     requested_rid="$3"
   fi
 elif [[ "$#" != 0 ]]; then
-  echo "Usage: $0 [--build-only [--rid linux-x64|linux-arm64]]" >&2
+  echo "Usage: $0 [--build-only [--rid linux-x64|linux-arm64|osx-x64|osx-arm64]]" >&2
   exit 2
 fi
 if [[ "${build_only}" == 1 && "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" == 1 ]]; then
   echo "--build-only cannot use a reduced compiler-qualification profile." >&2
   exit 2
 fi
-if [[ -n "${requested_rid}" && "$(uname -s)" != Linux ]]; then
-  echo "Explicit Linux RID builds require a Linux build host and target GNU toolchain." >&2
-  exit 2
+if [[ -n "${requested_rid}" ]]; then
+  case "$(uname -s):${requested_rid}" in
+    Linux:linux-x64|Linux:linux-arm64|Darwin:osx-x64|Darwin:osx-arm64) ;;
+    *)
+      echo "Explicit RID builds require a matching Linux or macOS build host and target toolchain." >&2
+      exit 2
+      ;;
+  esac
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -36,7 +41,11 @@ build_dir="${PROGPU_NATIVE_BUILD_DIR:-${default_build_dir}}"
 export PROGPU_NATIVE_BUILD_DIR="${build_dir}"
 sample_dir="${PROGPU_NATIVE_SAMPLE_DIR:-${repo_root}/artifacts/progpu-native/sample}"
 include_dir="${PROGPU_NATIVE_INCLUDE_DIR:-${repo_root}/artifacts/progpu-native/include}"
-runtime_dir="${PROGPU_NATIVE_RUNTIME_DIR:-${repo_root}/artifacts/progpu-native/runtime}"
+default_runtime_dir="${repo_root}/artifacts/progpu-native/runtime"
+if [[ -n "${requested_rid}" ]]; then
+  default_runtime_dir="${default_runtime_dir}-${requested_rid}"
+fi
+runtime_dir="${PROGPU_NATIVE_RUNTIME_DIR:-${default_runtime_dir}}"
 dawn_header_source="${PROGPU_NATIVE_DAWN_HEADER_SOURCE:-${repo_root}/artifacts/webgpu-headers-dawn}"
 expected_commit="33133da4ec5a0174cb21539ef2d3346f75200411"
 expected_headers_commit="aef5e428a1fdab2ea770581ae7c95d8779984e0a"
@@ -56,17 +65,25 @@ command -v "${cxx_compiler}" >/dev/null 2>&1 || {
 target_options=()
 if [[ -n "${requested_rid}" ]]; then
   if [[ "$("${cxx_compiler}" --version)" != *clang* ]]; then
-    echo "Explicit Linux RID builds require Clang with the target GNU C++ toolchain installed." >&2
+    echo "Explicit RID builds require Clang with the target platform C++ toolchain installed." >&2
     exit 2
   fi
   case "${requested_rid}" in
     linux-x64) target_processor=x86_64; target_triple=x86_64-linux-gnu ;;
     linux-arm64) target_processor=aarch64; target_triple=aarch64-linux-gnu ;;
+    osx-x64) target_architecture=x86_64 ;;
+    osx-arm64) target_architecture=arm64 ;;
   esac
-  target_options=(
-    -DCMAKE_SYSTEM_NAME=Linux
-    "-DCMAKE_SYSTEM_PROCESSOR=${target_processor}"
-    "-DCMAKE_CXX_COMPILER_TARGET=${target_triple}")
+  if [[ "${requested_rid}" == linux-* ]]; then
+    target_options=(
+      -DCMAKE_SYSTEM_NAME=Linux
+      "-DCMAKE_SYSTEM_PROCESSOR=${target_processor}"
+      "-DCMAKE_CXX_COMPILER_TARGET=${target_triple}")
+  else
+    # Set before project()/compiler detection; do not infer a package RID from
+    # uname when the Apple toolchain is compiling the other architecture.
+    target_options=("-DCMAKE_OSX_ARCHITECTURES=${target_architecture}")
+  fi
 fi
 if [[ "${cmake_generator}" == Ninja* ]] &&
     ! command -v ninja >/dev/null 2>&1; then
@@ -136,7 +153,10 @@ esac
 if [[ -n "${requested_rid}" ]]; then
   # The linker input and package label follow the compiler target, not uname.
   package_rid="${requested_rid}"
-  package_library="${package_root}/runtimes/${package_rid}/native/libwgpu_native.so"
+  case "${package_rid}" in
+    linux-*) package_library="${package_root}/runtimes/${package_rid}/native/libwgpu_native.so" ;;
+    osx-*) package_library="${package_root}/runtimes/${package_rid}/native/libwgpu_native.dylib" ;;
+  esac
 fi
 if [[ ! -f "${package_library}" ]]; then
   echo "Missing ${package_library}; restore ProGPU.Backend first." >&2

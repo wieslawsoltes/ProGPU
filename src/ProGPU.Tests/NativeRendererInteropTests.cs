@@ -56,8 +56,9 @@ public class NativeRendererInteropTests
         Assert.Contains("\"$1\" == --build-only", script, StringComparison.Ordinal);
         Assert.Contains("\"$2\" != --rid", script, StringComparison.Ordinal);
         Assert.Contains("\"$3\" != linux-x64 && \"$3\" != linux-arm64", script, StringComparison.Ordinal);
-        Assert.Contains("Explicit Linux RID builds require a Linux build host", script, StringComparison.Ordinal);
-        Assert.Contains("Explicit Linux RID builds require Clang", script, StringComparison.Ordinal);
+        Assert.Contains("Linux:linux-x64|Linux:linux-arm64|Darwin:osx-x64|Darwin:osx-arm64", script, StringComparison.Ordinal);
+        Assert.Contains("Explicit RID builds require a matching Linux or macOS build host", script, StringComparison.Ordinal);
+        Assert.Contains("Explicit RID builds require Clang", script, StringComparison.Ordinal);
         Assert.Contains("default_build_dir=\"${default_build_dir}-${requested_rid}\"", script, StringComparison.Ordinal);
         Assert.Contains("linux-x64) target_processor=x86_64; target_triple=x86_64-linux-gnu", script, StringComparison.Ordinal);
         Assert.Contains("linux-arm64) target_processor=aarch64; target_triple=aarch64-linux-gnu", script, StringComparison.Ordinal);
@@ -69,6 +70,23 @@ public class NativeRendererInteropTests
         Assert.Contains("cmake_options+=(\"${target_options[@]}\")", script, StringComparison.Ordinal);
         Assert.DoesNotContain("CMAKE_CROSSCOMPILING_EMULATOR", script, StringComparison.Ordinal);
         Assert.DoesNotContain("CMAKE_TRY_COMPILE_TARGET_TYPE", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitMacBuildTargetKeepsAppleArchitectureRuntimeAndStagingTogether()
+    {
+        string script = File.ReadAllText(FindRepoFile("eng", "build-progpu-native.sh"));
+        Assert.Contains("\"$3\" != osx-x64 && \"$3\" != osx-arm64", script, StringComparison.Ordinal);
+        Assert.Contains("Darwin:osx-x64|Darwin:osx-arm64", script, StringComparison.Ordinal);
+        Assert.Contains("osx-x64) target_architecture=x86_64", script, StringComparison.Ordinal);
+        Assert.Contains("osx-arm64) target_architecture=arm64", script, StringComparison.Ordinal);
+        Assert.Contains("target_options=(\"-DCMAKE_OSX_ARCHITECTURES=${target_architecture}\")", script, StringComparison.Ordinal);
+        Assert.Contains("default_runtime_dir=\"${default_runtime_dir}-${requested_rid}\"", script, StringComparison.Ordinal);
+        Assert.Contains("runtime_dir=\"${PROGPU_NATIVE_RUNTIME_DIR:-${default_runtime_dir}}\"", script, StringComparison.Ordinal);
+        Assert.Contains("osx-*) package_library=\"${package_root}/runtimes/${package_rid}/native/libwgpu_native.dylib\"", script, StringComparison.Ordinal);
+        Assert.Contains("package_stage=\"${repo_root}/artifacts/progpu-native/package/runtimes/${package_rid}/native\"", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("arch -x86_64", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("CMAKE_CXX_COMPILER_WORKS", script, StringComparison.Ordinal);
     }
 
     [Fact]

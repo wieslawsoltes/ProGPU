@@ -22,7 +22,7 @@ headers installed. On Ubuntu, the cross-toolchain packages are
 ./eng/build-progpu-native.sh --build-only --rid linux-arm64
 ```
 
-The explicit RID option is accepted only with build-only on Linux. It selects the
+Explicit Linux RIDs are accepted only with build-only on Linux. They select the
 Clang target triple, CMake system/processor, matching pinned Silk.NET wgpu library
 and staging RID together. The default build directory is target-specific
 (`build-linux-x64` or `build-linux-arm64`); explicit directory overrides must also
@@ -32,6 +32,25 @@ Both providers, SDK archives, tests, samples and supported C++ module targets st
 compile. This produces target binaries, not target runtime qualification. Final
 qualification still runs on each required architecture with the normal scripts.
 No-argument CI/release builds retain host-native selection and all existing gates.
+
+On macOS, the Apple Clang toolchain can compile either architecture without
+executing an emulated process:
+
+```sh
+./eng/build-progpu-native.sh --build-only --rid osx-x64
+./eng/build-progpu-native.sh --build-only --rid osx-arm64
+```
+
+Explicit macOS RIDs require a macOS host. They set the CMake cache architecture
+before compiler/target initialization, choose the matching pinned wgpu dylib and
+stage that exact RID. Default build and runtime-input directories carry the RID;
+explicit overrides must keep architecture-specific build/runtime directories as
+well. A host/target OS mismatch is rejected before restore or dependency changes.
+No uname emulation, Rosetta command, compiler-probe bypass or universal binary
+relabel is used. The existing original ProGPU Linux target-selection code is the
+implementation provenance; the added macOS compiler setting follows the public
+[CMAKE_OSX_ARCHITECTURES contract](https://cmake.org/cmake/help/latest/variable/CMAKE_OSX_ARCHITECTURES.html).
+This changes build orchestration only, not native rendering or SIMD algorithms.
 
 ```powershell
 # Windows PowerShell 7 host with the existing Visual Studio/LLVM prerequisites.

@@ -158,6 +158,10 @@ the pinned wgpu linker input and staging RID aligned. Use target-specific build
 directories and real target GNU link/standard-library dependencies; never relabel
 host binaries, emulate uname, bypass compiler link probes or treat cross-compilation
 as target runtime qualification. Normal CI/release lanes remain native and gated.
+Explicit macOS build-only RIDs similarly bind CMAKE_OSX_ARCHITECTURES, the pinned
+wgpu dylib and staging RID. Keep build and mutable runtime-input directories
+architecture-specific, reject host/target OS mismatches before restore, and never
+use uname emulation or relabel host binaries. Complete package gates stay intact.
 
 Retained picture seed copies must submit through `progpu_native_engine::submit`,
 just like other native render/mask work. Never call raw `wgpuQueueSubmit` or
