@@ -27,7 +27,10 @@ enum class scene_layer_hit_test_mode : std::uint32_t {
     unspecified = 0U,
     // Source drawing opacity changes pixels, not geometric input coverage.
     // Admitted only for an unmasked, effect-free SrcOver opacity layer.
-    source_opacity
+    source_opacity,
+    // Source-owned identity input mapping through built-in blur/shadow. Raster
+    // bounds are not input bounds; an optional final composite clip still applies.
+    source_identity_effect
 };
 
 enum class scene_hit_test_opacity_mode : std::uint32_t {

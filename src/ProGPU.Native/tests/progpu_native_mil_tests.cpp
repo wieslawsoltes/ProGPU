@@ -21086,6 +21086,124 @@ int main() {
         return hits;
     };
     {
+        // Paired with IdentityEffectsPreserveSourceInputAndNestedClips.
+        for (std::uint32_t kind : {PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR,
+                PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR, PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW}) {
+            progpu::native::semantic_scene_builder builder(9816U, 1U);
+            progpu_native_group_effect effect{};
+            effect.kind = kind; effect.revision = 1U;
+            effect.sigma_x = effect.sigma_y = 3.0F;
+            effect.color_a = 0.55F; effect.offset_x = effect.offset_y = 4.0F;
+            std::uint32_t effect_index{};
+            PROGPU_REQUIRE(builder.add_effect_chain(std::span(&effect, 1U), 1U, effect_index));
+            auto composite = builder.identity_state();
+            composite.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+            composite.clip_rect = {15, 26, 10, 10};
+            std::uint32_t outer_index{}, inner_index{}, draw_index{};
+            PROGPU_REQUIRE(builder.add_state(composite, outer_index));
+            composite.clip_rect = {20, 28, 20, 20};
+            PROGPU_REQUIRE(builder.add_state(composite, inner_index));
+            auto draw_state = builder.identity_state();
+            draw_state.transform.m31 = 5.0F; draw_state.transform.m32 = 6.0F;
+            PROGPU_REQUIRE(builder.add_state(draw_state, draw_index));
+            progpu_native_scene_layer layer{};
+            layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
+            layer.bounds = {-100, -100, 300, 300}; // not a hit-test rectangle
+            layer.opacity = 0.0F; layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            layer.effect_resource_index = effect_index; layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            layer.reserved0 = outer_index;
+            const auto mode = progpu::native::scene_layer_hit_test_mode::source_identity_effect;
+            PROGPU_REQUIRE(builder.push_layer(layer, mode));
+            layer.reserved0 = inner_index;
+            PROGPU_REQUIRE(builder.push_layer(layer, mode));
+            progpu_native_analytic_primitive rectangle{};
+            rectangle.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;
+            rectangle.x = 10; rectangle.y = 20; rectangle.width = 30; rectangle.height = 40;
+            rectangle.transform = builder.identity_transform();
+            const auto draw = [&](int id) {
+                PROGPU_REQUIRE(builder.set_hit_test_owner(id));
+                PROGPU_REQUIRE(builder.save(draw_index));
+                PROGPU_REQUIRE(builder.draw_analytic(std::span(&rectangle, 1U), {}, {10, 20, 30, 40}));
+                PROGPU_REQUIRE(builder.restore());
+            };
+            draw(501); PROGPU_REQUIRE(builder.pop_layer());
+            draw(502); PROGPU_REQUIRE(builder.pop_layer()); draw(503);
+            const auto hits = capture_hits(builder);
+            PROGPU_REQUIRE(hits.size() == 3U);
+            PROGPU_REQUIRE(hits[0].bounds_min.x == 20 && hits[0].bounds_min.y == 28);
+            PROGPU_REQUIRE(hits[0].bounds_max.x == 25 && hits[0].bounds_max.y == 36);
+            PROGPU_REQUIRE(hits[1].bounds_min.x == 15 && hits[1].bounds_min.y == 26);
+            PROGPU_REQUIRE(hits[1].bounds_max.x == 25 && hits[1].bounds_max.y == 36);
+            PROGPU_REQUIRE(hits[2].bounds_min.x == 15 && hits[2].bounds_min.y == 26);
+            PROGPU_REQUIRE(hits[2].bounds_max.x == 45 && hits[2].bounds_max.y == 66);
+            PROGPU_REQUIRE(hits[0].clip_segment_count == 4U && hits[1].clip_segment_count == 4U);
+            PROGPU_REQUIRE(hits[0].clip_start_segment != hits[1].clip_start_segment && hits[2].clip_segment_count == 0U);
+            PROGPU_REQUIRE(builder.reset(9816U, 2U));
+            layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            layer.flags = 0U; layer.reserved0 = 0U;
+            layer.blend_mode = PROGPU_NATIVE_BLEND_MULTIPLY;
+            PROGPU_REQUIRE(!builder.push_layer(layer, mode));
+            layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            PROGPU_REQUIRE(builder.push_layer(layer)); // no source declaration
+            PROGPU_REQUIRE(builder.pop_layer());
+            std::uint32_t rejected{};
+            PROGPU_REQUIRE(!builder.add_recorded_hit_test_index(rejected));
+            PROGPU_REQUIRE(rejected == PROGPU_NATIVE_SCENE_NO_INDEX);
+        }
+    }
+    {
+        // Source visual with MVP Blur/DropShadow settings, through canonical MIL.
+        for (std::uint32_t variant = 0U; variant < 3U; ++variant) {
+            channel state;
+            std::vector<std::byte> batch, content;
+            append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
+            append_create(batch, 3U, 47U); append_create(batch, 4U, 75U);
+            append_create(batch, 5U, variant == 2U ? 37U : 36U);
+            append_command(batch, command::visual_create, 1U);
+            append_command(batch, command::solid_color_brush, 4U, 1.0,
+                progpu_native_color{1, 1, 1, 1}, 0U, 0U, 0U, 0U);
+            if (variant == 2U)
+                append_command(batch, command::drop_shadow_effect, 5U, 4.0,
+                    progpu_native_color{0.2F, 0.25F, 0.33F, 1}, 315.0, 0.55, 9.0,
+                    0U, 0U, 0U, 0U, 0U, 0U);
+            else append_command(batch, command::blur_effect, 5U, variant == 0U ? 2.5 : 0.0, 0U, 0U, 1U);
+            append_command(batch, command::visual_set_effect, 1U, 5U);
+            append_command(batch, command::visual_set_alpha, 1U, 0.0);
+            append_command(content, command::draw_rectangle, 8.0, 10.0, 32.0, 24.0, 4U, 0U);
+            append_render_data(batch, 2U, content);
+            append_command(batch, command::visual_set_content, 1U, 2U);
+            append_command(batch, command::generic_target_create, 3U,
+                std::uint64_t{0}, std::uint64_t{0}, 64U, 64U, 0U);
+            append_command(batch, command::target_set_root, 3U, 1U);
+            PROGPU_REQUIRE(state.apply(batch) == status::success);
+            PROGPU_REQUIRE(state.set_visual_cache_bounds(1U, 8, 10, 32, 24) == status::success);
+            scene_build_request request{};
+            request.flags = scene_build_request_flags::hit_test_index;
+            request.target_handle = 3U; request.scene_id = 9817U;
+            request.generation = request.request_serial = 1U;
+            request.dpi_scale_x = request.dpi_scale_y = 1.0;
+            std::span<const std::byte> compiled;
+            PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+            const std::vector<std::byte> stream(compiled.begin(), compiled.end());
+            const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+            bool found = false;
+            for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+                const auto resource = read_value<progpu_native_scene_resource>(stream,
+                    header.resource_offset + i * sizeof(progpu_native_scene_resource));
+                if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+                const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+                PROGPU_REQUIRE(page.primitive_count == 1U);
+                const auto hit = read_value<progpu_native_hit_test_primitive>(stream,
+                    resource.auxiliary_offset + page.primitive_offset);
+                PROGPU_REQUIRE(hit.id == 1 && hit.kind == PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL);
+                PROGPU_REQUIRE(hit.bounds_min.x == 8 && hit.bounds_min.y == 10);
+                PROGPU_REQUIRE(hit.bounds_max.x == 40 && hit.bounds_max.y == 34);
+                found = true;
+            }
+            PROGPU_REQUIRE(found);
+        }
+    }
+    {
         // WPF source opacity is input-neutral, but keeps its actual render alpha.
         progpu::native::semantic_scene_builder builder(9810U, 1U);
         progpu_native_scene_layer layer{};

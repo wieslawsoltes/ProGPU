@@ -555,6 +555,14 @@ join domains. Index decomposition is not permission to split raster coverage
 draws, use antialias padding as hit geometry, or silently omit open/dashed/device
 stroke batches. Keep paired MVP join fixtures and reject partial index publication.
 
+Source built-in blur/shadow layers preserve identity-mapped geometry input only
+through the explicit source_identity_effect annotation. Carry actual final
+composite clips through nested input scopes; key clip reuse by state and scope.
+Never hit effect padding or layer storage bounds, discard final clipping, or
+generalize this declaration to caches, masks or custom mappings. Managed source
+capture consumes EffectBase.PreservesSourceHitGeometry with a false default.
+Keep zero-alpha source input, renderer alpha and non-source behavior separate.
+
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
 Styled Direct2D primitive callbacks must route through genuine factory-owned

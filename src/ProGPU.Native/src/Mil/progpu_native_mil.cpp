@@ -19104,6 +19104,7 @@ struct channel::implementation {
         std::uint32_t effect_handle,
         const render_scope_state& state,
         bool has_local_cache_input,
+        bool record_hit_owner,
         native::semantic_scene_builder& builder,
         const mask_replay_context& mask_context,
         std::uint32_t& pushed_count) const {
@@ -19148,6 +19149,14 @@ struct channel::implementation {
         const bool isolate_source_composite =
             !has_local_cache_input &&
             (state.opacity != 1.0 || has_spatial_opacity_mask);
+        // Built-in source effects inherit WPF's identity EffectMapping. Preserve
+        // geometric input, not expanded raster bounds. Spatial masks and local
+        // caches still need their own source-input contracts.
+        const bool source_effect_input = record_hit_owner && !has_local_cache_input &&
+            !has_spatial_opacity_mask && state.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX;
+        const auto effect_hit_mode = source_effect_input
+            ? native::scene_layer_hit_test_mode::source_identity_effect
+            : native::scene_layer_hit_test_mode::unspecified;
         const auto attach_final_clip = [&](
                 progpu_native_scene_layer& layer) -> status {
             return attach_visual_output_clip(layer, state, builder);
@@ -19191,7 +19200,9 @@ struct channel::implementation {
                 }
                 opacity_layer.flags |= PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
             }
-            if (!builder.push_layer(opacity_layer)) {
+            if (!builder.push_layer(opacity_layer, source_effect_input
+                ? native::scene_layer_hit_test_mode::source_opacity
+                : native::scene_layer_hit_test_mode::unspecified)) {
                 return status::invalid_graph;
             }
             ++pushed_count;
@@ -19278,7 +19289,7 @@ struct channel::implementation {
                         clip_layer.flags |=
                             PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
                     }
-                    if (!builder.push_layer(clip_layer)) {
+                    if (!builder.push_layer(clip_layer, effect_hit_mode)) {
                         return status::invalid_graph;
                     }
                     ++pushed_count;
@@ -19390,7 +19401,7 @@ struct channel::implementation {
                 static_cast<float>(effect_width),
                 static_cast<float>(effect_height)};
         }
-        if (!builder.push_layer(layer)) {
+        if (!builder.push_layer(layer, effect_hit_mode)) {
             return status::invalid_graph;
         }
         ++pushed_count;
@@ -21007,6 +21018,7 @@ struct channel::implementation {
             visual->second.effect_handle,
             current,
             visual->second.cache_mode_handle != 0U,
+            record_hit_owner,
             builder,
             mask_context,
             effect_layer_count);

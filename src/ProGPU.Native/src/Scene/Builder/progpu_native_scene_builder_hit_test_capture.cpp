@@ -105,6 +105,27 @@ bool line_hit_data(progpu_native_point start, progpu_native_point end,
     return true;
 }
 
+// Four independent half-plane limits. This is source clip metadata, never a
+// raster fallback; it shares the producer's NEON/SSE2 admission policy.
+progpu_native_image_rect intersect_hit_clips(progpu_native_image_rect a,
+    progpu_native_image_rect b) noexcept {
+    [[maybe_unused]] const std::array<float, 4U> first{-a.x, -a.y, a.x + a.width, a.y + a.height};
+    [[maybe_unused]] const std::array<float, 4U> second{-b.x, -b.y, b.x + b.width, b.y + b.height};
+    const float invalid = std::numeric_limits<float>::quiet_NaN();
+    for (std::size_t i = 0U; i < 4U; ++i)
+        if (!std::isfinite(first[i]) || !std::isfinite(second[i])) return {invalid, invalid, invalid, invalid};
+    std::array<float, 4U> clipped{};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    vst1q_f32(clipped.data(), vminq_f32(vld1q_f32(first.data()), vld1q_f32(second.data())));
+#elif defined(__SSE2__) || defined(_M_X64)
+    _mm_storeu_ps(clipped.data(), _mm_min_ps(_mm_loadu_ps(first.data()), _mm_loadu_ps(second.data())));
+#else
+    return {invalid, invalid, invalid, invalid};
+#endif
+    return {-clipped[0], -clipped[1], std::max(0.0F, clipped[2] + clipped[0]),
+        std::max(0.0F, clipped[3] + clipped[1])};
+}
+
 } // namespace
 
 bool semantic_scene_builder::set_hit_test_owner(std::optional<std::int32_t> owner) noexcept {
@@ -140,21 +161,27 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
         std::vector<progpu_native_path_segment> segments;
         std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> stack{};
         std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_stack{};
+        std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_scope_stack{};
+        std::vector<progpu_native_image_rect> layer_clips(1U); // scope zero has no layer clip
+        std::uint32_t layer_clip_scope = 0U;
         std::size_t depth = 0U, boundary = 0U, glyph_bounds_index = 0U, rectangle_scope_index = 0U;
-        std::size_t opacity_layer_index = 0U;
+        std::size_t source_layer_index = 0U;
         std::uint32_t current_state = PROGPU_NATIVE_SCENE_NO_INDEX;
         std::optional<std::int32_t> owner;
         constexpr std::size_t exact_float_integer_limit = 1U << 24U;
         // Rectangular clip payloads are reused by state identity, not per primitive.
-        std::vector<std::optional<std::uint32_t>> clip_starts(implementation_->resources.size());
+        struct clip_entry { std::uint32_t scope{}; std::optional<std::uint32_t> start; };
+        std::vector<clip_entry> clip_starts(implementation_->resources.size() + 1U);
         const auto append = [&](progpu_native_hit_test_primitive primitive,
                                 const progpu_native_scene_state& state, std::uint32_t state_index) {
             if (primitives.size() >= exact_float_integer_limit) return false;
             primitive.id = *owner;
             primitive.z_index = static_cast<float>(primitives.size());
             primitive.flags = PROGPU_NATIVE_HIT_TEST_VISIBLE | PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT;
-            if ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) {
-                const auto& clip = state.clip_rect;
+            const bool state_clip = (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U;
+            if (state_clip || layer_clip_scope != 0U) {
+                const auto clip = !state_clip ? layer_clips[layer_clip_scope] : layer_clip_scope == 0U
+                    ? state.clip_rect : intersect_hit_clips(state.clip_rect, layer_clips[layer_clip_scope]);
                 if (clip.width <= 0.0F || clip.height <= 0.0F) return true;
                 const float right = clip.x + clip.width, bottom = clip.y + clip.height;
                 if (!std::isfinite(right) || !std::isfinite(bottom)) return false;
@@ -164,7 +191,13 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 primitive.bounds_max.y = std::min(primitive.bounds_max.y, bottom);
                 if (primitive.bounds_min.x > primitive.bounds_max.x || primitive.bounds_min.y > primitive.bounds_max.y)
                     return true;
-                auto& start = clip_starts[state_index];
+                auto& cached = clip_starts[state_index == PROGPU_NATIVE_SCENE_NO_INDEX
+                    ? implementation_->resources.size() : state_index];
+                if (cached.scope != layer_clip_scope) {
+                    cached.scope = layer_clip_scope;
+                    cached.start.reset();
+                }
+                auto& start = cached.start;
                 if (!start) {
                     if (segments.size() > exact_float_integer_limit - 4U) return false;
                     start = static_cast<std::uint32_t>(segments.size());
@@ -247,6 +280,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             const auto& command = implementation_->commands[i];
             const auto kind = command.record.kind;
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE) {
+                if (depth == stack.size()) return unsupported();
+                clip_scope_stack[depth] = layer_clip_scope;
                 const auto& scopes = implementation_->hit_rectangle_scopes;
                 while (rectangle_scope_index < scopes.size() &&
                     scopes[rectangle_scope_index].first_command < i) ++rectangle_scope_index;
@@ -279,24 +314,40 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE) {
                 if (depth == 0U || layer_stack[depth - 1U]) return unsupported();
                 current_state = stack[--depth];
+                layer_clip_scope = clip_scope_stack[depth];
                 continue;
             }
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
-                const auto& layers = implementation_->source_opacity_hit_layers;
-                while (opacity_layer_index < layers.size() && layers[opacity_layer_index] < i)
-                    ++opacity_layer_index;
-                // Only explicit source opacity has geometric input semantics.
-                // Effect/mask/cache layers still require their own contracts.
-                if (opacity_layer_index == layers.size() || layers[opacity_layer_index] != i ||
+                const auto& layers = implementation_->source_geometry_hit_layers;
+                while (source_layer_index < layers.size() && layers[source_layer_index] < i)
+                    ++source_layer_index;
+                // Only explicitly admitted source layers preserve input geometry.
+                // Their storage/effect padding is never a geometric clip.
+                if (source_layer_index == layers.size() || layers[source_layer_index] != i ||
                     depth == stack.size()) return unsupported();
-                ++opacity_layer_index;
+                ++source_layer_index;
                 layer_stack[depth] = true;
+                clip_scope_stack[depth] = layer_clip_scope;
+                const auto layer = read_record<progpu_native_scene_layer>(command.payload);
+                if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U) {
+                    const auto composite = read_record<progpu_native_scene_state>(
+                        implementation_->resources[layer.reserved0].payload);
+                    if ((composite.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) {
+                        const auto clip = layer_clip_scope == 0U ? composite.clip_rect :
+                            intersect_hit_clips(composite.clip_rect, layer_clips[layer_clip_scope]);
+                        if (!std::isfinite(clip.x + clip.width) || !std::isfinite(clip.y + clip.height))
+                            return unsupported();
+                        layer_clip_scope = static_cast<std::uint32_t>(layer_clips.size());
+                        layer_clips.push_back(clip);
+                    }
+                }
                 stack[depth++] = current_state;
                 continue;
             }
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
                 if (depth == 0U || !layer_stack[depth - 1U]) return unsupported();
                 current_state = stack[--depth];
+                layer_clip_scope = clip_scope_stack[depth];
                 continue;
             }
             if (!owner) continue;

@@ -30,6 +30,15 @@ int main() {
                 progpu::native::scene_hit_test_opacity_mode::source_geometry)) return 1;
     }
     static_assert(progpu::native::PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED == (1U << 9U));
+    {
+        progpu::native::semantic_scene_builder effect_builder(9701U, 1U);
+        progpu::native::progpu_native_scene_layer layer{};
+        layer.opacity = 1.0F;
+        layer.blend_mode = progpu::native::PROGPU_NATIVE_BLEND_SRC_OVER;
+        layer.mask_resource_index = layer.effect_resource_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!effect_builder.push_layer(layer, progpu::native::scene_layer_hit_test_mode::source_identity_effect) ||
+            !effect_builder.pop_layer()) return 1;
+    }
     progpu::native::semantic_scene_builder builder(9001U, 3U);
     progpu::native::progpu_native_scene_brush gradient{};
     gradient.type =

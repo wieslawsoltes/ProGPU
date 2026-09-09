@@ -370,6 +370,64 @@ deferred to final qualification.
 
 ## Remaining implementation and final qualification
 
+### Built-in effect input connection — 2026-09-09
+
+Acceptance actions are pointer/selection queries on LibreWPF MVP's
+`MvpBlurEffectBorder` and `MvpDropShadowEffectBorder`. Source `Visual` applies
+`EffectMapping.Inverse`; BlurEffect and DropShadowEffect inherit identity mapping.
+The public [EffectMapping contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.effects.effect.effectmapping?view=windowsdesktop-10.0)
+confirms the default and the separate unit-space custom mapping contract. Source
+WPF behavior is the authority, not an inference from rendered alpha.
+
+The builder now has an explicit `source_identity_effect` layer policy, admitted
+only for unmasked SrcOver blur/box-blur/shadow chains or their no-effect clip
+boundary. Cache, blend and spatial-mask flags are rejected. MIL applies the
+annotation only while recording source input owners for uncached, unmasked
+built-in visual effects; its inner source-opacity group is annotated separately.
+Zero-radius blur retains its final clip without inventing an effect hit region.
+Raster effect parameters, padding, revisions, storage and shaders are unchanged.
+
+Effect clips live on final-composite state, not on the untruncated render input.
+Native hit capture carries a separate nested world-rectangle clip scope across
+Save/Restore and Push/PopLayer. It intersects final-composite and draw-state clips
+and emits their actual four-edge geometry. Clip reuse is keyed by both state and
+active layer scope, so a reused draw state cannot inherit an earlier effect's
+clip. Source image destination overrides also consume this outer clip. Layer
+storage bounds and blur/shadow padding never become hittable geometry.
+
+Managed `EffectBase.PreservesSourceHitGeometry` defaults false; built-in blur and
+shadow publish true. Typed source hit-only visual traversal consumes that policy,
+retaining source visibility, zero-opacity input, child ownership and actual clips
+without calling OnRender. Unknown mappings, local caches and masks still reject.
+This policy applies to source geometry capture, not to arbitrary ProGPU pixel-hit
+semantics. Existing non-source rendering and effect invalidation are unchanged.
+
+Original ProGPU provenance: source-opacity layer annotations, source visual
+hit-only traversal, semantic effect-chain records, canonical rectangle/path
+queries, and the existing final-composite clip ownership. The retained-scene and
+effect research references above still apply; no third-party implementation was
+copied. Paragraph shaping, glyph caches, effect quality constants, GPU dispatch,
+resource retirement and GPU-first effect fallback selection are unchanged.
+
+Capture adds O(L) scope records for L clipped layer pushes and O(D) stack state
+at bounded depth D. Each intersection uses four NEON/SSE2 half-plane lanes with
+fixed scalar metadata/finite reductions; no whole-buffer scalar or pixel work is
+introduced. Per-state clip caching retains only its latest layer scope and may
+re-emit four edges when that scope changes; total emitted clip storage remains
+O(P + L) for P captured primitives. No speed claim is made before benchmarks.
+
+Authored native scene 9816 covers all three effect kinds, nested clips, source
+alpha zero, state reuse, restored sibling clips and undeclared/blended rejection.
+Scene 9817 uses canonical visual MIL for MVP effect parameters and zero blur.
+The paired managed source fixture covers identity effects, nested clipping and
+unknown-mapping rejection. The public enum also has an import-based module
+consumer fixture. These fixtures are compilation evidence only until execution.
+The MIL coverage ledger was regenerated for its changed decoder digest.
+
+Exact geometry masks/clips, local bitmap caches, custom effect mappings and host
+query routing remain open. Do not enable partial native host input or claim full
+effect, package, Windows or performance qualification from this connection.
+
 ### Closed solid stroke batches — MVP connection, 2026-09-09
 
 Acceptance action: pointer/selection queries on LibreWPF package MVP

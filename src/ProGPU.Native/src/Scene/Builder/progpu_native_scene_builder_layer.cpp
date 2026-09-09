@@ -605,16 +605,26 @@ bool semantic_scene_builder::push_layer(
     const progpu_native_scene_layer& source,
     scene_layer_hit_test_mode hit_test_mode) noexcept {
     if (hit_test_mode != scene_layer_hit_test_mode::unspecified &&
-        hit_test_mode != scene_layer_hit_test_mode::source_opacity) {
+        hit_test_mode != scene_layer_hit_test_mode::source_opacity &&
+        hit_test_mode != scene_layer_hit_test_mode::source_identity_effect) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     const bool source_opacity = hit_test_mode == scene_layer_hit_test_mode::source_opacity;
+    const bool source_effect = hit_test_mode == scene_layer_hit_test_mode::source_identity_effect;
+    const bool source_geometry = source_opacity || source_effect;
     if (source_opacity &&
         ((source.flags & ~(PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
             PROGPU_NATIVE_SCENE_LAYER_BOUNDS)) != 0U ||
          source.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
          source.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
          source.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    if (source_effect &&
+        ((source.flags & ~(PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+            PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE)) != 0U ||
+         source.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
+         source.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX)) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     progpu_native_scene_layer layer = source;
@@ -696,6 +706,17 @@ bool semantic_scene_builder::push_layer(
         !valid_composite_state()) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
+    if (source_effect && layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+        const auto& effects = implementation_->resources[layer.effect_resource_index].auxiliary;
+        for (std::size_t offset = 0U; offset < effects.size(); offset += sizeof(progpu_native_group_effect)) {
+            progpu_native_group_effect effect{};
+            std::memcpy(&effect, effects.data() + offset, sizeof(effect));
+            if (effect.kind != PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR &&
+                effect.kind != PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR &&
+                effect.kind != PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW)
+                return implementation_->fail(scene_build_error::invalid_argument);
+        }
+    }
     if (implementation_->stack_depth >=
             PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH ||
         (materialized && implementation_->materialized_layer_depth >=
@@ -716,11 +737,11 @@ bool semantic_scene_builder::push_layer(
         command.record.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         command.payload = copy_bytes(
             std::span<const progpu_native_scene_layer>(&layer, 1U));
-        auto& hit_layers = implementation_->source_opacity_hit_layers;
-        if (source_opacity && hit_layers.size() == hit_layers.capacity()) {
+        auto& hit_layers = implementation_->source_geometry_hit_layers;
+        if (source_geometry && hit_layers.size() == hit_layers.capacity()) {
             hit_layers.reserve(std::max<std::size_t>(16U, hit_layers.size() * 2U));
         }
-        if (source_opacity) hit_layers.push_back(implementation_->commands.size());
+        if (source_geometry) hit_layers.push_back(implementation_->commands.size());
         implementation_->commands.push_back(std::move(command));
         implementation_->stack_kinds[implementation_->stack_depth] =
             materialized ? 3U : 2U;

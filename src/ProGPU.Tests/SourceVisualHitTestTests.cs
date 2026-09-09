@@ -12,6 +12,44 @@ namespace ProGPU.Tests;
 public sealed class SourceVisualHitTestTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IdentityEffectsPreserveSourceInputAndNestedClips(bool shadow)
+    {
+        // Paired with native scene 9816. Raster bounds deliberately exceed input.
+        EffectBase effect = shadow ? new DropShadowEffect() : new BlurEffect { BlurRadius = 9 };
+        var root = new SourceVisual();
+        var outer = new SourceVisual { Effect = effect, Opacity = 0,
+            ClipBounds = new Rect(15, 26, 10, 10), EffectContentBounds = new Rect(-100, -100, 300, 300) };
+        var inner = new SourceVisual { Effect = new BlurEffect(), ClipBounds = new Rect(20, 28, 20, 20) };
+        SourceVisual Draw(int id)
+        {
+            var visual = new SourceVisual { HitTestId = id, Offset = new Vector2(5, 6) };
+            visual.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(10, 20, 30, 40));
+            return visual;
+        }
+        inner.AddChild(Draw(501)); outer.AddChild(inner); outer.AddChild(Draw(502));
+        root.AddChild(outer); root.AddChild(Draw(503));
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        capture.AddSourceVisual(root, Matrix4x4.Identity);
+        var hits = capture.BuildIndex().Primitives;
+        Assert.Equal(3, hits.Count);
+        Assert.Equal(new Vector2(20, 28), hits[0].BoundsMin);
+        Assert.Equal(new Vector2(25, 36), hits[0].BoundsMax);
+        Assert.Equal(new Vector2(15, 26), hits[1].BoundsMin);
+        Assert.Equal(new Vector2(25, 36), hits[1].BoundsMax);
+        Assert.Equal(new Vector2(15, 26), hits[2].BoundsMin);
+        Assert.Equal(new Vector2(45, 66), hits[2].BoundsMax);
+        Assert.Equal(0, outer.RenderCalls + inner.RenderCalls);
+        outer.Effect = new UnmappedEffect();
+        capture.Clear();
+        Assert.Throws<NotSupportedException>(() => capture.AddSourceVisual(root, Matrix4x4.Identity));
+        Assert.Throws<InvalidOperationException>(() => capture.BuildIndex());
+    }
+
+    private sealed class UnmappedEffect : EffectBase { }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public unsafe void CompositorCapturesZeroOpacitySourceWithoutRendering(bool enableHitTesting)

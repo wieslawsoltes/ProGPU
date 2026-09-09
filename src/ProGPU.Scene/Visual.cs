@@ -1253,6 +1253,13 @@ public class DrawingVisual : Visual
 
 public abstract class EffectBase
 {
+    /// <summary>
+    /// Whether this effect preserves source geometry coordinates for input.
+    /// This does not make its expanded raster bounds hittable or bypass clips.
+    /// Custom effects must explicitly implement their input contract.
+    /// </summary>
+    public virtual bool PreservesSourceHitGeometry => false;
+
     private readonly object _ownersLock = new();
     private readonly List<WeakReference<Visual>> _owners = new();
     private long _changeVersion;
@@ -1536,6 +1543,7 @@ public enum BlurKernelType
 
 public class BlurEffect : EffectBase
 {
+    public override bool PreservesSourceHitGeometry => true;
     private float _blurRadius;
     private BlurKernelType _kernelType;
 
@@ -1581,6 +1589,7 @@ public class BlurEffect : EffectBase
 
 public class DropShadowEffect : EffectBase
 {
+    public override bool PreservesSourceHitGeometry => true;
     private float _blurRadiusX;
     private float _blurRadiusY;
     private Vector2 _offset;

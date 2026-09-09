@@ -52,9 +52,9 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
             return;
         if (visual is not ISourceGeometryHitTestCommands source)
             throw new NotSupportedException("Retained source input requires typed materialized commands for every visible visual.");
-        if (visual.Effect != null || visual.CacheAsLayer || visual.RequiresLayerCache ||
+        if (visual.Effect is { PreservesSourceHitGeometry: false } || visual.CacheAsLayer || visual.RequiresLayerCache ||
             visual.OpacityMask != null || visual.OpacityMaskPicture != null)
-            throw new NotSupportedException("Source hit-only effect, cache and opacity-mask traversal is not connected.");
+            throw new NotSupportedException("Source hit-only traversal requires an identity-mapped effect and no unsupported cache or opacity mask.");
 
         Matrix4x4 localTransform = includeLocalTransform
             ? offsetOverride.HasValue ? visual.GetLocalTransform(offsetOverride.Value) : visual.GetLocalTransform()
