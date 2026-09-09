@@ -1,5 +1,72 @@
 # Source-controlled portable dialog lifetime
 
+## Native completion before source input and focus restoration
+
+Acceptance action: Hide or Close the LibreWPF MVP About dialog from a native event
+callback, including a nested dialog. Source inspection found that its `using`
+scopes restored input/focus when managed ShowDialog unwound, even if AppKit End
+was deferred until the outer native event callback returned. This was a source
+lifetime blocker, not an observed application failure or new rendering algorithm.
+
+The typed activation contract now includes `ReleaseDialog(activation, completed)`.
+The source captures it with RunDialog before Show and rejects a missing callback
+before creating a host. A host without a native modal session must implement
+explicit synchronous completion. A host with native modality invokes completion
+only after native End and identity cleanup, on its owning thread. Release failure
+must propagate without pretending that native ownership ended.
+
+The shared `PortableModalInputScope.ReleaseAfterNative` transfers source cleanup
+to that completion. It keeps the source gate active while native completion is
+pending and drains ready source scopes in reverse entry order, even if an outer
+native completion arrives first. Ordinary strict Dispose remains available, but
+cannot bypass pending native completion. A normally disposed child also drains a
+ready parent. Source cleanup runs once after gate publication; it still runs if
+publication throws, so its existing `IsNativeInputPolicySynchronized` check can
+reject unsafe focus restoration while clearing owned references. Other ready
+scopes are not stranded by an independent cleanup failure. Failures propagate.
+
+WPF captures the actual activation before accepted Close clears it. Both accepted
+Hide/Close and the ShowDialog finally block request the same single transfer;
+neither directly disposes the input/focus scopes early. The source-owned cleanup
+clears only its matching dialog generation and retains the original active-window,
+PresentationSource and focused-element checks. Another ShowDialog on that Window
+is rejected until the earlier release completes. Cancellation retains modality.
+If Show fails before activation exists, no host modality was admitted and source
+cleanup completes directly. The host supports release even after activation
+disposal because its native window may still have an active retained lease.
+
+The original ProGPU `PortableModalInputScope` and `NativeWindowModalSession`, and
+LibreWPF's existing source Window/activation/focus snapshot supplied the code and
+ownership model. This is a typed control-flow extension, not copied foreign code.
+Native session completion remains the boundary described in the
+[Cocoa session contract](native-mil-cocoa-modal-session.md). Both native MIL and
+managed portable renderers use this same host/source path; no renderer/shader,
+GPU queue, native wire record or CPU fallback algorithm changes here.
+
+Cost: O(D) source stack work to release D ready scopes, plus existing O(W) native
+gate publication per scope for W registered surfaces. Normal input tests are
+unchanged and allocation-free. Cleanup delegates/ownership allocate only at dialog
+entry/release, not per event/frame. Error collection is lazy; lifetime and focus
+work are dependency-bound, not SIMD kernels. No speed or runtime-parity claim.
+
+Authored fixtures include real coordinator-to-input-scope sequencing, delayed and
+out-of-order native completion, ordinary child disposal, cleanup failure, wrong-
+thread completion, terminal request failure, and source Hide/Close with actual
+focus snapshots. Existing canceled-result/reopen/missing-capability fixtures are
+extended, and host registration/late release are covered. They are compiled, not
+executed. Genuine Cocoa native popup admission still blocks automatic AppKit
+session activation; Linux modality, package payloads and Windows SDK admission
+remain separate. Actual source/host interaction, images, lifetime, VM comparisons
+and CI must still qualify after implementation freeze.
+
+Compile-only source-completion checkpoint (2026-09-09): final ProGPU.Tests 0
+warnings/0 errors, WPF bridge fixtures 116/0, source PresentationFramework fixtures
+6/0, and RealPresentationFrameworkHarness 0/0. Nine new ProGPU lifecycle/contract
+fixtures plus host/source coverage are authored. No fixtures, verification scripts,
+native applications, VM/GPU workloads, benchmarks or CI checks ran. Latest fetched
+main is included; unrelated native semantic-state edits and performance artifacts
+are excluded. These builds do not admit package mode or qualify native modality.
+
 ## Win32 input gates and source focus restoration
 
 Acceptance path: open/close/hide/reopen the MVP About dialog, including an owned

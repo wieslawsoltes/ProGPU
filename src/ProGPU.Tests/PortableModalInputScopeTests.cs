@@ -6,6 +6,159 @@ namespace ProGPU.Tests;
 public sealed class PortableModalInputScopeTests
 {
     [Fact]
+    public void NativeCompletionPrecedesInputGateReleaseAndCleanup()
+    {
+        object owner = new(), dialog = new();
+        bool ownerAllowed = true;
+        using var gate = PortableModalInputScope.RegisterWindow(owner, value => ownerAllowed = value);
+        var scope = PortableModalInputScope.Enter(dialog);
+        Action? completed = null;
+        int requests = 0, restores = 0;
+        var cleanup = new Cleanup(() =>
+        {
+            Assert.True(ownerAllowed);
+            Assert.True(scope.IsReleased);
+            restores++;
+        });
+        scope.ReleaseAfterNative(callback => { completed = callback; requests++; }, cleanup);
+        scope.ReleaseAfterNative(_ => throw new Exception("Repeated request."), cleanup);
+        Assert.Equal(1, requests);
+        Assert.False(ownerAllowed);
+        Assert.Equal(0, restores);
+        Assert.Throws<InvalidOperationException>(scope.Dispose);
+        completed!();
+        completed();
+        scope.Dispose();
+        Assert.Equal(1, restores);
+        Assert.False(PortableModalInputScope.IsActive);
+    }
+
+    [Fact]
+    public void NativeCompletionOutOfOrderStillReleasesSourceScopesInsideOut()
+    {
+        object owner = new(), child = new();
+        var outer = PortableModalInputScope.Enter(owner);
+        var inner = PortableModalInputScope.Enter(child);
+        var calls = new List<string>();
+        Action? innerCompleted = null;
+        outer.ReleaseAfterNative(completed => completed(), new Cleanup(() => calls.Add("Outer")));
+        inner.ReleaseAfterNative(completed => innerCompleted = completed, new Cleanup(() =>
+        {
+            Assert.True(PortableModalInputScope.AllowsInput(owner));
+            calls.Add("Inner");
+        }));
+        Assert.Empty(calls);
+        Assert.True(PortableModalInputScope.AllowsInput(child));
+        innerCompleted!();
+        Assert.Equal(new[] { "Inner", "Outer" }, calls);
+        Assert.True(outer.IsReleased && inner.IsReleased);
+    }
+
+    [Fact]
+    public void LegacyChildDisposalAlsoDrainsNativeReadyParent()
+    {
+        var outer = PortableModalInputScope.Enter(new object());
+        var inner = PortableModalInputScope.Enter(new object());
+        int restored = 0;
+        outer.ReleaseAfterNative(completed => completed(), new Cleanup(() => restored++));
+        Assert.False(outer.IsReleased);
+        inner.Dispose();
+        Assert.True(outer.IsReleased);
+        Assert.Equal(1, restored);
+    }
+
+    [Fact]
+    public void FailedSourceCleanupDoesNotStrandReadyParent()
+    {
+        var outer = PortableModalInputScope.Enter(new object());
+        var inner = PortableModalInputScope.Enter(new object());
+        bool restored = false;
+        outer.ReleaseAfterNative(completed => completed(), new Cleanup(() => restored = true));
+        var failure = new InvalidOperationException("Restore failed.");
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => inner.ReleaseAfterNative(
+            completed => completed(), new Cleanup(() => throw failure))));
+        Assert.True(restored);
+        Assert.True(outer.IsReleased && inner.IsReleased);
+        Assert.False(PortableModalInputScope.IsActive);
+    }
+
+    [Fact]
+    public void DeferredGateFailureStillDisposesSnapshotWithUnsynchronizedPolicy()
+    {
+        bool rejectEnable = false, cleaned = false;
+        var gate = PortableModalInputScope.RegisterWindow(new object(), allowed =>
+        {
+            if (allowed && rejectEnable) throw new InvalidOperationException("Gate rejected.");
+        });
+        var scope = PortableModalInputScope.Enter(new object());
+        Action? completed = null;
+        scope.ReleaseAfterNative(callback => completed = callback, new Cleanup(() =>
+        {
+            Assert.False(PortableModalInputScope.IsNativeInputPolicySynchronized);
+            cleaned = true;
+        }));
+        try
+        {
+            rejectEnable = true;
+            Assert.Throws<AggregateException>(completed!);
+            Assert.True(cleaned);
+            Assert.True(scope.IsReleased);
+        }
+        finally
+        {
+            rejectEnable = false;
+            gate.Dispose();
+            using var recovered = PortableModalInputScope.Enter(new object());
+        }
+    }
+
+    [Fact]
+    public void NativeCompletionCannotReleaseSourceInputFromAnotherThread()
+    {
+        var scope = PortableModalInputScope.Enter(new object());
+        Action? completed = null;
+        int restored = 0;
+        scope.ReleaseAfterNative(callback => completed = callback, new Cleanup(() => restored++));
+        Exception? failure = null;
+        var thread = new Thread(() => failure = Record.Exception(completed!));
+        thread.Start(); thread.Join();
+        Assert.IsType<InvalidOperationException>(failure);
+        Assert.True(scope.IsCurrent);
+        Assert.Equal(0, restored);
+        completed!();
+        Assert.Equal(1, restored);
+    }
+
+    [Fact]
+    public void FailedNativeReleaseCannotFallThroughToManagedScopeDisposal()
+    {
+        // The failure deliberately leaves the thread's source input blocked.
+        Exception? assertion = null;
+        var thread = new Thread(() => assertion = Record.Exception(() =>
+        {
+            var scope = PortableModalInputScope.Enter(new object());
+            var failure = new InvalidOperationException("Native release failed.");
+            int restored = 0;
+            var cleanup = new Cleanup(() => restored++);
+            Assert.Same(failure, Assert.Throws<InvalidOperationException>(() =>
+                scope.ReleaseAfterNative(_ => throw failure, cleanup)));
+            Assert.Same(failure, Assert.Throws<InvalidOperationException>(scope.Dispose));
+            Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => PortableModalInputScope.Enter(new object())));
+            Assert.Same(failure, Assert.Throws<InvalidOperationException>(() =>
+                scope.ReleaseAfterNative(completed => completed(), cleanup)));
+            Assert.True(scope.IsCurrent);
+            Assert.Equal(0, restored);
+        }));
+        thread.Start(); thread.Join();
+        Assert.Null(assertion);
+    }
+
+    private sealed class Cleanup(Action dispose) : IDisposable
+    {
+        public void Dispose() => dispose();
+    }
+
+    [Fact]
     public void NativeSurfacesFollowNestedPolicyIncludingPopupsAndNewWindows()
     {
         object owner = new(), dialog = new(), nested = new();

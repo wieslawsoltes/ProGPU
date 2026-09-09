@@ -1,10 +1,49 @@
 using ProGPU.Backend;
+using ProGPU.Wpf.Interop;
 using Xunit;
 
 namespace ProGPU.Tests;
 
 public sealed class NativeWindowModalSessionTests
 {
+    [Fact]
+    public void NativePollReleaseDrivesSourceGateThenFocusCleanup()
+    {
+        object owner = new(), dialog = new();
+        bool ownerAllowed = true;
+        using var gate = PortableModalInputScope.RegisterWindow(owner, allowed => ownerAllowed = allowed);
+        var scope = PortableModalInputScope.Enter(dialog);
+        var api = new Operations(11);
+        Assert.True(NativeWindowModalSession.TryBegin(api, out var session));
+        using (session)
+        {
+            api.OnPoll = () =>
+            {
+                scope.ReleaseAfterNative(completed =>
+                    Assert.True(NativeWindowModalSession.TryReleaseWindow(CocoaWindow(11), completed)),
+                    new ReleaseCleanup(() =>
+                    {
+                        Assert.True(session!.IsReleased);
+                        Assert.False(NativeWindowModalSession.RetainsWindow(CocoaWindow(11)));
+                        Assert.True(ownerAllowed);
+                        Assert.True(PortableModalInputScope.IsNativeInputPolicySynchronized);
+                        api.Calls.Add("Focus");
+                    }));
+                Assert.True(scope.IsCurrent);
+                Assert.False(ownerAllowed);
+                Assert.Equal(new[] { "Begin", "Poll" }, api.Calls);
+            };
+            Assert.True(NativeWindowModalSession.TryPumpEvents());
+        }
+        Assert.Equal(new[] { "Begin", "Poll", "End", "Release", "Focus" }, api.Calls);
+        Assert.True(scope.IsReleased);
+    }
+
+    private sealed class ReleaseCleanup(Action completed) : IDisposable
+    {
+        public void Dispose() => completed();
+    }
+
     [Fact]
     public void NestedSessionsOwnPollingAndRestorePreviousSession()
     {

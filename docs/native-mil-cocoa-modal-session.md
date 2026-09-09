@@ -94,6 +94,13 @@ popup admission are still required before automatic Cocoa session activation.
 
 ## Required next integration — not enabled automatically
 
+Source gate/focus ordering is now connected through the typed `ReleaseDialog`
+callback and ProGPU `ReleaseAfterNative`; see the
+[source completion connection](native-mil-dialog-lifetime.md#native-completion-before-source-input-and-focus-restoration).
+That is implementation evidence only. The native-popup admission dependency below
+still prevents automatic Cocoa session activation, and all runtime qualification
+remains open. Earlier checkpoints above record their historical state.
+
 WPF `RunDialog` does **not** automatically create an AppKit session yet. The
 following application dependencies must be connected before doing so:
 

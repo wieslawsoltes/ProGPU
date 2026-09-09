@@ -226,6 +226,14 @@ Wayland capability gaps and modality/activation restoration separate.
 PortableModalInputScope is the shared thread-bound source dialog input policy.
 Its native-surface registrations must be weakly indexed and host-owned, immediately
 publish current permission for new windows, and release references on disposal.
+Source dialog release must transfer input-scope cleanup through ReleaseAfterNative.
+Native completion precedes source LIFO release and gate publication; actual source
+focus restoration comes last and checks policy synchronization. A finally/using
+must not bypass a pending native completion. Failed native requests stay explicit;
+duplicate completion and repeated release must not restore twice. Keep ordinary
+Dispose strict about source LIFO order. Source ShowDialog requires both RunDialog
+and ReleaseDialog before Show; a host without native modality explicitly completes
+ReleaseDialog synchronously, not through an absent-capability fallback.
 Snapshot only at scope transitions; callback removal/creation cannot corrupt the
 publication traversal. Roll back failed entry and publish exit to every surviving
 gate even after a failure. Reject recursive scope mutation during publication;

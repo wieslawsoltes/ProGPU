@@ -577,6 +577,16 @@ public sealed class PortableWindowActivationCallbacks
     public Action<object, Func<bool>>? RunDialog { get; init; }
 
     /// <summary>
+    /// Ends native modality for this activation, then invokes completion exactly
+    /// once on its host thread (synchronously if no native session owns it).
+    /// May retain completion until native event callbacks and nested sessions
+    /// unwind. A failed release must throw, not report success. Dialog consumers
+    /// require this capability before Show, together with RunDialog; input gates
+    /// and focus restoration belong after completion, not after requesting it.
+    /// </summary>
+    public Action<object, Action>? ReleaseDialog { get; init; }
+
+    /// <summary>
     /// Sets the source Window owner (null clears it). The host resolves its own
     /// live native identity, never an opaque presentation-source handle. Reject
     /// unsupported ownership explicitly. This does not establish input modality.
