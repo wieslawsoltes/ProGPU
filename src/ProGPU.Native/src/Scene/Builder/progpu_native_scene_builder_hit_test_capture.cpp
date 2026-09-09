@@ -107,7 +107,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
         std::vector<progpu_native_hit_test_primitive> primitives;
         std::vector<progpu_native_path_segment> segments;
         std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> stack{};
-        std::size_t depth = 0U, boundary = 0U, glyph_bounds_index = 0U;
+        std::size_t depth = 0U, boundary = 0U, glyph_bounds_index = 0U, rectangle_scope_index = 0U;
         std::uint32_t current_state = PROGPU_NATIVE_SCENE_NO_INDEX;
         std::optional<std::int32_t> owner;
         constexpr std::size_t exact_float_integer_limit = 1U << 24U;
@@ -153,6 +153,18 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             return true;
         };
         const auto unsupported = [&] { return implementation_->fail(scene_build_error::unsupported_hit_test); };
+        const auto append_rectangle = [&](const progpu_native_image_rect& rectangle,
+                                          const progpu_native_affine_2d& transform,
+                                          const progpu_native_scene_state& state,
+                                          std::uint32_t state_index) {
+            if (rectangle.width == 0.0F || rectangle.height == 0.0F) return true;
+            progpu_native_hit_test_primitive hit{};
+            hit.kind = PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL;
+            hit.data0 = {rectangle.x, rectangle.y,
+                rectangle.x + rectangle.width, rectangle.y + rectangle.height};
+            return place_primitive(hit, {hit.data0.x, hit.data0.y}, {hit.data0.z, hit.data0.w}, transform) &&
+                append(hit, state, state_index);
+        };
         for (std::size_t i = 0U; i < implementation_->commands.size(); ++i) {
             while (boundary < implementation_->hit_test_owners.size() &&
                 implementation_->hit_test_owners[boundary].first_command <= i)
@@ -160,6 +172,28 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             const auto& command = implementation_->commands[i];
             const auto kind = command.record.kind;
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE) {
+                const auto& scopes = implementation_->hit_rectangle_scopes;
+                while (rectangle_scope_index < scopes.size() &&
+                    scopes[rectangle_scope_index].first_command < i) ++rectangle_scope_index;
+                if (rectangle_scope_index < scopes.size() && scopes[rectangle_scope_index].first_command == i) {
+                    const auto& scope = scopes[rectangle_scope_index++];
+                    if (!owner || scope.last_command <= i ||
+                        scope.last_command >= implementation_->commands.size() ||
+                        implementation_->commands[scope.last_command].record.kind !=
+                            PROGPU_NATIVE_SCENE_COMMAND_RESTORE) return unsupported();
+                    const auto state_index = command.record.state_index == PROGPU_NATIVE_SCENE_NO_INDEX
+                        ? current_state : command.record.state_index;
+                    const auto state = state_index == PROGPU_NATIVE_SCENE_NO_INDEX ? identity_state() :
+                        read_record<progpu_native_scene_state>(implementation_->resources[state_index].payload);
+                    if ((state.flags & ~PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) return unsupported();
+                    if (state.opacity > 0.0001F &&
+                        !append_rectangle(scope.local_bounds, state.transform, state, state_index)) return unsupported();
+                    // Builder restore pairs this exact balanced scope. Its
+                    // internal rendering, including nested masks/layers, is not
+                    // the source operation's input geometry. Outer state stays.
+                    i = scope.last_command;
+                    continue;
+                }
                 if (depth == stack.size()) return unsupported();
                 stack[depth++] = current_state;
                 if (command.record.state_index != PROGPU_NATIVE_SCENE_NO_INDEX)
@@ -181,16 +215,6 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 read_record<progpu_native_scene_state>(implementation_->resources[state_index].payload);
             if ((state.flags & ~PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) return unsupported();
             if (state.opacity <= 0.0001F) continue;
-            const auto append_rectangle = [&](const progpu_native_image_rect& rectangle,
-                                               const progpu_native_affine_2d& transform) {
-                if (rectangle.width == 0.0F || rectangle.height == 0.0F) return true;
-                progpu_native_hit_test_primitive hit{};
-                hit.kind = PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL;
-                hit.data0 = {rectangle.x, rectangle.y,
-                    rectangle.x + rectangle.width, rectangle.y + rectangle.height};
-                return place_primitive(hit, {hit.data0.x, hit.data0.y}, {hit.data0.z, hit.data0.w}, transform) &&
-                    append(hit, state, state_index);
-            };
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
                 while (glyph_bounds_index < implementation_->glyph_hit_bounds.size() &&
                     implementation_->glyph_hit_bounds[glyph_bounds_index].command_index < i) ++glyph_bounds_index;
@@ -199,7 +223,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 // Source hit semantics are the run's actual ink rectangle, not
                 // per-glyph outline holes, raster padding or estimated advances.
                 if (!append_rectangle(implementation_->glyph_hit_bounds[glyph_bounds_index].local_bounds,
-                    state.transform)) return unsupported();
+                    state.transform, state, state_index)) return unsupported();
                 continue;
             }
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
@@ -217,14 +241,14 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     pixel_bytes, options, bytes_per_pixel)) return unsupported();
                 const auto transform = compose_affine(source.transform, state.transform);
                 if (options.patch_count == 0U) {
-                    if (!append_rectangle(source.destination_rect, transform)) return unsupported();
+                    if (!append_rectangle(source.destination_rect, transform, state, state_index)) return unsupported();
                 } else {
                     const std::span patch_bytes(options.patch_bytes,
                         static_cast<std::size_t>(options.patch_count) * sizeof(progpu_native_scene_image_patch));
                     for (std::size_t j = 0U; j < options.patch_count; ++j) {
                         const auto patch = read_record<progpu_native_scene_image_patch>(patch_bytes, j);
                         if (!append_rectangle(patch.destination_rect,
-                            compose_affine(patch.transform, transform))) return unsupported();
+                            compose_affine(patch.transform, transform), state, state_index)) return unsupported();
                     }
                 }
                 continue;

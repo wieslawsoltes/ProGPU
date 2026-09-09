@@ -271,9 +271,14 @@ public:
         std::uint32_t revision,
         std::uint32_t& resource_index) noexcept;
 
+    // Optional source-owned local rectangle replaces input coverage for this
+    // complete save/restore scope, including nested render-only content. The
+    // selected owner and saved state's transform/clip own that rectangle; this
+    // is not a culling-bounds fallback. Copied only when an owner is active.
     bool save(
         std::uint32_t state_resource_index =
-            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+        const progpu_native_image_rect* local_hit_rectangle = nullptr) noexcept;
     bool restore() noexcept;
     bool add_tile_composite(const progpu_native_scene_tile_composite& tile,
         std::uint32_t& resource_index) noexcept;

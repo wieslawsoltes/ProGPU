@@ -67,6 +67,8 @@ bool semantic_scene_builder::reset(
     implementation_->commands.clear();
     implementation_->hit_test_owners.clear();
     implementation_->glyph_hit_bounds.clear();
+    implementation_->hit_rectangle_scopes.clear();
+    implementation_->hit_rectangle_stack.fill(0U);
     implementation_->brushes.clear();
     implementation_->gradient_stops.clear();
     implementation_->text_styles.clear();
@@ -370,7 +372,14 @@ bool semantic_scene_builder::add_guideline_set_with_offsets(
 }
 
 bool semantic_scene_builder::save(
-    std::uint32_t state_resource_index) noexcept {
+    std::uint32_t state_resource_index,
+    const progpu_native_image_rect* local_hit_rectangle) noexcept {
+    const bool record_hit = local_hit_rectangle != nullptr &&
+        !implementation_->hit_test_owners.empty() &&
+        implementation_->hit_test_owners.back().owner.has_value();
+    if (record_hit && !finite_rect(*local_hit_rectangle)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
     if (!implementation_->valid_state_index(
             state_resource_index, true)) {
         return implementation_->fail(scene_build_error::invalid_argument);
@@ -391,6 +400,16 @@ bool semantic_scene_builder::save(
         command.record.command_id = implementation_->commands.size() + 1U;
         command.record.state_index = state_resource_index;
         command.record.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        auto& scopes = implementation_->hit_rectangle_scopes;
+        if (record_hit && scopes.size() == scopes.capacity()) {
+            scopes.reserve(std::max<std::size_t>(16U, scopes.size() * 2U));
+        }
+        if (record_hit) {
+            scopes.push_back({implementation_->commands.size(),
+                implementation_->commands.size(), *local_hit_rectangle});
+        }
+        implementation_->hit_rectangle_stack[implementation_->stack_depth] =
+            record_hit ? scopes.size() : 0U;
         implementation_->commands.push_back(std::move(command));
         implementation_->stack_kinds[implementation_->stack_depth] = 1U;
         ++implementation_->stack_depth;
@@ -428,6 +447,12 @@ bool semantic_scene_builder::restore() noexcept {
         command.record.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         implementation_->commands.push_back(std::move(command));
         --implementation_->stack_depth;
+        const auto hit_scope = implementation_->hit_rectangle_stack[implementation_->stack_depth];
+        if (hit_scope != 0U) {
+            implementation_->hit_rectangle_scopes[hit_scope - 1U].last_command =
+                implementation_->commands.size() - 1U;
+        }
+        implementation_->hit_rectangle_stack[implementation_->stack_depth] = 0U;
         implementation_->stack_kinds[implementation_->stack_depth] = 0U;
         implementation_->error = scene_build_error::none;
         return true;

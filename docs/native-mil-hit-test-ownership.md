@@ -130,6 +130,44 @@ queries and their execution policy are unchanged.
 
 ## Image and glyph-run producer connection
 
+### Logical image scopes
+
+Native `save(state, local_hit_rectangle)` now records an optional source-owned
+rectangle for a complete balanced save/restore scope. It copies metadata only
+with an active owner; restore publishes the exact closing command index. The
+encoder emits one rectangle with the saved state and skips internal rendering
+commands, including nested logical scopes. It does not substitute a bounds
+rectangle for arbitrary geometry: only a source operation explicitly declaring
+rectangle input semantics may use this API. Outer masks/guidelines still reject;
+internal drawing clips/effects do not redefine an image's input contract.
+
+Canonical MIL uses this for DrawingImage DrawImage lowering, including an empty
+source drawing, so flattening an ellipse or sparse drawing no longer turns the
+image destination into narrower geometry coverage. Ordinary rendering requests
+do not acquire extra scopes. No C ABI or scene-stream layout changes; C++ static
+consumers rebuild for the optional save parameter. Sparse annotations grow
+geometrically, reuse capacity at reset, and add O(I) storage for I annotated
+scopes. Save/restore matching is constant-time stack metadata; index generation
+skips each scope in O(1), retaining the existing SIMD rectangle placement.
+
+Paired applicability: the existing managed DrawTexture encoder has destination
+rectangle semantics and its explicit-ID fixture shares the native scope values.
+The WPF managed `WpfDrawingReplay.TryReplayDrawingImage` adapter also flattens
+content and still needs a retained logical-coverage seam. That connection is an
+open implementation task, not exempt from parity and not qualified by the paired
+primitive fixture. Native input remains disabled in the host until application
+coverage and routing are complete.
+
+The research references above were revisited for this boundary: WebRender's
+separate picture/spatial/clip ownership supports retaining source input metadata
+outside raster details; Skia save/restore and Vello layer scopes inform balanced
+ownership, not their implementation text. Win2D DrawImage's source/destination
+contract does not define WPF hit behavior. SkParagraph, Parley and HarfBuzz stay
+unchanged: paragraph interaction is not part of an image scope. Source WPF's
+HitTestDrawingContextWalker.DrawImage is the behavioral authority for the
+destination rectangle, including empty DrawingImage content. No third-party
+implementation was ported. Final paired runtime and performance gates remain.
+
 Image input covers each actual destination quad, not the command's culling
 envelope. The native encoder uses the existing semantic image payload reader and
 the same patch → image → state transform order as rendering. Source/storage

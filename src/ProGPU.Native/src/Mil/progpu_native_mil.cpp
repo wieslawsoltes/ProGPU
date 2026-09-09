@@ -12307,7 +12307,8 @@ struct channel::implementation {
         std::vector<progpu_native_path_segment>
             drawing_image_bounds_segments;
         const auto save_state = [&builder](
-            const render_scope_state& source) noexcept {
+            const render_scope_state& source,
+            const progpu_native_image_rect* local_hit_rectangle = nullptr) noexcept {
             auto state = native::semantic_scene_builder::identity_state();
             if (!try_to_native_affine(source.transform, state.transform)) {
                 return false;
@@ -12330,7 +12331,7 @@ struct channel::implementation {
             }
             std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             return builder.add_state(state, state_index) &&
-                builder.save(state_index);
+                builder.save(state_index, local_hit_rectangle);
         };
         const auto append_vector_clip = [
             this,
@@ -14848,6 +14849,8 @@ struct channel::implementation {
             this,
             &builder,
             &image_indices,
+            &save_state,
+            compile_context,
             &append_drawing_image](
             std::uint32_t image_source_handle,
             double x,
@@ -14922,16 +14925,26 @@ struct channel::implementation {
                         : status::invalid_graph;
                 }
                 const auto source = resources.find(image_source_handle);
-                return source != resources.end() &&
-                    source->second.type == type_drawing_image
-                    ? append_drawing_image(
-                        image_source_handle,
-                        x,
-                        y,
-                        width,
-                        height,
-                        state)
-                    : status::invalid_handle;
+                if (source == resources.end() || source->second.type != type_drawing_image) {
+                    return status::invalid_handle;
+                }
+                const bool record_hit = compile_context != nullptr &&
+                    compile_context->records_hit_test_owners();
+                const progpu_native_image_rect destination{
+                    static_cast<float>(x), static_cast<float>(y),
+                    static_cast<float>(width), static_cast<float>(height)};
+                // Source DrawImage owns its destination rectangle, even when
+                // rendering flattens a DrawingImage into sparse vector content
+                // or an authoritative empty drawing. Never index that content
+                // as though it were a source DrawDrawing operation.
+                if (record_hit && !save_state(state, &destination)) {
+                    return status::invalid_graph;
+                }
+                const status image_status = append_drawing_image(
+                    image_source_handle, x, y, width, height, state);
+                const bool restored = !record_hit || builder.restore();
+                if (image_status != status::success) return image_status;
+                return restored ? status::success : status::invalid_graph;
             }
             std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             const auto existing = image_indices.find(image_source_handle);

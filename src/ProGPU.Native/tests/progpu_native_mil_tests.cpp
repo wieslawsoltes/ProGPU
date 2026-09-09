@@ -21084,6 +21084,100 @@ int main() {
         return hits;
     };
     {
+        // Source image coverage, not render contents. Paired with the managed
+        // RenderCommandCacheUsesExplicitTextureHitTestId rectangle/transform.
+        progpu::native::semantic_scene_builder builder(9803U, 1U);
+        auto state = builder.identity_state();
+        state.transform.m31 = 5.0F; state.transform.m32 = 6.0F;
+        std::uint32_t state_index{};
+        PROGPU_REQUIRE(builder.add_state(state, state_index));
+        PROGPU_REQUIRE(builder.set_hit_test_owner(4321));
+        progpu_native_image_rect destination{10.0F, 20.0F, 30.0F, 40.0F};
+        PROGPU_REQUIRE(builder.save(state_index, &destination));
+        destination = {}; // copied at save, not retained by pointer
+        // Nested logical rectangles are render details of the outer image.
+        const progpu_native_image_rect child{100.0F, 200.0F, 1.0F, 1.0F};
+        PROGPU_REQUIRE(builder.save(PROGPU_NATIVE_SCENE_NO_INDEX, &child));
+        PROGPU_REQUIRE(builder.restore());
+        PROGPU_REQUIRE(builder.restore());
+        // Empty drawing still has its source image destination; a later source
+        // owner must not inherit the first scope's transform or nested metadata.
+        PROGPU_REQUIRE(builder.set_hit_test_owner(4322));
+        PROGPU_REQUIRE(builder.save(PROGPU_NATIVE_SCENE_NO_INDEX, &child));
+        PROGPU_REQUIRE(builder.restore());
+        const auto hits = capture_hits(builder);
+        PROGPU_REQUIRE(hits.size() == 2U);
+        PROGPU_REQUIRE(hits[0].id == 4321 && hits[1].id == 4322);
+        PROGPU_REQUIRE(hits[0].kind == PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL);
+        PROGPU_REQUIRE(hits[0].bounds_min.x == 15.0F && hits[0].bounds_min.y == 26.0F);
+        PROGPU_REQUIRE(hits[0].bounds_max.x == 45.0F && hits[0].bounds_max.y == 66.0F);
+        PROGPU_REQUIRE(hits[1].bounds_min.x == 100.0F && hits[1].bounds_min.y == 200.0F);
+        PROGPU_REQUIRE(builder.reset(9803U, 2U));
+        PROGPU_REQUIRE(capture_hits(builder).empty());
+        PROGPU_REQUIRE(builder.set_hit_test_owner(4321));
+        auto invalid = child; invalid.width = -1.0F;
+        PROGPU_REQUIRE(!builder.save(PROGPU_NATIVE_SCENE_NO_INDEX, &invalid));
+        PROGPU_REQUIRE(builder.save(PROGPU_NATIVE_SCENE_NO_INDEX, &child));
+        std::uint32_t rejected{};
+        PROGPU_REQUIRE(!builder.add_recorded_hit_test_index(rejected));
+        PROGPU_REQUIRE(builder.last_error() == progpu::native::scene_build_error::unbalanced_stack);
+    }
+    {
+        channel state;
+        std::vector<std::byte> batch, content;
+        append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
+        append_create(batch, 3U, 47U); append_create(batch, 4U, 75U);
+        append_create(batch, 5U, 70U); append_create(batch, 6U, 87U);
+        append_create(batch, 7U, 59U);
+        append_command(batch, command::visual_create, 1U);
+        append_command(batch, command::visual_set_offset, 1U, 5.0, 6.0);
+        append_command(batch, command::solid_color_brush, 4U, 1.0,
+            progpu_native_color{1.0F, 1.0F, 1.0F, 1.0F}, 0U, 0U, 0U, 0U);
+        append_command(batch, command::ellipse_geometry, 5U,
+            2.0, 3.0, 5.0, 7.0, 0U, 0U, 0U, 0U);
+        append_command(batch, command::geometry_drawing, 6U, 4U, 0U, 5U);
+        append_command(batch, command::drawing_image, 7U, 6U);
+        append_command(content, command::draw_image, 10.0, 20.0, 30.0, 40.0, 7U, 0U);
+        append_render_data(batch, 2U, content);
+        append_command(batch, command::visual_set_content, 1U, 2U);
+        append_command(batch, command::generic_target_create, 3U,
+            std::uint64_t{0U}, std::uint64_t{0U}, 160U, 120U, 0U);
+        append_command(batch, command::target_set_root, 3U, 1U);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        scene_build_request request{};
+        request.flags = scene_build_request_flags::hit_test_index;
+        request.target_handle = 3U; request.scene_id = 9804U;
+        request.dpi_scale_x = request.dpi_scale_y = 1.0;
+        for (std::uint64_t generation = 1U; generation <= 2U; ++generation) {
+            if (generation == 2U) {
+                batch.clear();
+                append_command(batch, command::drawing_image, 7U, 0U);
+                PROGPU_REQUIRE(state.apply(batch) == status::success);
+            }
+            request.generation = request.request_serial = generation;
+            std::span<const std::byte> compiled;
+            PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+            const std::vector<std::byte> stream(compiled.begin(), compiled.end());
+            const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+            bool found = false;
+            for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+                const auto resource = read_value<progpu_native_scene_resource>(stream,
+                    header.resource_offset + i * sizeof(progpu_native_scene_resource));
+                if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+                const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+                PROGPU_REQUIRE(page.primitive_count == 1U);
+                const auto hit = read_value<progpu_native_hit_test_primitive>(stream,
+                    resource.auxiliary_offset + page.primitive_offset);
+                PROGPU_REQUIRE(hit.id == 1 && hit.kind == PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL);
+                PROGPU_REQUIRE(hit.data0.x == 10.0F && hit.data0.y == 20.0F);
+                PROGPU_REQUIRE(hit.bounds_min.x == 15.0F && hit.bounds_min.y == 26.0F);
+                PROGPU_REQUIRE(hit.bounds_max.x == 45.0F && hit.bounds_max.y == 66.0F);
+                found = true;
+            }
+            PROGPU_REQUIRE(found);
+        }
+    }
+    {
         progpu::native::semantic_scene_builder builder(9800U, 1U);
         std::uint32_t image_index{};
         PROGPU_REQUIRE(builder.add_external_image(16U, 16U, image_index));

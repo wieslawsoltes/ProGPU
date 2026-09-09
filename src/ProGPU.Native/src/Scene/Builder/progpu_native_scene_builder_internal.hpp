@@ -44,6 +44,15 @@ struct semantic_scene_builder::implementation final {
     };
     // Sparse optional input metadata: do not enlarge every retained draw record.
     std::vector<glyph_hit_bounds_entry> glyph_hit_bounds{};
+    struct hit_rectangle_scope final {
+        std::size_t first_command{};
+        std::size_t last_command{};
+        progpu_native_image_rect local_bounds{};
+    };
+    std::vector<hit_rectangle_scope> hit_rectangle_scopes{};
+    // One-based sparse scope indices, zero for ordinary saves. Layer slots are
+    // never read here: restore admits only a matching save stack kind.
+    std::array<std::size_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> hit_rectangle_stack{};
 
     std::uint64_t scene_id = 0U;
     std::uint64_t generation = 0U;
