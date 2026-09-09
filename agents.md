@@ -137,6 +137,11 @@ both native providers, required SDK/Direct2D payloads and test/sample compilatio
 never enable this mode through environment state or normal release/CI workflows.
 Staged output remains unqualified. Pinned dependency preparation is a build step,
 not permission to execute renderer/verifier workloads or weaken final gates.
+Explicit Linux build-only RIDs must keep Clang's target triple, CMake processor,
+the pinned wgpu linker input and staging RID aligned. Use target-specific build
+directories and real target GNU link/standard-library dependencies; never relabel
+host binaries, emulate uname, bypass compiler link probes or treat cross-compilation
+as target runtime qualification. Normal CI/release lanes remain native and gated.
 
 Retained picture seed copies must submit through `progpu_native_engine::submit`,
 just like other native render/mask work. Never call raw `wgpuQueueSubmit` or

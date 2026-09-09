@@ -3,20 +3,36 @@ set -euo pipefail
 
 # Deliberately CLI-only: an inherited environment variable must not bypass CI.
 build_only=0
-if [[ "$#" == 1 && "$1" == --build-only ]]; then
+requested_rid=
+if [[ ( "$#" == 1 || "$#" == 3 ) && "$1" == --build-only ]]; then
   build_only=1
+  if [[ "$#" == 3 ]]; then
+    if [[ "$2" != --rid || ( "$3" != linux-x64 && "$3" != linux-arm64 ) ]]; then
+      echo "Usage: $0 [--build-only [--rid linux-x64|linux-arm64]]" >&2
+      exit 2
+    fi
+    requested_rid="$3"
+  fi
 elif [[ "$#" != 0 ]]; then
-  echo "Usage: $0 [--build-only]" >&2
+  echo "Usage: $0 [--build-only [--rid linux-x64|linux-arm64]]" >&2
   exit 2
 fi
 if [[ "${build_only}" == 1 && "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" == 1 ]]; then
   echo "--build-only cannot use a reduced compiler-qualification profile." >&2
   exit 2
 fi
+if [[ -n "${requested_rid}" && "$(uname -s)" != Linux ]]; then
+  echo "Explicit Linux RID builds require a Linux build host and target GNU toolchain." >&2
+  exit 2
+fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="${PROGPU_NATIVE_WGPU_SOURCE:-${repo_root}/artifacts/wgpu-native-src}"
-build_dir="${PROGPU_NATIVE_BUILD_DIR:-${repo_root}/artifacts/progpu-native/build}"
+default_build_dir="${repo_root}/artifacts/progpu-native/build"
+if [[ -n "${requested_rid}" ]]; then
+  default_build_dir="${default_build_dir}-${requested_rid}"
+fi
+build_dir="${PROGPU_NATIVE_BUILD_DIR:-${default_build_dir}}"
 export PROGPU_NATIVE_BUILD_DIR="${build_dir}"
 sample_dir="${PROGPU_NATIVE_SAMPLE_DIR:-${repo_root}/artifacts/progpu-native/sample}"
 include_dir="${PROGPU_NATIVE_INCLUDE_DIR:-${repo_root}/artifacts/progpu-native/include}"
@@ -37,6 +53,21 @@ command -v "${cxx_compiler}" >/dev/null 2>&1 || {
   echo "${cxx_compiler} is required for the ProGPU native C++20 build." >&2
   exit 1
 }
+target_options=()
+if [[ -n "${requested_rid}" ]]; then
+  if [[ "$("${cxx_compiler}" --version)" != *clang* ]]; then
+    echo "Explicit Linux RID builds require Clang with the target GNU C++ toolchain installed." >&2
+    exit 2
+  fi
+  case "${requested_rid}" in
+    linux-x64) target_processor=x86_64; target_triple=x86_64-linux-gnu ;;
+    linux-arm64) target_processor=aarch64; target_triple=aarch64-linux-gnu ;;
+  esac
+  target_options=(
+    -DCMAKE_SYSTEM_NAME=Linux
+    "-DCMAKE_SYSTEM_PROCESSOR=${target_processor}"
+    "-DCMAKE_CXX_COMPILER_TARGET=${target_triple}")
+fi
 if [[ "${cmake_generator}" == Ninja* ]] &&
     ! command -v ninja >/dev/null 2>&1; then
   echo "Ninja is required for the selected ProGPU native generator." >&2
@@ -102,6 +133,11 @@ case "$(uname -s)-$(uname -m)" in
     exit 1
     ;;
 esac
+if [[ -n "${requested_rid}" ]]; then
+  # The linker input and package label follow the compiler target, not uname.
+  package_rid="${requested_rid}"
+  package_library="${package_root}/runtimes/${package_rid}/native/libwgpu_native.so"
+fi
 if [[ ! -f "${package_library}" ]]; then
   echo "Missing ${package_library}; restore ProGPU.Backend first." >&2
   exit 1
@@ -141,6 +177,9 @@ if [[ "${build_only}" == 1 ]]; then
 fi
 if ((${#module_options[@]})); then
   cmake_options+=("${module_options[@]}")
+fi
+if ((${#target_options[@]})); then
+  cmake_options+=("${target_options[@]}")
 fi
 cmake "${cmake_options[@]}"
 if [[ "${build_only}" == 1 ]]; then

@@ -12,6 +12,27 @@ For the implementation-before-validation phase, use explicit CLI-only entry mode
 ./eng/build-progpu-native.sh --build-only
 ```
 
+An ARM64 Linux build host can also produce the x64 payload (and vice versa) with
+Clang and the target GNU compiler/linker, C++ standard library and development
+headers installed. On Ubuntu, the cross-toolchain packages are
+`g++-x86-64-linux-gnu` and `g++-aarch64-linux-gnu`, respectively:
+
+```sh
+./eng/build-progpu-native.sh --build-only --rid linux-x64
+./eng/build-progpu-native.sh --build-only --rid linux-arm64
+```
+
+The explicit RID option is accepted only with build-only on Linux. It selects the
+Clang target triple, CMake system/processor, matching pinned Silk.NET wgpu library
+and staging RID together. The default build directory is target-specific
+(`build-linux-x64` or `build-linux-arm64`); explicit directory overrides must also
+remain target-specific. Missing cross-linker/standard-library dependencies fail
+normal CMake compiler/link probes; no static-only probe bypass or emulator is set.
+Both providers, SDK archives, tests, samples and supported C++ module targets still
+compile. This produces target binaries, not target runtime qualification. Final
+qualification still runs on each required architecture with the normal scripts.
+No-argument CI/release builds retain host-native selection and all existing gates.
+
 ```powershell
 # Windows PowerShell 7 host with the existing Visual Studio/LLVM prerequisites.
 ./eng/build-progpu-native-windows.ps1 -Rid win-arm64 -BuildOnly

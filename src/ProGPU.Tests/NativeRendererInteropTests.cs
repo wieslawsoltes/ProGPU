@@ -49,6 +49,29 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void ExplicitLinuxBuildTargetKeepsCompilerRuntimeAndStagingTogether()
+    {
+        string script = File.ReadAllText(FindRepoFile("eng", "build-progpu-native.sh"));
+        Assert.Contains("requested_rid=\n", script, StringComparison.Ordinal);
+        Assert.Contains("\"$1\" == --build-only", script, StringComparison.Ordinal);
+        Assert.Contains("\"$2\" != --rid", script, StringComparison.Ordinal);
+        Assert.Contains("\"$3\" != linux-x64 && \"$3\" != linux-arm64", script, StringComparison.Ordinal);
+        Assert.Contains("Explicit Linux RID builds require a Linux build host", script, StringComparison.Ordinal);
+        Assert.Contains("Explicit Linux RID builds require Clang", script, StringComparison.Ordinal);
+        Assert.Contains("default_build_dir=\"${default_build_dir}-${requested_rid}\"", script, StringComparison.Ordinal);
+        Assert.Contains("linux-x64) target_processor=x86_64; target_triple=x86_64-linux-gnu", script, StringComparison.Ordinal);
+        Assert.Contains("linux-arm64) target_processor=aarch64; target_triple=aarch64-linux-gnu", script, StringComparison.Ordinal);
+        Assert.Contains("-DCMAKE_SYSTEM_NAME=Linux", script, StringComparison.Ordinal);
+        Assert.Contains("-DCMAKE_SYSTEM_PROCESSOR=${target_processor}", script, StringComparison.Ordinal);
+        Assert.Contains("-DCMAKE_CXX_COMPILER_TARGET=${target_triple}", script, StringComparison.Ordinal);
+        Assert.Contains("package_rid=\"${requested_rid}\"", script, StringComparison.Ordinal);
+        Assert.Contains("${package_root}/runtimes/${package_rid}/native/libwgpu_native.so", script, StringComparison.Ordinal);
+        Assert.Contains("cmake_options+=(\"${target_options[@]}\")", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("CMAKE_CROSSCOMPILING_EMULATOR", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("CMAKE_TRY_COMPILE_TARGET_TYPE", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildOnlyAndDawnQualificationSharePinnedHeaderPreparation()
     {
         string helper = File.ReadAllText(FindRepoFile("eng", "progpu-native-dawn-headers.sh"));
