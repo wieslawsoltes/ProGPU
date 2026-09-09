@@ -202,7 +202,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
         std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_scope_stack{};
         std::vector<progpu_native_image_rect> layer_clips(1U); // scope zero has no layer clip
         std::uint32_t layer_clip_scope = 0U;
-        std::vector<progpu_native_affine_2d> input_frames(1U, identity_transform());
+        // Ordinary noncached input must not allocate a frame table.
+        std::vector<progpu_native_affine_2d> input_frames;
         std::uint32_t input_frame = 0U;
         std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> frame_stack{};
         const auto map_rectangle = [&](progpu_native_image_rect& rectangle) {
@@ -491,6 +492,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     }
                 }
                 if (input_layer.changes_frame) {
+                    if (input_frames.empty()) input_frames.push_back(identity_transform());
                     progpu_native_affine_2d transform{};
                     if (!compose_input_frame(input_layer.content_to_parent, input_frames[input_frame], transform))
                         return unsupported();

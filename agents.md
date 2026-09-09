@@ -598,9 +598,11 @@ contracts remain explicit; do not broaden this identity-effect declaration.
 Optional source CacheAsLayer input uses the shared pre-composite source capture,
 before raster scaling/snapping, with hit writes suspended only during rendering.
 Preserve source input at zero raster scale and keep required cached-picture
-refresh sources explicit. Native cache-local input still needs unsnapped frame
-metadata; never admit it using a texture rectangle or a snapped composite matrix.
-See docs/native-mil-cache-input.md; this staged connection is not paired parity.
+refresh sources explicit. Native positive-scale cache input uses copied unsnapped
+frame metadata; never use a texture rectangle or snapped composite matrix. Restore
+frame/clip identity on save/layer exit and qualify clip reuse by its source frame.
+Keep zero-scale/native boundary-mask and non-axis rectangle-clip gaps explicit.
+See docs/native-mil-cache-input.md; this staged connection is not full cache parity.
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
