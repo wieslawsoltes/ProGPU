@@ -528,6 +528,12 @@ clips while ignoring only internal render coverage. Preserve annotations in
 compact/general retained snapshots and empty drawing images. Never apply this
 rectangle override to arbitrary geometry or use it to bypass missing outer masks.
 
+Source drawing opacity is input-neutral, including zero alpha. Keep native
+source_opacity layer annotations and source_geometry state policy separate from
+render alpha; managed IsSourceOpacityScope must survive scalar/general snapshots.
+Do not apply this policy to arbitrary effects, blend layers or geometric masks,
+and do not equate command capture with opacity-zero retained visual qualification.
+
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
 Styled Direct2D primitive callbacks must route through genuine factory-owned

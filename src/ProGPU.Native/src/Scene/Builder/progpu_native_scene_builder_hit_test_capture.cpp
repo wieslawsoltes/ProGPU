@@ -99,15 +99,22 @@ bool semantic_scene_builder::set_hit_test_owner(std::optional<std::int32_t> owne
 // O(C + P + S + P*D) time and O(R + P + S + D) storage for commands C,
 // resources R, hit primitives P, copied segments S and quadtree depth D (default 8).
 // Directly consumes builder-owned typed resources; no serialize/parse round trip.
-bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource_index) noexcept {
+bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource_index,
+    scene_hit_test_opacity_mode opacity_mode) noexcept {
     resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (opacity_mode != scene_hit_test_opacity_mode::rendered_visibility &&
+        opacity_mode != scene_hit_test_opacity_mode::source_geometry)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    const bool source_geometry = opacity_mode == scene_hit_test_opacity_mode::source_geometry;
     if (implementation_->stack_depth != 0U)
         return implementation_->fail(scene_build_error::unbalanced_stack);
     try {
         std::vector<progpu_native_hit_test_primitive> primitives;
         std::vector<progpu_native_path_segment> segments;
         std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> stack{};
+        std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_stack{};
         std::size_t depth = 0U, boundary = 0U, glyph_bounds_index = 0U, rectangle_scope_index = 0U;
+        std::size_t opacity_layer_index = 0U;
         std::uint32_t current_state = PROGPU_NATIVE_SCENE_NO_INDEX;
         std::optional<std::int32_t> owner;
         constexpr std::size_t exact_float_integer_limit = 1U << 24U;
@@ -186,7 +193,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     const auto state = state_index == PROGPU_NATIVE_SCENE_NO_INDEX ? identity_state() :
                         read_record<progpu_native_scene_state>(implementation_->resources[state_index].payload);
                     if ((state.flags & ~PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) return unsupported();
-                    if (state.opacity > 0.0001F &&
+                    if ((source_geometry || state.opacity > 0.0001F) &&
                         !append_rectangle(scope.local_bounds, state.transform, state, state_index)) return unsupported();
                     // Builder restore pairs this exact balanced scope. Its
                     // internal rendering, including nested masks/layers, is not
@@ -195,26 +202,42 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     continue;
                 }
                 if (depth == stack.size()) return unsupported();
+                layer_stack[depth] = false;
                 stack[depth++] = current_state;
                 if (command.record.state_index != PROGPU_NATIVE_SCENE_NO_INDEX)
                     current_state = command.record.state_index;
                 continue;
             }
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE) {
-                if (depth == 0U) return unsupported();
+                if (depth == 0U || layer_stack[depth - 1U]) return unsupported();
                 current_state = stack[--depth];
                 continue;
             }
-            // Effects/cache/mask isolation must not turn into bounds-only hits.
-            if (kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER || kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER)
-                return unsupported();
+            if (kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
+                const auto& layers = implementation_->source_opacity_hit_layers;
+                while (opacity_layer_index < layers.size() && layers[opacity_layer_index] < i)
+                    ++opacity_layer_index;
+                // Only explicit source opacity has geometric input semantics.
+                // Effect/mask/cache layers still require their own contracts.
+                if (opacity_layer_index == layers.size() || layers[opacity_layer_index] != i ||
+                    depth == stack.size()) return unsupported();
+                ++opacity_layer_index;
+                layer_stack[depth] = true;
+                stack[depth++] = current_state;
+                continue;
+            }
+            if (kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+                if (depth == 0U || !layer_stack[depth - 1U]) return unsupported();
+                current_state = stack[--depth];
+                continue;
+            }
             if (!owner) continue;
             const auto state_index = command.record.state_index == PROGPU_NATIVE_SCENE_NO_INDEX
                 ? current_state : command.record.state_index;
             const auto state = state_index == PROGPU_NATIVE_SCENE_NO_INDEX ? identity_state() :
                 read_record<progpu_native_scene_state>(implementation_->resources[state_index].payload);
             if ((state.flags & ~PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) return unsupported();
-            if (state.opacity <= 0.0001F) continue;
+            if (!source_geometry && state.opacity <= 0.0001F) continue;
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
                 while (glyph_bounds_index < implementation_->glyph_hit_bounds.size() &&
                     implementation_->glyph_hit_bounds[glyph_bounds_index].command_index < i) ++glyph_bounds_index;

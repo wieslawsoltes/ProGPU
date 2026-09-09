@@ -15952,7 +15952,10 @@ struct channel::implementation {
                     0U,
                     0U,
                     0U};
-                if (!builder.push_layer(layer)) {
+                if (!builder.push_layer(layer,
+                        compile_context != nullptr && compile_context->records_hit_test_owners()
+                            ? native::scene_layer_hit_test_mode::source_opacity
+                            : native::scene_layer_hit_test_mode::unspecified)) {
                     return status::invalid_graph;
                 }
                 scope_states.push_back(current);
@@ -16008,7 +16011,10 @@ struct channel::implementation {
                     0U,
                     0U,
                     0U};
-                if (!builder.push_layer(layer)) {
+                if (!builder.push_layer(layer,
+                        compile_context != nullptr && compile_context->records_hit_test_owners()
+                            ? native::scene_layer_hit_test_mode::source_opacity
+                            : native::scene_layer_hit_test_mode::unspecified)) {
                     return status::invalid_graph;
                 }
                 scope_states.push_back(current);
@@ -20984,7 +20990,10 @@ struct channel::implementation {
                     visual->second.cache_bounds_height,
                     current.transform,
                     composite_layer.bounds) ||
-                !builder.push_layer(composite_layer)) {
+                !builder.push_layer(composite_layer,
+                    record_hit_owner && !has_spatial_visual_opacity_mask
+                        ? native::scene_layer_hit_test_mode::source_opacity
+                        : native::scene_layer_hit_test_mode::unspecified)) {
                 builder.restore();
                 active_visuals.erase(handle);
                 return status::invalid_graph;
@@ -21975,7 +21984,8 @@ status channel::build_scene_core(
         }
         if (compile_context.records_hit_test_owners()) {
             std::uint32_t hit_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder.add_recorded_hit_test_index(hit_index)) {
+            if (!builder.add_recorded_hit_test_index(hit_index,
+                    native::scene_hit_test_opacity_mode::source_geometry)) {
                 switch (builder.last_error()) {
                 case native::scene_build_error::unsupported_hit_test:
                     return status::unsupported_command;

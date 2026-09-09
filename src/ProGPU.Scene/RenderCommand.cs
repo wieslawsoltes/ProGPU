@@ -736,6 +736,8 @@ public struct RenderCommand
     // PushClip only: source image input is the destination rectangle, not the
     // flattened drawing inside its balanced clip scope. Rendering is unchanged.
     public bool IsImageHitTestScope;
+    // PushOpacity only: source geometric input does not depend on draw opacity.
+    public bool IsSourceOpacityScope;
     public TextShapingOptions? TextShapingOptions;
     public TextAlignment TextAlignment;
     public Vector2 FontTransform;
@@ -1177,6 +1179,7 @@ internal readonly struct RetainedRenderCommand
     private readonly bool _isEdgeAliased;
     private readonly bool _isPenThicknessLocal;
     private readonly bool _isImageHitTestScope;
+    private readonly bool _isSourceOpacityScope;
     private readonly uint _pathSampleGrid;
     private readonly float _pathCoverageGamma;
 
@@ -1187,6 +1190,7 @@ internal readonly struct RetainedRenderCommand
         _type = command.Type;
         _hitTestId = command.HitTestId;
         _isImageHitTestScope = command.IsImageHitTestScope;
+        _isSourceOpacityScope = command.IsSourceOpacityScope;
         _rect = command.Rect;
         _brush = command.Brush;
         _pen = command.Pen;
@@ -1207,6 +1211,7 @@ internal readonly struct RetainedRenderCommand
             Type = _type,
             HitTestId = _hitTestId,
             IsImageHitTestScope = _isImageHitTestScope,
+            IsSourceOpacityScope = _isSourceOpacityScope,
             Rect = _rect,
             Brush = _brush,
             Pen = _pen,
@@ -1941,10 +1946,12 @@ internal readonly struct RetainedScalarStateCommand
 {
     private readonly RenderCommandType _type;
     private readonly int _value;
+    private readonly bool _isSourceOpacityScope;
 
     public RetainedScalarStateCommand(in RenderCommand command)
     {
         _type = command.Type;
+        _isSourceOpacityScope = command.IsSourceOpacityScope;
         _value = command.Type == RenderCommandType.PushOpacity
             ? BitConverter.SingleToInt32Bits(command.FontSize)
             : command.IntParam;
@@ -1955,7 +1962,8 @@ internal readonly struct RetainedScalarStateCommand
             ? new RenderCommand
             {
                 Type = _type,
-                FontSize = BitConverter.Int32BitsToSingle(_value)
+                FontSize = BitConverter.Int32BitsToSingle(_value),
+                IsSourceOpacityScope = _isSourceOpacityScope
             }
             : new RenderCommand
             {
@@ -4428,11 +4436,16 @@ public class DrawingContext :
     }
 
     public void PushOpacity(float opacity)
+        => PushOpacity(opacity, affectsHitTesting: true);
+
+    /// <summary>Records pixel opacity and an independent source input policy.</summary>
+    public void PushOpacity(float opacity, bool affectsHitTesting)
     {
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.PushOpacity,
-            FontSize = opacity
+            FontSize = opacity,
+            IsSourceOpacityScope = !affectsHitTesting
         });
     }
 

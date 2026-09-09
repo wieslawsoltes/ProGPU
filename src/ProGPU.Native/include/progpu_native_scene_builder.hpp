@@ -23,6 +23,18 @@ enum class scene_build_error : std::uint32_t {
     unsupported_hit_test
 };
 
+enum class scene_layer_hit_test_mode : std::uint32_t {
+    unspecified = 0U,
+    // Source drawing opacity changes pixels, not geometric input coverage.
+    // Admitted only for an unmasked, effect-free SrcOver opacity layer.
+    source_opacity
+};
+
+enum class scene_hit_test_opacity_mode : std::uint32_t {
+    rendered_visibility = 0U,
+    source_geometry
+};
+
 struct scene_build_metrics final {
     std::uint32_t command_count = 0U;
     std::uint32_t resource_count = 0U;
@@ -207,7 +219,8 @@ public:
     bool set_hit_test_owner(std::optional<std::int32_t> owner) noexcept;
     // Lower owned retained commands into the canonical GPU hit-test index.
     // Transactional: unsupported coverage never installs a partial index.
-    bool add_recorded_hit_test_index(std::uint32_t& resource_index) noexcept;
+    bool add_recorded_hit_test_index(std::uint32_t& resource_index,
+        scene_hit_test_opacity_mode opacity_mode = scene_hit_test_opacity_mode::rendered_visibility) noexcept;
     bool add_glyph_outlines(
         std::span<const progpu_native_scene_glyph_outline> outlines,
         std::span<const progpu_native_path_segment> segments,
@@ -282,7 +295,8 @@ public:
     bool restore() noexcept;
     bool add_tile_composite(const progpu_native_scene_tile_composite& tile,
         std::uint32_t& resource_index) noexcept;
-    bool push_layer(const progpu_native_scene_layer& layer) noexcept;
+    bool push_layer(const progpu_native_scene_layer& layer,
+        scene_layer_hit_test_mode hit_test_mode = scene_layer_hit_test_mode::unspecified) noexcept;
     bool pop_layer() noexcept;
 
     bool draw_analytic(

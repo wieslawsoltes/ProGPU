@@ -105,7 +105,7 @@ to the canonical query shader. Semantic path fill-rule values are explicitly
 converted to the opposite `ProGPU.Vector.FillRule`/hit-shader numbering.
 
 Remaining families explicitly reject with `unsupported_hit_test`, surfaced by MIL
-as `unsupported_command`: other draw types, layers/effects/masks/cache isolation,
+as `unsupported_command`: other draw types, unannotated layers/effects/masks/cache isolation,
 boolean topology, guideline state, image effects, missing glyph ink metadata,
 and device/hairline analytic flags. This option
 is therefore **not enabled in LibreWPF host requests** yet. It is a producer
@@ -127,6 +127,56 @@ matrix inversion retains dependent double arithmetic. Unsupported architectures
 reject this encoder until their intrinsic implementation is connected. There is
 no new GPU submission/readback, pixel fallback, or speed claim. Existing GPU
 queries and their execution policy are unchanged.
+
+## Source opacity connection
+
+The MVP's opacity animations and Toolkit/AvalonDock source drawing scopes use
+opacity without changing the underlying input geometry. Source WPF point and
+region drawing walkers deliberately retain input through PushOpacity, including
+zero opacity; visual input visibility is separate from rendered alpha.
+
+Native `scene_layer_hit_test_mode::source_opacity` annotates a retained layer
+without changing its stream or raster parameters. Admission requires SrcOver,
+no effect or mask resource, and only isolation/derived content bounds flags.
+These layer bounds size rendering storage; they do not replace source clipping
+or become a hit rectangle. MIL selects the annotation for ordinary/animated
+PushOpacity and unmasked visual opacity groups only when index emission is
+requested. Unannotated or differently composed layers remain unsupported.
+The index walks balanced layer/save stacks, retains source owners and transforms,
+and indexes actual enclosed commands. Native source-geometry opacity mode also
+keeps commands whose effective scene-state opacity is zero, including logical
+image rectangles. Generic native default opacity filtering remains unchanged.
+
+Managed `DrawingContext.PushOpacity(opacity, affectsHitTesting: false)` records
+`IsSourceOpacityScope` on the existing command. Compact scalar-state and general
+snapshots preserve it; the hit cache saves its prior input opacity and applies
+an identity factor, while rendering still sees the real alpha. WPF's product
+command sink selects that source policy, including visual-state command replay.
+Ordinary ProGPU calls keep their previous opacity-sensitive input policy.
+
+Matched fixtures cover zero/fractional opacity, nested save/layer or clip stacks,
+outer transforms and actual clips, subsequent owners, retained alpha, reset,
+generic policy preservation, unsupported blend/layer rejection and canonical
+MIL regular/animated scopes with zero-opacity visual parents, with/without typed
+isolation bounds. Header and module consumers share the enum/signature contract.
+This is not full input qualification: managed retained visual traversal still
+has an opacity-zero early rejection in `Compositor.CompileVisual`/its subtree
+path, independently of command replay. That source-specific policy connection
+remains in the application queue, alongside masks/effects/cache coverage and
+native host query routing. Do not report zero-opacity retained visual parity.
+
+Provenance is the original ProGPU builder/state and managed opacity-stack code.
+The research references above were revisited; additionally
+[Direct2D layers](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview)
+and [Win2D layer creation](https://microsoft.github.io/Win2D/WinUI3/html/M_Microsoft_Graphics_Canvas_CanvasDrawingSession_CreateLayer.htm)
+support keeping group rendering separate from source input policy. Skia/Vello
+inform balanced scopes; WebRender informs separate spatial/clip ownership. None
+of these rendering APIs supplies WPF's hit policy. SkParagraph/Parley/HarfBuzz
+shaping/layout/cache contracts are unchanged. No third-party implementation was
+copied. New native metadata is O(L) for L annotated layers with geometric growth
+and capacity reuse; stack traversal is dependent O(C), not a numeric CPU fallback.
+Existing SIMD primitive placement and the canonical GPU shader are unchanged.
+No new readback, per-item submission, pixel work or performance claim is added.
 
 ## Image and glyph-run producer connection
 

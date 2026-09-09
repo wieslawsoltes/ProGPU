@@ -13,6 +13,48 @@ namespace ProGPU.Tests;
 
 public sealed class GpuHitTestingTests
 {
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4321)]
+    public void SourceOpacityScopesPreserveInputAndRenderedOpacityInSnapshots(int commandId)
+    {
+        var drawing = new DrawingContext();
+        drawing.PushOpacity(0, affectsHitTesting: false);
+        var opacity = drawing.Commands[0]; opacity.HitTestId = commandId;
+        drawing.Commands[0] = opacity; // exercise compact and general snapshots
+        drawing.PushClip(new Rect(15, 26, 10, 10));
+        drawing.PushOpacity(0.5f, affectsHitTesting: false);
+        var rectangle = new RenderCommand {
+            Type = RenderCommandType.DrawRect, Rect = new Rect(10, 20, 30, 40),
+            Brush = new SolidColorBrush(Vector4.One),
+            Transform = Matrix4x4.CreateTranslation(5, 6, 0) };
+        drawing.Commands.Add(rectangle);
+        drawing.PopOpacity(); drawing.PopClip(); drawing.PopOpacity();
+        rectangle.Transform = Matrix4x4.Identity;
+        drawing.Commands.Add(rectangle);
+        using var picture = drawing.CreatePictureSnapshot();
+        Assert.True(picture.GetCommand(0).IsSourceOpacityScope);
+        Assert.Equal(0f, picture.GetCommand(0).FontSize);
+        using var hits = new GpuRenderCommandHitTestCacheBuilder();
+        for (int i = 0; i < picture.CommandCount; i++)
+        {
+            var command = picture.GetCommand(i);
+            hits.AddCommand(command, command.Transform, id: i == picture.CommandCount - 1 ? 4322 : 4321);
+        }
+        var index = hits.BuildIndex();
+        Assert.Equal(2, index.Primitives.Count);
+        Assert.Equal(4321, index.Primitives[0].Id);
+        Assert.Equal(new Vector2(15, 26), index.Primitives[0].BoundsMin);
+        Assert.Equal(new Vector2(25, 36), index.Primitives[0].BoundsMax);
+        Assert.Equal(4322, index.Primitives[1].Id);
+        Assert.Equal(new Vector2(10, 20), index.Primitives[1].BoundsMin);
+        hits.Clear();
+        hits.AddCommand(new RenderCommand { Type = RenderCommandType.PushOpacity, FontSize = 0 }, Matrix4x4.Identity);
+        hits.AddCommand(rectangle, rectangle.Transform);
+        hits.AddCommand(new RenderCommand { Type = RenderCommandType.PopOpacity }, Matrix4x4.Identity);
+        Assert.Empty(hits.BuildIndex().Primitives); // generic ProGPU policy unchanged
+    }
+
     [Fact]
     public void NativeMilCaptureFixtureUsesCanonicalPrimitiveEncoding()
     {

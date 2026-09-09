@@ -68,6 +68,7 @@ bool semantic_scene_builder::reset(
     implementation_->hit_test_owners.clear();
     implementation_->glyph_hit_bounds.clear();
     implementation_->hit_rectangle_scopes.clear();
+    implementation_->source_opacity_hit_layers.clear();
     implementation_->hit_rectangle_stack.fill(0U);
     implementation_->brushes.clear();
     implementation_->gradient_stops.clear();

@@ -126,7 +126,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 PopClip();
                 return;
             case RenderCommandType.PushOpacity:
-                PushOpacity(command.FontSize);
+                PushOpacity(command.IsSourceOpacityScope ? 1f : command.FontSize);
                 return;
             case RenderCommandType.PopOpacity:
                 PopOpacity();

@@ -20,6 +20,14 @@ int main() {
         if (hit_builder.draw_glyph_run(progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX,
             {}, ink, progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX,
             progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX, &ink)) return 1;
+        progpu::native::progpu_native_scene_layer opacity{};
+        opacity.opacity = 0.0F;
+        opacity.blend_mode = progpu::native::PROGPU_NATIVE_BLEND_SRC_OVER;
+        opacity.mask_resource_index = opacity.effect_resource_index =
+            progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!hit_builder.push_layer(opacity, progpu::native::scene_layer_hit_test_mode::source_opacity) ||
+            !hit_builder.pop_layer() || !hit_builder.add_recorded_hit_test_index(hit_index,
+                progpu::native::scene_hit_test_opacity_mode::source_geometry)) return 1;
     }
     static_assert(progpu::native::PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED == (1U << 9U));
     progpu::native::semantic_scene_builder builder(9001U, 3U);
