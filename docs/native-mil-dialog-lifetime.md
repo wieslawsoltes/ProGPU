@@ -1,5 +1,59 @@
 # Source-controlled portable dialog lifetime
 
+## Shared source input admission
+
+`PortableModalInputScope` now owns the active dialog identity for a synchronous
+host/source UI thread. Enter before Show and dispose after the dialog invocation;
+only the innermost dialog is admitted. Unknown ownership fails closed while the
+scope is active. Normal input has one thread-local check; active modal checks use
+reference identity. There are no per-event allocations, reflection or changes to
+application IsEnabled values. Each invocation owns one small scope/delegate;
+release clears references. Wrong-thread or out-of-order release fails without
+corrupting the stack. This is bounded stateful control flow, not SIMD compute.
+
+LibreWPF host ingress and queued dispatch both consult this shared policy before
+activation hooks or source delivery. Blocked drag/drop advertises no accepted
+effect, native close notifications are canceled (explicit source Close stays
+allowed), and blocked activation/nonclient hooks are not forwarded. Rendering,
+geometry and lifecycle updates continue. Source input checks the actual reported
+root and the captured-mouse root after redirection; keyboard/text also checks the
+focused element. Modal entry deactivates blocked input providers and releases
+blocked mouse capture and keyboard focus.
+
+Popup admission follows the live source-owned popup owner presentation source,
+including separately surfaced and nested popups. It does not guess from mutable
+PlacementTarget, Window.Owner, native handles or OS. The ownership walk rejects
+missing/disposed roots and cycles with allocation-free cycle detection. A popup
+of an inactive owner cannot inherit the active dialog's permission merely by
+receiving a native event. Only original source Window identities are admitted.
+
+This connects source/host input filtering on each participating UI thread, **not
+full native modality**. Other UI threads are independent. Native nonclient input
+suppression, real window owner configuration, application-wide coordination where
+required and restoration of previous native activation/focus remain open. OS
+activation may occur before the host rejects its notification; a successful
+source filter is not proof that the OS prevented that activation. Custom hosts
+must use the source input registrar; arbitrary direct application event injection
+is outside this transport contract. Both native and managed renderers share the
+same policy. No rendering/compiler/native shader algorithm is duplicated.
+
+Authored fixtures cover nested identity/thread ownership, release ordering and
+exception cleanup, host ingress and pre-modal queued events, source admission,
+application-enabled-state preservation and capture cleanup. Actual nested popup
+interaction, OS keyboard/mouse/capture behavior and owner reactivation remain
+required final application gates, not proven by policy fixtures or compilation.
+
+Source-admission compile checkpoint: ProGPU.Tests 0 warnings/0 errors, source
+PresentationFramework fixtures 2/0, final bridge fixtures 20/0 (116/0 on initial
+dependency rebuild), source application harness 0/0. The initial ProGPU fixture
+build selected xUnit's obsolete async overload for a throw-only lambda; explicitly
+typing that lambda as Action fixed compilation. No tests, verifiers, native
+applications/input, VM/GPU workloads, benchmarks or CI qualification ran. The
+package-mode MVP still requires the separately planned fresh package production;
+the previously missing local feed is not bypassed by these source builds.
+
+## Dialog pumping
+
 The LibreWPF MVP About dialog uses the same portable host in native C++ MIL and
 managed rendering modes. Application run lifetime and modal dialog lifetime are
 different: the application may remain alive with hidden windows; a dialog's

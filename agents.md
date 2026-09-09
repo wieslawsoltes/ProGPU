@@ -196,6 +196,14 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+PortableModalInputScope is the shared thread-bound source dialog input policy.
+Enter before Show, preserve nested identity and LIFO/owning-thread release, and
+clear scope references on disposal. Host ingress and queued delivery must both
+check it; source adapters resolve actual popup ownership and check capture/focus
+redirection before emitting input reports. Do not mutate application IsEnabled
+values or claim native nonclient suppression/activation restoration from this
+source-level policy. Geometry/render/lifecycle work must remain live while input
+is blocked. Missing or cyclic modal source ownership fails closed.
 Native enabled-state admission must not combine unrelated shadow/chrome success
 with input-state success. Win32 EnableWindow returns prior disabled state, not
 success; keep local host-thread ownership and actual post-callback state checks.
