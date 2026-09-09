@@ -213,6 +213,13 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+Native Cocoa popup parent setup uses `NativePopupWindow` checked main-thread
+identity and hidden-state admission, retains host objects across callbacks and
+verifies the resulting parent/flag state. Failed setup requires disposal, not
+Show or a different popup surface. Do not overwrite reentrant host ownership.
+This does not admit GLFW NSWindows to AppKit modal sessions or replace them with
+NSPanels. See docs/native-mil-cocoa-popup-ownership.md; final native gates remain.
+
 Portable default access-key scopes use `IPortableAccessKeyScopeSource` actual
 activation/visibility/input admission, never the first live root or a guessed
 HWND. Source WPF owns scope lookup; both renderer modes share it. Keep missing or
