@@ -96,6 +96,23 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
     {
         activeTransform = NormalizeTransform(activeTransform);
 
+        if (command.SourceHitGeometry.Kind != SourceHitTestGeometryKind.None)
+        {
+            try
+            {
+                // Validate before any scope handling: metadata may never hide a push/pop.
+                var source = command.SourceHitGeometry.Apply(command);
+                if (command.SourceHitGeometry.Kind != SourceHitTestGeometryKind.Excluded)
+                    AddCommand(source, activeTransform, provider, id);
+            }
+            catch
+            {
+                _sourceCaptureFailed = true;
+                throw;
+            }
+            return;
+        }
+
         if (_imageHitClipDepth != 0)
         {
             // Source image scope is balanced independently of its contents.

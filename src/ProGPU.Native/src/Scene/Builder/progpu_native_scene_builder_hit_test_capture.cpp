@@ -154,6 +154,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
         opacity_mode != scene_hit_test_opacity_mode::source_geometry)
         return implementation_->fail(scene_build_error::invalid_argument);
     const bool source_geometry = opacity_mode == scene_hit_test_opacity_mode::source_geometry;
+    const std::uint32_t input_state_flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+        (source_geometry ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) : 0U);
     if (implementation_->stack_depth != 0U)
         return implementation_->fail(scene_build_error::unbalanced_stack);
     try {
@@ -295,7 +297,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                         ? current_state : command.record.state_index;
                     const auto state = state_index == PROGPU_NATIVE_SCENE_NO_INDEX ? identity_state() :
                         read_record<progpu_native_scene_state>(implementation_->resources[state_index].payload);
-                    if ((state.flags & ~PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) return unsupported();
+                    if ((state.flags & ~input_state_flags) != 0U) return unsupported();
                     if ((source_geometry || state.opacity > 0.0001F) &&
                         !append_rectangle(scope.local_bounds, state.transform, state, state_index)) return unsupported();
                     // Builder restore pairs this exact balanced scope. Its
@@ -355,7 +357,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 ? current_state : command.record.state_index;
             const auto state = state_index == PROGPU_NATIVE_SCENE_NO_INDEX ? identity_state() :
                 read_record<progpu_native_scene_state>(implementation_->resources[state_index].payload);
-            if ((state.flags & ~PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) return unsupported();
+            if ((state.flags & ~input_state_flags) != 0U) return unsupported();
             if (!source_geometry && state.opacity <= 0.0001F) continue;
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
                 while (glyph_bounds_index < implementation_->glyph_hit_bounds.size() &&

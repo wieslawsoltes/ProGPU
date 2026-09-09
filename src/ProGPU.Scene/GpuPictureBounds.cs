@@ -74,6 +74,9 @@ public static class GpuPictureBounds
             for (int index = 0; index < picture.CommandCount; index++)
             {
                 RenderCommand command = picture.GetCommand(index);
+                // This caller requests raster bounds, not source input bounds.
+                // Keep snapped primitives and auxiliary raster caps contributing.
+                command.SourceHitGeometry = default;
                 if (command.UseGpuTransforms ||
                     !IsSupportedTwoDimensionalCommand(command.Type))
                 {

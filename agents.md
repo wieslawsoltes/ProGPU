@@ -565,6 +565,15 @@ Keep zero-alpha source input, renderer alpha and non-source behavior separate.
 
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
+Source hit geometry remains independent of raster guideline snapping. Native
+source_geometry capture may ignore guideline displacement, not clip/mask/cache
+contracts. Managed primitive recorders publish SourceHitTestGeometry before
+snapping; retained snapshots preserve it and input reuses the original pen/spine.
+Auxiliary raster caps may be excluded only when primary source coverage owns them.
+Never suppress state scopes with metadata or publish a partially failed index.
+Raster bounds must ignore input overrides; archives must preserve or reject them.
+See docs/native-mil-guideline-input.md; native host admission remains separate.
+
 Styled Direct2D primitive callbacks must route through genuine factory-owned
 geometry and the common semantic stroke compiler. Preserve closed rectangle
 joins, open line caps, dash/transform policy and primitive alias state; do not

@@ -718,6 +718,7 @@ public sealed partial class RenderCommandGeometryCache
 
 public struct RenderCommand
 {
+    public SourceHitTestGeometry SourceHitGeometry;
     public RenderCommandType Type;
     public int HitTestId;
     public Rect Rect;
@@ -2077,6 +2078,9 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
     private readonly RetainedSimpleVisualCommand[] _simpleVisuals;
     private readonly Matrix4x4[] _transforms;
     private readonly Visual[] _embeddedVisuals;
+    // Optional O(1)-indexed sidecar keeps all existing compact raster formats.
+    // Ordinary pictures allocate no source-geometry metadata array.
+    private readonly SourceHitTestGeometry[]? _sourceHitGeometry;
 
     internal bool SupportsRetainedCompositionPicture { get; }
 
@@ -2134,6 +2138,11 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             int transformCount = 0;
             for (int index = 0; index < commands.Length; index++)
             {
+                if (commands[index].SourceHitGeometry.Kind != SourceHitTestGeometryKind.None)
+                {
+                    _sourceHitGeometry ??= new SourceHitTestGeometry[commands.Length];
+                    _sourceHitGeometry[index] = commands[index].SourceHitGeometry;
+                }
                 supportsRetainedCompositionPicture &=
                     commands[index].SupportsRetainedCompositionPicture;
                 RetainedCommandDataKind dataKind =
@@ -2390,7 +2399,7 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             uint token = _order[index];
             var dataKind = (RetainedCommandDataKind)(token >> TokenKindShift);
             int dataIndex = (int)(token & TokenIndexMask);
-            return dataKind switch
+            var command = dataKind switch
             {
                 RetainedCommandDataKind.Basic =>
                     _basic[dataIndex].Expand(_transforms),
@@ -2424,10 +2433,13 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                 _ => throw new InvalidOperationException(
                     $"Unknown retained command data kind: {dataKind}.")
             };
+            if (_sourceHitGeometry is not null) command.SourceHitGeometry = _sourceHitGeometry[index];
+            return command;
         }
     }
 
     internal long ApproximateStorageBytes =>
+        (long)(_sourceHitGeometry?.Length ?? 0) * System.Runtime.CompilerServices.Unsafe.SizeOf<SourceHitTestGeometry>() +
         (long)_order.Length * sizeof(uint) +
         (long)_basic.Length *
             System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedRenderCommand>() +
