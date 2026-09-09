@@ -216,9 +216,12 @@ adapter.
 Source text collapse must keep an immutable original paragraph and actual hidden
 source ranges. Reuse the native forward tab/scale and safe-shaping boundary policy;
 never infer a cut from codepoint counts or subtract a tab's nominal font advance.
-The native trim scan is only a prerequisite: do not admit truncated editor
-snapshots until synthetic sign identity, source ranges, RTL and interaction agree.
-See docs/native-mil-text-collapse.md; the Toolkit header remains a core dependency.
+Use the explicit collapsed-flow snapshot with original glyph identities/cluster
+ends, a separate final-line width and a synthetic hidden-range interaction item.
+Keep the ordinary editor factory untruncated. The sign owns separate source styling;
+it must not enter a font atlas as the last visible source cluster. Preserve RTL
+placement, preceding wrapped lines and one-entry immutable cache publication.
+See docs/native-mil-text-collapse.md; Toolkit output/performance remains unqualified.
 
 NativeWindowModalSession owns AppKit modal event dispatch and scoped native host
 identity. Every participating poll must consult it before GLFW/default polling;

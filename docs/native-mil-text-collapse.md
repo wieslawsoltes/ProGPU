@@ -1,6 +1,72 @@
 # Native text collapse: Toolkit application blocker
 
-## Status and bounded delivery
+## Current connection — 2026-09-09
+
+ProGPU `0502e7de` adds a separate collapsed-flow entry point and immutable collapsed
+snapshot metadata. LibreWPF now connects source `PortableTextLine.Collapse` to this
+typed provider. The actual Toolkit header fixture is authored in the existing
+native host lane. **This is implemented, not runtime-qualified or package-delivered.**
+
+The native flow preserves the original wrapping width and uses a separate finite
+collapse width only on the final requested line. Zero collapse width is explicit,
+not the old unbounded-width sentinel. Earlier line breaks remain unchanged. The
+same tab/scale and shaping-safe trim scan chooses the retained prefix; an oversized
+single cluster can produce sign-only output. A sign wider than the constraint
+retains its actual width rather than being silently clipped or scaled.
+
+Synthetic sign output is distinguished by its original native glyph-index sentinel,
+uses the first hidden source boundary, and precedes visual content for RTL base
+direction. C record sizes remain unchanged; the new C ABI entry point takes an
+additional primitive width. The public C++ layout options gain an optional width
+field and the module consumer fixture covers its legacy default. Ordinary visual-
+order-only layout rejects that new mode; the logical/bidi path owns it.
+
+`NativeTextParagraphSnapshot.CreateCollapsed` requires the original font/text/style
+domain. It maps real output glyph identities back to original cluster ends and bidi
+levels, validates retained glyph/metric identity and preceding-line stability, and
+represents the sign as its own hidden-range interaction item. It never infers the
+last visible glyph's end from the next visible glyph after truncation. The normal
+editor factory still rejects truncated options. Both snapshots remain immutable.
+Caret/selection queries reuse the existing native interaction builder and queries.
+
+The neutral paragraph exposes typed collapse intent, hidden range and sign identity.
+The WPF bridge retains the original immutable request and native snapshot, reuses
+the existing leased context/face setup, and keeps one immutable cache entry for the
+latest collapse request. Cache publication is one reference, not a split key/value
+update. A new width re-runs native shaping/layout; repeated equal requests reuse
+the result. Multi-face context creation and source symbol/wrapper construction
+remain measurable costs, not claimed allocation-free reflow or a performance win.
+Font identities, features and source range partitions are not guessed from names.
+
+Source WPF formats the real collapsing TextCharacters through its captured provider
+and existing physical-font/style mapper. It draws that symbol's own glyph runs,
+brush/background/decorations and baseline; the native placeholder never enters a
+GlyphRun or atlas. Source line metrics, original source length/newlines, hidden
+affinities and continuation ownership are preserved. Bounds and indexed glyph
+exports include the separately positioned symbol. Re-collapse can use immutable
+source state after the original wrapper is disposed. Non-text/multiline symbols
+and other independently unsupported text contracts remain explicit.
+
+Algorithm/applicability: both WPF renderer modes share this source/native service;
+no second managed composer is added. A cache miss pays existing native shaping and
+layout plus O(G) identity/cluster metadata and interaction construction. These are
+topology/prefix-dependent CPU stages; existing intrinsic metric/UTF paths remain.
+Rendering still consumes retained glyph runs, without per-glyph interop, CPU pixel
+readback, new GPU fallback policy, atlas key changes or device-loss changes.
+The primary-source comparison below remains the design basis. No foreign source
+implementation was copied; original ProGPU parent `fe70f08d` is the source provenance.
+
+Compilation: clean macOS ARM64 strict C++20 header build at `0502e7de` completed
+132 steps for `progpu_native_text_tests`, `progpu_native` and `progpu_native_dawn`,
+exit 0. No executable was run. The module fixture is authored but its module build
+and other platform builds remain pending. Staged packages are not refreshed by
+this focused build. Source fixtures cover styled symbol/source ownership, and the
+existing native host lane now includes real native styled/tabbed LTR/RTL collapse,
+wrapping, zero width, cache reuse, hit/selection and narrow/wide/narrow source header
+MIL export. Execution, pixel quality, perf and full package/application gates remain
+mandatory after feature freeze.
+
+## Historical prerequisite and bounded delivery
 
 LibreWPF's Toolkit application's top header uses CharacterEllipsis. Narrowing the
 window calls source `PortableTextLine.Collapse`, which currently throws for an
