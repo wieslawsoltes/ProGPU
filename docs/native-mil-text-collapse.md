@@ -47,6 +47,13 @@ exports include the separately positioned symbol. Re-collapse can use immutable
 source state after the original wrapper is disposed. Non-text/multiline symbols
 and other independently unsupported text contracts remain explicit.
 
+The retained-prefix policy does not reshape at an unsafe contextual cut. It is
+not evidence of complete Windows character-ellipsis parity for every script.
+Height-driven/AlwaysCollapsible behavior on a line that fits the requested width,
+custom tab stops/leaders, and non-text symbols are outside this width-overflow
+connection. Keep these limitations visible during qualification; do not interpret
+the Toolkit header connection as completion of the entire TextLine API.
+
 Algorithm/applicability: both WPF renderer modes share this source/native service;
 no second managed composer is added. A cache miss pays existing native shaping and
 layout plus O(G) identity/cluster metadata and interaction construction. These are

@@ -373,7 +373,9 @@ visual ordering. Use `NativeTextFlowOptions` and preserve the resolved advance i
 caller scratch. Its `UINT32_MAX` glyph-id sentinel is a non-ink source tab, never a
 font atlas entry. Source adapters must retain tab caret/selection/background bounds
 without manufacturing space glyphs or missing-glyph boxes. Custom stops/leaders,
-disabled-grid substitution and tab trimming remain explicit unsupported contracts.
+disabled-grid substitution remain explicit unsupported contracts. Incremental-tab
+trimming uses the shared forward resolved-advance scan and explicit collapsed view;
+its compiled fixtures are not runtime parity evidence.
 Tab-grid and wrapping scans are prefix-dependent; independent metric lanes retain
 NEON/SSE2. Do not move tab expansion into a WPF-local paragraph composer.
 LibreWPF source composite/fallback linking now feeds explicit physical style ranges
