@@ -12947,7 +12947,45 @@ static void trimming_preserves_tab_metrics_and_safe_shaping_boundaries() {
     require(run({}) && count == 1 && lines[0].width == 6 && output[0].glyph_id == 99);
 }
 
+static void collapsed_width_preserves_previous_lines_and_rtl_sign_identity() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 5> glyphs{};
+    std::array<text_line_break_kind, 5> breaks{};
+    std::array<std::int8_t, 5> levels{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i] = {1, 'a', static_cast<std::int32_t>(i), {}, 10, 0, 0, 0};
+        breaks[i] = text_line_break_kind::opportunity;
+    }
+    text_layout_options options{}; options.maximum_width = 25; options.line_height = 20;
+    options.maximum_lines = 2; options.collapse_width = 16;
+    options.trimming = text_trimming::character_ellipsis; options.ellipsis_advance = 6;
+    std::array<positioned_text_glyph, 6> output{};
+    std::array<positioned_text_line, 5> lines{};
+    std::array<text_visual_cluster_group, 5> groups{};
+    std::array<std::uint32_t, 5> indices{};
+    std::uint32_t count = 0, line_count = 0;
+    auto run = [&](std::int8_t direction) {
+        levels.fill(direction);
+        return try_layout_logical_shaped_text(glyphs, breaks, levels, direction, options,
+            {groups, indices}, output, lines, count, line_count);
+    };
+    require(run(0) && line_count == 2 && count == 4 && lines[0].width == 20 && lines[0].glyph_count == 2);
+    require(lines[1].input_start == 2 && lines[1].input_end == 3 && lines[1].width == 16 && lines[1].clipped);
+    require(output[3].glyph_index == std::numeric_limits<std::uint32_t>::max() && output[3].cluster == 3 && output[3].x == 10);
+    require(run(1) && output[0].glyph_index == 1 && output[1].glyph_index == 0);
+    require(output[2].glyph_index == std::numeric_limits<std::uint32_t>::max() && output[2].cluster == 3 && output[2].x == 0);
+    require(output[3].glyph_index == 2 && output[3].x == 6 && lines[1].width == 16);
+    options.collapse_width = 0;
+    require(run(1) && count == 3 && output[2].cluster == 2 && lines[1].width == 6);
+    options.maximum_width = 0; options.maximum_lines = 1; options.collapse_width = 5;
+    for (auto& glyph : glyphs) glyph.cluster = 0;
+    require(run(0) && count == 1 && output[0].cluster == 0 && lines[0].clipped);
+    output[0].x = 123; options.collapse_width = -2;
+    require(!run(0) && count == 0 && line_count == 0 && output[0].x == 123);
+}
+
 int main() {
+    collapsed_width_preserves_previous_lines_and_rtl_sign_identity();
     trimming_preserves_tab_metrics_and_safe_shaping_boundaries();
     intrinsic_widths_use_legal_clusters_and_exclude_trailing_space();
     incremental_tabs_keep_logical_width_after_bidi_and_wrap();

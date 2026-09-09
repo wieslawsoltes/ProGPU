@@ -54,6 +54,7 @@ int main() {
     const progpu::native::text::text_logical_layout_scratch
         logical_layout_scratch{};
     const progpu::native::text::text_layout_options layout_options{};
+    if (layout_options.collapse_width != -1.0F) return 1;
     const progpu::native::text::positioned_text_column positioned_column{};
     const progpu::native::text::text_vertical_layout_requirements
         vertical_layout_requirements{};

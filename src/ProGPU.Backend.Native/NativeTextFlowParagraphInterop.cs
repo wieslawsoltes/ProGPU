@@ -48,7 +48,7 @@ public sealed unsafe partial class NativeTextShapingContext
         in NativeTextParagraphOptions options, ReadOnlySpan<NativeTextStyleRun> styles,
         in NativeTextFlowOptions flowOptions, Span<NativePositionedTextGlyph> glyphs,
         Span<NativePositionedTextLine> lines, Span<byte> scratch, NativeTextWrapping wrapping, bool measure,
-        out NativeTextParagraphResult result, out NativeTextIntrinsicWidths widths)
+        out NativeTextParagraphResult result, out NativeTextIntrinsicWidths widths, float? collapseWidth = null)
     {
         using var use = _owner.Acquire();
         result = new() { StructSize = (uint)Unsafe.SizeOf<NativeTextParagraphResult>() };
@@ -69,6 +69,11 @@ public sealed unsafe partial class NativeTextShapingContext
             var shaping = NativeTextShapingInterop.CreateRequest(in input, null, scalars, pre, post,
                 features, coordinates, null, includeOwnedResources: false);
             var layout = CreateParagraphLayoutOptions(in input, in options);
+            if (collapseWidth is { } width)
+                return NativeMethods.LayoutCollapsedFlowParagraph(use.Handle, &shaping, &layout, styleData,
+                    checked((uint)styles.Length), &flow, positioned, checked((uint)glyphs.Length),
+                    positionedLines, checked((uint)lines.Length), scratchData, checked((nuint)scratch.Length), output,
+                    (uint)wrapping, width);
             if (measure || wrapping != NativeTextWrapping.Emergency)
                 return NativeMethods.LayoutConfiguredFlowParagraph(use.Handle, &shaping, &layout, styleData,
                 checked((uint)styles.Length), &flow, positioned, checked((uint)glyphs.Length),
@@ -79,10 +84,26 @@ public sealed unsafe partial class NativeTextShapingContext
                 positionedLines, checked((uint)lines.Length), scratchData, checked((nuint)scratch.Length), output);
         }
     }
+
+    public NativeRendererStatus LayoutCollapsedFlowParagraph(in NativeTextShapeInput input,
+        in NativeTextParagraphOptions options, ReadOnlySpan<NativeTextStyleRun> styles,
+        in NativeTextFlowOptions flowOptions, Span<NativePositionedTextGlyph> glyphs,
+        Span<NativePositionedTextLine> lines, Span<byte> scratch, NativeTextWrapping wrapping,
+        float collapseWidth, out NativeTextParagraphResult result)
+        => LayoutFlowParagraphCore(in input, in options, styles, in flowOptions, glyphs, lines, scratch,
+            wrapping, false, out result, out _, collapseWidth);
 }
 
 internal static unsafe partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_layout_collapsed_flow_paragraph")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus LayoutCollapsedFlowParagraph(nint context,
+        NativeTextShapeRequest* shaping, NativeTextLayoutOptions* layout, NativeTextStyleRun* styles,
+        uint styleCount, NativeTextFlowOptions* flow, NativePositionedTextGlyph* glyphs, uint glyphCapacity,
+        NativePositionedTextLine* lines, uint lineCapacity, void* scratch, nuint scratchSize,
+        NativeTextParagraphResult* result, uint wrapping, float collapseWidth);
+
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_get_flow_paragraph_requirements")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus GetFlowParagraphRequirements(nint context,

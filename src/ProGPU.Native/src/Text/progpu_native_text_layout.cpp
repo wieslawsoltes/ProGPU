@@ -38,7 +38,10 @@ bool valid_options(const text_layout_options& options) noexcept {
         static_cast<std::uint8_t>(options.alignment) <=
             static_cast<std::uint8_t>(text_alignment::justify) &&
         std::isfinite(options.ellipsis_advance) &&
-        options.ellipsis_advance >= 0.0F;
+        options.ellipsis_advance >= 0.0F && std::isfinite(options.ellipsis_advance * options.scale) &&
+        std::isfinite(options.collapse_width) && (options.collapse_width == -1.0F || options.collapse_width >= 0.0F) &&
+        (options.collapse_width < 0.0F ||
+            (options.maximum_lines > 0U && options.trimming != text_trimming::none));
 }
 
 float line_alignment_shift(
@@ -165,8 +168,8 @@ trimmed_line trim_line(
     float width,
     std::span<const float> scales = {}, text_tab_options tabs = {}) noexcept {
     const float ellipsis_width = options.ellipsis_advance * options.scale;
-    if (options.maximum_width <= 0.0F ||
-        width + ellipsis_width <= options.maximum_width) {
+    const float limit = options.collapse_width >= 0.0F ? options.collapse_width : options.maximum_width;
+    if ((limit <= 0.0F && options.collapse_width < 0.0F) || width + ellipsis_width <= limit) {
         return trimmed_line{end, width};
     }
 
@@ -180,7 +183,7 @@ trimmed_line trim_line(
     float scan_width = 0.0F;
     for (std::size_t index = start; index < end; ++index) {
         scan_width += layout_advance(glyphs[index], scale_at(scales, index, options), scan_width, tabs);
-        if (scan_width + ellipsis_width <= options.maximum_width &&
+        if (scan_width + ellipsis_width <= limit &&
             is_safe_break_before(glyphs, index + 1U)) {
             character = {index + 1U, scan_width};
             if (can_break_after(glyphs, breaks_after, index)) word = character;
@@ -399,6 +402,10 @@ bool try_layout_shaped_text(
     font_error* error) noexcept {
     glyph_count = 0U;
     line_count = 0U;
+    if (options.collapse_width >= 0.0F) {
+        set_error(error, font_error::invalid_argument);
+        return false; // Source-preserving collapse requires logical/bidi layout.
+    }
     text_layout_requirements requirements{};
     if (!try_get_text_layout_requirements(
             glyphs, breaks_after, options, requirements, error)) {
@@ -589,6 +596,7 @@ bool try_layout_tabbed_logical_shaped_text(
             glyph_scales, tabs);
         const bool should_trim = options.trimming != text_trimming::none &&
             (line.clipped ||
+                (final_allowed && options.collapse_width >= 0.0F && line.width > options.collapse_width) ||
                 (final_allowed && line.end < logical_glyphs.size()));
         const trimmed_line visible = should_trim
             ? trim_line(
@@ -629,8 +637,19 @@ bool try_layout_tabbed_logical_shaped_text(
         }
         const float baseline = static_cast<float>(line_count) *
             options.line_height;
-        float cursor_x = 0.0F;
+        const float sign_width = should_trim ? options.ellipsis_advance * options.scale : 0.0F;
+        const bool leading_sign = should_trim && options.collapse_width >= 0.0F && (paragraph_level & 1) != 0;
+        float cursor_x = leading_sign ? sign_width : 0.0F;
         float cursor_y = baseline;
+        const std::int32_t sign_cluster = options.collapse_width >= 0.0F && visible.end < logical_glyphs.size()
+            ? logical_glyphs[visible.end].cluster
+            : visible.end > input_start_index ? logical_glyphs[visible.end - 1U].cluster
+            : logical_glyphs[input_start_index].cluster;
+        if (leading_sign) {
+            positioned_glyphs[output_cursor++] = positioned_text_glyph{
+                std::numeric_limits<std::uint32_t>::max(), options.ellipsis_glyph_id,
+                sign_cluster, 0.0F, baseline, sign_width, 0.0F};
+        }
         for (std::uint32_t visual_index = 0U;
             visual_index < visual_count;
             ++visual_index) {
@@ -648,14 +667,11 @@ bool try_layout_tabbed_logical_shaped_text(
             cursor_x += metrics[0];
             cursor_y += metrics[1];
         }
-        if (should_trim) {
-            const std::int32_t cluster = visible.end > input_start_index
-                ? logical_glyphs[visible.end - 1U].cluster
-                : logical_glyphs[input_start_index].cluster;
+        if (should_trim && !leading_sign) {
             positioned_glyphs[output_cursor++] = positioned_text_glyph{
                 std::numeric_limits<std::uint32_t>::max(),
                 options.ellipsis_glyph_id,
-                cluster,
+                sign_cluster,
                 cursor_x,
                 cursor_y,
                 options.ellipsis_advance * options.scale,
@@ -686,7 +702,7 @@ bool try_layout_tabbed_logical_shaped_text(
             output_width,
             baseline,
             options.line_height,
-            line.clipped ||
+            should_trim || line.clipped ||
                 (final_allowed && line.end < logical_glyphs.size())};
         ++line_count;
         input_start_index = line.end;

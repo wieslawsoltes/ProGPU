@@ -2008,7 +2008,7 @@ static bool valid_flow_options(const progpu_native_text_flow_options* flow,
     const progpu_native_text_layout_options* layout) noexcept {
     return flow == nullptr || (flow->struct_size >= sizeof(*flow) && flow->reserved == 0U &&
         std::isfinite(flow->incremental_tab) && flow->incremental_tab >= 0.0F &&
-        std::isfinite(flow->tab_origin) && (flow->incremental_tab == 0.0F || layout->trimming == 0U));
+        std::isfinite(flow->tab_origin) && layout != nullptr);
 }
 
 static progpu_native_status paragraph_requirements_core(
@@ -2066,7 +2066,8 @@ static progpu_native_status paragraph_layout_core(
     std::size_t scratch_size,
     progpu_native_text_paragraph_result* result,
     progpu_native_text_intrinsic_widths* widths = nullptr,
-    std::uint32_t wrapping = PROGPU_NATIVE_TEXT_WRAPPING_EMERGENCY) {
+    std::uint32_t wrapping = PROGPU_NATIVE_TEXT_WRAPPING_EMERGENCY,
+    float collapse_width = -1.0F) {
     if (result == nullptr ||
         result->struct_size < sizeof(progpu_native_text_paragraph_result)) {
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
@@ -2083,7 +2084,9 @@ static progpu_native_status paragraph_layout_core(
     if (context == nullptr || !valid_request(shaping, false) ||
         shaping->direction > PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT ||
         !valid_paragraph_layout_options(layout) || !valid_style_runs(*context, *shaping, styles, style_count) ||
-        !valid_flow_options(flow, layout) || wrapping > PROGPU_NATIVE_TEXT_WRAPPING_WHOLE_WORD) {
+        !valid_flow_options(flow, layout) || wrapping > PROGPU_NATIVE_TEXT_WRAPPING_WHOLE_WORD ||
+        !std::isfinite(collapse_width) || collapse_width < -1.0F ||
+        (collapse_width >= 0.0F && (layout->maximum_lines == 0U || layout->trimming == 0U))) {
         result->error_code =
             static_cast<std::uint32_t>(font_error::invalid_argument);
         result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
@@ -2446,13 +2449,15 @@ static progpu_native_status paragraph_layout_core(
             visual_groups, visual_indices};
         std::uint32_t positioned_count = 0U;
         std::uint32_t written_lines = 0U;
+        auto positioning_options = convert_paragraph_layout_options(*layout, paragraph_level);
+        positioning_options.collapse_width = collapse_width;
         if (!try_layout_tabbed_logical_shaped_text(
                 logical,
                 glyph_breaks.first(logical_count),
                 glyph_levels.first(logical_count),
                 style_count == 0U ? std::span<const float>{} : glyph_scales.first(logical_count),
                 paragraph_level,
-                convert_paragraph_layout_options(*layout, paragraph_level),
+                positioning_options,
                 text_tab_options{flow == nullptr ? 0.0F : flow->incremental_tab,
                     flow == nullptr ? 0.0F : flow->tab_origin, wrapping == PROGPU_NATIVE_TEXT_WRAPPING_EMERGENCY},
                 tab_advances,
@@ -2591,6 +2596,21 @@ progpu_native_status progpu_native_text_context_layout_configured_flow_paragraph
     return paragraph_layout_core(context, shaping, layout, styles, style_count, flow,
         glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result, widths,
         wrapping);
+}
+
+progpu_native_status progpu_native_text_context_layout_collapsed_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    std::uint32_t style_count, const progpu_native_text_flow_options* flow,
+    progpu_native_positioned_text_glyph* glyphs, std::uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, std::uint32_t line_capacity,
+    void* scratch, std::size_t scratch_size, progpu_native_text_paragraph_result* result,
+    std::uint32_t wrapping, float collapse_width) {
+    if (!std::isfinite(collapse_width) || collapse_width < 0.0F)
+        collapse_width = -2.0F; // Core initializes result before rejecting the request.
+    return paragraph_layout_core(context, shaping, layout, styles, style_count, flow,
+        glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result, nullptr,
+        wrapping, collapse_width);
 }
 
 } // extern "C"

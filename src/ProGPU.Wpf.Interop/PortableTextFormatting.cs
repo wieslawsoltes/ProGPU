@@ -10,6 +10,9 @@ public sealed class PortableTextFont(ReadOnlyMemory<byte> data, uint faceIndex, 
 
 public enum PortableTextAlignment { Left, Center, Right, Justify }
 public enum PortableTextWrapping { Emergency, WholeWord }
+public enum PortableTextTrimming { Character, Word }
+public readonly record struct PortableTextCollapseRequest(int LineIndex, float Width, float SymbolWidth, PortableTextTrimming Trimming);
+public readonly record struct PortableTextCollapsedRange(int LineIndex, int Start, int End, int SymbolGlyphIndex);
 public readonly record struct PortableTextFeature(uint Tag, uint Value);
 
 /// <summary>
@@ -30,7 +33,7 @@ public readonly record struct PortableTextStyle(int Start, int Length, PortableT
     float FontSize, ReadOnlyMemory<PortableTextFeature> Features = default, uint Language = 0);
 
 public readonly record struct PortableTextGlyph(uint GlyphId, int Cluster, int ClusterEnd,
-    float X, float Y, float Advance, sbyte BidiLevel, uint FontIndex = 0, bool IsTab = false);
+    float X, float Y, float Advance, sbyte BidiLevel, uint FontIndex = 0, bool IsTab = false, bool IsCollapseSymbol = false);
 public readonly record struct PortableTextLineInfo(int GlyphStart, int GlyphCount,
     int InputStart, int InputEnd, float Width, float Y, float Height);
 public readonly record struct PortableTextHit(int Position, bool Trailing);
@@ -38,6 +41,9 @@ public readonly record struct PortableTextHit(int Position, bool Trailing);
 /// <summary>Immutable owned layout output; no borrowed native handles survive formatting.</summary>
 public interface IPortableTextParagraph
 {
+    PortableTextCollapsedRange? CollapsedRange => null;
+    IPortableTextParagraph Collapse(in PortableTextCollapseRequest request)
+        => throw new PlatformNotSupportedException("The text provider does not expose source-preserving collapse.");
     /// <summary>Optional native intrinsic widths, not the current formatted line's width.</summary>
     PortableTextIntrinsicWidths? IntrinsicWidths => null;
     /// <summary>Opaque render-font annotation, as on PortableNativeGlyphRun; never inspected by source WPF.</summary>

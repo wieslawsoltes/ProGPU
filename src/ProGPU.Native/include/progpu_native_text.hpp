@@ -1896,6 +1896,9 @@ struct text_layout_options final {
     std::uint8_t reserved = 0U;
     std::uint32_t ellipsis_glyph_id = 0U;
     float ellipsis_advance = 0.0F;
+    // Optional width for the final allowed line only; -1 preserves legacy layout.
+    // Zero is a real collapsed width, unlike maximum_width's unbounded sentinel.
+    float collapse_width = -1.0F;
 };
 
 struct positioned_text_glyph final {

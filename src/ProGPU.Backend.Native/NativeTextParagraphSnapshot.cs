@@ -21,15 +21,17 @@ public sealed class NativeTextParagraphSnapshot
     public ReadOnlyMemory<NativeTextClusterBox> Boxes { get; }
     public ReadOnlyMemory<NativeTextCaretStop> Carets { get; }
     public NativeTextIntrinsicWidths? IntrinsicWidths { get; }
+    public NativeTextCollapsedRange? CollapsedRange { get; }
 
     private NativeTextParagraphSnapshot(NativePositionedTextGlyph[] glyphs,
         NativePositionedTextLine[] lines, int[] ends, sbyte[] levels,
         ReadOnlyMemory<NativeTextClusterBox> boxes, ReadOnlyMemory<NativeTextCaretStop> carets,
-        NativeTextIntrinsicWidths? intrinsicWidths = null)
+        NativeTextIntrinsicWidths? intrinsicWidths = null, NativeTextCollapsedRange? collapsedRange = null)
     {
         Glyphs = glyphs; Lines = lines; ClusterEnds = ends; BidiLevels = levels;
         Boxes = boxes; Carets = carets;
         IntrinsicWidths = intrinsicWidths;
+        CollapsedRange = collapsedRange;
     }
 
     public static NativeTextParagraphSnapshot Create(NativeTextShapingContext context,
@@ -38,14 +40,46 @@ public sealed class NativeTextParagraphSnapshot
         ReadOnlySpan<NativeTextParagraphStyle> styles = default,
         float incrementalTab = 0, float tabOrigin = 0, bool measureIntrinsicWidths = false,
         NativeTextWrapping wrapping = NativeTextWrapping.Emergency)
+        => CreateCore(context, text, direction, in options, features, styles, incrementalTab, tabOrigin,
+            measureIntrinsicWidths, wrapping, null, null);
+
+    /// <summary>
+    /// Reuses the native paragraph composer with the original text/font/style domain.
+    /// Original source cluster metadata remains authoritative; the sign is a separate
+    /// interaction item, not part of the last visible source cluster.
+    /// </summary>
+    public static NativeTextParagraphSnapshot CreateCollapsed(NativeTextShapingContext context,
+        ReadOnlySpan<char> text, NativeTextDirection direction, in NativeTextParagraphOptions options,
+        NativeTextParagraphSnapshot original, in NativeTextCollapseRequest collapse,
+        ReadOnlySpan<NativeTextFeature> features = default, ReadOnlySpan<NativeTextParagraphStyle> styles = default,
+        float incrementalTab = 0, float tabOrigin = 0, NativeTextWrapping wrapping = NativeTextWrapping.Emergency)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+        if (text.IsEmpty || original.CollapsedRange != null || (uint)collapse.LineIndex >= original.Lines.Length ||
+            !float.IsFinite(collapse.Width) || collapse.Width < 0 ||
+            !float.IsFinite(collapse.SymbolWidth) || collapse.SymbolWidth < 0 ||
+            collapse.Trimming is not NativeTextTrimming.CharacterEllipsis and not NativeTextTrimming.WordEllipsis ||
+            options.MaximumLines != 0 || options.Trimming != NativeTextTrimming.None)
+            throw new ArgumentException("Collapse requires an original untruncated line, finite widths and a supported granularity.");
+        var collapsedOptions = options with { MaximumLines = checked((uint)collapse.LineIndex + 1),
+            Trimming = collapse.Trimming, EllipsisGlyphId = 0, EllipsisAdvance = collapse.SymbolWidth / options.Scale };
+        return CreateCore(context, text, direction, in collapsedOptions, features, styles, incrementalTab, tabOrigin,
+            false, wrapping, original, collapse);
+    }
+
+    private static NativeTextParagraphSnapshot CreateCore(NativeTextShapingContext context,
+        ReadOnlySpan<char> text, NativeTextDirection direction, in NativeTextParagraphOptions options,
+        ReadOnlySpan<NativeTextFeature> features, ReadOnlySpan<NativeTextParagraphStyle> styles,
+        float incrementalTab, float tabOrigin, bool measureIntrinsicWidths, NativeTextWrapping wrapping,
+        NativeTextParagraphSnapshot? original, NativeTextCollapseRequest? collapse)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (wrapping is not NativeTextWrapping.Emergency and not NativeTextWrapping.WholeWord)
             throw new ArgumentOutOfRangeException(nameof(wrapping));
         if (!float.IsFinite(incrementalTab) || incrementalTab < 0 || !float.IsFinite(tabOrigin))
             throw new ArgumentException("Tab interval and origin must be finite; the interval cannot be negative.");
-        if (text.Length > 1 << 20 || options.MaximumLines != 0 ||
-            options.Trimming != NativeTextTrimming.None)
+        if (text.Length > 1 << 20 || (collapse == null && (options.MaximumLines != 0 ||
+            options.Trimming != NativeTextTrimming.None)))
             throw new ArgumentException("Editor snapshots require an untruncated paragraph within the input budget.");
         if (text.IsEmpty)
         {
@@ -69,7 +103,10 @@ public sealed class NativeTextParagraphSnapshot
         NativeTextIntrinsicWidths? intrinsicWidths = null;
         try
         {
-            if (measureIntrinsicWidths || wrapping != NativeTextWrapping.Emergency)
+            if (collapse is { } collapsed)
+                Check(context.LayoutCollapsedFlowParagraph(in input, in options, nativeStyles, in flow,
+                    glyphBuffer, lineBuffer, scratch, wrapping, collapsed.Width, out result));
+            else if (measureIntrinsicWidths || wrapping != NativeTextWrapping.Emergency)
             {
                 Check(context.LayoutConfiguredFlowParagraph(in input, in options, nativeStyles, in flow,
                     glyphBuffer, lineBuffer, scratch, wrapping, measureIntrinsicWidths, out result, out var widths));
@@ -83,6 +120,9 @@ public sealed class NativeTextParagraphSnapshot
         // Output arrays are retained ownership, not per-frame replay materialization.
         Array.Resize(ref glyphBuffer, checked((int)result.GlyphCount));
         Array.Resize(ref lineBuffer, checked((int)result.LineCount));
+
+        if (original != null && collapse is { } collapsedRequest)
+            return BuildCollapsed(original, glyphBuffer, lineBuffer, collapsedRequest, direction);
 
         Check(NativeTextBidiInterop.GetRequirements(scalars.AsSpan(0, count), out var bidiRequired));
         var scalarLevels = new NativeTextBidiLevel[checked((int)bidiRequired.LevelCapacity)];
@@ -134,6 +174,59 @@ public sealed class NativeTextParagraphSnapshot
         return new(glyphBuffer, lineBuffer, ends, levels,
             boxes.AsMemory(0, checked((int)interactionResult.ClusterBoxCount)),
             carets.AsMemory(0, checked((int)interactionResult.CaretStopCount)), intrinsicWidths);
+    }
+
+    private static NativeTextParagraphSnapshot BuildCollapsed(NativeTextParagraphSnapshot original,
+        NativePositionedTextGlyph[] glyphs, NativePositionedTextLine[] lines,
+        NativeTextCollapseRequest request, NativeTextDirection direction)
+    {
+        if (lines.Length != request.LineIndex + 1)
+            throw new InvalidOperationException("Collapsed layout changed the source line count.");
+        var sourceLine = original.Lines.Span[request.LineIndex];
+        var lookup = new int[original.Glyphs.Length];
+        for (int i = 0; i < lookup.Length; ++i)
+        {
+            uint logical = original.Glyphs.Span[i].GlyphIndex;
+            if (logical >= lookup.Length) throw new InvalidOperationException("Original glyph topology is incomplete.");
+            lookup[logical] = i;
+        }
+        int sign = -1;
+        var ends = new int[glyphs.Length]; var levels = new sbyte[glyphs.Length];
+        for (int i = 0; i < glyphs.Length; ++i)
+        {
+            ref var glyph = ref glyphs[i];
+            if (glyph.GlyphIndex == uint.MaxValue)
+            {
+                if (sign >= 0 || glyph.Cluster < sourceLine.InputStart || glyph.Cluster >= sourceLine.InputEnd)
+                    throw new InvalidOperationException("Collapsed sign has no unique hidden source range.");
+                sign = i; ends[i] = sourceLine.InputEnd;
+                levels[i] = direction == NativeTextDirection.RightToLeft ? (sbyte)1 : (sbyte)0;
+                continue;
+            }
+            if (glyph.GlyphIndex >= lookup.Length) throw new InvalidOperationException("Collapsed glyph has no original source.");
+            int source = lookup[glyph.GlyphIndex]; var prior = original.Glyphs.Span[source];
+            if (glyph.Cluster != prior.Cluster || glyph.GlyphId != prior.GlyphId || glyph.FontIndex != prior.FontIndex ||
+                glyph.AdvanceX != prior.AdvanceX || glyph.AdvanceY != prior.AdvanceY)
+                throw new InvalidOperationException("Collapse must retain the original text, font, style and tab domain.");
+            ends[i] = original.ClusterEnds.Span[source]; levels[i] = original.BidiLevels.Span[source];
+        }
+        if (sign < 0) throw new InvalidOperationException("Native collapse did not emit a collapsing symbol.");
+        for (int i = 0; i < lines.Length; ++i)
+        {
+            var prior = original.Lines.Span[i];
+            if (lines[i].InputStart != prior.InputStart || (i < request.LineIndex &&
+                (lines[i].GlyphCount != prior.GlyphCount || lines[i].Width != prior.Width)))
+                throw new InvalidOperationException("Collapse reflowed a preceding source line.");
+            lines[i].InputEnd = prior.InputEnd;
+        }
+        var interaction = new NativeTextInteractionInput(glyphs, lines, ends, levels);
+        Check(NativeTextInteractionInterop.GetRequirements(in interaction, out var required));
+        var boxes = new NativeTextClusterBox[checked((int)required.ClusterBoxCapacity)];
+        var carets = new NativeTextCaretStop[checked((int)required.CaretStopCapacity)];
+        Check(NativeTextInteractionInterop.Build(in interaction, boxes, carets, out var result));
+        return new(glyphs, lines, ends, levels, boxes.AsMemory(0, checked((int)result.ClusterBoxCount)),
+            carets.AsMemory(0, checked((int)result.CaretStopCount)), collapsedRange:
+            new(request.LineIndex, glyphs[sign].Cluster, sourceLine.InputEnd, sign));
     }
 
     internal static NativeTextStyleRun[] MapStyles(ReadOnlySpan<NativeTextParagraphStyle> styles,
@@ -223,3 +316,6 @@ public sealed class NativeTextParagraphSnapshot
 /// <summary>Explicit face/feature domain over UTF-16 input; ranges must partition the paragraph.</summary>
 public readonly record struct NativeTextParagraphStyle(int Start, int Length, uint FontIndex,
     float Scale, uint FeatureStart = 0, uint FeatureCount = 0, uint Language = 0);
+
+public readonly record struct NativeTextCollapseRequest(int LineIndex, float Width, float SymbolWidth, NativeTextTrimming Trimming);
+public readonly record struct NativeTextCollapsedRange(int LineIndex, int Start, int End, int SymbolGlyphIndex);
