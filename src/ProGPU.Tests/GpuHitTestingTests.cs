@@ -14,6 +14,47 @@ namespace ProGPU.Tests;
 public sealed class GpuHitTestingTests
 {
     [Theory]
+    [InlineData(GpuHitTestPrimitiveFlags.None, true, true)]
+    [InlineData(GpuHitTestPrimitiveFlags.PointOnly, true, false)]
+    [InlineData(GpuHitTestPrimitiveFlags.RegionOnly, false, true)]
+    public void QueryParticipationUsesSameCoverageWithoutChangingGeometry(
+        GpuHitTestPrimitiveFlags participation, bool pointHit, bool regionHit)
+    {
+        // Matched by the native package consumer and Dawn provider fixtures.
+        var rectangle = GpuHitTestPrimitive.RectangleFill(42, Vector2.Zero, new Vector2(20, 10), Vector2.Zero);
+        var selected = rectangle.WithFlags(rectangle.Flags | participation);
+        Assert.Equal(rectangle.BoundsMin, selected.BoundsMin);
+        Assert.Equal(rectangle.Data0, selected.Data0);
+        Assert.Equal(selected.Flags, selected.WithWorldBounds(Vector2.Zero, new Vector2(20, 10)).Flags);
+        Assert.Equal(selected.Flags, selected.WithClip(0, 4, FillRule.Nonzero).Flags);
+        var index = GpuHitTestIndex.Build([selected]);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        Assert.Equal(pointHit, GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(5), out var single));
+        if (pointHit) Assert.Equal(42, single.Id);
+        var results = new GpuHitTestResult[1];
+        Assert.Equal(pointHit, GpuHitTestEngine.TryHitTestPointAll(context, index, new Vector2(5), results, out int count, out var summary));
+        Assert.Equal(pointHit ? 1 : 0, count);
+        Assert.Equal(pointHit ? 1U : 0U, summary.Hit);
+        Assert.Equal(regionHit, GpuHitTestEngine.TryQueryBoundsAll(context, index, new Vector2(4), new Vector2(6), results, out count, out summary));
+        Assert.Equal(regionHit ? 1 : 0, count);
+        Assert.Equal(regionHit ? 1U : 0U, summary.Hit);
+        Assert.Equal(regionHit, GpuHitTestEngine.TryQueryEllipseAll(context, index, new Vector2(4), new Vector2(6), results, out count, out summary));
+        Assert.Equal(regionHit ? 1 : 0, count);
+        Assert.Equal(regionHit ? 1U : 0U, summary.Hit);
+    }
+
+    [Fact]
+    public void QueryParticipationRejectsConflictingAndUnknownFlags()
+    {
+        var rectangle = GpuHitTestPrimitive.RectangleFill(42, Vector2.Zero, Vector2.One, Vector2.Zero);
+        Assert.Throws<ArgumentOutOfRangeException>(() => rectangle.WithFlags(
+            rectangle.Flags | GpuHitTestPrimitiveFlags.PointOnly | GpuHitTestPrimitiveFlags.RegionOnly));
+        Assert.Throws<ArgumentOutOfRangeException>(() => rectangle.WithFlags((GpuHitTestPrimitiveFlags)16));
+        Assert.Equal(GpuHitTestPrimitiveFlags.None, rectangle.WithFlags(GpuHitTestPrimitiveFlags.None).Flags);
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(4321)]
     public void SourceOpacityScopesPreserveInputAndRenderedOpacityInSnapshots(int commandId)

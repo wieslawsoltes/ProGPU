@@ -3586,8 +3586,11 @@ public class NativeRendererInteropTests
         Assert.Equal(NativeSceneCommandKind.DrawStrokeBatch, command.Kind);
     }
 
-    [Fact]
-    public void SemanticSceneBuilderPacksRetainedHitTestIndexWithoutAllocation()
+    [Theory]
+    [InlineData(NativeGpuHitTestPrimitiveFlags.None)]
+    [InlineData(NativeGpuHitTestPrimitiveFlags.PointOnly)]
+    [InlineData(NativeGpuHitTestPrimitiveFlags.RegionOnly)]
+    public void SemanticSceneBuilderPacksRetainedHitTestIndexWithoutAllocation(NativeGpuHitTestPrimitiveFlags participation)
     {
         Span<byte> destination = stackalloc byte[2048];
         Span<NativeGpuHitTestPrimitive> primitives =
@@ -3607,7 +3610,7 @@ public class NativeRendererInteropTests
             InverseTransform1 = new NativeFloat4 { Y = 1f },
             Kind = (uint)NativeGpuHitTestPrimitiveKind.RectangleFill,
             Flags = (uint)(NativeGpuHitTestPrimitiveFlags.Visible |
-                NativeGpuHitTestPrimitiveFlags.HitTestVisible),
+                NativeGpuHitTestPrimitiveFlags.HitTestVisible | participation),
             Id = 42
         };
         Span<NativeGpuHitTestNode> nodes = stackalloc NativeGpuHitTestNode[1];
@@ -3654,6 +3657,15 @@ public class NativeRendererInteropTests
         Assert.Equal(160U, page.PrimitiveIndexOffset);
         Assert.Equal(176U, page.PathSegmentOffset);
         Assert.Equal(176U, resource.AuxiliarySize);
+        var packed = MemoryMarshal.Read<NativeGpuHitTestPrimitive>(stream[(int)resource.AuxiliaryOffset..]);
+        Assert.Equal(primitives[0].Flags, packed.Flags);
+        foreach (uint invalidFlags in new uint[] { 12U, 16U })
+        {
+            var invalidBuilder = new NativeSceneStreamBuilder(destination, 58U, 1U, 0, 1);
+            primitives[0].Flags = invalidFlags;
+            Assert.False(invalidBuilder.TryAddHitTestIndexResource(100U, 1U,
+                primitives, nodes, primitiveIndices, [], out _));
+        }
     }
 
     [Fact]

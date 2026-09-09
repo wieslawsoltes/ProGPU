@@ -3748,7 +3748,12 @@ public ref struct NativeSceneStreamBuilder
             primitive.Kind > (uint)NativeGpuHitTestPrimitiveKind.PathStroke ||
             (primitive.Flags & ~(uint)(
                 NativeGpuHitTestPrimitiveFlags.Visible |
-                NativeGpuHitTestPrimitiveFlags.HitTestVisible)) != 0U ||
+                NativeGpuHitTestPrimitiveFlags.HitTestVisible |
+                NativeGpuHitTestPrimitiveFlags.PointOnly |
+                NativeGpuHitTestPrimitiveFlags.RegionOnly)) != 0U ||
+            (primitive.Flags & (uint)(NativeGpuHitTestPrimitiveFlags.PointOnly |
+                NativeGpuHitTestPrimitiveFlags.RegionOnly)) ==
+                (uint)(NativeGpuHitTestPrimitiveFlags.PointOnly | NativeGpuHitTestPrimitiveFlags.RegionOnly) ||
             primitive.ClipFillRule > (uint)NativeFillRule.EvenOdd ||
             primitive.ClipFlags > 1U ||
             (primitive.ClipFlags == 0U &&

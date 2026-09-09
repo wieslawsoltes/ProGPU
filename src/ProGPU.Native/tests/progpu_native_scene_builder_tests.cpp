@@ -3207,6 +3207,25 @@ bool semantic_scene_builder_records_retained_hit_test_index() {
         return false;
     }
 
+    // Input participation changes the retained hit hash but not geometry/layout.
+    for (const std::uint32_t participation : std::array<std::uint32_t, 4U>{
+            PROGPU_NATIVE_HIT_TEST_POINT_ONLY, PROGPU_NATIVE_HIT_TEST_REGION_ONLY,
+            PROGPU_NATIVE_HIT_TEST_POINT_ONLY | PROGPU_NATIVE_HIT_TEST_REGION_ONLY, 16U}) {
+        auto selected = stream;
+        auto flagged = primitive;
+        flagged.flags |= participation;
+        std::memcpy(selected.data() + resource.auxiliary_offset + page.primitive_offset,
+            &flagged, sizeof(flagged));
+        const bool valid = participation == PROGPU_NATIVE_HIT_TEST_POINT_ONLY ||
+            participation == PROGPU_NATIVE_HIT_TEST_REGION_ONLY;
+        const auto selection = scene::validate(selected.data(), selected.size());
+        if ((selection.status == PROGPU_NATIVE_STATUS_SUCCESS) != valid) return false;
+        if (valid && semantic::compute_content_hashes(selected.data(), selection.header).hit_test == hashes.hit_test)
+            return false;
+        semantic_scene_builder selected_builder(712U, 1U);
+        if (selected_builder.add_hit_test_index({&flagged, 1U}, {&node, 1U},
+                {&primitive_index, 1U}, {}, resource_index) != valid) return false;
+    }
     auto malformed = stream;
     page.node_count = 0U;
     std::memcpy(

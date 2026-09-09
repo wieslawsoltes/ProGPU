@@ -68,7 +68,10 @@ inline bool valid_hit_test_primitive(
         std::isfinite(value.z_index) &&
         value.kind <= PROGPU_NATIVE_HIT_TEST_PATH_STROKE &&
         (value.flags & ~(PROGPU_NATIVE_HIT_TEST_VISIBLE |
-            PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT)) == 0U &&
+            PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT |
+            PROGPU_NATIVE_HIT_TEST_POINT_ONLY | PROGPU_NATIVE_HIT_TEST_REGION_ONLY)) == 0U &&
+        (value.flags & (PROGPU_NATIVE_HIT_TEST_POINT_ONLY | PROGPU_NATIVE_HIT_TEST_REGION_ONLY)) !=
+            (PROGPU_NATIVE_HIT_TEST_POINT_ONLY | PROGPU_NATIVE_HIT_TEST_REGION_ONLY) &&
         value.clip_fill_rule <= PROGPU_NATIVE_FILL_RULE_EVEN_ODD &&
         value.clip_flags <= 1U &&
         ((value.clip_flags == 0U && value.clip_segment_count == 0U) ||

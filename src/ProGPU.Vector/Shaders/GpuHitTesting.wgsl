@@ -70,6 +70,8 @@ struct HitTestResult {
 
 const FLAG_VISIBLE: u32 = 1u;
 const FLAG_HIT_TEST_VISIBLE: u32 = 2u;
+const FLAG_POINT_ONLY: u32 = 4u;
+const FLAG_REGION_ONLY: u32 = 8u;
 const KIND_BOUNDS: u32 = 0u;
 const KIND_RECT_FILL: u32 = 1u;
 const KIND_RECT_STROKE: u32 = 2u;
@@ -2045,7 +2047,11 @@ fn path_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_
 }
 
 fn primitive_is_hit_test_visible(primitive: HitTestPrimitive) -> bool {
-    return (primitive.flags & FLAG_VISIBLE) != 0u && (primitive.flags & FLAG_HIT_TEST_VISIBLE) != 0u;
+    let region_query = query_uses_bounds() || query_uses_ellipse_region();
+    let excluded_kind = select(FLAG_REGION_ONLY, FLAG_POINT_ONLY, region_query);
+    return (primitive.flags & FLAG_VISIBLE) != 0u &&
+        (primitive.flags & FLAG_HIT_TEST_VISIBLE) != 0u &&
+        (primitive.flags & excluded_kind) == 0u;
 }
 
 fn primitive_is_axis_aligned(primitive: HitTestPrimitive) -> bool {

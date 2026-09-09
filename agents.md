@@ -6,6 +6,14 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Source-specific point regions must remain distinct from geometry selection.
+Use shared PointOnly/RegionOnly hit-primitive flags, preserving actual transforms,
+clips and owner order. Neither flag keeps all-query behavior; both/unknown bits
+are invalid. A source TextBlock rectangle requires a typed source descriptor and
+region-only drawing coverage, not generic arranged-bounds input or type probing.
+The query flags alone do not connect or qualify the source control. Keep managed
+and both native providers on the same canonical query shader.
+
 Native caret mirrors belong to the real native window, not a portable source
 handle. Keep typed source owner identity and client coordinates, one hidden
 bitmap-free Win32 queue caret, thread-bound mutation and stale-release protection.

@@ -527,7 +527,11 @@ public enum NativeGpuHitTestPrimitiveFlags : uint
 {
     None = 0,
     Visible = 1U << 0,
-    HitTestVisible = 1U << 1
+    HitTestVisible = 1U << 1,
+    /// <summary>Participates in point queries only; incompatible with RegionOnly.</summary>
+    PointOnly = 1U << 2,
+    /// <summary>Participates in rectangle/ellipse region queries only; incompatible with PointOnly.</summary>
+    RegionOnly = 1U << 3
 }
 
 public enum NativeGpuHitTestIntersectionDetail : uint

@@ -37,8 +37,8 @@ namespace {
 
 void require(bool condition, const char* message);
 
-std::vector<std::byte> create_gpu_hit_test_scene_stream() {
-    progpu::native::semantic_scene_builder builder(796U, 1U);
+std::vector<std::byte> create_gpu_hit_test_scene_stream(std::uint32_t participation = 0U) {
+    progpu::native::semantic_scene_builder builder(796U, 1U + participation);
     progpu_native_hit_test_primitive primitive{};
     primitive.bounds_min = {4.0F, 4.0F};
     primitive.bounds_max = {20.0F, 20.0F};
@@ -47,7 +47,7 @@ std::vector<std::byte> create_gpu_hit_test_scene_stream() {
     primitive.inverse_transform1 = {0.0F, 1.0F, 0.0F, 0.0F};
     primitive.kind = PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL;
     primitive.flags = PROGPU_NATIVE_HIT_TEST_VISIBLE |
-        PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT;
+        PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT | participation;
     primitive.id = 796;
     primitive.z_index = 2.0F;
     const progpu_native_hit_test_node node{
@@ -3639,6 +3639,30 @@ int main(int argc, char** argv) {
             engine, hit_token, nullptr, 0U, &hit_count, &hit_summary) ==
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "Dawn waited request was not retired");
+    }
+
+    for (const std::uint32_t participation : std::array<std::uint32_t, 3U>{
+            0U, PROGPU_NATIVE_HIT_TEST_POINT_ONLY, PROGPU_NATIVE_HIT_TEST_REGION_ONLY}) {
+        auto selected = create_gpu_hit_test_scene_stream(participation);
+        require(progpu_native_engine_update_scene(engine, selected.data(), selected.size(),
+            &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS, "Dawn query-participation update failed");
+        for (const std::uint32_t query_mode : std::array<std::uint32_t, 4U>{
+                0U, 1U, PROGPU_NATIVE_HIT_TEST_BOUNDS_REGION | 1U,
+                PROGPU_NATIVE_HIT_TEST_BOUNDS_REGION | PROGPU_NATIVE_HIT_TEST_ELLIPSE_REGION | 1U}) {
+            hit_query.point = {8.0F, 8.0F};
+            hit_query.region_max = {10.0F, 10.0F};
+            hit_query.flags = query_mode;
+            const bool region = (query_mode & PROGPU_NATIVE_HIT_TEST_BOUNDS_REGION) != 0U;
+            const bool expected = region ? participation != PROGPU_NATIVE_HIT_TEST_POINT_ONLY
+                : participation != PROGPU_NATIVE_HIT_TEST_REGION_ONLY;
+            require(progpu_native_engine_begin_hit_test(engine, &hit_query, &hit_token) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                progpu_native_engine_wait_hit_test(engine, hit_token, hit_results.data(), hit_results.size(),
+                    &hit_count, &hit_summary) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "Dawn query-participation completion failed");
+            require(hit_summary.hit == (expected ? 1U : 0U) &&
+                hit_count == (expected && (query_mode & 1U) != 0U ? 1U : 0U) &&
+                (!expected || hit_summary.id == 796), "Dawn point/region participation diverged");
+        }
     }
 
     auto patch_scene = create_semantic_image_patch_scene_stream(64U, 48U);

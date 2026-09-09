@@ -484,6 +484,31 @@ static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompo
     var noList = after.BeginQuery(NativeGpuHitTestQuery.PointQuery(new Vector2(5, 5), 0));
     if (after.Wait(noList, [], out summary) != 0 || summary.Hit != 1 || summary.Id != 42)
         throw new InvalidOperationException("Native zero-list wait did not retain the topmost hit.");
+    // Same geometry and query cases as GpuHitTestingTests; no CPU hit oracle.
+    foreach (var participation in new[] { NativeGpuHitTestPrimitiveFlags.None,
+        NativeGpuHitTestPrimitiveFlags.PointOnly, NativeGpuHitTestPrimitiveFlags.RegionOnly })
+    {
+        ulong generation = 10U + (uint)participation;
+        InstallIndex(compositor, sceneId, generation, participation);
+        var selected = compositor.BindGpuHitTestOwners(
+            new NativeGpuHitTestOwnerMap<object>([new(42, firstOwner)]), sceneId, generation);
+        foreach (var selectedQuery in new[] {
+            NativeGpuHitTestQuery.PointQuery(new Vector2(5), 0),
+            NativeGpuHitTestQuery.PointQuery(new Vector2(5), 1),
+            NativeGpuHitTestQuery.BoundsQuery(new Vector2(4), new Vector2(6), 1),
+            NativeGpuHitTestQuery.EllipseQuery(new Vector2(4), new Vector2(6), 1) })
+        {
+            bool region = (selectedQuery.Flags & (uint)NativeGpuHitTestQueryFlags.BoundsRegion) != 0;
+            bool expected = region ? participation != NativeGpuHitTestPrimitiveFlags.PointOnly
+                : participation != NativeGpuHitTestPrimitiveFlags.RegionOnly;
+            var token = selected.BeginQuery(selectedQuery);
+            count = selected.Wait(token, results, out summary);
+            if (summary.Hit != (expected ? 1U : 0U) ||
+                count != (expected && selectedQuery.RequestedResultCapacity != 0 ? 1 : 0) ||
+                (expected && summary.Id != 42))
+                throw new InvalidOperationException("Native point/region participation diverged from its declared geometry.");
+        }
+    }
     Console.WriteLine("package-consumer: native GPU owner snapshot/generation isolation");
 
     static void ExpectFailure<TException>(Action action) where TException : Exception
@@ -493,7 +518,8 @@ static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompo
         throw new InvalidOperationException($"Native owner snapshot did not reject with {typeof(TException).Name}.");
     }
 
-    static void InstallIndex(NativeCompositor compositor, ulong sceneId, ulong generation)
+    static void InstallIndex(NativeCompositor compositor, ulong sceneId, ulong generation,
+        NativeGpuHitTestPrimitiveFlags participation = NativeGpuHitTestPrimitiveFlags.None)
     {
         Span<byte> bytes = stackalloc byte[2048];
         var builder = new NativeSceneStreamBuilder(bytes, sceneId, generation, 0, 1);
@@ -504,7 +530,7 @@ static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompo
             InverseTransform0 = new NativeFloat4 { X = 1 },
             InverseTransform1 = new NativeFloat4 { Y = 1 },
             Kind = (uint)NativeGpuHitTestPrimitiveKind.RectangleFill,
-            Flags = (uint)(NativeGpuHitTestPrimitiveFlags.Visible | NativeGpuHitTestPrimitiveFlags.HitTestVisible),
+            Flags = (uint)(NativeGpuHitTestPrimitiveFlags.Visible | NativeGpuHitTestPrimitiveFlags.HitTestVisible | participation),
             Id = 42
         };
         NativeGpuHitTestNode node = new()

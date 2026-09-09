@@ -2288,6 +2288,10 @@ typedef enum progpu_native_hit_test_primitive_kind {
 enum {
     PROGPU_NATIVE_HIT_TEST_VISIBLE = 1U << 0U,
     PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT = 1U << 1U,
+    /* Neither bit means all query kinds. Both bits together are invalid.
+     * These affect input only, not raster visibility or source bounds. */
+    PROGPU_NATIVE_HIT_TEST_POINT_ONLY = 1U << 2U,
+    PROGPU_NATIVE_HIT_TEST_REGION_ONLY = 1U << 3U,
     PROGPU_NATIVE_HIT_TEST_MAX_RESULT_COUNT = 256U,
     PROGPU_NATIVE_HIT_TEST_RESULT_CAPACITY_MASK = 0x0000ffffU,
     PROGPU_NATIVE_HIT_TEST_ELLIPSE_REGION = 0x40000000U,
