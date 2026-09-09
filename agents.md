@@ -6,6 +6,12 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Source rectangular image/drawing/visual-brush fills own their actual geometry,
+not brush pixels, viewport or inner visuals. Reuse the logical rectangle scope
+before brush mapping/isolation and close it before separate pen replay. Preserve
+inherited source clips and unsupported outcomes; never use nonrectangular fill
+bounds as source rectangles or silently admit required cached-picture sources.
+
 Canonical MIL EllipseGeometry strokes use full elliptical arc records. Keep their
 native input encoding shared with analytic ellipse draws and managed ellipse
 queries, preserving actual radii, pen width, affine placement and source clips.

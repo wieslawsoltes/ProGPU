@@ -18055,8 +18055,20 @@ struct channel::implementation {
                     paint_state.clip_boolean_node_count = clip_boolean_nodes.size();
                 }
                 const brush_use_state brush_use{x, y, width, height, effective_transform};
+                // Rectangular source input is independent of the brush's pixels,
+                // viewport and isolation. End this scope before the separate pen.
+                const bool source_rectangle_fill = !is_ellipse && !has_rounded_corners &&
+                    tile_brushes.contains(brush_handle) && compile_context != nullptr &&
+                    compile_context->records_hit_test_owners();
+                const progpu_native_image_rect source_rectangle{static_cast<float>(x), static_cast<float>(y),
+                    static_cast<float>(width), static_cast<float>(height)};
+                auto input_state = current;
+                input_state.transform = effective_transform;
+                if (source_rectangle_fill && !save_state(input_state, &source_rectangle)) return status::invalid_graph;
                 const status tile_status = append_single_tile_brush(brush_handle, brush_use, paint_state);
+                const bool source_restored = !source_rectangle_fill || builder.restore();
                 if (tile_status != status::success) return tile_status;
+                if (!source_restored) return status::invalid_graph;
             }
             if (!has_tile_fill && fill_has_area && brush_handle != 0U && width > 0.0 && height > 0.0) {
                 progpu_native_image_rect fill_bounds{};

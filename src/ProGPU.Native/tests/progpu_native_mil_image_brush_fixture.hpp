@@ -81,6 +81,8 @@ struct mil_image_brush_fixture_options {
     bool repeat_paint{};
     std::span<const std::byte> source_visual_commands{};
     std::array<double, 4U> source_bounds{10.0, 20.0, 20.0, 10.0};
+    bool hit_test_index{};
+    bool empty_source{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
@@ -115,7 +117,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             progpu_native_color{1.0F, 0.0F, 0.0F, 1.0F}, 0U, 0U, 0U, 0U);
         if (!drawing_brush) packet(batch, command::channel_create_resource, 10U, 87U);
         packet(batch, command::geometry_drawing, drawing_brush ? 3U : 10U,
-            options.source_cycle ? 5U : 9U, 0U, 8U);
+            options.empty_source ? 0U : options.source_cycle ? 5U : 9U, 0U, 8U);
         if (visual_brush) {
             packet(batch, command::visual_create, 3U);
             packet(batch, command::channel_create_resource, 12U, 43U);
@@ -404,7 +406,8 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     // Repeated pages and visual sources require the stateful frame contract.
     // Keep the request identical between sizing and copy, including its serial.
     const progpu_native_mil_scene_build_request request{
-        sizeof(progpu_native_mil_scene_build_request), 0U, 4U, 0U,
+        sizeof(progpu_native_mil_scene_build_request),
+        options.hit_test_index ? static_cast<std::uint32_t>(PROGPU_NATIVE_MIL_SCENE_BUILD_REQUEST_HIT_TEST_INDEX) : 0U, 4U, 0U,
         scene_id, 1U, options.target_dpi_scale_x, options.target_dpi_scale_y, 0U, 1U};
     progpu_native_mil_scene_build_result result{};
     result.struct_size = sizeof(result);

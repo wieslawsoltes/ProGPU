@@ -21112,6 +21112,47 @@ int main() {
         return hits;
     };
     {
+        // The MVP's DrawingImage-backed Border owns the painted rectangle,
+        // not its brush source or viewport. Extend the same typed contract to
+        // the existing bitmap/drawing/visual brush fixture, including pen scope.
+        using namespace progpu::native::tests;
+        for (const auto source : {mil_brush_fixture_source::bitmap, mil_brush_fixture_source::drawing_image,
+            mil_brush_fixture_source::drawing, mil_brush_fixture_source::visual}) {
+            for (std::uint32_t variant = 0U; variant < 6U; ++variant) {
+                mil_image_brush_fixture_options options{};
+                options.source = source; options.hit_test_index = true;
+                options.opacity = variant == 1U ? 0.0 : 1.0;
+                if (variant == 2U) { options.viewport = {0.25, 0.25, 0.5, 0.5}; options.rotate = true; }
+                options.empty_source = variant == 3U;
+                options.tile_mode = variant == 4U ? 4U : 0U;
+                options.pen = options.solid_pen = options.fill_with_pen = variant == 5U;
+                std::vector<std::byte> stream;
+                PROGPU_REQUIRE(build_mil_image_brush_fixture(stream, options, 9839U));
+                const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+                bool found = false;
+                for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+                    const auto resource = read_value<progpu_native_scene_resource>(stream,
+                        header.resource_offset + i * sizeof(progpu_native_scene_resource));
+                    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+                    const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+                    PROGPU_REQUIRE(page.primitive_count == (variant == 5U ? 2U : 1U));
+                    const auto fill = read_value<progpu_native_hit_test_primitive>(stream,
+                        resource.auxiliary_offset + page.primitive_offset);
+                    PROGPU_REQUIRE(fill.id == 1 && fill.kind == PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL);
+                    PROGPU_REQUIRE(fill.bounds_min.x == 8 && fill.bounds_min.y == 8);
+                    PROGPU_REQUIRE(fill.bounds_max.x == 56 && fill.bounds_max.y == 56);
+                    if (variant == 5U) {
+                        const auto stroke = read_value<progpu_native_hit_test_primitive>(stream,
+                            resource.auxiliary_offset + page.primitive_offset + sizeof(fill));
+                        PROGPU_REQUIRE(stroke.id == 1 && stroke.kind == PROGPU_NATIVE_HIT_TEST_RECTANGLE_STROKE);
+                    }
+                    found = true;
+                }
+                PROGPU_REQUIRE(found);
+            }
+        }
+    }
+    {
         // Full EllipseGeometry arcs and direct analytic ellipses share one
         // canonical input encoding. Paired with NativeFullEllipseArcUsesCanonicalStrokeAndAffinePlacement.
         progpu::native::semantic_scene_builder builder(9837U, 1U);
