@@ -61,6 +61,23 @@ public readonly struct NativeGpuHitTestOwnerSnapshot<TOwner> where TOwner : clas
         return _compositor!.WaitGpuHitTest(token, results, out summary);
     }
 
+    /// <summary>Reads native index presence/counts/residency without allocating GPU resources.</summary>
+    public NativeGpuHitTestIndexInfo GetIndexInfo()
+    {
+        if (!IsValid)
+            throw new InvalidOperationException("The native hit-test owner snapshot is uninitialized.");
+        return _compositor!.GetGpuHitTestIndexInfo(SceneId, Generation);
+    }
+
+    /// <summary>Copies resolved owners in native order, preserving repeated IDs and span capacity.</summary>
+    public int CopyOwners(
+        NativeGpuHitTestRequestToken token, ReadOnlySpan<NativeGpuHitTestResult> results,
+        Span<TOwner?> owners)
+    {
+        RequireToken(token);
+        return _owners!.CopyOwners(results, owners);
+    }
+
     public bool TryGetOwner(
         NativeGpuHitTestRequestToken token, in NativeGpuHitTestResult result,
         [NotNullWhen(true)] out TOwner? owner)

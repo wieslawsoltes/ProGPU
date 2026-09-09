@@ -32,4 +32,23 @@ public sealed class NativeGpuHitTestOwnerMap<TOwner> where TOwner : class
 
     public bool TryGetOwner(int id, [NotNullWhen(true)] out TOwner? owner)
         => _owners.TryGetValue(id, out owner);
+
+    /// <summary>
+    /// Resolves an ordered native result span without sorting/deduplicating it.
+    /// Missing IDs and no-hit records do not occupy output slots. O(R) metadata
+    /// traversal, allocation-free; the caller retains this map with its query.
+    /// </summary>
+    public int CopyOwners(ReadOnlySpan<NativeGpuHitTestResult> results, Span<TOwner?> owners)
+    {
+        int count = 0;
+        for (int i = 0; i < results.Length && count < owners.Length; i++)
+            if (results[i].HasHit && TryGetOwner(results[i].Id, out TOwner? owner))
+                owners[count++] = owner;
+        return count;
+    }
 }
+
+/// <summary>Metadata of the exact installed native index; never inferred from a managed index.</summary>
+public readonly record struct NativeGpuHitTestIndexInfo(
+    bool HasIndex, bool IsUploaded, uint PrimitiveCount, uint NodeCount,
+    uint PrimitiveIndexCount, uint PathSegmentCount);

@@ -3021,6 +3021,15 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_wait_hit_test(
     uint32_t result_capacity,
     uint32_t* result_count,
     progpu_native_hit_test_result* summary);
+/* Reads the installed scene's index metadata without uploading or querying it.
+ * Absent index: has_index and uploaded are zero and index is zero-initialized.
+ * uploaded describes this exact scene's retained GPU index, not pipeline setup.
+ * Owner-thread affine; index layout is the existing canonical scene record. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_hit_test_index(
+    progpu_native_engine* engine,
+    progpu_native_scene_hit_test_index* index,
+    uint8_t* has_index,
+    uint8_t* uploaded);
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render(
     progpu_native_engine* engine,
     const progpu_native_frame* frame,

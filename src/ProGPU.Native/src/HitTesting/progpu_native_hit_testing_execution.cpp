@@ -546,6 +546,35 @@ bool valid_query(const progpu_native_hit_test_query& query) noexcept {
 
 } // namespace
 
+progpu_native_status get_hit_test_index(
+    progpu_native_engine* engine,
+    progpu_native_scene_hit_test_index* index,
+    std::uint8_t* has_index,
+    std::uint8_t* uploaded) {
+    if (engine == nullptr || index == nullptr || has_index == nullptr || uploaded == nullptr)
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (!engine->is_owner_thread())
+        return engine->fail(PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "Native GPU hit-test metadata is owner-thread affine.");
+    if (engine->device_lost || engine->device == nullptr)
+        return engine->fail(PROGPU_NATIVE_STATUS_DEVICE_LOST,
+            "A lost device cannot publish current GPU hit-test metadata.");
+    *index = {};
+    *has_index = 0U;
+    *uploaded = 0U;
+    progpu_native_scene_resource resource{};
+    progpu_native_scene_hit_test_index page{};
+    if (!engine->semantic_scene_snapshot.empty() &&
+        find_hit_test_resource(*engine, resource, page)) {
+        *index = page;
+        *has_index = 1U;
+        *uploaded = engine->semantic_hit_test_bind_group != nullptr &&
+            engine->semantic_hit_test_gpu_hash == engine->semantic_hashes.hit_test ? 1U : 0U;
+    }
+    engine->last_error.clear();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 progpu_native_status begin_hit_test(
     progpu_native_engine* engine,
     const progpu_native_hit_test_query* query,
@@ -963,6 +992,15 @@ progpu_native_status progpu_native_engine_wait_hit_test(
     return progpu::native::execution::poll_hit_test(
         engine, request_token, results, result_capacity, result_count,
         summary, &complete, true);
+}
+
+progpu_native_status progpu_native_engine_get_hit_test_index(
+    progpu_native_engine* engine,
+    progpu_native_scene_hit_test_index* index,
+    std::uint8_t* has_index,
+    std::uint8_t* uploaded) {
+    return progpu::native::execution::get_hit_test_index(
+        engine, index, has_index, uploaded);
 }
 
 } // extern "C"

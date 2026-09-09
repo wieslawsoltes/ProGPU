@@ -529,6 +529,12 @@ ownership until completion or compositor disposal; never hide it as a miss,
 spin in managed code or consult the managed index. Host admission remains separate
 from this shared completion primitive; see docs/native-mil-hit-test-completion.md.
 
+Native hit-index diagnostics read the installed scene through its qualified
+owner snapshot and native resource metadata. Report residency only for the
+matching retained index hash/bind group, without uploading during inspection.
+Owner copies keep native order, repeated IDs, unknown-owner filtering and caller
+capacity; they are identity transport, not a new host geometry algorithm.
+
 Source image hit coverage is its declared destination rectangle, not flattened
 render contents. Native logical save scopes and managed IsImageHitTestScope clip
 metadata must retain balanced nesting, source ownership and outer transforms/

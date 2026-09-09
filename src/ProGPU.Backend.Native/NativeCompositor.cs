@@ -567,6 +567,23 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
     }
 
+    internal NativeGpuHitTestIndexInfo GetGpuHitTestIndexInfo(ulong sceneId, ulong generation)
+    {
+        lock (_context.RenderLock)
+        {
+            ThrowIfGpuUnavailable();
+            if (sceneId != _installedSceneId || generation != _installedSceneGeneration)
+                throw new InvalidOperationException(
+                    "Hit-test diagnostics require the installed native scene generation.");
+            NativeSceneHitTestIndex index = default;
+            byte hasIndex = 0, uploaded = 0;
+            ThrowForStatus(NativeRendererInterop.GetHitTestIndex(
+                _interopKind, _engine, &index, &hasIndex, &uploaded));
+            return new(hasIndex != 0, uploaded != 0, index.PrimitiveCount,
+                index.NodeCount, index.PrimitiveIndexCount, index.PathSegmentCount);
+        }
+    }
+
     private static long AllocateHitTestOwner()
     {
         long identity = Interlocked.Increment(ref s_nextHitTestOwner);

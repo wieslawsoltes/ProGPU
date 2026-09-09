@@ -408,6 +408,10 @@ static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompo
     var before = compositor.BindGpuHitTestOwners(
         new NativeGpuHitTestOwnerMap<object>([new(42, firstOwner)]), sceneId, 1);
     var query = NativeGpuHitTestQuery.PointQuery(new Vector2(5, 5), 1);
+    var indexInfo = before.GetIndexInfo();
+    if (!indexInfo.HasIndex || indexInfo.IsUploaded || indexInfo.PrimitiveCount != 1 ||
+        indexInfo.NodeCount != 1 || indexInfo.PrimitiveIndexCount != 1 || indexInfo.PathSegmentCount != 0)
+        throw new InvalidOperationException("Native metadata did not describe the unuploaded installed index.");
     NativeGpuHitTestRequestToken firstToken = before.BeginQuery(query);
     Span<NativeGpuHitTestResult> results = stackalloc NativeGpuHitTestResult[1];
     var deadline = System.Diagnostics.Stopwatch.StartNew();
@@ -420,6 +424,8 @@ static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompo
         Thread.Yield();
     }
     NativeGpuHitTestResult firstResult = results[0];
+    if (!before.GetIndexInfo().IsUploaded)
+        throw new InvalidOperationException("Native metadata did not report the queried index's GPU residency.");
     if (count != 1 || summary.Hit != 1 || firstToken.SceneId != sceneId ||
         firstToken.Generation != 1 || !before.TryGetOwner(firstToken, firstResult, out object? owner) ||
         !ReferenceEquals(owner, firstOwner))
@@ -463,6 +469,7 @@ static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompo
         throw new InvalidOperationException("The replacement scene did not publish its new source owner.");
     ExpectFailure<ArgumentException>(() => after.TryGetOwner(firstToken, firstResult, out _));
     ExpectFailure<InvalidOperationException>(() => before.BeginQuery(query));
+    ExpectFailure<InvalidOperationException>(() => before.GetIndexInfo());
     ExpectFailure<InvalidOperationException>(() => compositor.BindGpuHitTestOwners(
         NativeGpuHitTestOwnerMap<object>.Empty, sceneId, 1));
     // Completed old results still resolve through their original immutable map.

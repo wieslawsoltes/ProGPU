@@ -3572,6 +3572,13 @@ int main(int argc, char** argv) {
         &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
         "packaged Dawn GPU hit-test scene update failed");
     progpu_native_hit_test_query hit_query{};
+    progpu_native_scene_hit_test_index hit_index_info{};
+    std::uint8_t has_hit_index = 0U, hit_index_uploaded = 0U;
+    require(progpu_native_engine_get_hit_test_index(
+        engine, &hit_index_info, &has_hit_index, &hit_index_uploaded) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        has_hit_index == 1U && hit_index_uploaded == 0U &&
+        hit_index_info.primitive_count == 1U && hit_index_info.node_count == 1U,
+        "Dawn native hit-index metadata was absent or uploaded during inspection");
     hit_query.point = {8.0F, 8.0F};
     hit_query.region_max = hit_query.point;
     hit_query.flags = 1U;
@@ -3611,6 +3618,10 @@ int main(int argc, char** argv) {
         "packaged Dawn GPU hit-test result diverged");
 
     const auto polled_hit = hit_results[0U];
+    require(progpu_native_engine_get_hit_test_index(
+        engine, &hit_index_info, &has_hit_index, &hit_index_uploaded) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        has_hit_index == 1U && hit_index_uploaded == 1U,
+        "Dawn native hit-index metadata lost uploaded residency");
     const auto polled_summary = hit_summary;
     for (std::uint32_t repetition = 0U; repetition < 16U; ++repetition) {
         require(progpu_native_engine_begin_hit_test(

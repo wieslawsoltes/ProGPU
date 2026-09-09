@@ -565,6 +565,10 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(progpu_native_engine_wait_hit_test(
         nullptr, 1U, nullptr, 0U, &result_count, &summary) ==
         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    progpu_native_scene_hit_test_index hit_index{};
+    std::uint8_t has_index = 0U, uploaded = 0U;
+    PROGPU_REQUIRE(progpu_native_engine_get_hit_test_index(
+        nullptr, &hit_index, &has_index, &uploaded) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
 
     progpu_native_engine_info too_small{};
     too_small.struct_size = sizeof(too_small) - 1U;

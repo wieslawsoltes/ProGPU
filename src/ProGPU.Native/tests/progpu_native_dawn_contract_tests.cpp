@@ -59,6 +59,10 @@ int main() {
     require(progpu_native_engine_wait_hit_test(
         nullptr, 1U, nullptr, 0U, &hit_count, &hit_summary) ==
         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    progpu_native_scene_hit_test_index hit_index{};
+    std::uint8_t has_index = 0U, uploaded = 0U;
+    require(progpu_native_engine_get_hit_test_index(
+        nullptr, &hit_index, &has_index, &uploaded) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(progpu_native_get_abi_version() == PROGPU_NATIVE_ABI_VERSION);
     require(progpu_native_dawn_get_adapter_abi_version() ==
         PROGPU_NATIVE_DAWN_ADAPTER_ABI_VERSION);

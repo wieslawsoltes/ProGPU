@@ -61,7 +61,27 @@ public sealed class NativeGpuHitTestOwnerMapTests
         Assert.Throws<InvalidOperationException>(() => snapshot.BeginQuery(default));
         Assert.Throws<ArgumentException>(() => snapshot.TryPoll(default, [], out _, out _));
         Assert.Throws<ArgumentException>(() => snapshot.Wait(default, [], out _));
+        Assert.Throws<InvalidOperationException>(() => snapshot.GetIndexInfo());
+        Assert.Throws<ArgumentException>(() => snapshot.CopyOwners(default, [], []));
         Assert.Throws<ArgumentException>(() => snapshot.TryGetOwner(default, default, out _));
+    }
+
+    [Fact]
+    public void OrderedCopiesSkipUnknownIdsButPreserveRepeatedOwnersAndCapacity()
+    {
+        object first = new(), second = new(), sentinel = new();
+        var map = new NativeGpuHitTestOwnerMap<object>([new(1, first), new(2, second)]);
+        NativeGpuHitTestResult[] results = [
+            new() { Hit = 1, Id = 99 }, new() { Hit = 1, Id = 2 },
+            new() { Hit = 0, Id = 1 }, new() { Hit = 1, Id = 2 }, new() { Hit = 1, Id = 1 }];
+        object?[] owners = [null, null, sentinel];
+        Assert.Equal(2, map.CopyOwners(results, owners.AsSpan(0, 2)));
+        Assert.Same(second, owners[0]);
+        Assert.Same(second, owners[1]);
+        Assert.Same(sentinel, owners[2]);
+        Assert.Equal(0, map.CopyOwners(results, []));
+        Assert.Equal(3, map.CopyOwners(results, owners));
+        Assert.Same(first, owners[2]);
     }
 
     [Fact]

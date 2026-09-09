@@ -136,6 +136,13 @@ internal static unsafe class NativeRendererInterop
             : NativeMethods.WaitHitTest(
                 engine, requestToken, results, resultCapacity, resultCount, summary);
 
+    internal static NativeRendererStatus GetHitTestIndex(
+        NativeRendererInteropKind kind, nint engine,
+        NativeSceneHitTestIndex* index, byte* hasIndex, byte* uploaded) =>
+        kind == NativeRendererInteropKind.Dawn
+            ? NativeDawnMethods.GetHitTestIndex(engine, index, hasIndex, uploaded)
+            : NativeMethods.GetHitTestIndex(engine, index, hasIndex, uploaded);
+
     internal static NativeRendererStatus Render(
         NativeRendererInteropKind kind,
         nint engine,
