@@ -152,11 +152,24 @@ skips each scope in O(1), retaining the existing SIMD rectangle placement.
 
 Paired applicability: the existing managed DrawTexture encoder has destination
 rectangle semantics and its explicit-ID fixture shares the native scope values.
-The WPF managed `WpfDrawingReplay.TryReplayDrawingImage` adapter also flattens
-content and still needs a retained logical-coverage seam. That connection is an
-open implementation task, not exempt from parity and not qualified by the paired
-primitive fixture. Native input remains disabled in the host until application
-coverage and routing are complete.
+The paired managed command now carries `IsImageHitTestScope` on its existing
+destination PushClip. Both compact rectangle-clip and general retained snapshots
+preserve it. The hit cache emits the source rectangle under outer clip/opacity,
+then tracks nested clip depth without indexing internal drawing commands or
+altering outer opacity/clip state. Unclosed scopes reject index publication;
+Clear drops their state. Direct compositor-owned clip calls obey the same depth.
+No extra rendering primitive or command enum is introduced. Managed capture
+remains O(C), with O(1) additional scope state and existing SIMD placement.
+
+LibreWPF product sinks publish this through `IWpfImageHitTestScopeCommandSink`
+from `WpfDrawingReplay.TryReplayDrawingImage`, including authoritative empty
+drawings. Unavailable descriptors reject rather than become empty scopes.
+Bounds/diagnostic/native-WPF sinks keep their ordinary drawing behavior and do
+not produce this managed GPU index. Fixtures cover compact and general snapshot
+round trips, internal clip/opacity isolation, empty scopes, cleanup and actual
+product sink replay. Native input remains disabled in the host until remaining
+application coverage and routing are complete. These fixtures are not runtime
+or renderer-output qualification.
 
 The research references above were revisited for this boundary: WebRender's
 separate picture/spatial/clip ownership supports retaining source input metadata

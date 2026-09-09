@@ -559,6 +559,49 @@ public sealed class GpuHitTestingTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(4321)]
+    public void ImageHitScopeRetainsDestinationAcrossPackedSnapshots(int commandId)
+    {
+        var context = new DrawingContext();
+        context.Commands.Add(new RenderCommand {
+            Type = RenderCommandType.PushClip, IsImageHitTestScope = true,
+            Rect = new Rect(10, 20, 30, 40), HitTestId = commandId,
+            Transform = Matrix4x4.CreateTranslation(5, 6, 0) });
+        context.PushOpacity(0);
+        context.PushClip(new Rect(100, 200, 1, 1));
+        context.Commands.Add(new RenderCommand {
+            Type = RenderCommandType.DrawEllipse,
+            Rect = new Rect(0, 0, 1, 1), Brush = new SolidColorBrush(Vector4.One) });
+        context.PopClip();
+        context.PopOpacity();
+        context.PopClip();
+        using var picture = context.CreatePictureSnapshot();
+        Assert.True(picture.GetCommand(0).IsImageHitTestScope);
+        using var builder = new GpuRenderCommandHitTestCacheBuilder();
+        for (int i = 0; i < picture.CommandCount; i++)
+        {
+            var command = picture.GetCommand(i);
+            builder.AddCommand(command, command.Transform, id: 4321);
+        }
+        var hit = Assert.Single(builder.BuildIndex().Primitives);
+        Assert.Equal(4321, hit.Id);
+        Assert.Equal(GpuHitTestPrimitiveKind.RectangleFill, hit.Kind);
+        Assert.Equal(new Vector2(15, 26), hit.BoundsMin);
+        Assert.Equal(new Vector2(45, 66), hit.BoundsMax);
+        // Empty scopes also retain source image coverage, and internal opacity
+        // must not leak to the next source operation.
+        builder.AddCommand(picture.GetCommand(0), Matrix4x4.Identity, id: 4322);
+        builder.PushClip(new Rect(200, 300, 1, 1), Matrix4x4.Identity);
+        builder.PopClip(); // compositor-owned visual clip inside image content
+        Assert.Throws<InvalidOperationException>(() => builder.BuildIndex());
+        builder.AddCommand(new RenderCommand { Type = RenderCommandType.PopClip }, Matrix4x4.Identity);
+        Assert.Equal(2, builder.BuildIndex().Primitives.Count);
+        builder.Clear();
+        Assert.Empty(builder.BuildIndex().Primitives);
+    }
+
+    [Theory]
     [InlineData(false, GpuHitTestPrimitiveKind.RectangleFill)]
     [InlineData(true, GpuHitTestPrimitiveKind.EllipseFill)]
     public void RenderCommandCacheBuildsPrecisePointBatchPrimitives(

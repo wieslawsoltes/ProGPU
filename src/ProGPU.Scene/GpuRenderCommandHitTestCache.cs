@@ -34,6 +34,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
     private Vector2 _boundsMin;
     private Vector2 _boundsMax;
     private bool _hasBounds;
+    private int _imageHitClipDepth;
 
     public GpuRenderCommandHitTestCacheBuilder()
     {
@@ -71,6 +72,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         _boundsMin = default;
         _boundsMax = default;
         _hasBounds = false;
+        _imageHitClipDepth = 0;
     }
 
     public void Dispose()
@@ -91,6 +93,29 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         int? id = null)
     {
         activeTransform = NormalizeTransform(activeTransform);
+
+        if (_imageHitClipDepth != 0)
+        {
+            // Source image scope is balanced independently of its contents.
+            // Internal clips/opacity/geometry cannot redefine its input area.
+            if (command.Type is RenderCommandType.PushClip or RenderCommandType.PushGeometryClip)
+                _imageHitClipDepth = checked(_imageHitClipDepth + 1);
+            else if (command.Type is RenderCommandType.PopClip or RenderCommandType.PopGeometryClip)
+                _imageHitClipDepth--;
+            return;
+        }
+
+        if (command.Type == RenderCommandType.PushClip && command.IsImageHitTestScope)
+        {
+            if (_activeOpacity > OpacityEpsilon && !command.UseGpuTransforms &&
+                IsFiniteInvertibleAffine2D(activeTransform))
+            {
+                AddRectangleCoverage(command.Rect, activeTransform,
+                    ResolvePrimitiveId(id, command.HitTestId), _primitives.Count);
+            }
+            _imageHitClipDepth = 1;
+            return;
+        }
 
         switch (command.Type)
         {
@@ -246,6 +271,8 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
     public GpuHitTestIndex BuildIndex(int maxDepth = 8, int maxPrimitivesPerNode = 32)
     {
+        if (_imageHitClipDepth != 0)
+            throw new InvalidOperationException("An image hit-test scope must be closed before publishing its index.");
         return GpuHitTestIndex.Build(
             CollectionsMarshal.AsSpan(_primitives),
             CollectionsMarshal.AsSpan(_pathSegments),
@@ -2082,6 +2109,11 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
     public void PushClip(Rect rect, Matrix4x4 transform)
     {
+        if (_imageHitClipDepth != 0)
+        {
+            _imageHitClipDepth = checked(_imageHitClipDepth + 1);
+            return;
+        }
         var (min, max) = ToMinMax(rect);
         TransformBounds(min, max, transform, out Vector2 clipMin, out Vector2 clipMax);
         if (_clipStack.TryPeek(out ClipState active))
@@ -2146,6 +2178,11 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
     public void PopClip()
     {
+        if (_imageHitClipDepth != 0)
+        {
+            _imageHitClipDepth--;
+            return;
+        }
         if (_clipStack.Count > 0)
         {
             _clipStack.Pop();

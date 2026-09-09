@@ -521,6 +521,13 @@ teardown, and never use a managed compositor index as proof of native MIL input
 parity. A bound owner map is not evidence that MIL emits a native hit-test index.
 See `docs/native-mil-hit-test-ownership.md` for the remaining producer/host work.
 
+Source image hit coverage is its declared destination rectangle, not flattened
+render contents. Native logical save scopes and managed IsImageHitTestScope clip
+metadata must retain balanced nesting, source ownership and outer transforms/
+clips while ignoring only internal render coverage. Preserve annotations in
+compact/general retained snapshots and empty drawing images. Never apply this
+rectangle override to arbitrary geometry or use it to bypass missing outer masks.
+
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
 Styled Direct2D primitive callbacks must route through genuine factory-owned

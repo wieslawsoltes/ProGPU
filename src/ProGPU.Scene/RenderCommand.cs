@@ -720,6 +720,9 @@ public struct RenderCommand
 {
     public RenderCommandType Type;
     public int HitTestId;
+    // PushClip only: source image input is the destination rectangle, not the
+    // flattened drawing inside its balanced clip scope. Rendering is unchanged.
+    public bool IsImageHitTestScope;
     public Rect Rect;
     public Brush? Brush;
     public Pen? Pen;
@@ -1164,6 +1167,7 @@ internal readonly struct RetainedRenderCommand
 {
     private readonly RenderCommandType _type;
     private readonly int _hitTestId;
+    private readonly bool _isImageHitTestScope;
     private readonly Rect _rect;
     private readonly Brush? _brush;
     private readonly Pen? _pen;
@@ -1182,6 +1186,7 @@ internal readonly struct RetainedRenderCommand
     {
         _type = command.Type;
         _hitTestId = command.HitTestId;
+        _isImageHitTestScope = command.IsImageHitTestScope;
         _rect = command.Rect;
         _brush = command.Brush;
         _pen = command.Pen;
@@ -1201,6 +1206,7 @@ internal readonly struct RetainedRenderCommand
         {
             Type = _type,
             HitTestId = _hitTestId,
+            IsImageHitTestScope = _isImageHitTestScope,
             Rect = _rect,
             Brush = _brush,
             Pen = _pen,
@@ -1800,6 +1806,7 @@ internal readonly struct RetainedRectangleClipCommand
 {
     private readonly Rect _rectangle;
     private readonly int _transformIndex;
+    private readonly bool _isImageHitTestScope;
 
     public RetainedRectangleClipCommand(
         in RenderCommand command,
@@ -1807,6 +1814,7 @@ internal readonly struct RetainedRectangleClipCommand
     {
         _rectangle = command.Rect;
         _transformIndex = transformIndex;
+        _isImageHitTestScope = command.IsImageHitTestScope;
     }
 
     public RenderCommand Expand(Matrix4x4[] transforms) =>
@@ -1817,7 +1825,8 @@ internal readonly struct RetainedRectangleClipCommand
         {
             Type = RenderCommandType.PushClip,
             Rect = _rectangle,
-            Transform = transform
+            Transform = transform,
+            IsImageHitTestScope = _isImageHitTestScope
         };
 }
 
