@@ -257,21 +257,22 @@ public sealed class GpuHitTestingTests
         builder.AddCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawGlyphRun,
-            Rect = new Rect(10f, 20f, 30f, 12f),
+            Rect = new Rect(-2f, -7f, 12f, 9f),
             FontSize = 12f,
             GlyphPositions =
             [
                 new Vector2(1f, 2f),
                 new Vector2(10_000f, 10_000f)
             ]
-        }, Matrix4x4.CreateTranslation(2f, 3f, 0f), id: 77);
+        }, Matrix4x4.CreateScale(2, 3, 1) * Matrix4x4.CreateTranslation(10, 20, 0), id: 77);
 
         var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
 
         var primitive = Assert.Single(index.Primitives);
         Assert.Equal(77, primitive.Id);
-        Assert.Equal(new Vector2(12f, 23f), primitive.BoundsMin);
-        Assert.Equal(new Vector2(42f, 35f), primitive.BoundsMax);
+        Assert.Equal(GpuHitTestPrimitiveKind.RectangleFill, primitive.Kind);
+        Assert.Equal(new Vector2(6f, -1f), primitive.BoundsMin);
+        Assert.Equal(new Vector2(30f, 26f), primitive.BoundsMax);
     }
 
     [Fact]
@@ -529,9 +530,32 @@ public sealed class GpuHitTestingTests
 
         var primitive = Assert.Single(index.Primitives);
         Assert.Equal(4321, primitive.Id);
-        Assert.Equal(GpuHitTestPrimitiveKind.AxisAlignedBounds, primitive.Kind);
+        Assert.Equal(GpuHitTestPrimitiveKind.RectangleFill, primitive.Kind);
         Assert.Equal(new Vector2(15f, 26f), primitive.BoundsMin);
         Assert.Equal(new Vector2(45f, 66f), primitive.BoundsMax);
+    }
+
+    [Fact]
+    public void RenderCommandImagePatchHitsRetainGapsAndLocalTransforms()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawTexture,
+            Rect = new Rect(0, 0, 400, 400), // batch culling envelope is not coverage
+            TexturePatches = [
+                new(new Rect(0, 0, 2, 2), new Rect(0, 0, 4, 6)),
+                new(new Rect(0, 0, 2, 2), new Rect(10, 0, 4, 6)),
+                new(new Rect(0, 0, 2, 2), new Rect(0, 0, 4, 6), new Matrix3x2(0, 1, -1, 0, 20, 1))]
+        }, Matrix4x4.Identity, id: -9);
+        var index = builder.BuildIndex();
+        Assert.Equal(3, index.Primitives.Count);
+        var rotated = index.Primitives[2];
+        Assert.Equal(GpuHitTestPrimitiveKind.RectangleFill, rotated.Kind);
+        Assert.Equal(new Vector2(14, 1), rotated.BoundsMin);
+        Assert.Equal(new Vector2(20, 5), rotated.BoundsMax);
+        Assert.Equal(new Vector4(0, 1, -1, 0), rotated.InverseTransform0);
+        Assert.All(index.Primitives, item => Assert.Equal(-9, item.Id));
     }
 
     [Theory]

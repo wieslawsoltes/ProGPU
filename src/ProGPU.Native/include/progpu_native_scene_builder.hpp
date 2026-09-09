@@ -378,6 +378,9 @@ public:
         const progpu_native_scene_image_effect*
             effect = nullptr) noexcept;
 
+    // Optional source-owned ink rectangle is local to the active scene state,
+    // includes the baseline, and is copied only for an active hit-test owner.
+    // Culling bounds, raster padding and font-size estimates are not substitutes.
     bool draw_glyph_run(
         std::uint32_t glyph_resource_index,
         std::span<const progpu_native_positioned_glyph> glyphs,
@@ -385,7 +388,8 @@ public:
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX,
         std::uint32_t text_style_index =
-            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+        const progpu_native_image_rect* local_ink_bounds = nullptr) noexcept;
 
     bool draw_shaped_text_run(
         std::uint32_t glyph_resource_index,

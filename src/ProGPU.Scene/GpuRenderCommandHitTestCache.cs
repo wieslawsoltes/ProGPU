@@ -176,7 +176,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 AddPath(command, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawTexture:
-                AddBounds(command.Rect, activeTransform, primitiveId, zIndex);
+                AddImageCoverage(command, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawText:
                 AddTextBounds(command, activeTransform, primitiveId, zIndex);
@@ -1479,6 +1479,31 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         AddPrimitive(GpuHitTestPrimitive.Bounds(id, min, max, transform, zIndex));
     }
 
+    private void AddRectangleCoverage(Rect rect, Matrix4x4 transform, int id, float zIndex)
+    {
+        if (rect.IsEmpty || rect.Width <= 0 || rect.Height <= 0) return;
+        var (min, max) = ToMinMax(rect);
+        AddPrimitive(GpuHitTestPrimitive.RectangleFill(id, min, max, Vector2.Zero, transform, zIndex));
+    }
+
+    private void AddImageCoverage(in RenderCommand command, Matrix4x4 transform, int id, float zIndex)
+    {
+        if (command.TexturePatches is not { } patches)
+        {
+            AddRectangleCoverage(command.Rect, transform, id, zIndex);
+            return;
+        }
+        // The retained image batch owns real destination quads. Its envelope
+        // must not make gaps between patches into hittable image content.
+        for (int i = 0; i < patches.Length; i++)
+        {
+            ref readonly TexturePatch patch = ref patches[i];
+            Matrix4x4 placement = patch.HasDestinationTransform
+                ? new Matrix4x4(patch.DestinationTransform) * transform : transform;
+            AddRectangleCoverage(patch.Destination, placement, id, zIndex);
+        }
+    }
+
     private void AddTextBounds(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
     {
         if (string.IsNullOrEmpty(command.Text) || command.FontSize <= 0f)
@@ -1500,7 +1525,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
     {
         if (!command.Rect.IsEmpty)
         {
-            AddBounds(command.Rect, transform, id, zIndex);
+            AddRectangleCoverage(command.Rect, transform, id, zIndex);
             return;
         }
 

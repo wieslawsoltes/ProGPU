@@ -10550,12 +10550,16 @@ struct channel::implementation {
                 return status::invalid_graph;
             }
         }
+        const progpu_native_image_rect local_ink_bounds{
+            static_cast<float>(glyph_run.bounds_x), static_cast<float>(glyph_run.bounds_y),
+            static_cast<float>(glyph_run.bounds_width), static_cast<float>(glyph_run.bounds_height)};
         return builder.draw_glyph_run(
                 scene_resource.resource_index,
                 positioned,
                 bounds,
                 PROGPU_NATIVE_SCENE_NO_INDEX,
-                style_index)
+                style_index,
+                &local_ink_bounds)
             ? status::success
             : status::invalid_graph;
     }

@@ -13,6 +13,10 @@ int main() {
             !hit_builder.set_hit_test_owner(std::nullopt) ||
             !hit_builder.add_recorded_hit_test_index(hit_index) ||
             hit_index == progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX) return 1;
+        const progpu::native::progpu_native_image_rect ink{0.0F, 0.0F, 2.0F, 3.0F};
+        if (hit_builder.draw_glyph_run(progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX,
+            {}, ink, progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX,
+            progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX, &ink)) return 1;
     }
     static_assert(progpu::native::PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED == (1U << 9U));
     progpu::native::semantic_scene_builder builder(9001U, 3U);

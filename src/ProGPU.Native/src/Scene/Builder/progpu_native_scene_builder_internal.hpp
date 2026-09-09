@@ -38,6 +38,12 @@ struct semantic_scene_builder::implementation final {
         std::optional<std::int32_t> owner;
     };
     std::vector<hit_test_owner_boundary> hit_test_owners{};
+    struct glyph_hit_bounds_entry final {
+        std::size_t command_index{};
+        progpu_native_image_rect local_bounds{};
+    };
+    // Sparse optional input metadata: do not enlarge every retained draw record.
+    std::vector<glyph_hit_bounds_entry> glyph_hit_bounds{};
 
     std::uint64_t scene_id = 0U;
     std::uint64_t generation = 0U;

@@ -5,7 +5,8 @@
 LibreWPF Toolkit/AvalonDock clicking and selection use retained owner queries.
 The native MIL host presents a C++ compiled scene, but its host query methods
 currently ask the managed compositor for an index. The native MIL compiler now
-has opt-in index emission for analytic primitives and plain path fills, not yet
+has opt-in index emission for analytic primitives, plain path fills, images and
+source-bounded glyph runs, not yet
 the complete application coverage needed to enable the host. Existing source-owned geometric input fallback is
 not evidence that the retained native owner-query gate is complete.
 
@@ -97,14 +98,16 @@ index after rejection. An empty scene retains a valid empty index root.
 
 Connected coverage: analytic rectangle/rounded rectangle/ellipse fills and normal
 centered analytic strokes, plain filled paths with original line/quadratic/cubic/
-arc segments, affine placement and exact rectangular world clips. Bounds serve
+arc segments, image destination quads, source-owned glyph ink rectangles, affine
+placement and exact rectangular world clips. Bounds serve
 only broad-phase pruning; analytic/path parameters and clip edges remain available
 to the canonical query shader. Semantic path fill-rule values are explicitly
 converted to the opposite `ProGPU.Vector.FillRule`/hit-shader numbering.
 
 Remaining families explicitly reject with `unsupported_hit_test`, surfaced by MIL
 as `unsupported_command`: other draw types, layers/effects/masks/cache isolation,
-boolean topology, guideline state, and device/hairline analytic flags. This option
+boolean topology, guideline state, image effects, missing glyph ink metadata,
+and device/hairline analytic flags. This option
 is therefore **not enabled in LibreWPF host requests** yet. It is a producer
 connection, not a reduced replacement for required application input.
 
@@ -124,6 +127,51 @@ matrix inversion retains dependent double arithmetic. Unsupported architectures
 reject this encoder until their intrinsic implementation is connected. There is
 no new GPU submission/readback, pixel fallback, or speed claim. Existing GPU
 queries and their execution policy are unchanged.
+
+## Image and glyph-run producer connection
+
+Image input covers each actual destination quad, not the command's culling
+envelope. The native encoder uses the existing semantic image payload reader and
+the same patch → image → state transform order as rendering. Source/storage
+format, sampling mode, cubic coefficients, color matrices and external/picture
+resource ownership stay on their existing paths; input does not inspect pixels.
+Coalesced draws keep their common owner, and an owner change stops coalescing.
+Patch gaps and rotations retain exact rectangle coverage in local coordinates.
+The managed retained command cache now follows the same per-patch rectangle
+contract, including empty patch batches, instead of one enclosing bounds hit.
+
+Glyph-run input is a different source contract: WPF's point and region drawing
+walkers use the ink rectangle including baseline, not outline holes. Native MIL
+passes canonical `ManagedBounds` to `draw_glyph_run` separately from its transformed
+render/culling bounds. The optional local ink pointer is copied synchronously
+into sparse builder-owned command metadata only when a hit owner is active.
+It does not enlarge every draw record or add storage/allocations to ordinary
+unowned rendering. The source rectangle is transformed once with active state;
+raster padding, hinting, synthetic glyph passes and font-size estimates never
+replace it. Missing metadata rejects index production; an explicitly empty ink
+rectangle contributes no hit. Reset clears the metadata. Direct shaped-text
+callers without source hit bounds remain unsupported by this option.
+
+LibreWPF native compilation now requires `HasInkBounds`; legacy size/layout-only
+descriptors fail rather than supplying guessed input coverage. The source-built
+GlyphRun already publishes this typed contract. The managed retained cache uses
+the same precise rectangle primitive when a glyph command supplies bounds; its
+older raw-string/position-only estimates are not copied into native production
+and are not qualified text-input parity. Source text caret/cluster/selection
+logic remains independent and unchanged.
+
+Behavioral references are source WPF `HitTestDrawingContextWalker.DrawImage`,
+`HitTestWithPointDrawingContextWalker.DrawGlyphRun` and
+`HitTestWithGeometryDrawingContextWalker.DrawGlyphRun`, plus the DirectWrite/
+Direct2D and retained-scene references above. No foreign implementation text was
+ported. Original ProGPU image parsing, matrix composition and canonical rectangle
+query encoding are shared. Preparation adds O(Q + T) time/storage for Q image
+quads and T owned glyph commands; glyph metadata grows geometrically and retains
+capacity across reset. SIMD corner transforms remain unchanged; there is no new
+CPU pixel work, GPU submission or shader variant. Tests pair native image/ink
+records with managed cache output, exercise real canonical MIL/SFNT input, and
+reject missing source ink metadata. Execution and performance claims remain
+deferred to final qualification.
 
 ## Remaining implementation and final qualification
 

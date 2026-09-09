@@ -21069,8 +21069,139 @@ bool c_abi_is_typed_and_size_versioned() {
 } // namespace
 
 int main() {
+    const auto capture_hits = [](progpu::native::semantic_scene_builder& builder) {
+        std::uint32_t hit_index{};
+        PROGPU_REQUIRE(builder.add_recorded_hit_test_index(hit_index));
+        std::vector<std::byte> stream;
+        PROGPU_REQUIRE(builder.build(stream));
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        const auto resource = read_value<progpu_native_scene_resource>(stream,
+            header.resource_offset + hit_index * sizeof(progpu_native_scene_resource));
+        const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+        std::vector<progpu_native_hit_test_primitive> hits(page.primitive_count);
+        for (std::size_t i = 0; i < hits.size(); ++i) hits[i] = read_value<progpu_native_hit_test_primitive>(stream,
+            resource.auxiliary_offset + page.primitive_offset + i * sizeof(hits[i]));
+        return hits;
+    };
+    {
+        progpu::native::semantic_scene_builder builder(9800U, 1U);
+        std::uint32_t image_index{};
+        PROGPU_REQUIRE(builder.add_external_image(16U, 16U, image_index));
+        progpu_native_scene_image_draw image{};
+        image.image_width = image.image_height = 16U; image.row_bytes = 64U;
+        image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+        image.destination_rect = {0.0F, 0.0F, 4.0F, 6.0F};
+        image.transform = builder.identity_transform(); image.opacity = 1.0F;
+        image.max_anisotropy = 1U;
+        PROGPU_REQUIRE(builder.set_hit_test_owner(-9));
+        PROGPU_REQUIRE(builder.draw_image(image_index, image, image.destination_rect));
+        image.destination_rect.x = 10.0F;
+        PROGPU_REQUIRE(builder.draw_image(image_index, image, image.destination_rect));
+        // A new owner cannot merge into the previous owner's image command.
+        PROGPU_REQUIRE(builder.set_hit_test_owner(43));
+        image.destination_rect.x = 20.0F;
+        PROGPU_REQUIRE(builder.draw_image(image_index, image, image.destination_rect));
+        PROGPU_REQUIRE(builder.set_hit_test_owner(44));
+        progpu_native_scene_image_patch patch{};
+        patch.struct_size = sizeof(patch); patch.kind = PROGPU_NATIVE_SCENE_IMAGE_PATCH_TEXTURE;
+        patch.source_rect = image.source_rect; patch.destination_rect = {0.0F, 0.0F, 4.0F, 6.0F};
+        patch.transform = {0.0F, 1.0F, -1.0F, 0.0F, 20.0F, 1.0F};
+        PROGPU_REQUIRE(builder.draw_image_patches(image_index, image, std::span(&patch, 1U),
+            {0.0F, 0.0F, 400.0F, 400.0F}));
+        const auto hits = capture_hits(builder);
+        PROGPU_REQUIRE(hits.size() == 4U);
+        PROGPU_REQUIRE(hits[0].id == -9 && hits[1].id == -9 && hits[2].id == 43);
+        PROGPU_REQUIRE(hits[0].data0.z == 4.0F && hits[1].data0.x == 10.0F);
+        PROGPU_REQUIRE(hits[3].kind == PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL && hits[3].id == 44);
+        PROGPU_REQUIRE(hits[3].bounds_min.x == 14.0F && hits[3].bounds_min.y == 1.0F);
+        PROGPU_REQUIRE(hits[3].bounds_max.x == 20.0F && hits[3].bounds_max.y == 5.0F);
+        PROGPU_REQUIRE(hits[3].inverse_transform0.y == 1.0F && hits[3].inverse_transform0.z == -1.0F);
+    }
+    {
+        progpu::native::semantic_scene_builder builder(9801U, 1U);
+        const std::array points{progpu_native_point{0.0F, 0.0F},
+            progpu_native_point{10.0F, 0.0F}, progpu_native_point{0.0F, 10.0F}};
+        std::array<progpu_native_path_segment, 3U> segments{};
+        for (std::size_t i = 0; i < 3U; ++i) {
+            segments[i].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+            segments[i].p0 = points[i]; segments[i].p1 = points[(i + 1U) % 3U];
+        }
+        const progpu_native_scene_glyph_outline outline{0U, 3U, 0.0F, 0.0F, 10.0F, 10.0F, 1.0F, 0.0F};
+        std::uint32_t glyph_index{}, state_index{};
+        PROGPU_REQUIRE(builder.add_glyph_outlines(std::span(&outline, 1U), segments, glyph_index));
+        auto state = builder.identity_state(); state.transform = {2.0F, 0.0F, 0.0F, 3.0F, 10.0F, 20.0F};
+        PROGPU_REQUIRE(builder.add_state(state, state_index));
+        progpu_native_positioned_glyph glyph{};
+        glyph.basis_x = {1.0F, 0.0F}; glyph.basis_y = {0.0F, 1.0F};
+        glyph.color = {1.0F, 1.0F, 1.0F, 1.0F}; glyph.atlas_to_logical_scale = 1.0F;
+        PROGPU_REQUIRE(builder.set_hit_test_owner(77));
+        progpu_native_image_rect ink{-2.0F, -7.0F, 12.0F, 9.0F};
+        PROGPU_REQUIRE(builder.draw_glyph_run(glyph_index, std::span(&glyph, 1U),
+            {0.0F, 0.0F, 400.0F, 400.0F}, state_index, PROGPU_NATIVE_SCENE_NO_INDEX, &ink));
+        ink = {}; // metadata must be copied, not borrowed until index compilation
+        const auto hits = capture_hits(builder);
+        PROGPU_REQUIRE(hits.size() == 1U && hits[0].id == 77);
+        PROGPU_REQUIRE(hits[0].bounds_min.x == 6.0F && hits[0].bounds_min.y == -1.0F);
+        PROGPU_REQUIRE(hits[0].bounds_max.x == 30.0F && hits[0].bounds_max.y == 26.0F);
+        PROGPU_REQUIRE(hits[0].data0.x == -2.0F && hits[0].data0.y == -7.0F);
+        PROGPU_REQUIRE(builder.set_hit_test_owner(78));
+        PROGPU_REQUIRE(builder.draw_glyph_run(glyph_index, std::span(&glyph, 1U),
+            {0.0F, 0.0F, 400.0F, 400.0F}, state_index));
+        std::uint32_t rejected{};
+        PROGPU_REQUIRE(!builder.add_recorded_hit_test_index(rejected));
+        PROGPU_REQUIRE(builder.last_error() == progpu::native::scene_build_error::unsupported_hit_test);
+    }
     static_assert(static_cast<std::uint32_t>(scene_build_request_flags::hit_test_index) ==
         PROGPU_NATIVE_MIL_SCENE_BUILD_REQUEST_HIT_TEST_INDEX);
+    {
+        const auto font_bytes = load_inter_test_font();
+        progpu::native::text::sfnt_font_view font{};
+        PROGPU_REQUIRE(progpu::native::text::sfnt_font_view::try_create(font_bytes, 0U, font));
+        std::uint16_t glyph{};
+        PROGPU_REQUIRE(font.try_get_glyph_index('A', glyph));
+        channel state;
+        std::vector<std::byte> batch, content;
+        append_create(batch, 1U, 39U); append_create(batch, 3U, 43U);
+        append_create(batch, 4U, 47U); append_create(batch, 5U, 75U);
+        append_command(batch, command::visual_create, 1U);
+        append_command(batch, command::visual_set_offset, 1U, 3.0, -4.0);
+        append_command(batch, command::solid_color_brush, 5U, 1.0,
+            progpu_native_color{1.0F, 1.0F, 1.0F, 1.0F}, 0U, 0U, 0U, 0U);
+        const std::array glyphs{glyph}; const std::array advances{10.0F};
+        append_glyph_run_create(batch, 6U, 0.0F, 16.0F, 16.0F, glyphs, advances, {}, -2.0, -7.0, 12.0, 9.0);
+        append_command(content, command::draw_glyph_run, 5U, 6U);
+        append_render_data(batch, 3U, content);
+        append_command(batch, command::visual_set_content, 1U, 3U);
+        append_command(batch, command::generic_target_create, 4U,
+            std::uint64_t{0U}, std::uint64_t{0U}, 160U, 120U, 0U);
+        append_command(batch, command::target_set_root, 4U, 1U);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        PROGPU_REQUIRE(state.set_glyph_run_font_sfnt(6U, 0U, 0U, font_bytes) == status::success);
+        scene_build_request request{};
+        request.flags = scene_build_request_flags::hit_test_index;
+        request.target_handle = 4U; request.scene_id = 9802U;
+        request.generation = request.request_serial = 1U;
+        request.dpi_scale_x = request.dpi_scale_y = 1.0;
+        std::span<const std::byte> compiled;
+        PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+        std::vector<std::byte> stream(compiled.begin(), compiled.end());
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        bool found = false;
+        for (std::uint32_t i = 0; i < header.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + i * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+            const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+            PROGPU_REQUIRE(page.primitive_count == 1U);
+            const auto hit = read_value<progpu_native_hit_test_primitive>(stream,
+                resource.auxiliary_offset + page.primitive_offset);
+            PROGPU_REQUIRE(hit.id == 1 && hit.data0.x == -2.0F && hit.data0.y == -7.0F);
+            PROGPU_REQUIRE(hit.bounds_min.x == 1.0F && hit.bounds_min.y == -11.0F);
+            PROGPU_REQUIRE(hit.bounds_max.x == 13.0F && hit.bounds_max.y == -2.0F);
+            found = true;
+        }
+        PROGPU_REQUIRE(found);
+    }
     {
         // Paired with GpuHitTestPrimitive.RectangleFill/EllipseFill: ownership
         // changes must not depend on draw IDs, grouping, or unsigned handle sign.

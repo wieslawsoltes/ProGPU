@@ -1,6 +1,7 @@
 #include "progpu_native_scene_builder_internal.hpp"
 #include "progpu_native_hit_testing.hpp"
 #include "progpu_native_geometry_base.hpp"
+#include "progpu_native_semantic_image.hpp"
 
 #include <algorithm>
 #include <array>
@@ -106,7 +107,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
         std::vector<progpu_native_hit_test_primitive> primitives;
         std::vector<progpu_native_path_segment> segments;
         std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> stack{};
-        std::size_t depth = 0U, boundary = 0U;
+        std::size_t depth = 0U, boundary = 0U, glyph_bounds_index = 0U;
         std::uint32_t current_state = PROGPU_NATIVE_SCENE_NO_INDEX;
         std::optional<std::int32_t> owner;
         constexpr std::size_t exact_float_integer_limit = 1U << 24U;
@@ -180,6 +181,54 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 read_record<progpu_native_scene_state>(implementation_->resources[state_index].payload);
             if ((state.flags & ~PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) return unsupported();
             if (state.opacity <= 0.0001F) continue;
+            const auto append_rectangle = [&](const progpu_native_image_rect& rectangle,
+                                               const progpu_native_affine_2d& transform) {
+                if (rectangle.width == 0.0F || rectangle.height == 0.0F) return true;
+                progpu_native_hit_test_primitive hit{};
+                hit.kind = PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL;
+                hit.data0 = {rectangle.x, rectangle.y,
+                    rectangle.x + rectangle.width, rectangle.y + rectangle.height};
+                return place_primitive(hit, {hit.data0.x, hit.data0.y}, {hit.data0.z, hit.data0.w}, transform) &&
+                    append(hit, state, state_index);
+            };
+            if (kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+                while (glyph_bounds_index < implementation_->glyph_hit_bounds.size() &&
+                    implementation_->glyph_hit_bounds[glyph_bounds_index].command_index < i) ++glyph_bounds_index;
+                if (glyph_bounds_index == implementation_->glyph_hit_bounds.size() ||
+                    implementation_->glyph_hit_bounds[glyph_bounds_index].command_index != i) return unsupported();
+                // Source hit semantics are the run's actual ink rectangle, not
+                // per-glyph outline holes, raster padding or estimated advances.
+                if (!append_rectangle(implementation_->glyph_hit_bounds[glyph_bounds_index].local_bounds,
+                    state.transform)) return unsupported();
+                continue;
+            }
+            if (kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+                const auto source = read_record<progpu_native_scene_image_draw>(command.payload);
+                if ((source.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U) return unsupported();
+                const auto& resource = implementation_->resources[command.record.resource_index];
+                auto record = command.record;
+                record.payload_offset = 0U;
+                record.payload_size = static_cast<std::uint32_t>(command.payload.size());
+                semantic::semantic_image_options options{};
+                const std::uint32_t bytes_per_pixel = resource.r8_image ? 1U : 4U;
+                const std::uint64_t pixel_bytes = std::uint64_t{source.row_bytes} * (source.image_height - 1U) +
+                    std::uint64_t{source.image_width} * bytes_per_pixel;
+                if (!semantic::validate_image_draw_payload(command.payload.data(), record, source,
+                    pixel_bytes, options, bytes_per_pixel)) return unsupported();
+                const auto transform = compose_affine(source.transform, state.transform);
+                if (options.patch_count == 0U) {
+                    if (!append_rectangle(source.destination_rect, transform)) return unsupported();
+                } else {
+                    const std::span patch_bytes(options.patch_bytes,
+                        static_cast<std::size_t>(options.patch_count) * sizeof(progpu_native_scene_image_patch));
+                    for (std::size_t j = 0U; j < options.patch_count; ++j) {
+                        const auto patch = read_record<progpu_native_scene_image_patch>(patch_bytes, j);
+                        if (!append_rectangle(patch.destination_rect,
+                            compose_affine(patch.transform, transform))) return unsupported();
+                    }
+                }
+                continue;
+            }
             if (kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
                 kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) return unsupported();
             const auto& resource = implementation_->resources[command.record.resource_index];
