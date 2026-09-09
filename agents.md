@@ -513,6 +513,14 @@ When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integr
 
 Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or classes when package-mode apps load the real WPF transport assemblies. Prefer primitive values, package-neutral DTOs, typed registrars, and source-integrated WPF interfaces such as the portable geometry, brush, pen, effect, bitmap-effect input, shader-effect sampler kind/image-source metadata, drawing-content, render-data, invalidation, visual-state, visual-bounds, visual-layout, and bitmap-source pixel seams.
 
+Native GPU hit-test results must resolve through the submitted scene's immutable
+typed owner snapshot, including compositor identity and scene generation. MIL
+handle reuse or identical drawing bytes do not prove source-object identity.
+Publish source owner snapshots only after native presentation, clear them on
+teardown, and never use a managed compositor index as proof of native MIL input
+parity. A bound owner map is not evidence that MIL emits a native hit-test index.
+See `docs/native-mil-hit-test-ownership.md` for the remaining producer/host work.
+
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
 Styled Direct2D primitive callbacks must route through genuine factory-owned
