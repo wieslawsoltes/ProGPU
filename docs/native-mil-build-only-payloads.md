@@ -86,3 +86,22 @@ build orchestration with no renderer, native ABI, GPU kernel or CPU hot-path cha
 Both native providers remain compiled; managed portable rendering is unaffected.
 Authored source-contract fixtures cover CLI-only selection, required artifacts,
 early exit and preserved workflow/verifier gates. Fixture execution is deferred.
+
+## Linux production checkpoint — 2026-09-09
+
+A dedicated, non-privileged ARM64 Linux container with no host mounts compiled
+the original committed native sources at 979f72ca with the build-only entry point.
+The toolchain was .NET 10.0.201, Ubuntu Clang 18.1.3 (including module scanner),
+CMake 3.28.3 and Ninja 1.11.1. The official base image was
+`mcr.microsoft.com/dotnet/sdk:10.0.201-noble`, digest
+`sha256:127d7d4d601ae26b8e04c54efb37e9ce8766931bded0ee59fcd799afd21d6850`.
+
+ARM64 completed all 709 fresh native build steps. With the same native inputs,
+the 87014829 script and Ubuntu's `g++-x86-64-linux-gnu` target dependencies,
+`--build-only --rid linux-x64` also completed all 709 fresh steps in its separate
+directory. Both staged two renderer libraries and all six SDK archives, with
+test/sample/module compilation retained. This is build output only: neither
+native nor emulated target executables ran. The new source-contract fixture graph
+compiled with 0 warnings and 0 errors; fixture execution remains deferred.
+Windows payloads and complete package/application/final CI qualification remain
+open. Container infrastructure is not desktop, Vulkan, input or modality evidence.
