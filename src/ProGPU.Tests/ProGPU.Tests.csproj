@@ -26,18 +26,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\ProGPU.Backend\Win32PopupConfiguration.cs"
-             Link="Backend\Win32PopupConfiguration.cs" />
-    <Compile Include="..\ProGPU.Backend\Win32SystemMenu.cs"
-             Link="Backend\Win32SystemMenu.cs" />
-    <Compile Include="..\ProGPU.Backend\Win32WindowEnabledState.cs"
-             Link="Backend\Win32WindowEnabledState.cs" />
-    <Compile Include="..\ProGPU.Backend\Win32WindowOwnerState.cs"
-             Link="Backend\Win32WindowOwnerState.cs" />
-    <Compile Include="..\ProGPU.Backend\X11SystemMenu.cs"
-             Link="Backend\X11SystemMenu.cs" />
-    <Compile Include="..\ProGPU.Backend\CocoaSystemMenu.cs"
-             Link="Backend\CocoaSystemMenu.cs" />
     <Compile Include="..\ProGPU.Android\AndroidStorageNamePolicy.cs"
              Link="Android\AndroidStorageNamePolicy.cs" />
     <Compile Include="..\ProGPU.Android\AndroidScrollDeltaPolicy.cs"

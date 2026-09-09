@@ -196,6 +196,14 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+NativeWindowModalSession owns AppKit modal event dispatch and scoped native host
+identity. Every participating poll must consult it before GLFW/default polling;
+do not free a retained host while a session begin/end or event callback is active.
+Release nested/native callbacks before ending their sessions and native windows.
+WPF automatic Cocoa session admission remains pending actual native popup and
+source release/focus ordering contracts. NSWindow mouse transparency or a local
+event monitor is not full modality; monitors miss native tracking loops. Do not
+fake NSPanel admission for GLFW windows. See docs/native-mil-cocoa-modal-session.md.
 Native top-level ownership uses live SilkWindowController instances on their
 creating thread and actual platform handles. TrySetOwner must reject self/cyclic,
 foreign-platform/display, disposed and closing relations before native mutation;
