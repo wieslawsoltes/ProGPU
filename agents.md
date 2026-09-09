@@ -213,6 +213,12 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+`IPortableDrawingBoundsSource` distinguishes authoritative empty content from
+unavailable metadata. Successful PortableRect.Empty can select the existing
+null-drawing MIL image contract; false cannot. Preserve source dependencies across
+clear/refill, keep zero-sized rectangles distinct, and never perform image mapping
+with empty bounds. Both renderer consumers must preserve this contract.
+
 Native Cocoa popup parent setup uses `NativePopupWindow` checked main-thread
 identity and hidden-state admission, retains host objects across callbacks and
 verifies the resulting parent/flag state. Failed setup requires disposal, not
