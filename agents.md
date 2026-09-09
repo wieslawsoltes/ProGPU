@@ -213,6 +213,13 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+Portable default access-key scopes use `IPortableAccessKeyScopeSource` actual
+activation/visibility/input admission, never the first live root or a guessed
+HWND. Source WPF owns scope lookup; both renderer modes share it. Keep missing or
+conflicting eligibility closed, native Windows routing separate, and custom host
+activation explicit. See docs/native-mil-access-key-scope.md; compilation does not
+qualify menu interaction or Windows SDK startup.
+
 Source text collapse must keep an immutable original paragraph and actual hidden
 source ranges. Reuse the native forward tab/scale and safe-shaping boundary policy;
 never infer a cut from codepoint counts or subtract a tab's nominal font advance.
