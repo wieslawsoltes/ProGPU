@@ -177,6 +177,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
         std::size_t depth = 0U, boundary = 0U, glyph_bounds_index = 0U, rectangle_scope_index = 0U;
         std::size_t source_layer_index = 0U;
         std::uint32_t current_state = PROGPU_NATIVE_SCENE_NO_INDEX;
+        std::uint32_t query_participation = 0U;
+        std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> query_stack{};
         std::optional<std::int32_t> owner;
         constexpr std::size_t exact_float_integer_limit = 1U << 24U;
         // Rectangular clip payloads are reused by state identity, not per primitive.
@@ -230,7 +232,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             if (primitives.size() >= exact_float_integer_limit) return false;
             primitive.id = *owner;
             primitive.z_index = static_cast<float>(primitives.size());
-            primitive.flags = PROGPU_NATIVE_HIT_TEST_VISIBLE | PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT;
+            primitive.flags = PROGPU_NATIVE_HIT_TEST_VISIBLE | PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT | query_participation;
             const vector_clip_entry* vector_clip = nullptr;
             if ((state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
                 vector_clip = load_vector_clip(state.mask_resource_index);
@@ -341,7 +343,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                                           const progpu_native_affine_2d& transform,
                                           const progpu_native_scene_state& state,
                                           std::uint32_t state_index) {
-            if (rectangle.width == 0.0F || rectangle.height == 0.0F) return true;
+            if ((rectangle.width == 0.0F || rectangle.height == 0.0F) &&
+                query_participation != PROGPU_NATIVE_HIT_TEST_POINT_ONLY) return true;
             progpu_native_hit_test_primitive hit{};
             hit.kind = PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL;
             hit.data0 = {rectangle.x, rectangle.y,
@@ -358,6 +361,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE) {
                 if (depth == stack.size()) return unsupported();
                 clip_scope_stack[depth] = layer_clip_scope;
+                query_stack[depth] = query_participation;
                 const auto& scopes = implementation_->hit_rectangle_scopes;
                 while (rectangle_scope_index < scopes.size() &&
                     scopes[rectangle_scope_index].first_command < i) ++rectangle_scope_index;
@@ -372,13 +376,20 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     const auto state = state_index == PROGPU_NATIVE_SCENE_NO_INDEX ? identity_state() :
                         read_record<progpu_native_scene_state>(implementation_->resources[state_index].payload);
                     if ((state.flags & ~input_state_flags) != 0U) return unsupported();
-                    if ((source_geometry || state.opacity > 0.0001F) &&
-                        !append_rectangle(scope.local_bounds, state.transform, state, state_index)) return unsupported();
-                    // Builder restore pairs this exact balanced scope. Its
-                    // internal rendering, including nested masks/layers, is not
-                    // the source operation's input geometry. Outer state stays.
-                    i = scope.last_command;
-                    continue;
+                    if (scope.point_only) {
+                        if (query_participation != PROGPU_NATIVE_HIT_TEST_REGION_ONLY) {
+                            query_participation = PROGPU_NATIVE_HIT_TEST_POINT_ONLY;
+                            if (!append_rectangle(scope.local_bounds, state.transform, state, state_index)) return unsupported();
+                        }
+                        query_participation = PROGPU_NATIVE_HIT_TEST_REGION_ONLY;
+                    } else {
+                        if ((source_geometry || state.opacity > 0.0001F) &&
+                            !append_rectangle(scope.local_bounds, state.transform, state, state_index)) return unsupported();
+                        // Image scopes replace both query kinds and skip their
+                        // nested rendering. Point-only scopes keep region draws.
+                        i = scope.last_command;
+                        continue;
+                    }
                 }
                 if (depth == stack.size()) return unsupported();
                 layer_stack[depth] = false;
@@ -391,6 +402,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 if (depth == 0U || layer_stack[depth - 1U]) return unsupported();
                 current_state = stack[--depth];
                 layer_clip_scope = clip_scope_stack[depth];
+                query_participation = query_stack[depth];
                 continue;
             }
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
@@ -404,6 +416,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 ++source_layer_index;
                 layer_stack[depth] = true;
                 clip_scope_stack[depth] = layer_clip_scope;
+                query_stack[depth] = query_participation;
                 const auto layer = read_record<progpu_native_scene_layer>(command.payload);
                 if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U) {
                     const auto composite = read_record<progpu_native_scene_state>(
@@ -424,6 +437,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 if (depth == 0U || !layer_stack[depth - 1U]) return unsupported();
                 current_state = stack[--depth];
                 layer_clip_scope = clip_scope_stack[depth];
+                query_participation = query_stack[depth];
                 continue;
             }
             if (!owner) continue;

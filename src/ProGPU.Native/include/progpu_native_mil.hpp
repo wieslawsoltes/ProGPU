@@ -219,6 +219,8 @@ public:
         double y,
         double width,
         double height) noexcept;
+    status set_point_hit_rectangles(
+        std::span<const progpu_native_mil_point_hit_rectangle> rectangles) noexcept;
 
     // Binds the pointer-free flattened scene published by a source-built WPF
     // Viewport3DVisual to its canonical retained handle. Projection and depth

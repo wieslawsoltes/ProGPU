@@ -433,10 +433,24 @@ public sealed unsafe class NativeMilChannel : IDisposable
     }
 
     /// <summary>
-    /// Sets exact source-built Visual descendant bounds used to size its
-    /// native target-space BitmapCache page, bounded effect isolation, or
-    /// bounded Visual opacity/opacity-mask group.
+    /// Atomically replaces all source point rectangles in one native call.
+    /// Handles must be strictly increasing; an empty snapshot removes overrides.
+    /// The native channel owns a copy. Drawing and descendant coverage is separate.
     /// </summary>
+    public void SetPointHitRectangles(ReadOnlySpan<NativeMilPointHitRectangle> rectangles)
+    {
+        nint channel = GetChannel();
+        fixed (NativeMilPointHitRectangle* data = rectangles)
+        {
+            var status = _backend == NativeMilBackend.Dawn
+                ? NativeMilDawnMethods.SetPointHitRectangles(channel, data, (nuint)rectangles.Length)
+                : NativeMilMethods.SetPointHitRectangles(channel, data, (nuint)rectangles.Length);
+            if (status != NativeMilStatus.Success)
+                throw new NativeMilException(status, $"The source point-region snapshot was rejected with {status}.");
+        }
+    }
+
+    /// <summary>Sets exact Visual descendant bounds for cache/effect isolation.</summary>
     public void SetVisualCacheBounds(
         uint handle,
         NativeMilRect bounds)

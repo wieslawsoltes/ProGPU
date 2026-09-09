@@ -11,6 +11,32 @@ namespace ProGPU.Tests;
 
 public sealed class SourceVisualHitTestTests
 {
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(1f)]
+    public unsafe void SourcePointRegionDoesNotAlsoPublishVisualSizeForSelection(float opacity)
+    {
+        using var window = new HeadlessWindow(100, 60);
+        using var target = new GpuTexture(window.Context, 100, 60,
+            TextureFormat.Rgba8Unorm, TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Source point region");
+        using var compositor = new Compositor(window.Context, TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with { EnableGpuHitTesting = true });
+        var source = new SourceVisual { HitTestId = 701, Size = new Vector2(100, 60), Opacity = opacity };
+        source.SourceHitTestCommands.Commands.Add(new RenderCommand { Type = RenderCommandType.PushOpacity, FontSize = 1,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleBegin, new Vector4(0, 0, 80, 20)) });
+        source.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(-2, 2, 12, 8));
+        source.SourceHitTestCommands.Commands.Add(new RenderCommand { Type = RenderCommandType.PopOpacity,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleEnd, default) });
+        compositor.RenderScene(source, 100, 60, target.ViewPtr);
+        var hits = Assert.IsType<GpuHitTestIndex>(compositor.LastHitTestIndex).Primitives;
+        Assert.Equal(2, hits.Count);
+        Assert.Equal(701, hits[0].Id); Assert.Equal(701, hits[1].Id);
+        Assert.True(hits[0].Flags.HasFlag(GpuHitTestPrimitiveFlags.PointOnly));
+        Assert.True(hits[1].Flags.HasFlag(GpuHitTestPrimitiveFlags.RegionOnly));
+        Assert.Equal(new Vector2(80, 20), hits[0].BoundsMax);
+        Assert.Equal(new Vector2(-2, 2), hits[1].BoundsMin);
+    }
+
     [Fact]
     public void SourceTriangleClipRetainsWorldEdgesAndRestoresSiblingInput()
     {

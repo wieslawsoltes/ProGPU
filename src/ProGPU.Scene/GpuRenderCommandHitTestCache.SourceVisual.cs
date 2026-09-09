@@ -148,6 +148,7 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
         int clipDepth = _clipStack.Count;
         int opacityDepth = _opacityStack.Count;
         int imageDepth = _imageHitClipDepth;
+        int pointRegionDepth = _pointRegionStack.Count;
         for (int i = 0; i < commands.Count; i++)
         {
             RenderCommand command = commands[i];
@@ -164,6 +165,13 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
                 continue;
             }
             int id = command.HitTestId != 0 ? command.HitTestId : ownerId;
+            if (command.SourceHitGeometry.Kind is SourceHitTestGeometryKind.PointRectangleBegin or SourceHitTestGeometryKind.PointRectangleEnd)
+            {
+                if (command.SourceHitGeometry.Kind == SourceHitTestGeometryKind.PointRectangleEnd && _pointRegionStack.Count <= pointRegionDepth)
+                    throw new InvalidOperationException("Source commands cannot pop an enclosing point region.");
+                AddCommand(command, resolvedTransform, provider, id);
+                continue;
+            }
             switch (command.Type)
             {
                 case RenderCommandType.DrawPicture:
@@ -235,7 +243,7 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
                     throw new NotSupportedException($"Source hit-only command capture does not support {command.Type}.");
             }
         }
-        if (_clipStack.Count != clipDepth || _opacityStack.Count != opacityDepth || _imageHitClipDepth != imageDepth)
+        if (_clipStack.Count != clipDepth || _opacityStack.Count != opacityDepth || _imageHitClipDepth != imageDepth || _pointRegionStack.Count != pointRegionDepth)
             throw new InvalidOperationException("Source retained command scopes must be balanced.");
     }
 

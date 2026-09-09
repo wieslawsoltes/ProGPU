@@ -49,6 +49,7 @@ struct semantic_scene_builder::implementation final {
         std::size_t first_command{};
         std::size_t last_command{};
         progpu_native_image_rect local_bounds{};
+        bool point_only{};
     };
     std::vector<hit_rectangle_scope> hit_rectangle_scopes{};
     std::vector<std::size_t> source_geometry_hit_layers{};

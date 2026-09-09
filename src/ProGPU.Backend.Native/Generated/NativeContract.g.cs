@@ -535,6 +535,18 @@ public partial struct NativeGeometryQueryPen
     public uint LineJoin;
 }
 
+// Native source: progpu_native_mil_point_hit_rectangle.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeMilPointHitRectangle
+{
+    public uint Handle;
+    public uint Reserved;
+    public double X;
+    public double Y;
+    public double Width;
+    public double Height;
+}
+
 // Native source: progpu_native_hit_test_primitive.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeGpuHitTestPrimitive

@@ -295,10 +295,13 @@ public:
     // complete save/restore scope, including nested render-only content. The
     // selected owner and saved state's transform/clip own that rectangle; this
     // is not a culling-bounds fallback. Copied only when an owner is active.
+    // point_only_rectangle instead replaces just point input, preserving the
+    // enclosed drawing for region queries. End it before source child traversal.
     bool save(
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX,
-        const progpu_native_image_rect* local_hit_rectangle = nullptr) noexcept;
+        const progpu_native_image_rect* local_hit_rectangle = nullptr,
+        bool point_only_rectangle = false) noexcept;
     bool restore() noexcept;
     bool add_tile_composite(const progpu_native_scene_tile_composite& tile,
         std::uint32_t& resource_index) noexcept;

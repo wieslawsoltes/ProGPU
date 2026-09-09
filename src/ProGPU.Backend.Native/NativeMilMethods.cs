@@ -191,6 +191,11 @@ internal static unsafe partial class NativeMilMethods
         double width,
         double height);
 
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_point_hit_rectangles")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetPointHitRectangles(nint channel,
+        NativeMilPointHitRectangle* rectangles, nuint count);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_viewport3d_scene")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetViewport3DScene(
@@ -423,6 +428,11 @@ internal static unsafe partial class NativeMilDawnMethods
         double y,
         double width,
         double height);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_point_hit_rectangles")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetPointHitRectangles(nint channel,
+        NativeMilPointHitRectangle* rectangles, nuint count);
 
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_viewport3d_scene")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

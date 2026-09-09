@@ -8,6 +8,65 @@ namespace ProGPU.Tests;
 
 public sealed class SourceHitTestGeometryTests
 {
+    [Fact]
+    public void PointRegionRejectsOverflowAndRequiresClearAfterFailure()
+    {
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        var invalid = new RenderCommand { Type = RenderCommandType.PushOpacity, FontSize = 1,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleBegin,
+                new Vector4(float.MaxValue, 0, float.MaxValue, 20)) };
+        Assert.Throws<NotSupportedException>(() => capture.AddCommand(invalid, Matrix4x4.Identity));
+        Assert.Throws<InvalidOperationException>(() => capture.BuildIndex());
+        capture.Clear();
+        Assert.Empty(capture.BuildIndex().Primitives);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PointRegionRetainsBlankSpaceWithoutChangingDrawingOrChildren(bool empty)
+    {
+        var drawing = new DrawingContext();
+        drawing.Commands.Add(new RenderCommand { Type = RenderCommandType.PushOpacity, FontSize = 1,
+            HitTestId = 701, SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleBegin, new Vector4(0, 0, 80, 20)) });
+        if (!empty) drawing.Commands.Add(new RenderCommand { Type = RenderCommandType.DrawRect,
+            HitTestId = 701, Rect = new Rect(-2, 2, 12, 8), Brush = new SolidColorBrush(Vector4.One) });
+        drawing.Commands.Add(new RenderCommand { Type = RenderCommandType.PopOpacity,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleEnd, default) });
+        drawing.Commands.Add(new RenderCommand { Type = RenderCommandType.DrawRect,
+            HitTestId = 702, Rect = new Rect(3, 4, 10, 8), Brush = new SolidColorBrush(Vector4.One) });
+        using var original = drawing.CreatePictureSnapshot();
+        using var picture = original.Clone();
+        Assert.True(GpuPictureBounds.TryGetBounds(picture, out var raster));
+        Assert.True(raster.Width < 80); // the input rectangle is not paint or a clip
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        var transform = Matrix4x4.CreateTranslation(10, 20, 0);
+        capture.AddCommand(new RenderCommand { Type = RenderCommandType.PushClip, Rect = new Rect(12, 21, 70, 30) }, Matrix4x4.Identity);
+        for (int i = 0; i < picture.CommandCount; ++i) capture.AddCommand(picture.GetCommand(i), transform);
+        capture.AddCommand(new RenderCommand { Type = RenderCommandType.PopClip }, Matrix4x4.Identity);
+        var hits = capture.BuildIndex().Primitives;
+        Assert.Equal(empty ? 2 : 3, hits.Count);
+        Assert.Equal(701, hits[0].Id);
+        Assert.Equal(new Vector2(12, 21), hits[0].BoundsMin);
+        Assert.Equal(new Vector2(82, 40), hits[0].BoundsMax);
+        Assert.True(hits[0].Flags.HasFlag(GpuHitTestPrimitiveFlags.PointOnly));
+        if (!empty) Assert.True(hits[1].Flags.HasFlag(GpuHitTestPrimitiveFlags.RegionOnly));
+        Assert.Equal(702, hits[^1].Id);
+        Assert.Equal(GpuHitTestPrimitiveFlags.Visible | GpuHitTestPrimitiveFlags.HitTestVisible, hits[^1].Flags);
+    }
+
+    [Fact]
+    public void PointRegionScopeMustBalanceBeforePublication()
+    {
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        capture.AddCommand(new RenderCommand { Type = RenderCommandType.PushOpacity, FontSize = 1,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleBegin, new Vector4(0, 0, 0, 0)) }, Matrix4x4.Identity);
+        Assert.Throws<InvalidOperationException>(() => capture.BuildIndex());
+        capture.AddCommand(new RenderCommand { Type = RenderCommandType.PopOpacity,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleEnd, default) }, Matrix4x4.Identity);
+        Assert.Single(capture.BuildIndex().Primitives);
+    }
+
     [Theory]
     [InlineData(RenderCommandType.DrawRect, SourceHitTestGeometryKind.Rectangle)]
     [InlineData(RenderCommandType.DrawRoundedRect, SourceHitTestGeometryKind.RoundedRectangle)]

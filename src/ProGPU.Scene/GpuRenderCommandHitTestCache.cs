@@ -36,6 +36,8 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
     private bool _hasBounds;
     private int _imageHitClipDepth;
     private bool _sourceCaptureFailed;
+    private SmallValueStack<GpuHitTestPrimitiveFlags> _pointRegionStack;
+    private GpuHitTestPrimitiveFlags _queryParticipation;
 
     public GpuRenderCommandHitTestCacheBuilder()
     {
@@ -75,12 +77,15 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
         _hasBounds = false;
         _imageHitClipDepth = 0;
         _sourceCaptureFailed = false;
+        _pointRegionStack.Clear();
+        _queryParticipation = GpuHitTestPrimitiveFlags.None;
     }
 
     public void Dispose()
     {
         _clipStack.Dispose();
         _opacityStack.Dispose();
+        _pointRegionStack.Dispose();
     }
 
     public void AddCommand(in RenderCommand command, Matrix4x4 activeTransform, int? id = null)
@@ -95,6 +100,43 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
         int? id = null)
     {
         activeTransform = NormalizeTransform(activeTransform);
+
+        if (command.SourceHitGeometry.Kind is SourceHitTestGeometryKind.PointRectangleBegin or SourceHitTestGeometryKind.PointRectangleEnd)
+        {
+            try
+            {
+                bool begin = command.SourceHitGeometry.Kind == SourceHitTestGeometryKind.PointRectangleBegin;
+                if (command.Type != (begin ? RenderCommandType.PushOpacity : RenderCommandType.PopOpacity) ||
+                    (begin && command.FontSize != 1f))
+                    throw new NotSupportedException("Source point regions require identity render scopes.");
+                // DrawingImage owns both query kinds for all of its inner commands.
+                if (_imageHitClipDepth != 0) return;
+                if (begin)
+                {
+                    var c = command.SourceHitGeometry.Coordinates;
+                    if (!float.IsFinite(c.X) || !float.IsFinite(c.Y) || !float.IsFinite(c.Z) || !float.IsFinite(c.W) ||
+                        !float.IsFinite(c.X + c.Z) || !float.IsFinite(c.Y + c.W) || c.Z < 0 || c.W < 0)
+                        throw new NotSupportedException("Source point regions require finite nonnegative extents.");
+                    _pointRegionStack.Push(_queryParticipation);
+                    if (_queryParticipation != GpuHitTestPrimitiveFlags.RegionOnly && IsFiniteInvertibleAffine2D(activeTransform))
+                    {
+                        _queryParticipation = GpuHitTestPrimitiveFlags.PointOnly;
+                        AddPrimitive(GpuHitTestPrimitive.RectangleFill(ResolvePrimitiveId(id, command.HitTestId),
+                            new Vector2(c.X, c.Y), new Vector2(c.X + c.Z, c.Y + c.W), Vector2.Zero,
+                            activeTransform, _primitives.Count));
+                    }
+                    _queryParticipation = GpuHitTestPrimitiveFlags.RegionOnly;
+                }
+                else
+                {
+                    if (_pointRegionStack.Count == 0)
+                        throw new InvalidOperationException("Unbalanced source point region.");
+                    _queryParticipation = _pointRegionStack.Pop();
+                }
+            }
+            catch { _sourceCaptureFailed = true; throw; }
+            return;
+        }
 
         if (command.SourceHitGeometry.Kind != SourceHitTestGeometryKind.None)
         {
@@ -294,6 +336,8 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
             throw new InvalidOperationException("Clear the hit-test builder after a failed source capture before publishing an index.");
         if (_imageHitClipDepth != 0)
             throw new InvalidOperationException("An image hit-test scope must be closed before publishing its index.");
+        if (_pointRegionStack.Count != 0)
+            throw new InvalidOperationException("A source point region must be closed before publishing its index.");
         return GpuHitTestIndex.Build(
             CollectionsMarshal.AsSpan(_primitives),
             CollectionsMarshal.AsSpan(_pathSegments),
@@ -2102,6 +2146,8 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
     private void AddPrimitive(GpuHitTestPrimitive primitive)
     {
+        if (_queryParticipation != GpuHitTestPrimitiveFlags.None)
+            primitive = primitive.WithFlags(primitive.Flags | _queryParticipation);
         if (!TryApplyActiveClip(ref primitive))
         {
             return;

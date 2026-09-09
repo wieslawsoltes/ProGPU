@@ -2285,6 +2285,17 @@ typedef enum progpu_native_hit_test_primitive_kind {
     PROGPU_NATIVE_HIT_TEST_PATH_STROKE = 7
 } progpu_native_hit_test_primitive_kind;
 
+/* Source-owned MIL point input, submitted as one sorted retained snapshot. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeMilPointHitRectangle */
+typedef struct progpu_native_mil_point_hit_rectangle {
+    uint32_t handle;
+    uint32_t reserved;
+    double x;
+    double y;
+    double width;
+    double height;
+} progpu_native_mil_point_hit_rectangle;
+
 enum {
     PROGPU_NATIVE_HIT_TEST_VISIBLE = 1U << 0U,
     PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT = 1U << 1U,

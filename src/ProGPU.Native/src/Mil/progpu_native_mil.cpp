@@ -2969,6 +2969,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, std::array<float, 4U>>
         quaternion_resources;
     std::unordered_map<std::uint32_t, visual_state> visuals;
+    std::unordered_map<std::uint32_t, progpu_native_mil_point_hit_rectangle> point_hit_rectangles;
     std::unordered_map<std::uint32_t, viewport3d_visual_state>
         viewport3d_visuals;
     std::unordered_map<std::uint32_t, visual3d_state> visuals3d;
@@ -5487,6 +5488,7 @@ struct channel::implementation {
                     brush.relative_transform_handle == handle)) return status::invalid_graph;
             }
             visuals.erase(handle);
+            point_hit_rectangles.erase(handle);
             viewport3d_visuals.erase(handle);
             visuals3d.erase(handle);
             model3d_groups.erase(handle);
@@ -21134,6 +21136,37 @@ struct channel::implementation {
             active_visuals.erase(handle);
             return status::capacity_exceeded;
         }
+        bool point_scope = false;
+        const auto point_region = point_hit_rectangles.find(handle);
+        if (record_hit_owner && point_region != point_hit_rectangles.end()) {
+            const auto& rectangle = point_region->second;
+            auto point_state = native::semantic_scene_builder::identity_state();
+            point_state.opacity = static_cast<float>(content_scope.opacity);
+            if (content_scope.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                point_state.flags |= PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+                point_state.guideline_resource_index = content_scope.guideline_resource_index;
+            }
+            if (!try_to_native_affine(content_scope.transform, point_state.transform)) {
+                active_visuals.erase(handle);
+                return status::invalid_graph;
+            }
+            if (content_scope.has_clip) {
+                point_state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+                point_state.clip_rect = content_scope.clip_rect;
+            }
+            if (content_scope.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                point_state.flags |= PROGPU_NATIVE_SCENE_STATE_MASK;
+                point_state.mask_resource_index = content_scope.mask_resource_index;
+            }
+            const progpu_native_image_rect point_bounds{static_cast<float>(rectangle.x),
+                static_cast<float>(rectangle.y), static_cast<float>(rectangle.width), static_cast<float>(rectangle.height)};
+            std::uint32_t point_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_state(point_state, point_state_index) || !builder.save(point_state_index, &point_bounds, true)) {
+                active_visuals.erase(handle);
+                return status::capacity_exceeded;
+            }
+            point_scope = true;
+        }
         if (!skip_cached_content && is_viewport3d) {
             result = append_viewport3d_content(handle, content_scope, builder);
         }
@@ -21154,6 +21187,8 @@ struct channel::implementation {
                     metrics);
             }
         }
+        if (point_scope && !builder.restore() && result == status::success)
+            result = status::invalid_graph;
         if (record_hit_owner && !builder.set_hit_test_owner(std::nullopt) && result == status::success) {
             result = status::capacity_exceeded;
         }
@@ -21596,6 +21631,34 @@ status channel::set_drawing_group_bounds(
     implementation_->increment_generation(handle);
     build_cache_.reset();
     return status::success;
+}
+
+status channel::set_point_hit_rectangles(
+    std::span<const progpu_native_mil_point_hit_rectangle> rectangles) noexcept {
+    if (rectangles.size() > implementation_->visuals.size()) return status::invalid_argument;
+    std::uint32_t previous = 0U;
+    for (const auto& rectangle : rectangles) {
+        if (rectangle.handle <= previous || rectangle.reserved != 0U ||
+            !finite_double_as_float(rectangle.x) || !finite_double_as_float(rectangle.y) ||
+            !finite_double_as_float(rectangle.width) || !finite_double_as_float(rectangle.height) ||
+            !finite_double_as_float(rectangle.x + rectangle.width) ||
+            !finite_double_as_float(rectangle.y + rectangle.height) ||
+            !std::isfinite(static_cast<float>(rectangle.x) + static_cast<float>(rectangle.width)) ||
+            !std::isfinite(static_cast<float>(rectangle.y) + static_cast<float>(rectangle.height)) ||
+            rectangle.width < 0.0 || rectangle.height < 0.0) return status::invalid_argument;
+        if (!implementation_->require_visual(rectangle.handle)) return status::invalid_handle;
+        previous = rectangle.handle;
+    }
+    try {
+        decltype(implementation_->point_hit_rectangles) replacement;
+        replacement.reserve(rectangles.size());
+        for (const auto& rectangle : rectangles) replacement.emplace(rectangle.handle, rectangle);
+        implementation_->point_hit_rectangles.swap(replacement);
+        build_cache_.reset();
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::capacity_exceeded;
+    }
 }
 
 status channel::set_visual_cache_bounds(

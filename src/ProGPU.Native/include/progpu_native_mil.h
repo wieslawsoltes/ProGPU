@@ -272,6 +272,13 @@ progpu_native_mil_channel_set_visual_cache_bounds(
     double y,
     double width,
     double height);
+/* Atomically replaces all point overrides. Handles must be strictly increasing;
+ * zero count clears them. The source snapshot is copied before return. */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_point_hit_rectangles(
+    progpu_native_mil_channel* channel,
+    const progpu_native_mil_point_hit_rectangle* rectangles,
+    size_t count);
 /*
  * Binds one pointer-free flattened 3D scene to a canonical
  * TYPE_VIEWPORT3DVISUAL handle. Source-built WPF owns camera/model traversal;

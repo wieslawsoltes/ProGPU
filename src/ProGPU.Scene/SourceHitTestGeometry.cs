@@ -11,7 +11,9 @@ public enum SourceHitTestGeometryKind
     Line,
     Rectangle,
     RoundedRectangle,
-    Ellipse
+    Ellipse,
+    PointRectangleBegin,
+    PointRectangleEnd
 }
 
 /// <summary>Unsnapped source geometry for a recorded primitive. Raster fields remain authoritative for drawing.</summary>

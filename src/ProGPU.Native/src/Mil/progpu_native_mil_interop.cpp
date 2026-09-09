@@ -326,6 +326,17 @@ progpu_native_mil_channel_set_visual_cache_bounds(
 }
 
 progpu_native_mil_status
+progpu_native_mil_channel_set_point_hit_rectangles(
+    progpu_native_mil_channel* channel,
+    const progpu_native_mil_point_hit_rectangle* rectangles,
+    size_t count) {
+    if (channel == nullptr || (count != 0U && rectangles == nullptr) ||
+        reinterpret_cast<std::uintptr_t>(rectangles) % alignof(progpu_native_mil_point_hit_rectangle) != 0U)
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    return to_abi(channel->state.set_point_hit_rectangles({rectangles, count}));
+}
+
+progpu_native_mil_status
 progpu_native_mil_channel_set_viewport3d_scene(
     progpu_native_mil_channel* channel,
     uint32_t handle,

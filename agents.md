@@ -13,6 +13,11 @@ are invalid. A source TextBlock rectangle requires a typed source descriptor and
 region-only drawing coverage, not generic arranged-bounds input or type probing.
 The query flags alone do not connect or qualify the source control. Keep managed
 and both native providers on the same canonical query shader.
+The typed point descriptor now travels through a complete, sorted native MIL
+sideband snapshot and paired retained point scopes. Close each own-content scope
+before descendants; retain empty rectangles without painting them. Source-command
+visuals must not also publish generic Size coverage. Preserve owner IDs on actual
+commands and fail on unsupported outer cache/mask input instead of fabricating it.
 
 Native caret mirrors belong to the real native window, not a portable source
 handle. Keep typed source owner identity and client coordinates, one hidden

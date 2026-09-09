@@ -374,7 +374,10 @@ bool semantic_scene_builder::add_guideline_set_with_offsets(
 
 bool semantic_scene_builder::save(
     std::uint32_t state_resource_index,
-    const progpu_native_image_rect* local_hit_rectangle) noexcept {
+    const progpu_native_image_rect* local_hit_rectangle,
+    bool point_only_rectangle) noexcept {
+    if (point_only_rectangle && local_hit_rectangle == nullptr)
+        return implementation_->fail(scene_build_error::invalid_argument);
     const bool record_hit = local_hit_rectangle != nullptr &&
         !implementation_->hit_test_owners.empty() &&
         implementation_->hit_test_owners.back().owner.has_value();
@@ -407,7 +410,7 @@ bool semantic_scene_builder::save(
         }
         if (record_hit) {
             scopes.push_back({implementation_->commands.size(),
-                implementation_->commands.size(), *local_hit_rectangle});
+                implementation_->commands.size(), *local_hit_rectangle, point_only_rectangle});
         }
         implementation_->hit_rectangle_stack[implementation_->stack_depth] =
             record_hit ? scopes.size() : 0U;

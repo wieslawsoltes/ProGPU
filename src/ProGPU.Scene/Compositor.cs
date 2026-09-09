@@ -5601,6 +5601,8 @@ SceneStateUploadComplete:
         RenderCommand command,
         Matrix4x4 globalTransform)
     {
+        if (command.HitTestId == 0 && node is ISourceGeometryHitTestCommands)
+            command.HitTestId = node.HitTestId;
         int vectorStart = _vectorVerticesList.Count;
         int textStart = _textVerticesList.Count;
         Matrix4x4 activeTransform = command.UseGpuTransforms
@@ -6013,6 +6015,7 @@ SceneStateUploadComplete:
     {
         if (!Options.EnableGpuHitTesting ||
             _suspendHitTestCacheWrites ||
+            node is ISourceGeometryHitTestCommands ||
             node.HitTestId == 0 ||
             node.Size.X <= 0f ||
             node.Size.Y <= 0f)
@@ -16686,13 +16689,13 @@ SceneStateUploadComplete:
     {
         if (!visual.IsVisible)
             return;
-        if (visual.Opacity <= 0.0001f)
+        if (visual is ISourceGeometryHitTestCommands)
         {
-            if (visual is ISourceGeometryHitTestCommands)
-                _hitTestCacheBuilder.AddSourceVisual(visual, parentTransform,
-                    null, true, true, _sourceHitTestEmbeddedVisualObserver);
+            _hitTestCacheBuilder.AddSourceVisual(visual, parentTransform,
+                null, true, true, _sourceHitTestEmbeddedVisualObserver);
             return;
         }
+        if (visual.Opacity <= 0.0001f) return;
 
         Matrix4x4 globalTransform = visual.GetLocalTransform() * parentTransform;
         bool hasClip = visual.ClipBounds.HasValue;

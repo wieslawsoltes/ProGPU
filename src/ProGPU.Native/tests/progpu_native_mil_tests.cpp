@@ -21985,6 +21985,70 @@ int main() {
         PROGPU_REQUIRE(!builder.add_recorded_hit_test_index(rejected));
         PROGPU_REQUIRE(builder.last_error() == progpu::native::scene_build_error::unsupported_hit_test);
     }
+    {
+        // Source TextBlock contract: point rectangle is independent of drawing
+        // overhang and ends before child traversal. Empty content still has input.
+        channel state;
+        std::vector<std::byte> batch, content;
+        append_create(batch, 1U, 39U); append_create(batch, 2U, 39U);
+        append_create(batch, 3U, 43U); append_create(batch, 4U, 47U); append_create(batch, 5U, 75U);
+        append_command(batch, command::visual_create, 1U); append_command(batch, command::visual_create, 2U);
+        append_command(batch, command::visual_insert_child_at, 1U, 2U, 0U);
+        append_command(batch, command::visual_set_offset, 1U, 10.0, 20.0);
+        append_command(batch, command::visual_set_offset, 2U, 3.0, 4.0);
+        append_command(batch, command::solid_color_brush, 5U, 1.0,
+            progpu_native_color{1.0F, 1.0F, 1.0F, 1.0F}, 0U, 0U, 0U, 0U);
+        append_command(content, command::draw_rectangle, -2.0, 2.0, 12.0, 8.0, 5U, 0U);
+        append_render_data(batch, 3U, content);
+        append_command(batch, command::visual_set_content, 1U, 3U);
+        append_command(batch, command::visual_set_content, 2U, 3U);
+        append_command(batch, command::generic_target_create, 4U, std::uint64_t{0U}, std::uint64_t{0U}, 160U, 120U, 0U);
+        append_command(batch, command::target_set_root, 4U, 1U);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        progpu_native_mil_point_hit_rectangle rectangle{1U, 0U, 0.0, 0.0, 80.0, 20.0};
+        PROGPU_REQUIRE(state.set_point_hit_rectangles({&rectangle, 1U}) == status::success);
+        rectangle.reserved = 1U;
+        PROGPU_REQUIRE(state.set_point_hit_rectangles({&rectangle, 1U}) == status::invalid_argument);
+        rectangle.reserved = 0U;
+        scene_build_request request{};
+        request.flags = scene_build_request_flags::hit_test_index;
+        request.target_handle = 4U; request.scene_id = 9830U;
+        request.generation = request.request_serial = 1U;
+        request.dpi_scale_x = request.dpi_scale_y = 1.0;
+        const auto hits = [&]() {
+            std::span<const std::byte> compiled;
+            PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+            std::vector<std::byte> stream(compiled.begin(), compiled.end());
+            const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+            std::vector<progpu_native_hit_test_primitive> result;
+            for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+                const auto resource = read_value<progpu_native_scene_resource>(stream,
+                    header.resource_offset + i * sizeof(progpu_native_scene_resource));
+                if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+                const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+                for (std::uint32_t j = 0U; j < page.primitive_count; ++j)
+                    result.push_back(read_value<progpu_native_hit_test_primitive>(stream,
+                        resource.auxiliary_offset + page.primitive_offset + j * sizeof(progpu_native_hit_test_primitive)));
+            }
+            return result;
+        };
+        auto captured = hits();
+        PROGPU_REQUIRE(captured.size() == 3U && captured[0U].id == 1 && captured[2U].id == 2);
+        PROGPU_REQUIRE(captured[0U].flags == 7U && captured[1U].flags == 11U && captured[2U].flags == 3U);
+        PROGPU_REQUIRE(captured[0U].bounds_min.x == 10.0F && captured[0U].bounds_min.y == 20.0F && captured[0U].bounds_max.x == 90.0F);
+        PROGPU_REQUIRE(captured[1U].bounds_min.x == 8.0F);
+        batch.clear(); append_command(batch, command::visual_set_content, 1U, 0U);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        captured = hits();
+        PROGPU_REQUIRE(captured.size() == 2U && captured[0U].flags == 7U && captured[1U].id == 2);
+        rectangle.width = 100.0;
+        PROGPU_REQUIRE(state.set_point_hit_rectangles({&rectangle, 1U}) == status::success);
+        captured = hits();
+        PROGPU_REQUIRE(captured[0U].bounds_max.x == 110.0F);
+        PROGPU_REQUIRE(state.set_point_hit_rectangles({}) == status::success);
+        captured = hits();
+        PROGPU_REQUIRE(captured.size() == 1U && captured[0U].id == 2);
+    }
     static_assert(static_cast<std::uint32_t>(scene_build_request_flags::hit_test_index) ==
         PROGPU_NATIVE_MIL_SCENE_BUILD_REQUEST_HIT_TEST_INDEX);
     {

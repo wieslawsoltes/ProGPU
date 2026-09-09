@@ -7,6 +7,15 @@ import progpu.native.scene_builder;
 
 int main() {
     {
+        progpu::native::semantic_scene_builder point_builder(9830U, 1U);
+        const progpu::native::progpu_native_image_rect rectangle{0.0F, 0.0F, 80.0F, 20.0F};
+        unsigned int state_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+        unsigned int hit_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!point_builder.add_state(progpu::native::semantic_scene_builder::identity_state(), state_index) ||
+            !point_builder.set_hit_test_owner(1) || !point_builder.save(state_index, &rectangle, true) ||
+            !point_builder.restore() || !point_builder.add_recorded_hit_test_index(hit_index)) return 1;
+    }
+    {
         progpu::native::semantic_scene_builder clip_builder(9702U, 1U);
         // Public source-clip overload remains available to module consumers;
         // empty topology is invalid rather than an implicit rectangle.
