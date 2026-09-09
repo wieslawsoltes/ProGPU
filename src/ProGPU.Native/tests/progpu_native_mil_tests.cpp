@@ -21419,6 +21419,17 @@ int main() {
             std::uint32_t mask_index{}, state_index{};
             PROGPU_REQUIRE(builder.add_vector_clip_mask(std::span(paths).first(variant == 2U ? 2U : 1U),
                 edges, 1.0F, mask_index, variant != 1U));
+            if (variant != 1U) {
+                // A source geometry clip is never an input-neutral alpha mask.
+                progpu_native_scene_layer invalid_mask{};
+                invalid_mask.opacity = 1.0F;
+                invalid_mask.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+                invalid_mask.mask_resource_index = mask_index;
+                invalid_mask.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                PROGPU_REQUIRE(!builder.push_layer(invalid_mask,
+                    progpu::native::scene_layer_hit_test_mode::source_opacity_mask));
+                PROGPU_REQUIRE(builder.last_error() == progpu::native::scene_build_error::invalid_argument);
+            }
             auto state = builder.identity_state();
             state.flags = PROGPU_NATIVE_SCENE_STATE_MASK | PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
             state.mask_resource_index = mask_index;
