@@ -14,6 +14,25 @@ namespace ProGPU.Tests;
 public sealed class GpuHitTestingTests
 {
     [Fact]
+    public void NativeMilCaptureFixtureUsesCanonicalPrimitiveEncoding()
+    {
+        // Same source values as progpu_native_mil_tests.cpp owner-capture case.
+        Matrix4x4 transform = Matrix4x4.CreateScale(2, 3, 1) * Matrix4x4.CreateTranslation(10, 20, 0);
+        GpuHitTestPrimitive rectangle = GpuHitTestPrimitive.RectangleFill(-17,
+            Vector2.Zero, new Vector2(10), Vector2.Zero, transform).WithClip(0, 4, FillRule.Nonzero);
+        Assert.Equal(-17, rectangle.Id);
+        Assert.Equal(new Vector2(10, 20), rectangle.BoundsMin);
+        Assert.Equal(new Vector2(30, 50), rectangle.BoundsMax);
+        Assert.Equal(new Vector4(0.5f, 0, -5, 0), rectangle.InverseTransform0);
+        Assert.Equal(4U, rectangle.ClipSegmentCount);
+        Assert.Equal(1U, rectangle.ClipFlags);
+        GpuHitTestPrimitive ellipse = GpuHitTestPrimitive.EllipseFill(42,
+            Vector2.Zero, new Vector2(10), transform, 1);
+        Assert.Equal(new Vector4(5, 5, 0.2f, 0.2f), ellipse.Data2);
+        Assert.Equal(1, ellipse.ZIndex);
+    }
+
+    [Fact]
     public void StructLayoutsMatchShaderStorageLayout()
     {
         Assert.Equal(128, Marshal.SizeOf<GpuHitTestPrimitive>());

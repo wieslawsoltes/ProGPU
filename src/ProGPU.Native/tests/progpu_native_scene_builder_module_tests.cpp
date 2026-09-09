@@ -1,10 +1,19 @@
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <utility>
 
 import progpu.native.scene_builder;
 
 int main() {
+    {
+        progpu::native::semantic_scene_builder hit_builder(9700U, 1U);
+        unsigned int hit_index = progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!hit_builder.set_hit_test_owner(-17) ||
+            !hit_builder.set_hit_test_owner(std::nullopt) ||
+            !hit_builder.add_recorded_hit_test_index(hit_index) ||
+            hit_index == progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX) return 1;
+    }
     static_assert(progpu::native::PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED == (1U << 9U));
     progpu::native::semantic_scene_builder builder(9001U, 3U);
     progpu::native::progpu_native_scene_brush gradient{};

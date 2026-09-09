@@ -76,7 +76,8 @@ struct scene_metrics {
 
 enum class scene_build_request_flags : std::uint32_t {
     none = 0U,
-    visual_brush = 1U << 0U
+    visual_brush = 1U << 0U,
+    hit_test_index = 1U << 1U
 };
 
 enum class scene_build_result_flags : std::uint32_t {

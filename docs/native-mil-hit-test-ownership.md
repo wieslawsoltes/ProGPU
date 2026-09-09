@@ -4,12 +4,14 @@
 
 LibreWPF Toolkit/AvalonDock clicking and selection use retained owner queries.
 The native MIL host presents a C++ compiled scene, but its host query methods
-currently ask the managed compositor for an index. The native MIL compiler does
-not yet emit a hit-test index. Existing source-owned geometric input fallback is
+currently ask the managed compositor for an index. The native MIL compiler now
+has opt-in index emission for analytic primitives and plain path fills, not yet
+the complete application coverage needed to enable the host. Existing source-owned geometric input fallback is
 not evidence that the retained native owner-query gate is complete.
 
-This implementation establishes the result/owner ownership boundary. It does
-**not** close native MIL hit-test emission or host point/region query routing.
+This implementation establishes the result/owner ownership boundary and starts
+native index production. It does **not** close complete MIL input coverage or
+host point/region query routing.
 Do not mark application closure or feature freeze from this checkpoint.
 
 ## Implemented contract
@@ -76,9 +78,56 @@ layout/shaping reuse independent. Device recovery changes compositor identity an
 must rebuild/rebind the new frame; an old token must never cross that boundary.
 No timing or memory improvement is claimed without final matched measurements.
 
+## Opt-in C++ producer connection — implementation checkpoint
+
+`scene_build_request_flags::hit_test_index` (C `HIT_TEST_INDEX`, C# `HitTestIndex`)
+requests one canonical index in the compiled scene. Normal rendering requests are
+unchanged; combining this flag with `visual_brush` is invalid. MIL records each
+visual handle's signed bits only around its own content, clears that owner before
+descending into children, and does not create owners for brush-source traversal.
+Visual bitmap caches reject the option before a cache shortcut can omit content.
+
+The reusable `semantic_scene_builder::set_hit_test_owner` records sparse command
+boundaries; null excludes subsequent commands. It is metadata, not another draw or
+ABI crossing. Image coalescing cannot cross an owner boundary. Reset clears the
+boundaries. `add_recorded_hit_test_index` reads builder-owned command/resources
+directly and calls the existing native quadtree builder and index serializer.
+It does not serialize and parse the scene a second time or install a partial
+index after rejection. An empty scene retains a valid empty index root.
+
+Connected coverage: analytic rectangle/rounded rectangle/ellipse fills and normal
+centered analytic strokes, plain filled paths with original line/quadratic/cubic/
+arc segments, affine placement and exact rectangular world clips. Bounds serve
+only broad-phase pruning; analytic/path parameters and clip edges remain available
+to the canonical query shader. Semantic path fill-rule values are explicitly
+converted to the opposite `ProGPU.Vector.FillRule`/hit-shader numbering.
+
+Remaining families explicitly reject with `unsupported_hit_test`, surfaced by MIL
+as `unsupported_command`: other draw types, layers/effects/masks/cache isolation,
+boolean topology, guideline state, and device/hairline analytic flags. This option
+is therefore **not enabled in LibreWPF host requests** yet. It is a producer
+connection, not a reduced replacement for required application input.
+
+Original implementation provenance: `ProGPU.Vector/GpuHitTesting.cs` factories,
+`ProGPU.Vector/Shaders/GpuHitTesting.wgsl`, existing C++ `HitTesting` index and
+`Scene/Builder` resource ownership. Managed algorithms/shaders remain unchanged;
+the missing producer is C++-specific. Matched primitive-value fixtures accompany
+native owner/clip/path/reset/rejection and canonical MIL parent/child fixtures.
+An import-based module consumer also exercises the new API. These are authored
+regressions, not executed qualification.
+
+Preparation is O(C + P + S + P*D) time and O(R + P + S + D) auxiliary storage for
+commands C, resources R, emitted primitives P, copied segments S and quadtree
+depth D. Owner traversal and tree construction are dependency-bound. Four-corner
+placement uses NEON/SSE2 independent lanes and bounded scalar reduction; fixed
+matrix inversion retains dependent double arithmetic. Unsupported architectures
+reject this encoder until their intrinsic implementation is connected. There is
+no new GPU submission/readback, pixel fallback, or speed claim. Existing GPU
+queries and their execution policy are unchanged.
+
 ## Remaining implementation and final qualification
 
-1. Emit retained hit primitives and a shared C++ `hit_test_index` from MIL visual
+1. Complete retained hit primitives and the shared C++ `hit_test_index` from MIL visual
    traversal. IDs must be source visual handle bits, not resource IDs or draw
    ordinals. Reuse semantic fill/stroke/path/text preparation; preserve visual
    and nested render-data clipping, transforms, ordering and source input state.

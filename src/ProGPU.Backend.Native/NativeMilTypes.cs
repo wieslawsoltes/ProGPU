@@ -573,7 +573,9 @@ public readonly record struct NativeMilSceneMetrics(
 public enum NativeMilSceneBuildRequestFlags : uint
 {
     None = 0,
-    VisualBrush = 1U << 0
+    VisualBrush = 1U << 0,
+    /// <summary>Require a complete native hit-test index; unsupported coverage fails compilation.</summary>
+    HitTestIndex = 1U << 1
 }
 
 [Flags]

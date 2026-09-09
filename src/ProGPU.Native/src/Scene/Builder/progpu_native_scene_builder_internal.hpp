@@ -33,6 +33,12 @@ struct semantic_scene_builder::implementation final {
         std::vector<std::byte> payload{};
     };
 
+    struct hit_test_owner_boundary final {
+        std::size_t first_command{};
+        std::optional<std::int32_t> owner;
+    };
+    std::vector<hit_test_owner_boundary> hit_test_owners{};
+
     std::uint64_t scene_id = 0U;
     std::uint64_t generation = 0U;
     std::vector<resource_entry> resources{};

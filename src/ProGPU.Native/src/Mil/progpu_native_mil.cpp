@@ -2375,6 +2375,12 @@ struct scene_compile_context {
             (static_cast<std::uint32_t>(request.flags) &
                 static_cast<std::uint32_t>(scene_build_request_flags::visual_brush)) != 0U;
     }
+
+    bool records_hit_test_owners() const noexcept {
+        return !is_visual_brush() &&
+            (static_cast<std::uint32_t>(request.flags) &
+                static_cast<std::uint32_t>(scene_build_request_flags::hit_test_index)) != 0U;
+    }
 };
 
 struct channel::implementation {
@@ -20712,6 +20718,14 @@ struct channel::implementation {
             active_visuals.erase(handle);
             return status::invalid_handle;
         }
+        const bool record_hit_owner = compile_context != nullptr &&
+            compile_context->records_hit_test_owners();
+        // A cache hit may omit this visual's commands. Until hit coverage has
+        // independent cache ownership, reject rather than publish an empty index.
+        if (record_hit_owner && visual->second.cache_mode_handle != 0U) {
+            active_visuals.erase(handle);
+            return status::unsupported_command;
+        }
         affine_2d_double local_transform{};
         if (visual->second.transform_handle != 0U) {
             const status transform_status = resolve_transform(
@@ -21078,6 +21092,10 @@ struct channel::implementation {
         metrics.maximum_visual_depth =
             std::max(metrics.maximum_visual_depth, depth);
         status result = status::success;
+        if (record_hit_owner && !builder.set_hit_test_owner(std::bit_cast<std::int32_t>(handle))) {
+            active_visuals.erase(handle);
+            return status::capacity_exceeded;
+        }
         if (!skip_cached_content && is_viewport3d) {
             result = append_viewport3d_content(handle, content_scope, builder);
         }
@@ -21097,6 +21115,9 @@ struct channel::implementation {
                     content_clip_boolean_nodes,
                     metrics);
             }
+        }
+        if (record_hit_owner && !builder.set_hit_test_owner(std::nullopt) && result == status::success) {
+            result = status::capacity_exceeded;
         }
         if (!skip_cached_content && result == status::success) {
             for (const auto child : visual->second.children) {
@@ -21156,11 +21177,13 @@ struct channel::build_cache {
 namespace {
 
 constexpr std::uint32_t known_scene_build_request_flags =
-    static_cast<std::uint32_t>(scene_build_request_flags::visual_brush);
+    static_cast<std::uint32_t>(scene_build_request_flags::visual_brush) |
+    static_cast<std::uint32_t>(scene_build_request_flags::hit_test_index);
 
 bool valid_scene_build_request(const scene_build_request& request) noexcept {
     const auto raw_flags = static_cast<std::uint32_t>(request.flags);
     return (raw_flags & ~known_scene_build_request_flags) == 0U &&
+        raw_flags != known_scene_build_request_flags &&
         request.target_handle != 0U && request.scene_id != 0U &&
         request.generation != 0U && request.request_serial != 0U &&
         std::isfinite(request.dpi_scale_x) &&
@@ -21931,6 +21954,20 @@ status channel::build_scene_core(
                 local_metrics);
             if (append_status != status::success) {
                 return append_status;
+            }
+        }
+        if (compile_context.records_hit_test_owners()) {
+            std::uint32_t hit_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_recorded_hit_test_index(hit_index)) {
+                switch (builder.last_error()) {
+                case native::scene_build_error::unsupported_hit_test:
+                    return status::unsupported_command;
+                case native::scene_build_error::out_of_memory:
+                case native::scene_build_error::capacity_exceeded:
+                    return status::capacity_exceeded;
+                default:
+                    return status::invalid_graph;
+                }
             }
         }
         native::scene_build_metrics builder_metrics{};

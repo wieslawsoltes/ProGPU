@@ -65,6 +65,7 @@ bool semantic_scene_builder::reset(
     implementation_->generation = generation;
     implementation_->resources.clear();
     implementation_->commands.clear();
+    implementation_->hit_test_owners.clear();
     implementation_->brushes.clear();
     implementation_->gradient_stops.clear();
     implementation_->text_styles.clear();

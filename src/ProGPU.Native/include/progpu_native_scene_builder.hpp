@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -18,7 +19,8 @@ enum class scene_build_error : std::uint32_t {
     invalid_state,
     unbalanced_stack,
     capacity_exceeded,
-    out_of_memory
+    out_of_memory,
+    unsupported_hit_test
 };
 
 struct scene_build_metrics final {
@@ -200,6 +202,12 @@ public:
         std::span<const std::uint32_t> primitive_indices,
         std::span<const progpu_native_path_segment> path_segments,
         std::uint32_t& resource_index) noexcept;
+    // CPU-only owner boundaries, not draw commands or native object pointers.
+    // nullopt excludes subsequent draws until a source owner is selected.
+    bool set_hit_test_owner(std::optional<std::int32_t> owner) noexcept;
+    // Lower owned retained commands into the canonical GPU hit-test index.
+    // Transactional: unsupported coverage never installs a partial index.
+    bool add_recorded_hit_test_index(std::uint32_t& resource_index) noexcept;
     bool add_glyph_outlines(
         std::span<const progpu_native_scene_glyph_outline> outlines,
         std::span<const progpu_native_path_segment> segments,

@@ -931,6 +931,7 @@ add_library(progpu_native_scene_builder STATIC
     src/Scene/Builder/progpu_native_scene_builder_glyph.cpp
     src/Scene/Builder/progpu_native_scene_builder_image.cpp
     src/Scene/Builder/progpu_native_scene_builder_hit_testing.cpp
+    src/Scene/Builder/progpu_native_scene_builder_hit_test_capture.cpp
     src/Scene/Builder/progpu_native_scene_builder_layer.cpp
     src/Scene/Builder/progpu_native_scene_builder_path.cpp
     src/Scene/Builder/progpu_native_scene_builder_text.cpp
@@ -944,6 +945,7 @@ add_library(progpu_native_scene_builder STATIC
     src/Scene/progpu_native_semantic_validation.hpp
     include/progpu_native_scene_builder.hpp)
 target_compile_features(progpu_native_scene_builder PUBLIC cxx_std_20)
+target_link_libraries(progpu_native_scene_builder PUBLIC progpu_native_hit_testing)
 target_include_directories(progpu_native_scene_builder
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
     PRIVATE ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})

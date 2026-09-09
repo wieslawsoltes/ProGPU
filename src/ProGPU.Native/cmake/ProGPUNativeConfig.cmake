@@ -112,7 +112,7 @@ set_property(TARGET ProGPU::native_image PROPERTY
 set_property(TARGET ProGPU::native_text PROPERTY
     INTERFACE_LINK_LIBRARIES ProGPU::native_compression)
 set_property(TARGET ProGPU::native_scene_builder PROPERTY
-    INTERFACE_LINK_LIBRARIES ProGPU::native_text)
+    INTERFACE_LINK_LIBRARIES "ProGPU::native_text;ProGPU::native_hit_testing")
 
 unset(_progpu_native_root)
 unset(_progpu_native_include)

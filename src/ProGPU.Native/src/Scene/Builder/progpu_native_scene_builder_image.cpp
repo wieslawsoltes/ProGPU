@@ -95,7 +95,8 @@ bool semantic_scene_builder::implementation::try_merge_image_draw(
     progpu_native_image_rect bounds,
     std::uint32_t state_resource_index,
     const progpu_native_scene_image_sampling_options* sampling_options) {
-    if (commands.empty()) {
+    if (commands.empty() || (!hit_test_owners.empty() &&
+            hit_test_owners.back().first_command >= commands.size())) {
         return false;
     }
     auto& previous = commands.back();

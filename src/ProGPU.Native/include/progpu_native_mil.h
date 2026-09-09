@@ -69,7 +69,8 @@ typedef struct progpu_native_mil_scene_metrics {
 
 typedef enum progpu_native_mil_scene_build_request_flags {
     PROGPU_NATIVE_MIL_SCENE_BUILD_REQUEST_NONE = 0,
-    PROGPU_NATIVE_MIL_SCENE_BUILD_REQUEST_VISUAL_BRUSH = 1U << 0U
+    PROGPU_NATIVE_MIL_SCENE_BUILD_REQUEST_VISUAL_BRUSH = 1U << 0U,
+    PROGPU_NATIVE_MIL_SCENE_BUILD_REQUEST_HIT_TEST_INDEX = 1U << 1U
 } progpu_native_mil_scene_build_request_flags;
 
 typedef enum progpu_native_mil_scene_build_result_flags {
