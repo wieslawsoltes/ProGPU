@@ -540,6 +540,14 @@ local/outer clip stacks. Unsupported nodes/scopes fault index publication until
 Clear; effects, caches and spatial masks remain separate contracts. Generic
 ProGPU opacity culling and disabled-hit-testing paths must remain unchanged.
 
+Native MIL ordinary geometry-line input uses canonical LineStroke payloads with
+real endpoints, source caps, outer transform/clip and owner identity. Square-cap
+broad-phase envelopes must include diagonal corners in both implementations;
+conservative pruning bounds are not hit geometry. Keep directed point caps and
+lines at the query shader's degenerate threshold unsupported until their exact
+contract exists; never replace them with its generic disk branch. Other geometry
+and stroke-batch families remain explicit until connected, not successful omissions.
+
 ### A. Rendering Quality & DPI-Aware Text Snapping
 
 Styled Direct2D primitive callbacks must route through genuine factory-owned

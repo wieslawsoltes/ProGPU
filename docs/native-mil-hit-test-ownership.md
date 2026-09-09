@@ -97,7 +97,8 @@ It does not serialize and parse the scene a second time or install a partial
 index after rejection. An empty scene retains a valid empty index root.
 
 Connected coverage: analytic rectangle/rounded rectangle/ellipse fills and normal
-centered analytic strokes, plain filled paths with original line/quadratic/cubic/
+centered analytic strokes, ordinary nondegenerate geometry-line strokes with
+flat/square/round/triangle caps, plain filled paths with original line/quadratic/cubic/
 arc segments, image destination quads, source-owned glyph ink rectangles, affine
 placement and exact rectangular world clips. Bounds serve
 only broad-phase pruning; analytic/path parameters and clip edges remain available
@@ -175,6 +176,40 @@ copied. New native metadata is O(L) for L annotated layers with geometric growth
 and capacity reuse; stack traversal is dependent O(C), not a numeric CPU fallback.
 Existing SIMD primitive placement and the canonical GPU shader are unchanged.
 No new readback, per-item submission, pixel work or performance claim is added.
+
+### MVP ordinary line input
+
+The real package application's `MvpShapeLine` in `MainWindow.xaml` uses endpoints
+(16,98)/(154,76), thickness 4 and round caps. MIL's existing
+`append_resolved_line_stroke` emits a geometry-line resource for its undashed pen;
+the hit producer previously rejected every DRAW_GEOMETRY command. It now emits
+the canonical LineStroke record for ordinary line primitives, preserving each
+cap, local endpoints/thickness, combined transform, source owner and actual clip.
+No WPF-local lowering or change to MIL rendering is needed. Geometry resources
+with other kinds, device-width flags, and separate stroke batches still reject.
+Lengths at/below 0.0001 remain explicit unsupported input: the shared shader's
+generic degenerate-line disk is not source-directed cap geometry.
+
+Direction metadata ports original `GpuHitTesting.CreateLineStrokeHitTestData`;
+endpoint subtraction/squaring uses NEON/SSE2 and a fixed length reduction. Existing
+intrinsic four-corner placement handles bounds. In both managed/native LineStroke
+encoders, square caps expand the conservative radius padding by sqrt(2), because
+a diagonal square corner lies outside the previous endpoint envelope. The exact
+cap data/query is unchanged; this is broad-phase correction, not inflated hit
+geometry. New native records add O(L) fixed work for L lines, with no per-line
+submission/readback or stroke-outline allocation. No performance claim is made.
+
+Matched fixtures cover all 16 cap pairs, nonidentity placement, source owner and
+clipping, direction data and the diagonal-square envelope. Native canonical MIL
+scene 9813 uses the actual MVP line values; native builder scene 9812 also keeps
+point-cap rejection explicit. These fixtures are authored for final execution.
+The existing engine references apply; additionally the primary
+[Direct2D stroke-containment contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-strokecontainspoint(d2d1_point_2f_float_id2d1strokestyle_constd2d1_matrix_3x2_f_float_bool))
+reinforces preserving width/style/transform separately. Original ProGPU geometry
+records, Vector factories and canonical WGSL supply the implementation; no third-
+party code was ported. Shaping, caches, workers, startup, atlas/DPI/hinting policy,
+GPU batching and device recovery are unchanged. Full native host coverage and
+qualification remain open.
 
 ### Retained source visuals without raster work
 

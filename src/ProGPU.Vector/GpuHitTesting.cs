@@ -290,6 +290,10 @@ public readonly struct GpuHitTestPrimitive
         float zIndex = 0f)
     {
         float padding = MathF.Max(0f, (MathF.Abs(strokeThickness) * 0.5f) + MathF.Max(0f, tolerance));
+        // A square cap's diagonal corners extend beyond a radius-padded endpoint
+        // envelope. Only broad-phase bounds grow; the exact cap query is unchanged.
+        if (startCap == LineGeometryCap.Square || endCap == LineGeometryCap.Square)
+            padding *= MathF.Sqrt(2f);
         Vector2 min = Vector2.Min(start, end) - new Vector2(padding);
         Vector2 max = Vector2.Max(start, end) + new Vector2(padding);
         return new GpuHitTestPrimitive(

@@ -78,6 +78,32 @@ T read_record(std::span<const std::byte> bytes, std::size_t index = 0U) noexcept
     return result;
 }
 
+// Original ProGPU GpuHitTesting.CreateLineStrokeHitTestData encoding. Independent
+// x/y subtraction and squaring use intrinsic lanes; length is one fixed reduction.
+bool line_hit_data(progpu_native_point start, progpu_native_point end,
+    progpu_native_float_4& data) noexcept {
+    [[maybe_unused]] std::array<float, 4U> a{start.x, start.y, 0.0F, 0.0F};
+    [[maybe_unused]] std::array<float, 4U> b{end.x, end.y, 0.0F, 0.0F};
+    std::array<float, 4U> delta{}, square{};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const auto difference = vsubq_f32(vld1q_f32(b.data()), vld1q_f32(a.data()));
+    vst1q_f32(delta.data(), difference);
+    vst1q_f32(square.data(), vmulq_f32(difference, difference));
+#elif defined(__SSE2__) || defined(_M_X64)
+    const auto difference = _mm_sub_ps(_mm_loadu_ps(b.data()), _mm_loadu_ps(a.data()));
+    _mm_storeu_ps(delta.data(), difference);
+    _mm_storeu_ps(square.data(), _mm_mul_ps(difference, difference));
+#else
+    return false;
+#endif
+    const float length = std::sqrt(square[0U] + square[1U]);
+    // The canonical query shader's degenerate-line branch treats nonflat caps
+    // as a disk. Do not apply it to source directed point caps or tiny lines.
+    if (!std::isfinite(length) || length <= 0.0001F) return false;
+    data = {delta[0U] / length, delta[1U] / length, length, 0.0F};
+    return true;
+}
+
 } // namespace
 
 bool semantic_scene_builder::set_hit_test_owner(std::optional<std::int32_t> owner) noexcept {
@@ -273,6 +299,36 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                         if (!append_rectangle(patch.destination_rect,
                             compose_affine(patch.transform, transform), state, state_index)) return unsupported();
                     }
+                }
+                continue;
+            }
+            if (kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+                const auto& resource = implementation_->resources[command.record.resource_index];
+                for (std::size_t j = 0U; j < resource.payload.size() / sizeof(progpu_native_geometry_primitive); ++j) {
+                    const auto source = read_record<progpu_native_geometry_primitive>(resource.payload, j);
+                    constexpr std::uint32_t allowed = PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED |
+                        PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK | PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
+                    if (source.kind != PROGPU_NATIVE_GEOMETRY_LINE || (source.flags & ~allowed) != 0U)
+                        return unsupported();
+                    if (source.stroke_thickness <= 0.0F) continue;
+                    progpu_native_hit_test_primitive hit{};
+                    hit.kind = PROGPU_NATIVE_HIT_TEST_LINE_STROKE;
+                    hit.data0 = {source.p0.x, source.p0.y, source.p1.x, source.p1.y};
+                    const auto start_cap = (source.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >> PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+                    const auto end_cap = (source.flags & PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK) >> PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT;
+                    hit.data1 = {source.stroke_thickness, 0.0F, static_cast<float>(start_cap), static_cast<float>(end_cap)};
+                    if (!line_hit_data(source.p0, source.p1, hit.data2)) return unsupported();
+                    float padding = source.stroke_thickness * 0.5F;
+                    // A diagonal square cap can extend sqrt(2)*radius on one
+                    // coordinate. This is conservative pruning, not hit geometry.
+                    if (start_cap == PROGPU_NATIVE_STROKE_CAP_SQUARE || end_cap == PROGPU_NATIVE_STROKE_CAP_SQUARE)
+                        padding *= std::sqrt(2.0F);
+                    const progpu_native_point minimum{std::min(source.p0.x, source.p1.x) - padding,
+                        std::min(source.p0.y, source.p1.y) - padding};
+                    const progpu_native_point maximum{std::max(source.p0.x, source.p1.x) + padding,
+                        std::max(source.p0.y, source.p1.y) + padding};
+                    if (!place_primitive(hit, minimum, maximum, compose_affine(source.transform, state.transform)) ||
+                        !append(hit, state, state_index)) return unsupported();
                 }
                 continue;
             }

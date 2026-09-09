@@ -21208,6 +21208,90 @@ int main() {
         }
     }
     {
+        // Paired with NativeLineCaptureUsesCanonicalCapsAndPlacement.
+        for (std::uint32_t start_cap = 0U; start_cap < 4U; ++start_cap) {
+            for (std::uint32_t end_cap = 0U; end_cap < 4U; ++end_cap) {
+                progpu::native::semantic_scene_builder builder(9812U, 1U);
+                auto state = builder.identity_state();
+                state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+                state.clip_rect = {0.0F, 0.0F, 100.0F, 200.0F};
+                state.transform = {2.0F, 0.0F, 0.0F, 3.0F, 5.0F, 7.0F};
+                std::uint32_t state_index{};
+                PROGPU_REQUIRE(builder.add_state(state, state_index));
+                PROGPU_REQUIRE(builder.set_hit_test_owner(-73));
+                progpu_native_geometry_primitive line{};
+                line.kind = PROGPU_NATIVE_GEOMETRY_LINE;
+                line.flags = (start_cap << PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) |
+                    (end_cap << PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT);
+                line.p0 = {10.0F, 20.0F}; line.p1 = {30.0F, 40.0F};
+                line.stroke_thickness = 4.0F; line.transform = builder.identity_state().transform;
+                PROGPU_REQUIRE(builder.draw_geometry(std::span(&line, 1U), {}, {0.0F, 0.0F, 50.0F, 50.0F}, state_index));
+                const auto hits = capture_hits(builder);
+                PROGPU_REQUIRE(hits.size() == 1U && hits[0].id == -73);
+                const auto& hit = hits[0];
+                PROGPU_REQUIRE(hit.kind == PROGPU_NATIVE_HIT_TEST_LINE_STROKE && hit.clip_segment_count == 4U);
+                PROGPU_REQUIRE(hit.data0.x == 10.0F && hit.data0.w == 40.0F);
+                PROGPU_REQUIRE(hit.data1.x == 4.0F && hit.data1.z == static_cast<float>(start_cap) &&
+                    hit.data1.w == static_cast<float>(end_cap));
+                PROGPU_REQUIRE(std::abs(hit.data2.x - std::sqrt(0.5F)) < 0.000001F);
+                PROGPU_REQUIRE(std::abs(hit.data2.z - std::sqrt(800.0F)) < 0.00001F);
+                const float padding = 2.0F * (start_cap == 1U || end_cap == 1U ? std::sqrt(2.0F) : 1.0F);
+                PROGPU_REQUIRE(hit.bounds_min.x == (10.0F - padding) * 2.0F + 5.0F);
+                PROGPU_REQUIRE(hit.bounds_max.y == (40.0F + padding) * 3.0F + 7.0F);
+                PROGPU_REQUIRE(builder.reset(9812U, 2U));
+                PROGPU_REQUIRE(builder.set_hit_test_owner(-73));
+                line.p1 = line.p0; // directed point caps are a separate contract
+                PROGPU_REQUIRE(builder.draw_geometry(std::span(&line, 1U), {}, {0.0F, 0.0F, 50.0F, 50.0F}));
+                std::uint32_t unsupported_index{};
+                PROGPU_REQUIRE(!builder.add_recorded_hit_test_index(unsupported_index));
+                PROGPU_REQUIRE(builder.last_error() == progpu::native::scene_build_error::unsupported_hit_test);
+                PROGPU_REQUIRE(unsupported_index == PROGPU_NATIVE_SCENE_NO_INDEX);
+            }
+        }
+    }
+    {
+        // The real package MVP's MvpShapeLine, through canonical MIL commands.
+        channel state;
+        std::vector<std::byte> batch, content;
+        append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
+        append_create(batch, 3U, 47U); append_create(batch, 4U, 75U); append_create(batch, 5U, 85U);
+        append_command(batch, command::visual_create, 1U);
+        append_command(batch, command::solid_color_brush, 4U, 1.0,
+            progpu_native_color{0.66F, 0.33F, 0.97F, 1.0F}, 0U, 0U, 0U, 0U);
+        append_command(batch, command::pen, 5U, 4.0, 10.0, 4U, 0U, 2U, 2U, 0U, 0U, 0U);
+        append_command(content, command::draw_line, 16.0, 98.0, 154.0, 76.0, 5U, 0U);
+        append_render_data(batch, 2U, content);
+        append_command(batch, command::visual_set_content, 1U, 2U);
+        append_command(batch, command::generic_target_create, 3U,
+            std::uint64_t{0U}, std::uint64_t{0U}, 200U, 120U, 0U);
+        append_command(batch, command::target_set_root, 3U, 1U);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        scene_build_request request{};
+        request.flags = scene_build_request_flags::hit_test_index;
+        request.target_handle = 3U; request.scene_id = 9813U;
+        request.generation = request.request_serial = 1U;
+        request.dpi_scale_x = request.dpi_scale_y = 1.0;
+        std::span<const std::byte> compiled;
+        PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+        const std::vector<std::byte> stream(compiled.begin(), compiled.end());
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        bool found = false;
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + i * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+            const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+            PROGPU_REQUIRE(page.primitive_count == 1U);
+            const auto hit = read_value<progpu_native_hit_test_primitive>(stream,
+                resource.auxiliary_offset + page.primitive_offset);
+            PROGPU_REQUIRE(hit.id == 1 && hit.kind == PROGPU_NATIVE_HIT_TEST_LINE_STROKE);
+            PROGPU_REQUIRE(hit.data0.x == 16.0F && hit.data0.y == 98.0F && hit.data0.z == 154.0F && hit.data0.w == 76.0F);
+            PROGPU_REQUIRE(hit.data1.x == 4.0F && hit.data1.z == 2.0F && hit.data1.w == 2.0F);
+            found = true;
+        }
+        PROGPU_REQUIRE(found);
+    }
+    {
         // Source image coverage, not render contents. Paired with the managed
         // RenderCommandCacheUsesExplicitTextureHitTestId rectangle/transform.
         progpu::native::semantic_scene_builder builder(9803U, 1U);

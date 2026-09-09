@@ -178,6 +178,35 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void NativeLineCaptureUsesCanonicalCapsAndPlacement()
+    {
+        var transform = Matrix4x4.CreateScale(2, 3, 1) * Matrix4x4.CreateTranslation(5, 7, 0);
+        for (int start = 0; start < 4; start++)
+        for (int end = 0; end < 4; end++)
+        {
+            var line = GpuHitTestPrimitive.LineStroke(-73, new Vector2(10, 20), new Vector2(30, 40), 4,
+                (LineGeometryCap)start, (LineGeometryCap)end, 0, transform);
+            float padding = 2 * (start == 1 || end == 1 ? MathF.Sqrt(2) : 1);
+            Assert.Equal((10 - padding) * 2 + 5, line.BoundsMin.X);
+            Assert.Equal((40 + padding) * 3 + 7, line.BoundsMax.Y);
+            Assert.Equal(new Vector4(4, 0, start, end), line.Data1);
+            Assert.Equal(MathF.Sqrt(0.5f), line.Data2.X, 6);
+            Assert.Equal(MathF.Sqrt(800), line.Data2.Z, 5);
+        }
+    }
+
+    [Fact]
+    public void DiagonalSquareCapCornersRemainInsideBroadPhaseBounds()
+    {
+        var line = GpuHitTestPrimitive.LineStroke(1, Vector2.Zero, new Vector2(10), 4,
+            LineGeometryCap.Square, LineGeometryCap.Flat);
+        float cornerX = -2 * MathF.Sqrt(2);
+        Assert.True(line.BoundsMin.X <= cornerX);
+        Assert.Equal(GpuHitTestPrimitiveKind.LineStroke, line.Kind);
+        Assert.Equal((float)LineGeometryCap.Square, line.Data1.Z);
+    }
+
+    [Fact]
     public void EllipseCachesCenterAndInverseRadiiForGpuHitTesting()
     {
         var primitive = GpuHitTestPrimitive.EllipseFill(
