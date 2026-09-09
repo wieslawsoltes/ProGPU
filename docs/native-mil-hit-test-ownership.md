@@ -163,7 +163,9 @@ remains O(C), with O(1) additional scope state and existing SIMD placement.
 
 LibreWPF product sinks publish this through `IWpfImageHitTestScopeCommandSink`
 from `WpfDrawingReplay.TryReplayDrawingImage`, including authoritative empty
-drawings. Unavailable descriptors reject rather than become empty scopes.
+drawings. DrawingImage's source getter returns false for absent Drawing; that
+case retains rectangle input. A true result with null drawing is inconsistent
+and rejects, as do unavailable bounds (the separate bounds getter's false).
 Bounds/diagnostic/native-WPF sinks keep their ordinary drawing behavior and do
 not produce this managed GPU index. Fixtures cover compact and general snapshot
 round trips, internal clip/opacity isolation, empty scopes, cleanup and actual
