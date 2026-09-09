@@ -425,17 +425,39 @@ static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompo
         !ReferenceEquals(owner, firstOwner))
         throw new InvalidOperationException("The native query did not resolve its submitted source owner.");
 
+    // The desktop completion path must return the same records/counters as
+    // polling, and repeated maps must not observe an earlier callback's state.
+    NativeGpuHitTestResult firstSummary = summary;
+    for (int repetition = 0; repetition < 16; repetition++)
+    {
+        var waitToken = before.BeginQuery(query);
+        count = before.Wait(waitToken, results, out summary);
+        if (count != 1 || !summary.Equals(firstSummary) || !results[0].Equals(firstResult) ||
+            !before.TryGetOwner(waitToken, results[0], out owner) || !ReferenceEquals(owner, firstOwner))
+            throw new InvalidOperationException("Waiting changed native query order, diagnostics or source ownership.");
+        ExpectFailure<NativeRendererException>(() => before.Wait(waitToken, [], out _));
+    }
+    // Capacity rejection must preserve the request for completion, while an
+    // explicit empty result span retires it and keeps the total-hit summary.
+    var twoSlots = before.BeginQuery(NativeGpuHitTestQuery.PointQuery(new Vector2(5, 5), 2));
+    try
+    {
+        before.Wait(twoSlots, results, out _);
+        throw new InvalidOperationException("A too-small native result buffer was accepted.");
+    }
+    catch (NativeRendererException error) when (error.Status == NativeRendererStatus.InvalidArgument)
+    {
+    }
+    count = before.Wait(twoSlots, [], out summary);
+    if (count != 0 || summary.Hit != 1)
+        throw new InvalidOperationException("Native query discard lost its summary or copied list records.");
+
     InstallIndex(compositor, sceneId, 2);
     var after = compositor.BindGpuHitTestOwners(
         new NativeGpuHitTestOwnerMap<object>([new(42, secondOwner)]), sceneId, 2);
     NativeGpuHitTestRequestToken secondToken = after.BeginQuery(query);
-    deadline.Restart();
-    while (!after.TryPoll(secondToken, results, out count, out summary))
-    {
-        if (deadline.Elapsed > TimeSpan.FromSeconds(10))
-            throw new TimeoutException("Replacement native owner-query GPU readback did not complete.");
-        Thread.Yield();
-    }
+    ExpectFailure<ArgumentException>(() => before.Wait(secondToken, [], out _));
+    count = after.Wait(secondToken, results, out summary);
     if (count != 1 || summary.Hit != 1 ||
         !after.TryGetOwner(secondToken, results[0], out owner) || !ReferenceEquals(owner, secondOwner))
         throw new InvalidOperationException("The replacement scene did not publish its new source owner.");
@@ -451,6 +473,10 @@ static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompo
     var foreign = other.BindGpuHitTestOwners(
         new NativeGpuHitTestOwnerMap<object>([new(42, secondOwner)]), sceneId, 1);
     ExpectFailure<ArgumentException>(() => foreign.TryGetOwner(firstToken, firstResult, out _));
+    ExpectFailure<ArgumentException>(() => foreign.Wait(firstToken, [], out _));
+    var noList = after.BeginQuery(NativeGpuHitTestQuery.PointQuery(new Vector2(5, 5), 0));
+    if (after.Wait(noList, [], out summary) != 0 || summary.Hit != 1 || summary.Id != 42)
+        throw new InvalidOperationException("Native zero-list wait did not retain the topmost hit.");
     Console.WriteLine("package-consumer: native GPU owner snapshot/generation isolation");
 
     static void ExpectFailure<TException>(Action action) where TException : Exception

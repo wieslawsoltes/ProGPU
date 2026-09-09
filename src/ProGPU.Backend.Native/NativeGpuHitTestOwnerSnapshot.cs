@@ -48,6 +48,19 @@ public readonly struct NativeGpuHitTestOwnerSnapshot<TOwner> where TOwner : clas
         return _compositor!.TryPollGpuHitTest(token, results, out resultCount, out summary);
     }
 
+    /// <summary>
+    /// Completes this snapshot's request on the native desktop owner thread.
+    /// Keeps the same immutable owner identity and ordered result contract as
+    /// <see cref="TryPoll"/>. Browser callers must poll asynchronously instead.
+    /// </summary>
+    public int Wait(
+        NativeGpuHitTestRequestToken token, Span<NativeGpuHitTestResult> results,
+        out NativeGpuHitTestResult summary)
+    {
+        RequireToken(token);
+        return _compositor!.WaitGpuHitTest(token, results, out summary);
+    }
+
     public bool TryGetOwner(
         NativeGpuHitTestRequestToken token, in NativeGpuHitTestResult result,
         [NotNullWhen(true)] out TOwner? owner)

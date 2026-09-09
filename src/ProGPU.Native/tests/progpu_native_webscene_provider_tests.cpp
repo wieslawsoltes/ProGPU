@@ -3610,6 +3610,26 @@ int main(int argc, char** argv) {
         hit_results[0U].primitive_index == 0U,
         "packaged Dawn GPU hit-test result diverged");
 
+    const auto polled_hit = hit_results[0U];
+    const auto polled_summary = hit_summary;
+    for (std::uint32_t repetition = 0U; repetition < 16U; ++repetition) {
+        require(progpu_native_engine_begin_hit_test(
+            engine, &hit_query, &hit_token) == PROGPU_NATIVE_STATUS_SUCCESS,
+            "Dawn wait comparison could not begin its query");
+        require(progpu_native_engine_wait_hit_test(
+            engine, hit_token, hit_results.data(), hit_results.size(),
+            &hit_count, &hit_summary) == PROGPU_NATIVE_STATUS_SUCCESS,
+            "Dawn map-future hit-test wait failed");
+        require(hit_count == 1U &&
+            std::memcmp(&hit_results[0U], &polled_hit, sizeof(polled_hit)) == 0 &&
+            std::memcmp(&hit_summary, &polled_summary, sizeof(polled_summary)) == 0,
+            "Dawn waited query differs from polling or recycled stale callback state");
+        require(progpu_native_engine_wait_hit_test(
+            engine, hit_token, nullptr, 0U, &hit_count, &hit_summary) ==
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "Dawn waited request was not retired");
+    }
+
     auto patch_scene = create_semantic_image_patch_scene_stream(64U, 48U);
     require(!patch_scene.empty(),
         "native image patch fixture build failed");

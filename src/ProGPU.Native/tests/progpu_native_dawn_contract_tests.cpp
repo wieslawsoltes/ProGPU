@@ -54,6 +54,11 @@ progpu_native_dawn_engine_options valid_options(
 } // namespace
 
 int main() {
+    progpu_native_hit_test_result hit_summary{};
+    std::uint32_t hit_count = 0U;
+    require(progpu_native_engine_wait_hit_test(
+        nullptr, 1U, nullptr, 0U, &hit_count, &hit_summary) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(progpu_native_get_abi_version() == PROGPU_NATIVE_ABI_VERSION);
     require(progpu_native_dawn_get_adapter_abi_version() ==
         PROGPU_NATIVE_DAWN_ADAPTER_ABI_VERSION);

@@ -60,6 +60,7 @@ public sealed class NativeGpuHitTestOwnerMapTests
         Assert.False(snapshot.IsValid);
         Assert.Throws<InvalidOperationException>(() => snapshot.BeginQuery(default));
         Assert.Throws<ArgumentException>(() => snapshot.TryPoll(default, [], out _, out _));
+        Assert.Throws<ArgumentException>(() => snapshot.Wait(default, [], out _));
         Assert.Throws<ArgumentException>(() => snapshot.TryGetOwner(default, default, out _));
     }
 

@@ -3004,6 +3004,23 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_poll_hit_test(
     uint32_t* result_count,
     progpu_native_hit_test_result* summary,
     uint8_t* complete);
+/*
+ * Desktop owner-thread completion of a previously begun query, using the same
+ * ordered results, summary and discard contracts as poll_hit_test. SUCCESS
+ * means the request has completed and retired. This waits for the map callback,
+ * not just submission completion; it never pumps host application callbacks.
+ * Browser builds return UNSUPPORTED without consuming the request. Invalid
+ * arguments or failure to complete the wait also preserve the pending token so
+ * the caller may poll it later or dispose the engine. A terminal map failure
+ * retires the request, as in poll_hit_test. No CPU hit-test fallback is used.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_wait_hit_test(
+    progpu_native_engine* engine,
+    uint64_t request_token,
+    progpu_native_hit_test_result* results,
+    uint32_t result_capacity,
+    uint32_t* result_count,
+    progpu_native_hit_test_result* summary);
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render(
     progpu_native_engine* engine,
     const progpu_native_frame* frame,

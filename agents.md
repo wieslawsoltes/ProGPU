@@ -521,6 +521,14 @@ teardown, and never use a managed compositor index as proof of native MIL input
 parity. A bound owner map is not evidence that MIL emits a native hit-test index.
 See `docs/native-mil-hit-test-ownership.md` for the remaining producer/host work.
 
+Desktop native query completion waits for the actual map operation, not merely
+queue submission or BufferGetMapState. Keep callback publication/lifetime safe
+across repeated maps, caller-owned result spans and scene-qualified owner tokens.
+Browser callers remain asynchronous. A failed wait retains explicit request
+ownership until completion or compositor disposal; never hide it as a miss,
+spin in managed code or consult the managed index. Host admission remains separate
+from this shared completion primitive; see docs/native-mil-hit-test-completion.md.
+
 Source image hit coverage is its declared destination rectangle, not flattened
 render contents. Native logical save scopes and managed IsImageHitTestScope clip
 metadata must retain balanced nesting, source ownership and outer transforms/

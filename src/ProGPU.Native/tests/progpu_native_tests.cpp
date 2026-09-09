@@ -562,6 +562,10 @@ void api_contract_is_versioned() {
         &summary,
         &complete) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
 
+    PROGPU_REQUIRE(progpu_native_engine_wait_hit_test(
+        nullptr, 1U, nullptr, 0U, &result_count, &summary) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+
     progpu_native_engine_info too_small{};
     too_small.struct_size = sizeof(too_small) - 1U;
     PROGPU_REQUIRE(progpu_native_get_info(&too_small) == 0U);

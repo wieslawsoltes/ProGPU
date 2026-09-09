@@ -609,6 +609,31 @@ public sealed unsafe class NativeCompositor : IDisposable
         Span<NativeGpuHitTestResult> results,
         out int resultCount,
         out NativeGpuHitTestResult summary)
+        => ReadGpuHitTest(token, results, out resultCount, out summary, wait: false);
+
+    /// <summary>
+    /// Completes a previously submitted query on the desktop owner thread.
+    /// Waits on the native map callback without managed spinning or application
+    /// event pumping. Result order, summary and empty-span discard semantics
+    /// match <see cref="TryPollGpuHitTest"/>. Browser callers must use polling.
+    /// If the provider cannot complete its wait, retain the token to poll later
+    /// or dispose the compositor; a terminal map failure retires the request.
+    /// </summary>
+    public int WaitGpuHitTest(
+        NativeGpuHitTestRequestToken token,
+        Span<NativeGpuHitTestResult> results,
+        out NativeGpuHitTestResult summary)
+    {
+        ReadGpuHitTest(token, results, out int resultCount, out summary, wait: true);
+        return resultCount;
+    }
+
+    private bool ReadGpuHitTest(
+        NativeGpuHitTestRequestToken token,
+        Span<NativeGpuHitTestResult> results,
+        out int resultCount,
+        out NativeGpuHitTestResult summary,
+        bool wait)
     {
         if (!token.IsValid || token.Owner != _hitTestOwner)
         {
@@ -629,15 +654,25 @@ public sealed unsafe class NativeCompositor : IDisposable
             lock (_context.RenderLock)
             {
                 ThrowIfGpuUnavailable();
-                ThrowForStatus(NativeRendererInterop.PollHitTest(
-                    _interopKind,
-                    _engine,
-                    token.Value,
-                    resultPointer,
-                    (uint)results.Length,
-                    &nativeResultCount,
-                    &nativeSummary,
-                    &complete));
+                if (wait)
+                {
+                    ThrowForStatus(NativeRendererInterop.WaitHitTest(
+                        _interopKind, _engine, token.Value, resultPointer,
+                        (uint)results.Length, &nativeResultCount, &nativeSummary));
+                    complete = 1;
+                }
+                else
+                {
+                    ThrowForStatus(NativeRendererInterop.PollHitTest(
+                        _interopKind,
+                        _engine,
+                        token.Value,
+                        resultPointer,
+                        (uint)results.Length,
+                        &nativeResultCount,
+                        &nativeSummary,
+                        &complete));
+                }
             }
         }
         resultCount = checked((int)nativeResultCount);

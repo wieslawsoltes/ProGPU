@@ -449,6 +449,7 @@ struct progpu_native_engine {
     std::uint64_t semantic_hit_test_gpu_hash = 0U;
     std::uint64_t semantic_hit_test_next_token = 0U;
     std::uint64_t semantic_hit_test_pending_token = 0U;
+    std::uint64_t semantic_hit_test_map_future = 0U;
     std::uint64_t semantic_hit_test_pending_bytes = 0U;
     std::uint32_t semantic_hit_test_primitive_count = 0U;
     std::uint32_t semantic_hit_test_node_count = 0U;
@@ -1019,6 +1020,7 @@ struct progpu_native_engine {
                 semantic_hit_test_readback_buffer);
         }
         semantic_hit_test_pending_token = 0U;
+        semantic_hit_test_map_future = 0U;
         semantic_hit_test_pending_bytes = 0U;
         semantic_hit_test_requested_result_count = 0U;
         release_semantic_hit_test_index();

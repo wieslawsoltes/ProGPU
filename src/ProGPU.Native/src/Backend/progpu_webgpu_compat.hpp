@@ -300,7 +300,8 @@ inline WGPUBufferMapState poll_buffer_map(
     WGPUDevice,
     WGPUBuffer buffer,
     const buffer_map_read_state& state) noexcept {
-#if defined(PROGPU_NATIVE_BROWSER)
+    // Buffer state alone does not prove that the callback has published its
+    // completion. Do not recycle callback storage while it can still write it.
     (void)buffer;
     const auto completion = state.completion.load(std::memory_order_acquire);
     if (completion == buffer_map_pending) {
@@ -309,13 +310,9 @@ inline WGPUBufferMapState poll_buffer_map(
     return completion == buffer_map_succeeded
         ? WGPUBufferMapState_Mapped
         : WGPUBufferMapState_Unmapped;
-#else
-    (void)state;
-    return active_dispatch().wgpuBufferGetMapState(buffer);
-#endif
 }
 
-inline void buffer_map_async(
+inline std::uint64_t buffer_map_async(
     WGPUBuffer buffer,
     WGPUMapMode mode,
     std::uint64_t offset,
@@ -323,13 +320,14 @@ inline void buffer_map_async(
     WGPUBufferMapCallbackInfo callback) noexcept {
 #if defined(PROGPU_NATIVE_BROWSER)
     ::wgpuBufferMapAsync(buffer, mode, offset, size, callback);
+    return 0U;
 #else
-    active_dispatch().wgpuBufferMapAsync(
+    return active_dispatch().wgpuBufferMapAsync(
         buffer,
         mode,
         offset,
         size,
-        callback);
+        callback).id;
 #endif
 }
 
