@@ -294,8 +294,8 @@ bool get_caret(
         const auto distance = delta < 0 ? -delta : delta;
         if (distance < best_distance ||
             (distance == best_distance &&
-                candidate.trailing == trailing_affinity &&
-                caret_stops[best].trailing != trailing_affinity)) {
+                static_cast<bool>(candidate.trailing) == trailing_affinity &&
+                static_cast<bool>(caret_stops[best].trailing) != trailing_affinity)) {
             best = index;
             best_distance = distance;
         }
@@ -333,7 +333,7 @@ bool move_caret(
             candidate.input_position) - input_position;
         const auto logical_distance = delta < 0 ? -delta : delta;
         const auto distance = logical_distance * 4 +
-            (candidate.trailing == trailing_affinity ? 0 : 1);
+            (static_cast<bool>(candidate.trailing) == trailing_affinity ? 0 : 1);
         if (distance < best_distance) {
             best_distance = distance;
             current = index;

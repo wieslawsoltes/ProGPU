@@ -1934,11 +1934,11 @@ int run_tests()
     }
     factory = parent;
 
-    com::pointer<compat::resource> resource;
+    com::pointer<compat::resource> geometry_resource;
     com::pointer<compat::geometry> geometry_base;
-    if (geometry.as(compat::resource_interface_id, resource) != com::ok ||
+    if (geometry.as(compat::resource_interface_id, geometry_resource) != com::ok ||
         geometry.as(compat::geometry_interface_id, geometry_base) != com::ok ||
-        resource.get() != static_cast<compat::resource*>(geometry.get()) ||
+        geometry_resource.get() != static_cast<compat::resource*>(geometry.get()) ||
         geometry_base.get() != static_cast<compat::geometry*>(geometry.get())) {
         return 7;
     }
@@ -2295,10 +2295,10 @@ int run_tests()
         !transformed_base) {
         return 14;
     }
-    compat::geometry* raw_source = nullptr;
-    transformed->GetSourceGeometry(&raw_source);
+    compat::geometry* raw_source_geometry = nullptr;
+    transformed->GetSourceGeometry(&raw_source_geometry);
     com::pointer<compat::geometry> returned_source;
-    returned_source.attach(raw_source);
+    returned_source.attach(raw_source_geometry);
     compat::matrix_3x2_f returned_transform{};
     transformed->GetTransform(&returned_transform);
     if (returned_source.get() != geometry_base.get() ||
@@ -2790,17 +2790,17 @@ int run_tests()
         raw_path == nullptr) {
         return 24;
     }
-    com::pointer<compat::path_geometry> path;
-    path.attach(raw_path);
+    com::pointer<compat::path_geometry> source_path;
+    source_path.attach(raw_path);
     com::pointer<compat::resource> path_resource;
     com::pointer<compat::geometry> path_base;
-    if (path.as(compat::resource_interface_id, path_resource) != com::ok ||
-        path.as(compat::geometry_interface_id, path_base) != com::ok ||
+    if (source_path.as(compat::resource_interface_id, path_resource) != com::ok ||
+        source_path.as(compat::geometry_interface_id, path_base) != com::ok ||
         !path_resource || !path_base) {
         return 25;
     }
     compat::factory* raw_path_factory = nullptr;
-    path->GetFactory(&raw_path_factory);
+    source_path->GetFactory(&raw_path_factory);
     com::pointer<compat::factory> path_factory;
     path_factory.attach(raw_path_factory);
     if (path_factory.get() != factory.get()) {
@@ -2809,14 +2809,14 @@ int run_tests()
 
     std::uint32_t path_segment_count = 99U;
     std::uint32_t path_figure_count = 99U;
-    if (path->GetSegmentCount(&path_segment_count) != compat::wrong_state ||
+    if (source_path->GetSegmentCount(&path_segment_count) != compat::wrong_state ||
         path_segment_count != 0U ||
-        path->GetFigureCount(&path_figure_count) != compat::wrong_state ||
+        source_path->GetFigureCount(&path_figure_count) != compat::wrong_state ||
         path_figure_count != 0U) {
         return 27;
     }
     compat::geometry_sink* raw_path_sink = nullptr;
-    if (path->Open(&raw_path_sink) != com::ok || raw_path_sink == nullptr) {
+    if (source_path->Open(&raw_path_sink) != com::ok || raw_path_sink == nullptr) {
         return 28;
     }
     com::pointer<compat::geometry_sink> path_sink;
@@ -2824,7 +2824,7 @@ int run_tests()
     compat::geometry_sink* duplicate_sink =
         reinterpret_cast<compat::geometry_sink*>(
             static_cast<std::uintptr_t>(1U));
-    if (path->Open(&duplicate_sink) != compat::wrong_state ||
+    if (source_path->Open(&duplicate_sink) != compat::wrong_state ||
         duplicate_sink != nullptr) {
         return 29;
     }
@@ -2856,14 +2856,14 @@ int run_tests()
     path_sink_base.Reset();
     path_sink.Reset();
 
-    if (path->GetSegmentCount(&path_segment_count) != com::ok ||
+    if (source_path->GetSegmentCount(&path_segment_count) != com::ok ||
         path_segment_count != 4U ||
-        path->GetFigureCount(&path_figure_count) != com::ok ||
+        source_path->GetFigureCount(&path_figure_count) != com::ok ||
         path_figure_count != 1U) {
         return 32;
     }
     compat::rectangle_f path_bounds{};
-    if (path->GetBounds(&transform, &path_bounds) != com::ok ||
+    if (source_path->GetBounds(&transform, &path_bounds) != com::ok ||
         !approximately_equal(path_bounds.left, 10.0F) ||
         !approximately_equal(path_bounds.top, -7.0F) ||
         !approximately_equal(path_bounds.right, 22.0F) ||
@@ -2874,7 +2874,7 @@ int run_tests()
     auto* raw_path_stream = new simplified_sink();
     com::pointer<compat::geometry_sink> path_stream;
     path_stream.attach(raw_path_stream);
-    if (path->Stream(path_stream.get()) != com::ok ||
+    if (source_path->Stream(path_stream.get()) != com::ok ||
         raw_path_stream->fill_mode != compat::fill_mode::winding ||
         raw_path_stream->begin_count != 1U ||
         raw_path_stream->end_count != 1U ||
@@ -2889,7 +2889,7 @@ int run_tests()
     auto* raw_path_simplified = new simplified_sink();
     com::pointer<compat::simplified_geometry_sink> path_simplified;
     path_simplified.attach(raw_path_simplified);
-    if (path->Simplify(
+    if (source_path->Simplify(
             compat::geometry_simplification_option::cubics_and_lines,
             &transform,
             core::default_flattening_tolerance,
@@ -5980,14 +5980,14 @@ int run_tests()
     const compat::brush_properties brush_properties{
         0.625F,
         {1.0F, 0.25F, -0.5F, 2.0F, 3.0F, -4.0F}};
-    compat::solid_color_brush* raw_brush = nullptr;
+    compat::solid_color_brush* raw_solid_brush = nullptr;
     if (resource_factory->CreateSolidColorBrush(
-            &brush_color, &brush_properties, &raw_brush) != com::ok ||
-        raw_brush == nullptr) {
+            &brush_color, &brush_properties, &raw_solid_brush) != com::ok ||
+        raw_solid_brush == nullptr) {
         return 110;
     }
     com::pointer<compat::solid_color_brush> solid_brush;
-    solid_brush.attach(raw_brush);
+    solid_brush.attach(raw_solid_brush);
     com::pointer<compat::resource> brush_resource;
     com::pointer<compat::brush> brush_base;
     if (solid_brush.as(
@@ -6043,12 +6043,12 @@ int run_tests()
         !approximately_equal(returned_brush_transform.m11, 2.0F)) {
         return 114;
     }
-    raw_brush = reinterpret_cast<compat::solid_color_brush*>(
+    raw_solid_brush = reinterpret_cast<compat::solid_color_brush*>(
         static_cast<std::uintptr_t>(1U));
     if (resource_factory->CreateSolidColorBrush(
-            &invalid_brush_color, nullptr, &raw_brush) !=
+            &invalid_brush_color, nullptr, &raw_solid_brush) !=
             com::invalid_argument ||
-        raw_brush != nullptr ||
+        raw_solid_brush != nullptr ||
         resource_factory->CreateSolidColorBrush(
             &brush_color, nullptr, nullptr) != com::pointer_error) {
         return 115;
@@ -8338,9 +8338,9 @@ int run_tests()
         if (source_target->GetBitmap(&raw_dpi_bitmap) != com::ok) return 284;
         com::pointer<compat::bitmap> dpi_bitmap;
         dpi_bitmap.attach(raw_dpi_bitmap);
-        float bitmap_dpi_x = 0.0F, bitmap_dpi_y = 0.0F;
-        dpi_bitmap->GetDpi(&bitmap_dpi_x, &bitmap_dpi_y);
-        if (bitmap_dpi_x != 192.0F || bitmap_dpi_y != 192.0F ||
+        float retained_bitmap_dpi_x = 0.0F, retained_bitmap_dpi_y = 0.0F;
+        dpi_bitmap->GetDpi(&retained_bitmap_dpi_x, &retained_bitmap_dpi_y);
+        if (retained_bitmap_dpi_x != 192.0F || retained_bitmap_dpi_y != 192.0F ||
             dpi_bitmap->GetSize().width != 16.0F || dpi_bitmap->GetSize().height != 12.0F) return 284;
         target->BeginDraw();
         target->DrawBitmap(dpi_bitmap.get(), nullptr, 1.0F, compat::bitmap_interpolation_mode::linear, nullptr);
@@ -9658,12 +9658,12 @@ int run_tests()
     const auto layer_pixel_size = target->GetPixelSize();
     for (const auto dpi : {compat::size_f{96.0F, 96.0F}, compat::size_f{144.0F, 192.0F}}) {
         target->SetDpi(dpi.width, dpi.height);
-        for (const auto& transform : affine_full_layer_transforms) {
+        for (const auto& layer_transform : affine_full_layer_transforms) {
             for (const bool gradient : {false, true}) {
                 auto parameters = full_opacity_brush_layer_parameters;
                 parameters.opacity_brush = gradient ? static_cast<compat::brush*>(linear_brush.get())
                     : static_cast<compat::brush*>(target_brush.get());
-                target->SetTransform(&transform);
+                target->SetTransform(&layer_transform);
                 target->BeginDraw();
                 target->PushLayer(&parameters, target_layer.get());
                 target->FillRectangle(&layer_bounds, target_brush.get());
@@ -9683,19 +9683,19 @@ int run_tests()
                     header->resource_offset + layer->mask_resource_index * header->resource_stride);
                 const auto* mask = reinterpret_cast<const progpu_native_scene_layer_brush_mask*>(scene.data() + resource->payload_offset);
                 if (mask->kind != PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
-                    mask->transform.m11 != transform.m11 || mask->transform.m12 != transform.m12 ||
-                    mask->transform.m21 != transform.m21 || mask->transform.m22 != transform.m22 ||
-                    mask->transform.m31 != transform.m31 || mask->transform.m32 != transform.m32) return 321;
+                    mask->transform.m11 != layer_transform.m11 || mask->transform.m12 != layer_transform.m12 ||
+                    mask->transform.m21 != layer_transform.m21 || mask->transform.m22 != layer_transform.m22 ||
+                    mask->transform.m31 != layer_transform.m31 || mask->transform.m32 != layer_transform.m32) return 321;
                 // Independent double inverse oracle: every viewport corner must
                 // remain covered by the local mask domain (float transport tolerance).
-                const double determinant = double{transform.m11} * transform.m22 -
-                    double{transform.m12} * transform.m21;
+                const double determinant = double{layer_transform.m11} * layer_transform.m22 -
+                    double{layer_transform.m12} * layer_transform.m21;
                 for (const double x : {0.0, static_cast<double>(layer_pixel_size.width) * 96.0 / dpi.width}) {
                     for (const double y : {0.0, static_cast<double>(layer_pixel_size.height) * 96.0 / dpi.height}) {
-                        const double local_x = ((x - transform.m31) * transform.m22 -
-                            (y - transform.m32) * transform.m21) / determinant;
-                        const double local_y = ((y - transform.m32) * transform.m11 -
-                            (x - transform.m31) * transform.m12) / determinant;
+                        const double local_x = ((x - layer_transform.m31) * layer_transform.m22 -
+                            (y - layer_transform.m32) * layer_transform.m21) / determinant;
+                        const double local_y = ((y - layer_transform.m32) * layer_transform.m11 -
+                            (x - layer_transform.m31) * layer_transform.m12) / determinant;
                         constexpr double tolerance = 0.002;
                         if (local_x < mask->bounds.x - tolerance || local_y < mask->bounds.y - tolerance ||
                             local_x > double{mask->bounds.x} + mask->bounds.width + tolerance ||
@@ -9784,7 +9784,7 @@ int run_tests()
         const auto* command = reinterpret_cast<const progpu_native_scene_command*>(stream + child->command_offset);
         if (command->kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) return false;
         const auto* image = reinterpret_cast<const progpu_native_scene_image_draw*>(stream + command->payload_offset);
-        const auto expected_sampling = interpolation == compat::bitmap_interpolation_mode::nearest_neighbor
+        const std::uint32_t expected_sampling = interpolation == compat::bitmap_interpolation_mode::nearest_neighbor
             ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
         return image->opacity == 0.375F && image->sampling == expected_sampling &&
             (image->flags & PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT) != 0U &&

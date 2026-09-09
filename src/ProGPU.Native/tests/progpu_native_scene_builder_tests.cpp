@@ -1017,9 +1017,10 @@ bool semantic_scene_builder_reuses_retained_images() {
     for (const auto incompatible : {PROGPU_NATIVE_SCENE_IMAGE_R8,
             PROGPU_NATIVE_SCENE_IMAGE_BGRA8, PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE}) {
         auto corrupt = picture_stream;
-        auto resource = picture_resource;
-        resource.flags |= incompatible;
-        std::memcpy(corrupt.data() + picture_validation.header.resource_offset, &resource, sizeof(resource));
+        auto corrupt_resource = picture_resource;
+        corrupt_resource.flags |= incompatible;
+        std::memcpy(corrupt.data() + picture_validation.header.resource_offset,
+            &corrupt_resource, sizeof(corrupt_resource));
         if (scene::validate(corrupt.data(), corrupt.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
     }
     auto corrupt_nested = picture_stream;

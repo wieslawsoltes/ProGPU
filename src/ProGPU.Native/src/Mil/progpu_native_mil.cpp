@@ -17634,28 +17634,28 @@ struct channel::implementation {
                                 transformed_lease, prepared_spine);
                             if (mapped != status::success) return mapped;
                         }
-                        const auto& geometry = *prepared_spine;
+                        const auto& stroke_geometry = *prepared_spine;
                         brush_use_state spatial_use{};
                         const bool spatial = gradient_brushes.contains(pen.brush_handle) || is_sampled_brush(pen.brush_handle);
                         if (spatial) {
                             // Relative pen brushes use painted stroke bounds, not
                             // a transformed control hull or a scaled pen envelope.
                             progpu_native_image_rect bounds{};
-                            const status measured = resolve_path_stroke_bounds(geometry, pen, {}, bounds);
+                            const status measured = resolve_path_stroke_bounds(stroke_geometry, pen, {}, bounds);
                             if (measured != status::success) return measured;
                             if (bounds.width <= 0.0F || bounds.height <= 0.0F) continue;
                             spatial_use = {bounds.x, bounds.y, bounds.width, bounds.height, current.transform};
                         }
                         status stroke_status = status::success;
                         if (is_sampled_brush(pen.brush_handle)) {
-                            if (pen.thickness > 0.0 && !geometry.stroke_contours.empty()) {
+                            if (pen.thickness > 0.0 && !stroke_geometry.stroke_contours.empty()) {
                                 // All contours share one mask and one brush paint,
                                 // including disjoint/non-stroked-segment breaks.
                                 stroke_status = append_tile_pen(pen, spatial_use, current, {}, {}, false,
-                                    geometry.stroke_contours);
+                                    stroke_geometry.stroke_contours);
                             }
                         } else {
-                            stroke_status = append_path_strokes(geometry, pen,
+                            stroke_status = append_path_strokes(stroke_geometry, pen,
                                 {}, current.transform, PROGPU_NATIVE_SCENE_NO_INDEX, spatial ? &spatial_use : nullptr);
                         }
                         if (stroke_status != status::success) {
@@ -20083,9 +20083,10 @@ struct channel::implementation {
         mask.transform = native::semantic_scene_builder::identity_transform();
         mask.opacity = 1.0F;
         if (!clip_paths.empty()) {
+            if (scene.size() > std::numeric_limits<std::uint32_t>::max()) return status::invalid_graph;
             mask.struct_size = sizeof(mask);
             mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
-            mask.stream_size = scene.size();
+            mask.stream_size = static_cast<std::uint32_t>(scene.size());
             return builder.add_composite_mask({}, {}, {}, std::span(&mask, 1U), scene,
                 clip_paths, clip_segments, clip_nodes, {}, 1.0F, mask_index)
                 ? status::success : status::invalid_graph;

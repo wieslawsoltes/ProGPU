@@ -71,7 +71,7 @@ bool filled_relations_preserve_topology_and_shared_com_results()
     const auto inner = polygon({{2, 2}, {8, 2}, {8, 8}, {2, 8}});
     const auto overlap = polygon({{5, 5}, {15, 5}, {15, 15}, {5, 15}});
     const auto touching = polygon({{10, 0}, {20, 0}, {20, 10}, {10, 10}});
-    const auto far = polygon({{20, 20}, {30, 20}, {30, 30}, {20, 30}});
+    const auto distant = polygon({{20, 20}, {30, 20}, {30, 30}, {20, 30}});
     const auto triangle = polygon({{0, 0}, {10, 0}, {0, 10}});
     const auto opposite_corner = polygon({{8, 8}, {9, 8}, {9, 9}, {8, 9}});
     const auto check = [](std::span<const segment> a, std::span<const segment> b,
@@ -86,7 +86,7 @@ bool filled_relations_preserve_topology_and_shared_com_results()
         !check(outer, outer, PROGPU_NATIVE_GEOMETRY_RELATION_IS_CONTAINED) ||
         !check(outer, overlap, PROGPU_NATIVE_GEOMETRY_RELATION_OVERLAP) ||
         !check(outer, touching, PROGPU_NATIVE_GEOMETRY_RELATION_OVERLAP) ||
-        !check(outer, far, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT) ||
+        !check(outer, distant, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT) ||
         !check(triangle, opposite_corner, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT) ||
         !check({}, outer, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT) ||
         !check(outer, {}, PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT) ||

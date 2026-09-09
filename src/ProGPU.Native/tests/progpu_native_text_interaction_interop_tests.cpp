@@ -90,6 +90,24 @@ int main() {
     require(caret.input_position == 2 && caret.x == 8.0F);
     require(progpu_native_text_interaction_move_caret(carets.data(), 6U, 2, 1U, 1, &caret) == success);
     require(caret.input_position == 4 && caret.x == 8.0F);
+    // Byte-valued ABI affinities and bool-valued C++ affinities must select
+    // the same stop at shared logical positions, including visual movement.
+    for (const bool trailing : {false, true}) {
+        text_caret_stop native_caret{};
+        require(try_get_text_caret_stop(native_carets, 2, trailing, native_caret));
+        require(progpu_native_text_interaction_get_caret(carets.data(), 6U, 2,
+            static_cast<std::uint8_t>(trailing), &caret) == success);
+        require(caret.input_position == native_caret.input_position && caret.x == native_caret.x);
+        require(static_cast<bool>(caret.trailing) == native_caret.trailing);
+        for (const std::int32_t direction : {-1, 0, 1}) {
+            require(try_move_text_caret_visually(native_carets, 2, trailing, direction, native_caret));
+            require(progpu_native_text_interaction_move_caret(carets.data(), 6U, 2,
+                static_cast<std::uint8_t>(trailing), direction, &caret) == success);
+            require(caret.input_position == native_caret.input_position && caret.x == native_caret.x);
+            require(caret.line_index == native_caret.line_index && caret.y == native_caret.y);
+            require(static_cast<bool>(caret.trailing) == native_caret.trailing);
+        }
+    }
     std::array<progpu_native_text_rectangle, 3> rectangles{};
     std::uint32_t written = 99U;
     require(progpu_native_text_interaction_get_selection(boxes.data(), 3U, 0, 5, rectangles.data(), 1U, &written) == invalid);
@@ -104,5 +122,6 @@ int main() {
     require(hit.inside == 0U && hit.input_position == 0);
     carets[0].trailing = 2U;
     require(progpu_native_text_interaction_get_caret(carets.data(), 6U, 0, 0U, &caret) == invalid);
+    require(progpu_native_text_interaction_move_caret(carets.data(), 6U, 0, 0U, 1, &caret) == invalid);
     std::cout << "text interaction C ABI differential: PASS\n";
 }

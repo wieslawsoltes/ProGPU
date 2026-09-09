@@ -1,3 +1,7 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "progpu_native_mil.hpp"
 #include "progpu_native_mil.h"
 #include "progpu_native_scene_builder.hpp"
@@ -18328,7 +18332,7 @@ bool path_geometry_transform_precedes_pen_widening() {
                     const bool point = matrix[0U] == 0.0 && matrix[1U] == 0.0 &&
                         matrix[2U] == 0.0 && matrix[3U] == 0.0;
                     const bool collapsed = matrix[0U] * matrix[3U] - matrix[1U] * matrix[2U] == 0.0;
-                    const auto expected = point ? PROGPU_NATIVE_GEOMETRY_PATH_CAP :
+                    const std::uint32_t expected = point ? PROGPU_NATIVE_GEOMETRY_PATH_CAP :
                         collapsed ? PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER : PROGPU_NATIVE_GEOMETRY_ARC;
                     bool found = false;
                     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
@@ -21525,8 +21529,9 @@ int main() {
                                         ++tables;
                                         PROGPU_REQUIRE(resource.payload_size == sizeof(progpu_native_scene_brush));
                                         const auto brush = read_value<progpu_native_scene_brush>(scene, resource.payload_offset);
-                                        PROGPU_REQUIRE(brush.type == (gradient ? PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT :
-                                            PROGPU_NATIVE_SCENE_BRUSH_SOLID));
+                                        const std::uint32_t expected_brush = gradient ? PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT :
+                                            PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+                                        PROGPU_REQUIRE(brush.type == expected_brush);
                                         if (gradient) PROGPU_REQUIRE(brush.opacity == 0.5F);
                                     }
                                 }
@@ -21696,8 +21701,9 @@ int main() {
                                             ++brush_tables;
                                             PROGPU_REQUIRE(resource.payload_size == sizeof(progpu_native_scene_brush));
                                             const auto brush = read_value<progpu_native_scene_brush>(scene, resource.payload_offset);
-                                            PROGPU_REQUIRE(brush.type == (radial ? PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT :
-                                                PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT));
+                                            const std::uint32_t expected_brush = radial ? PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT :
+                                                PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+                                            PROGPU_REQUIRE(brush.type == expected_brush);
                                             PROGPU_REQUIRE(brush.opacity == 0.5F);
                                         }
                                         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
