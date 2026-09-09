@@ -6,6 +6,14 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Portable application lifetime belongs to the source shutdown policy, not the first
+native host loop. Shared PortableApplicationRunLoop callbacks borrow live source
+identities and must return only on retirement or actual shutdown; hostless waits
+must block on source work, never spin or manufacture a window. Handoff preserves
+the existing host's visibility and must not reuse modal pumping, activate it again,
+mutate MainWindow or select another renderer. Callback errors propagate explicitly.
+Both renderers share this host contract; Windows SDK admission stays independent.
+
 ### A-1. Mandatory Clean-Room Implementation
 
 Do not copy, port, translate, adapt, transcribe, or otherwise include source code from

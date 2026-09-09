@@ -564,6 +564,13 @@ public sealed class PortableWindowActivationCallbacks
 
     public Action<object>? Close { get; }
 
+    /// <summary>
+    /// Pumps one live activation on its source thread until that host retires or
+    /// the application requests shutdown. Returning does not request application
+    /// shutdown. The source may then select another existing host without showing
+    /// or activating it again, or wait without windows under explicit lifetime.
+    /// A premature return while both host and application are live is an error.
+    /// </summary>
     public Action<object>? Run { get; }
 
     /// <summary>
