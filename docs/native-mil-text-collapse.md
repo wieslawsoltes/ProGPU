@@ -51,6 +51,13 @@ per-style scale, unsafe shaping boundaries, sign-only output and paired ordinary
 versus logical entry-point output. They are authored for final execution; a
 successful build is not a test result.
 
+Build-only evidence (2026-09-09): clean detached commit `bf7a0fb4`, Apple Clang,
+macOS ARM64, existing strict C++20 header-compatibility CMake configuration:
+`cmake --build artifacts/native-core-build.KvxVug/build-osx-arm64 --target progpu_native_text_tests --parallel 3`
+completed all four compile/link steps with exit 0. No test executable was run.
+Module/platform matrix, managed/native application comparisons and full renderer
+qualification remain required. This does not update or qualify staged packages.
+
 ## Primary-source design record
 
 - [DirectWrite trimming](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ns-dwrite-dwrite_trimming)
