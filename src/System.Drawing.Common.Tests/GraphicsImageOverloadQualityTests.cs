@@ -177,7 +177,8 @@ public sealed class GraphicsImageOverloadQualityTests
     public void FourDestinationPointsRecordPerspectiveWeightsAndSurviveRetention()
     {
         Assert.True(
-            System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>() <= 576);
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>() <= 576,
+            $"RenderCommand size is {System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>()} bytes; maximum is 576.");
 
         using Bitmap source = CreateQuadrantSource();
         var context = new DrawingContext();

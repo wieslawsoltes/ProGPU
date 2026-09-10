@@ -8,6 +8,26 @@ namespace ProGPU.Tests;
 
 public class ArcPathCompilerTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void AntipodalArcsPreserveExactHalfTurn(bool reverse, bool large)
+    {
+        foreach (var sweep in new[] { SweepDirection.Clockwise, SweepDirection.Counterclockwise })
+        {
+            var left = new Vector2(10, 40);
+            var right = new Vector2(90, 40);
+            Assert.True(ArcSegmentGeometry.TryGetArcCenter(
+                reverse ? right : left, reverse ? left : right, new Vector2(40, 20),
+                0, large, sweep, out var center, out _, out var delta, out _, out _));
+            Assert.Equal(new Vector2(50, 40), center);
+            Assert.Equal(sweep == SweepDirection.Clockwise ? MathF.PI : -MathF.PI, delta);
+            Assert.Equal(2, (int)MathF.Ceiling(MathF.Abs(delta) / (MathF.PI * .5f)));
+        }
+    }
+
     [Fact]
     public void ArcSegmentBoundsIncludeExactExtrema()
     {

@@ -1,5 +1,6 @@
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
+#include "../src/Geometry/progpu_native_arc.hpp"
 
 #include <array>
 #include <algorithm>
@@ -458,6 +459,24 @@ bool dash_validation_matches_scalar_oracle()
 
 int main()
 {
+    for (const bool reverse : {false, true}) {
+        for (const bool large : {false, true}) {
+            for (const bool clockwise : {false, true}) {
+                namespace geometry = progpu::native::geometry;
+                const geometry::arc_point left{10.0F, 40.0F}, right{90.0F, 40.0F};
+                geometry::arc_point center{};
+                float theta = 0.0F, delta = 0.0F, rx = 0.0F, ry = 0.0F;
+                if (!geometry::resolve_arc(reverse ? right : left, reverse ? left : right,
+                        {40.0F, 20.0F}, 0.0F, large, clockwise, center, theta, delta, rx, ry) ||
+                    center.x != 50.0F || center.y != 40.0F ||
+                    delta != (clockwise ? std::numbers::pi_v<float> : -std::numbers::pi_v<float>) ||
+                    std::ceil(std::abs(delta) / (std::numbers::pi_v<float> * 0.5F)) != 2.0F) {
+                    std::fprintf(stderr, "Antipodal arc did not preserve its exact half turn\n");
+                    return 1;
+                }
+            }
+        }
+    }
     const std::array<std::pair<const char*, bool (*)()>, 10> tests{{
         {"filled_relations", filled_relations_preserve_topology_and_shared_com_results},
         {"modes_and_boundaries", modes_and_actual_boundaries},

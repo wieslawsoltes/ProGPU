@@ -169,7 +169,11 @@ inline bool resolve_arc(
     const float vy = (-y1p - cyp) / radius_y;
     theta1 = std::atan2(uy, ux);
     const float theta2 = std::atan2(vy, vx);
-    delta_theta = theta2 - theta1;
+    // Antipodal endpoints own exactly one half turn, including corrected radii.
+    // Avoid branch-cut subtraction rounding into an extra cubic export span.
+    delta_theta = square_term == 0.0F
+        ? (clockwise ? std::numbers::pi_v<float> : -std::numbers::pi_v<float>)
+        : theta2 - theta1;
     if (clockwise) {
         if (delta_theta < 0.0F) {
             delta_theta += two_pi;

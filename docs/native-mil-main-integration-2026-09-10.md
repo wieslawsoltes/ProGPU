@@ -27,3 +27,32 @@ no initialized submodules. Exact-head CI and complete package/application gates
 remain mandatory, including the outstanding rendering failures in
 `native-mil-release-validation-2026-09-10.md` and the later collapsed-group fixture
 recorded in `native-mil-stroke-spine-bounds.md`.
+
+## Combined command storage and canonical ellipses
+
+The merged System.Drawing suite exposed a 600-byte managed `RenderCommand`, above
+its existing 576-byte budget. Independent boolean flags now occupy the remaining
+bits of the existing options word. Source primitive/scope geometry retains its
+own discriminator and reuses otherwise-inapplicable text/texture vector slots.
+Those public views remain default for source annotations, so compact retained
+classification is unchanged; the existing immutable source sidecar owns replay.
+Clearing absent source metadata must not erase real font/cubic texture options.
+Raster position/rectangle/radii and native generated ABI records are unchanged.
+This is allocation-free fixed-work managed storage, not a new native transport or
+a measured frame-time claim. Native compilation consumes the same expanded values.
+
+The ellipse export also exposed branch-cut angle subtraction rounding an exact
+half turn upward, adding a fifth cubic span. Both original ProGPU arc resolvers
+(`ProGPU.Vector/ArcSegmentGeometry.cs` and native `Geometry/progpu_native_arc.hpp`)
+now preserve exactly signed pi when the solved center offset is zero. Other arc
+angles, retained analytic arcs, radii correction and quality limits are unchanged.
+The [SVG endpoint-to-center specification](https://www.w3.org/TR/SVG/implnote.html#ArcConversionEndpointToCenter)
+is the mathematical reference; no third-party implementation was copied. This
+uses the cross-engine ownership/reuse decisions already recorded in
+`native-mil-hit-test-ownership.md#design-references-and-decisions`; shaping, font
+caches, uploads, worker scheduling and device-loss behavior are unaffected.
+
+The System.Drawing Release run passes 621/621 tests; paired managed retained/arc
+tests pass 265/265, and the native geometry utility passes including both endpoint
+orders, sweep directions and large-arc flags. These results do not qualify the
+remaining native/managed pixel failures, exact-head packages or platform gates.

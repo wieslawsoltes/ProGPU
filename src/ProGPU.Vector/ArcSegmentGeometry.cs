@@ -146,7 +146,13 @@ static class ArcSegmentGeometry
         theta1 = MathF.Atan2(uy, ux);
         float theta2 = MathF.Atan2(vy, vx);
 
-        deltaTheta = theta2 - theta1;
+        // A zero center offset means the endpoints are antipodal, including
+        // radii corrected to fit the chord. Preserve exactly one half turn;
+        // subtracting branch-cut angles can otherwise add an ULP and an extra
+        // cubic span to a canonical ellipse export.
+        deltaTheta = sqTerm == 0.0f
+            ? (sweepDirection == SweepDirection.Clockwise ? MathF.PI : -MathF.PI)
+            : theta2 - theta1;
         if (sweepDirection == SweepDirection.Clockwise)
         {
             if (deltaTheta < 0.0f)

@@ -8,6 +8,56 @@ namespace ProGPU.Tests;
 
 public sealed class SourceHitTestGeometryTests
 {
+    [Fact]
+    public void SourceGeometryUnionClearsIndependentlyOfRasterAndTextureState()
+    {
+        var command = new RenderCommand { Type = RenderCommandType.DrawRect,
+            Rect = new Rect(10, 20, 30, 40), Brush = new SolidColorBrush(Vector4.One),
+            SourceHitGeometry = new(SourceHitTestGeometryKind.Rectangle, new Vector4(1, 2, 3, 4)) };
+        Assert.Equal(default, command.FontTransform);
+        Assert.Equal(default, command.TextureCubicCoefficients);
+        using var annotated = new GpuPicture([command], [], [], [], []);
+        command.SourceHitGeometry = default;
+        Assert.Equal(default, command.FontTransform);
+        Assert.Equal(default, command.TextureCubicCoefficients);
+        Assert.Equal(new Rect(10, 20, 30, 40), command.Rect);
+        using var plain = new GpuPicture([command], [], [], [], []);
+        Assert.Equal(System.Runtime.CompilerServices.Unsafe.SizeOf<SourceHitTestGeometry>(),
+            annotated.CommandStorageBytes - plain.CommandStorageBytes);
+        Assert.True(System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>() <= 576);
+
+        var text = new RenderCommand { FontTransform = new(2, 3), HasFontTransform = true };
+        text.SourceHitGeometry = default;
+        Assert.Equal(new Vector2(2, 3), text.FontTransform);
+        var image = new RenderCommand { TextureCubicCoefficients = new(.25f, .75f), HasTextureCubicCoefficients = true };
+        image.SourceHitGeometry = default;
+        Assert.Equal(new Vector2(.25f, .75f), image.TextureCubicCoefficients);
+    }
+
+    [Fact]
+    public void PackedCommandFlagsDoNotAliasTextureOptions()
+    {
+        var command = new RenderCommand {
+            IsBold = true, IsItalic = true, HasFontTransform = true,
+            UseVectorGlyphRendering = true, PreferGlyphAtlas = true, UseLogicalGlyphAtlasResolution = true,
+            IsEdgeAliased = true, IsPenThicknessLocal = true, IsClosed = true, UseGpuTransforms = true,
+            HasTextureOpacity = true, AllowExtendedTextureSourceRect = true,
+            HasTextureCubicCoefficients = true, SnapTextureToPixels = true, HasImageEffect = true,
+            TextureMaxAnisotropy = 255 };
+        Assert.True(command.IsBold && command.IsItalic && command.HasFontTransform &&
+            command.UseVectorGlyphRendering && command.PreferGlyphAtlas && command.UseLogicalGlyphAtlasResolution &&
+            command.IsEdgeAliased && command.IsPenThicknessLocal && command.IsClosed && command.UseGpuTransforms);
+        command.IsBold = command.IsItalic = command.HasFontTransform = false;
+        command.UseVectorGlyphRendering = command.PreferGlyphAtlas = command.UseLogicalGlyphAtlasResolution = false;
+        command.IsEdgeAliased = command.IsPenThicknessLocal = command.IsClosed = command.UseGpuTransforms = false;
+        Assert.False(command.IsBold || command.IsItalic || command.HasFontTransform ||
+            command.UseVectorGlyphRendering || command.PreferGlyphAtlas || command.UseLogicalGlyphAtlasResolution ||
+            command.IsEdgeAliased || command.IsPenThicknessLocal || command.IsClosed || command.UseGpuTransforms);
+        Assert.True(command.HasTextureOpacity && command.AllowExtendedTextureSourceRect &&
+            command.HasTextureCubicCoefficients && command.SnapTextureToPixels && command.HasImageEffect);
+        Assert.Equal(255, command.TextureMaxAnisotropy);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

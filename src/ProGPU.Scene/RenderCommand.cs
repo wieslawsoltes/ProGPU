@@ -894,7 +894,30 @@ public sealed partial class RenderCommandGeometryCache
 
 public struct RenderCommand
 {
-    public SourceHitTestGeometry SourceHitGeometry;
+    private SourceHitTestGeometryKind _sourceHitGeometryKind;
+    // Source annotations apply to primitive and scope commands, never text or
+    // textures. Reuse those commands' otherwise-unused two-vector slots while
+    // keeping raster Rect/Position/radii independent of unsnapped input.
+    public SourceHitTestGeometry SourceHitGeometry
+    {
+        readonly get => _sourceHitGeometryKind == SourceHitTestGeometryKind.None
+            ? default
+            : new(_sourceHitGeometryKind, new Vector4(_fontTransformOrSourceStart, _textureCubicOrSourceEnd.X, _textureCubicOrSourceEnd.Y));
+        set
+        {
+            if (value.Kind != SourceHitTestGeometryKind.None)
+            {
+                _fontTransformOrSourceStart = new(value.Coordinates.X, value.Coordinates.Y);
+                _textureCubicOrSourceEnd = new(value.Coordinates.Z, value.Coordinates.W);
+            }
+            else if (_sourceHitGeometryKind != SourceHitTestGeometryKind.None)
+            {
+                _fontTransformOrSourceStart = default;
+                _textureCubicOrSourceEnd = default;
+            }
+            _sourceHitGeometryKind = value.Kind;
+        }
+    }
     public RenderCommandType Type;
     public int HitTestId;
     public Rect Rect;
@@ -908,8 +931,16 @@ public struct RenderCommand
     public TtfFont? Font;
     public float FontSize;
     public Vector2 Position;
-    public bool IsBold;
-    public bool IsItalic;
+    public bool IsBold
+    {
+        readonly get => (_textureOptions & (1u << 22)) != 0;
+        set => SetTextureOption(1u << 22, value);
+    }
+    public bool IsItalic
+    {
+        readonly get => (_textureOptions & (1u << 23)) != 0;
+        set => SetTextureOption(1u << 23, value);
+    }
     // PushClip only: source image input is the destination rectangle, not the
     // flattened drawing inside its balanced clip scope. Rendering is unchanged.
     public bool IsImageHitTestScope;
@@ -917,15 +948,36 @@ public struct RenderCommand
     public bool IsSourceOpacityScope;
     public TextShapingOptions? TextShapingOptions;
     public TextAlignment TextAlignment;
-    public Vector2 FontTransform;
-    public bool HasFontTransform;
+    private Vector2 _fontTransformOrSourceStart;
+    public Vector2 FontTransform
+    {
+        readonly get => _sourceHitGeometryKind == SourceHitTestGeometryKind.None ? _fontTransformOrSourceStart : default;
+        set => _fontTransformOrSourceStart = value;
+    }
+    public bool HasFontTransform
+    {
+        readonly get => (_textureOptions & (1u << 24)) != 0;
+        set => SetTextureOption(1u << 24, value);
+    }
     public float Rotation;
     public TextRenderingMode TextRenderingMode;
     public TextHintingMode TextHintingMode;
     public RenderCommandPresentationDependencies PresentationDependencies;
-    public bool UseVectorGlyphRendering;
-    public bool PreferGlyphAtlas;
-    public bool UseLogicalGlyphAtlasResolution;
+    public bool UseVectorGlyphRendering
+    {
+        readonly get => (_textureOptions & (1u << 25)) != 0;
+        set => SetTextureOption(1u << 25, value);
+    }
+    public bool PreferGlyphAtlas
+    {
+        readonly get => (_textureOptions & (1u << 26)) != 0;
+        set => SetTextureOption(1u << 26, value);
+    }
+    public bool UseLogicalGlyphAtlasResolution
+    {
+        readonly get => (_textureOptions & (1u << 27)) != 0;
+        set => SetTextureOption(1u << 27, value);
+    }
     public bool IsTextAliased
     {
         readonly get => TextRenderingMode == TextRenderingMode.Aliased;
@@ -936,9 +988,15 @@ public struct RenderCommand
     public GpuTexture? Texture;
     public Rect SrcRect;
     public TexturePatch[]? TexturePatches;
+    // Bits 0..21 are texture state; bits 22..31 are independent command flags.
     private uint _textureOptions;
     public float TextureOpacity;
-    public Vector2 TextureCubicCoefficients;
+    private Vector2 _textureCubicOrSourceEnd;
+    public Vector2 TextureCubicCoefficients
+    {
+        readonly get => _sourceHitGeometryKind == SourceHitTestGeometryKind.None ? _textureCubicOrSourceEnd : default;
+        set => _textureCubicOrSourceEnd = value;
+    }
     private const int TextureRasterOperationMarker = 0x100;
 
     // Texture ROP3 data shares scalar union slots that DrawTexture otherwise
@@ -1175,8 +1233,16 @@ public struct RenderCommand
     }
 
     // Vector render options
-    public bool IsEdgeAliased;
-    public bool IsPenThicknessLocal;
+    public bool IsEdgeAliased
+    {
+        readonly get => (_textureOptions & (1u << 28)) != 0;
+        set => SetTextureOption(1u << 28, value);
+    }
+    public bool IsPenThicknessLocal
+    {
+        readonly get => (_textureOptions & (1u << 29)) != 0;
+        set => SetTextureOption(1u << 29, value);
+    }
     public uint PathSampleGrid;
     public float PathCoverageGamma;
 
@@ -1190,7 +1256,11 @@ public struct RenderCommand
 
     // Polyline properties (Retained for WinUI backward compatibility)
     public Vector2[]? PolylinePoints;
-    public bool IsClosed;
+    public bool IsClosed
+    {
+        readonly get => (_textureOptions & (1u << 30)) != 0;
+        set => SetTextureOption(1u << 30, value);
+    }
 
     // Spline properties (Retained for WinUI backward compatibility)
     public double[]? SplineKnots;
@@ -1213,7 +1283,11 @@ public struct RenderCommand
     public int GpuPointsCount;
 
     // GPU Transform properties
-    public bool UseGpuTransforms;
+    public bool UseGpuTransforms
+    {
+        readonly get => (_textureOptions & (1u << 31)) != 0;
+        set => SetTextureOption(1u << 31, value);
+    }
     public Matrix4x4 CameraView;
 
     // GPU Chart scaling parameters
