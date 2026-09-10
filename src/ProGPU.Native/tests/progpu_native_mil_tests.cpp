@@ -13423,7 +13423,7 @@ bool retained_drawing_image_infers_crossing_and_point_strokes() {
     constexpr std::uint32_t geometry = 5U, drawing = 6U, image = 7U, pen = 8U;
     constexpr std::uint32_t dash = 9U, animation = 10U, fixed_line = 11U;
     std::vector<std::byte> batch;
-    for (const auto [handle, type] : std::array{
+    for (const auto& [handle, type] : std::array{
         std::pair{visual, 39U}, std::pair{content, 43U}, std::pair{target, 47U},
         std::pair{brush, 75U}, std::pair{geometry, 73U}, std::pair{drawing, 87U},
         std::pair{image, 59U}, std::pair{pen, 85U}, std::pair{dash, 84U},
@@ -14802,7 +14802,7 @@ bool retained_drawing_image_infers_composite_geometry_bounds() {
     constexpr std::uint32_t root_transform = 11U, inner_transform = 12U, drawing = 13U, image = 14U;
     constexpr std::uint32_t drawing_group = 15U, world = 16U;
     std::vector<std::byte> batch;
-    for (const auto [handle, type] : std::array{
+    for (const auto& [handle, type] : std::array{
         std::pair{visual, 39U}, std::pair{content, 43U}, std::pair{target, 47U},
         std::pair{brush, 75U}, std::pair{pen, 85U}, std::pair{first, 69U}, std::pair{second, 69U},
         std::pair{inner, 71U}, std::pair{group, 71U}, std::pair{combined, 72U},

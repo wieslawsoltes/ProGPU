@@ -1804,7 +1804,7 @@ int run_tests()
         sink->EndFigure(compat::figure_end::open);
         if (sink->Close() != com::ok) return 9086;
         com::pointer<compat::path_geometry> coarse, fine;
-        for (const auto [target, tolerance] : std::array{
+        for (const auto& [target, tolerance] : std::array{
                 std::pair{std::addressof(coarse), 0.25F}, std::pair{std::addressof(fine), 0.01F}}) {
             if (factory->CreatePathGeometry(target->put()) != com::ok || (*target)->Open(sink.put()) != com::ok ||
                 loop->Widen(2.0F, nullptr, nullptr, tolerance, sink.get()) != com::ok || sink->Close() != com::ok)
