@@ -517,6 +517,9 @@ static void ValidateNativeInlineParagraph()
         excludedSnapshot.InlineObjects.Span[0].Y != 40 || excludedSnapshot.Carets.Span[2].Y != 40 ||
         excludedSnapshot.ClusterEnds.Span[1] != 2 || excludedSnapshot.IntrinsicWidths == null)
         throw new InvalidOperationException("Retained excluded paragraph lost native clearance or source interaction.");
+    if (excludedSnapshot.MoveFragmentCaret(0, NativeTextCaretMovement.Down, 0, 0, out var below) != NativeRendererStatus.Success ||
+        excludedSnapshot.Carets.Span[checked((int)below)].Y != 40)
+        throw new InvalidOperationException("Native fragment navigation lost vertical clearance.");
     var wholeWord = NativeTextParagraphSnapshot.CreateWithExclusions(context, "AA",
         NativeTextDirection.LeftToRight, options, [new(0, 2, 0, options.Scale)], metrics, [],
         exclusionOptions, [new() { Left = 12, Right = 19, Bottom = 20 }]);
@@ -549,6 +552,20 @@ static void ValidateNativeInlineParagraph()
             NativeTextInteractionInterop.HitTest(split.Boxes.Span, 25, 5, out var splitHit) != NativeRendererStatus.Success ||
             splitHit.Inside != 1 || splitHit.LineIndex != (direction == NativeTextDirection.LeftToRight ? 1U : 0U))
             throw new InvalidOperationException("Retained fragment hit testing borrowed mutable exclusions or lost its frame.");
+        uint leftFragment = direction == NativeTextDirection.LeftToRight ? 0U : 1U;
+        uint current = uint.MaxValue;
+        var stops = split.Carets.Span;
+        for (int i = 0; i < stops.Length; ++i)
+            if (stops[i].LineIndex == leftFragment &&
+                (current == uint.MaxValue || stops[i].X >= stops[checked((int)current)].X)) current = (uint)i;
+        if (split.MoveFragmentCaret(current,
+            NativeTextCaretMovement.Right, (sbyte)(direction == NativeTextDirection.LeftToRight ? 0 : 1),
+            24, out var next) != NativeRendererStatus.Success || stops[checked((int)next)].LineIndex == leftFragment ||
+            stops[checked((int)next)].Y != 0)
+            throw new InvalidOperationException("Native caret failed to cross the same-row exclusion.");
+        if (NativeTextInteractionInterop.MoveFragmentCaret(stops, split.Fragments.Span, uint.MaxValue,
+            NativeTextCaretMovement.Left, 0, 0, out next) != NativeRendererStatus.InvalidArgument || next != 0)
+            throw new InvalidOperationException("Native fragment navigation accepted an invalid generation index.");
     }
     rejected = false;
     try { NativeTextParagraphSnapshot.CreateCollapsed(context, "A\ufffcB", NativeTextDirection.LeftToRight,

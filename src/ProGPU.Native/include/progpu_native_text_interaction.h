@@ -146,6 +146,16 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build_frag
 PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_get_caret(
     const progpu_native_text_caret_stop* carets, uint32_t count,
     int32_t position, uint8_t trailing, progpu_native_text_caret_stop* result);
+/* Direction: 0 left, 1 right, 2 up, 3 down. Current/next are indices into the
+ * same retained caret generation; paragraph_level is 0 or 1. Preferred X is
+ * finite paragraph-local DIP. At an outer boundary the index is unchanged.
+ * Failure clears next_index. Buffers are borrowed and must not overlap output.
+ * Placements are the same validated nonnegative frames used by build_fragments. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_move_fragment_caret(
+    const progpu_native_text_caret_stop* carets, uint32_t count,
+    const progpu_native_text_fragment_placement* fragments, uint32_t fragment_count,
+    uint32_t current_index, uint32_t direction, int8_t paragraph_level,
+    float preferred_x, uint32_t* next_index);
 PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_move_caret(
     const progpu_native_text_caret_stop* carets, uint32_t count,
     int32_t position, uint8_t trailing, int32_t direction,

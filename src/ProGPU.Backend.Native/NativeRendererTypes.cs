@@ -23,6 +23,15 @@ public enum NativeRendererTextureFormat : uint
     Bgra8UnormSrgb = 4
 }
 
+/// <summary>Physical movement values of the native fragment-caret C contract.</summary>
+public enum NativeTextCaretMovement : uint
+{
+    Left = 0,
+    Right = 1,
+    Up = 2,
+    Down = 3
+}
+
 public enum NativeTextDirection : uint
 {
     Unspecified = 0,

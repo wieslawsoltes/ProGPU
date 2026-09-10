@@ -4,6 +4,10 @@
 namespace {
 using namespace progpu::native::text;
 namespace algorithms = progpu::native::text::interaction_detail;
+static_assert(static_cast<std::uint8_t>(text_caret_direction::left) == 0U &&
+    static_cast<std::uint8_t>(text_caret_direction::right) == 1U &&
+    static_cast<std::uint8_t>(text_caret_direction::up) == 2U &&
+    static_cast<std::uint8_t>(text_caret_direction::down) == 3U);
 
 template<class T>
 bool buffer(const T* data, std::uint32_t count) noexcept {
@@ -158,6 +162,28 @@ progpu_native_status progpu_native_text_interaction_move_caret(
     if (!buffer(carets, count) || trailing > 1U || direction < -1 || direction > 1)
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     return status(algorithms::move_caret(std::span(carets, count), position, trailing != 0U, direction, *result, nullptr));
+}
+
+progpu_native_status progpu_native_text_interaction_move_fragment_caret(
+    const progpu_native_text_caret_stop* carets, std::uint32_t count,
+    const progpu_native_text_fragment_placement* fragments, std::uint32_t fragment_count,
+    std::uint32_t current_index, std::uint32_t direction, std::int8_t paragraph_level,
+    float preferred_x, std::uint32_t* next_index) {
+    if (next_index == nullptr) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    *next_index = 0U;
+    if (!buffer(carets, count) || !buffer(fragments, fragment_count) || direction > 3U)
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    for (const auto& fragment : std::span(fragments, fragment_count))
+        if (fragment.reserved != 0U || fragment.left < 0 || fragment.top < 0)
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    for (const auto& caret : std::span(carets, count))
+        if (caret.trailing > 1U) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    std::uint32_t next{};
+    const bool success = algorithms::move_fragment_caret(std::span(carets, count),
+        std::span(fragments, fragment_count), current_index,
+        static_cast<text_caret_direction>(direction), paragraph_level, preferred_x, next, nullptr);
+    if (success) *next_index = next;
+    return status(success);
 }
 
 progpu_native_status progpu_native_text_interaction_get_selection(

@@ -36,6 +36,36 @@ void fragment_interaction() {
     };
     require(build() == success && result.cluster_box_count == 3 && result.caret_stop_count == 6);
     require(boxes[0].y == 20 && boxes[1].y == 20 && boxes[1].x == 65 && boxes[2].y == 50);
+    using namespace progpu::native::text;
+    std::array<text_caret_stop, 6> native_carets{};
+    std::array<text_fragment_placement, 3> native_fragments{};
+    for (std::size_t i = 0; i < carets.size(); ++i) {
+        const auto c = carets[i];
+        native_carets[i] = {c.input_position, c.line_index, c.x, c.y, c.height,
+            c.bidi_level, c.trailing != 0U, c.reserved0, c.reserved1};
+    }
+    for (std::size_t i = 0; i < fragments.size(); ++i) {
+        const auto f = fragments[i];
+        native_fragments[i] = {f.row_index, f.left, f.top, f.width};
+    }
+    for (std::int8_t level : {std::int8_t{0}, std::int8_t{1}})
+        for (std::uint32_t direction = 0; direction < 4; ++direction)
+            for (std::uint32_t current = 0; current < 6; ++current) {
+                std::uint32_t expected{}, actual{};
+                require(try_move_fragment_text_caret(native_carets, native_fragments, current,
+                    static_cast<text_caret_direction>(direction), level, 70, expected));
+                require(progpu_native_text_interaction_move_fragment_caret(carets.data(), 6,
+                    fragments.data(), 3, current, direction, level, 70, &actual) == success && actual == expected);
+            }
+    const auto move = [&](std::uint32_t current, std::uint32_t direction, float x = 70) {
+        std::uint32_t next = 123;
+        const auto value = progpu_native_text_interaction_move_fragment_caret(carets.data(), 6,
+            fragments.data(), 3, current, direction, 0, x, &next);
+        require(value == invalid && next == 0);
+    };
+    move(6, 0); move(0, 256); move(0, 2, std::numeric_limits<float>::quiet_NaN());
+    fragments[0].reserved = 1; move(0, 1); fragments[0].reserved = 0;
+    carets[0].trailing = 2; move(0, 1); carets[0].trailing = 0;
     progpu_native_text_hit_test_result hit{};
     require(progpu_native_text_interaction_hit_test(boxes.data(), 3, 50, 25, &hit) == success && !hit.inside);
     boxes[0].x = 123;

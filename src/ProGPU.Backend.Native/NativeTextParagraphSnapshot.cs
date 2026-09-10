@@ -31,6 +31,16 @@ public sealed class NativeTextParagraphSnapshot
     public NativeTextIntrinsicWidths? IntrinsicWidths { get; }
     public NativeTextCollapsedRange? CollapsedRange { get; }
 
+    /// <summary>Moves an index within this retained fragment generation using native physical navigation.</summary>
+    public NativeRendererStatus MoveFragmentCaret(uint currentIndex, NativeTextCaretMovement direction,
+        sbyte paragraphLevel, float preferredX, out uint nextIndex)
+    {
+        if (FragmentLayout is null)
+            throw new InvalidOperationException("Fragment navigation requires an excluded paragraph snapshot.");
+        return NativeTextInteractionInterop.MoveFragmentCaret(Carets.Span, Fragments.Span,
+            currentIndex, direction, paragraphLevel, preferredX, out nextIndex);
+    }
+
     private NativeTextParagraphSnapshot(NativePositionedTextGlyph[] glyphs,
         NativePositionedTextLine[] lines, int[] ends, sbyte[] levels,
         ReadOnlyMemory<NativeTextClusterBox> boxes, ReadOnlyMemory<NativeTextCaretStop> carets,

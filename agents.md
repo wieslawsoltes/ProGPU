@@ -67,6 +67,10 @@ Excluded snapshots retain native fragment frames and metrics beside original
 glyph/cluster arrays, and build interaction from those same frames. Lines are
 fragments, not rows; never prefix-sum their heights or use ordinary row navigation.
 Empty excluded rows remain rejected until their actual native placement connects.
+Fragment navigation transports existing generation-local caret indices through
+the shared C++ algorithm. Keep C byte-affinity validation, physical direction
+mapping and failure-cleared output; bind snapshot-owned carets and placements
+together rather than mixing generations or falling back to ordinary row movement.
 
 Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
 not optional fields that a text-only provider can silently ignore. Source metrics

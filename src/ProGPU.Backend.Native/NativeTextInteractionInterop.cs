@@ -134,6 +134,20 @@ public static unsafe class NativeTextInteractionInterop
                 trailingAffinity ? (byte)1 : (byte)0, direction, output);
     }
 
+    /// <summary>Moves within one retained fragment generation; paragraph level is 0 or 1.</summary>
+    public static NativeRendererStatus MoveFragmentCaret(ReadOnlySpan<NativeTextCaretStop> carets,
+        ReadOnlySpan<NativeTextFragmentPlacement> fragments, uint currentIndex,
+        NativeTextCaretMovement direction, sbyte paragraphLevel, float preferredX, out uint nextIndex)
+    {
+        nextIndex = 0;
+        fixed (NativeTextCaretStop* input = carets)
+        fixed (NativeTextFragmentPlacement* placements = fragments)
+        fixed (uint* output = &nextIndex)
+            return NativeMethods.MoveFragmentTextInteractionCaret(input, (uint)carets.Length,
+                placements, (uint)fragments.Length, currentIndex, (uint)direction, paragraphLevel,
+                preferredX, output);
+    }
+
     public static NativeRendererStatus GetSelection(ReadOnlySpan<NativeTextClusterBox> boxes,
         int start, int end, Span<NativeTextRectangle> rectangles, out uint written)
     {
@@ -195,6 +209,11 @@ internal static unsafe partial class NativeMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus MoveTextInteractionCaret(NativeTextCaretStop* carets,
         uint count, int position, byte trailing, int direction, NativeTextCaretStop* result);
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_move_fragment_caret")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus MoveFragmentTextInteractionCaret(NativeTextCaretStop* carets,
+        uint count, NativeTextFragmentPlacement* fragments, uint fragmentCount, uint currentIndex,
+        uint direction, sbyte paragraphLevel, float preferredX, uint* nextIndex);
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_get_selection")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus GetTextInteractionSelection(NativeTextClusterBox* boxes,
