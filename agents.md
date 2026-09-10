@@ -507,6 +507,13 @@ trimming uses the shared forward resolved-advance scan and explicit collapsed vi
 its compiled fixtures are not runtime parity evidence.
 Tab-grid and wrapping scans are prefix-dependent; independent metric lanes retain
 NEON/SSE2. Do not move tab expansion into a WPF-local paragraph composer.
+Word-space justification belongs in the shared Unicode-aware native paragraph,
+before interaction construction. Classify whole source clusters, not glyph ids or
+line-break opportunities; expand interior U+0020 only on soft-wrapped lines and
+after the final tab. Preserve shaped ownership, final/hard/collapsed lines, source
+whitespace and tab grids. Keep the legacy shaped-only API explicit and retain
+SIMD metric lanes. Script-specific insertion/inter-character policies remain
+separate missing contracts, never inferred complete from word-space coverage.
 LibreWPF source composite/fallback linking now feeds explicit physical style ranges
 through `GlyphingCache.GetPortableFontRuns`. WPF owns its family map/culture/cache
 policy and source line metrics; ProGPU owns the shared native shaping/paragraph.

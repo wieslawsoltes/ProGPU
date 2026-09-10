@@ -884,6 +884,7 @@ bool try_build_paragraph_capacities(
         !size.add<std::int8_t>(glyph_count) ||
         !size.add<float>(glyph_count) ||
         !size.add<float>(glyph_count) ||
+        !size.add<text_justification_class>(glyph_count) ||
         !size.add<std::uint32_t>(glyph_count) ||
         !size.add<text_line_break_kind>(glyph_count) ||
         !size.add<text_visual_cluster_group>(glyph_count) ||
@@ -2145,6 +2146,7 @@ static progpu_native_status paragraph_layout_core(
         std::span<std::int8_t> glyph_levels{};
         std::span<float> glyph_scales{};
         std::span<float> tab_advances{};
+        std::span<text_justification_class> justification{};
         std::span<std::uint32_t> glyph_font_indices{};
         std::span<text_line_break_kind> glyph_breaks{};
         std::span<text_visual_cluster_group> visual_groups{};
@@ -2169,6 +2171,7 @@ static progpu_native_status paragraph_layout_core(
             !arena.take(glyph_limit, glyph_levels) ||
             !arena.take(glyph_limit, glyph_scales) ||
             !arena.take(glyph_limit, tab_advances) ||
+            !arena.take(glyph_limit, justification) ||
             !arena.take(glyph_limit, glyph_font_indices) ||
             !arena.take(glyph_limit, glyph_breaks) ||
             !arena.take(glyph_limit, visual_groups) ||
@@ -2453,7 +2456,14 @@ static progpu_native_status paragraph_layout_core(
         std::uint32_t written_lines = 0U;
         auto positioning_options = convert_paragraph_layout_options(*layout, paragraph_level);
         positioning_options.collapse_width = collapse_width;
-        if (!try_layout_tabbed_logical_shaped_text(
+        const bool justify = positioning_options.alignment == text_alignment::justify;
+        if (justify && !try_classify_text_justification(native_input, logical,
+                justification.first(logical_count), &font_result)) {
+            result->error_code = static_cast<std::uint32_t>(font_result);
+            result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_CLUSTER_MAP;
+            return status_from_error(font_result);
+        }
+        if (!try_layout_justified_logical_shaped_text(
                 logical,
                 glyph_breaks.first(logical_count),
                 glyph_levels.first(logical_count),
@@ -2468,6 +2478,7 @@ static progpu_native_status paragraph_layout_core(
                 native_lines,
                 positioned_count,
                 written_lines,
+                justify ? justification.first(logical_count) : std::span<const text_justification_class>{},
                 &font_result)) {
             result->error_code = static_cast<std::uint32_t>(font_result);
             result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;

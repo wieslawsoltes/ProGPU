@@ -719,8 +719,19 @@ scratch bounded by the logical glyph count; execution is `O(G + B * C)` for
 Both visual-input and logical-input layout paths apply the managed horizontal
 alignment policy after each line is positioned: center and right shift only
 when the finite layout width exceeds the line width, while left and the
-currently non-expanding managed justify mode preserve the line origin. The
+shaped-only legacy justify mode preserve the line origin. The
 alignment pass is `O(G)` and reuses the output span in place.
+
+Unicode-aware context paragraphs additionally implement word-space justification
+on soft-wrapped lines. They classify complete source clusters, expand only interior
+U+0020 spaces after the last tab, and preserve leading/trailing whitespace, hard
+breaks, final lines, collapsed lines and unbreakable clusters. Revised advances
+are published before shared interaction geometry is built. The ordered source and
+advance scans are allocation-free `O(S + G)` with caller-owned classification
+scratch; independent metric lanes retain NEON/SSE2. See
+[native word-space justification](../../docs/native-mil-text-justification-2026-09-10.md).
+Script-specific justification glyph insertion and inter-character policies remain
+unimplemented; word-space expansion is not full DirectWrite justification parity.
 
 Vertical visual runs use a separate positioned-column contract mirroring
 `TextLayout.GenerateVerticalShapedLayout`. Top-to-bottom and bottom-to-top

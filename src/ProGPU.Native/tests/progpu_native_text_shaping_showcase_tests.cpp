@@ -1,6 +1,7 @@
 #include "progpu_native_text_shaping_showcase.hpp"
 #include "progpu_native_text_styles.h"
 #include "progpu_native_text_flow.h"
+#include "progpu_native_text.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -188,7 +189,121 @@ static void styled_context_preserves_font_scale_and_atomic_failure() {
     require(flow_run() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && result.glyph_count == 0 && glyphs[0].x == 123);
 }
 
+static void justification_classifies_whole_source_clusters() {
+    using namespace progpu::native::text;
+    std::array<unicode_scalar, 5> input{{{0x20, 0, 1}, {0x301, 1, 1}, {0x20, 2, 1},
+        {0xa0, 3, 1}, {'M', 4, 1}}};
+    std::array<shaping_glyph, 5> glyphs{};
+    // A space-plus-combining-mark cluster must not be expanded. Multiple
+    // positioned glyphs for that cluster still share one source classification.
+    glyphs[0].cluster = glyphs[1].cluster = 0;
+    glyphs[2].cluster = 2; glyphs[3].cluster = 3; glyphs[4].cluster = 4;
+    std::array<text_justification_class, 5> classes{};
+    font_error error{};
+    require(try_classify_text_justification(input, glyphs, classes, &error));
+    require(classes[0] == text_justification_class::content && classes[1] == classes[0]);
+    require(classes[2] == text_justification_class::word_space);
+    require(classes[3] == text_justification_class::whitespace && classes[4] == text_justification_class::content);
+    require(!try_classify_text_justification(input, glyphs, std::span(classes).first(4), &error));
+    glyphs[3].cluster = 1;
+    require(!try_classify_text_justification(input, glyphs, classes, &error));
+    glyphs[3].cluster = 3; input[1].input_index = 0;
+    require(!try_classify_text_justification(input, glyphs, classes, &error));
+}
+
+static void paragraph_justification_preserves_source_and_terminal_lines() {
+    const auto font = read_font();
+    progpu_native_text_context* raw = nullptr;
+    require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
+        reinterpret_cast<const std::uint8_t*>(font.data()), font.size(), 0, nullptr, 0, &raw) == PROGPU_NATIVE_STATUS_SUCCESS);
+    std::unique_ptr<progpu_native_text_context, decltype(&progpu_native_text_context_destroy)> context(raw, progpu_native_text_context_destroy);
+    std::vector<progpu_native_text_scalar> text;
+    const auto set_text = [&](const std::u32string& value) {
+        text.clear();
+        for (std::uint32_t i = 0; i < value.size(); ++i) text.push_back({static_cast<std::uint32_t>(value[i]), i, 1, 0, 0, 0});
+    };
+    set_text(U"M M M M M");
+    progpu_native_text_layout_options layout{};
+    layout.struct_size = sizeof(layout); layout.scale = 0.01F; layout.line_height = 24;
+    struct paragraph { std::vector<progpu_native_positioned_text_glyph> glyphs; std::vector<progpu_native_positioned_text_line> lines; };
+    const auto run = [&](bool justified, bool rtl, bool styled) {
+        progpu_native_text_shape_request shaping{};
+        shaping.struct_size = sizeof(shaping); shaping.abi_version = PROGPU_NATIVE_ABI_VERSION;
+        shaping.input = text.data(); shaping.input_count = static_cast<std::uint32_t>(text.size());
+        shaping.direction = rtl ? PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT : PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT;
+        shaping.alternate_value = 1;
+        layout.alignment = justified ? PROGPU_NATIVE_TEXT_ALIGNMENT_JUSTIFY : PROGPU_NATIVE_TEXT_ALIGNMENT_LEFT;
+        std::array<progpu_native_text_style_run, 2> styles{{{0, 2, 0, 0.01F, 0, 0, 0, 0},
+            {2, static_cast<std::uint32_t>(text.size()) - 2, 0, 0.012F, 0, 0, 0, 0}}};
+        progpu_native_text_flow_options flow{sizeof(flow), 40, 0, 0};
+        progpu_native_text_paragraph_requirements required{}; required.struct_size = sizeof(required);
+        require(progpu_native_text_context_get_flow_paragraph_requirements(context.get(), &shaping, &layout,
+            styled ? styles.data() : nullptr, styled ? 2U : 0U, &flow, &required) == PROGPU_NATIVE_STATUS_SUCCESS);
+        paragraph output{std::vector<progpu_native_positioned_text_glyph>(required.glyph_capacity),
+            std::vector<progpu_native_positioned_text_line>(required.line_capacity)};
+        std::vector<std::byte> scratch(required.scratch_bytes);
+        progpu_native_text_paragraph_result result{}; result.struct_size = sizeof(result);
+        require(progpu_native_text_context_layout_flow_paragraph(context.get(), &shaping, &layout,
+            styled ? styles.data() : nullptr, styled ? 2U : 0U, &flow, output.glyphs.data(), required.glyph_capacity,
+            output.lines.data(), required.line_capacity, scratch.data(), scratch.size(), &result) == PROGPU_NATIVE_STATUS_SUCCESS);
+        output.glyphs.resize(result.glyph_count); output.lines.resize(result.line_count);
+        return output;
+    };
+    const auto equal = [](float a, float b) { return std::abs(a - b) < 0.001F; };
+    for (const bool styled : {false, true}) for (const bool rtl : {false, true}) {
+        layout.maximum_width = 0;
+        const auto unbounded = run(false, rtl, styled);
+        const auto unbounded_justify = run(true, rtl, styled);
+        require(unbounded.lines.size() == 1 && equal(unbounded.lines[0].width, unbounded_justify.lines[0].width));
+        float prefix = 0;
+        for (const auto& glyph : unbounded.glyphs) if (glyph.cluster < 6) prefix += glyph.advance_x;
+        layout.maximum_width = prefix + 1;
+        const auto left = run(false, rtl, styled), justified = run(true, rtl, styled);
+        require(left.lines.size() == 2 && justified.lines.size() == 2);
+        require(left.lines[0].input_end == 6 && justified.lines[0].input_end == 6);
+        require(left.glyphs.size() == justified.glyphs.size());
+        float trailing = 0;
+        for (std::size_t i = 0; i < justified.glyphs.size(); ++i) {
+            const auto& a = left.glyphs[i]; const auto& b = justified.glyphs[i];
+            require(a.cluster == b.cluster && a.glyph_id == b.glyph_id && a.font_index == b.font_index);
+            if (b.cluster == 1 || b.cluster == 3) require(b.advance_x > a.advance_x);
+            else require(equal(b.advance_x, a.advance_x));
+            if (b.cluster == 5) trailing += b.advance_x;
+            if (b.cluster >= 6) require(equal(a.x, b.x) && equal(a.y, b.y));
+        }
+        require(equal(justified.lines[0].width - trailing, layout.maximum_width));
+        require(equal(left.lines[1].width, justified.lines[1].width));
+    }
+    // Explicit paragraph boundaries and nonbreaking/fixed-width whitespace are
+    // not word-space expansion opportunities, nor are unbroken word interiors.
+    for (const auto& value : {U"M M\nM M", U"MMMMMMMMM", U"M\u00a0M\u2003M M"}) {
+        set_text(value); layout.maximum_width = 65;
+        const auto left = run(false, false, false), justified = run(true, false, false);
+        require(left.glyphs.size() == justified.glyphs.size());
+        for (std::size_t i = 0; i < left.glyphs.size(); ++i) require(equal(left.glyphs[i].advance_x, justified.glyphs[i].advance_x));
+    }
+    // A tab retains its source grid position; only spaces after it may expand.
+    set_text(U"M M\tM M M M"); layout.maximum_width = 0;
+    const auto tabbed_unbounded = run(false, false, false);
+    float tabbed_prefix = 0;
+    for (const auto& glyph : tabbed_unbounded.glyphs) if (glyph.cluster < 8) tabbed_prefix += glyph.advance_x;
+    layout.maximum_width = tabbed_prefix + 1;
+    const auto left = run(false, false, false), justified = run(true, false, false);
+    require(justified.lines.size() > 1);
+    bool expanded = false;
+    for (std::size_t i = 0; i < left.glyphs.size(); ++i) {
+        if (left.glyphs[i].cluster <= 4) {
+            require(equal(left.glyphs[i].x, justified.glyphs[i].x));
+            require(equal(left.glyphs[i].advance_x, justified.glyphs[i].advance_x));
+        }
+        expanded |= justified.glyphs[i].advance_x > left.glyphs[i].advance_x + 0.001F;
+    }
+    require(expanded);
+}
+
 int main() {
+    justification_classifies_whole_source_clusters();
+    paragraph_justification_preserves_source_and_terminal_lines();
     styled_context_preserves_font_scale_and_atomic_failure();
     managed_feature_wall_port_is_retained_and_dpi_sensitive();
     return 0;

@@ -130,6 +130,12 @@ bool has_flag(
         static_cast<std::uint32_t>(flag)) != 0U;
 }
 
+bool trailing_space(std::uint32_t cp) noexcept {
+    return (cp >= 0x09U && cp <= 0x0DU) || cp == 0x20U || cp == 0x85U || cp == 0xA0U ||
+        cp == 0x1680U || (cp >= 0x2000U && cp <= 0x200BU) || cp == 0x2028U ||
+        cp == 0x2029U || cp == 0x202FU || cp == 0x205FU || cp == 0x3000U;
+}
+
 bool is_safe_break_before(
     std::span<const shaping_glyph> glyphs,
     std::size_t index) noexcept {
@@ -299,11 +305,6 @@ bool try_measure_text_intrinsic_widths(std::span<const unicode_scalar> input,
     }
     // Unicode White_Space plus zero-width break controls. Classification is
     // based on the whole source cluster, not a ligature's first code point.
-    const auto trailing = [](std::uint32_t cp) noexcept {
-        return (cp >= 0x09U && cp <= 0x0DU) || cp == 0x20U || cp == 0x85U || cp == 0xA0U ||
-            cp == 0x1680U || (cp >= 0x2000U && cp <= 0x200BU) || cp == 0x2028U ||
-            cp == 0x2029U || cp == 0x202FU || cp == 0x205FU || cp == 0x3000U;
-    };
     text_intrinsic_widths measured{};
     float word = 0.0F, paragraph = 0.0F, word_visible = 0.0F, paragraph_visible = 0.0F;
     std::size_t scalar = 0U, start = 0U;
@@ -318,7 +319,7 @@ bool try_measure_text_intrinsic_widths(std::span<const unicode_scalar> input,
             static_cast<std::uint64_t>(input.back().input_index) + input.back().input_length;
         bool whitespace = true;
         while (scalar < input.size() && input[scalar].input_index < next)
-            whitespace &= trailing(input[scalar++].code_point);
+            whitespace &= trailing_space(input[scalar++].code_point);
         for (std::size_t i = start; i < end; ++i) {
             if (static_cast<std::uint8_t>(breaks_after[i]) > static_cast<std::uint8_t>(text_line_break_kind::mandatory))
                 return invalid();
@@ -537,6 +538,42 @@ bool try_layout_scaled_logical_shaped_text(
         paragraph_level, options, {}, {}, scratch, positioned_glyphs, lines, glyph_count, line_count, error);
 }
 
+bool try_classify_text_justification(std::span<const unicode_scalar> input,
+    std::span<const shaping_glyph> glyphs, std::span<text_justification_class> classes,
+    font_error* error) noexcept {
+    const auto invalid = [&]() noexcept { set_error(error, font_error::invalid_argument); return false; };
+    if (classes.size() < glyphs.size() || (input.empty() && !glyphs.empty())) return invalid();
+    for (std::size_t i = 0; i < input.size(); ++i)
+        if (input[i].input_length == 0U || (i != 0U && input[i].input_index <
+                static_cast<std::uint64_t>(input[i - 1U].input_index) + input[i - 1U].input_length))
+            return invalid();
+    // O(S + G), allocation-free. Cluster topology requires an ordered scan;
+    // glyph metric arithmetic remains on the existing four-lane SIMD path.
+    std::size_t scalar = 0U, start = 0U;
+    while (start < glyphs.size()) {
+        const auto cluster = glyphs[start].cluster;
+        if (cluster < 0 || scalar >= input.size() || input[scalar].input_index != static_cast<std::uint32_t>(cluster))
+            return invalid();
+        std::size_t end = start + 1U;
+        while (end < glyphs.size() && glyphs[end].cluster == cluster) ++end;
+        if (end < glyphs.size() && glyphs[end].cluster <= cluster) return invalid();
+        const auto next = end < glyphs.size() ? static_cast<std::uint64_t>(glyphs[end].cluster) :
+            static_cast<std::uint64_t>(input.back().input_index) + input.back().input_length;
+        bool whitespace = true, word_space = true;
+        while (scalar < input.size() && input[scalar].input_index < next) {
+            const auto cp = input[scalar++].code_point;
+            whitespace &= trailing_space(cp);
+            word_space &= cp == 0x20U;
+        }
+        const auto value = word_space ? text_justification_class::word_space :
+            whitespace ? text_justification_class::whitespace : text_justification_class::content;
+        std::fill(classes.begin() + start, classes.begin() + end, value);
+        start = end;
+    }
+    set_error(error, font_error::none);
+    return true;
+}
+
 bool try_layout_tabbed_logical_shaped_text(
     std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
     std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,
@@ -544,8 +581,28 @@ bool try_layout_tabbed_logical_shaped_text(
     std::span<float> advance_scratch, text_logical_layout_scratch scratch,
     std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
     std::uint32_t& glyph_count, std::uint32_t& line_count, font_error* error) noexcept {
+    return try_layout_justified_logical_shaped_text(logical_glyphs, breaks_after, bidi_levels,
+        glyph_scales, paragraph_level, options, tabs, advance_scratch, scratch,
+        positioned_glyphs, lines, glyph_count, line_count, {}, error);
+}
+
+bool try_layout_justified_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    std::span<float> advance_scratch, text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count, std::uint32_t& line_count,
+    std::span<const text_justification_class> classes, font_error* error) noexcept {
     glyph_count = 0U;
     line_count = 0U;
+    if (!classes.empty() && (classes.size() != logical_glyphs.size() ||
+        !std::all_of(classes.begin(), classes.end(), [](auto value) {
+            return value <= text_justification_class::word_space;
+        }))) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
     text_layout_requirements requirements{};
     if (!try_get_tabbed_text_layout_requirements(
             logical_glyphs,
@@ -636,12 +693,41 @@ bool try_layout_tabbed_logical_shaped_text(
                 logical_width += advance_scratch[i];
             }
         }
+        std::size_t justify_start = input_start_index, justify_end = visible.end;
+        std::size_t opportunities = 0U;
+        float expansion = 0.0F, trailing_width = 0.0F;
+        const auto opportunity = [&](std::size_t i) noexcept {
+            return i >= justify_start && i < justify_end &&
+                classes[i] == text_justification_class::word_space &&
+                (i + 1U == logical_glyphs.size() || logical_glyphs[i].cluster != logical_glyphs[i + 1U].cluster) &&
+                is_safe_break_before(logical_glyphs, i + 1U);
+        };
+        if (options.alignment == text_alignment::justify && !classes.empty() &&
+            !should_trim && !line.clipped && line.end < logical_glyphs.size() &&
+            breaks_after[line.end - 1U] != text_line_break_kind::mandatory && options.maximum_width > 0.0F) {
+            while (justify_start < justify_end && classes[justify_start] != text_justification_class::content) ++justify_start;
+            while (justify_end > justify_start && classes[justify_end - 1U] != text_justification_class::content) --justify_end;
+            for (std::size_t i = input_start_index; i < visible.end; ++i) {
+                // Expanding a prefix before a tab would invalidate its retained grid advance.
+                if (logical_glyphs[i].glyph_id == text_tab_glyph_id) justify_start = i + 1U;
+                if (i >= justify_end) trailing_width += tabs.interval > 0.0F ? advance_scratch[i] :
+                    horizontal_advance(logical_glyphs[i], scale_at(glyph_scales, i, options));
+            }
+            while (justify_start < justify_end && classes[justify_start] != text_justification_class::content) ++justify_start;
+            for (std::size_t i = justify_start; i < justify_end; ++i) opportunities += opportunity(i) ? 1U : 0U;
+            const float available = options.maximum_width - (visible.content_width - trailing_width);
+            if (opportunities != 0U && available > 0.0F && std::isfinite(visible.content_width + available))
+                expansion = available;
+        }
         const float baseline = static_cast<float>(line_count) *
             options.line_height;
         const float sign_width = should_trim ? options.ellipsis_advance * options.scale : 0.0F;
         const bool leading_sign = should_trim && options.collapse_width >= 0.0F && (paragraph_level & 1) != 0;
-        float cursor_x = leading_sign ? sign_width : 0.0F;
+        float cursor_x = leading_sign ? sign_width :
+            expansion > 0.0F && (paragraph_level & 1) != 0 ? -trailing_width : 0.0F;
         float cursor_y = baseline;
+        float distributed = 0.0F;
+        std::size_t remaining_opportunities = opportunities;
         const std::int32_t sign_cluster = options.collapse_width >= 0.0F && visible.end < logical_glyphs.size()
             ? logical_glyphs[visible.end].cluster
             : visible.end > input_start_index ? logical_glyphs[visible.end - 1U].cluster
@@ -660,6 +746,12 @@ bool try_layout_tabbed_logical_shaped_text(
             const float scale = scale_at(glyph_scales, source_index, options);
             auto metrics = scale_metrics(glyph, scale);
             if (tabs.interval > 0.0F) metrics[0] = advance_scratch[source_index];
+            if (expansion > 0.0F && opportunity(source_index)) {
+                const float extra = --remaining_opportunities == 0U ? expansion - distributed :
+                    expansion / static_cast<float>(opportunities);
+                metrics[0] += extra;
+                distributed += extra;
+            }
             positioned_glyphs[output_cursor++] = positioned_text_glyph{
                 static_cast<std::uint32_t>(source_index),
                 glyph.glyph_id,
@@ -679,7 +771,7 @@ bool try_layout_tabbed_logical_shaped_text(
                 0.0F};
         }
 
-        const float output_width = visible.content_width + (should_trim
+        const float output_width = visible.content_width + expansion + (should_trim
             ? options.ellipsis_advance * options.scale
             : 0.0F);
         const float alignment_shift = line_alignment_shift(

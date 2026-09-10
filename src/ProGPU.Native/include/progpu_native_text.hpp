@@ -2107,6 +2107,24 @@ struct text_intrinsic_widths final {
     float maximum = 0.0F;
 };
 
+// Source-cluster metadata, never inferred from glyph ids or line-break flags.
+enum class text_justification_class : std::uint8_t { content, whitespace, word_space };
+bool try_classify_text_justification(std::span<const unicode_scalar> input,
+    std::span<const shaping_glyph> glyphs, std::span<text_justification_class> classes,
+    font_error* error = nullptr) noexcept;
+
+// Unicode-aware paragraph positioning. Empty classes preserves the legacy
+// shaped-only contract. Only interior word spaces on soft-wrapped lines expand;
+// tab-grid prefixes, final/hard lines and collapsed lines retain their advances.
+bool try_layout_justified_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    std::span<float> advance_scratch, text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count, std::uint32_t& line_count,
+    std::span<const text_justification_class> classes, font_error* error = nullptr) noexcept;
+
 /* O(S + G), O(1) workspace over logical source scalars and shaped clusters.
  * Minimum uses legal, shaping-safe breaks, never emergency cluster splitting.
  * Maximum uses mandatory breaks only. Both exclude trailing Unicode whitespace;
