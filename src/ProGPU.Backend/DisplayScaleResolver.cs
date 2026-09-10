@@ -10,13 +10,37 @@ public static class DisplayScaleResolver
 
     public static double ResolveWindowDisplayScale(IWindow? window)
     {
-        double monitorDpiScale = 1.0;
-        if (window != null && window.Size.X > 0 && window.FramebufferSize.X > 0)
+        return ResolveWindowDisplayScale(window, ResolveWindowFramebufferScale(window));
+    }
+
+    /// <summary>
+    ///  Resolves the ratio from window screen-coordinate units to framebuffer pixels.
+    ///  This is intentionally distinct from DPI/content scale on platforms where
+    ///  window coordinates and pixels remain one-to-one at high DPI.
+    /// </summary>
+    public static double ResolveWindowFramebufferScale(IWindow? window)
+        => window is null
+            ? 1.0
+            : ResolveFramebufferScale(
+                window.Size.X,
+                window.Size.Y,
+                window.FramebufferSize.X,
+                window.FramebufferSize.Y);
+
+    public static double ResolveFramebufferScale(
+        int windowWidth,
+        int windowHeight,
+        int framebufferWidth,
+        int framebufferHeight)
+    {
+        if (windowWidth <= 0 || windowHeight <= 0 || framebufferWidth <= 0 || framebufferHeight <= 0)
         {
-            monitorDpiScale = (double)window.FramebufferSize.X / window.Size.X;
+            return 1.0;
         }
 
-        return ResolveWindowDisplayScale(window, monitorDpiScale);
+        double scaleX = framebufferWidth / (double)windowWidth;
+        double scaleY = framebufferHeight / (double)windowHeight;
+        return NormalizeDisplayScale((scaleX + scaleY) / 2.0);
     }
 
     public static double ResolveWindowDisplayScale(IWindow? window, double monitorDpiScale)

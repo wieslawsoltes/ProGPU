@@ -1,4 +1,6 @@
 using ProGPU.Vector;
+using ProGPU.Text;
+using ProGPU.Text.Shaping;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
@@ -11,18 +13,30 @@ public enum FillMode
     Winding = 1
 }
 
-public class GraphicsPath : IDisposable
+public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
 {
-    private readonly PathGeometry _geometry = new();
+    private PathGeometry _geometry = new();
     private PathFigure? _currentFigure;
     private PointF _lastPoint;
     private FillMode _fillMode;
+    private readonly HashSet<object> _markers = new(ReferenceEqualityComparer.Instance);
+    private bool _disposed;
 
     public FillMode FillMode
     {
-        get => _fillMode;
+        get
+        {
+            ThrowIfDisposed();
+            return _fillMode;
+        }
         set
         {
+            ThrowIfDisposed();
+            if (value is not System.Drawing.Drawing2D.FillMode.Alternate and not System.Drawing.Drawing2D.FillMode.Winding)
+            {
+                throw new ArgumentException("Parameter is not valid.", nameof(value));
+            }
+
             _fillMode = value;
             _geometry.FillRule = value == System.Drawing.Drawing2D.FillMode.Alternate
                 ? FillRule.EvenOdd
@@ -30,7 +44,14 @@ public class GraphicsPath : IDisposable
         }
     }
 
-    internal PathGeometry Geometry => _geometry;
+    internal PathGeometry Geometry
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _geometry;
+        }
+    }
 
     public GraphicsPath()
     {
@@ -42,25 +63,72 @@ public class GraphicsPath : IDisposable
         FillMode = fillMode;
     }
 
+    public GraphicsPath(Point[] pts, byte[] types)
+        : this(pts, types, System.Drawing.Drawing2D.FillMode.Alternate)
+    {
+    }
+
+    public GraphicsPath(Point[] pts, byte[] types, FillMode fillMode)
+        : this(ConvertPoints(pts), types, fillMode)
+    {
+    }
+
+    public GraphicsPath(PointF[] pts, byte[] types)
+        : this(pts, types, System.Drawing.Drawing2D.FillMode.Alternate)
+    {
+    }
+
+    public GraphicsPath(PointF[] pts, byte[] types, FillMode fillMode)
+        : this((ReadOnlySpan<PointF>)(pts ?? throw new ArgumentNullException(nameof(pts))), types, fillMode)
+    {
+    }
+
+    public GraphicsPath(ReadOnlySpan<Point> pts, ReadOnlySpan<byte> types, FillMode fillMode)
+        : this(ConvertPoints(pts), types, fillMode)
+    {
+    }
+
+    public GraphicsPath(ReadOnlySpan<PointF> pts, ReadOnlySpan<byte> types, FillMode fillMode)
+    {
+        FillMode = fillMode;
+        InitializeFromPathData(pts, types);
+    }
+
     public void Reset()
     {
+        ThrowIfDisposed();
         _geometry.Figures.Clear();
+        _markers.Clear();
         _currentFigure = null;
         _lastPoint = default;
+        FillMode = System.Drawing.Drawing2D.FillMode.Alternate;
     }
 
     public void StartFigure()
     {
+        ThrowIfDisposed();
         _currentFigure = null;
     }
 
     public void CloseFigure()
     {
+        ThrowIfDisposed();
         if (_currentFigure != null)
         {
             _currentFigure.IsClosed = true;
             _currentFigure = null;
         }
+    }
+
+    public void CloseAllFigures()
+    {
+        ThrowIfDisposed();
+        foreach (PathFigure figure in _geometry.Figures)
+        {
+            figure.IsClosed = true;
+        }
+
+        _currentFigure = null;
     }
 
     private void ConnectOrStart(PointF pt)
@@ -95,7 +163,14 @@ public class GraphicsPath : IDisposable
 
     public void AddLines(PointF[] points)
     {
-        if (points == null || points.Length < 2) return;
+        ArgumentNullException.ThrowIfNull(points);
+        AddLines((ReadOnlySpan<PointF>)points);
+    }
+
+    public void AddLines(ReadOnlySpan<PointF> points)
+    {
+        ThrowIfDisposed();
+        if (points.Length < 2) throw new ArgumentException("Parameter is not valid.", nameof(points));
         ConnectOrStart(points[0]);
         for (int i = 1; i < points.Length; i++)
         {
@@ -106,7 +181,14 @@ public class GraphicsPath : IDisposable
 
     public void AddLines(Point[] points)
     {
-        if (points == null || points.Length < 2) return;
+        ArgumentNullException.ThrowIfNull(points);
+        AddLines((ReadOnlySpan<Point>)points);
+    }
+
+    public void AddLines(ReadOnlySpan<Point> points)
+    {
+        ThrowIfDisposed();
+        if (points.Length < 2) throw new ArgumentException("Parameter is not valid.", nameof(points));
         ConnectOrStart(points[0]);
         for (int i = 1; i < points.Length; i++)
         {
@@ -124,7 +206,7 @@ public class GraphicsPath : IDisposable
         _currentFigure.Segments.Add(new LineSegment(new Vector2(rect.Right, rect.Bottom)));
         _currentFigure.Segments.Add(new LineSegment(new Vector2(rect.X, rect.Bottom)));
         _currentFigure.IsClosed = true;
-        _lastPoint = new PointF(rect.X, rect.Y);
+        _lastPoint = new PointF(rect.X, rect.Bottom);
         _currentFigure = null;
     }
 
@@ -132,12 +214,26 @@ public class GraphicsPath : IDisposable
 
     public void AddRectangles(RectangleF[] rects)
     {
-        foreach (var r in rects) AddRectangle(r);
+        ArgumentNullException.ThrowIfNull(rects);
+        AddRectangles((ReadOnlySpan<RectangleF>)rects);
+    }
+
+    public void AddRectangles(ReadOnlySpan<RectangleF> rects)
+    {
+        ThrowIfDisposed();
+        foreach (RectangleF rectangle in rects) AddRectangle(rectangle);
     }
 
     public void AddRectangles(Rectangle[] rects)
     {
-        foreach (var r in rects) AddRectangle(r);
+        ArgumentNullException.ThrowIfNull(rects);
+        AddRectangles((ReadOnlySpan<Rectangle>)rects);
+    }
+
+    public void AddRectangles(ReadOnlySpan<Rectangle> rects)
+    {
+        ThrowIfDisposed();
+        foreach (Rectangle rectangle in rects) AddRectangle(rectangle);
     }
 
     public void AddEllipse(RectangleF rect)
@@ -167,6 +263,48 @@ public class GraphicsPath : IDisposable
     public void AddEllipse(Rectangle rect) => AddEllipse((RectangleF)rect);
     public void AddEllipse(float x, float y, float width, float height) => AddEllipse(new RectangleF(x, y, width, height));
     public void AddEllipse(int x, int y, int width, int height) => AddEllipse(new RectangleF(x, y, width, height));
+
+    public void AddRoundedRectangle(Rectangle rect, Size radius) =>
+        AddRoundedRectangle((RectangleF)rect, new SizeF(radius.Width, radius.Height));
+
+    public void AddRoundedRectangle(RectangleF rect, SizeF radius)
+    {
+        float diameterX = MathF.Min(MathF.Abs(radius.Width), MathF.Abs(rect.Width));
+        float diameterY = MathF.Min(MathF.Abs(radius.Height), MathF.Abs(rect.Height));
+        if (diameterX <= 0f || diameterY <= 0f)
+        {
+            AddRectangle(rect);
+            return;
+        }
+
+        StartFigure();
+        AddArc(rect.X, rect.Y, diameterX, diameterY, 180f, 90f);
+        AddArc(rect.Right - diameterX, rect.Y, diameterX, diameterY, 270f, 90f);
+        AddArc(rect.Right - diameterX, rect.Bottom - diameterY, diameterX, diameterY, 0f, 90f);
+        AddArc(rect.X, rect.Bottom - diameterY, diameterX, diameterY, 90f, 90f);
+        CloseFigure();
+    }
+
+    public void AddPie(Rectangle rect, float startAngle, float sweepAngle) =>
+        AddPie(rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
+
+    public void AddPie(int x, int y, int width, int height, float startAngle, float sweepAngle) =>
+        AddPie((float)x, y, width, height, startAngle, sweepAngle);
+
+    public void AddPie(float x, float y, float width, float height, float startAngle, float sweepAngle)
+    {
+        StartFigure();
+        float centerX = x + (width / 2f);
+        float centerY = y + (height / 2f);
+        double startRadians = startAngle * Math.PI / 180d;
+        PointF start = new(
+            centerX + ((width / 2f) * (float)Math.Cos(startRadians)),
+            centerY + ((height / 2f) * (float)Math.Sin(startRadians)));
+        AddLine(centerX, centerY, start.X, start.Y);
+        AddArc(x, y, width, height, startAngle, sweepAngle);
+        AddLine(_lastPoint.X, _lastPoint.Y, centerX, centerY);
+        CloseFigure();
+    }
 
     public void AddArc(RectangleF rect, float startAngle, float sweepAngle) => AddArc(rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
     public void AddArc(Rectangle rect, float startAngle, float sweepAngle) => AddArc(rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
@@ -226,7 +364,17 @@ public class GraphicsPath : IDisposable
 
     public void AddBeziers(PointF[] points)
     {
-        if (points == null || points.Length < 4) return;
+        ArgumentNullException.ThrowIfNull(points);
+        AddBeziers((ReadOnlySpan<PointF>)points);
+    }
+
+    public void AddBeziers(ReadOnlySpan<PointF> points)
+    {
+        ThrowIfDisposed();
+        if (points.Length < 4 || (points.Length - 1) % 3 != 0)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(points));
+        }
         ConnectOrStart(points[0]);
         for (int i = 1; i < points.Length; i += 3)
         {
@@ -242,7 +390,17 @@ public class GraphicsPath : IDisposable
 
     public void AddBeziers(Point[] points)
     {
-        if (points == null || points.Length < 4) return;
+        ArgumentNullException.ThrowIfNull(points);
+        AddBeziers((ReadOnlySpan<Point>)points);
+    }
+
+    public void AddBeziers(ReadOnlySpan<Point> points)
+    {
+        ThrowIfDisposed();
+        if (points.Length < 4 || (points.Length - 1) % 3 != 0)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(points));
+        }
         ConnectOrStart(points[0]);
         for (int i = 1; i < points.Length; i += 3)
         {
@@ -258,7 +416,14 @@ public class GraphicsPath : IDisposable
 
     public void AddPolygon(PointF[] points)
     {
-        if (points == null || points.Length < 3) return;
+        ArgumentNullException.ThrowIfNull(points);
+        AddPolygon((ReadOnlySpan<PointF>)points);
+    }
+
+    public void AddPolygon(ReadOnlySpan<PointF> points)
+    {
+        ThrowIfDisposed();
+        if (points.Length < 3) throw new ArgumentException("Parameter is not valid.", nameof(points));
         StartFigure();
         _currentFigure = new PathFigure(new Vector2(points[0].X, points[0].Y));
         _geometry.Figures.Add(_currentFigure);
@@ -267,13 +432,20 @@ public class GraphicsPath : IDisposable
             _currentFigure.Segments.Add(new LineSegment(new Vector2(points[i].X, points[i].Y)));
         }
         _currentFigure.IsClosed = true;
-        _lastPoint = points[0];
+        _lastPoint = points[^1];
         _currentFigure = null;
     }
 
     public void AddPolygon(Point[] points)
     {
-        if (points == null || points.Length < 3) return;
+        ArgumentNullException.ThrowIfNull(points);
+        AddPolygon((ReadOnlySpan<Point>)points);
+    }
+
+    public void AddPolygon(ReadOnlySpan<Point> points)
+    {
+        ThrowIfDisposed();
+        if (points.Length < 3) throw new ArgumentException("Parameter is not valid.", nameof(points));
         StartFigure();
         _currentFigure = new PathFigure(new Vector2(points[0].X, points[0].Y));
         _geometry.Figures.Add(_currentFigure);
@@ -282,9 +454,1568 @@ public class GraphicsPath : IDisposable
             _currentFigure.Segments.Add(new LineSegment(new Vector2(points[i].X, points[i].Y)));
         }
         _currentFigure.IsClosed = true;
-        _lastPoint = points[0];
+        _lastPoint = points[^1];
         _currentFigure = null;
     }
 
-    public void Dispose() {}
+    public void AddCurve(Point[] points) => AddCurve(points, 0.5f);
+
+    public void AddCurve(Point[] points, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        AddCurve((ReadOnlySpan<Point>)points, tension);
+    }
+
+    public void AddCurve(Point[] points, int offset, int numberOfSegments, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        if (offset < 0 || numberOfSegments < 1 || offset + numberOfSegments >= points.Length)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(points));
+        }
+
+        PointF[] converted = ConvertPoints(points);
+        AddOpenCurve(converted, offset, numberOfSegments, tension);
+    }
+
+    public void AddCurve(ReadOnlySpan<Point> points) => AddCurve(points, 0.5f);
+
+    public void AddCurve(ReadOnlySpan<Point> points, float tension) =>
+        AddOpenCurve(ConvertPoints(points), 0, points.Length - 1, tension);
+
+    internal void AddCurve(ReadOnlySpan<Point> points, int offset, int numberOfSegments, float tension) =>
+        AddOpenCurve(ConvertPoints(points), offset, numberOfSegments, tension);
+
+    public void AddCurve(PointF[] points) => AddCurve(points, 0.5f);
+
+    public void AddCurve(PointF[] points, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        AddCurve((ReadOnlySpan<PointF>)points, tension);
+    }
+
+    public void AddCurve(PointF[] points, int offset, int numberOfSegments, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        AddOpenCurve(points, offset, numberOfSegments, tension);
+    }
+
+    public void AddCurve(ReadOnlySpan<PointF> points) => AddCurve(points, 0.5f);
+
+    public void AddCurve(ReadOnlySpan<PointF> points, float tension) =>
+        AddOpenCurve(points, 0, points.Length - 1, tension);
+
+    internal void AddCurve(ReadOnlySpan<PointF> points, int offset, int numberOfSegments, float tension) =>
+        AddOpenCurve(points, offset, numberOfSegments, tension);
+
+    public void AddClosedCurve(Point[] points) => AddClosedCurve(points, 0.5f);
+
+    public void AddClosedCurve(Point[] points, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        AddClosedCurve((ReadOnlySpan<Point>)points, tension);
+    }
+
+    public void AddClosedCurve(ReadOnlySpan<Point> points) => AddClosedCurve(points, 0.5f);
+
+    public void AddClosedCurve(ReadOnlySpan<Point> points, float tension) =>
+        AddClosedCurveCore(ConvertPoints(points), tension);
+
+    public void AddClosedCurve(PointF[] points) => AddClosedCurve(points, 0.5f);
+
+    public void AddClosedCurve(PointF[] points, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        AddClosedCurve((ReadOnlySpan<PointF>)points, tension);
+    }
+
+    public void AddClosedCurve(ReadOnlySpan<PointF> points) => AddClosedCurve(points, 0.5f);
+
+    public void AddClosedCurve(ReadOnlySpan<PointF> points, float tension) =>
+        AddClosedCurveCore(points, tension);
+
+    public void AddPath(GraphicsPath addingPath, bool connect)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(addingPath);
+        addingPath.ThrowIfDisposed();
+
+        bool first = true;
+        foreach (PathFigure source in addingPath._geometry.Figures)
+        {
+            if (connect && first && _currentFigure != null)
+            {
+                ConnectOrStart(ToPointF(source.StartPoint));
+                CopySegments(source, _currentFigure, addingPath._markers, _markers);
+                _currentFigure.IsClosed = source.IsClosed;
+                _lastPoint = GetFigureLastPoint(_currentFigure);
+                if (source.IsClosed) _currentFigure = null;
+            }
+            else
+            {
+                PathFigure copy = CloneFigure(source, addingPath._markers, _markers);
+                _geometry.Figures.Add(copy);
+                _lastPoint = GetFigureLastPoint(copy);
+                _currentFigure = copy.IsClosed ? null : copy;
+            }
+
+            first = false;
+        }
+    }
+
+    public void AddString(
+        string s,
+        FontFamily family,
+        int style,
+        float emSize,
+        Point origin,
+        StringFormat? format) =>
+        AddString(s, family, style, emSize, new RectangleF(origin.X, origin.Y, 0f, 0f), format);
+
+    public void AddString(
+        string s,
+        FontFamily family,
+        int style,
+        float emSize,
+        PointF origin,
+        StringFormat? format) =>
+        AddString(s, family, style, emSize, new RectangleF(origin.X, origin.Y, 0f, 0f), format);
+
+    public void AddString(
+        string s,
+        FontFamily family,
+        int style,
+        float emSize,
+        Rectangle layoutRect,
+        StringFormat? format) =>
+        AddString(s, family, style, emSize, (RectangleF)layoutRect, format);
+
+    public void AddString(
+        string s,
+        FontFamily family,
+        int style,
+        float emSize,
+        RectangleF layoutRect,
+        StringFormat? format)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(s);
+        ArgumentNullException.ThrowIfNull(family);
+        format?.EnsureNotDisposed();
+        if (!float.IsFinite(emSize) || emSize == 0f ||
+            !float.IsFinite(layoutRect.X) || !float.IsFinite(layoutRect.Y) ||
+            !float.IsFinite(layoutRect.Width) || !float.IsFinite(layoutRect.Height))
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+
+        if (s.Length == 0)
+        {
+            return;
+        }
+
+        FontStyle fontStyle = (FontStyle)style;
+        using var font = new Font(family, MathF.Abs(emSize), fontStyle, GraphicsUnit.Pixel);
+        StringFormatFlags flags = format?.FormatFlags ?? 0;
+        bool rightToLeft = (flags & StringFormatFlags.DirectionRightToLeft) != 0;
+        bool vertical = (flags & StringFormatFlags.DirectionVertical) != 0;
+        StringAlignment alignment = format?.Alignment ?? StringAlignment.Near;
+        TextAlignment textAlignment = alignment switch
+        {
+            StringAlignment.Center => TextAlignment.Center,
+            StringAlignment.Far => rightToLeft ? TextAlignment.Left : TextAlignment.Right,
+            _ => rightToLeft ? TextAlignment.Right : TextAlignment.Left,
+        };
+        float maxWidth = layoutRect.Width > 0f && (flags & StringFormatFlags.NoWrap) == 0
+            ? layoutRect.Width
+            : float.PositiveInfinity;
+        var shapingOptions = new TextShapingOptions
+        {
+            Direction = vertical
+                ? ShapingDirection.TopToBottom
+                : rightToLeft ? ShapingDirection.RightToLeft : ShapingDirection.LeftToRight,
+        };
+        var layout = new TextLayout(
+            s,
+            font.TtfFont,
+            MathF.Abs(emSize),
+            maxWidth,
+            textAlignment,
+            atlas: null,
+            shapingOptions);
+
+        float horizontalOffset = 0f;
+        if ((flags & StringFormatFlags.NoWrap) != 0 && layoutRect.Width > layout.ContentSize.X)
+        {
+            horizontalOffset = textAlignment switch
+            {
+                TextAlignment.Center => (layoutRect.Width - layout.ContentSize.X) * 0.5f,
+                TextAlignment.Right => layoutRect.Width - layout.ContentSize.X,
+                _ => 0f,
+            };
+        }
+
+        float verticalOffset = 0f;
+        if (layoutRect.Height > layout.ContentSize.Y)
+        {
+            verticalOffset = (format?.LineAlignment ?? StringAlignment.Near) switch
+            {
+                StringAlignment.Center => (layoutRect.Height - layout.ContentSize.Y) * 0.5f,
+                StringAlignment.Far => layoutRect.Height - layout.ContentSize.Y,
+                _ => 0f,
+            };
+        }
+
+        PathGeometry outlines = TextOutlineGeometry.Create(
+            layout,
+            new Vector2(layoutRect.X + horizontalOffset, layoutRect.Y + verticalOffset),
+            syntheticItalic: (fontStyle & FontStyle.Italic) != 0,
+            underline: (fontStyle & FontStyle.Underline) != 0,
+            strikeout: (fontStyle & FontStyle.Strikeout) != 0);
+        _geometry.Figures.AddRange(outlines.Figures);
+        SynchronizeCurrentState();
+    }
+
+    public void SetMarkers()
+    {
+        ThrowIfDisposed();
+        object? endpoint = GetCurrentEndpointObject();
+        if (endpoint != null) _markers.Add(endpoint);
+    }
+
+    public void ClearMarkers()
+    {
+        ThrowIfDisposed();
+        _markers.Clear();
+    }
+
+    public object Clone()
+    {
+        ThrowIfDisposed();
+        var clone = new GraphicsPath(FillMode);
+        clone.AddPath(this, connect: false);
+        return clone;
+    }
+
+    public int PointCount
+    {
+        get
+        {
+            ThrowIfDisposed();
+            int count = 0;
+            foreach (PathFigure figure in _geometry.Figures)
+            {
+                count++;
+                foreach (PathSegment segment in figure.Segments)
+                {
+                    count += segment switch
+                    {
+                        LineSegment => 1,
+                        QuadraticBezierSegment => 3,
+                        CubicBezierSegment => 3,
+                        ArcSegment arc => GetArcCubicCount(figure, segment, arc),
+                        _ => 0
+                    };
+                }
+            }
+
+            return count;
+        }
+    }
+
+    public PointF[] PathPoints
+    {
+        get
+        {
+            PointF[] points = new PointF[PointCount];
+            GetPathPoints(points);
+            return points;
+        }
+    }
+
+    public byte[] PathTypes
+    {
+        get
+        {
+            byte[] types = new byte[PointCount];
+            GetPathTypes(types);
+            return types;
+        }
+    }
+
+    public PathData PathData => new() { Points = PathPoints, Types = PathTypes };
+
+    public int GetPathPoints(Span<PointF> destination)
+    {
+        ThrowIfDisposed();
+        int count = PointCount;
+        if (destination.Length < count) throw new ArgumentException("Destination is too short.", nameof(destination));
+        WritePathData(destination, default, writePoints: true, writeTypes: false);
+        return count;
+    }
+
+    public int GetPathTypes(Span<byte> destination)
+    {
+        ThrowIfDisposed();
+        int count = PointCount;
+        if (destination.Length < count) throw new ArgumentException("Destination is too short.", nameof(destination));
+        WritePathData(default, destination, writePoints: false, writeTypes: true);
+        return count;
+    }
+
+    public RectangleF GetBounds() => GetBounds(null, null);
+
+    public RectangleF GetBounds(Matrix? matrix) => GetBounds(matrix, null);
+
+    public RectangleF GetBounds(Matrix? matrix, Pen? pen)
+    {
+        ThrowIfDisposed();
+        if (pen?.RequiresWidenedGeometry == true)
+        {
+            if (!TryCreateWidenedGeometry(
+                    _geometry,
+                    pen,
+                    matrix,
+                    flatness: 0.25f,
+                    out PathGeometry widened) ||
+                !widened.TryGetBounds(out Vector2 widenedMin, out Vector2 widenedMax))
+            {
+                return RectangleF.Empty;
+            }
+
+            return RectangleF.FromLTRB(
+                widenedMin.X,
+                widenedMin.Y,
+                widenedMax.X,
+                widenedMax.Y);
+        }
+
+        PathGeometry geometry = matrix == null
+            ? _geometry
+            : _geometry.CreateTransformed(ToMatrix4x4(matrix.MatrixElements));
+        if (!geometry.TryGetBounds(out Vector2 min, out Vector2 max)) return RectangleF.Empty;
+
+        float inflate = pen == null ? 0f : MathF.Abs(pen.Width) * 0.5f;
+        return RectangleF.FromLTRB(min.X - inflate, min.Y - inflate, max.X + inflate, max.Y + inflate);
+    }
+
+    public PointF GetLastPoint()
+    {
+        ThrowIfDisposed();
+        if (_geometry.Figures.Count == 0) throw new ArgumentException("Parameter is not valid.");
+        return _lastPoint;
+    }
+
+    public bool IsVisible(Point point) => IsVisible(point.X, point.Y, null);
+    public bool IsVisible(Point point, Graphics? graphics) => IsVisible(point.X, point.Y, graphics);
+    public bool IsVisible(PointF point) => IsVisible(point.X, point.Y, null);
+    public bool IsVisible(PointF point, Graphics? graphics) => IsVisible(point.X, point.Y, graphics);
+    public bool IsVisible(int x, int y) => IsVisible((float)x, y, null);
+    public bool IsVisible(int x, int y, Graphics? graphics) => IsVisible((float)x, y, graphics);
+    public bool IsVisible(float x, float y) => IsVisible(x, y, null);
+
+    public bool IsVisible(float x, float y, Graphics? graphics)
+    {
+        ThrowIfDisposed();
+        return PathGeometryHitTesting.TryContainsFill(
+            _geometry,
+            new Vector2(x, y),
+            tolerance: 0f,
+            relativeTolerance: false,
+            out bool contains) && contains;
+    }
+
+    public bool IsOutlineVisible(Point point, Pen pen) => IsOutlineVisible(point.X, point.Y, pen, null);
+    public bool IsOutlineVisible(Point point, Pen pen, Graphics? graphics) => IsOutlineVisible(point.X, point.Y, pen, graphics);
+    public bool IsOutlineVisible(PointF point, Pen pen) => IsOutlineVisible(point.X, point.Y, pen, null);
+    public bool IsOutlineVisible(PointF point, Pen pen, Graphics? graphics) => IsOutlineVisible(point.X, point.Y, pen, graphics);
+    public bool IsOutlineVisible(int x, int y, Pen pen) => IsOutlineVisible((float)x, y, pen, null);
+    public bool IsOutlineVisible(int x, int y, Pen pen, Graphics? graphics) => IsOutlineVisible((float)x, y, pen, graphics);
+    public bool IsOutlineVisible(float x, float y, Pen pen) => IsOutlineVisible(x, y, pen, null);
+
+    public bool IsOutlineVisible(float x, float y, Pen pen, Graphics? graphics)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(pen);
+        if (_geometry.Figures.Count == 0)
+        {
+            return false;
+        }
+
+        if (pen.RequiresWidenedGeometry)
+        {
+            return TryCreateWidenedGeometry(
+                    _geometry,
+                    pen,
+                    matrix: null,
+                    flatness: 0.25f,
+                    out PathGeometry transformedOutline) &&
+                PathGeometryHitTesting.TryContainsFill(
+                    transformedOutline,
+                    new Vector2(x, y),
+                    tolerance: 0f,
+                    relativeTolerance: false,
+                    out bool transformedContains) &&
+                transformedContains;
+        }
+
+        PathGeometry flattened = RequiresFlattening()
+            ? CreateFlattenedGeometry(matrix: null, flatness: 0.25f)
+            : _geometry;
+        ProGPU.Vector.Pen nativePen = pen.ToProGpuPen(GetEffectiveStrokeWidth(pen));
+        return StrokePathGeometry.TryContains(flattened, nativePen, new Vector2(x, y), out bool contains) && contains;
+    }
+
+    public void Transform(Matrix matrix)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(matrix);
+        HashSet<int> markerIndices = CaptureMarkerIndices();
+        _geometry = _geometry.CreateTransformed(ToMatrix4x4(matrix.MatrixElements));
+        RestoreMarkers(markerIndices);
+        SynchronizeCurrentState();
+    }
+
+    public void Flatten() => Flatten(null, 0.25f);
+
+    public void Flatten(Matrix? matrix) => Flatten(matrix, 0.25f);
+
+    public void Flatten(Matrix? matrix, float flatness)
+    {
+        ThrowIfDisposed();
+        _geometry = CreateFlattenedGeometry(matrix, flatness);
+        _markers.Clear();
+        SynchronizeCurrentState();
+    }
+
+    public void Widen(Pen pen) => Widen(pen, null, 0.25f);
+
+    public void Widen(Pen pen, Matrix? matrix) => Widen(pen, matrix, 0.25f);
+
+    public void Widen(Pen pen, Matrix? matrix, float flatness)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(pen);
+        if (_geometry.Figures.Count == 0)
+        {
+            return;
+        }
+
+        if (!TryCreateWidenedGeometry(_geometry, pen, matrix, flatness, out PathGeometry widened))
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(pen));
+        }
+
+        _geometry = widened;
+        _fillMode = System.Drawing.Drawing2D.FillMode.Winding;
+        _markers.Clear();
+        SynchronizeCurrentState();
+    }
+
+    public void Warp(PointF[] destPoints, RectangleF srcRect)
+    {
+        ArgumentNullException.ThrowIfNull(destPoints);
+        Warp((ReadOnlySpan<PointF>)destPoints, srcRect);
+    }
+
+    public void Warp(PointF[] destPoints, RectangleF srcRect, Matrix? matrix)
+    {
+        ArgumentNullException.ThrowIfNull(destPoints);
+        Warp((ReadOnlySpan<PointF>)destPoints, srcRect, matrix);
+    }
+
+    public void Warp(PointF[] destPoints, RectangleF srcRect, Matrix? matrix, WarpMode warpMode)
+    {
+        ArgumentNullException.ThrowIfNull(destPoints);
+        Warp((ReadOnlySpan<PointF>)destPoints, srcRect, matrix, warpMode);
+    }
+
+    public void Warp(PointF[] destPoints, RectangleF srcRect, Matrix? matrix, WarpMode warpMode, float flatness)
+    {
+        ArgumentNullException.ThrowIfNull(destPoints);
+        Warp((ReadOnlySpan<PointF>)destPoints, srcRect, matrix, warpMode, flatness);
+    }
+
+    public void Warp(
+        ReadOnlySpan<PointF> destPoints,
+        RectangleF srcRect,
+        Matrix? matrix = null,
+        WarpMode warpMode = WarpMode.Perspective,
+        float flatness = 0.25f)
+    {
+        ThrowIfDisposed();
+        if (destPoints.Length is not (3 or 4))
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(destPoints));
+        }
+
+        if (warpMode is not WarpMode.Perspective and not WarpMode.Bilinear)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(warpMode));
+        }
+
+        Span<Vector2> destination = stackalloc Vector2[destPoints.Length];
+        for (int index = 0; index < destPoints.Length; index++)
+        {
+            destination[index] = new Vector2(destPoints[index].X, destPoints[index].Y);
+        }
+
+        PathGeometry flattened = CreateFlattenedGeometry(matrix, flatness);
+        if (!PathWarpGeometry.TryCreateWarpedPath(
+                flattened,
+                destination,
+                new Vector2(srcRect.X, srcRect.Y),
+                new Vector2(srcRect.Width, srcRect.Height),
+                warpMode == WarpMode.Perspective ? PathWarpMode.Perspective : PathWarpMode.Bilinear,
+                flatness,
+                out PathGeometry warped))
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(destPoints));
+        }
+
+        _geometry = warped;
+        _markers.Clear();
+        SynchronizeCurrentState();
+    }
+
+    public void Reverse()
+    {
+        ThrowIfDisposed();
+        var reversed = new PathGeometry { FillRule = _geometry.FillRule };
+        for (int figureIndex = _geometry.Figures.Count - 1; figureIndex >= 0; figureIndex--)
+        {
+            PathFigure source = _geometry.Figures[figureIndex];
+            var starts = new Vector2[source.Segments.Count];
+            Vector2 current = source.StartPoint;
+            for (int segmentIndex = 0; segmentIndex < source.Segments.Count; segmentIndex++)
+            {
+                starts[segmentIndex] = current;
+                current = GetSegmentEnd(source.Segments[segmentIndex]);
+            }
+
+            var output = new PathFigure(current, source.IsClosed)
+            {
+                IsFilled = source.IsFilled,
+                StrokeStartLineCap = source.StrokeEndLineCap,
+                StrokeEndLineCap = source.StrokeStartLineCap
+            };
+            for (int segmentIndex = source.Segments.Count - 1; segmentIndex >= 0; segmentIndex--)
+            {
+                PathSegment segment = source.Segments[segmentIndex];
+                Vector2 endpoint = starts[segmentIndex];
+                output.Segments.Add(segment switch
+                {
+                    LineSegment line => new LineSegment(endpoint, line.IsSmoothJoin, line.IsStroked),
+                    QuadraticBezierSegment quadratic => new QuadraticBezierSegment(quadratic.ControlPoint, endpoint, quadratic.IsSmoothJoin, quadratic.IsStroked),
+                    CubicBezierSegment cubic => new CubicBezierSegment(cubic.ControlPoint2, cubic.ControlPoint1, endpoint, cubic.IsSmoothJoin, cubic.IsStroked),
+                    ArcSegment arc => new ArcSegment(
+                        endpoint,
+                        arc.Size,
+                        arc.RotationAngle,
+                        arc.IsLargeArc,
+                        arc.SweepDirection == SweepDirection.Clockwise ? SweepDirection.Counterclockwise : SweepDirection.Clockwise,
+                        arc.IsSmoothJoin,
+                        arc.IsStroked),
+                    _ => throw new NotSupportedException()
+                });
+            }
+            reversed.Figures.Add(output);
+        }
+
+        _geometry = reversed;
+        _markers.Clear();
+        SynchronizeCurrentState();
+    }
+
+    private void AddOpenCurve(ReadOnlySpan<PointF> points, int offset, int numberOfSegments, float tension)
+    {
+        ThrowIfDisposed();
+        if (!float.IsFinite(tension) || offset < 0 || numberOfSegments < 1 || offset + numberOfSegments >= points.Length)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(points));
+        }
+
+        ConnectOrStart(points[offset]);
+        float scale = tension / 3f;
+        int end = offset + numberOfSegments;
+        for (int i = offset; i < end; i++)
+        {
+            PointF previous = points[i == 0 ? i : i - 1];
+            PointF current = points[i];
+            PointF next = points[i + 1];
+            PointF following = points[i + 2 < points.Length ? i + 2 : i + 1];
+            AddBezier(
+                current,
+                new PointF(current.X + ((next.X - previous.X) * scale), current.Y + ((next.Y - previous.Y) * scale)),
+                new PointF(next.X - ((following.X - current.X) * scale), next.Y - ((following.Y - current.Y) * scale)),
+                next);
+        }
+    }
+
+    internal static bool TryCreateWidenedGeometry(
+        PathGeometry geometry,
+        Pen pen,
+        Matrix? matrix,
+        float flatness,
+        out PathGeometry widened)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        ArgumentNullException.ThrowIfNull(pen);
+        if (!float.IsFinite(flatness) || flatness <= 0f)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(flatness));
+        }
+
+        PathGeometry source = matrix is null
+            ? geometry
+            : geometry.CreateTransformed(ToMatrix4x4(matrix.MatrixElements));
+        bool transformedTip = pen.HasTransformedTip;
+        Matrix3x2 tipTransform = Matrix3x2.Identity;
+        if (transformedTip)
+        {
+            if (!pen.TryGetTipTransform(out tipTransform, out Matrix3x2 inverseTip))
+            {
+                widened = new PathGeometry { FillRule = FillRule.Nonzero };
+                return true;
+            }
+
+            source = source.CreateTransformed(ToMatrix4x4(inverseTip));
+            if (TransformMetrics.TryGetStrokeScales(
+                    ToMatrix4x4(tipTransform),
+                    out float maximumScale,
+                    out _))
+            {
+                flatness /= MathF.Max(1f, maximumScale);
+            }
+        }
+
+        PathGeometry flattened = CreateFlattenedGeometry(source, flatness);
+        float effectiveWidth = GetEffectiveStrokeWidth(pen);
+        if (!TryCreateStrokeGeometry(flattened, pen, effectiveWidth, out widened))
+        {
+            return false;
+        }
+
+        AppendCustomCaps(flattened, pen, effectiveWidth, widened);
+
+        if (transformedTip)
+        {
+            widened = widened.CreateTransformed(ToMatrix4x4(tipTransform));
+        }
+
+        return true;
+    }
+
+    private static bool TryCreateStrokeGeometry(
+        PathGeometry flattened,
+        Pen pen,
+        float effectiveWidth,
+        out PathGeometry widened)
+    {
+        ReadOnlySpan<float> compound = pen.CompoundArrayStorage;
+        if (compound.IsEmpty)
+        {
+            return StrokePathGeometry.TryCreateWidenedPath(
+                flattened,
+                pen.ToProGpuGeometryPen(effectiveWidth),
+                out widened);
+        }
+
+        widened = new PathGeometry { FillRule = FillRule.Nonzero };
+        for (int index = 0; index + 1 < compound.Length; index += 2)
+        {
+            float start = compound[index];
+            float end = compound[index + 1];
+            float bandWidth = (end - start) * effectiveWidth;
+            float offset = (((start + end) * 0.5f) - 0.5f) * effectiveWidth;
+            if (!float.IsFinite(bandWidth) ||
+                !float.IsFinite(offset) ||
+                bandWidth <= 0.0001f)
+            {
+                continue;
+            }
+
+            PathGeometry offsetCenterline = CreateOffsetGeometry(flattened, offset, pen.MiterLimit);
+            ProGPU.Vector.Pen bandPen = pen.ToProGpuGeometryPen(bandWidth);
+            RescaleDashForCompoundBand(bandPen, effectiveWidth, bandWidth);
+            if (!StrokePathGeometry.TryCreateWidenedPath(offsetCenterline, bandPen, out PathGeometry band))
+            {
+                return false;
+            }
+
+            AppendGeometry(widened, band);
+        }
+
+        return true;
+    }
+
+    private static void RescaleDashForCompoundBand(
+        ProGPU.Vector.Pen pen,
+        float fullWidth,
+        float bandWidth)
+    {
+        double[]? dashArray = pen.DashArray;
+        if (dashArray is null)
+        {
+            return;
+        }
+
+        double scale = fullWidth / bandWidth;
+        for (int index = 0; index < dashArray.Length; index++)
+        {
+            dashArray[index] *= scale;
+        }
+
+        pen.DashArray = dashArray;
+        pen.DashOffset *= scale;
+    }
+
+    private static PathGeometry CreateOffsetGeometry(
+        PathGeometry source,
+        float offset,
+        float miterLimit)
+    {
+        if (MathF.Abs(offset) <= 0.0001f)
+        {
+            return source;
+        }
+
+        var result = new PathGeometry { FillRule = source.FillRule };
+        foreach (PathFigure figure in source.Figures)
+        {
+            int segmentCount = figure.Segments.Count;
+            if (segmentCount == 0)
+            {
+                continue;
+            }
+
+            var points = new Vector2[segmentCount + 1];
+            points[0] = figure.StartPoint;
+            bool linesOnly = true;
+            for (int index = 0; index < segmentCount; index++)
+            {
+                if (figure.Segments[index] is not LineSegment line)
+                {
+                    linesOnly = false;
+                    break;
+                }
+
+                points[index + 1] = line.Point;
+            }
+
+            if (!linesOnly)
+            {
+                continue;
+            }
+
+            int pointCount = points.Length;
+            bool explicitClosure = figure.IsClosed &&
+                Vector2.DistanceSquared(points[0], points[^1]) <= 0.00000001f;
+            if (explicitClosure)
+            {
+                pointCount--;
+            }
+
+            if (pointCount < 2)
+            {
+                continue;
+            }
+
+            var shifted = new Vector2[pointCount];
+            if (figure.IsClosed)
+            {
+                for (int index = 0; index < pointCount; index++)
+                {
+                    Vector2 previous = points[(index + pointCount - 1) % pointCount];
+                    Vector2 current = points[index];
+                    Vector2 next = points[(index + 1) % pointCount];
+                    bool incomingStroked = index > 0
+                        ? ((LineSegment)figure.Segments[index - 1]).IsStroked
+                        : !explicitClosure || ((LineSegment)figure.Segments[pointCount - 1]).IsStroked;
+                    bool outgoingStroked = index < pointCount - 1
+                        ? ((LineSegment)figure.Segments[index]).IsStroked
+                        : !explicitClosure || ((LineSegment)figure.Segments[pointCount - 1]).IsStroked;
+                    shifted[index] = OffsetVertex(
+                        previous,
+                        current,
+                        next,
+                        incomingStroked,
+                        outgoingStroked,
+                        offset,
+                        miterLimit);
+                }
+            }
+            else
+            {
+                for (int index = 0; index < pointCount; index++)
+                {
+                    Vector2 previous = index > 0 ? points[index - 1] : points[index];
+                    Vector2 next = index < pointCount - 1 ? points[index + 1] : points[index];
+                    bool incomingStroked = index > 0 &&
+                        ((LineSegment)figure.Segments[index - 1]).IsStroked;
+                    bool outgoingStroked = index < pointCount - 1 &&
+                        ((LineSegment)figure.Segments[index]).IsStroked;
+                    shifted[index] = OffsetVertex(
+                        previous,
+                        points[index],
+                        next,
+                        incomingStroked,
+                        outgoingStroked,
+                        offset,
+                        miterLimit);
+                }
+            }
+
+            var output = new PathFigure(shifted[0], figure.IsClosed)
+            {
+                IsFilled = figure.IsFilled,
+                StrokeStartLineCap = figure.StrokeStartLineCap,
+                StrokeEndLineCap = figure.StrokeEndLineCap,
+            };
+            for (int index = 1; index < shifted.Length; index++)
+            {
+                var sourceSegment = (LineSegment)figure.Segments[index - 1];
+                output.Segments.Add(new LineSegment(
+                    shifted[index],
+                    sourceSegment.IsSmoothJoin,
+                    sourceSegment.IsStroked));
+            }
+
+            if (explicitClosure)
+            {
+                var closingSegment = (LineSegment)figure.Segments[pointCount - 1];
+                output.Segments.Add(new LineSegment(
+                    shifted[0],
+                    closingSegment.IsSmoothJoin,
+                    closingSegment.IsStroked));
+            }
+
+            result.Figures.Add(output);
+        }
+
+        return result;
+    }
+
+    private static Vector2 OffsetVertex(
+        Vector2 previous,
+        Vector2 current,
+        Vector2 next,
+        bool incomingStroked,
+        bool outgoingStroked,
+        float offset,
+        float miterLimit)
+    {
+        if (incomingStroked && outgoingStroked)
+        {
+            return OffsetJoin(previous, current, next, offset, miterLimit);
+        }
+
+        if (incomingStroked)
+        {
+            return current + (LeftNormal(current - previous) * offset);
+        }
+
+        return outgoingStroked
+            ? current + (LeftNormal(next - current) * offset)
+            : current;
+    }
+
+    private static Vector2 OffsetJoin(
+        Vector2 previous,
+        Vector2 current,
+        Vector2 next,
+        float offset,
+        float miterLimit)
+    {
+        Vector2 incoming = current - previous;
+        Vector2 outgoing = next - current;
+        float incomingLength = incoming.Length();
+        float outgoingLength = outgoing.Length();
+        if (!float.IsFinite(incomingLength) ||
+            !float.IsFinite(outgoingLength) ||
+            incomingLength <= 0.0001f ||
+            outgoingLength <= 0.0001f)
+        {
+            return current;
+        }
+
+        incoming /= incomingLength;
+        outgoing /= outgoingLength;
+        Vector2 firstPoint = current + (LeftNormal(incoming) * offset);
+        Vector2 secondPoint = current + (LeftNormal(outgoing) * offset);
+        float denominator = Cross(incoming, outgoing);
+        if (MathF.Abs(denominator) > 0.0001f)
+        {
+            float distance = Cross(secondPoint - firstPoint, outgoing) / denominator;
+            Vector2 intersection = firstPoint + (incoming * distance);
+            float maximumMiter = MathF.Abs(offset) * MathF.Max(2f, MathF.Abs(miterLimit));
+            if (IsFinite(intersection) &&
+                Vector2.DistanceSquared(intersection, current) <= maximumMiter * maximumMiter)
+            {
+                return intersection;
+            }
+        }
+
+        Vector2 average = firstPoint + secondPoint;
+        return average * 0.5f;
+    }
+
+    private static Vector2 LeftNormal(Vector2 direction)
+    {
+        float length = direction.Length();
+        return float.IsFinite(length) && length > 0.0001f
+            ? new Vector2(-direction.Y / length, direction.X / length)
+            : Vector2.Zero;
+    }
+
+    private static float Cross(Vector2 first, Vector2 second)
+        => (first.X * second.Y) - (first.Y * second.X);
+
+    private PathGeometry CreateFlattenedGeometry(Matrix? matrix, float flatness)
+    {
+        PathGeometry source = matrix == null
+            ? _geometry
+            : _geometry.CreateTransformed(ToMatrix4x4(matrix.MatrixElements));
+        return CreateFlattenedGeometry(source, flatness);
+    }
+
+    internal static PathGeometry CreateFlattenedGeometry(PathGeometry source, float flatness)
+    {
+        if (!float.IsFinite(flatness) || flatness <= 0f)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(flatness));
+        }
+
+        var flattened = new PathGeometry { FillRule = source.FillRule };
+        foreach (PathFigure figure in source.Figures)
+        {
+            var output = new PathFigure(figure.StartPoint, figure.IsClosed)
+            {
+                IsFilled = figure.IsFilled,
+                StrokeStartLineCap = figure.StrokeStartLineCap,
+                StrokeEndLineCap = figure.StrokeEndLineCap
+            };
+            Vector2 current = figure.StartPoint;
+            foreach (PathSegment segment in figure.Segments)
+            {
+                switch (segment)
+                {
+                    case LineSegment line:
+                        output.Segments.Add(new LineSegment(line.Point, line.IsSmoothJoin, line.IsStroked));
+                        current = line.Point;
+                        break;
+                    case QuadraticBezierSegment quadratic:
+                        FlattenQuadratic(output, current, quadratic, flatness, depth: 0);
+                        current = quadratic.Point;
+                        break;
+                    case CubicBezierSegment cubic:
+                        FlattenCubic(output, current, cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point, cubic.IsStroked, flatness, depth: 0);
+                        current = cubic.Point;
+                        break;
+                    case ArcSegment arc:
+                        float radius = MathF.Max(MathF.Abs(arc.Size.X), MathF.Abs(arc.Size.Y));
+                        float maxAngle = radius <= flatness
+                            ? MathF.PI * 0.5f
+                            : MathF.Min(MathF.PI * 0.5f, 2f * MathF.Acos(Math.Clamp(1f - (flatness / radius), -1f, 1f)));
+                        Vector2[] arcPoints = ArcSegmentGeometry.FlattenArc(current, arc, MathF.Max(maxAngle, 0.001f));
+                        for (int i = 1; i < arcPoints.Length; i++)
+                        {
+                            output.Segments.Add(new LineSegment(arcPoints[i], isStroked: arc.IsStroked));
+                        }
+                        current = arc.Point;
+                        break;
+                }
+            }
+            flattened.Figures.Add(output);
+        }
+
+        return flattened;
+    }
+
+    private static void AppendCustomCaps(
+        PathGeometry centerlines,
+        Pen pen,
+        float strokeWidth,
+        PathGeometry destination)
+    {
+        CustomLineCap? startCap = pen.StartCustomCap;
+        CustomLineCap? endCap = pen.EndCustomCap;
+        if ((startCap is null && endCap is null) ||
+            !float.IsFinite(strokeWidth) ||
+            MathF.Abs(strokeWidth) <= 0.0001f)
+        {
+            return;
+        }
+
+        foreach (PathFigure figure in centerlines.Figures)
+        {
+            if (figure.IsClosed || !TryGetOpenFigureEnds(
+                    figure,
+                    out Vector2 start,
+                    out Vector2 startNext,
+                    out Vector2 endPrevious,
+                    out Vector2 end))
+            {
+                continue;
+            }
+
+            if (startCap is not null)
+            {
+                AppendCustomCap(
+                    startCap,
+                    start,
+                    Vector2.Normalize(start - startNext),
+                    strokeWidth,
+                    destination);
+            }
+
+            if (endCap is not null)
+            {
+                AppendCustomCap(
+                    endCap,
+                    end,
+                    Vector2.Normalize(end - endPrevious),
+                    strokeWidth,
+                    destination);
+            }
+        }
+    }
+
+    private static bool TryGetOpenFigureEnds(
+        PathFigure figure,
+        out Vector2 start,
+        out Vector2 startNext,
+        out Vector2 endPrevious,
+        out Vector2 end)
+    {
+        start = figure.StartPoint;
+        startNext = default;
+        endPrevious = default;
+        end = start;
+        bool foundStart = false;
+        Vector2 current = start;
+        foreach (PathSegment segment in figure.Segments)
+        {
+            if (segment is not LineSegment line)
+            {
+                return false;
+            }
+
+            if (line.IsStroked && Vector2.DistanceSquared(current, line.Point) > 0.00000001f)
+            {
+                if (!foundStart)
+                {
+                    start = current;
+                    startNext = line.Point;
+                    foundStart = true;
+                }
+
+                endPrevious = current;
+                end = line.Point;
+            }
+
+            current = line.Point;
+        }
+
+        return foundStart;
+    }
+
+    private static void AppendCustomCap(
+        CustomLineCap cap,
+        Vector2 endpoint,
+        Vector2 outward,
+        float strokeWidth,
+        PathGeometry destination)
+    {
+        float widthScale = cap.WidthScale;
+        float baseInset = cap.BaseInset;
+        float absoluteWidth = MathF.Abs(strokeWidth);
+        float scale = absoluteWidth * widthScale;
+        if (!IsFinite(outward) ||
+            !float.IsFinite(scale) ||
+            !float.IsFinite(baseInset) ||
+            MathF.Abs(scale) <= 0.0001f)
+        {
+            return;
+        }
+
+        Vector2 normal = new(-outward.Y, outward.X);
+        Vector2 origin = endpoint - (outward * (baseInset * absoluteWidth));
+        var transform = new Matrix4x4(
+            normal.X * scale, normal.Y * scale, 0f, 0f,
+            outward.X * scale, outward.Y * scale, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            origin.X, origin.Y, 0f, 1f);
+
+        PathGeometry? fill = cap.FillGeometry;
+        if (fill is not null)
+        {
+            AppendGeometry(destination, fill.CreateTransformed(transform));
+        }
+
+        PathGeometry? stroke = cap.StrokeGeometry;
+        if (stroke is null)
+        {
+            return;
+        }
+
+        float localFlatness = 0.25f / MathF.Max(1f, MathF.Abs(scale));
+        PathGeometry flattened = CreateFlattenedGeometry(stroke, localFlatness);
+        var strokePen = new ProGPU.Vector.Pen(
+            new SolidColorBrush(Vector4.One),
+            thickness: 1f,
+            lineJoin: ToProGpuLineJoin(cap.StrokeJoin),
+            startLineCap: ToProGpuLineCap(cap.StrokeStartCap),
+            endLineCap: ToProGpuLineCap(cap.StrokeEndCap));
+        if (StrokePathGeometry.TryCreateWidenedPath(flattened, strokePen, out PathGeometry outline))
+        {
+            AppendGeometry(destination, outline.CreateTransformed(transform));
+        }
+    }
+
+    private static void AppendGeometry(PathGeometry destination, PathGeometry source)
+    {
+        foreach (PathFigure figure in source.Figures)
+        {
+            destination.Figures.Add(figure);
+        }
+    }
+
+    private static ProGPU.Vector.PenLineCap ToProGpuLineCap(LineCap cap)
+        => cap switch
+        {
+            LineCap.Square => ProGPU.Vector.PenLineCap.Square,
+            LineCap.Round => ProGPU.Vector.PenLineCap.Round,
+            LineCap.Triangle => ProGPU.Vector.PenLineCap.Triangle,
+            _ => ProGPU.Vector.PenLineCap.Flat,
+        };
+
+    private static ProGPU.Vector.PenLineJoin ToProGpuLineJoin(LineJoin join)
+        => join switch
+        {
+            LineJoin.Bevel => ProGPU.Vector.PenLineJoin.Bevel,
+            LineJoin.Round => ProGPU.Vector.PenLineJoin.Round,
+            _ => ProGPU.Vector.PenLineJoin.Miter,
+        };
+
+    private static bool IsFinite(Vector2 value)
+        => float.IsFinite(value.X) && float.IsFinite(value.Y);
+
+    private static float GetEffectiveStrokeWidth(Pen pen)
+    {
+        float width = MathF.Abs(pen.Width);
+        if (!float.IsFinite(width))
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(pen));
+        }
+
+        return MathF.Max(1f, width);
+    }
+
+    private bool RequiresFlattening()
+    {
+        foreach (PathFigure figure in _geometry.Figures)
+        {
+            foreach (PathSegment segment in figure.Segments)
+            {
+                if (segment is not LineSegment)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static void FlattenQuadratic(
+        PathFigure output,
+        Vector2 start,
+        QuadraticBezierSegment segment,
+        float flatness,
+        int depth)
+    {
+        Vector2 control1 = start + ((segment.ControlPoint - start) * (2f / 3f));
+        Vector2 control2 = segment.Point + ((segment.ControlPoint - segment.Point) * (2f / 3f));
+        FlattenCubic(output, start, control1, control2, segment.Point, segment.IsStroked, flatness, depth);
+    }
+
+    private static void FlattenCubic(
+        PathFigure output,
+        Vector2 start,
+        Vector2 control1,
+        Vector2 control2,
+        Vector2 end,
+        bool isStroked,
+        float flatness,
+        int depth)
+    {
+        if (depth >= 16 || (DistanceToLine(control1, start, end) <= flatness && DistanceToLine(control2, start, end) <= flatness))
+        {
+            output.Segments.Add(new LineSegment(end, isStroked: isStroked));
+            return;
+        }
+
+        Vector2 p01 = (start + control1) * 0.5f;
+        Vector2 p12 = (control1 + control2) * 0.5f;
+        Vector2 p23 = (control2 + end) * 0.5f;
+        Vector2 p012 = (p01 + p12) * 0.5f;
+        Vector2 p123 = (p12 + p23) * 0.5f;
+        Vector2 middle = (p012 + p123) * 0.5f;
+        FlattenCubic(output, start, p01, p012, middle, isStroked, flatness, depth + 1);
+        FlattenCubic(output, middle, p123, p23, end, isStroked, flatness, depth + 1);
+    }
+
+    private static float DistanceToLine(Vector2 point, Vector2 start, Vector2 end)
+    {
+        Vector2 delta = end - start;
+        float length = delta.Length();
+        if (length <= 0.000001f) return Vector2.Distance(point, start);
+        return MathF.Abs((delta.X * (start.Y - point.Y)) - ((start.X - point.X) * delta.Y)) / length;
+    }
+
+    private void AddClosedCurveCore(ReadOnlySpan<PointF> points, float tension)
+    {
+        ThrowIfDisposed();
+        if (points.Length < 3 || !float.IsFinite(tension))
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(points));
+        }
+
+        StartFigure();
+        ConnectOrStart(points[0]);
+        float scale = tension / 3f;
+        for (int i = 0; i < points.Length; i++)
+        {
+            PointF previous = points[(i - 1 + points.Length) % points.Length];
+            PointF current = points[i];
+            PointF next = points[(i + 1) % points.Length];
+            PointF following = points[(i + 2) % points.Length];
+            AddBezier(
+                current,
+                new PointF(current.X + ((next.X - previous.X) * scale), current.Y + ((next.Y - previous.Y) * scale)),
+                new PointF(next.X - ((following.X - current.X) * scale), next.Y - ((following.Y - current.Y) * scale)),
+                next);
+        }
+
+        CloseFigure();
+    }
+
+    private void InitializeFromPathData(ReadOnlySpan<PointF> points, ReadOnlySpan<byte> types)
+    {
+        if (points.Length == 0 || points.Length != types.Length)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(points));
+        }
+
+        for (int i = 0; i < points.Length; i++)
+        {
+            byte pathType = (byte)(types[i] & (byte)PathPointType.PathTypeMask);
+            if (pathType == (byte)PathPointType.Start)
+            {
+                StartFigure();
+                ConnectOrStart(points[i]);
+            }
+            else if (pathType == (byte)PathPointType.Line)
+            {
+                if (_currentFigure == null) ConnectOrStart(i == 0 ? points[i] : points[i - 1]);
+                AddLine(_lastPoint, points[i]);
+            }
+            else if (pathType == (byte)PathPointType.Bezier3)
+            {
+                if (_currentFigure == null || i + 2 >= points.Length ||
+                    (types[i + 1] & (byte)PathPointType.PathTypeMask) != (byte)PathPointType.Bezier3 ||
+                    (types[i + 2] & (byte)PathPointType.PathTypeMask) != (byte)PathPointType.Bezier3)
+                {
+                    throw new ArgumentException("Parameter is not valid.", nameof(types));
+                }
+
+                AddBezier(_lastPoint, points[i], points[i + 1], points[i + 2]);
+                i += 2;
+            }
+            else
+            {
+                throw new ArgumentException("Parameter is not valid.", nameof(types));
+            }
+
+            if ((types[i] & (byte)PathPointType.PathMarker) != 0) SetMarkers();
+            if ((types[i] & (byte)PathPointType.CloseSubpath) != 0) CloseFigure();
+        }
+
+        SynchronizeCurrentState();
+    }
+
+    private void WritePathData(Span<PointF> pointDestination, Span<byte> typeDestination, bool writePoints, bool writeTypes)
+    {
+        int index = 0;
+        foreach (PathFigure figure in _geometry.Figures)
+        {
+            Vector2 current = figure.StartPoint;
+            WritePoint(ToPointF(current), (byte)PathPointType.Start, figure, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+
+            foreach (PathSegment segment in figure.Segments)
+            {
+                switch (segment)
+                {
+                    case LineSegment line:
+                        WritePoint(ToPointF(line.Point), (byte)PathPointType.Line, line, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+                        current = line.Point;
+                        break;
+
+                    case QuadraticBezierSegment quadratic:
+                        {
+                            Vector2 control1 = current + ((quadratic.ControlPoint - current) * (2f / 3f));
+                            Vector2 control2 = quadratic.Point + ((quadratic.ControlPoint - quadratic.Point) * (2f / 3f));
+                            WritePoint(ToPointF(control1), (byte)PathPointType.Bezier3, null, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+                            WritePoint(ToPointF(control2), (byte)PathPointType.Bezier3, null, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+                            WritePoint(ToPointF(quadratic.Point), (byte)PathPointType.Bezier3, quadratic, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+                            current = quadratic.Point;
+                            break;
+                        }
+
+                    case CubicBezierSegment cubic:
+                        WritePoint(ToPointF(cubic.ControlPoint1), (byte)PathPointType.Bezier3, null, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+                        WritePoint(ToPointF(cubic.ControlPoint2), (byte)PathPointType.Bezier3, null, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+                        WritePoint(ToPointF(cubic.Point), (byte)PathPointType.Bezier3, cubic, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+                        current = cubic.Point;
+                        break;
+
+                    case ArcSegment arc:
+                        WriteArcAsCubics(current, arc, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+                        current = arc.Point;
+                        break;
+                }
+            }
+
+            if (figure.IsClosed && writeTypes && index > 0)
+            {
+                typeDestination[index - 1] |= (byte)PathPointType.CloseSubpath;
+            }
+        }
+    }
+
+    private void WriteArcAsCubics(
+        Vector2 start,
+        ArcSegment arc,
+        ref int index,
+        Span<PointF> pointDestination,
+        Span<byte> typeDestination,
+        bool writePoints,
+        bool writeTypes)
+    {
+        if (!ArcSegmentGeometry.TryGetArcCenter(
+                start,
+                arc.Point,
+                arc.Size,
+                arc.RotationAngle,
+                arc.IsLargeArc,
+                arc.SweepDirection,
+                out Vector2 center,
+                out float theta,
+                out float delta,
+                out float radiusX,
+                out float radiusY))
+        {
+            WritePoint(ToPointF(arc.Point), (byte)PathPointType.Line, arc, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+            return;
+        }
+
+        int spanCount = Math.Max(1, (int)MathF.Ceiling(MathF.Abs(delta) / (MathF.PI * 0.5f)));
+        float span = delta / spanCount;
+        float rotation = arc.RotationAngle * MathF.PI / 180f;
+        float cosRotation = MathF.Cos(rotation);
+        float sinRotation = MathF.Sin(rotation);
+        for (int spanIndex = 0; spanIndex < spanCount; spanIndex++)
+        {
+            float startTheta = theta + (spanIndex * span);
+            float endTheta = startTheta + span;
+            Vector2 p0 = ArcSegmentGeometry.EvaluatePoint(center, radiusX, radiusY, arc.RotationAngle, startTheta);
+            Vector2 p3 = ArcSegmentGeometry.EvaluatePoint(center, radiusX, radiusY, arc.RotationAngle, endTheta);
+            Vector2 d0 = EllipseDerivative(radiusX, radiusY, cosRotation, sinRotation, startTheta);
+            Vector2 d1 = EllipseDerivative(radiusX, radiusY, cosRotation, sinRotation, endTheta);
+            float alpha = (4f / 3f) * MathF.Tan(span * 0.25f);
+            object? endpointMarker = spanIndex == spanCount - 1 ? arc : null;
+            WritePoint(ToPointF(p0 + (alpha * d0)), (byte)PathPointType.Bezier3, null, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+            WritePoint(ToPointF(p3 - (alpha * d1)), (byte)PathPointType.Bezier3, null, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+            WritePoint(ToPointF(p3), (byte)PathPointType.Bezier3, endpointMarker, ref index, pointDestination, typeDestination, writePoints, writeTypes);
+        }
+    }
+
+    private static Vector2 EllipseDerivative(float rx, float ry, float cosRotation, float sinRotation, float theta) =>
+        new(
+            (-rx * MathF.Sin(theta) * cosRotation) - (ry * MathF.Cos(theta) * sinRotation),
+            (-rx * MathF.Sin(theta) * sinRotation) + (ry * MathF.Cos(theta) * cosRotation));
+
+    private void WritePoint(
+        PointF point,
+        byte type,
+        object? endpoint,
+        ref int index,
+        Span<PointF> pointDestination,
+        Span<byte> typeDestination,
+        bool writePoints,
+        bool writeTypes)
+    {
+        if (writePoints) pointDestination[index] = point;
+        if (writeTypes)
+        {
+            typeDestination[index] = endpoint != null && _markers.Contains(endpoint)
+                ? (byte)(type | (byte)PathPointType.PathMarker)
+                : type;
+        }
+
+        index++;
+    }
+
+    private int GetArcCubicCount(PathFigure figure, PathSegment target, ArcSegment arc)
+    {
+        Vector2 current = figure.StartPoint;
+        foreach (PathSegment segment in figure.Segments)
+        {
+            if (ReferenceEquals(segment, target))
+            {
+                return ArcSegmentGeometry.TryGetArcCenter(
+                    current, arc.Point, arc.Size, arc.RotationAngle, arc.IsLargeArc, arc.SweepDirection,
+                    out _, out _, out float delta, out _, out _)
+                    ? Math.Max(1, (int)MathF.Ceiling(MathF.Abs(delta) / (MathF.PI * 0.5f))) * 3
+                    : 1;
+            }
+
+            current = GetSegmentEnd(segment);
+        }
+
+        return 1;
+    }
+
+    private static void CopySegments(PathFigure source, PathFigure destination, HashSet<object> sourceMarkers, HashSet<object> destinationMarkers)
+    {
+        foreach (PathSegment segment in source.Segments)
+        {
+            PathSegment copy = CloneSegment(segment);
+            destination.Segments.Add(copy);
+            if (sourceMarkers.Contains(segment)) destinationMarkers.Add(copy);
+        }
+    }
+
+    private static PathFigure CloneFigure(PathFigure source, HashSet<object> sourceMarkers, HashSet<object> destinationMarkers)
+    {
+        var copy = new PathFigure(source.StartPoint, source.IsClosed)
+        {
+            IsFilled = source.IsFilled,
+            StrokeStartLineCap = source.StrokeStartLineCap,
+            StrokeEndLineCap = source.StrokeEndLineCap
+        };
+        if (sourceMarkers.Contains(source)) destinationMarkers.Add(copy);
+        CopySegments(source, copy, sourceMarkers, destinationMarkers);
+        return copy;
+    }
+
+    private static PathSegment CloneSegment(PathSegment segment) => segment switch
+    {
+        LineSegment line => new LineSegment(line.Point, line.IsSmoothJoin, line.IsStroked),
+        QuadraticBezierSegment quadratic => new QuadraticBezierSegment(quadratic.ControlPoint, quadratic.Point, quadratic.IsSmoothJoin, quadratic.IsStroked),
+        CubicBezierSegment cubic => new CubicBezierSegment(cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point, cubic.IsSmoothJoin, cubic.IsStroked),
+        ArcSegment arc => new ArcSegment(arc.Point, arc.Size, arc.RotationAngle, arc.IsLargeArc, arc.SweepDirection, arc.IsSmoothJoin, arc.IsStroked),
+        _ => throw new NotSupportedException($"Unsupported path segment {segment.GetType().Name}.")
+    };
+
+    private object? GetCurrentEndpointObject()
+    {
+        if (_geometry.Figures.Count == 0) return null;
+        PathFigure figure = _currentFigure ?? _geometry.Figures[^1];
+        return figure.Segments.Count == 0 ? figure : figure.Segments[^1];
+    }
+
+    private HashSet<int> CaptureMarkerIndices()
+    {
+        var result = new HashSet<int>();
+        int index = 0;
+        foreach (PathFigure figure in _geometry.Figures)
+        {
+            if (_markers.Contains(figure)) result.Add(index);
+            index++;
+            foreach (PathSegment segment in figure.Segments)
+            {
+                if (_markers.Contains(segment)) result.Add(index);
+                index++;
+            }
+        }
+
+        return result;
+    }
+
+    private void RestoreMarkers(HashSet<int> markerIndices)
+    {
+        _markers.Clear();
+        int index = 0;
+        foreach (PathFigure figure in _geometry.Figures)
+        {
+            if (markerIndices.Contains(index)) _markers.Add(figure);
+            index++;
+            foreach (PathSegment segment in figure.Segments)
+            {
+                if (markerIndices.Contains(index)) _markers.Add(segment);
+                index++;
+            }
+        }
+    }
+
+    private void SynchronizeCurrentState()
+    {
+        if (_geometry.Figures.Count == 0)
+        {
+            _currentFigure = null;
+            _lastPoint = default;
+            return;
+        }
+
+        PathFigure last = _geometry.Figures[^1];
+        _lastPoint = GetFigureLastPoint(last);
+        _currentFigure = last.IsClosed ? null : last;
+    }
+
+    private static PointF GetFigureLastPoint(PathFigure figure) =>
+        figure.Segments.Count == 0 ? ToPointF(figure.StartPoint) : ToPointF(GetSegmentEnd(figure.Segments[^1]));
+
+    private static Vector2 GetSegmentEnd(PathSegment segment) => segment switch
+    {
+        LineSegment line => line.Point,
+        QuadraticBezierSegment quadratic => quadratic.Point,
+        CubicBezierSegment cubic => cubic.Point,
+        ArcSegment arc => arc.Point,
+        _ => default
+    };
+
+    private static PointF ToPointF(Vector2 point) => new(point.X, point.Y);
+
+    private static PointF[] ConvertPoints(Point[] points)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        return ConvertPoints((ReadOnlySpan<Point>)points);
+    }
+
+    private static PointF[] ConvertPoints(ReadOnlySpan<Point> points)
+    {
+        PointF[] result = new PointF[points.Length];
+        for (int i = 0; i < points.Length; i++) result[i] = points[i];
+        return result;
+    }
+
+    private static Matrix4x4 ToMatrix4x4(Matrix3x2 matrix) => new(
+        matrix.M11, matrix.M12, 0f, 0f,
+        matrix.M21, matrix.M22, 0f, 0f,
+        0f, 0f, 1f, 0f,
+        matrix.M31, matrix.M32, 0f, 1f);
+
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _markers.Clear();
+        _currentFigure = null;
+    }
 }

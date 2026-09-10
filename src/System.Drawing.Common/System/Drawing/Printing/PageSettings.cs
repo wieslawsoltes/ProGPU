@@ -9,6 +9,20 @@ public class PageSettings : ICloneable
     private bool _landscape;
     private Margins _margins = new();
     private PaperSize _paperSize = new(PaperKind.Letter, "Letter", 850, 1100);
+    private PaperSource _paperSource = new();
+    private PrinterResolution _printerResolution = new();
+    private PrinterSettings _printerSettings;
+
+    public PageSettings()
+        : this(new PrinterSettings(skipDefaultPageSettings: true))
+    {
+    }
+
+    public PageSettings(PrinterSettings printerSettings)
+    {
+        ArgumentNullException.ThrowIfNull(printerSettings);
+        _printerSettings = printerSettings;
+    }
 
     public Rectangle Bounds => _landscape
         ? new Rectangle(0, 0, _paperSize.Height, _paperSize.Width)
@@ -42,6 +56,12 @@ public class PageSettings : ICloneable
         set => _paperSize = value ?? throw new ArgumentNullException(nameof(value));
     }
 
+    public PaperSource PaperSource
+    {
+        get => _paperSource;
+        set => _paperSource = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
     public RectangleF PrintableArea
     {
         get
@@ -51,6 +71,18 @@ public class PageSettings : ICloneable
         }
     }
 
+    public PrinterResolution PrinterResolution
+    {
+        get => _printerResolution;
+        set => _printerResolution = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    public PrinterSettings PrinterSettings
+    {
+        get => _printerSettings;
+        set => _printerSettings = value ?? new PrinterSettings();
+    }
+
     public object Clone()
     {
         var clone = (PageSettings)MemberwiseClone();
@@ -58,6 +90,12 @@ public class PageSettings : ICloneable
         return clone;
     }
 
+    public void CopyToHdevmode(IntPtr hdevmode) =>
+        throw new PlatformNotSupportedException("Native DEVMODE access requires a platform print adapter.");
+
+    public void SetHdevmode(IntPtr hdevmode) =>
+        throw new PlatformNotSupportedException("Native DEVMODE access requires a platform print adapter.");
+
     public override string ToString() =>
-        $"[PageSettings: Color={Color}, Landscape={Landscape}, Margins={Margins}, PaperSize={PaperSize}]";
+        $"[PageSettings: Color={Color}, Landscape={Landscape}, Margins={Margins}, PaperSize={PaperSize}, PaperSource={PaperSource}, PrinterResolution={PrinterResolution}]";
 }

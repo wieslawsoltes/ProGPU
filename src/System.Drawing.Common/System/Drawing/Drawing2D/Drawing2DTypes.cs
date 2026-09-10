@@ -1,5 +1,36 @@
 namespace System.Drawing.Drawing2D;
 
+public enum CombineMode
+{
+    Replace = 0,
+    Intersect = 1,
+    Union = 2,
+    Xor = 3,
+    Exclude = 4,
+    Complement = 5,
+}
+
+public enum CompositingMode
+{
+    SourceOver = 0,
+    SourceCopy = 1,
+}
+
+public enum CoordinateSpace
+{
+    World = 0,
+    Page = 1,
+    Device = 2,
+}
+
+public enum QualityMode
+{
+    Invalid = -1,
+    Default = 0,
+    Low = 1,
+    High = 2,
+}
+
 public enum SmoothingMode
 {
     Invalid = -1,
@@ -81,4 +112,37 @@ public enum LineJoin
     Bevel = 1,
     Round = 2,
     MiterClipped = 3
+}
+
+public enum PenAlignment
+{
+    Center = 0,
+    Inset = 1,
+    Outset = 2,
+    Left = 3,
+    Right = 4
+}
+
+public enum PenType
+{
+    SolidColor = 0,
+    HatchFill = 1,
+    TextureFill = 2,
+    PathGradient = 3,
+    LinearGradient = 4,
+}
+
+public enum WrapMode
+{
+    Tile = 0,
+    TileFlipX = 1,
+    TileFlipY = 2,
+    TileFlipXY = 3,
+    Clamp = 4
+}
+
+public enum WarpMode
+{
+    Perspective = 0,
+    Bilinear = 1
 }

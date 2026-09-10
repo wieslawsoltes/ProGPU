@@ -1,0 +1,3 @@
+# Fully qualified test method|reviewed exclusion reason
+System.Drawing.Tests.BitmapTests.GetHicon_FromHicon_ReturnsExpected|Requires the native HICON adapter and triggers an xUnit dynamic-skip metadata defect on portable hosts.
+System.Drawing.Tests.SystemFontsTests.SystemFont_Get_ReturnsExpected_WindowsNames|Asserts host Windows font names and triggers an xUnit dynamic-skip metadata defect on portable hosts.

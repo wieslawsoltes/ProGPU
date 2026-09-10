@@ -1163,7 +1163,8 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneBrushKind.LinearGradient or
             NativeSceneBrushKind.RadialGradient or
             NativeSceneBrushKind.TwoPointConicalGradient or
-            NativeSceneBrushKind.SweepGradient => mask.Brush.StopCount,
+            NativeSceneBrushKind.SweepGradient or
+            NativeSceneBrushKind.PathGradient => mask.Brush.StopCount,
             NativeSceneBrushKind.PerlinNoise
                 when mask.Brush.StopCount != 0U &&
                     mask.Brush.Interpolation ==
@@ -1184,7 +1185,8 @@ public ref struct NativeSceneStreamBuilder
             MathF.Abs(mask.Transform.GetDeterminant()) <= 0.000001f ||
             !float.IsFinite(mask.Opacity) ||
             mask.Opacity is < 0f or > 1f ||
-            mask.Brush.StopOffset != 0U ||
+            (mask.Brush.Kind != NativeSceneBrushKind.TilePattern &&
+                mask.Brush.StopOffset != 0U) ||
             !IsValidBrushTable(brush, gradientStops))
         {
             return false;
@@ -1257,7 +1259,8 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneBrushKind.LinearGradient or
             NativeSceneBrushKind.RadialGradient or
             NativeSceneBrushKind.TwoPointConicalGradient or
-            NativeSceneBrushKind.SweepGradient => mask.Brush.StopCount,
+            NativeSceneBrushKind.SweepGradient or
+            NativeSceneBrushKind.PathGradient => mask.Brush.StopCount,
             NativeSceneBrushKind.PerlinNoise
                 when mask.Brush.StopCount != 0U &&
                     mask.Brush.Interpolation ==
@@ -1266,7 +1269,8 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneBrushKind.HatchPatternSet => mask.Brush.StopCount,
             _ => 0U
         };
-        if (mask.Brush.StopOffset != 0U ||
+        if ((mask.Brush.Kind != NativeSceneBrushKind.TilePattern &&
+                mask.Brush.StopOffset != 0U) ||
             mask.GradientStopCount != storedStopCount ||
             !IsValidBrushTable(brush, stops))
         {
@@ -1452,7 +1456,8 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneBrushKind.LinearGradient or
                 NativeSceneBrushKind.RadialGradient or
                 NativeSceneBrushKind.TwoPointConicalGradient or
-                NativeSceneBrushKind.SweepGradient => brushMask.Brush.StopCount,
+                NativeSceneBrushKind.SweepGradient or
+                NativeSceneBrushKind.PathGradient => brushMask.Brush.StopCount,
                 NativeSceneBrushKind.PerlinNoise
                     when brushMask.Brush.StopCount != 0U &&
                         brushMask.Brush.Interpolation ==
@@ -1494,7 +1499,8 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneBrushKind.LinearGradient or
                 NativeSceneBrushKind.RadialGradient or
                 NativeSceneBrushKind.TwoPointConicalGradient or
-                NativeSceneBrushKind.SweepGradient =>
+                NativeSceneBrushKind.SweepGradient or
+                NativeSceneBrushKind.PathGradient =>
                     geometryMask.Brush.StopCount,
                 NativeSceneBrushKind.PerlinNoise
                     when geometryMask.Brush.StopCount != 0U &&
@@ -2794,12 +2800,15 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneBrushKind.TwoPointConicalGradient or
                 NativeSceneBrushKind.SweepGradient or
                 NativeSceneBrushKind.PerlinNoise or
+                NativeSceneBrushKind.TilePattern or
+                NativeSceneBrushKind.PathGradient or
                 NativeSceneBrushKind.HatchPatternSet;
             bool gradient = brush.Kind is
                 NativeSceneBrushKind.LinearGradient or
                 NativeSceneBrushKind.RadialGradient or
                 NativeSceneBrushKind.TwoPointConicalGradient or
-                NativeSceneBrushKind.SweepGradient;
+                NativeSceneBrushKind.SweepGradient or
+                NativeSceneBrushKind.PathGradient;
             if (!supported || !brush.HasCanonicalReservedFields ||
                 !float.IsFinite(brush.Opacity) ||
                 brush.Opacity is < 0f or > 1f ||
@@ -2854,7 +2863,8 @@ public ref struct NativeSceneStreamBuilder
                 bool hatch = brush.Kind is
                     NativeSceneBrushKind.HatchPattern or
                     NativeSceneBrushKind.CrossHatch;
-                if (brush.StopCount != 0U || brush.StopOffset != 0U ||
+                bool tilePattern = brush.Kind == NativeSceneBrushKind.TilePattern;
+                if ((!tilePattern && (brush.StopCount != 0U || brush.StopOffset != 0U)) ||
                     spread != 0U || brush.Interpolation !=
                         NativeSceneGradientInterpolation.SRgb ||
                     (hatch && (brush.Center.X <= 0f ||
@@ -2870,6 +2880,19 @@ public ref struct NativeSceneStreamBuilder
                     (uint)gradientStops.Length - brush.StopOffset)
             {
                 return false;
+            }
+            if (brush.Kind == NativeSceneBrushKind.PathGradient)
+            {
+                uint boundaryCount = (uint)brush.Radius;
+                uint curveCount = (uint)brush.RadiusY;
+                if (brush.Radius != boundaryCount ||
+                    boundaryCount is < 2U or > NativeSceneBrush.MaximumPathGradientBoundaryPoints ||
+                    brush.RadiusY != curveCount || curveCount == 0U ||
+                    brush.StopCount != boundaryCount * 2U + curveCount ||
+                    (brush.Color1.X != 0f && brush.Color1.X != 1f))
+                {
+                    return false;
+                }
             }
             float previous = float.NegativeInfinity;
             for (uint index = 0U; index < brush.StopCount; index++)

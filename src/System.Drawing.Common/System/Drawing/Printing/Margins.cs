@@ -5,6 +5,7 @@ namespace System.Drawing.Printing;
 /// <summary>
 /// Specifies page margins in hundredths of an inch.
 /// </summary>
+[System.ComponentModel.TypeConverter(typeof(MarginsConverter))]
 public class Margins : ICloneable
 {
     private int _left;

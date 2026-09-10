@@ -225,9 +225,15 @@ bool create_semantic_composite_mask_binding(
         child.geometry = parsed.composite_geometry_masks[index];
         child.composite_geometry_primitives =
             parsed.composite_geometry_primitives;
-        const std::uint32_t stop_offset = child.geometry.brush.stop_offset;
-        child.geometry.brush.stop_offset = 0U;
-        child.brush_stops = parsed.composite_stops + stop_offset;
+        if (semantic::semantic_brush_stored_stop_count(
+                child.geometry.brush) != 0U) {
+            const std::uint32_t stop_offset =
+                child.geometry.brush.stop_offset;
+            child.geometry.brush.stop_offset = 0U;
+            child.brush_stops = parsed.composite_stops + stop_offset;
+        } else {
+            child.brush_stops = parsed.composite_stops;
+        }
         semantic_render_bundle_span child_operation{};
         if (!create_semantic_geometry_mask_binding(
                 engine,
@@ -244,9 +250,15 @@ bool create_semantic_composite_mask_binding(
         semantic::semantic_layer_mask child{};
         child.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
         child.brush = parsed.composite_brushes[index];
-        const std::uint32_t stop_offset = child.brush.brush.stop_offset;
-        child.brush.brush.stop_offset = 0U;
-        child.brush_stops = parsed.composite_stops + stop_offset;
+        if (semantic::semantic_brush_stored_stop_count(
+                child.brush.brush) != 0U) {
+            const std::uint32_t stop_offset =
+                child.brush.brush.stop_offset;
+            child.brush.brush.stop_offset = 0U;
+            child.brush_stops = parsed.composite_stops + stop_offset;
+        } else {
+            child.brush_stops = parsed.composite_stops;
+        }
         semantic_render_bundle_span child_operation{};
         if (!create_semantic_brush_mask_binding(
                 engine,

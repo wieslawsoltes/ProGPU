@@ -19,6 +19,28 @@ public sealed class DisplayScaleResolverTests
         Assert.Equal(expected, DisplayScaleResolver.NormalizeDisplayScale(input));
     }
 
+    [Theory]
+    [InlineData(800, 600, 800, 600, 1.0)]
+    [InlineData(800, 600, 1600, 1200, 2.0)]
+    [InlineData(800, 600, 1200, 900, 1.5)]
+    [InlineData(0, 600, 1600, 1200, 1.0)]
+    [InlineData(800, 600, 0, 1200, 1.0)]
+    public void ResolveFramebufferScaleSeparatesScreenCoordinatesFromPixels(
+        int windowWidth,
+        int windowHeight,
+        int framebufferWidth,
+        int framebufferHeight,
+        double expected)
+    {
+        double scale = DisplayScaleResolver.ResolveFramebufferScale(
+            windowWidth,
+            windowHeight,
+            framebufferWidth,
+            framebufferHeight);
+
+        Assert.Equal(expected, scale);
+    }
+
     [Fact]
     public void ResolveDisplayScaleWithPlatformFallbackUsesNativeScaleWhenMonitorScaleIsUnavailable()
     {
