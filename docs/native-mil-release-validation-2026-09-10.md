@@ -35,6 +35,28 @@ native scene submission. Baseline: ProGPU `2a998c86`, rebased on main `73cda9a5`
 
 ## Evidence and outstanding gates
 
+### Continued core closure after the release-hour checkpoint
+
+The identity-transformed solid EllipseGeometry source route now preserves its
+canonical full-arc renderer instead of expanding to unsupported input joins.
+Null and explicitly empty dash resources pass native fill/stroke, arc payload,
+resize and removal assertions; three paired managed tests pass. See
+[ellipse routing](native-mil-ellipse-input.md).
+
+Cached source effects now compose the existing identity-effect and original-cache
+input scopes. All nine native combinations reach their assertions and three
+spatial-mask cases reject without partial output; the nine paired managed GPU
+cases pass. A layer fixture also clears its bounds when clearing the bounds flag.
+See [cached effect input](native-mil-cached-effect-input.md).
+
+GCC now compiles the native targets and reaches runtime tests. Its earlier
+rectangle/pen fixture failure was a hard-coded libm-dependent triangle total.
+The fixture now verifies every renderer-derived line and triangle segment, count,
+bound and owner exactly. The native executable advances to curved tiled-pen
+compilation (scene family 9700), rather than stopping at source ellipse/effects.
+This later failure, Direct2D Widen, Viewport3D pixels, four managed cached-stroke
+comparisons, browser capture timeouts and package/platform gates remain open.
+
 ### Second failure-fix batch
 
 The real source-built macOS ARM64 host now passes at LibreWPF `ecef7f4c1`,

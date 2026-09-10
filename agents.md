@@ -11,6 +11,12 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Built-in source identity effects preserve input around an admitted local cache.
+The inner cache owns original-content frame conversion; the outer effect owns
+its final source clip, not effect padding. Keep spatial visual masks rejected
+at both boundaries and zero-scale caches input-only. Do not restore blanket
+cache exclusion or treat these composed fixtures as full application qualification.
+
 X11 native popup setup belongs to NativePopupWindow and requires the complete
 hidden top-level, same-display/root, transient-owner, override-redirect and menu
 type contract. Confirm server state; never combine independent setup results

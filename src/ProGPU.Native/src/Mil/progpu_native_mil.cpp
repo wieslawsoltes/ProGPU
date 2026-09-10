@@ -19174,19 +19174,20 @@ struct channel::implementation {
         // visual. Uncached uniform opacity and a typed spatial mask are
         // represented by one bounded inner isolation layer so they execute
         // once before the outer effect.
-        const bool has_spatial_opacity_mask =
-            !has_local_cache_input &&
-            visual->second.alpha_mask_handle != 0U &&
+        const bool has_spatial_visual_mask = visual->second.alpha_mask_handle != 0U &&
             (gradient_brushes.contains(visual->second.alpha_mask_handle) ||
                 is_sampled_brush(visual->second.alpha_mask_handle));
+        const bool has_spatial_opacity_mask = !has_local_cache_input && has_spatial_visual_mask;
         const bool isolate_source_composite =
             !has_local_cache_input &&
             (state.opacity != 1.0 || has_spatial_opacity_mask);
         // Built-in source effects inherit WPF's identity EffectMapping. Preserve
-        // geometric input, not expanded raster bounds. Spatial masks and local
-        // caches still need their own source-input contracts.
-        const bool source_effect_input = record_hit_owner && !has_local_cache_input &&
-            !has_spatial_opacity_mask && state.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX;
+        // geometric input, not expanded raster bounds. An inner local cache
+        // publishes its own original-content frame; the effect preserves that
+        // frame and applies only its final source clip. Spatial masks remain
+        // unqualified at either boundary and must still fail closed.
+        const bool source_effect_input = record_hit_owner && !has_spatial_visual_mask &&
+            state.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX;
         const auto effect_hit_mode = source_effect_input
             ? native::scene_layer_hit_test_mode::source_identity_effect
             : native::scene_layer_hit_test_mode::unspecified;

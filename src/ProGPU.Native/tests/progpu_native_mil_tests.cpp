@@ -12,6 +12,7 @@
 #include "progpu_native_text.hpp"
 #include "../src/Geometry/progpu_native_arc.hpp"
 #include "../src/Backend/progpu_native_geometry_base.hpp"
+#include "../src/Backend/progpu_native_geometry_stroke.hpp"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
 #include <array>
@@ -21135,19 +21136,53 @@ int main() {
                         header.resource_offset + i * sizeof(progpu_native_scene_resource));
                     if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
                     const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
-                    if (page.primitive_count != (variant == 5U ? 22U : 1U))
-                        std::fprintf(stderr, "source=%u variant=%u hit count=%u\n",
-                            static_cast<unsigned>(source), variant, page.primitive_count);
-                    PROGPU_REQUIRE(page.primitive_count == (variant == 5U ? 22U : 1U));
+                    PROGPU_REQUIRE(variant == 5U ? page.primitive_count > 1U : page.primitive_count == 1U);
                     const auto fill = read_value<progpu_native_hit_test_primitive>(stream,
                         resource.auxiliary_offset + page.primitive_offset);
                     PROGPU_REQUIRE(fill.id == 1 && fill.kind == PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL);
                     PROGPU_REQUIRE(fill.bounds_min.x == 8 && fill.bounds_min.y == 8);
                     PROGPU_REQUIRE(fill.bounds_max.x == 56 && fill.bounds_max.y == 56);
                     if (variant == 5U) {
-                        // The shared stroke renderer exports its 21 canonical
-                        // line/triangle pieces, not a synthetic rectangle stroke.
-                        // All pieces still belong to the outer painted source.
+                        // Verify every line and renderer-generated join, not a
+                        // libm-specific total: ceil(sweep / step) can select one
+                        // extra round-join triangle at an exact quadrant boundary.
+                        // The index must retain every piece the renderer uses.
+                        const std::array corners{progpu_native_point{8, 8}, progpu_native_point{56, 8},
+                            progpu_native_point{56, 56}, progpu_native_point{8, 56}};
+                        std::uint32_t expected_index = 1U;
+                        const auto read_hit = [&](std::uint32_t index) {
+                            PROGPU_REQUIRE(index < page.primitive_count);
+                            return read_value<progpu_native_hit_test_primitive>(stream,
+                                resource.auxiliary_offset + page.primitive_offset + index * sizeof(fill));
+                        };
+                        for (std::size_t edge = 0U; edge < corners.size(); ++edge) {
+                            const auto first = corners[edge], corner = corners[(edge + 1U) % corners.size()];
+                            const auto last = corners[(edge + 2U) % corners.size()];
+                            const auto line = read_hit(expected_index++);
+                            PROGPU_REQUIRE(line.kind == PROGPU_NATIVE_HIT_TEST_LINE_STROKE && line.data1.x == 4.0F);
+                            PROGPU_REQUIRE(line.data0.x == first.x && line.data0.y == first.y &&
+                                line.data0.z == corner.x && line.data0.w == corner.y);
+                            std::array<progpu::native::stroke_triangle, 8U> triangles{};
+                            const auto count = progpu::native::create_join_triangles(triangles,
+                                options.line_join, 4.0F, 10.0F, corner,
+                                {corner.x - first.x, corner.y - first.y},
+                                {last.x - corner.x, last.y - corner.y}, true);
+                            for (std::size_t triangle = 0U; triangle < count; ++triangle) {
+                                const auto hit = read_hit(expected_index++);
+                                PROGPU_REQUIRE(hit.kind == PROGPU_NATIVE_HIT_TEST_PATH_FILL && hit.data1.y == 3.0F);
+                                const std::array points{triangles[triangle].p0, triangles[triangle].p1, triangles[triangle].p2};
+                                for (std::size_t segment = 0U; segment < points.size(); ++segment) {
+                                    const auto index = static_cast<std::uint32_t>(hit.data1.x) + segment;
+                                    PROGPU_REQUIRE(index < page.path_segment_count);
+                                    const auto actual = read_value<progpu_native_path_segment>(stream,
+                                        resource.auxiliary_offset + page.path_segment_offset + index * sizeof(progpu_native_path_segment));
+                                    const auto a = points[segment], b = points[(segment + 1U) % points.size()];
+                                    PROGPU_REQUIRE(actual.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+                                        actual.p0.x == a.x && actual.p0.y == a.y && actual.p1.x == b.x && actual.p1.y == b.y);
+                                }
+                            }
+                        }
+                        PROGPU_REQUIRE(expected_index == page.primitive_count);
                         for (std::uint32_t p = 1U; p < page.primitive_count; ++p) {
                             const auto stroke = read_value<progpu_native_hit_test_primitive>(stream,
                                 resource.auxiliary_offset + page.primitive_offset + p * sizeof(fill));
@@ -21884,7 +21919,7 @@ int main() {
     }
     {
         // Source visual with Showcase Blur/DropShadow settings, through canonical MIL.
-        for (std::uint32_t variant = 0U; variant < 9U; ++variant) {
+        for (std::uint32_t variant = 0U; variant < 12U; ++variant) {
             channel state;
             std::vector<std::byte> batch, content;
             append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
@@ -21901,8 +21936,15 @@ int main() {
             else append_command(batch, command::blur_effect, 5U, effect_variant == 0U ? 2.5 : 0.0, 0U, 0U, 1U);
             if (variant >= 3U) {
                 append_create(batch, 11U, 94U);
-                append_command(batch, command::bitmap_cache, 11U, variant >= 6U ? 0.0 : 2.0, 0U, 1U, 0U);
+                append_command(batch, command::bitmap_cache, 11U, variant >= 6U && variant < 9U ? 0.0 : 2.0, 0U, 1U, 0U);
                 append_command(batch, command::visual_set_cache_mode, 1U, 11U);
+            }
+            if (variant >= 9U) {
+                append_create(batch, 6U, 77U);
+                const std::array stops{mil_gradient_stop{0.0, {1, 1, 1, 0}}, mil_gradient_stop{1.0, {1, 1, 1, 1}}};
+                append_linear_gradient_brush(batch, 6U, 1.0, 0.0, 0.0, 1.0, 0.0,
+                    0U, 0U, 0U, 0U, 1U, 0U, 0U, 0U, stops);
+                append_command(batch, command::visual_set_alpha_mask, 1U, 6U);
             }
             append_command(batch, command::visual_set_effect, 1U, 5U);
             append_command(batch, command::visual_set_alpha, 1U, 0.0);
@@ -21921,6 +21963,10 @@ int main() {
             request.dpi_scale_x = request.dpi_scale_y = 1.0;
             std::span<const std::byte> compiled;
             const auto effect_status = state.build_scene(request, compiled);
+            if (variant >= 9U) {
+                PROGPU_REQUIRE(effect_status == status::unsupported_command && compiled.empty());
+                continue;
+            }
             if (effect_status != status::success)
                 std::fprintf(stderr, "source effect variant=%u status=%u\n", variant, static_cast<unsigned>(effect_status));
             PROGPU_REQUIRE(effect_status == status::success);
