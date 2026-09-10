@@ -11,6 +11,12 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Measured anchor placement preserves its resolved horizontal reference while
+clearing exclusions downward only with explicit delay permission. Keep bounded
+attempts, half-open contact and atomic placement publication. Automatic sizing,
+empty anchors and source subtree ownership are separate required contracts;
+never infer their admission from a positive-size native placement fixture.
+
 Anchored text exclusion uses resolved half-open layout rectangles, not paint or
 hit-test envelopes. Preserve every free interval across the whole candidate line
 height, real exhausted width, edge contact and next-Y progress. The shared native

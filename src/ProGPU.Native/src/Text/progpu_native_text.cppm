@@ -9,6 +9,8 @@ export namespace progpu::native::text {
 using ::progpu::native::text::text_item_metrics;
 using ::progpu::native::text::text_exclusion_rectangle;
 using ::progpu::native::text::text_line_interval;
+using ::progpu::native::text::text_anchor_alignment;
+using ::progpu::native::text::try_place_text_anchor;
 using ::progpu::native::text::try_resolve_text_line_intervals;
 using ::progpu::native::text::text_line_fragment;
 using ::progpu::native::text::try_fit_text_exclusion_band;

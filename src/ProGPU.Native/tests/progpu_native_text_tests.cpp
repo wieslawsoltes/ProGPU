@@ -13431,7 +13431,42 @@ static void excluded_paragraphs_retain_rows_and_bounded_progress() {
         box_count, caret_count));
 }
 
+void measured_anchors_retain_horizontal_reference() {
+    using namespace progpu::native::text;
+    std::array<text_exclusion_rectangle, 2> obstacles{{{70, 0, 100, 20}, {70, 20, 100, 35}}};
+    std::array<text_line_interval, 2> scratch{};
+    std::array<text_line_interval, 3> intervals{};
+    text_exclusion_rectangle placed{1, 2, 3, 4};
+    font_error error{};
+    const auto place = [&](text_anchor_alignment alignment, bool delay, std::uint32_t budget) {
+        return try_place_text_anchor({0, 0, 100, 60}, 30, 10, alignment, delay,
+            obstacles, scratch, intervals, placed, budget, &error);
+    };
+    require(place(text_anchor_alignment::right, true, 3));
+    require(placed.left == 70 && placed.right == 100 && placed.top == 35 && placed.bottom == 45);
+    require(!place(text_anchor_alignment::right, true, 2) && error == font_error::verification_failed);
+    require(placed.left == 70 && placed.top == 35); // Failure is atomic.
+    require(!place(text_anchor_alignment::right, false, 3));
+    require(place(text_anchor_alignment::left, false, 1) && placed.left == 0 && placed.top == 0);
+    require(place(text_anchor_alignment::center, false, 1) && placed.left == 35 && placed.top == 0);
+    obstacles[0] = {65, 0, 100, 20}; // Exact edge contact remains free.
+    require(place(text_anchor_alignment::center, false, 1));
+    obstacles[0].left = 64;
+    require(!place(text_anchor_alignment::center, false, 1));
+    obstacles[0].left = std::numeric_limits<float>::quiet_NaN();
+    require(!place(text_anchor_alignment::left, true, 3) && error == font_error::invalid_argument);
+    require(!place(static_cast<text_anchor_alignment>(255), true, 3));
+    require(!place(text_anchor_alignment::left, true, 0));
+    obstacles[0] = {0, 0, 100, 60};
+    require(!place(text_anchor_alignment::left, true, 3) && error == font_error::verification_failed);
+    require(!try_place_text_anchor({0, 0, 100, 60}, 101, 10, text_anchor_alignment::left,
+        true, obstacles, scratch, intervals, placed, 3, &error));
+    require(!try_place_text_anchor({0, 0, 100, 60}, 0, 10, text_anchor_alignment::left,
+        true, obstacles, scratch, intervals, placed, 3, &error) && error == font_error::invalid_argument);
+}
+
 int main() {
+    measured_anchors_retain_horizontal_reference();
     excluded_paragraphs_retain_rows_and_bounded_progress();
     measured_exclusion_fragments_share_one_baseline();
     exclusion_bands_fit_original_shaped_ranges();

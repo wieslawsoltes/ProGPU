@@ -2113,6 +2113,21 @@ struct text_exclusion_rectangle final {
 };
 struct text_line_interval final { float left{}, right{}; };
 
+enum class text_anchor_alignment : std::uint8_t { left, center, right };
+// Place an already measured positive-size outer box in a source-resolved frame.
+// Margins/insets are included in width/height by the caller. Horizontal position
+// stays anchored; collisions may move it down only when allow_delay is true.
+// Half-open edge contact is allowed. Reference bottom is an actual fit limit.
+// Reuses native exclusion intervals (scratch E, intervals E+1), no allocation.
+// O(A * E log E), bounded by maximum_attempts; failure leaves placement untouched.
+// Does not resolve automatic dimensions, page references or source child ownership.
+bool try_place_text_anchor(text_exclusion_rectangle reference, float width, float height,
+    text_anchor_alignment alignment, bool allow_delay,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
+    text_exclusion_rectangle& placement, std::uint32_t maximum_attempts,
+    font_error* error = nullptr) noexcept;
+
 // Complement of all exclusions intersecting the entire candidate line band.
 // Returns increasing, nonempty intervals; touching intervals are coalesced.
 // No free interval is a real exhausted width, not an unbounded paragraph.

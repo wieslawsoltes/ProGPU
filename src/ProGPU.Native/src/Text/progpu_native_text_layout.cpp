@@ -637,6 +637,56 @@ bool try_classify_text_justification(std::span<const unicode_scalar> input,
     return true;
 }
 
+bool try_place_text_anchor(text_exclusion_rectangle reference, float width, float height,
+    text_anchor_alignment alignment, bool allow_delay,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
+    text_exclusion_rectangle& placement, std::uint32_t maximum_attempts,
+    font_error* error) noexcept {
+    if (!std::isfinite(width) || !std::isfinite(height) || width <= 0 || height <= 0 ||
+        maximum_attempts == 0U || maximum_attempts > (1U << 20U) ||
+        static_cast<unsigned>(alignment) > static_cast<unsigned>(text_anchor_alignment::right)) {
+        set_error(error, font_error::invalid_argument); return false;
+    }
+    // The interval resolver validates reference edges, input rectangles and
+    // disjoint scratch spans using its existing intrinsic coordinate lanes.
+    std::uint32_t count = 0U;
+    float next = reference.top;
+    if (!try_resolve_text_line_intervals(reference, exclusions, scratch, intervals, count, next, error))
+        return false;
+    const double available = static_cast<double>(reference.right) - reference.left;
+    if (width > available || height > static_cast<double>(reference.bottom) - reference.top) {
+        set_error(error, font_error::verification_failed); return false;
+    }
+    const double spare = available - width;
+    const float left = static_cast<float>(reference.left + spare *
+        (alignment == text_anchor_alignment::left ? 0.0 : alignment == text_anchor_alignment::right ? 1.0 : 0.5));
+    const float right = static_cast<float>(static_cast<double>(left) + width);
+    if (right <= left || right > reference.right) {
+        set_error(error, font_error::verification_failed); return false;
+    }
+    float top = reference.top;
+    for (std::uint32_t attempt = 0U; attempt < maximum_attempts; ++attempt) {
+        const double bottom_value = static_cast<double>(top) + height;
+        if (bottom_value > reference.bottom) break;
+        const float bottom = static_cast<float>(bottom_value);
+        if (bottom <= top) break; // The published float frame must advance.
+        if (!try_resolve_text_line_intervals({reference.left, top, reference.right, bottom},
+                exclusions, scratch, intervals, count, next, error)) return false;
+        for (std::uint32_t i = 0U; i < count; ++i) {
+            if (left >= intervals[i].left && right <= intervals[i].right) {
+                placement = {left, top, right, bottom};
+                set_error(error, font_error::none); return true;
+            }
+        }
+        // Ordered retry dependency: keep the same X anchor, never slide content
+        // sideways or overlap an obstacle to manufacture progress.
+        if (!allow_delay || next <= top) break;
+        top = next;
+    }
+    set_error(error, font_error::verification_failed); return false;
+}
+
 bool try_resolve_text_line_intervals(text_exclusion_rectangle band,
     std::span<const text_exclusion_rectangle> exclusions,
     std::span<text_line_interval> scratch, std::span<text_line_interval> output,
