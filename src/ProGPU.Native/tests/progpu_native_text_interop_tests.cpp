@@ -468,6 +468,23 @@ void bulk_shape_is_deterministic_and_caller_owned() {
             require(excluded_result.content_height == 62 && placements[0].top == 20 && placements[0].row_index == 0 &&
                 placements[0].reserved == 0 && excluded_lines[0].baseline_y == 55);
             excluded_glyphs[0].x = 123; placements[0].top = 456;
+            const auto at = [&](double origin) {
+                excluded_result.struct_size = sizeof(excluded_result);
+                return progpu_native_text_context_layout_excluded_flow_paragraph_at(context, &inline_request,
+                    &options, &style, 1, nullptr, &metric, &object, 1, &exclusion_options, &rectangle, 1, origin,
+                    excluded_glyphs.data(), excluded_needed.glyph_capacity,
+                    excluded_lines.data(), excluded_needed.line_capacity, placements.data(), excluded_needed.line_capacity,
+                    excluded_scratch.data(), excluded_scratch.size(), &excluded_result, 0, nullptr);
+            };
+            require(progpu_native_text_context_get_excluded_flow_paragraph_requirements_at(context, &inline_request,
+                &options, &style, 1, nullptr, &metric, &object, 1, &exclusion_options, &rectangle, 1, 30.25,
+                &excluded_needed) == PROGPU_NATIVE_STATUS_SUCCESS);
+            require(at(30.25) == PROGPU_NATIVE_STATUS_SUCCESS && placements[0].top == 30.25 &&
+                excluded_result.content_height == 72.25 && excluded_lines[0].baseline_y == 65.25F);
+            excluded_glyphs[0].x = 123; placements[0].top = 456;
+            require(at(-1) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && excluded_result.glyph_count == 0 &&
+                excluded_glyphs[0].x == 123 && placements[0].top == 456);
+            require(at(std::numeric_limits<double>::infinity()) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
             require(excluded_layout(1, 0, excluded_scratch.size()) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
                 excluded_result.glyph_count == 0 && excluded_glyphs[0].x == 123 && placements[0].top == 456);
             require(excluded_layout(1, excluded_needed.line_capacity, excluded_scratch.size() - 1) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);

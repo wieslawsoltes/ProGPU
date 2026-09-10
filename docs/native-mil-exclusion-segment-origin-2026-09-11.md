@@ -37,3 +37,21 @@ and WPF hard-segment consumption remain unfinished. Existing C callers still use
 zero origin. WPF must retain the source rejection until this whole path connects;
 it must also accumulate all segment extents, not only the first. Full application,
 package/platform and exact-head CI qualification remain open.
+
+## C boundary connection
+
+The additive `get_excluded_flow_paragraph_requirements_at` and
+`layout_excluded_flow_paragraph_at` C entry points now carry a double origin
+through the same validation, scratch arena and native fitter. Existing exported
+functions and 16-byte exclusion options are unchanged; no reserved field is
+repurposed and no new wire record requires generation. Empty native input keeps
+the supplied content bottom while emitting no rows, not a fabricated empty line.
+
+Both providers compile and pass their exported-symbol allowlists. The C interop
+CTest passed (1/1, 0.78 seconds), including fractional origin 30.25, native baseline
+65.25, absolute content bottom 72.25 and failure-cleared counts with untouched
+caller glyph/placement buffers on negative origin. Legacy origin-zero calls and
+their existing insufficient-scratch/invalid-option checks remain covered.
+
+Managed imports, snapshots, neutral capability and WPF consumption remain next.
+This C boundary is not source hard-line admission or package qualification.

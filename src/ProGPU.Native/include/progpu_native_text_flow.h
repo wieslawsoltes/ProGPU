@@ -111,6 +111,32 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_exclude
     void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
     uint32_t wrapping, progpu_native_text_intrinsic_widths* widths);
 
+/* Explicit finite nonnegative paragraph Y origin. Old entry points retain zero.
+ * Tops, baselines and content height are absolute in that paragraph frame. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_get_excluded_flow_paragraph_requirements_at(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_exclusion_options* exclusion_options,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count, double origin_y,
+    progpu_native_text_paragraph_requirements* requirements);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_excluded_flow_paragraph_at(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_exclusion_options* exclusion_options,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count, double origin_y,
+    progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    progpu_native_text_fragment_placement* fragments, uint32_t fragment_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
+    uint32_t wrapping, progpu_native_text_intrinsic_widths* widths);
+
 /* Mirrors NativeTextWrapping in the managed public enum contract. */
 typedef enum progpu_native_text_wrapping {
     PROGPU_NATIVE_TEXT_WRAPPING_EMERGENCY = 0,
