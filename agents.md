@@ -1137,3 +1137,9 @@ draw-call lists; return only child-owned lists before restoring the snapshot.
 Keep pixel-oracle and first-frame tests: a non-null cached texture or a compiled
 mask is not proof that pending outer coverage survived. Do not widen pixel
 tolerances to hide differences in overlap, alpha or antialias coverage.
+
+Native hit-query fixtures must honor the shared poll/wait result contract.
+Zero-list queries return their topmost owner in summary; list queries return
+owners in ordered records and counters in summary. Assert participation, counts,
+owner identity and primitive index in the correct location. Do not change shader
+semantics or weaken queries to satisfy a fixture that confuses those modes.

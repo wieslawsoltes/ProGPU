@@ -3659,9 +3659,20 @@ int main(int argc, char** argv) {
                 progpu_native_engine_wait_hit_test(engine, hit_token, hit_results.data(), hit_results.size(),
                     &hit_count, &hit_summary) == PROGPU_NATIVE_STATUS_SUCCESS,
                 "Dawn query-participation completion failed");
-            require(hit_summary.hit == (expected ? 1U : 0U) &&
-                hit_count == (expected && (query_mode & 1U) != 0U ? 1U : 0U) &&
-                (!expected || hit_summary.id == 796), "Dawn point/region participation diverged");
+            const bool list_query = (query_mode & PROGPU_NATIVE_HIT_TEST_RESULT_CAPACITY_MASK) != 0U;
+            // List summaries carry counters; only a zero-list summary carries
+            // the topmost owner. Read ordered owners from the returned list.
+            const bool owner_matches = !expected || (list_query
+                ? hit_count == 1U && hit_results[0U].id == 796 && hit_results[0U].primitive_index == 0U
+                : hit_summary.id == 796 && hit_summary.primitive_index == 0U);
+            const bool participation_matches = hit_summary.hit == (expected ? 1U : 0U) &&
+                hit_count == (expected && list_query ? 1U : 0U) && owner_matches;
+            if (!participation_matches) {
+                std::fprintf(stderr, "Dawn participation=%u query=%u expected=%u summary-hit=%u summary-id=%d count=%u result-id=%d\n",
+                    participation, query_mode, expected ? 1U : 0U, hit_summary.hit,
+                    hit_summary.id, hit_count, hit_count == 0U ? -1 : hit_results[0U].id);
+            }
+            require(participation_matches, "Dawn point/region participation diverged");
         }
     }
 
