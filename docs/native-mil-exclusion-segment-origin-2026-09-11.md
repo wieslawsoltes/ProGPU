@@ -55,3 +55,22 @@ their existing insufficient-scratch/invalid-option checks remain covered.
 
 Managed imports, snapshots, neutral capability and WPF consumption remain next.
 This C boundary is not source hard-line admission or package qualification.
+
+## Managed retained transport
+
+`GetExcludedFlowParagraphRequirementsAt`, `LayoutExcludedFlowParagraphAt` and
+`NativeTextParagraphSnapshot.CreateWithExclusionsAt` now preserve the explicit
+double origin through the leased context and pinned span calls. Legacy methods
+still select their old exports. The snapshot owns native placements and builds
+interaction from those frames without coordinate repair or reformatting.
+Nonfinite/negative/out-of-range origins are rejected before snapshot construction;
+empty excluded snapshots retain their explicit unsupported contract.
+
+The Release consumer build passed with zero warnings/errors. The MIL-only consumer
+passed both renderer paths and the shared text binding's shifted snapshot check:
+origin 30.25, inline/caret Y 50.25, final fragment top 92.25 and content bottom
+112.25, with preserved source clusters and intrinsic width. The text binding calls
+`progpu_native`; this is not a separate Dawn text invocation or packaged artifact
+qualification. Both native libraries were compiled/export-checked in the prior
+boundary checkpoint. Neutral provider and source hard-segment consumption remain
+required before anchor application admission.

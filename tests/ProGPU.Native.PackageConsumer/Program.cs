@@ -521,6 +521,19 @@ static void ValidateNativeInlineParagraph()
     if (excludedSnapshot.MoveFragmentCaret(0, NativeTextCaretMovement.Down, 0, 0, out var below) != NativeRendererStatus.Success ||
         excludedSnapshot.Carets.Span[checked((int)below)].Y != 40)
         throw new InvalidOperationException("Native fragment navigation lost vertical clearance.");
+    var shifted = NativeTextParagraphSnapshot.CreateWithExclusionsAt(context, "A\ufffcB",
+        NativeTextDirection.LeftToRight, options, [new(0, 3, 0, options.Scale)], metrics,
+        [new(1, 30.25f, 35, 7)], exclusionOptions, exclusions, 30.25, measureIntrinsicWidths: true);
+    if (shifted.FragmentLayout?.ContentHeight != 112.25 || shifted.Fragments.Span[0].Top != 30.25 ||
+        shifted.Fragments.Span[2].Top != 92.25 || shifted.Boxes.Span[1].Y != 50.25 ||
+        shifted.InlineObjects.Span[0].Y != 50.25 || shifted.Carets.Span[2].Y != 50.25 ||
+        shifted.ClusterEnds.Span[1] != 2 || shifted.IntrinsicWidths?.Minimum != excludedSnapshot.IntrinsicWidths?.Minimum)
+        throw new InvalidOperationException("Explicit native segment origin was lost by retained snapshot interaction.");
+    bool rejectedOrigin = false;
+    try { NativeTextParagraphSnapshot.CreateWithExclusionsAt(context, "A", NativeTextDirection.LeftToRight,
+        options, [new(0, 1, 0, options.Scale)], metrics, [], exclusionOptions, exclusions, double.NaN); }
+    catch (ArgumentOutOfRangeException) { rejectedOrigin = true; }
+    if (!rejectedOrigin) throw new InvalidOperationException("Snapshot accepted a nonfinite segment origin.");
     var wholeWord = NativeTextParagraphSnapshot.CreateWithExclusions(context, "AA",
         NativeTextDirection.LeftToRight, options, [new(0, 2, 0, options.Scale)], metrics, [],
         exclusionOptions, [new() { Left = 12, Right = 19, Bottom = 20 }]);

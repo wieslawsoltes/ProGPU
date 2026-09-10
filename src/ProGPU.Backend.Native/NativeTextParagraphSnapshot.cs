@@ -83,6 +83,19 @@ public sealed class NativeTextParagraphSnapshot
             measureIntrinsicWidths, wrapping, null, null, true, styleMetrics, inlineObjects);
 
     /// <summary>Retains native exclusion fragments and their interaction in one source generation.</summary>
+    public static NativeTextParagraphSnapshot CreateWithExclusionsAt(NativeTextShapingContext context,
+        ReadOnlySpan<char> text, NativeTextDirection direction, in NativeTextParagraphOptions options,
+        ReadOnlySpan<NativeTextParagraphStyle> styles, ReadOnlySpan<NativeTextStyleMetrics> styleMetrics,
+        ReadOnlySpan<NativeTextParagraphInlineObject> inlineObjects,
+        in NativeTextExclusionOptions exclusionOptions, ReadOnlySpan<NativeTextExclusionRectangle> exclusions,
+        double originY, ReadOnlySpan<NativeTextFeature> features = default,
+        float incrementalTab = 0, float tabOrigin = 0, bool measureIntrinsicWidths = false,
+        NativeTextWrapping wrapping = NativeTextWrapping.Emergency)
+        => CreateCore(context, text, direction, in options, features, styles, incrementalTab, tabOrigin,
+            measureIntrinsicWidths, wrapping, null, null, true, styleMetrics, inlineObjects,
+            exclusionOptions, exclusions, originY);
+
+    /// <summary>Retains zero-origin exclusion fragments and their interaction.</summary>
     public static NativeTextParagraphSnapshot CreateWithExclusions(NativeTextShapingContext context,
         ReadOnlySpan<char> text, NativeTextDirection direction, in NativeTextParagraphOptions options,
         ReadOnlySpan<NativeTextParagraphStyle> styles, ReadOnlySpan<NativeTextStyleMetrics> styleMetrics,
@@ -129,9 +142,11 @@ public sealed class NativeTextParagraphSnapshot
         bool measuredLines = false, ReadOnlySpan<NativeTextStyleMetrics> styleMetrics = default,
         ReadOnlySpan<NativeTextParagraphInlineObject> inlineObjects = default,
         NativeTextExclusionOptions? exclusionOptions = null,
-        ReadOnlySpan<NativeTextExclusionRectangle> exclusions = default)
+        ReadOnlySpan<NativeTextExclusionRectangle> exclusions = default, double? originY = null)
     {
         ArgumentNullException.ThrowIfNull(context);
+        if (originY.HasValue && (!double.IsFinite(originY.Value) || originY.Value < 0 || originY.Value > float.MaxValue))
+            throw new ArgumentOutOfRangeException(nameof(originY));
         if (measuredLines && (styleMetrics.Length != styles.Length || (!text.IsEmpty && styles.IsEmpty)))
             throw new ArgumentException("Measured paragraphs require explicit styles and one metric per style.");
         if (wrapping is not NativeTextWrapping.Emergency and not NativeTextWrapping.WholeWord)
@@ -162,7 +177,9 @@ public sealed class NativeTextParagraphSnapshot
         var flow = new NativeTextFlowOptions { IncrementalTab = incrementalTab, TabOrigin = tabOrigin };
         NativeTextParagraphRequirements required;
         var exclusion = exclusionOptions.GetValueOrDefault();
-        Check(exclusionOptions.HasValue ? context.GetExcludedFlowParagraphRequirements(in input, in options,
+        Check(exclusionOptions.HasValue && originY.HasValue ? context.GetExcludedFlowParagraphRequirementsAt(in input, in options,
+            nativeStyles, in flow, styleMetrics, nativeObjects, in exclusion, exclusions, originY.Value, out required) :
+            exclusionOptions.HasValue ? context.GetExcludedFlowParagraphRequirements(in input, in options,
             nativeStyles, in flow, styleMetrics, nativeObjects, in exclusion, exclusions, out required) :
             measuredLines ? context.GetInlineFlowParagraphRequirements(in input, in options, nativeStyles, in flow,
             styleMetrics, nativeObjects, out required) :
@@ -178,9 +195,13 @@ public sealed class NativeTextParagraphSnapshot
         {
             if (exclusionOptions.HasValue)
             {
-                Check(context.LayoutExcludedFlowParagraph(in input, in options, nativeStyles, in flow, styleMetrics,
+                NativeTextIntrinsicWidths widths;
+                Check(originY.HasValue ? context.LayoutExcludedFlowParagraphAt(in input, in options, nativeStyles, in flow, styleMetrics,
+                    nativeObjects, in exclusion, exclusions, originY.Value, glyphBuffer, lineBuffer, fragmentBuffer, scratch,
+                    wrapping, measureIntrinsicWidths, out result, out widths) :
+                    context.LayoutExcludedFlowParagraph(in input, in options, nativeStyles, in flow, styleMetrics,
                     nativeObjects, in exclusion, exclusions, glyphBuffer, lineBuffer, fragmentBuffer, scratch,
-                    wrapping, measureIntrinsicWidths, out result, out var widths));
+                    wrapping, measureIntrinsicWidths, out result, out widths));
                 if (measureIntrinsicWidths) intrinsicWidths = widths;
             }
             else if (measuredLines)

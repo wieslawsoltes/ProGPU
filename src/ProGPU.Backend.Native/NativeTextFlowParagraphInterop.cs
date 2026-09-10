@@ -23,7 +23,7 @@ public sealed unsafe partial class NativeTextShapingContext
         bool inline = false, ReadOnlySpan<NativeTextStyleMetrics> metrics = default,
         ReadOnlySpan<NativeTextInlineObject> objects = default,
         NativeTextExclusionOptions? exclusionOptions = null,
-        ReadOnlySpan<NativeTextExclusionRectangle> exclusions = default)
+        ReadOnlySpan<NativeTextExclusionRectangle> exclusions = default, double? originY = null)
     {
         if (inline && metrics.Length != styles.Length)
             throw new ArgumentException("Each style requires one metric pair.", nameof(metrics));
@@ -46,6 +46,10 @@ public sealed unsafe partial class NativeTextShapingContext
             var shaping = NativeTextShapingInterop.CreateRequest(in input, null, scalars, pre, post,
                 features, coordinates, null, includeOwnedResources: false);
             var layout = CreateParagraphLayoutOptions(in input, in options);
+            if (exclusionOptions.HasValue && originY.HasValue)
+                return NativeMethods.GetExcludedFlowParagraphRequirementsAt(use.Handle, &shaping, &layout, styleData,
+                    checked((uint)styles.Length), &flow, metricData, objectData, checked((uint)objects.Length),
+                    &exclusion, exclusionData, checked((uint)exclusions.Length), originY.Value, output);
             if (exclusionOptions.HasValue)
                 return NativeMethods.GetExcludedFlowParagraphRequirements(use.Handle, &shaping, &layout, styleData,
                     checked((uint)styles.Length), &flow, metricData, objectData, checked((uint)objects.Length),
@@ -83,7 +87,7 @@ public sealed unsafe partial class NativeTextShapingContext
         ReadOnlySpan<NativeTextInlineObject> objects = default,
         NativeTextExclusionOptions? exclusionOptions = null,
         ReadOnlySpan<NativeTextExclusionRectangle> exclusions = default,
-        Span<NativeTextFragmentPlacement> fragments = default)
+        Span<NativeTextFragmentPlacement> fragments = default, double? originY = null)
     {
         if (inline && metrics.Length != styles.Length)
             throw new ArgumentException("Each style requires one metric pair.", nameof(metrics));
@@ -112,6 +116,13 @@ public sealed unsafe partial class NativeTextShapingContext
             var shaping = NativeTextShapingInterop.CreateRequest(in input, null, scalars, pre, post,
                 features, coordinates, null, includeOwnedResources: false);
             var layout = CreateParagraphLayoutOptions(in input, in options);
+            if (exclusionOptions.HasValue && originY.HasValue)
+                return NativeMethods.LayoutExcludedFlowParagraphAt(use.Handle, &shaping, &layout, styleData,
+                    checked((uint)styles.Length), &flow, metricData, objectData, checked((uint)objects.Length),
+                    &exclusion, exclusionData, checked((uint)exclusions.Length), originY.Value,
+                    positioned, checked((uint)glyphs.Length), positionedLines, checked((uint)lines.Length),
+                    fragmentData, checked((uint)fragments.Length), scratchData, checked((nuint)scratch.Length),
+                    output, (uint)wrapping, measure ? measured : null);
             if (exclusionOptions.HasValue)
                 return NativeMethods.LayoutExcludedFlowParagraph(use.Handle, &shaping, &layout, styleData,
                     checked((uint)styles.Length), &flow, metricData, objectData, checked((uint)objects.Length),
@@ -148,6 +159,26 @@ public sealed unsafe partial class NativeTextShapingContext
         => LayoutFlowParagraphCore(in input, in options, styles, in flowOptions, glyphs, lines, scratch,
             wrapping, false, out result, out _, collapseWidth);
 
+    public NativeRendererStatus GetExcludedFlowParagraphRequirementsAt(in NativeTextShapeInput input,
+        in NativeTextParagraphOptions options, ReadOnlySpan<NativeTextStyleRun> styles,
+        in NativeTextFlowOptions flowOptions, ReadOnlySpan<NativeTextStyleMetrics> metrics,
+        ReadOnlySpan<NativeTextInlineObject> objects, in NativeTextExclusionOptions exclusionOptions,
+        ReadOnlySpan<NativeTextExclusionRectangle> exclusions, double originY, out NativeTextParagraphRequirements requirements)
+        => GetFlowParagraphRequirementsCore(in input, in options, styles, in flowOptions,
+            out requirements, true, metrics, objects, exclusionOptions, exclusions, originY);
+
+    public NativeRendererStatus LayoutExcludedFlowParagraphAt(in NativeTextShapeInput input,
+        in NativeTextParagraphOptions options, ReadOnlySpan<NativeTextStyleRun> styles,
+        in NativeTextFlowOptions flowOptions, ReadOnlySpan<NativeTextStyleMetrics> metrics,
+        ReadOnlySpan<NativeTextInlineObject> objects, in NativeTextExclusionOptions exclusionOptions,
+        ReadOnlySpan<NativeTextExclusionRectangle> exclusions, double originY, Span<NativePositionedTextGlyph> glyphs,
+        Span<NativePositionedTextLine> lines, Span<NativeTextFragmentPlacement> fragments,
+        Span<byte> scratch, NativeTextWrapping wrapping, bool measureIntrinsicWidths,
+        out NativeTextParagraphResult result, out NativeTextIntrinsicWidths widths)
+        => LayoutFlowParagraphCore(in input, in options, styles, in flowOptions, glyphs, lines, scratch,
+            wrapping, measureIntrinsicWidths, out result, out widths, null, true, metrics, objects,
+            exclusionOptions, exclusions, fragments, originY);
+
     public NativeRendererStatus GetExcludedFlowParagraphRequirements(in NativeTextShapeInput input,
         in NativeTextParagraphOptions options, ReadOnlySpan<NativeTextStyleRun> styles,
         in NativeTextFlowOptions flowOptions, ReadOnlySpan<NativeTextStyleMetrics> metrics,
@@ -180,6 +211,24 @@ public sealed unsafe partial class NativeTextShapingContext
 
 internal static unsafe partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_get_excluded_flow_paragraph_requirements_at")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetExcludedFlowParagraphRequirementsAt(nint context,
+        NativeTextShapeRequest* shaping, NativeTextLayoutOptions* layout, NativeTextStyleRun* styles,
+        uint styleCount, NativeTextFlowOptions* flow, NativeTextStyleMetrics* metrics,
+        NativeTextInlineObject* objects, uint objectCount, NativeTextExclusionOptions* exclusionOptions,
+        NativeTextExclusionRectangle* exclusions, uint exclusionCount, double originY, NativeTextParagraphRequirements* result);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_layout_excluded_flow_paragraph_at")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus LayoutExcludedFlowParagraphAt(nint context,
+        NativeTextShapeRequest* shaping, NativeTextLayoutOptions* layout, NativeTextStyleRun* styles,
+        uint styleCount, NativeTextFlowOptions* flow, NativeTextStyleMetrics* metrics,
+        NativeTextInlineObject* objects, uint objectCount, NativeTextExclusionOptions* exclusionOptions,
+        NativeTextExclusionRectangle* exclusions, uint exclusionCount, double originY,
+        NativePositionedTextGlyph* glyphs, uint glyphCapacity, NativePositionedTextLine* lines, uint lineCapacity,
+        NativeTextFragmentPlacement* fragments, uint fragmentCapacity, void* scratch, nuint scratchSize,
+        NativeTextParagraphResult* result, uint wrapping, NativeTextIntrinsicWidths* widths);
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_get_excluded_flow_paragraph_requirements")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus GetExcludedFlowParagraphRequirements(nint context,
