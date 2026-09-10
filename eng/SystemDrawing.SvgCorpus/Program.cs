@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -13,7 +14,7 @@ internal static class CorpusApplication
 {
     private const int FixtureTimeoutMilliseconds = 30_000;
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
         NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
@@ -312,20 +313,53 @@ internal static class CorpusApplication
 
         var elapsed = samples.Select(static sample => sample.ElapsedMilliseconds).Order().ToArray();
         var allocations = samples.Select(static sample => sample.AllocatedBytes).Order().ToArray();
+        var budget = options.PerformanceBudgetPath is null
+            ? null
+            : PerformanceBudget.Read(options.PerformanceBudgetPath);
+        var medianElapsed = Median(elapsed);
+        var p95Elapsed = Percentile(elapsed, 0.95);
+        var medianAllocated = Median(allocations);
+        var p95Allocated = Percentile(allocations, 0.95);
+        var evaluation = budget is null
+            ? null
+            : PerformanceBudgetEvaluator.Evaluate(
+                budget,
+                fixtures.Length,
+                samples,
+                medianElapsed,
+                p95Elapsed,
+                medianAllocated,
+                p95Allocated);
         var report = new PerformanceReport(
             Commit: ReadCommit(),
             GeneratedAtUtc: DateTimeOffset.UtcNow,
+            Runtime: RuntimeEvidence.Capture(),
             FontCorpus: fontCorpus,
             FixtureCount: fixtures.Length,
             Iterations: options.Iterations,
-            MedianElapsedMilliseconds: Median(elapsed),
-            MedianAllocatedBytes: Median(allocations),
+            MedianElapsedMilliseconds: medianElapsed,
+            P95ElapsedMilliseconds: p95Elapsed,
+            MedianAllocatedBytes: medianAllocated,
+            P95AllocatedBytes: p95Allocated,
+            BudgetEvaluation: evaluation,
             Samples: samples);
         WriteJson(Path.Combine(options.ArtifactsRoot, "performance-results.json"), report);
         Console.WriteLine(
             FormattableString.Invariant(
-                $"SVG System.Drawing performance: {fixtures.Length} fixtures, median {report.MedianElapsedMilliseconds:F3} ms, median {report.MedianAllocatedBytes:F0} allocated bytes."));
-        return 0;
+                $"SVG System.Drawing performance: {fixtures.Length} fixtures, median/p95 {medianElapsed:F3}/{p95Elapsed:F3} ms, median/p95 {medianAllocated:F0}/{p95Allocated:F0} allocated bytes."));
+
+        if (evaluation is null)
+        {
+            return 0;
+        }
+
+        Console.WriteLine($"Performance budget: {(evaluation.Passed ? "passed" : "failed")}");
+        foreach (string violation in evaluation.Violations)
+        {
+            Console.Error.WriteLine($"Performance budget violation: {violation}");
+        }
+
+        return evaluation.Passed ? 0 : 1;
     }
 
     private static FixtureResult RenderAndCompare(Fixture fixture, string artifactsRoot, double threshold)
@@ -441,6 +475,13 @@ internal static class CorpusApplication
         => sorted.Count % 2 == 0
             ? (sorted[sorted.Count / 2 - 1] + sorted[sorted.Count / 2]) / 2d
             : sorted[sorted.Count / 2];
+
+    private static double Percentile<T>(IReadOnlyList<T> sorted, double percentile)
+        where T : struct, IConvertible
+    {
+        int index = Math.Clamp((int)Math.Ceiling(percentile * sorted.Count) - 1, 0, sorted.Count - 1);
+        return sorted[index].ToDouble(CultureInfo.InvariantCulture);
+    }
 }
 
 internal static class FixtureCatalog
@@ -796,6 +837,7 @@ internal sealed record Options(
     string KnownExceptionsPath,
     string ThresholdOverridesPath,
     string BenchmarkFixturesPath,
+    string? PerformanceBudgetPath,
     string? FixtureKey,
     Suite Suite,
     double Threshold,
@@ -817,6 +859,7 @@ internal sealed record Options(
                 "[--known-differences PATH] [--known-exceptions PATH] " +
                 "[--threshold-overrides PATH] " +
                 "[--benchmark-fixtures PATH] " +
+                "[--performance-budget PATH] " +
                 "[--fixture suite|path] [--suite all|resvg|w3c] " +
                 "[--threshold 0.12] [--iterations 7] [--max-parallelism 4]");
         }
@@ -872,6 +915,7 @@ internal sealed record Options(
             knownExceptions,
             thresholdOverrides,
             benchmarkFixtures,
+            values.GetValueOrDefault("--performance-budget"),
             values.GetValueOrDefault("--fixture"),
             suite,
             threshold,
@@ -969,6 +1013,146 @@ internal sealed record QualityReport(
 
 internal sealed record PerformanceSample(int Iteration, double ElapsedMilliseconds, long AllocatedBytes, ulong Checksum);
 
+internal sealed record RuntimeEvidence(
+    string OperatingSystem,
+    string ProcessArchitecture,
+    string Framework,
+    int ProcessorCount,
+    bool IsServerGc)
+{
+    public static RuntimeEvidence Capture()
+        => new(
+            RuntimeInformation.OSDescription,
+            RuntimeInformation.ProcessArchitecture.ToString(),
+            RuntimeInformation.FrameworkDescription,
+            Environment.ProcessorCount,
+            System.Runtime.GCSettings.IsServerGC);
+}
+
+internal sealed record PerformanceBudget(
+    string ReferenceCommit,
+    string ExpectedProcessArchitecture,
+    int MinimumIterations,
+    int ExpectedFixtureCount,
+    string ExpectedChecksum,
+    double MaximumMedianElapsedMilliseconds,
+    double MaximumP95ElapsedMilliseconds,
+    long MaximumMedianAllocatedBytes,
+    long MaximumP95AllocatedBytes)
+{
+    public static PerformanceBudget Read(string path)
+    {
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException("Performance budget was not found.", path);
+        }
+
+        var budget = JsonSerializer.Deserialize<PerformanceBudget>(File.ReadAllText(path), CorpusApplication.JsonOptions)
+            ?? throw new InvalidDataException($"Performance budget is empty: {path}");
+        if (budget.ReferenceCommit.Length != 40 ||
+            !budget.ReferenceCommit.All(Uri.IsHexDigit) ||
+            !Enum.TryParse<Architecture>(budget.ExpectedProcessArchitecture, ignoreCase: true, out _) ||
+            budget.MinimumIterations < 1 ||
+            budget.ExpectedFixtureCount < 1 ||
+            !ulong.TryParse(budget.ExpectedChecksum, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _) ||
+            !double.IsFinite(budget.MaximumMedianElapsedMilliseconds) ||
+            budget.MaximumMedianElapsedMilliseconds <= 0 ||
+            !double.IsFinite(budget.MaximumP95ElapsedMilliseconds) ||
+            budget.MaximumP95ElapsedMilliseconds < budget.MaximumMedianElapsedMilliseconds ||
+            budget.MaximumMedianAllocatedBytes <= 0 ||
+            budget.MaximumP95AllocatedBytes < budget.MaximumMedianAllocatedBytes)
+        {
+            throw new InvalidDataException($"Performance budget is invalid: {path}");
+        }
+
+        return budget;
+    }
+}
+
+internal static class PerformanceBudgetEvaluator
+{
+    public static PerformanceBudgetEvaluation Evaluate(
+        PerformanceBudget budget,
+        int fixtureCount,
+        IReadOnlyList<PerformanceSample> samples,
+        double medianElapsedMilliseconds,
+        double p95ElapsedMilliseconds,
+        double medianAllocatedBytes,
+        double p95AllocatedBytes)
+    {
+        var violations = new List<string>();
+        if (!StringComparer.OrdinalIgnoreCase.Equals(
+            RuntimeInformation.ProcessArchitecture.ToString(),
+            budget.ExpectedProcessArchitecture))
+        {
+            violations.Add(
+                $"budget targets {budget.ExpectedProcessArchitecture}, process architecture is {RuntimeInformation.ProcessArchitecture}");
+        }
+
+        if (samples.Count < budget.MinimumIterations)
+        {
+            violations.Add($"required at least {budget.MinimumIterations} samples, observed {samples.Count}");
+        }
+
+        if (fixtureCount != budget.ExpectedFixtureCount)
+        {
+            violations.Add($"expected {budget.ExpectedFixtureCount} fixtures, observed {fixtureCount}");
+        }
+
+        ulong expectedChecksum = ulong.Parse(budget.ExpectedChecksum, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        string[] unexpectedChecksums = samples
+            .Select(static sample => sample.Checksum)
+            .Where(checksum => checksum != expectedChecksum)
+            .Distinct()
+            .Select(static checksum => checksum.ToString("x16", CultureInfo.InvariantCulture))
+            .ToArray();
+        if (unexpectedChecksums.Length > 0)
+        {
+            violations.Add(
+                $"expected checksum {expectedChecksum:x16}, observed {string.Join(", ", unexpectedChecksums)}");
+        }
+
+        AddExceeded(
+            violations,
+            "median elapsed milliseconds",
+            medianElapsedMilliseconds,
+            budget.MaximumMedianElapsedMilliseconds);
+        AddExceeded(
+            violations,
+            "p95 elapsed milliseconds",
+            p95ElapsedMilliseconds,
+            budget.MaximumP95ElapsedMilliseconds);
+        AddExceeded(
+            violations,
+            "median allocated bytes",
+            medianAllocatedBytes,
+            budget.MaximumMedianAllocatedBytes);
+        AddExceeded(
+            violations,
+            "p95 allocated bytes",
+            p95AllocatedBytes,
+            budget.MaximumP95AllocatedBytes);
+
+        return new PerformanceBudgetEvaluation(
+            Passed: violations.Count == 0,
+            Budget: budget,
+            Violations: violations);
+    }
+
+    private static void AddExceeded(List<string> violations, string metric, double observed, double maximum)
+    {
+        if (observed > maximum)
+        {
+            violations.Add(FormattableString.Invariant($"{metric} {observed:F3} exceeded {maximum:F3}"));
+        }
+    }
+}
+
+internal sealed record PerformanceBudgetEvaluation(
+    bool Passed,
+    PerformanceBudget Budget,
+    IReadOnlyList<string> Violations);
+
 internal sealed record FontCorpusEvidence(
     int SourceFileCount,
     int LoadedFaceCount,
@@ -979,11 +1163,15 @@ internal sealed record FontCorpusEvidence(
 internal sealed record PerformanceReport(
     string Commit,
     DateTimeOffset GeneratedAtUtc,
+    RuntimeEvidence Runtime,
     FontCorpusEvidence FontCorpus,
     int FixtureCount,
     int Iterations,
     double MedianElapsedMilliseconds,
+    double P95ElapsedMilliseconds,
     double MedianAllocatedBytes,
+    double P95AllocatedBytes,
+    PerformanceBudgetEvaluation? BudgetEvaluation,
     IReadOnlyList<PerformanceSample> Samples);
 
 internal enum Command

@@ -18,6 +18,7 @@ on:
       - eng/system-drawing-svg-known-exceptions.txt
       - eng/system-drawing-svg-threshold-overrides.txt
       - eng/system-drawing-svg-benchmark-fixtures.txt
+      - eng/system-drawing-svg-performance-budget.json
       - .github/workflows/svg-system-drawing-parity.yml
   push:
     branches:
@@ -35,6 +36,7 @@ on:
       - eng/system-drawing-svg-known-exceptions.txt
       - eng/system-drawing-svg-threshold-overrides.txt
       - eng/system-drawing-svg-benchmark-fixtures.txt
+      - eng/system-drawing-svg-performance-budget.json
       - .github/workflows/svg-system-drawing-parity.yml
 
 permissions:
@@ -132,7 +134,6 @@ jobs:
 
   performance:
     name: SVG.NET representative performance
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -191,6 +192,7 @@ jobs:
           --corpus-root "${{ github.workspace }}/external/Svg.Skia"
           --artifacts "${{ github.workspace }}/artifacts/svg-system-drawing/performance"
           --benchmark-fixtures "${{ github.workspace }}/eng/system-drawing-svg-benchmark-fixtures.txt"
+          --performance-budget "${{ github.workspace }}/eng/system-drawing-svg-performance-budget.json"
           --iterations 7
 
       - name: Upload SVG performance evidence
@@ -198,5 +200,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: svg-system-drawing-performance-${{ github.sha }}
-          path: artifacts/svg-system-drawing/performance/**
+          path: |
+            artifacts/svg-system-drawing/performance/**
+            eng/system-drawing-svg-performance-budget.json
           if-no-files-found: error
