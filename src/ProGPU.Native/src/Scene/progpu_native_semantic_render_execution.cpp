@@ -5087,8 +5087,10 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_SCENE_NO_INDEX;
         bool active_pass_uses_depth = false;
         bool root_depth_initialized = false;
-        std::array<bool,
-            PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+        // Retained caches occupy the second slot range, after transient
+        // layers. Depth initialization follows the actual attachment slot,
+        // including those cache slots, and is reset for each cold content pass.
+        std::array<bool, semantic::layer_slot_count>
             layer_depth_initialized{};
         std::uint32_t skipped_cached_depth = 0U;
         std::array<bool, semantic::layer_slot_count>

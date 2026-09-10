@@ -28,6 +28,13 @@ records, not stale transform values used as labels. Cached-source alpha tests mu
 compare once-composited opaque coverage against an independent ordinary-stroke
 layer; per-piece PushOpacity is a different contract, not its pixel oracle.
 
+Native retained 3D depth-initialization state must cover semantic::layer_slot_count,
+including cache slots after the transient range. Reset the actual slot before
+each cold content pass and retain depth across same-target 2D/3D continuations.
+Never index a transient-only array with a retained cache slot or treat a lucky
+platform pass as proof of initialized depth. Keep cold/warm, nested, scaled and
+mixed-content Viewport3D pixel checks in the full gate.
+
 Built-in source identity effects preserve input around an admitted local cache.
 The inner cache owns original-content frame conversion; the outer effect owns
 its final source clip, not effect padding. Keep spatial visual masks rejected

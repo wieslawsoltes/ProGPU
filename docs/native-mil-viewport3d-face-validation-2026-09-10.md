@@ -57,3 +57,31 @@ phases in about 318 seconds, then passed Viewport3D cases 0–2 and lost both co
 centers in case 3 (scale-two cache). This differs from the hosted MSVC identity
 cache and GCC nested-cache failures; the shared cached replay remains unqualified.
 Guest evidence: `artifacts/viewport-160cb12b-win-arm64.log` in the prepared checkout.
+
+## Cached depth slot repair
+
+The native replay allocated `layer_depth_initialized` for only
+`PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS`, but retained cache slots start at
+that exact index and extend to `semantic::layer_slot_count`. Both the cold-pass
+reset and the depth-load decision must use the complete attachment-slot domain.
+The old reset skipped cache slots and the load decision read out of bounds;
+stack contents could select Load instead of the required initial Clear. This
+explains why platform/compiler runs failed in different cache variants while
+local Metal could pass.
+
+The array now uses `semantic::layer_slot_count`, matching the engine's attachment
+array and cached-replay state. Cold content clears its own depth; warm cached
+content still skips rendering, and same-target continuations retain depth.
+No draw, shader, upload, synchronization or public ABI change is introduced.
+The additional state is bounded per-frame stack storage, not a CPU fallback.
+
+Applicability: both native providers share this replay implementation. The
+managed `Mesh3DExtensionPipeline` directly clears its owned depth attachment when
+rendering an offscreen payload and has no corresponding transient/cache slot
+array; it needs no analogous correction. All implementation provenance is within
+ProGPU's existing renderer. This is memory-safety repair, not a new architecture
+or a performance claim.
+
+Local Release rebuild after repair: all 19 native suites pass, as does the focused
+ten-case Viewport3D entry (`viewport-depth-slots-*.log`). Windows reproduction and
+fresh hosted CI are required before claiming cross-platform resolution.
