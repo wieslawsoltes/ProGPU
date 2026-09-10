@@ -981,6 +981,26 @@ jobs:
           dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
           dotnet build src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
 
+      - name: Run X11 popup server-state contracts
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          ./eng/progpu-install-linux-packages.sh xvfb xauth libx11-6
+          xvfb-run -a env PROGPU_NATIVE_X11_POPUP_TEST=1 \
+            dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj \
+              --configuration Release --runtime ${{ matrix.rid }} --no-build \
+              --filter "FullyQualifiedName~NativePopupWindowLinuxTests" \
+              --logger "trx;LogFileName=native-x11-popup.trx" \
+              --results-directory artifacts/native-x11-popup
+
+      - name: Upload X11 popup server-state results
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-x11-popup-${{ matrix.rid }}
+          path: artifacts/native-x11-popup
+          if-no-files-found: warn
+
       - name: Test
         shell: pwsh
         # Allocation contracts measure optimized steady-state hot paths. Avoid

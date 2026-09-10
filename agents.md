@@ -6,6 +6,15 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+X11 native popup setup belongs to NativePopupWindow and requires the complete
+hidden top-level, same-display/root, transient-owner, override-redirect and menu
+type contract. Confirm server state; never combine independent setup results
+with OR or report property submission as complete configuration. Borrow live
+host windows on their serialized display thread; do not install a global Xlib
+error handler or repurpose opaque XIDs as ownership. Rejected setup requires
+hidden surface destruction. This is popup placement/ownership, not Linux native
+modal-input suppression or Cocoa NSPanel admission.
+
 Successful source point-region Empty means no own point hits, not unavailable
 metadata or a zero-sized rectangle. Preserve source region drawing, descendants,
 clips and owners through the paired native/managed point scopes. Caret/selection
