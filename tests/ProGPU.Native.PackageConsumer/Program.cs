@@ -629,6 +629,21 @@ static void ValidateNativeDocumentRows()
     NativeDocumentLinePosition[] positions = new NativeDocumentLinePosition[1];
     foreach (var backend in new[] { NativeMilBackend.WgpuNative, NativeMilBackend.Dawn })
     {
+        NativeDocumentAnchorWidthRequest[] anchors = [
+            new() { AvailableWidth = 100, HorizontalInsets = 12, MeasuredWidth = 37, Mode = 2, HasMeasurement = 1 },
+            new() { AvailableWidth = 100, HorizontalInsets = 12, Mode = 1 }];
+        NativeDocumentAnchorWidthResult[] widths = new NativeDocumentAnchorWidthResult[2];
+        NativeDocumentFlow.ResolveAnchorWidths(anchors, widths, backend);
+        if (widths[0].ContentWidth != 37 || widths[0].OuterWidth != 49 || widths[0].RequiresRemeasure != 1 ||
+            widths[1].ContentWidth != 88 || widths[1].RequiresRemeasure != 0 || widths[1].Reserved != 0)
+            throw new InvalidOperationException($"Packaged {backend} lost anchor width policy.");
+        anchors[0].MeasuredWidth = 20;
+        anchors[1].Mode = 256;
+        bool rejected = false;
+        try { NativeDocumentFlow.ResolveAnchorWidths(anchors, widths, backend); }
+        catch (NativeRendererException) { rejected = true; }
+        if (!rejected || widths[0].ContentWidth != 37 || widths[1].ContentWidth != 88)
+            throw new InvalidOperationException($"Packaged {backend} published a partial anchor batch.");
         NativeDocumentFlow.ResolveWidthsWithRows(blocks, 80, rows, columns, cells, boxes, backend);
         if (boxes[1].X != 1 || boxes[1].Width != 40 || boxes[2].X != 43 || boxes[2].Width != 60)
             throw new InvalidOperationException($"Packaged {backend} lost native cell width constraints.");

@@ -290,6 +290,25 @@ void pagination_tests() {
 }
 
 int main() {
+    {
+        using request = progpu_native_document_anchor_width_request;
+        using output = progpu_native_document_anchor_width_result;
+        static_assert(sizeof(request) == 24 && sizeof(output) == 16);
+        std::array<request, 2> requests{{{100, 12, 0, 37, 2, 1}, {100, 12, 0, 37, 1, 1}}};
+        std::array<output, 2> outputs{};
+        require(progpu_native_document_resolve_anchor_widths(requests.data(), 2, outputs.data(), 2) == success);
+        require(outputs[0].content_width == 37 && outputs[0].outer_width == 49 && outputs[0].requires_remeasure == 1);
+        require(outputs[1].content_width == 88 && outputs[1].reserved == 0);
+        requests[0].measured_width = 20;
+        requests[1].has_measurement = 2;
+        require(progpu_native_document_resolve_anchor_widths(requests.data(), 2, outputs.data(), 2) == invalid);
+        require(outputs[0].content_width == 37 && outputs[1].content_width == 88);
+        requests[1].has_measurement = 1;
+        requests[1].mode = 256;
+        require(progpu_native_document_resolve_anchor_widths(requests.data(), 2, outputs.data(), 2) == invalid);
+        require(progpu_native_document_resolve_anchor_widths(requests.data(), 2, outputs.data(), 1) == invalid);
+        require(progpu_native_document_resolve_anchor_widths(nullptr, 0, nullptr, 0) == success);
+    }
     row_tests();
     pagination_tests();
     static_assert(sizeof(block) == 80U && offsetof(block, margin_left) == 16U);

@@ -15,6 +15,24 @@ public static unsafe class NativeDocumentFlow
     public const int MaximumItems = 1 << 20;
     public const int MaximumDepth = 128;
 
+    /// <summary>Resolves a batch of anchor width constraints through the shared
+    /// native policy. Requests use mode 0=fixed, 1=fill, 2=fit-content and a 0/1
+    /// measurement flag. Source retains and remeasures the actual child subtree.
+    /// Inputs and outputs must not overlap; any failure preserves all outputs.</summary>
+    public static void ResolveAnchorWidths(ReadOnlySpan<NativeDocumentAnchorWidthRequest> requests,
+        Span<NativeDocumentAnchorWidthResult> results, NativeMilBackend backend = NativeMilBackend.WgpuNative)
+    {
+        Validate(requests.Length, 0, results.Length, backend);
+        NativeRendererStatus status;
+        fixed (NativeDocumentAnchorWidthRequest* input = requests)
+        fixed (NativeDocumentAnchorWidthResult* output = results)
+            status = backend == NativeMilBackend.Dawn
+                ? NativeDawnDocumentFlowMethods.ResolveAnchorWidths(input, (uint)requests.Length, output, (uint)results.Length)
+                : NativeDocumentFlowMethods.ResolveAnchorWidths(input, (uint)requests.Length, output, (uint)results.Length);
+        if (status != NativeRendererStatus.Success)
+            throw new NativeRendererException(status, "Native anchor width resolution failed.");
+    }
+
     /// <summary>
     /// Fits lines into uniform content-height columns at source-admitted breaks.
     /// Source owns column widths, keep/widow/orphan policy, box decorations and
@@ -214,6 +232,10 @@ public static unsafe class NativeDocumentFlow
 
 internal static unsafe partial class NativeDocumentFlowMethods
 {
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_resolve_anchor_widths")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ResolveAnchorWidths(NativeDocumentAnchorWidthRequest* requests,
+        uint count, NativeDocumentAnchorWidthResult* results, uint capacity);
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_resolve_widths_with_rows")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus ResolveWidthsWithRows(NativeDocumentBlock* blocks, uint count, double width,
@@ -255,6 +277,10 @@ internal static unsafe partial class NativeDocumentFlowMethods
 
 internal static unsafe partial class NativeDawnDocumentFlowMethods
 {
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_resolve_anchor_widths")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ResolveAnchorWidths(NativeDocumentAnchorWidthRequest* requests,
+        uint count, NativeDocumentAnchorWidthResult* results, uint capacity);
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_resolve_widths_with_rows")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus ResolveWidthsWithRows(NativeDocumentBlock* blocks, uint count, double width,

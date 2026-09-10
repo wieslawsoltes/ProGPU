@@ -25,6 +25,28 @@ public partial struct NativeDocumentBlock
     public double InsetBottom;
 }
 
+// Native source: progpu_native_document_anchor_width_request.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeDocumentAnchorWidthRequest
+{
+    public float AvailableWidth;
+    public float HorizontalInsets;
+    public float SpecifiedWidth;
+    public float MeasuredWidth;
+    public uint Mode;
+    public uint HasMeasurement;
+}
+
+// Native source: progpu_native_document_anchor_width_result.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeDocumentAnchorWidthResult
+{
+    public float ContentWidth;
+    public float OuterWidth;
+    public uint RequiresRemeasure;
+    public uint Reserved;
+}
+
 // Native source: progpu_native_document_line.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeDocumentLine

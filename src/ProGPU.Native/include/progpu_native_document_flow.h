@@ -26,6 +26,33 @@ typedef struct progpu_native_document_block {
     double inset_bottom;
 } progpu_native_document_block;
 
+/* PROGPU_CSHARP_STRUCT: Public.NativeDocumentAnchorWidthRequest */
+typedef struct progpu_native_document_anchor_width_request {
+    float available_width;
+    float horizontal_insets;
+    float specified_width;
+    float measured_width;
+    uint32_t mode;
+    uint32_t has_measurement;
+} progpu_native_document_anchor_width_request;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeDocumentAnchorWidthResult */
+typedef struct progpu_native_document_anchor_width_result {
+    float content_width;
+    float outer_width;
+    uint32_t requires_remeasure;
+    uint32_t reserved;
+} progpu_native_document_anchor_width_result;
+
+/* Synchronous batch over source-resolved width policy. mode: 0=fixed, 1=fill,
+ * 2=fit-content; has_measurement is exactly 0/1. Metrics are finite nonnegative.
+ * Borrowed aligned disjoint spans, count <= 1,048,576. No device/allocation.
+ * All outputs remain untouched on any failure, including a later invalid item.
+ * Output has one entry per request; reserved is zero. Does not measure children. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_document_resolve_anchor_widths(
+    const progpu_native_document_anchor_width_request* requests, uint32_t count,
+    progpu_native_document_anchor_width_result* results, uint32_t capacity);
+
 /* PROGPU_CSHARP_STRUCT: Public.NativeDocumentLine */
 typedef struct progpu_native_document_line {
     double width;

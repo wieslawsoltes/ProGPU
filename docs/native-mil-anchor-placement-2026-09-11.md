@@ -60,3 +60,26 @@ tests cover initial and measured fit, fill, fixed width, overflowing child exten
 zero available width, inset overflow, invalid metrics/enums and atomic failure.
 The updated macOS ARM64 native text target compiled and its CTest passed
 (1/1, 0.51 seconds); no source application or package admission follows.
+
+## Batched width transport
+
+`progpu_native_document_resolve_anchor_widths` transports the shared policy in
+24-byte requests and 16-byte results, generated into the existing managed
+document contract. Mode and measurement flags are validated before enum/bool
+conversion. Aligned disjoint spans are bounded by the existing document item
+budget. Two linear passes avoid temporary allocation while retaining whole-batch
+failure atomicity. Inputs must stay unchanged for the synchronous call.
+
+`NativeDocumentFlow.ResolveAnchorWidths` pins the spans once and selects the
+existing wgpu-native or Dawn library explicitly. It does not initialize a GPU or
+measure source content. Both export allowlists include the new entry point.
+The focused C fixture tests layouts, values, later-item rejection, invalid mode
+256, short output capacity and empty input. The native-backed managed consumer
+checks both providers and retained output after a later invalid request.
+
+Local evidence: both native libraries compiled; document-flow CTest passed
+(1/1, 0.29 seconds); managed backend and consumer builds completed with zero
+warnings/errors; both export allowlists passed; the MIL-only consumer passed
+including both-provider anchor checks. This uses local project-reference builds,
+not exact-head published package provenance. Placement transport, source child
+measurement and Figure/Floater interaction remain required.

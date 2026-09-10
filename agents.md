@@ -21,6 +21,9 @@ source subtree at the initial constraint, then honor explicit remeasurement at
 the resolved width; never rescale retained lines or manufacture intrinsic width
 from character counts. Exhausted content width is zero and real insets remain
 outer overflow. Width policy alone does not connect source Figure/Floater layout.
+Anchor width batches validate modes/flags before narrowing and preserve every
+output on a later invalid request. Borrow disjoint spans for one synchronous
+call; retain the shared native policy rather than duplicating it in managed code.
 
 Anchored text exclusion uses resolved half-open layout rectangles, not paint or
 hit-test envelopes. Preserve every free interval across the whole candidate line

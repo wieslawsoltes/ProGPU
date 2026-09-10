@@ -1,4 +1,5 @@
 #include "progpu_native_document_flow.h"
+#include "progpu_native_text.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -287,6 +288,32 @@ bool place(std::span<const block> blocks, std::span<const line> lines, std::span
     height = forest.y + forest.pending;
     return std::isfinite(height) && std::isfinite(extent_width);
 }
+}
+
+extern "C" progpu_native_status progpu_native_document_resolve_anchor_widths(
+    const progpu_native_document_anchor_width_request* requests, uint32_t count,
+    progpu_native_document_anchor_width_result* results, uint32_t capacity) {
+    using namespace progpu::native::text;
+    if (!valid_buffer(requests, count) || !valid_buffer(results, count) || capacity < count)
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    const region regions[]{bytes(requests, count), bytes(results, count)};
+    if (!disjoint(regions)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    // Two linear passes preserve atomic output without allocating a temporary
+    // result array. Both call the same shared SIMD-validated native policy.
+    for (unsigned pass = 0U; pass < 2U; ++pass) {
+        for (uint32_t i = 0U; i < count; ++i) {
+            const auto& request = requests[i];
+            text_anchor_width_result value{};
+            if (request.mode > 2U || request.has_measurement > 1U ||
+                !try_resolve_text_anchor_width(request.available_width, request.horizontal_insets,
+                    static_cast<text_anchor_width_mode>(request.mode), request.specified_width,
+                    request.has_measurement != 0U, request.measured_width, value))
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            if (pass != 0U) results[i] = {value.content_width, value.outer_width,
+                value.requires_remeasure ? 1U : 0U, 0U};
+        }
+    }
+    return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
 extern "C" progpu_native_status progpu_native_document_resolve_widths(
