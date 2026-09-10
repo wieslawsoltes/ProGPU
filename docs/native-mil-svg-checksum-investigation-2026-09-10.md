@@ -77,3 +77,28 @@ This one-iteration ARM64 run intentionally did not apply the seven-iteration
 X64 CI budget and is not performance qualification. Its logs and JSON are under
 `artifacts/svg-checksum.QSsnec/diagnostic-performance*`. The renderer cause and
 the original failing CI checksum remain unresolved; no baseline was changed.
+
+## Isolated probes
+
+At `bca8474b`, created a separate detached diagnostic worktree under
+`artifacts/svg-checksum.QSsnec/probe-source`; no experimental renderer change
+was applied to the delivery branch.
+
+* Restoring main's two text-mask fragment alpha outputs and matching text-mask
+  pipeline source-alpha selection produced a frame byte-identical to the local
+  branch frame. That paired change does not explain this fixture difference.
+* Running the unmodified branch with `PROGPU_COMPUTE_EXECUTION` set separately
+  to `compute`, `raster` and `simd` produced byte-identical frames, each with
+  centre alpha 128. These are fixture-output comparisons, not proof that every
+  glyph path was exercised or that the fallback implementations are fully qualified.
+* After restoring the probe's text-mask changes, substituting main's complete
+  ordinary path-raster shader (only its entry-point name adapted) changed other
+  pixels but retained centre alpha 128. Its aggregate error was 0.175933.
+  Thus that shader substitution alone does not restore the expected checksum.
+
+All probe builds succeeded. Retained evidence uses `mask-probe*`, `glyph-*` and
+`path-probe*` under the same artifact directory. The final diagnostic worktree
+still contains the isolated path-shader experiment, not a proposed product fix.
+The production ordinary path shader, shared text-mask fix and configurable GPU/
+SIMD execution paths remain unchanged. Further source/command or composition
+isolation is needed; these results do not authorize a baseline change.
