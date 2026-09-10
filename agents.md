@@ -63,6 +63,10 @@ Native transport alone does not admit anchors or replace retained source ownersh
 Managed exclusion spans borrow the same native arena contract under one context
 lease. Validate metric span lengths before pointer access and retain explicit
 fragment output capacity; do not replace native row placement with managed offsets.
+Excluded snapshots retain native fragment frames and metrics beside original
+glyph/cluster arrays, and build interaction from those same frames. Lines are
+fragments, not rows; never prefix-sum their heights or use ordinary row navigation.
+Empty excluded rows remain rejected until their actual native placement connects.
 
 Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
 not optional fields that a text-only provider can silently ignore. Source metrics

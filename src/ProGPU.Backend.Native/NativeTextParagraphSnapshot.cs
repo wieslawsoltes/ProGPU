@@ -20,6 +20,10 @@ public sealed class NativeTextParagraphSnapshot
     public ReadOnlyMemory<NativeTextInlineObjectPlacement> InlineObjects { get; }
     public ReadOnlyMemory<NativePositionedTextGlyph> Glyphs { get; }
     public ReadOnlyMemory<NativePositionedTextLine> Lines { get; }
+    /// <summary>Explicit native row/top frames for excluded layout; Lines then contains fragments, not rows.</summary>
+    public ReadOnlyMemory<NativeTextFragmentPlacement> Fragments { get; }
+    /// <summary>Native extents and counts for excluded layout; never sum fragment heights to recover them.</summary>
+    public NativeTextParagraphResult? FragmentLayout { get; }
     public ReadOnlyMemory<int> ClusterEnds { get; }
     public ReadOnlyMemory<sbyte> BidiLevels { get; }
     public ReadOnlyMemory<NativeTextClusterBox> Boxes { get; }
@@ -31,7 +35,8 @@ public sealed class NativeTextParagraphSnapshot
         NativePositionedTextLine[] lines, int[] ends, sbyte[] levels,
         ReadOnlyMemory<NativeTextClusterBox> boxes, ReadOnlyMemory<NativeTextCaretStop> carets,
         NativeTextIntrinsicWidths? intrinsicWidths = null, NativeTextCollapsedRange? collapsedRange = null,
-        bool measuredLines = false, NativeTextInlineObjectPlacement[]? inlineObjects = null)
+        bool measuredLines = false, NativeTextInlineObjectPlacement[]? inlineObjects = null,
+        NativeTextFragmentPlacement[]? fragments = null, NativeTextParagraphResult? fragmentLayout = null)
     {
         Glyphs = glyphs; Lines = lines; ClusterEnds = ends; BidiLevels = levels;
         Boxes = boxes; Carets = carets;
@@ -39,6 +44,8 @@ public sealed class NativeTextParagraphSnapshot
         CollapsedRange = collapsedRange;
         HasMeasuredLines = measuredLines;
         InlineObjects = inlineObjects ?? [];
+        Fragments = fragments ?? [];
+        FragmentLayout = fragmentLayout;
     }
 
     public static NativeTextParagraphSnapshot Create(NativeTextShapingContext context,
@@ -64,6 +71,19 @@ public sealed class NativeTextParagraphSnapshot
         NativeTextWrapping wrapping = NativeTextWrapping.Emergency)
         => CreateCore(context, text, direction, in options, features, styles, incrementalTab, tabOrigin,
             measureIntrinsicWidths, wrapping, null, null, true, styleMetrics, inlineObjects);
+
+    /// <summary>Retains native exclusion fragments and their interaction in one source generation.</summary>
+    public static NativeTextParagraphSnapshot CreateWithExclusions(NativeTextShapingContext context,
+        ReadOnlySpan<char> text, NativeTextDirection direction, in NativeTextParagraphOptions options,
+        ReadOnlySpan<NativeTextParagraphStyle> styles, ReadOnlySpan<NativeTextStyleMetrics> styleMetrics,
+        ReadOnlySpan<NativeTextParagraphInlineObject> inlineObjects,
+        in NativeTextExclusionOptions exclusionOptions, ReadOnlySpan<NativeTextExclusionRectangle> exclusions,
+        ReadOnlySpan<NativeTextFeature> features = default,
+        float incrementalTab = 0, float tabOrigin = 0, bool measureIntrinsicWidths = false,
+        NativeTextWrapping wrapping = NativeTextWrapping.Emergency)
+        => CreateCore(context, text, direction, in options, features, styles, incrementalTab, tabOrigin,
+            measureIntrinsicWidths, wrapping, null, null, true, styleMetrics, inlineObjects,
+            exclusionOptions, exclusions);
 
     /// <summary>
     /// Reuses the native paragraph composer with the original text/font/style domain.
@@ -97,7 +117,9 @@ public sealed class NativeTextParagraphSnapshot
         float incrementalTab, float tabOrigin, bool measureIntrinsicWidths, NativeTextWrapping wrapping,
         NativeTextParagraphSnapshot? original, NativeTextCollapseRequest? collapse,
         bool measuredLines = false, ReadOnlySpan<NativeTextStyleMetrics> styleMetrics = default,
-        ReadOnlySpan<NativeTextParagraphInlineObject> inlineObjects = default)
+        ReadOnlySpan<NativeTextParagraphInlineObject> inlineObjects = default,
+        NativeTextExclusionOptions? exclusionOptions = null,
+        ReadOnlySpan<NativeTextExclusionRectangle> exclusions = default)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (measuredLines && (styleMetrics.Length != styles.Length || (!text.IsEmpty && styles.IsEmpty)))
@@ -111,6 +133,8 @@ public sealed class NativeTextParagraphSnapshot
             throw new ArgumentException("Editor snapshots require an untruncated paragraph within the input budget.");
         if (text.IsEmpty)
         {
+            if (exclusionOptions.HasValue)
+                throw new NotSupportedException("Empty excluded paragraphs require an explicit native empty-row placement contract.");
             if (!styles.IsEmpty || !inlineObjects.IsEmpty)
                 throw new ArgumentException("An empty paragraph cannot contain style ranges or inline objects.");
             if (measuredLines && (!float.IsFinite(options.LineHeight) || options.LineHeight < 0))
@@ -127,18 +151,29 @@ public sealed class NativeTextParagraphSnapshot
         var input = new NativeTextShapeInput(default, scalars.AsSpan(0, count), direction: direction, features: features);
         var flow = new NativeTextFlowOptions { IncrementalTab = incrementalTab, TabOrigin = tabOrigin };
         NativeTextParagraphRequirements required;
-        Check(measuredLines ? context.GetInlineFlowParagraphRequirements(in input, in options, nativeStyles, in flow,
+        var exclusion = exclusionOptions.GetValueOrDefault();
+        Check(exclusionOptions.HasValue ? context.GetExcludedFlowParagraphRequirements(in input, in options,
+            nativeStyles, in flow, styleMetrics, nativeObjects, in exclusion, exclusions, out required) :
+            measuredLines ? context.GetInlineFlowParagraphRequirements(in input, in options, nativeStyles, in flow,
             styleMetrics, nativeObjects, out required) :
             incrementalTab > 0 ? context.GetFlowParagraphRequirements(in input, in options, nativeStyles, in flow, out required) :
             context.GetStyledParagraphRequirements(in input, in options, nativeStyles, out required));
         var glyphBuffer = new NativePositionedTextGlyph[checked((int)required.GlyphCapacity)];
         var lineBuffer = new NativePositionedTextLine[checked((int)required.LineCapacity)];
+        var fragmentBuffer = exclusionOptions.HasValue ? new NativeTextFragmentPlacement[lineBuffer.Length] : [];
         byte[] scratch = ArrayPool<byte>.Shared.Rent(checked((int)required.ScratchBytes));
         NativeTextParagraphResult result;
         NativeTextIntrinsicWidths? intrinsicWidths = null;
         try
         {
-            if (measuredLines)
+            if (exclusionOptions.HasValue)
+            {
+                Check(context.LayoutExcludedFlowParagraph(in input, in options, nativeStyles, in flow, styleMetrics,
+                    nativeObjects, in exclusion, exclusions, glyphBuffer, lineBuffer, fragmentBuffer, scratch,
+                    wrapping, measureIntrinsicWidths, out result, out var widths));
+                if (measureIntrinsicWidths) intrinsicWidths = widths;
+            }
+            else if (measuredLines)
             {
                 Check(context.LayoutInlineFlowParagraph(in input, in options, nativeStyles, in flow, styleMetrics,
                     nativeObjects, glyphBuffer, lineBuffer, scratch, wrapping, measureIntrinsicWidths,
@@ -162,6 +197,7 @@ public sealed class NativeTextParagraphSnapshot
         // Output arrays are retained ownership, not per-frame replay materialization.
         Array.Resize(ref glyphBuffer, checked((int)result.GlyphCount));
         Array.Resize(ref lineBuffer, checked((int)result.LineCount));
+        if (exclusionOptions.HasValue) Array.Resize(ref fragmentBuffer, lineBuffer.Length);
 
         if (original != null && collapse is { } collapsedRequest)
             return BuildCollapsed(original, glyphBuffer, lineBuffer, collapsedRequest, direction);
@@ -210,18 +246,29 @@ public sealed class NativeTextParagraphSnapshot
         }
         var interaction = new NativeTextInteractionInput(glyphBuffer, lineBuffer, ends, levels);
         NativeTextInteractionRequirements interactionRequired;
-        Check(measuredLines ? NativeTextInteractionInterop.GetMeasuredRequirements(in interaction, out interactionRequired) :
-            NativeTextInteractionInterop.GetRequirements(in interaction, out interactionRequired));
+        if (exclusionOptions.HasValue)
+        {
+            // The fragment C ABI bounds outputs by G boxes and 2G caret stops;
+            // ordinary requirements validate a line-height prefix that fragments do not have.
+            interactionRequired = new() { ClusterBoxCapacity = checked((uint)glyphBuffer.Length),
+                CaretStopCapacity = checked((uint)glyphBuffer.Length * 2) };
+        }
+        else
+            Check(measuredLines ? NativeTextInteractionInterop.GetMeasuredRequirements(in interaction, out interactionRequired) :
+                NativeTextInteractionInterop.GetRequirements(in interaction, out interactionRequired));
         var boxes = new NativeTextClusterBox[checked((int)interactionRequired.ClusterBoxCapacity)];
         var carets = new NativeTextCaretStop[checked((int)interactionRequired.CaretStopCapacity)];
         NativeTextInteractionResult interactionResult;
-        Check(measuredLines ? NativeTextInteractionInterop.BuildMeasured(in interaction, boxes, carets, out interactionResult) :
+        Check(exclusionOptions.HasValue ? NativeTextInteractionInterop.BuildFragments(in interaction, fragmentBuffer,
+            boxes, carets, out interactionResult) :
+            measuredLines ? NativeTextInteractionInterop.BuildMeasured(in interaction, boxes, carets, out interactionResult) :
             NativeTextInteractionInterop.Build(in interaction, boxes, carets, out interactionResult));
         return new(glyphBuffer, lineBuffer, ends, levels,
             boxes.AsMemory(0, checked((int)interactionResult.ClusterBoxCount)),
             carets.AsMemory(0, checked((int)interactionResult.CaretStopCount)), intrinsicWidths,
             measuredLines: measuredLines, inlineObjects: measuredLines
-                ? BuildInlinePlacements(inlineObjects, glyphBuffer, lineBuffer) : null);
+                ? BuildInlinePlacements(inlineObjects, glyphBuffer, lineBuffer) : null,
+            fragments: fragmentBuffer, fragmentLayout: exclusionOptions.HasValue ? result : null);
     }
 
     internal static NativeTextInlineObject[] MapInlineObjects(ReadOnlySpan<NativeTextParagraphInlineObject> objects,

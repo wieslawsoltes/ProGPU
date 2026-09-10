@@ -508,6 +508,48 @@ static void ValidateNativeInlineParagraph()
         snapshot.InlineObjects.Span[0] != new NativeTextInlineObjectPlacement(1, 1, 1, 0, 20, 30.25f, 42) ||
         snapshot.Boxes.Span[1].Y != 20 || snapshot.ClusterEnds.Span[1] != 2 || snapshot.IntrinsicWidths == null)
         throw new InvalidOperationException("Retained native inline placement or measured interaction failed.");
+    exclusionOptions = new() { MaximumAttempts = 128 };
+    var excludedSnapshot = NativeTextParagraphSnapshot.CreateWithExclusions(context, "A\ufffcB",
+        NativeTextDirection.LeftToRight, options, [new(0, 3, 0, options.Scale)], metrics,
+        [new(1, 30.25f, 35, 7)], exclusionOptions, exclusions, measureIntrinsicWidths: true);
+    if (excludedSnapshot.FragmentLayout?.ContentHeight != 102 || excludedSnapshot.Fragments.Length != 3 ||
+        excludedSnapshot.Fragments.Span[2].Top != 82 || excludedSnapshot.Boxes.Span[1].Y != 40 ||
+        excludedSnapshot.InlineObjects.Span[0].Y != 40 || excludedSnapshot.Carets.Span[2].Y != 40 ||
+        excludedSnapshot.ClusterEnds.Span[1] != 2 || excludedSnapshot.IntrinsicWidths == null)
+        throw new InvalidOperationException("Retained excluded paragraph lost native clearance or source interaction.");
+    var wholeWord = NativeTextParagraphSnapshot.CreateWithExclusions(context, "AA",
+        NativeTextDirection.LeftToRight, options, [new(0, 2, 0, options.Scale)], metrics, [],
+        exclusionOptions, [new() { Left = 12, Right = 19, Bottom = 20 }]);
+    if (wholeWord.Fragments.Length != 1 || wholeWord.Fragments.Span[0].Top != 20 ||
+        wholeWord.FragmentLayout?.ContentHeight != 40 || wholeWord.Glyphs.Length != 2)
+        throw new InvalidOperationException("Excluded snapshot split or lost an indivisible native word.");
+    bool rejectedEmptyExclusion = false;
+    try { NativeTextParagraphSnapshot.CreateWithExclusions(context, "", NativeTextDirection.LeftToRight,
+        options, [], [], [], exclusionOptions, exclusions); }
+    catch (NotSupportedException) { rejectedEmptyExclusion = true; }
+    if (!rejectedEmptyExclusion)
+        throw new InvalidOperationException("Empty excluded snapshot fabricated an unpositioned row.");
+    foreach (var direction in new[] { NativeTextDirection.LeftToRight, NativeTextDirection.RightToLeft })
+    {
+        NativeTextExclusionRectangle[] middle = [new() { Left = 16, Right = 24, Bottom = 20 }];
+        var split = NativeTextParagraphSnapshot.CreateWithExclusions(context, "A A", direction,
+            options with { MaximumWidth = 40 },
+            [new(0, 3, 0, options.Scale)], metrics, [], exclusionOptions, middle);
+        if (split.Fragments.Length != 2 || split.FragmentLayout?.ContentHeight != 20 ||
+            split.Fragments.Span[0].Top != 0 || split.Fragments.Span[1].Top != 0 ||
+            split.Fragments.Span[0].RowIndex != 0 || split.Fragments.Span[1].RowIndex != 0 ||
+            split.Fragments.Span[0].Left != (direction == NativeTextDirection.LeftToRight ? 0 : 24) ||
+            split.Boxes.Span[0].Y != 0 || split.Boxes.Span[1].Y != 0)
+            throw new InvalidOperationException($"Retained same-row fragments were stacked or reordered: {direction}, " +
+                $"count={split.Fragments.Length}, height={split.FragmentLayout?.ContentHeight}, " +
+                $"frames={string.Join(';', split.Fragments.ToArray().Select(f => $"{f.RowIndex}:{f.Left},{f.Top},{f.Width}"))}, " +
+                $"boxes={string.Join(';', split.Boxes.ToArray().Select(b => $"{b.X},{b.Y},{b.Width}"))}.");
+        middle[0].Right = 40;
+        if (split.Fragments.Span[1].Width != 16 ||
+            NativeTextInteractionInterop.HitTest(split.Boxes.Span, 25, 5, out var splitHit) != NativeRendererStatus.Success ||
+            splitHit.Inside != 1 || splitHit.LineIndex != (direction == NativeTextDirection.LeftToRight ? 1U : 0U))
+            throw new InvalidOperationException("Retained fragment hit testing borrowed mutable exclusions or lost its frame.");
+    }
     rejected = false;
     try { NativeTextParagraphSnapshot.CreateCollapsed(context, "A\ufffcB", NativeTextDirection.LeftToRight,
         options, snapshot, new(0, 10, 2, NativeTextTrimming.CharacterEllipsis)); }
