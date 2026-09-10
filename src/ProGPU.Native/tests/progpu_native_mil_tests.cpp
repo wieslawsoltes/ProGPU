@@ -3190,13 +3190,27 @@ bool placed_overlay_visuals_preserve_draw_order_and_local_clip() {
         PROGPU_REQUIRE(state.build_scene(6U, 9512U, ++generation, stream) == status::success);
         const auto header = read_value<progpu_native_scene_header>(stream, 0U);
         std::uint32_t draws = 0U;
+        std::uint32_t current_state = PROGPU_NATIVE_SCENE_NO_INDEX;
+        std::vector<std::uint32_t> saved_states;
         for (std::uint32_t i = 0U; i < header.command_count; ++i) {
             const auto draw = read_value<progpu_native_scene_command>(stream,
                 header.command_offset + i * sizeof(progpu_native_scene_command));
+            if (draw.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE) {
+                saved_states.push_back(current_state);
+                if (draw.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) current_state = draw.state_index;
+                continue;
+            }
+            if (draw.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE) {
+                PROGPU_REQUIRE(!saved_states.empty());
+                current_state = saved_states.back();
+                saved_states.pop_back();
+                continue;
+            }
             if (draw.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) continue;
-            PROGPU_REQUIRE(draw.state_index < header.resource_count);
+            const auto draw_state = draw.state_index == PROGPU_NATIVE_SCENE_NO_INDEX ? current_state : draw.state_index;
+            PROGPU_REQUIRE(draw_state < header.resource_count);
             const auto resource = read_value<progpu_native_scene_resource>(stream,
-                header.resource_offset + draw.state_index * sizeof(progpu_native_scene_resource));
+                header.resource_offset + draw_state * sizeof(progpu_native_scene_resource));
             PROGPU_REQUIRE(resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE);
             const auto value = read_value<progpu_native_scene_state>(stream, resource.payload_offset);
             if (draws == 0U) {
@@ -3209,6 +3223,7 @@ bool placed_overlay_visuals_preserve_draw_order_and_local_clip() {
             }
             ++draws;
         }
+        PROGPU_REQUIRE(saved_states.empty());
         PROGPU_REQUIRE(draws == 2U);
     }
     return true;
@@ -7369,20 +7384,16 @@ bool solid_pen_line_compiles_to_geometry_scene() {
             arc_count += segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC
                 ? 1U
                 : 0U;
-            if (degenerate_rectangle_path_count == 2U &&
-                segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC) {
-                PROGPU_REQUIRE(segment.p3.x == 1.0F);
-                PROGPU_REQUIRE(segment.p3.y == 3.0F);
-            }
         }
         if (degenerate_rectangle_path_count == 0U) {
             PROGPU_REQUIRE(path.segment_count == 4U);
             PROGPU_REQUIRE(arc_count == 0U);
-        } else if (degenerate_rectangle_path_count == 1U ||
-            degenerate_rectangle_path_count == 2U) {
+        } else if (degenerate_rectangle_path_count == 1U) {
             PROGPU_REQUIRE(path.segment_count == 8U);
             PROGPU_REQUIRE(arc_count == 4U);
         } else {
+            // A zero-width source clamps its horizontal corner radius to zero;
+            // bevel widening remains linear, unlike the round-join pen above.
             PROGPU_REQUIRE(path.segment_count == 8U);
             PROGPU_REQUIRE(arc_count == 0U);
         }
@@ -7810,6 +7821,19 @@ bool solid_pen_line_compiles_to_geometry_scene() {
                     (stroke.flags &
                         PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS) !=
                     0U);
+                PROGPU_REQUIRE(dashed_zero_radius_stroke_count < 4U);
+                const std::array<std::array<progpu_native_point, 4>, 4> expected{{
+                    {{{20.0F, 4.0F}, {20.0F, 4.0F}, {20.0F, 12.0F}, {20.0F, 12.0F}}},
+                    {{{24.0F, 4.0F}, {32.0F, 4.0F}, {32.0F, 4.0F}, {24.0F, 4.0F}}},
+                    {{{44.0F, 4.0F}, {44.0F, 4.0F}, {44.0F, 12.0F}, {44.0F, 12.0F}}},
+                    {{{48.0F, 4.0F}, {56.0F, 4.0F}, {56.0F, 4.0F}, {48.0F, 4.0F}}}}};
+                for (std::size_t point_index = 0U; point_index < 4U; ++point_index) {
+                    const auto point = read_value<progpu_native_point>(stream,
+                        record.auxiliary_offset + stroke.point_offset + point_index * sizeof(progpu_native_point));
+                    PROGPU_REQUIRE(point.x == expected[dashed_zero_radius_stroke_count][point_index].x);
+                    PROGPU_REQUIRE(point.y == expected[dashed_zero_radius_stroke_count][point_index].y);
+                }
+                PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
                 ++dashed_zero_radius_stroke_count;
             }
             continue;
@@ -7850,10 +7874,12 @@ bool solid_pen_line_compiles_to_geometry_scene() {
                 primitive.p0.x != 64.0F || primitive.p0.y != 4.0F);
         }
     }
-    PROGPU_REQUIRE(dashed_degenerate_rounded_cubic_count > 0U);
-    PROGPU_REQUIRE(dashed_degenerate_rounded_line_count > 0U);
+    // Either collapsed extent removes rounded corners after radius clamping.
+    // All four non-point sources retain their exact dashed rectangle spines.
+    PROGPU_REQUIRE(dashed_degenerate_rounded_cubic_count == 0U);
+    PROGPU_REQUIRE(dashed_degenerate_rounded_line_count == 0U);
     PROGPU_REQUIRE(dashed_degenerate_rounded_point_cap_count == 4U);
-    PROGPU_REQUIRE(dashed_zero_radius_stroke_count == 2U);
+    PROGPU_REQUIRE(dashed_zero_radius_stroke_count == 4U);
     bool found_dashed_degenerate_rounded_point_bounds = false;
     for (std::uint32_t index = 0U;
          index < dashed_degenerate_rounded_header.command_count;
@@ -8240,8 +8266,12 @@ bool solid_pen_line_compiles_to_geometry_scene() {
             stream,
             record.payload_offset);
         PROGPU_REQUIRE(primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE);
-        PROGPU_REQUIRE(primitive.transform.m11 == 2.0F);
-        PROGPU_REQUIRE(primitive.transform.m22 == 2.0F);
+        // Geometry-local transforms map the spine before pen widening; the
+        // visual transform remains in inherited scene state, not the primitive.
+        PROGPU_REQUIRE(primitive.transform.m11 == 1.0F);
+        PROGPU_REQUIRE(primitive.transform.m22 == 1.0F);
+        PROGPU_REQUIRE(primitive.p0.x == 2.0F && primitive.p0.y == 4.0F);
+        PROGPU_REQUIRE(primitive.p1.x == 10.0F && primitive.p1.y == 16.0F);
         found_transformed_line_geometry = true;
     }
     PROGPU_REQUIRE(found_transformed_line_geometry);
@@ -23398,13 +23428,17 @@ int main() {
                                         if (gradient) PROGPU_REQUIRE(brush.opacity == 0.5F);
                                     }
                                 }
-                                // One group mapping, not a separate gradient per child.
-                                PROGPU_REQUIRE(tables == 1U);
+                                // Point-only children in a dash gap have no paint.
+                                // Nonempty groups share one mapping, not one per child.
+                                const bool empty_paint = extent[0] == 0.0 && extent[1] == 0.0 &&
+                                    dashed && gap && !nested;
+                                PROGPU_REQUIRE(tables == (empty_paint ? 0U : 1U));
                                 for (std::uint32_t index = 0U; index < header.command_count; ++index) {
                                     const auto command = read_value<progpu_native_scene_command>(scene,
                                         header.command_offset + index * sizeof(progpu_native_scene_command));
                                     if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY &&
                                         command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) continue;
+                                    PROGPU_REQUIRE(!empty_paint);
                                     const auto brushes = read_value<progpu_native_scene_draw_brushes>(scene, command.payload_offset);
                                     for (std::uint32_t brush = 0U; brush < brushes.brush_count; ++brush) {
                                         PROGPU_REQUIRE(read_value<std::uint32_t>(scene,
@@ -23780,7 +23814,11 @@ int main() {
                                             .viewport = {0.0, 0.0, 0.25, 0.5}, .fant = sampling == 2U,
                                             .target_dpi_scale_x = dpi, .target_dpi_scale_y = dpi,
                                             .opacity_mask = true, .visual_mask = true, .cached_visual = cached,
-                                            .visual_effect = effect, .visual_guidelines = true}, 10300U + mode));
+                                            .visual_effect = effect, .visual_guidelines = true,
+                                            // Positive effect admission requires orthogonal axes.
+                                            // Brush skew remains independently exercised above.
+                                            .paint_matrix = effect ? std::array{0.8, 0.2, -0.2, 0.8, 8.0, 0.0} :
+                                                std::array{0.8, 0.2, -0.1, 0.8, 8.0, 0.0}}, 10300U + mode));
                                     const auto header = read_value<progpu_native_scene_header>(scene, 0U);
                                     std::uint32_t pictures = 0U;
                                     std::uint32_t composed = 0U;
@@ -23815,6 +23853,13 @@ int main() {
                                 }
                             }
                         }
+                    }
+                    if (effect) {
+                        std::vector<std::byte> skewed_effect{std::byte{0x5a}};
+                        PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(skewed_effect,
+                            {.source = source, .paint_transform = true, .opacity_mask = true,
+                                .visual_mask = true, .cached_visual = cached, .visual_effect = true}, 10309U));
+                        PROGPU_REQUIRE(skewed_effect == std::vector<std::byte>{std::byte{0x5a}});
                     }
                     std::vector<std::byte> missing{std::byte{0x5a}};
                     PROGPU_REQUIRE(!progpu::native::tests::build_mil_image_brush_fixture(missing,
@@ -23862,7 +23907,9 @@ int main() {
                                         .target_dpi_scale_x = dpi, .target_dpi_scale_y = dpi,
                                         .opacity_mask = true, .visual_mask = true, .cached_visual = true,
                                         .visual_effect = effect, .snap_cache_pixels = snapped != 0U,
-                                        .visual_offset = offset}, 10350U));
+                                        .visual_offset = offset,
+                                        .paint_matrix = effect ? std::array{0.8, 0.2, -0.2, 0.8, 8.0, 0.0} :
+                                            std::array{0.8, 0.2, -0.1, 0.8, 8.0, 0.0}}, 10350U));
                                 PROGPU_REQUIRE(try_get_cached_layer(scene, layers[snapped]));
                                 const auto header = read_value<progpu_native_scene_header>(scene, 0U);
                                 const auto resource = read_value<progpu_native_scene_resource>(scene,

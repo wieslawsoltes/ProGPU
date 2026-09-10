@@ -6263,7 +6263,11 @@ private:
 
     [[nodiscard]] com::result builder_failure() const noexcept
     {
-        return builder_.last_error() == scene_build_error::out_of_memory
+        // Fixed compositor storage limits exhaust this target just like a
+        // failed allocation; preserve the public PushLayer capacity contract.
+        const auto error = builder_.last_error();
+        return error == scene_build_error::out_of_memory ||
+                error == scene_build_error::capacity_exceeded
             ? com::out_of_memory
             : failure;
     }

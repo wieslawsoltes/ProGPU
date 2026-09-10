@@ -349,7 +349,8 @@ internal static class CorpusApplication
 
             if (error <= threshold)
             {
-                File.Delete(actualPath);
+                // Keep passing frames too: a resolved known difference requires
+                // image review before its expected-results entry can be removed.
                 return FixtureResult.Passed(fixture, error, stopwatch.Elapsed, AllocatedSince(allocatedBefore));
             }
 
