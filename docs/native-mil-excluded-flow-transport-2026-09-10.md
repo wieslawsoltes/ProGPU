@@ -50,3 +50,26 @@ out of lexical order. Linux ARM64 job 103050865783 passed all 23 tests and then
 failed the symbol-list comparison. Both export manifests are sorted again and
 verified against the local provider libraries, including the new excluded-flow
 symbols. This corrects the manifest; fresh CI must still confirm the result.
+
+## Managed span connection
+
+`NativeTextShapingContext.GetExcludedFlowParagraphRequirements` and
+`LayoutExcludedFlowParagraph` now borrow the generated exclusion and placement
+records through the existing leased paragraph interop. All spans stay pinned
+for the complete native call; each style must have a metric before pointer access.
+Struct sizes are supplied by the binding, while the caller's bounded attempt
+budget and reserved fields remain native-validated. Fragment capacity is passed
+independently, and ordinary/inline/collapsed methods retain their existing paths.
+No managed shaping, exclusion scan, per-fragment callback or geometry copy is added.
+
+The project-reference native consumer passes with a full-width exclusion clearing
+the first 20 DIPs: native fragment tops are 20, 40 and 82, total height is 102,
+the last baseline is 94, and the real inline object retains its source identity.
+Intrinsic widths agree with ordinary inline formatting. Reserved-field rejection
+preserves glyph/fragment canaries and returns zero glyph count; short metric spans
+throw before native access. The backend and consumer builds report zero warnings
+and errors. Logs are `artifacts/excluded-span-build.log`,
+`artifacts/excluded-span-consumer-build.log` and `artifacts/excluded-span-consumer.log`.
+This local wgpu text binding test is not Dawn text, fresh package or platform
+qualification. Retained snapshots/navigation and actual source anchor ownership
+remain required before Figure/Floater admission.

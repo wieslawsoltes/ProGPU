@@ -60,6 +60,9 @@ scratch arena. Preserve original source glyph/font identity, explicit fragment
 tops/rows and separate content/measured extents. Validate metrics before publishing
 any output; retry exhaustion is an error with zero counts, not a partial success.
 Native transport alone does not admit anchors or replace retained source ownership.
+Managed exclusion spans borrow the same native arena contract under one context
+lease. Validate metric span lengths before pointer access and retain explicit
+fragment output capacity; do not replace native row placement with managed offsets.
 
 Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
 not optional fields that a text-only provider can silently ignore. Source metrics

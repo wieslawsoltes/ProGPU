@@ -431,6 +431,38 @@ static void ValidateNativeInlineParagraph()
         glyphs[1].Cluster != 1 || glyphs[1].AdvanceX != 30.25f ||
         lines[1].Height != 42 || lines[2].BaselineY != 74 || widths.Minimum < 30.25f)
         throw new InvalidOperationException("Packaged native inline geometry/identity failed.");
+    var exclusionOptions = new NativeTextExclusionOptions { MaximumAttempts = 128 };
+    NativeTextExclusionRectangle[] exclusions = [new() { Right = 31, Bottom = 20 }];
+    if (context.GetExcludedFlowParagraphRequirements(input, options, styles, flow, metrics, objects,
+        exclusionOptions, exclusions, out var excludedNeeded) != NativeRendererStatus.Success)
+        throw new InvalidOperationException("Packaged exclusion requirements failed.");
+    var excludedGlyphs = new NativePositionedTextGlyph[checked((int)excludedNeeded.GlyphCapacity)];
+    var excludedLines = new NativePositionedTextLine[checked((int)excludedNeeded.LineCapacity)];
+    var excludedFragments = new NativeTextFragmentPlacement[excludedLines.Length];
+    var excludedScratch = new byte[checked((int)excludedNeeded.ScratchBytes)];
+    if (context.LayoutExcludedFlowParagraph(input, options, styles, flow, metrics, objects,
+        exclusionOptions, exclusions, excludedGlyphs, excludedLines, excludedFragments, excludedScratch,
+        NativeTextWrapping.Emergency, true, out var excludedResult, out var excludedWidths) != NativeRendererStatus.Success ||
+        excludedResult.GlyphCount != 3 || excludedResult.LineCount != 3 || excludedResult.ContentHeight != 102 ||
+        excludedFragments[0].Top != 20 || excludedFragments[1].Top != 40 || excludedFragments[2].Top != 82 ||
+        excludedFragments[2].RowIndex != 2 || excludedFragments[1].Width != 31 ||
+        excludedGlyphs[1].GlyphId != uint.MaxValue - 1 || excludedGlyphs[1].Cluster != 1 ||
+        excludedLines[2].BaselineY != 94 || excludedWidths.Minimum != widths.Minimum)
+        throw new InvalidOperationException("Packaged exclusion spans lost native placement or source identity.");
+    exclusionOptions.Reserved0 = 1;
+    excludedGlyphs[0].X = 123;
+    excludedFragments[0].Top = 456;
+    if (context.LayoutExcludedFlowParagraph(input, options, styles, flow, metrics, objects,
+        exclusionOptions, exclusions, excludedGlyphs, excludedLines, excludedFragments, excludedScratch,
+        NativeTextWrapping.Emergency, false, out excludedResult, out _) != NativeRendererStatus.InvalidArgument ||
+        excludedResult.GlyphCount != 0 || excludedGlyphs[0].X != 123 || excludedFragments[0].Top != 456)
+        throw new InvalidOperationException("Packaged exclusion rejection changed output buffers.");
+    bool rejectedExcludedMetrics = false;
+    try { context.GetExcludedFlowParagraphRequirements(input, options, styles, flow, [], objects,
+        exclusionOptions, exclusions, out _); }
+    catch (ArgumentException) { rejectedExcludedMetrics = true; }
+    if (!rejectedExcludedMetrics)
+        throw new InvalidOperationException("Excluded metric span capacity was not checked before native access.");
     var interaction = new NativeTextInteractionInput(
         glyphs.AsSpan(0, checked((int)result.GlyphCount)),
         lines.AsSpan(0, checked((int)result.LineCount)), [1, 2, 3], [0, 0, 0]);
