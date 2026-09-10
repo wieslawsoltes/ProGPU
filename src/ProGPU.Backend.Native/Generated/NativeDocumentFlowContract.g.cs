@@ -130,6 +130,16 @@ public partial struct NativeDocumentLinePosition
     public double Y;
 }
 
+// Native source: progpu_native_document_positioned_paragraph.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeDocumentPositionedParagraph
+{
+    public uint BlockIndex;
+    public uint Reserved;
+    public double Width;
+    public double Height;
+}
+
 // Native source: progpu_native_document_flow_result.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeDocumentFlowResult

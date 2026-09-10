@@ -29,6 +29,7 @@ using measured_object = progpu_native_document_object;
 using row = progpu_native_document_row;
 using cell = progpu_native_document_cell;
 using position = progpu_native_document_line_position;
+using positioned_paragraph = progpu_native_document_positioned_paragraph;
 struct state final { double height{}, content_height{}, before{}, after{}; bool through{}; };
 struct region final { std::uintptr_t start{}; std::size_t bytes{}; };
 
@@ -172,7 +173,8 @@ bool widths(std::span<const block> blocks, double width, std::span<box> output, 
 }
 
 bool measure(std::span<const block> blocks, std::span<const line> lines, std::span<state> states,
-    std::span<const measured_object> objects, const row_layout& layout) noexcept {
+    std::span<const measured_object> objects, const row_layout& layout,
+    std::span<const positioned_paragraph* const> paragraphs) noexcept {
     std::uint32_t cursor = 0U;
     for (std::uint32_t i = 0U; i < blocks.size(); ++i) {
         const auto& b = blocks[i];
@@ -217,7 +219,8 @@ bool measure(std::span<const block> blocks, std::span<const line> lines, std::sp
         }
         bool content = b.line_count != 0U || has_object;
         const bool collapse_edges = layout.cell_at(index) == nullptr;
-        for (std::uint32_t j = 0; j < b.line_count; ++j) content_height += lines[b.line_start + j].height;
+        if (!paragraphs.empty() && paragraphs[index] != nullptr) content_height = paragraphs[index]->height;
+        else for (std::uint32_t j = 0; j < b.line_count; ++j) content_height += lines[b.line_start + j].height;
         for (std::size_t child = index + 1U; child < b.subtree_end; child = blocks[child].subtree_end) {
             const auto& c = states[child];
             pending = std::max(pending, c.before);
@@ -243,7 +246,8 @@ bool measure(std::span<const block> blocks, std::span<const line> lines, std::sp
 
 bool place(std::span<const block> blocks, std::span<const line> lines, std::span<const state> states,
     std::span<const measured_object> objects, std::span<box> boxes, std::span<position> positions,
-    double& extent_width, double& height, const row_layout& layout) {
+    double& extent_width, double& height, const row_layout& layout,
+    std::span<const positioned_paragraph* const> paragraphs, std::span<const position> local_positions) {
     struct cursor final { double y{}, pending{}, trailing{}; bool content{}; };
     // Preorder traversal lets each parent retain its next-child cursor. Empty
     // transparent boxes share the collapsed gap and do not advance this cursor.
@@ -277,11 +281,16 @@ bool place(std::span<const block> blocks, std::span<const line> lines, std::span
         if (object_cursor < objects.size() && objects[object_cursor].block_index == i)
             extent_width = std::max(extent_width, boxes[i].x + objects[object_cursor++].width + cursors[i].trailing);
         double line_y = boxes[i].y;
+        const auto* paragraph = paragraphs.empty() ? nullptr : paragraphs[i];
+        if (paragraph != nullptr)
+            extent_width = std::max(extent_width, boxes[i].x + paragraph->width + cursors[i].trailing);
         for (std::uint32_t j = 0; j < b.line_count; ++j) {
             const auto index = b.line_start + j;
-            positions[index] = {boxes[i].x, line_y};
-            line_y += lines[index].height;
-            extent_width = std::max(extent_width, boxes[i].x + lines[index].width + cursors[i].trailing);
+            if (paragraph != nullptr)
+                positions[index] = {boxes[i].x + local_positions[index].x, boxes[i].y + local_positions[index].y};
+            else { positions[index] = {boxes[i].x, line_y}; line_y += lines[index].height; }
+            if (!finite_nonnegative_pair(positions[index].x, positions[index].y)) return false;
+            extent_width = std::max(extent_width, positions[index].x + lines[index].width + cursors[i].trailing);
         }
         if (!std::isfinite(boxes[i].y) || !std::isfinite(p.y) || !std::isfinite(line_y)) return false;
     }
@@ -383,15 +392,20 @@ static progpu_native_status arrange_document(
     progpu_native_document_flow_result* result,
     const row* rows = nullptr, std::uint32_t row_count = 0U,
     const double* columns = nullptr, std::uint32_t column_count = 0U,
-    const cell* cells = nullptr, std::uint32_t cell_count = 0U) {
+    const cell* cells = nullptr, std::uint32_t cell_count = 0U,
+    const positioned_paragraph* paragraphs = nullptr, std::uint32_t paragraph_count = 0U,
+    const position* local_positions = nullptr, std::uint32_t local_position_count = 0U) {
     if (!valid_buffer(blocks, count) || !valid_buffer(lines, line_count) || !valid_buffer(output, count) ||
         !valid_buffer(objects, object_count) || !valid_buffer(rows, row_count) ||
         !valid_buffer(columns, column_count) || !valid_buffer(cells, cell_count) ||
+        !valid_buffer(paragraphs, paragraph_count) || !valid_buffer(local_positions, local_position_count) ||
+        local_position_count != (paragraph_count == 0U ? 0U : line_count) ||
         !valid_buffer(positions, line_count) || !valid_buffer(result, 1) || capacity < count || position_capacity < line_count ||
         !std::isfinite(width) || width < 0.0 ||
         !disjoint(std::array{bytes(blocks, count), bytes(lines, line_count), bytes(objects, object_count), bytes(output, count),
             bytes(positions, line_count), bytes(result, 1), bytes(rows, row_count),
-            bytes(columns, column_count), bytes(cells, cell_count)}) || result->struct_size != sizeof(*result))
+            bytes(columns, column_count), bytes(cells, cell_count), bytes(paragraphs, paragraph_count),
+            bytes(local_positions, local_position_count)}) || result->struct_size != sizeof(*result))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     try {
         std::vector<box> boxes(count);
@@ -399,9 +413,39 @@ static progpu_native_status arrange_document(
         std::vector<position> placed(line_count);
         row_layout layout{{rows, row_count}, {cells, cell_count}, {columns, column_count}, {}, {}, {}};
         double height = 0.0, extent_width = width;
-        if (!layout.initialize({blocks, count}) || !widths({blocks, count}, width, boxes, layout) ||
-            !measure({blocks, count}, {lines, line_count}, states, {objects, object_count}, layout) ||
-            !place({blocks, count}, {lines, line_count}, states, {objects, object_count}, boxes, placed, extent_width, height, layout))
+        std::vector<const positioned_paragraph*> paragraph_map(paragraph_count == 0U ? 0U : count, nullptr);
+        if (!layout.initialize({blocks, count}) || !widths({blocks, count}, width, boxes, layout))
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        for (uint32_t i = 0U; i < paragraph_count; ++i) {
+            const auto& p = paragraphs[i];
+            if (p.block_index >= count || p.reserved != 0U ||
+                (i != 0U && paragraphs[i - 1U].block_index >= p.block_index) ||
+                !finite_nonnegative_pair(p.width, p.height) || p.height == 0.0)
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            const auto& b = blocks[p.block_index];
+            if (b.subtree_end != p.block_index + 1U || b.line_count == 0U || b.line_start > line_count ||
+                b.line_count > line_count - b.line_start || layout.row_at(p.block_index) != nullptr)
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            paragraph_map[p.block_index] = &p;
+        }
+        if (!measure({blocks, count}, {lines, line_count}, states, {objects, object_count}, layout, paragraph_map))
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        if (paragraph_count != 0U) {
+            for (uint32_t i = 0U; i < count; ++i) {
+                const auto& b = blocks[i];
+                if (b.line_start > line_count || b.line_count > line_count - b.line_start)
+                    return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+                for (uint32_t j = 0U; j < b.line_count; ++j) {
+                    const auto k = b.line_start + j;
+                    const auto& p = local_positions[k]; const auto* descriptor = paragraph_map[i];
+                    if (!finite_nonnegative_pair(p.x, p.y) || (descriptor == nullptr ? (p.x != 0 || p.y != 0) :
+                        (p.x + lines[k].width > descriptor->width || p.y + lines[k].height > descriptor->height)))
+                        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+                }
+            }
+        }
+        if (!place({blocks, count}, {lines, line_count}, states, {objects, object_count}, boxes, placed, extent_width, height,
+                layout, paragraph_map, {local_positions, local_position_count}))
             return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
         if (!boxes.empty()) std::copy(boxes.begin(), boxes.end(), output);
         if (!placed.empty()) std::copy(placed.begin(), placed.end(), positions);
@@ -457,6 +501,19 @@ extern "C" progpu_native_status progpu_native_document_arrange_with_rows(
     progpu_native_document_flow_result* result) {
     return arrange_document(blocks, count, width, lines, line_count, objects, object_count,
         output, capacity, positions, position_capacity, result, rows, row_count, columns, column_count, cells, cell_count);
+}
+
+extern "C" progpu_native_status progpu_native_document_arrange_with_positioned_paragraphs(
+    const block* blocks, uint32_t count, double width, const line* lines, uint32_t line_count,
+    const measured_object* objects, uint32_t object_count, const row* rows, uint32_t row_count,
+    const double* columns, uint32_t column_count, const cell* cells, uint32_t cell_count,
+    const positioned_paragraph* paragraphs, uint32_t paragraph_count,
+    const position* local_positions, uint32_t local_position_count,
+    box* output, uint32_t capacity, position* positions, uint32_t position_capacity,
+    progpu_native_document_flow_result* result) {
+    return arrange_document(blocks, count, width, lines, line_count, objects, object_count,
+        output, capacity, positions, position_capacity, result, rows, row_count, columns, column_count,
+        cells, cell_count, paragraphs, paragraph_count, local_positions, local_position_count);
 }
 
 extern "C" progpu_native_status progpu_native_document_paginate(

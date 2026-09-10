@@ -150,6 +150,18 @@ typedef struct progpu_native_document_line_position {
     double y;
 } progpu_native_document_line_position;
 
+/* Explicit native paragraph extent. Sorted unique line-bearing leaf block
+ * indices; the block's line range indexes paragraph-local positions. Width and
+ * height include all fragment offsets/clearance, not a sum of fragment heights.
+ * Each local line rectangle must fit this extent. Reserved must be zero. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeDocumentPositionedParagraph */
+typedef struct progpu_native_document_positioned_paragraph {
+    uint32_t block_index;
+    uint32_t reserved;
+    double width;
+    double height;
+} progpu_native_document_positioned_paragraph;
+
 /* PROGPU_CSHARP_STRUCT: Public.NativeDocumentFlowResult */
 typedef struct progpu_native_document_flow_result {
     uint32_t struct_size;
@@ -265,6 +277,23 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_document_arrange_with_rows(
     const progpu_native_document_row* rows, uint32_t row_count,
     const double* column_widths, uint32_t column_count,
     const progpu_native_document_cell* cells, uint32_t cell_count,
+    progpu_native_document_box* boxes, uint32_t box_capacity,
+    progpu_native_document_line_position* positions, uint32_t position_capacity,
+    progpu_native_document_flow_result* result);
+/* Same shared row/block arrangement with explicit paragraph-local fragment
+ * positions. local_position_count equals line_count when paragraph_count > 0,
+ * otherwise zero. Entries for ordinary lines must be zero. All spans disjoint;
+ * atomic publication and existing budgets apply. Source order is preserved,
+ * including same-row RTL fragments. No reshaping or line-height prefix repair. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_document_arrange_with_positioned_paragraphs(
+    const progpu_native_document_block* blocks, uint32_t block_count, double width,
+    const progpu_native_document_line* lines, uint32_t line_count,
+    const progpu_native_document_object* objects, uint32_t object_count,
+    const progpu_native_document_row* rows, uint32_t row_count,
+    const double* column_widths, uint32_t column_count,
+    const progpu_native_document_cell* cells, uint32_t cell_count,
+    const progpu_native_document_positioned_paragraph* paragraphs, uint32_t paragraph_count,
+    const progpu_native_document_line_position* local_positions, uint32_t local_position_count,
     progpu_native_document_box* boxes, uint32_t box_capacity,
     progpu_native_document_line_position* positions, uint32_t position_capacity,
     progpu_native_document_flow_result* result);

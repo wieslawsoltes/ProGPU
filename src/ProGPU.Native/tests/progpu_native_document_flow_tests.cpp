@@ -291,6 +291,54 @@ void pagination_tests() {
 
 int main() {
     {
+        std::array blocks{leaf(UINT32_MAX, 3, 0, 0, 0, 0), leaf(0, 2, 0, 0, 0, 2),
+            leaf(0, 3, 2, 0, 0, 1), leaf(UINT32_MAX, 4, 3, 0, 0, 1)};
+        std::array<line, 4> lines{{{10, 10}, {10, 10}, {20, 30}, {20, 7}}};
+        std::array<position, 4> local{{{0, 5}, {20, 5}, {0, 0}, {0, 0}}};
+        progpu_native_document_positioned_paragraph paragraph{1, 0, 30, 15};
+        progpu_native_document_row row{0, 0, 2, 0, 2};
+        std::array<double, 2> columns{40, 60};
+        std::array<progpu_native_document_cell, 2> cells{{{1, 0, 0, 1}, {2, 0, 1, 1}}};
+        std::array<box, 4> boxes{};
+        std::array<position, 4> positions{};
+        auto result = fresh();
+        require(progpu_native_document_arrange_with_positioned_paragraphs(blocks.data(), 4, 100,
+            lines.data(), 4, nullptr, 0, &row, 1, columns.data(), 2, cells.data(), 2,
+            &paragraph, 1, local.data(), 4, boxes.data(), 4, positions.data(), 4, &result) == success);
+        require(result.height == 39 && boxes[1].height == 30 && positions[3].y == 32);
+        require(positions[0].x == 1 && positions[0].y == 6 && positions[1].x == 21 && positions[1].y == 6);
+    }
+    {
+        std::array blocks{leaf(UINT32_MAX, 3, 0, 0, 0, 0),
+            leaf(0, 2, 0, 0, 0, 3), leaf(0, 3, 3, 0, 0, 1)};
+        blocks[1].inset_left = 4; blocks[1].inset_top = 3; blocks[1].inset_bottom = 5;
+        std::array<line, 4> lines{{{50, 10}, {30, 10}, {60, 12}, {20, 7}}};
+        std::array<position, 4> local{{{40, 20}, {0, 20}, {0, 40}, {0, 0}}};
+        progpu_native_document_positioned_paragraph paragraph{1, 0, 90, 52};
+        static_assert(sizeof(paragraph) == 24);
+        std::array<box, 3> boxes{};
+        std::array<position, 4> positions{};
+        auto result = fresh();
+        const auto run = [&] {
+            return progpu_native_document_arrange_with_positioned_paragraphs(blocks.data(), 3, 100,
+                lines.data(), 4, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0,
+                &paragraph, 1, local.data(), 4, boxes.data(), 3, positions.data(), 4, &result);
+        };
+        require(run() == success && result.height == 67 && boxes[1].height == 52);
+        require(positions[0].x == 44 && positions[0].y == 23 && positions[1].x == 4 && positions[1].y == 23);
+        require(positions[2].y == 43 && positions[3].y == 60);
+        paragraph.width = 89;
+        require(run() == invalid && result.height == 67 && positions[3].y == 60);
+        paragraph.width = 90; local[3].y = 1;
+        require(run() == invalid); // Ordinary lines may not carry ignored offsets.
+        local[3].y = 0; paragraph.reserved = 1;
+        require(run() == invalid);
+        paragraph.reserved = 0; paragraph.height = 51;
+        require(run() == invalid && boxes[1].height == 52);
+        paragraph.height = 52; blocks[2].line_start = 0;
+        require(run() == invalid); // Reject malformed partitions before line scans.
+    }
+    {
         using request = progpu_native_document_anchor_request;
         using rectangle = progpu_native_document_anchor_rectangle;
         static_assert(sizeof(request) == 40 && sizeof(rectangle) == 16);

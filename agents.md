@@ -31,6 +31,11 @@ or Figure/Floater source ownership. No per-anchor managed/native crossing.
 Neutral anchored document support is an explicit optional capability over the
 existing document service. Match sequential native layouts and typed enum values;
 do not add ignored anchor fields or fall back to ordinary blocks when absent.
+Explicit fragment paragraphs use their native content extent and local positions
+inside shared document arrangement, never a fragment-height prefix or source-side
+Y repair. Preserve ordinary lines, row stretching, original order and atomic
+outputs. Validate line partitions before scanning local offsets; source TextLine
+and anchor admission remain separate until drawing and interaction consume them.
 
 Anchored text exclusion uses resolved half-open layout rectangles, not paint or
 hit-test envelopes. Preserve every free interval across the whole candidate line
