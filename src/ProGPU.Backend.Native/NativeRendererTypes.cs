@@ -732,6 +732,8 @@ public enum NativeMesh3DShadingMode : uint
     ShadesOfGray = 4,
     XRay = 5,
     Normals = 6,
+    /// <summary>Source lighting, including uniform lights when the range is empty.</summary>
+    WpfLighting = 7,
 }
 
 [Flags]

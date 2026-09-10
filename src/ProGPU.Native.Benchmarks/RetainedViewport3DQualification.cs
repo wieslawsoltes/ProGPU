@@ -345,7 +345,9 @@ internal static class RetainedViewport3DQualification
                 : Float4(0f, 1f, 0f, shininess),
             MaterialAmbient = Float4(1f, 1f, 1f, 1f),
             Opacity = 1f,
-            ShadingMode = gradient && !specularGradient ? 0U : 1U,
+            ShadingMode = (uint)(gradient && !specularGradient
+                ? NativeMesh3DShadingMode.Flat
+                : NativeMesh3DShadingMode.WpfLighting),
             LightOffset = 0U,
             LightCount = (uint)retainedLights.Length
         };

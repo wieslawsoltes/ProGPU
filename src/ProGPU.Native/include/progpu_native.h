@@ -1938,7 +1938,9 @@ typedef enum progpu_native_mesh_3d_shading_mode {
     PROGPU_NATIVE_MESH_3D_HIDDEN_LINE = 3,
     PROGPU_NATIVE_MESH_3D_SHADES_OF_GRAY = 4,
     PROGPU_NATIVE_MESH_3D_XRAY = 5,
-    PROGPU_NATIVE_MESH_3D_NORMALS = 6
+    PROGPU_NATIVE_MESH_3D_NORMALS = 6,
+    /* Source lighting, including the legacy uniform-light path when empty. */
+    PROGPU_NATIVE_MESH_3D_WPF_LIGHTING = 7
 } progpu_native_mesh_3d_shading_mode;
 
 typedef enum progpu_native_mesh_3d_flags {
@@ -1998,14 +2000,17 @@ typedef struct progpu_native_scene_mesh_3d_vertex {
 } progpu_native_scene_mesh_3d_vertex;
 
 /* Retained mesh ranges address the owning resource auxiliary arena: all
- * vertices form its prefix and all uint32 indices form its suffix. Edge-list
+ * vertices form its prefix, followed by uint32 indices and typed light records.
+ * Edge-list
  * records have an even vertex_count, zero index_count, visible color in color,
  * occluded color in ambient_color, and width/crease cosine/dash/gap in
  * light_direction. Material
  * fields mirror the proven managed GpuMesh3DRecord baseline. An optional
  * scene-local external IMAGE resource supplies a typed same-device diffuse
  * texture; material_factors packs diffuse-map blend in its low unorm16 and
- * self-illumination in its high unorm16 without changing the stable layout. */
+ * self-illumination in its high unorm16. ABI v4 retains those CAD fields and
+ * appends light_offset/light_count: the wire record is 264 bytes; GPU upload
+ * adds explicit tail padding for a 272-byte, 16-byte-aligned storage record. */
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3D */
 typedef struct progpu_native_scene_mesh_3d {
     uint32_t struct_size;

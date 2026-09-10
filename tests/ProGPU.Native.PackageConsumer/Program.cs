@@ -20,7 +20,7 @@ if (args.Contains("--webgpu-init-only", StringComparer.Ordinal))
 
 Console.WriteLine("package-consumer: native ABI");
 NativeRendererInfo info = NativeCompositor.GetInfo();
-if (info.AbiVersion != 3 ||
+if (info.AbiVersion != 4 ||
     !info.Capabilities.HasFlag(NativeRendererCapabilities.ExternalImageMask) ||
     !info.Capabilities.HasFlag(NativeRendererCapabilities.ExplicitQueueTimeline) ||
     !info.Capabilities.HasFlag(NativeRendererCapabilities.WpfMilChannel))
@@ -282,7 +282,7 @@ if (!renderOnly)
 }
 
 NativeRendererInfo dawnInfo = NativeDawnAdapter.GetInfo();
-if (dawnInfo.AbiVersion != 3 ||
+if (dawnInfo.AbiVersion != 4 ||
     dawnInfo.BackendAbi != NativeDawnAdapter.BackendAbi ||
     NativeDawnAdapter.AdapterAbiVersion != 1 ||
     NativeDawnAdapter.RequiredProviderAbiVersion != 2 ||

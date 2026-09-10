@@ -14,14 +14,14 @@ public sealed class NativeMilViewport3DSnapshotTests
     {
         AssertLayout<NativeSceneCamera3D>(160);
         AssertLayout<NativeImageRect>(16);
-        AssertLayout<NativeSceneMesh3D>(256);
+        AssertLayout<NativeSceneMesh3D>(264);
         AssertLayout<NativeSceneMesh3DVertex>(48);
         AssertLayout<NativeSceneLight3D>(80);
         AssertLayout<NativeSceneBrush>(256);
         AssertLayout<NativeSceneGradientStop>(32);
         NativeMilViewport3DScene scene = CreateScene();
         NativeMilViewport3DSnapshot snapshot = NativeMilViewport3DSnapshot.Capture(scene);
-        Assert.Equal(824, snapshot.PayloadByteCount);
+        Assert.Equal(832, snapshot.PayloadByteCount);
         Assert.True(snapshot.Matches(scene));
         MutateEachByte(scene.Meshes, scene, snapshot);
         MutateEachByte(scene.Vertices, scene, snapshot);

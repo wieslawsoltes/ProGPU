@@ -1,0 +1,3 @@
+# Repository boundary: builds must use ProGPU and dependency policies, not an
+# unrelated parent checkout's analyzer severities when consumed as a submodule.
+root = true

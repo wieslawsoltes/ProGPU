@@ -398,7 +398,6 @@ fn vs_mesh_3d(
     output.normal = normalize((mesh.normal_transform * vec4<f32>(vertex.normal.xyz, 0.0)).xyz);
     output.world_position = world.xyz;
     output.material = instance_index;
-    output.texture_coordinate = vertex.texture_coordinate;
     let corner = vertex_index % 3u;
     output.barycentric = vec3<f32>(select(0.0, 1.0, corner == 0u), select(0.0, 1.0, corner == 1u), select(0.0, 1.0, corner == 2u));
     output.texture_coordinate = vertex.texture_coordinate;
@@ -840,7 +839,7 @@ fn fs_mesh_3d(
         texture_alpha = mix(1.0, sampled.a, blend);
     }
     var solid = vec4<f32>(0.0);
-    if (mesh.light_count != 0u ||
+    if (mesh.shading_mode == 7u || mesh.light_count != 0u ||
         (mesh.flags & MESH_FLAG_SPECULAR_MATERIAL) != 0u) {
         let n = normalize(normal);
         let view = normalize(camera.camera_position.xyz - input.world_position);

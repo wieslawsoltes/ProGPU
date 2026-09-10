@@ -2244,6 +2244,8 @@ public class NativeRendererInteropTests
         Assert.Equal(8U, (uint)NativeMesh3DFlags.FrontFace);
         Assert.Equal(16U, (uint)NativeMesh3DFlags.BackFace);
         Assert.Equal(32U, (uint)NativeMesh3DFlags.SpecularMaterial);
+        Assert.Equal(2U, (uint)NativeMesh3DShadingMode.Flat);
+        Assert.Equal(7U, (uint)NativeMesh3DShadingMode.WpfLighting);
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneGradientStop>());
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneTextStyle>());
         Assert.Equal(48, Unsafe.SizeOf<NativeSceneColorGlyphBitmap>());

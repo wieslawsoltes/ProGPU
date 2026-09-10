@@ -135,7 +135,8 @@ bool is_valid_semantic_brush(
 
 
     if (brush.type == PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN_SET) {
-        if (outside_color || spread == 0U || brush.radius < 0.0F ||
+        if (pad_outside_colors || conical_outside_color ||
+            spread == 0U || brush.radius < 0.0F ||
             brush.radius_y != 0.0F ||
             brush.color_interpolation_mode !=
                 PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB ||

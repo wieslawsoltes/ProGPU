@@ -179,7 +179,8 @@ bool valid_brush_input(
         return std::all_of(stops.begin(), stops.end(), valid_gradient_stop);
     }
     if (brush.type == PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN_SET) {
-        return !outside && valid_hatch_pattern_set(brush, stops);
+        return !pad_outside_colors && !conical_outside_color &&
+            valid_hatch_pattern_set(brush, stops);
     }
     if ((brush.type == PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN ||
             brush.type == PROGPU_NATIVE_SCENE_BRUSH_CROSS_HATCH) &&

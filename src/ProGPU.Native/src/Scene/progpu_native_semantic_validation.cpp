@@ -743,7 +743,7 @@ bool is_valid_semantic_mesh_3d(
         finite_float_4(mesh.material_ambient) &&
         std::isfinite(mesh.opacity) && mesh.opacity >= 0.0F &&
         mesh.opacity <= 1.0F &&
-        mesh.shading_mode <= PROGPU_NATIVE_MESH_3D_NORMALS &&
+        mesh.shading_mode <= PROGPU_NATIVE_MESH_3D_WPF_LIGHTING &&
         (has_material_image || mesh.material_image_resource_index == 0U) &&
         (!is_edge_list ||
             (!has_material_image && mesh.light_count == 0U &&

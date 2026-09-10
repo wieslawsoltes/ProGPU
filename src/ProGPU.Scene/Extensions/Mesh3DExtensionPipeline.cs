@@ -1822,10 +1822,6 @@ namespace ProGPU.Scene.Extensions
             }
         }
 
-        private static bool IsFinite(Vector3 value) =>
-            float.IsFinite(value.X) && float.IsFinite(value.Y) &&
-            float.IsFinite(value.Z);
-
         private static bool IsFinite(Vector4 value) =>
             float.IsFinite(value.X) && float.IsFinite(value.Y) &&
             float.IsFinite(value.Z) && float.IsFinite(value.W);
