@@ -1,19 +1,29 @@
 // Algorithm: Sample a full-size destination and a bounded source region, then evaluate one runtime-selected advanced Porter-Duff blend function.
 // Time complexity: O(1) per vertex and fragment.
-// Space complexity: O(1) local storage with two texture reads per fragment.
+// Space complexity: O(1) local storage with two texture reads per fragment,
+// plus one exact pattern read when an arbitrary raster tile is selected.
 @group(0) @binding(0) var destinationTexture: texture_2d<f32>;
 @group(0) @binding(1) var sourceTexture: texture_2d<f32>;
+@group(0) @binding(2) var patternTexture: texture_2d<f32>;
 
 struct SamplingUniforms {
     sourceOrigin: vec2<f32>,
     sourceExtent: vec2<f32>,
     blendMode: u32,
+    operationKind: u32,
+    rasterOperationCode: u32,
+    patternKind: u32,
+    patternColor: vec4<f32>,
+    patternBackgroundColor: vec4<f32>,
+    patternOrigin: vec2<f32>,
+    patternMaskLow: u32,
+    patternMaskHigh: u32,
+    patternFlags: u32,
     pad0: u32,
-    pad1: u32,
-    pad2: u32,
+    patternTextureExtent: vec2<f32>,
 };
 
-@group(0) @binding(2) var<uniform> sampling: SamplingUniforms;
+@group(0) @binding(3) var<uniform> sampling: SamplingUniforms;
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
@@ -201,6 +211,29 @@ fn unpremultiply(color: vec3<f32>, alpha: f32) -> vec3<f32> {
     return color / alpha;
 }
 
+fn normalized_to_byte(color: vec3<f32>) -> vec3<u32> {
+    return vec3<u32>(floor(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)) * 255.0 + 0.5));
+}
+
+fn evaluate_rop3(
+    code: u32,
+    pattern: vec3<u32>,
+    source: vec3<u32>,
+    destination: vec3<u32>) -> vec3<u32> {
+    var result = vec3<u32>(0u);
+    for (var bit = 0u; bit < 8u; bit = bit + 1u) {
+        let patternBit = (pattern >> vec3<u32>(bit)) & vec3<u32>(1u);
+        let sourceBit = (source >> vec3<u32>(bit)) & vec3<u32>(1u);
+        let destinationBit = (destination >> vec3<u32>(bit)) & vec3<u32>(1u);
+        let truthTableIndex = (patternBit << vec3<u32>(2u)) |
+            (sourceBit << vec3<u32>(1u)) |
+            destinationBit;
+        let outputBit = (vec3<u32>(code) >> truthTableIndex) & vec3<u32>(1u);
+        result = result | (outputBit << vec3<u32>(bit));
+    }
+    return result;
+}
+
 @fragment
 fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let pixel = vec2<i32>(position.xy);
@@ -217,6 +250,53 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
             textureLoad(sourceTexture, vec2<i32>(sourceCoordinate), 0),
             vec4<f32>(0.0),
             vec4<f32>(1.0));
+    }
+
+
+    if (sampling.operationKind == 1u) {
+        if (!sourceIsInside || source.a <= 0.0) {
+            return destination;
+        }
+        let sourceAlpha = source.a;
+        let destinationAlpha = destination.a;
+        let straightSource = unpremultiply(source.rgb, sourceAlpha);
+        let straightDestination = unpremultiply(destination.rgb, destinationAlpha);
+        var patternColor = sampling.patternColor;
+        if (sampling.patternKind == 1u) {
+            // Fixed 8x8 GDI hatch tile in physical device pixels. Signed
+            // remainder preserves phase on negative brush origins.
+            let integerCoordinate = vec2<i32>(floor(position.xy - sampling.patternOrigin));
+            let tileX = u32(((integerCoordinate.x % 8) + 8) % 8);
+            let tileY = u32(((integerCoordinate.y % 8) + 8) % 8);
+            let bitIndex = tileY * 8u + tileX;
+            let word = select(
+                sampling.patternMaskLow,
+                sampling.patternMaskHigh,
+                bitIndex >= 32u);
+            let patternBit = (word >> (bitIndex & 31u)) & 1u;
+            if (patternBit == 0u && (sampling.patternFlags & 1u) != 0u) {
+                return destination;
+            }
+            patternColor = select(
+                sampling.patternBackgroundColor,
+                sampling.patternColor,
+                patternBit != 0u);
+        } else if (sampling.patternKind == 2u) {
+            let integerCoordinate = vec2<i32>(floor(position.xy - sampling.patternOrigin));
+            let extent = max(
+                vec2<i32>(sampling.patternTextureExtent),
+                vec2<i32>(1, 1));
+            let tileCoordinate = vec2<i32>(
+                ((integerCoordinate.x % extent.x) + extent.x) % extent.x,
+                ((integerCoordinate.y % extent.y) + extent.y) % extent.y);
+            patternColor = textureLoad(patternTexture, tileCoordinate, 0);
+        }
+        let result = evaluate_rop3(
+            sampling.rasterOperationCode,
+            normalized_to_byte(patternColor.rgb),
+            normalized_to_byte(straightSource),
+            normalized_to_byte(straightDestination));
+        return vec4<f32>(vec3<f32>(result) / 255.0, 1.0);
     }
 
     if (sampling.blendMode == 1u) {

@@ -50,18 +50,18 @@ bool create_advanced_blend_pipeline(progpu_native_engine& engine) {
         return false;
     }
 
-    std::array<WGPUBindGroupLayoutEntry, 3U> entries{};
-    for (std::uint32_t index = 0U; index < 2U; ++index) {
+    std::array<WGPUBindGroupLayoutEntry, 4U> entries{};
+    for (std::uint32_t index = 0U; index < 3U; ++index) {
         entries[index].binding = index;
         entries[index].visibility = WGPUShaderStage_Fragment;
         entries[index].texture.sampleType = WGPUTextureSampleType_Float;
         entries[index].texture.viewDimension = WGPUTextureViewDimension_2D;
         entries[index].texture.multisampled = false;
     }
-    entries[2].binding = 2U;
-    entries[2].visibility = WGPUShaderStage_Fragment;
-    entries[2].buffer.type = WGPUBufferBindingType_Uniform;
-    entries[2].buffer.minBindingSize =
+    entries[3].binding = 3U;
+    entries[3].visibility = WGPUShaderStage_Fragment;
+    entries[3].buffer.type = WGPUBufferBindingType_Uniform;
+    entries[3].buffer.minBindingSize =
         sizeof(gpu_advanced_blend_sampling_uniforms);
     WGPUBindGroupLayoutDescriptor bind_layout_descriptor{};
     bind_layout_descriptor.label = webgpu::string_view(
@@ -298,11 +298,13 @@ bool create_semantic_advanced_blend_binding(
         offset,
         &uniforms,
         sizeof(uniforms));
-    const std::array<WGPUBindGroupEntry, 3U> entries{{
+    const std::array<WGPUBindGroupEntry, 4U> entries{{
         {nullptr, 0U, nullptr, 0U, 0U, nullptr, destination_view},
         {nullptr, 1U, nullptr, 0U, 0U, nullptr,
             engine.semantic_advanced_source_slot.view},
-        {nullptr, 2U, engine.semantic_advanced_blend_uniform_buffer,
+        {nullptr, 2U, nullptr, 0U, 0U, nullptr,
+            engine.semantic_advanced_source_slot.view},
+        {nullptr, 3U, engine.semantic_advanced_blend_uniform_buffer,
             offset, sizeof(uniforms), nullptr, nullptr}
     }};
     WGPUBindGroupDescriptor descriptor{};

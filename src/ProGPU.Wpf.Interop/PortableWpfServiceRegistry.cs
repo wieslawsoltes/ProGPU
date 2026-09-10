@@ -644,6 +644,20 @@ public interface IPortableWindowActivationServiceRegistrar
 
     bool TryFlushDispatcherOperations(object window, string markerPriorityName, TimeSpan? timeout);
 
+    /// <summary>
+    /// Registers a lightweight notification that is raised whenever idle-priority work is
+    /// posted to the dispatcher's queue. Hosts use the notification to wake their native event
+    /// loop without polling lower-priority dispatcher work on every frame.
+    /// </summary>
+    bool TryRegisterDispatcherIdleWorkNotification(
+        object window,
+        Action workPosted,
+        out IDisposable? registration)
+    {
+        registration = null;
+        return false;
+    }
+
     bool TryPromoteDispatcherTimers(object window, int currentTimeInTicks)
     {
         return false;

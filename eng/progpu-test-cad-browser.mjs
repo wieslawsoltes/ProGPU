@@ -42,8 +42,21 @@ const errors = [];
 const browserLog = [];
 const softwareRendering = process.env.PROGPU_CAD_BROWSER_USE_SWIFTSHADER === '1';
 const visualTimeoutMs = softwareRendering ? 120_000 : 30_000;
-function screenshot(options) {
-  return page.screenshot({ timeout: visualTimeoutMs, ...options });
+// A 2x, 2560x1600 SwiftShader surface can deadlock Chromium's WebGPU readback
+// and compositor paths. Keep logical input coverage identical and use a 1x
+// surface only for the hosted software adapter; hardware runs retain HiDPI.
+const appDeviceScaleFactor = softwareRendering ? 1 : 2;
+async function captureCadCanvas(timeout = visualTimeoutMs) {
+  // Chromium's page-compositor screenshot can stall indefinitely when a large
+  // SwiftShader WebGPU surface is active. Read the presented canvas directly
+  // for the app's pixel oracle; verifyWebGpuPresentation separately proves that
+  // a WebGPU canvas reaches Chromium's page-composition screenshot path.
+  const dataUrl = await diagnosticDeadline(page.evaluate(() =>
+    document.querySelector('#progpu-canvas')?.toDataURL('image/png')),
+  'CAD canvas readback', timeout);
+  assert.ok(dataUrl?.startsWith('data:image/png;base64,'),
+    'The CAD canvas did not produce a PNG readback.');
+  return Buffer.from(dataUrl.split(',')[1], 'base64');
 }
 function captureHostState() {
   // DOM-only: canvas readback can block even while these diagnostics work.
@@ -140,7 +153,9 @@ try {
   } finally {
     await diagnosticsSession.detach();
   }
-  page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
+  page = await browser.newPage({
+    viewport: { width: 1280, height: 800 }, deviceScaleFactor: appDeviceScaleFactor,
+  });
   const recordError = message => { errors.push(message); console.error(message); };
   page.on('pageerror', error => recordError(error.message));
   page.on('console', message => {
@@ -155,21 +170,20 @@ try {
     undefined, { timeout: 120_000 });
   await fs.writeFile(path.join(evidence, 'pre-screenshot-state.json'),
     JSON.stringify(await diagnosticDeadline(captureHostState(), 'Initial host-state capture'), null, 2) + '\n');
-  const drawing = { x: 300, y: 160, width: 680, height: 500 };
   // The host's frame counter can advance before application launch completes.
-  // Inspect the default scene, not toolbar chrome or opaque target alpha. Reuse
+  // Inspect the default scene through the actual WebGPU canvas readback. Reuse
   // the PNG decoder bundled with our pinned Playwright dependency.
   let visiblePixels = 0;
   let backgroundPixels = 0;
+  let initialDrawingCapture;
   const firstDrawingStarted = Date.now();
   const firstDrawingDeadline = firstDrawingStarted + 120_000;
   while ((visiblePixels < 100 || backgroundPixels < 1000) && Date.now() < firstDrawingDeadline) {
     // A cold software-rendered capture can outlast Playwright's 30-second
     // default. Use the remaining startup budget, without extending that budget
     // for retries or changing the required visible/background pixel counts.
-    const pixels = browserUtilities.PNG.sync.read(await screenshot({
-      clip: drawing, timeout: Math.max(1, firstDrawingDeadline - Date.now()),
-    })).data;
+    initialDrawingCapture = await captureCadCanvas(Math.max(1, firstDrawingDeadline - Date.now()));
+    const pixels = browserUtilities.PNG.sync.read(initialDrawingCapture).data;
     visiblePixels = 0;
     backgroundPixels = 0;
     for (let i = 0; i < pixels.length; i += 4) {
@@ -180,20 +194,21 @@ try {
   }
   assert.ok(visiblePixels >= 100 && backgroundPixels >= 1000,
     'The representative CAD drawing remained blank (light or dark).');
+  assert.ok(initialDrawingCapture, 'The representative CAD drawing produced no evidence capture.');
   await fs.writeFile(path.join(evidence, 'startup-capture.json'), JSON.stringify({
     elapsedMs: Date.now() - firstDrawingStarted, budgetMs: 120_000,
     visiblePixels, backgroundPixels,
   }, null, 2) + '\n');
   assert.deepEqual(errors, []);
-  await screenshot({ path: path.join(evidence, 'initial.png') });
+  await fs.writeFile(path.join(evidence, 'initial.png'), initialDrawingCapture);
   // File actions and basic edits occupy only the top 104 logical pixels.
   await page.mouse.click(1210, 22); // More tools, pinned at the right edge.
   await waitForPresentation();
-  await screenshot({ path: path.join(evidence, 'expanded-tools.png') });
+  await fs.writeFile(path.join(evidence, 'expanded-tools.png'), await captureCadCanvas());
   await page.mouse.click(1210, 22); // Fewer tools.
   await waitForPresentation();
   await page.mouse.move(700, 400);
-  const beforeZoom = await screenshot({ clip: drawing });
+  const beforeZoom = await captureCadCanvas();
   const beforeZoomPixels = browserUtilities.PNG.sync.read(beforeZoom).data;
   await page.mouse.wheel(0, -250);
   const zoomDeadline = Date.now() + visualTimeoutMs;
@@ -203,7 +218,7 @@ try {
   let afterZoom = beforeZoom;
   let afterZoomPixels = beforeZoomPixels;
   for (let attempt = 0; attempt < 30 && Date.now() < zoomDeadline; attempt++) {
-    afterZoom = await screenshot({ clip: drawing, timeout: Math.max(1, zoomDeadline - Date.now()) });
+    afterZoom = await captureCadCanvas(Math.max(1, zoomDeadline - Date.now()));
     afterZoomPixels = browserUtilities.PNG.sync.read(afterZoom).data;
     if (!afterZoomPixels.equals(beforeZoomPixels)) break;
     await new Promise(resolve => setTimeout(resolve, 500));
@@ -217,7 +232,7 @@ try {
   let afterPan = afterZoom;
   let afterPanPixels = afterZoomPixels;
   for (let attempt = 0; attempt < 30 && Date.now() < panDeadline; attempt++) {
-    afterPan = await screenshot({ clip: drawing, timeout: Math.max(1, panDeadline - Date.now()) });
+    afterPan = await captureCadCanvas(Math.max(1, panDeadline - Date.now()));
     afterPanPixels = browserUtilities.PNG.sync.read(afterPan).data;
     if (!afterPanPixels.equals(afterZoomPixels)) break;
     await new Promise(resolve => setTimeout(resolve, 500));
@@ -402,7 +417,7 @@ try {
   const editReopened = await saveEdit('edit-reopened', 17);
   assert.equal(editReopened.fileName, 'edit-final.dxf', 'Opening the edited file did not replace the session.');
   assert.deepEqual(lineCoordinates(editReopened.added[0]), translated);
-  await screenshot({ path: path.join(evidence, 'edited.png') });
+  await fs.writeFile(path.join(evidence, 'edited.png'), await captureCadCanvas());
 
   // An invalid primitive must produce a diagnostic, not hang exception
   // propagation or prevent opening a subsequent valid drawing. Construct the
@@ -446,10 +461,11 @@ try {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForFunction(() => {
     const canvas = document.querySelector('#progpu-canvas');
-    return canvas.width === 2880 && canvas.height === 1800;
+    return canvas.width === Math.round(1440 * devicePixelRatio) &&
+      canvas.height === Math.round(900 * devicePixelRatio);
   }, undefined, { timeout: visualTimeoutMs });
   await waitForPresentation();
-  await screenshot({ path: path.join(evidence, 'resized.png') });
+  await fs.writeFile(path.join(evidence, 'resized.png'), await captureCadCanvas());
   assert.deepEqual(errors, []);
   const result = await page.evaluate(() => ({
     frames: Number(document.querySelector('#counter-frames').textContent),
@@ -463,6 +479,7 @@ try {
   result.editing = ['line', 'undo', 'redo', 'selection', 'move', 'copy', 'delete', 'save', 'reopen'];
   result.malformedClipRecovery = true;
   result.visualTimeoutMs = visualTimeoutMs;
+  result.deviceScaleFactor = appDeviceScaleFactor;
   await fs.writeFile(path.join(evidence, 'result.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result));
 } catch (error) {

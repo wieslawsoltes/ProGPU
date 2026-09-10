@@ -15,13 +15,25 @@ public sealed class WindowCustomizationTests
         var wayland = NativeWindowCapabilities.ForKind(NativeWindowKind.Wayland);
 
         Assert.True(windows.Supports(NativeWindowFeatures.Mica | NativeWindowFeatures.MoveDrag));
+        Assert.True(windows.Supports(NativeWindowFeatures.CloseButton));
+        Assert.True(windows.Supports(NativeWindowFeatures.Opacity));
+        Assert.True(windows.Supports(NativeWindowFeatures.ZOrder));
         Assert.True(macOs.Supports(NativeWindowFeatures.Mica | NativeWindowFeatures.ResizeDrag));
+        Assert.True(macOs.Supports(NativeWindowFeatures.CloseButton));
+        Assert.True(macOs.Supports(NativeWindowFeatures.Opacity));
+        Assert.True(macOs.Supports(NativeWindowFeatures.ZOrder));
         Assert.True(x11.Supports(NativeWindowFeatures.Acrylic | NativeWindowFeatures.Taskbar));
+        Assert.True(x11.Supports(NativeWindowFeatures.CloseButton));
+        Assert.True(x11.Supports(NativeWindowFeatures.Opacity));
+        Assert.True(x11.Supports(NativeWindowFeatures.ZOrder));
         Assert.False(x11.Supports(NativeWindowFeatures.Mica));
         Assert.True(wayland.Supports(NativeWindowFeatures.ClientAreaExtension));
         Assert.False(wayland.Supports(NativeWindowFeatures.MoveDrag));
         Assert.False(wayland.Supports(NativeWindowFeatures.Taskbar));
         Assert.False(wayland.Supports(NativeWindowFeatures.Mica));
+        Assert.False(wayland.Supports(NativeWindowFeatures.CloseButton));
+        Assert.False(wayland.Supports(NativeWindowFeatures.Opacity));
+        Assert.False(wayland.Supports(NativeWindowFeatures.ZOrder));
     }
 
     [Fact]

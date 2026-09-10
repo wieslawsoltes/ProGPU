@@ -109,7 +109,7 @@ internal sealed partial class Win32NativeWindowPlatform :
         _canResize = state.CanResize;
         var nativeResizable = RequiresNativeResizableStyle(state);
         var style = GetWindowLongPtr(_hwnd, GwlStyle).ToInt64();
-        style |= WsSysMenu;
+        style = SetFlag(style, WsSysMenu, state.CanClose);
         style = SetFlag(style, WsThickFrame, nativeResizable);
         style = SetFlag(style, WsMinimizeBox, state.CanMinimize);
         style = SetFlag(style, WsMaximizeBox, state.CanMaximize && state.CanResize);
@@ -154,6 +154,23 @@ internal sealed partial class Win32NativeWindowPlatform :
     }
 
     public override bool SetEnabled(bool value) => EnableWindow(_hwnd, value);
+
+    public override bool SetZOrder(NativeWindowZOrder value)
+    {
+        if (value is not NativeWindowZOrder.Front and not NativeWindowZOrder.Back)
+        {
+            return false;
+        }
+
+        return SetWindowPos(
+            _hwnd,
+            value == NativeWindowZOrder.Front ? nint.Zero : new nint(1),
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize);
+    }
 
     public override bool SetShowInTaskbar(bool value)
     {

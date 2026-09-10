@@ -1,4 +1,5 @@
 using ProGPU.Vector;
+using ProGPU.Scene;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -8,7 +9,7 @@ public sealed class GdiCurveCompatibilityTests
     [Fact]
     public void DrawCurveRecordsCardinalSplineAsOneNativePath()
     {
-        using var graphics = System.Drawing.Graphics.FromHwnd(IntPtr.Zero);
+        using var graphics = System.Drawing.Graphics.FromProGpuDrawingContext(new DrawingContext());
         System.Drawing.PointF[] points =
         [
             new(0f, 0f),
@@ -35,7 +36,7 @@ public sealed class GdiCurveCompatibilityTests
     [Fact]
     public void DrawCurveRangeUsesAdjacentPointsForEndpointTangents()
     {
-        using var graphics = System.Drawing.Graphics.FromHwnd(IntPtr.Zero);
+        using var graphics = System.Drawing.Graphics.FromProGpuDrawingContext(new DrawingContext());
         System.Drawing.Point[] points =
         [
             new(0, 0),
@@ -58,7 +59,7 @@ public sealed class GdiCurveCompatibilityTests
     [Fact]
     public void DrawCurveRejectsInvalidPointRanges()
     {
-        using var graphics = System.Drawing.Graphics.FromHwnd(IntPtr.Zero);
+        using var graphics = System.Drawing.Graphics.FromProGpuDrawingContext(new DrawingContext());
         System.Drawing.PointF[] points = [new(0f, 0f), new(1f, 1f)];
 
         Assert.Throws<ArgumentNullException>(() => graphics.DrawCurve(null!, points));

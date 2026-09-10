@@ -22,6 +22,7 @@ internal sealed class WaylandNativeWindowPlatform : GlfwNativeWindowPlatform
         NativeDrawnDecorationParts.Shadow;
     public override bool SupportsManagedMove => false;
     public override bool SupportsManagedResize => true;
+    public override bool SetOpacity(double value) => value == 1d;
     public override bool SetClientAreaExtension(bool enabled, double titleBarHeight) => true;
     public override bool SetBackdrop(NativeWindowBackdrop backdrop) =>
         backdrop is NativeWindowBackdrop.None or NativeWindowBackdrop.Transparent;

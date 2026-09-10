@@ -140,7 +140,10 @@ public sealed class GdiBitmapTests
         source.SetPixel(0, 1, DrawingColor.FromArgb(255, 0, 255, 0));
         source.SetPixel(1, 1, DrawingColor.FromArgb(0, 0, 0, 0));
 
-        using var icon = DrawingIcon.FromHandle(source.GetHicon());
+        using var sourceStream = new System.IO.MemoryStream();
+        source.Save(sourceStream, System.Drawing.Imaging.ImageFormat.Png);
+        sourceStream.Position = 0;
+        using var icon = new DrawingIcon(sourceStream);
         using var stream = new System.IO.MemoryStream();
         icon.Save(stream);
 
@@ -179,7 +182,10 @@ public sealed class GdiBitmapTests
     public void IconSaveEncodes256PixelDirectoryDimensionsAsZero()
     {
         using var source = new DrawingBitmap(256, 256);
-        using var icon = DrawingIcon.FromHandle(source.GetHicon());
+        using var sourceStream = new System.IO.MemoryStream();
+        source.Save(sourceStream, System.Drawing.Imaging.ImageFormat.Png);
+        sourceStream.Position = 0;
+        using var icon = new DrawingIcon(sourceStream);
         using var stream = new System.IO.MemoryStream();
 
         icon.Save(stream);

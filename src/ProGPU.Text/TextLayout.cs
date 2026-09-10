@@ -17,6 +17,19 @@ public enum TextAlignment
     Justify
 }
 
+/// <summary>
+/// Controls layout behavior that is independent from OpenType shaping.
+/// </summary>
+public sealed class TextLayoutFormattingOptions
+{
+    public static TextLayoutFormattingOptions Default { get; } = new();
+
+    public bool EnableFontFallback { get; init; } = true;
+    public bool MeasureTrailingWhitespace { get; init; } = true;
+    public float FirstTabOffset { get; init; }
+    public IReadOnlyList<float> TabStops { get; init; } = Array.Empty<float>();
+}
+
 public struct TextRunGlyph
 {
     public char Character;
@@ -270,6 +283,9 @@ public class TextLayout
     public float MaxWidth { get; private set; }
     public TextAlignment Alignment { get; private set; }
     public TextShapingOptions ShapingOptions { get; private set; } = TextShapingOptions.Default;
+    public TextLayoutFormattingOptions FormattingOptions { get; private set; } = TextLayoutFormattingOptions.Default;
+
+    private float[] _tabStops = Array.Empty<float>();
 
     public List<TextRunGlyph> Glyphs { get; } = new();
     public Vector2 ContentSize { get; private set; }
@@ -283,9 +299,10 @@ public class TextLayout
         float maxWidth = float.PositiveInfinity,
         TextAlignment alignment = TextAlignment.Left,
         GlyphAtlas? atlas = null,
-        TextShapingOptions? shapingOptions = null)
+        TextShapingOptions? shapingOptions = null,
+        TextLayoutFormattingOptions? formattingOptions = null)
     {
-        Reset(text, font, fontSize, maxWidth, alignment, atlas, shapingOptions);
+        Reset(text, font, fontSize, maxWidth, alignment, atlas, shapingOptions, formattingOptions);
     }
 
     internal void Reset(
@@ -295,7 +312,8 @@ public class TextLayout
         float maxWidth,
         TextAlignment alignment,
         GlyphAtlas? atlas,
-        TextShapingOptions? shapingOptions)
+        TextShapingOptions? shapingOptions,
+        TextLayoutFormattingOptions? formattingOptions = null)
     {
         Text = text ?? string.Empty;
         Font = font;
@@ -303,6 +321,10 @@ public class TextLayout
         MaxWidth = maxWidth;
         Alignment = alignment;
         ShapingOptions = shapingOptions ?? TextShapingOptions.Default;
+        FormattingOptions = formattingOptions ?? TextLayoutFormattingOptions.Default;
+        _tabStops = FormattingOptions.TabStops.Count == 0
+            ? Array.Empty<float>()
+            : FormattingOptions.TabStops.ToArray();
 
         GenerateLayout(atlas);
     }
@@ -315,6 +337,8 @@ public class TextLayout
         MaxWidth = float.PositiveInfinity;
         Alignment = TextAlignment.Left;
         ShapingOptions = TextShapingOptions.Default;
+        FormattingOptions = TextLayoutFormattingOptions.Default;
+        _tabStops = Array.Empty<float>();
         Glyphs.Clear();
         ContentSize = Vector2.Zero;
         MeasuredSize = Vector2.Zero;
@@ -410,8 +434,9 @@ public class TextLayout
                             lastBreak = candidateEnd + 1;
                         }
 
+                        float candidateAdvance = GetHorizontalAdvance(candidate, width);
                         bool exceeds = !float.IsInfinity(MaxWidth) &&
-                                       width + candidate.AdvanceX > MaxWidth &&
+                                       width + candidateAdvance > MaxWidth &&
                                        candidateEnd > candidateStart;
                         if (exceeds)
                         {
@@ -429,7 +454,7 @@ public class TextLayout
                             }
                             break;
                         }
-                        width += candidate.AdvanceX;
+                        width += candidateAdvance;
                     }
 
                     if (candidateEnd == candidateStart)
@@ -447,7 +472,7 @@ public class TextLayout
                     for (var candidateIndex = 0; candidateIndex < visualCandidates.Count; candidateIndex++)
                     {
                         ShapedCandidate candidate = visualCandidates[candidateIndex];
-                        float advance = candidate.AdvanceX;
+                        float advance = GetHorizontalAdvance(candidate, cursorX);
                         var glyph = new GlyphInfo
                         {
                             X = 0,
@@ -479,7 +504,7 @@ public class TextLayout
                     }
 
                     lines.Add(new LineRange(glyphStart, Glyphs.Count - glyphStart));
-                    lineWidths.Add(cursorX);
+                    lineWidths.Add(GetMeasuredLineWidth(candidates, candidateStart, candidateEnd));
                     cursorY += lineSpacing;
                     candidateStart = candidateEnd;
                 }
@@ -525,6 +550,7 @@ public class TextLayout
     private bool TryGenerateSingleLineAsciiLayout()
     {
         if (Alignment != TextAlignment.Left ||
+            (!FormattingOptions.MeasureTrailingWhitespace && char.IsWhiteSpace(Text[^1])) ||
             ShapingOptions.Direction is not (ShapingDirection.Unspecified or ShapingDirection.LeftToRight))
         {
             return false;
@@ -715,7 +741,8 @@ public class TextLayout
 
             TtfFont resolvedFont = Font;
             ushort glyphIndex = Font.GetGlyphIndex(codePoint);
-            if (glyphIndex == 0 && codePoint is not (' ' or '\t'))
+            if (FormattingOptions.EnableFontFallback &&
+                glyphIndex == 0 && codePoint is not (' ' or '\t'))
             {
                 if (runFont is not null && OpenTypeTextShaper.IsDefaultIgnorableCodePoint(codePoint))
                 {
@@ -761,6 +788,60 @@ public class TextLayout
                 paragraphStart,
                 paragraphEnd);
         }
+    }
+
+    private float GetMeasuredLineWidth(
+        IReadOnlyList<ShapedCandidate> candidates,
+        int start,
+        int end)
+    {
+        float width = 0f;
+        float measuredWidth = 0f;
+        for (int index = start; index < end; index++)
+        {
+            ShapedCandidate candidate = candidates[index];
+            width += GetHorizontalAdvance(candidate, width);
+            if (FormattingOptions.MeasureTrailingWhitespace || !candidate.IsWhitespace)
+            {
+                measuredWidth = width;
+            }
+        }
+
+        return measuredWidth;
+    }
+
+    private float GetHorizontalAdvance(ShapedCandidate candidate, float currentPosition)
+    {
+        if (candidate.CodePoint != '\t' || _tabStops.Length == 0)
+        {
+            return candidate.AdvanceX;
+        }
+
+        float stopPosition = FormattingOptions.FirstTabOffset;
+        float repeatInterval = 0f;
+        for (int index = 0; index < _tabStops.Length; index++)
+        {
+            float interval = _tabStops[index];
+            if (!float.IsFinite(interval) || interval <= 0f)
+            {
+                continue;
+            }
+
+            stopPosition += interval;
+            repeatInterval = interval;
+            if (stopPosition > currentPosition + 0.001f)
+            {
+                return stopPosition - currentPosition;
+            }
+        }
+
+        if (repeatInterval > 0f)
+        {
+            float repeats = MathF.Floor((currentPosition - stopPosition) / repeatInterval) + 1f;
+            return stopPosition + Math.Max(1f, repeats) * repeatInterval - currentPosition;
+        }
+
+        return candidate.AdvanceX;
     }
 
     private void AppendShapedRun(

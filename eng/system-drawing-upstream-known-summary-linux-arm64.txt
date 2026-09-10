@@ -1,0 +1,9 @@
+source-files|89
+included-source-files|82
+excluded-source-files|7
+discovered-methods|1753
+excluded-methods|2
+expanded-cases|4453
+passed|3263
+failed|1105
+skipped|85

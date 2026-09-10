@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>annotations</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>System.Drawing.Common.Tests</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <UpstreamWinFormsRoot Condition="'$(UpstreamWinFormsRoot)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\system-drawing-upstream\winforms</UpstreamWinFormsRoot>
+    <UpstreamRuntimeAssetsRoot Condition="'$(UpstreamRuntimeAssetsRoot)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\system-drawing-upstream\runtime-assets</UpstreamRuntimeAssetsRoot>
+    <UpstreamTestsRoot>$(UpstreamWinFormsRoot)\src\System.Drawing.Common\tests</UpstreamTestsRoot>
+    <UpstreamDrawingAssetsRoot>$(UpstreamRuntimeAssetsRoot)\src\System.Drawing.Common.TestData</UpstreamDrawingAssetsRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(UpstreamTestsRoot)\**\*.cs"
+             Exclude="$(UpstreamTestsRoot)\Helpers.cs;
+                      $(UpstreamTestsRoot)\System\Drawing\GdiPlusHandlesTests.cs;
+                      $(UpstreamTestsRoot)\System\Drawing\GraphicsTests.cs;
+                      $(UpstreamTestsRoot)\System\Drawing\FontFamilyTests.cs;
+                      $(UpstreamTestsRoot)\System\Drawing\IconTests.cs;
+                      $(UpstreamTestsRoot)\System\Drawing\ImageTests.cs;
+                      $(UpstreamTestsRoot)\System\Drawing\Imaging\MetafileTests.cs" />
+    <Compile Include="PortableTestInfrastructure.cs" />
+    <Compile Include="$(UpstreamWinFormsRoot)\src\Common\tests\TestUtilities\XUnit\CommonMemberDataAttribute.cs" />
+    <Compile Include="$(UpstreamWinFormsRoot)\src\Common\tests\TestUtilities\XUnit\EnumDataAttribute.cs" />
+    <Compile Include="$(UpstreamWinFormsRoot)\src\Common\tests\TestUtilities\XUnit\ReadOnlyTheoryData.cs" />
+    <Compile Include="$(UpstreamWinFormsRoot)\src\Common\tests\TestUtilities\ComparisonHelpers.cs" />
+    <Compile Include="$(UpstreamWinFormsRoot)\src\Common\tests\TestUtilities\FluentAssertions\FluentAssertExtensions.cs" />
+    <Compile Include="$(UpstreamWinFormsRoot)\src\Common\tests\TestUtilities\FluentAssertions\PointFAssertions.cs" />
+    <Compile Include="$(UpstreamWinFormsRoot)\src\Common\tests\TestUtilities\FluentAssertions\RectangleFAssertions.cs" />
+    <Compile Include="$(UpstreamWinFormsRoot)\src\Common\tests\TestUtilities\ThreadCultureChange.cs" />
+    <Compile Include="$(UpstreamWinFormsRoot)\src\Common\tests\TestUtilities\XUnit\FloatingPointToleranceComparerer.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="AwesomeAssertions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\System.Drawing.Common\System.Drawing.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="$(UpstreamDrawingAssetsRoot)\bitmaps\**\*" Link="bitmaps\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(UpstreamDrawingAssetsRoot)\fonts\**\*" Link="fonts\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(UpstreamDrawingAssetsRoot)\colorProfiles\**\*" Link="colorProfiles\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(UpstreamRuntimeAssetsRoot)\src\System.ComponentModel.TypeConverter.TestData\bitmaps\**\*" Link="bitmaps\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(UpstreamRuntimeAssetsRoot)\src\System.Windows.Extensions.TestData\**\*" Exclude="$(UpstreamRuntimeAssetsRoot)\src\System.Windows.Extensions.TestData\*.csproj" Link="%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+
+    <EmbeddedResource Include="$(UpstreamDrawingAssetsRoot)\bitmaps\48x48_multiple_entries_4bit.ico">
+      <LogicalName>System.Drawing.Tests.48x48_multiple_entries_4bit.ico</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(UpstreamDrawingAssetsRoot)\bitmaps\bitmap_173x183_indexed_8bit.bmp">
+      <LogicalName>System.Drawing.Tests.bitmap_173x183_indexed_8bit.bmp</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(UpstreamDrawingAssetsRoot)\bitmaps\empty.file">
+      <LogicalName>System.Drawing.Tests.empty.file</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(UpstreamDrawingAssetsRoot)\bitmaps\invalid.ico">
+      <LogicalName>System.Drawing.Tests.invalid.ico</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(UpstreamDrawingAssetsRoot)\bitmaps\256x256_one_entry_32bit.ico">
+      <LogicalName>System.Drawing.Tests.Icon_toolboxBitmapAttributeTest</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+</Project>
