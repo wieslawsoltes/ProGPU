@@ -11,6 +11,13 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Retained native inline snapshots map source UTF-16 U+FFFC positions to scalar
+indices once and retain source-ordered placements with glyph/line identity.
+Keep native measured interaction and real cluster ends, including tabs, surrogate
+pairs and hard breaks. Do not borrow mutable caller object arrays or expose
+object sentinels as drawable font glyphs. Measured collapse requires sign metrics
+and remains rejected; neutral/source adapters are still separate admission work.
+
 Measured inline paragraph interaction uses the explicit measured C API over the
 original positioned output. Derive tops from the same double line-height prefix,
 including empty lines; keep baseline validation and zero heights authoritative.

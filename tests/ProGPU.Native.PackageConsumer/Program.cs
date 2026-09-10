@@ -449,6 +449,53 @@ static void ValidateNativeInlineParagraph()
     try { context.GetInlineFlowParagraphRequirements(input, options, styles, flow, [], objects, out _); }
     catch (ArgumentException) { rejected = true; }
     if (!rejected) throw new InvalidOperationException("Inline metric span capacity was not checked before native access.");
+    var snapshot = NativeTextParagraphSnapshot.CreateWithInlineObjects(context, "A\ufffcB",
+        NativeTextDirection.LeftToRight, options, [new(0, 3, 0, options.Scale)], metrics,
+        [new(1, 30.25f, 35, 7)], measureIntrinsicWidths: true);
+    if (!snapshot.HasMeasuredLines || snapshot.InlineObjects.Length != 1 ||
+        snapshot.InlineObjects.Span[0] != new NativeTextInlineObjectPlacement(1, 1, 1, 0, 20, 30.25f, 42) ||
+        snapshot.Boxes.Span[1].Y != 20 || snapshot.ClusterEnds.Span[1] != 2 || snapshot.IntrinsicWidths == null)
+        throw new InvalidOperationException("Retained native inline placement or measured interaction failed.");
+    rejected = false;
+    try { NativeTextParagraphSnapshot.CreateCollapsed(context, "A\ufffcB", NativeTextDirection.LeftToRight,
+        options, snapshot, new(0, 10, 2, NativeTextTrimming.CharacterEllipsis)); }
+    catch (NotSupportedException) { rejected = true; }
+    if (!rejected) throw new InvalidOperationException("Measured collapse lost its required sign-metric admission.");
+    const string mixedText = "\U0001f642A\ufffc\tB\ufffc";
+    NativeTextParagraphInlineObject[] sourceObjects = [new(3, 30.25f, 35, 7), new(6, 0, 5, 2)];
+    NativeTextParagraphSnapshot? lastMixed = null;
+    foreach (var direction in new[] { NativeTextDirection.LeftToRight, NativeTextDirection.RightToLeft })
+    {
+        var mixed = NativeTextParagraphSnapshot.CreateWithInlineObjects(context, mixedText, direction,
+            options, [new(0, mixedText.Length, 0, options.Scale)], metrics, sourceObjects, incrementalTab: 24);
+        lastMixed = mixed;
+        if (mixed.InlineObjects.Length != 2 || mixed.Glyphs.IsEmpty)
+            throw new InvalidOperationException("Mixed native object snapshot is incomplete.");
+        for (int index = 0; index < sourceObjects.Length; ++index)
+        {
+            var placement = mixed.InlineObjects.Span[index];
+            var source = sourceObjects[index];
+            var line = mixed.Lines.Span[placement.LineIndex];
+            var glyph = mixed.Glyphs.Span[placement.GlyphIndex];
+            if (placement.InputPosition != source.Position || glyph.Cluster != source.Position ||
+                glyph.GlyphId != NativeTextParagraphSnapshot.InlineObjectGlyphId || glyph.FontIndex != uint.MaxValue ||
+                placement.Y != line.BaselineY - source.Ascent || placement.Height != source.Ascent + source.Descent ||
+                placement.Width != source.Width || mixed.ClusterEnds.Span[placement.GlyphIndex] != source.Position + 1)
+                throw new InvalidOperationException("Mixed native inline source identity/placement changed.");
+        }
+    }
+    sourceObjects[0] = new(3, 999, 999, 999);
+    if (lastMixed!.InlineObjects.Span[0].Width != 30.25f)
+        throw new InvalidOperationException("Snapshot borrowed caller object storage.");
+    foreach (string hardText in new[] { "A\ufffc\nB", "A\ufffc\r\nB" })
+    {
+        var hard = NativeTextParagraphSnapshot.CreateWithInlineObjects(context, hardText,
+            NativeTextDirection.LeftToRight, options with { MaximumWidth = 1000 },
+            [new(0, hardText.Length, 0, options.Scale)], metrics, [new(1, 30.25f, 35, 7)]);
+        int objectGlyph = hard.InlineObjects.Span[0].GlyphIndex;
+        if (hard.ClusterEnds.Span[objectGlyph] != 2 || hard.Lines.Span[0].InputEnd != hardText.Length - 1)
+            throw new InvalidOperationException($"Inline hard-break ownership failed: object end {hard.ClusterEnds.Span[objectGlyph]}, line end {hard.Lines.Span[0].InputEnd}.");
+    }
     Console.WriteLine("package-consumer: native inline paragraph metrics, identity, wrapping and span validation passed");
 }
 

@@ -14,6 +14,10 @@ namespace ProGPU.Backend.Native;
 public sealed class NativeTextParagraphSnapshot
 {
     public const uint TabGlyphId = uint.MaxValue;
+    public const uint InlineObjectGlyphId = uint.MaxValue - 1;
+    public bool HasMeasuredLines { get; }
+    /// <summary>Source-ordered non-ink object placements; array index is the caller's object index.</summary>
+    public ReadOnlyMemory<NativeTextInlineObjectPlacement> InlineObjects { get; }
     public ReadOnlyMemory<NativePositionedTextGlyph> Glyphs { get; }
     public ReadOnlyMemory<NativePositionedTextLine> Lines { get; }
     public ReadOnlyMemory<int> ClusterEnds { get; }
@@ -26,12 +30,15 @@ public sealed class NativeTextParagraphSnapshot
     private NativeTextParagraphSnapshot(NativePositionedTextGlyph[] glyphs,
         NativePositionedTextLine[] lines, int[] ends, sbyte[] levels,
         ReadOnlyMemory<NativeTextClusterBox> boxes, ReadOnlyMemory<NativeTextCaretStop> carets,
-        NativeTextIntrinsicWidths? intrinsicWidths = null, NativeTextCollapsedRange? collapsedRange = null)
+        NativeTextIntrinsicWidths? intrinsicWidths = null, NativeTextCollapsedRange? collapsedRange = null,
+        bool measuredLines = false, NativeTextInlineObjectPlacement[]? inlineObjects = null)
     {
         Glyphs = glyphs; Lines = lines; ClusterEnds = ends; BidiLevels = levels;
         Boxes = boxes; Carets = carets;
         IntrinsicWidths = intrinsicWidths;
         CollapsedRange = collapsedRange;
+        HasMeasuredLines = measuredLines;
+        InlineObjects = inlineObjects ?? [];
     }
 
     public static NativeTextParagraphSnapshot Create(NativeTextShapingContext context,
@@ -42,6 +49,21 @@ public sealed class NativeTextParagraphSnapshot
         NativeTextWrapping wrapping = NativeTextWrapping.Emergency)
         => CreateCore(context, text, direction, in options, features, styles, incrementalTab, tabOrigin,
             measureIntrinsicWidths, wrapping, null, null);
+
+    /// <summary>
+    /// Measures explicit UTF-16 U+FFFC objects with source-owned style metrics.
+    /// Native shaping, line placement and interaction share one retained result.
+    /// Objects and style ranges must be ordered and cover their actual source input.
+    /// </summary>
+    public static NativeTextParagraphSnapshot CreateWithInlineObjects(NativeTextShapingContext context,
+        ReadOnlySpan<char> text, NativeTextDirection direction, in NativeTextParagraphOptions options,
+        ReadOnlySpan<NativeTextParagraphStyle> styles, ReadOnlySpan<NativeTextStyleMetrics> styleMetrics,
+        ReadOnlySpan<NativeTextParagraphInlineObject> inlineObjects,
+        ReadOnlySpan<NativeTextFeature> features = default,
+        float incrementalTab = 0, float tabOrigin = 0, bool measureIntrinsicWidths = false,
+        NativeTextWrapping wrapping = NativeTextWrapping.Emergency)
+        => CreateCore(context, text, direction, in options, features, styles, incrementalTab, tabOrigin,
+            measureIntrinsicWidths, wrapping, null, null, true, styleMetrics, inlineObjects);
 
     /// <summary>
     /// Reuses the native paragraph composer with the original text/font/style domain.
@@ -55,6 +77,8 @@ public sealed class NativeTextParagraphSnapshot
         float incrementalTab = 0, float tabOrigin = 0, NativeTextWrapping wrapping = NativeTextWrapping.Emergency)
     {
         ArgumentNullException.ThrowIfNull(original);
+        if (original.HasMeasuredLines)
+            throw new NotSupportedException("Measured paragraph collapse requires an explicit sign-metric contract.");
         if (text.IsEmpty || original.CollapsedRange != null || (uint)collapse.LineIndex >= original.Lines.Length ||
             !float.IsFinite(collapse.Width) || collapse.Width < 0 ||
             !float.IsFinite(collapse.SymbolWidth) || collapse.SymbolWidth < 0 ||
@@ -71,9 +95,13 @@ public sealed class NativeTextParagraphSnapshot
         ReadOnlySpan<char> text, NativeTextDirection direction, in NativeTextParagraphOptions options,
         ReadOnlySpan<NativeTextFeature> features, ReadOnlySpan<NativeTextParagraphStyle> styles,
         float incrementalTab, float tabOrigin, bool measureIntrinsicWidths, NativeTextWrapping wrapping,
-        NativeTextParagraphSnapshot? original, NativeTextCollapseRequest? collapse)
+        NativeTextParagraphSnapshot? original, NativeTextCollapseRequest? collapse,
+        bool measuredLines = false, ReadOnlySpan<NativeTextStyleMetrics> styleMetrics = default,
+        ReadOnlySpan<NativeTextParagraphInlineObject> inlineObjects = default)
     {
         ArgumentNullException.ThrowIfNull(context);
+        if (measuredLines && (styleMetrics.Length != styles.Length || (!text.IsEmpty && styles.IsEmpty)))
+            throw new ArgumentException("Measured paragraphs require explicit styles and one metric per style.");
         if (wrapping is not NativeTextWrapping.Emergency and not NativeTextWrapping.WholeWord)
             throw new ArgumentOutOfRangeException(nameof(wrapping));
         if (!float.IsFinite(incrementalTab) || incrementalTab < 0 || !float.IsFinite(tabOrigin))
@@ -83,18 +111,25 @@ public sealed class NativeTextParagraphSnapshot
             throw new ArgumentException("Editor snapshots require an untruncated paragraph within the input budget.");
         if (text.IsEmpty)
         {
-            if (!styles.IsEmpty) throw new ArgumentException("An empty paragraph cannot contain nonempty style ranges.");
+            if (!styles.IsEmpty || !inlineObjects.IsEmpty)
+                throw new ArgumentException("An empty paragraph cannot contain style ranges or inline objects.");
+            if (measuredLines && (!float.IsFinite(options.LineHeight) || options.LineHeight < 0))
+                throw new ArgumentException("Measured line height must be finite and nonnegative.");
             return new([], [new NativePositionedTextLine { Height = options.LineHeight }], [], [],
                 ReadOnlyMemory<NativeTextClusterBox>.Empty, ReadOnlyMemory<NativeTextCaretStop>.Empty,
-                measureIntrinsicWidths ? new NativeTextIntrinsicWidths { StructSize = (uint)Unsafe.SizeOf<NativeTextIntrinsicWidths>() } : null);
+                measureIntrinsicWidths ? new NativeTextIntrinsicWidths { StructSize = (uint)Unsafe.SizeOf<NativeTextIntrinsicWidths>() } : null,
+                measuredLines: measuredLines);
         }
         var scalars = new NativeTextScalar[text.Length];
         int count = DecodeUtf16(text, scalars);
         var nativeStyles = MapStyles(styles, scalars.AsSpan(0, count), text.Length);
+        var nativeObjects = measuredLines ? MapInlineObjects(inlineObjects, scalars.AsSpan(0, count)) : [];
         var input = new NativeTextShapeInput(default, scalars.AsSpan(0, count), direction: direction, features: features);
         var flow = new NativeTextFlowOptions { IncrementalTab = incrementalTab, TabOrigin = tabOrigin };
         NativeTextParagraphRequirements required;
-        Check(incrementalTab > 0 ? context.GetFlowParagraphRequirements(in input, in options, nativeStyles, in flow, out required) :
+        Check(measuredLines ? context.GetInlineFlowParagraphRequirements(in input, in options, nativeStyles, in flow,
+            styleMetrics, nativeObjects, out required) :
+            incrementalTab > 0 ? context.GetFlowParagraphRequirements(in input, in options, nativeStyles, in flow, out required) :
             context.GetStyledParagraphRequirements(in input, in options, nativeStyles, out required));
         var glyphBuffer = new NativePositionedTextGlyph[checked((int)required.GlyphCapacity)];
         var lineBuffer = new NativePositionedTextLine[checked((int)required.LineCapacity)];
@@ -103,7 +138,14 @@ public sealed class NativeTextParagraphSnapshot
         NativeTextIntrinsicWidths? intrinsicWidths = null;
         try
         {
-            if (collapse is { } collapsed)
+            if (measuredLines)
+            {
+                Check(context.LayoutInlineFlowParagraph(in input, in options, nativeStyles, in flow, styleMetrics,
+                    nativeObjects, glyphBuffer, lineBuffer, scratch, wrapping, measureIntrinsicWidths,
+                    out result, out var widths));
+                if (measureIntrinsicWidths) intrinsicWidths = widths;
+            }
+            else if (collapse is { } collapsed)
                 Check(context.LayoutCollapsedFlowParagraph(in input, in options, nativeStyles, in flow,
                     glyphBuffer, lineBuffer, scratch, wrapping, collapsed.Width, out result));
             else if (measureIntrinsicWidths || wrapping != NativeTextWrapping.Emergency)
@@ -167,13 +209,73 @@ public sealed class NativeTextParagraphSnapshot
             line.InputEnd = end;
         }
         var interaction = new NativeTextInteractionInput(glyphBuffer, lineBuffer, ends, levels);
-        Check(NativeTextInteractionInterop.GetRequirements(in interaction, out var interactionRequired));
+        NativeTextInteractionRequirements interactionRequired;
+        Check(measuredLines ? NativeTextInteractionInterop.GetMeasuredRequirements(in interaction, out interactionRequired) :
+            NativeTextInteractionInterop.GetRequirements(in interaction, out interactionRequired));
         var boxes = new NativeTextClusterBox[checked((int)interactionRequired.ClusterBoxCapacity)];
         var carets = new NativeTextCaretStop[checked((int)interactionRequired.CaretStopCapacity)];
-        Check(NativeTextInteractionInterop.Build(in interaction, boxes, carets, out var interactionResult));
+        NativeTextInteractionResult interactionResult;
+        Check(measuredLines ? NativeTextInteractionInterop.BuildMeasured(in interaction, boxes, carets, out interactionResult) :
+            NativeTextInteractionInterop.Build(in interaction, boxes, carets, out interactionResult));
         return new(glyphBuffer, lineBuffer, ends, levels,
             boxes.AsMemory(0, checked((int)interactionResult.ClusterBoxCount)),
-            carets.AsMemory(0, checked((int)interactionResult.CaretStopCount)), intrinsicWidths);
+            carets.AsMemory(0, checked((int)interactionResult.CaretStopCount)), intrinsicWidths,
+            measuredLines: measuredLines, inlineObjects: measuredLines
+                ? BuildInlinePlacements(inlineObjects, glyphBuffer, lineBuffer) : null);
+    }
+
+    internal static NativeTextInlineObject[] MapInlineObjects(ReadOnlySpan<NativeTextParagraphInlineObject> objects,
+        ReadOnlySpan<NativeTextScalar> scalars)
+    {
+        if (objects.Length > scalars.Length)
+            throw new ArgumentException("Inline object count exceeds the source scalar count.");
+        var result = objects.IsEmpty ? [] : new NativeTextInlineObject[objects.Length];
+        int index = 0;
+        for (int scalar = 0; scalar < scalars.Length; ++scalar)
+        {
+            if (scalars[scalar].CodePoint != 0xfffc) continue;
+            if (index == objects.Length || objects[index].Position != scalars[scalar].InputIndex)
+                throw new ArgumentException("Inline objects must cover every U+FFFC in UTF-16 source order.");
+            var value = objects[index];
+            result[index++] = new NativeTextInlineObject { ScalarIndex = (uint)scalar,
+                Width = value.Width, Ascent = value.Ascent, Descent = value.Descent };
+        }
+        if (index != objects.Length)
+            throw new ArgumentException("Inline objects must identify unique actual U+FFFC scalars.");
+        return result;
+    }
+
+    private static NativeTextInlineObjectPlacement[] BuildInlinePlacements(
+        ReadOnlySpan<NativeTextParagraphInlineObject> objects,
+        ReadOnlySpan<NativePositionedTextGlyph> glyphs, ReadOnlySpan<NativePositionedTextLine> lines)
+    {
+        if (objects.IsEmpty) return [];
+        var result = new NativeTextInlineObjectPlacement[objects.Length];
+        Array.Fill(result, new NativeTextInlineObjectPlacement(-1, -1, -1, 0, 0, 0, 0));
+        int found = 0;
+        for (int line = 0; line < lines.Length; ++line)
+        {
+            var info = lines[line];
+            int end = checked((int)(info.GlyphStart + info.GlyphCount));
+            for (int glyphIndex = checked((int)info.GlyphStart); glyphIndex < end; ++glyphIndex)
+            {
+                var glyph = glyphs[glyphIndex];
+                if (glyph.GlyphId != InlineObjectGlyphId) continue;
+                int lo = 0, hi = objects.Length;
+                while (lo < hi) { int mid = lo + (hi - lo) / 2;
+                    if (objects[mid].Position < glyph.Cluster) lo = mid + 1; else hi = mid; }
+                if (lo == objects.Length || objects[lo].Position != glyph.Cluster ||
+                    result[lo].InputPosition != -1 || glyph.FontIndex != uint.MaxValue ||
+                    glyph.AdvanceX != objects[lo].Width)
+                    throw new InvalidOperationException("Native inline object identity or metrics changed.");
+                var source = objects[lo];
+                result[lo] = new(source.Position, glyphIndex, line, glyph.X,
+                    info.BaselineY - source.Ascent, source.Width, source.Ascent + source.Descent);
+                ++found;
+            }
+        }
+        if (found != objects.Length) throw new InvalidOperationException("Native inline object output is incomplete.");
+        return result;
     }
 
     private static NativeTextParagraphSnapshot BuildCollapsed(NativeTextParagraphSnapshot original,
@@ -316,6 +418,13 @@ public sealed class NativeTextParagraphSnapshot
 /// <summary>Explicit face/feature domain over UTF-16 input; ranges must partition the paragraph.</summary>
 public readonly record struct NativeTextParagraphStyle(int Start, int Length, uint FontIndex,
     float Scale, uint FeatureStart = 0, uint FeatureCount = 0, uint Language = 0);
+
+/// <summary>One measured non-ink U+FFFC at a UTF-16 position, not a native scalar index.</summary>
+public readonly record struct NativeTextParagraphInlineObject(int Position, float Width, float Ascent, float Descent);
+
+/// <summary>Owned non-ink placement in paragraph coordinates, paired with its original source/glyph/line.</summary>
+public readonly record struct NativeTextInlineObjectPlacement(int InputPosition, int GlyphIndex, int LineIndex,
+    float X, float Y, float Width, float Height);
 
 public readonly record struct NativeTextCollapseRequest(int LineIndex, float Width, float SymbolWidth, NativeTextTrimming Trimming);
 public readonly record struct NativeTextCollapsedRange(int LineIndex, int Start, int End, int SymbolGlyphIndex);

@@ -7,6 +7,38 @@ namespace Avalonia.ProGpu.UnitTests;
 public sealed class NativeTextParagraphSnapshotTests
 {
     [Fact]
+    public void InlineObjectsMapUtf16PositionsToActualScalarIndices()
+    {
+        const string text = "\U0001f642\ufffcA\ufffc";
+        var scalars = new NativeTextScalar[text.Length];
+        int count = NativeTextParagraphSnapshot.DecodeUtf16(text, scalars);
+        var mapped = NativeTextParagraphSnapshot.MapInlineObjects(
+            [new(2, 30.25f, 35, 7), new(4, 0, 5, 2)], scalars.AsSpan(0, count));
+        Assert.Equal(2, mapped.Length);
+        Assert.Equal(1U, mapped[0].ScalarIndex);
+        Assert.Equal(3U, mapped[1].ScalarIndex);
+        Assert.Equal(30.25f, mapped[0].Width);
+        Assert.Equal(35, mapped[0].Ascent);
+        Assert.Equal(7, mapped[0].Descent);
+        Assert.Equal(0, mapped[1].Width);
+    }
+
+    [Fact]
+    public void InlineObjectsRejectMissingDuplicateUnorderedAndNonObjectPositions()
+    {
+        const string text = "\U0001f642\ufffcA\ufffc";
+        var scalars = new NativeTextScalar[text.Length];
+        int count = NativeTextParagraphSnapshot.DecodeUtf16(text, scalars);
+        foreach (var positions in new int[][] { [], [2], [2, 2], [4, 2], [1, 4], [2, 3], [2, 4, 5] })
+        {
+            var objects = positions.Select(static p => new NativeTextParagraphInlineObject(p, 1, 1, 1)).ToArray();
+            Assert.Throws<ArgumentException>(() =>
+                NativeTextParagraphSnapshot.MapInlineObjects(objects, scalars.AsSpan(0, count)));
+        }
+        Assert.Empty(NativeTextParagraphSnapshot.MapInlineObjects([], []));
+    }
+
+    [Fact]
     public void StyledUtf16RangesPreserveScalarBoundariesAndFaceMetadata()
     {
         const string text = "a\U0001f642bc";
