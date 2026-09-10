@@ -71,17 +71,21 @@ All six native RID builds completed at the baseline source. They are build-only,
 unqualified artifacts, not payloads for subsequent fixes. Windows managed payload
 CI passed at LibreWPF `bc6c30a89`; that exact artifact was downloaded.
 
-Managed baseline: 4,533 pass / 18 fail / 7 skipped. After initial fixes, focused
-coverage: 676 pass / 6 fail; dash contract updates subsequently pass, leaving
-four cached-stroke pixel failures (the cached stroke currently paints nothing).
-The full suite must rerun after the final fixes.
+The full managed run at `bd4b7313` reports 4,540 passed / 5 failed / 7 skipped
+(4,552 total). Four failures are cached-stroke coverage/alpha comparisons, now
+painting but still different from ordinary strokes. The fifth is a stale source
+assertion for the native fixture's old four-submission count; it is updated to
+the five submissions already checked by the executed native fixture. No pixel
+tolerance is relaxed. The GCC diagnostic test table now declares its function
+pointer element type explicitly instead of relying on library-specific deduction.
+These last test fixes require their own current-head CI result.
 
-Native failures remain in geometry combination, short round-join bounds,
-Direct2D submission expectations, MIL/input-index coverage and later internal
-fixtures. Initial 3D material and text failures are corrected, but later failures
-in the same executables still block CI. Source-built host qualification advances
-through image and text collapse checks but currently stops at hyperlink underline
-coverage. The host's first-frame/input/device-recovery gate has not passed.
+The full macOS ARM64 native run at `bd4b7313` reports 16 passed / 3 failed
+(19 total). Remaining failures are Direct2D WebGPU Viewport3D sibling/depth
+pixels, compatibility Widen checkpoint 344, and MIL ellipse input compilation
+(initial phase 0, status 5). Geometry utility, native internal and both text
+suites pass. The separate source-built host first-frame/input/device-recovery
+gate passed as recorded above; this is not package or cross-platform qualification.
 
 Other required checks: Svg.Skia zero-length dash parity must rerun; CAD browser
 capture timed out in baseline CI. Neither is waived. Complete package-mode MVP,

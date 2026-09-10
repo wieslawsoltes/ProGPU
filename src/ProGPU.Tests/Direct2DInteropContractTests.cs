@@ -74,7 +74,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("CreateLinearGradientBrush(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("CreateRadialGradientBrush(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("pixel(46U, 14U)", nativeTest, StringComparison.Ordinal);
-        Assert.Contains("std::uint64_t expected_submissions = 4U", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("std::uint64_t expected_submissions = 5U", nativeTest, StringComparison.Ordinal);
         Assert.Contains("frame_metrics.submission_count == expected_submissions", nativeTest, StringComparison.Ordinal);
         Assert.Contains("verify_stroke_transforms(gpu, engine, scene)", nativeTest, StringComparison.Ordinal);
         Assert.Contains("progpu_native_engine* engine = create_engine(gpu)", nativeTest, StringComparison.Ordinal);

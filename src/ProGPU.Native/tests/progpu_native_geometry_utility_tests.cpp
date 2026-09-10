@@ -458,17 +458,17 @@ bool dash_validation_matches_scalar_oracle()
 
 int main()
 {
-    const std::array tests{
-        std::pair{"filled_relations", filled_relations_preserve_topology_and_shared_com_results},
-        std::pair{"modes_and_boundaries", modes_and_actual_boundaries},
-        std::pair{"curved_result", curved_result_matches_shared_core},
-        std::pair{"empty_ownership", failures_and_empty_ownership},
-        std::pair{"fill_queries", fill_queries_match_scalar_and_reject_bad_inputs},
-        std::pair{"stroke_queries", stroke_queries_preserve_caps_gaps_dashes_and_world_order},
-        std::pair{"stroke_transport", stroke_queries_reject_incomplete_transport},
-        std::pair{"point_strokes", point_strokes_match_independent_cap_oracle},
-        std::pair{"constant_edges", constant_edges_preserve_endpoint_and_join_eligibility},
-        std::pair{"dash_validation", dash_validation_matches_scalar_oracle}};
+    const std::array<std::pair<const char*, bool (*)()>, 10> tests{{
+        {"filled_relations", filled_relations_preserve_topology_and_shared_com_results},
+        {"modes_and_boundaries", modes_and_actual_boundaries},
+        {"curved_result", curved_result_matches_shared_core},
+        {"empty_ownership", failures_and_empty_ownership},
+        {"fill_queries", fill_queries_match_scalar_and_reject_bad_inputs},
+        {"stroke_queries", stroke_queries_preserve_caps_gaps_dashes_and_world_order},
+        {"stroke_transport", stroke_queries_reject_incomplete_transport},
+        {"point_strokes", point_strokes_match_independent_cap_oracle},
+        {"constant_edges", constant_edges_preserve_endpoint_and_join_eligibility},
+        {"dash_validation", dash_validation_matches_scalar_oracle}}};
     bool passed = true;
     for (const auto& [name, test] : tests) {
         if (!test()) {
