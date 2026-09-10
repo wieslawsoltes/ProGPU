@@ -445,6 +445,25 @@ static void ValidateNativeInlineParagraph()
     if (NativeTextInteractionInterop.HitTest(boxes, 10, 21, out var objectHit) != NativeRendererStatus.Success ||
         objectHit.Inside != 1 || objectHit.LineIndex != 1 || objectHit.InputPosition != 1)
         throw new InvalidOperationException("Packaged inline object hit ownership failed.");
+    var fragmentGlyphs = glyphs.AsSpan(0, 3).ToArray();
+    var fragmentLines = lines.AsSpan(0, 3).ToArray();
+    for (int i = 0; i < 3; ++i) { fragmentGlyphs[i].Y += 20; fragmentLines[i].BaselineY += 20; }
+    NativeTextFragmentPlacement[] fragments =
+    [
+        new() { Top = 20, RowIndex = 0, Width = 31 },
+        new() { Top = 40, RowIndex = 1, Width = 31 },
+        new() { Top = 82, RowIndex = 2, Width = 31 },
+    ];
+    var fragmentInput = new NativeTextInteractionInput(fragmentGlyphs, fragmentLines, [1, 2, 3], [0, 0, 0]);
+    if (Marshal.SizeOf<NativeTextFragmentPlacement>() != 24 ||
+        NativeTextInteractionInterop.BuildFragments(fragmentInput, fragments, boxes, carets, out var fragmentResult) != NativeRendererStatus.Success ||
+        fragmentResult.ClusterBoxCount != 3 || boxes[0].Y != 20 || boxes[1].Y != 40 || boxes[2].Y != 82)
+        throw new InvalidOperationException("Packaged fragment interaction lost explicit placement.");
+    fragments[0].Reserved = 1;
+    boxes[0].X = 123;
+    if (NativeTextInteractionInterop.BuildFragments(fragmentInput, fragments, boxes, carets, out fragmentResult) != NativeRendererStatus.InvalidArgument ||
+        fragmentResult.ClusterBoxCount != 0 || boxes[0].X != 123)
+        throw new InvalidOperationException("Packaged fragment interaction published rejected metadata.");
     bool rejected = false;
     try { context.GetInlineFlowParagraphRequirements(input, options, styles, flow, [], objects, out _); }
     catch (ArgumentException) { rejected = true; }

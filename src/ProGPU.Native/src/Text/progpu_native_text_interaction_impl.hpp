@@ -34,14 +34,14 @@ bool finite_line(const Line& line) noexcept {
         line.height >= 0.0F && std::isfinite(line.baseline_y + line.height);
 }
 
-template<class Glyph, class Line>
+template<class Glyph, class Line, class Fragment = text_fragment_placement>
 bool validate_inputs(
     std::span<const Glyph> glyphs,
     std::span<const Line> lines,
     std::span<const std::int32_t> cluster_ends,
     std::span<const std::int8_t> bidi_levels,
     bool measured_lines = false,
-    std::span<const text_fragment_placement> fragments = {}) noexcept {
+    std::span<const Fragment> fragments = {}) noexcept {
     if (cluster_ends.size() != glyphs.size() ||
         bidi_levels.size() != glyphs.size() || (!fragments.empty() && fragments.size() != lines.size())) {
         return false;
@@ -117,7 +117,7 @@ std::uint32_t count_clusters(
 
 } // namespace
 
-template<class Glyph, class Line>
+template<class Glyph, class Line, class Fragment = text_fragment_placement>
 bool get_requirements(
     std::span<const Glyph> glyphs,
     std::span<const Line> lines,
@@ -126,7 +126,7 @@ bool get_requirements(
     text_interaction_requirements& result,
     font_error* error,
     bool measured_lines = false,
-    std::span<const text_fragment_placement> fragments = {}) noexcept {
+    std::span<const Fragment> fragments = {}) noexcept {
     result = {};
     if (!validate_inputs(glyphs, lines, cluster_ends, bidi_levels, measured_lines, fragments)) {
         set_error(error, font_error::invalid_argument);
@@ -142,7 +142,7 @@ bool get_requirements(
     return true;
 }
 
-template<class Glyph, class Line, class Box, class Caret>
+template<class Glyph, class Line, class Box, class Caret, class Fragment = text_fragment_placement>
 bool build(
     std::span<const Glyph> glyphs,
     std::span<const Line> lines,
@@ -154,7 +154,7 @@ bool build(
     std::uint32_t& caret_stop_count,
     font_error* error,
     bool measured_lines = false,
-    std::span<const text_fragment_placement> fragments = {}) noexcept {
+    std::span<const Fragment> fragments = {}) noexcept {
     cluster_box_count = 0U;
     caret_stop_count = 0U;
     text_interaction_requirements requirements{};

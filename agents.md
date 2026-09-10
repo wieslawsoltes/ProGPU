@@ -49,6 +49,12 @@ clearance gaps while keeping the requested measured width separate. Row tops
 retain the double layout prefix; baseline/caret comparisons use its published
 float frame. Do not widen tolerances to hide rounded adjacency failures. This
 native metadata is not C ABI or source Figure/Floater admission by itself.
+Fragment interaction transport uses the generated 24-byte C placement record,
+not a cast to the C++ layout. Borrow one placement per line in a single native
+build, validate reserved fields and original request ABI before output, and keep
+row/top metadata in the owning snapshot generation. Legacy measured interaction
+continues using ordinary line prefixes. This interaction seam alone does not
+publish excluded-paragraph shaping output or admit source anchors.
 
 Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
 not optional fields that a text-only provider can silently ignore. Source metrics

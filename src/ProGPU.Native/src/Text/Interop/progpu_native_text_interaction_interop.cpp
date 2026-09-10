@@ -102,6 +102,35 @@ progpu_native_status progpu_native_text_interaction_build_measured(
     return interaction_build_core(request, boxes, box_capacity, carets, caret_capacity, result, true);
 }
 
+progpu_native_status progpu_native_text_interaction_build_fragments(
+    const progpu_native_text_interaction_request* request,
+    const progpu_native_text_fragment_placement* fragments, std::uint32_t fragment_count,
+    progpu_native_text_cluster_box* boxes, std::uint32_t box_capacity,
+    progpu_native_text_caret_stop* carets, std::uint32_t caret_capacity,
+    progpu_native_text_interaction_result* result) {
+    if (result == nullptr || result->struct_size != sizeof(*result))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    *result = {};
+    result->struct_size = sizeof(*result);
+    result->error_code = static_cast<std::uint32_t>(font_error::invalid_argument);
+    if (!request_valid(request) || fragment_count != request->line_count ||
+        !buffer(fragments, fragment_count) || !buffer(boxes, box_capacity) || !buffer(carets, caret_capacity))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    const auto placements = std::span(fragments, fragment_count);
+    for (const auto& fragment : placements)
+        if (fragment.reserved != 0U || fragment.left < 0 || fragment.top < 0)
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    font_error error{};
+    const bool success = algorithms::build(
+        std::span(request->glyphs, request->glyph_count), std::span(request->lines, request->line_count),
+        std::span(request->cluster_ends, request->cluster_end_count),
+        std::span(request->bidi_levels, request->bidi_level_count),
+        std::span(boxes, box_capacity), std::span(carets, caret_capacity),
+        result->cluster_box_count, result->caret_stop_count, &error, true, placements);
+    result->error_code = static_cast<std::uint32_t>(error);
+    return status(success);
+}
+
 progpu_native_status progpu_native_text_interaction_hit_test(
     const progpu_native_text_cluster_box* boxes, std::uint32_t count, float x, float y,
     progpu_native_text_hit_test_result* result) {

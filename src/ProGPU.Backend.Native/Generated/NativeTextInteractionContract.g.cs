@@ -7,6 +7,17 @@ using System.Numerics;
 
 namespace ProGPU.Backend.Native;
 
+// Native source: progpu_native_text_fragment_placement.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextFragmentPlacement
+{
+    public double Top;
+    public uint RowIndex;
+    public float Left;
+    public float Width;
+    public uint Reserved;
+}
+
 // Native source: progpu_native_text_cluster_box.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeTextClusterBox

@@ -10,6 +10,52 @@ void require(bool condition) { if (!condition) std::abort(); }
 constexpr auto success = PROGPU_NATIVE_STATUS_SUCCESS;
 constexpr auto invalid = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
 
+void fragment_interaction() {
+    static_assert(sizeof(progpu_native_text_fragment_placement) == 24);
+    static_assert(offsetof(progpu_native_text_fragment_placement, row_index) == 8);
+    static_assert(offsetof(progpu_native_text_fragment_placement, reserved) == 20);
+    std::array<progpu_native_positioned_text_glyph, 3> glyphs{{
+        {0, 10, 0, 0, 0, 28, 8, 0}, {1, 11, 0, 1, 65, 28, 9, 0},
+        {2, 12, 0, 2, 0, 58, 10, 0}}};
+    std::array<progpu_native_positioned_text_line, 3> lines{{
+        {0, 1, 0, 1, 8, 28, 10, 0, 0, 0, 0},
+        {1, 1, 1, 2, 9, 28, 10, 0, 0, 0, 0},
+        {2, 1, 2, 3, 10, 58, 10, 0, 0, 0, 0}}};
+    std::array<progpu_native_text_fragment_placement, 3> fragments{{
+        {20, 0, 0, 35, 0}, {20, 0, 65, 35, 0}, {50, 1, 0, 100, 0}}};
+    std::array<std::int32_t, 3> ends{1, 2, 3};
+    std::array<std::int8_t, 3> levels{};
+    progpu_native_text_interaction_request request{sizeof(request), PROGPU_NATIVE_ABI_VERSION,
+        glyphs.data(), 3, lines.data(), 3, ends.data(), 3, levels.data(), 3};
+    std::array<progpu_native_text_cluster_box, 3> boxes{};
+    std::array<progpu_native_text_caret_stop, 6> carets{};
+    progpu_native_text_interaction_result result{}; result.struct_size = sizeof(result);
+    const auto build = [&](std::uint32_t count = 3, std::uint32_t capacity = 3) {
+        return progpu_native_text_interaction_build_fragments(&request, fragments.data(), count,
+            boxes.data(), capacity, carets.data(), 6, &result);
+    };
+    require(build() == success && result.cluster_box_count == 3 && result.caret_stop_count == 6);
+    require(boxes[0].y == 20 && boxes[1].y == 20 && boxes[1].x == 65 && boxes[2].y == 50);
+    progpu_native_text_hit_test_result hit{};
+    require(progpu_native_text_interaction_hit_test(boxes.data(), 3, 50, 25, &hit) == success && !hit.inside);
+    boxes[0].x = 123;
+    require(build(2) == invalid && result.cluster_box_count == 0 && boxes[0].x == 123);
+    require(build(3, 2) == invalid && result.cluster_box_count == 0 && boxes[0].x == 123);
+    fragments[1].reserved = 1;
+    require(build() == invalid && boxes[0].x == 123);
+    fragments[1].reserved = 0;
+    fragments[1].top = std::numeric_limits<double>::quiet_NaN();
+    require(build() == invalid && boxes[0].x == 123);
+    fragments[1].top = 21;
+    require(build() == invalid && boxes[0].x == 123);
+    fragments[1].top = 20;
+    ++request.abi_version;
+    require(build() == invalid && boxes[0].x == 123);
+    --request.abi_version;
+    request.glyph_count = request.line_count = request.cluster_end_count = request.bidi_level_count = 0;
+    require(build(0) == success && result.cluster_box_count == 0 && result.caret_stop_count == 0);
+}
+
 void measured_interaction() {
     std::array<progpu_native_positioned_text_glyph, 3> glyphs{{
         {0, 10, 0, 0, 0, 12, 8, 0},
@@ -80,6 +126,7 @@ void measured_interaction() {
 }
 
 int main() {
+    fragment_interaction();
     measured_interaction();
     using namespace progpu::native::text;
     static_assert(sizeof(progpu_native_text_cluster_box) == 32U);

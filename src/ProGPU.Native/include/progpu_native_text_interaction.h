@@ -6,6 +6,15 @@
 extern "C" {
 #endif
 
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextFragmentPlacement */
+typedef struct progpu_native_text_fragment_placement {
+    double top;
+    uint32_t row_index;
+    float left;
+    float width;
+    uint32_t reserved;
+} progpu_native_text_fragment_placement;
+
 /* PROGPU_CSHARP_STRUCT: Public.NativeTextClusterBox */
 typedef struct progpu_native_text_cluster_box {
     int32_t input_start;
@@ -121,6 +130,19 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build_meas
     progpu_native_text_cluster_box* boxes, uint32_t box_capacity,
     progpu_native_text_caret_stop* carets, uint32_t caret_capacity,
     progpu_native_text_interaction_result* result);
+/* Fragment count must equal line_count, including empty input. Placements use
+ * nonnegative paragraph-local coordinates, contiguous rows and reserved == 0.
+ * Each line is a spatial fragment, not an independent row. All buffers are
+ * synchronously borrowed and must not overlap. Capacity glyph_count boxes and
+ * 2 * glyph_count carets suffices; only successful returned counts are valid.
+ * The original request size/version remains mandatory. No layout repacking. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build_fragments(
+    const progpu_native_text_interaction_request* request,
+    const progpu_native_text_fragment_placement* fragments, uint32_t fragment_count,
+    progpu_native_text_cluster_box* boxes, uint32_t box_capacity,
+    progpu_native_text_caret_stop* carets, uint32_t caret_capacity,
+    progpu_native_text_interaction_result* result);
+
 PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_get_caret(
     const progpu_native_text_caret_stop* carets, uint32_t count,
     int32_t position, uint8_t trailing, progpu_native_text_caret_stop* result);
