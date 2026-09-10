@@ -614,6 +614,74 @@ bool try_classify_text_justification(std::span<const unicode_scalar> input,
     return true;
 }
 
+bool try_resolve_text_line_intervals(text_exclusion_rectangle band,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> output,
+    std::uint32_t& count, float& next_y, font_error* error) noexcept {
+    count = 0U;
+    const auto invalid = [&]() noexcept { set_error(error, font_error::invalid_argument); return false; };
+    const auto valid = [](text_exclusion_rectangle r) noexcept {
+        // Independent coordinate lanes; ordering remains a scalar dependency.
+        const float values[]{r.left, r.top, r.right, r.bottom};
+#if defined(__aarch64__) || defined(_M_ARM64)
+        const auto v = vabsq_f32(vld1q_f32(values));
+        const auto mask = vcleq_f32(v, vdupq_n_f32(std::numeric_limits<float>::max()));
+        const bool finite = vminvq_u32(mask) != 0U;
+#elif defined(__SSE2__) || defined(_M_X64)
+        const auto v = _mm_loadu_ps(values);
+        const auto limit = _mm_set1_ps(std::numeric_limits<float>::max());
+        const bool finite = _mm_movemask_ps(_mm_and_ps(_mm_cmple_ps(v, limit),
+            _mm_cmpge_ps(v, _mm_sub_ps(_mm_setzero_ps(), limit)))) == 15;
+#else
+        // Fixed four-value reference for targets without a desktop SIMD baseline.
+        const bool finite = std::all_of(std::begin(values), std::end(values),
+            [](float value) { return std::isfinite(value); });
+#endif
+        return finite && r.left <= r.right && r.top <= r.bottom;
+    };
+    if (exclusions.size() > (1U << 20U) || !valid(band) || band.top == band.bottom) return invalid();
+    if (scratch.size() < exclusions.size() || output.size() <= exclusions.size()) {
+        set_error(error, font_error::insufficient_buffer); return false;
+    }
+    struct memory_region { std::uintptr_t begin; std::size_t size; };
+    const memory_region regions[]{
+        {reinterpret_cast<std::uintptr_t>(exclusions.data()), exclusions.size_bytes()},
+        {reinterpret_cast<std::uintptr_t>(scratch.data()), exclusions.size() * sizeof(text_line_interval)},
+        {reinterpret_cast<std::uintptr_t>(output.data()), (exclusions.size() + 1U) * sizeof(text_line_interval)}};
+    for (std::size_t i = 0; i < 3U; ++i) {
+        const auto a = regions[i];
+        if (a.size == 0U) continue;
+        if (a.begin == 0U || a.begin > UINTPTR_MAX - a.size) return invalid();
+        for (std::size_t j = 0; j < i; ++j)
+            if (regions[j].size != 0U && a.begin < regions[j].begin + regions[j].size &&
+                regions[j].begin < a.begin + a.size) return invalid();
+    }
+    for (const auto r : exclusions) if (!valid(r)) return invalid();
+    std::size_t used = 0U;
+    float next = std::numeric_limits<float>::max();
+    for (const auto r : exclusions) {
+        if (r.left == r.right || r.top == r.bottom || r.top >= band.bottom || r.bottom <= band.top) continue;
+        const float left = std::max(band.left, r.left), right = std::min(band.right, r.right);
+        if (left >= right) continue;
+        scratch[used++] = {left, right};
+        next = std::min(next, r.bottom);
+    }
+    if (used > 1U)
+        std::sort(scratch.begin(), scratch.begin() + used, [](auto a, auto b) {
+            return a.left < b.left || (a.left == b.left && a.right < b.right);
+        });
+    float cursor = band.left;
+    for (std::size_t i = 0; i < used; ++i) {
+        const auto interval = scratch[i];
+        if (interval.left > cursor) output[count++] = {cursor, interval.left};
+        cursor = std::max(cursor, interval.right);
+    }
+    if (cursor < band.right) output[count++] = {cursor, band.right};
+    next_y = used == 0U ? band.top : next;
+    set_error(error, font_error::none);
+    return true;
+}
+
 bool try_layout_tabbed_logical_shaped_text(
     std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
     std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,

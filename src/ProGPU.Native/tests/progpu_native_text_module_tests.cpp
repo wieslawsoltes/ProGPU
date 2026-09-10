@@ -1,6 +1,13 @@
 import progpu.native.text;
 
 int main() {
+    progpu::native::text::text_exclusion_rectangle exclusion[]{ {0, 0, 20, 30} };
+    progpu::native::text::text_line_interval scratch[1]{}, intervals[2]{};
+    unsigned int interval_count = 0;
+    float next_y = 0;
+    if (!progpu::native::text::try_resolve_text_line_intervals({0, 0, 100, 10},
+        exclusion, scratch, intervals, interval_count, next_y) ||
+        interval_count != 1 || intervals[0].left != 20 || intervals[0].right != 100 || next_y != 30) return 1;
     const progpu::native::text::text_item_metrics inline_metric{12.0F, 3.0F};
     unsigned int measured_glyphs = 1U, measured_lines = 1U;
     if (inline_metric.ascent + inline_metric.descent != 15.0F ||

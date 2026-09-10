@@ -11,6 +11,13 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Anchored text exclusion uses resolved half-open layout rectangles, not paint or
+hit-test envelopes. Preserve every free interval across the whole candidate line
+height, real exhausted width, edge contact and next-Y progress. The shared native
+interval primitive uses caller-owned scratch and must stay inside native fitting,
+not per-line managed/native callbacks. It does not admit Figure/Floater until
+anchor placement, exclusion-dependent fitting and source subtree ownership connect.
+
 Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
 not optional fields that a text-only provider can silently ignore. Source metrics
 and U+FFFC objects are borrowed only during formatting; outputs retain original

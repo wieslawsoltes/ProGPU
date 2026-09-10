@@ -13053,7 +13053,76 @@ static void measured_items_share_wrapping_and_line_metrics() {
     }
 }
 
+static void anchored_exclusions_preserve_free_line_intervals() {
+    using namespace progpu::native::text;
+    std::array<text_exclusion_rectangle, 4> exclusions{{
+        {-10, 0, 20, 30}, {70, 0, 110, 20}, {40, 5, 60, 15}, {20, 0, 40, 0}}};
+    std::array<text_line_interval, 4> scratch{};
+    std::array<text_line_interval, 6> output{};
+    output.back() = {301, 302};
+    std::uint32_t count = 99;
+    float next = -1;
+    font_error error{};
+    const auto run = [&](text_exclusion_rectangle band) {
+        return try_resolve_text_line_intervals(band, exclusions, scratch, output, count, next, &error);
+    };
+    require(run({0, 0, 100, 10}) && count == 2 && next == 15);
+    require(output[0].left == 20 && output[0].right == 40 &&
+        output[1].left == 60 && output[1].right == 70);
+    require(run({0, 20, 100, 30}) && count == 1 && next == 30 &&
+        output[0].left == 20 && output[0].right == 100);
+    require(run({0, 30, 100, 40}) && count == 1 && next == 30 && output[0].left == 0);
+    require(run({50, 6, 50, 8}) && count == 0 && next == 6);
+    exclusions[2] = {20, 0, 70, 30};
+    require(run({0, 0, 100, 10}) && count == 0 && next == 20);
+    require(run({0, 20, 100, 30}) && count == 1 && output[0].left == 70);
+    output[0] = {201, 202}; next = 203;
+    exclusions[3].right = std::numeric_limits<float>::quiet_NaN();
+    require(!run({0, 0, 100, 10}) && error == font_error::invalid_argument && count == 0 &&
+        output[0].left == 201 && next == 203);
+    exclusions[3] = {0, 0, 0, 0};
+    require(!try_resolve_text_line_intervals({0, 0, 100, 10}, exclusions, scratch,
+        std::span(output).first(4), count, next, &error) && error == font_error::insufficient_buffer);
+    require(!try_resolve_text_line_intervals({0, 0, 100, 10}, exclusions,
+        std::span(output).first(4), output, count, next, &error) && error == font_error::invalid_argument);
+    require(!run({0, 2, 100, 2}) && error == font_error::invalid_argument);
+    require(output.back().left == 301 && output.back().right == 302);
+
+    // Independent scalar point oracle: union membership, not a second merge.
+    std::array<text_exclusion_rectangle, 16> random{};
+    std::array<text_line_interval, 16> random_scratch{};
+    std::array<text_line_interval, 17> random_output{};
+    std::uint32_t seed = 1;
+    auto value = [&]() { seed = seed * 1664525U + 1013904223U; return seed; };
+    for (int trial = 0; trial < 128; ++trial) {
+        for (auto& r : random) {
+            r.left = static_cast<float>(value() % 120U) - 10;
+            r.right = r.left + static_cast<float>(value() % 30U);
+            r.top = static_cast<float>(value() % 40U);
+            r.bottom = r.top + static_cast<float>(value() % 20U);
+        }
+        const float top = static_cast<float>(trial % 40);
+        require(try_resolve_text_line_intervals({0, top, 100, top + 8},
+            random, random_scratch, random_output, count, next));
+        for (std::uint32_t i = 0; i < count; ++i) {
+            require(random_output[i].left < random_output[i].right);
+            if (i != 0) require(random_output[i - 1].right < random_output[i].left);
+        }
+        for (int x = 0; x < 100; ++x) {
+            const float point = static_cast<float>(x) + 0.5F;
+            bool excluded = false, available = false;
+            for (const auto r : random)
+                excluded |= r.top < r.bottom && r.top < top + 8 && r.bottom > top &&
+                    point >= r.left && point < r.right;
+            for (std::uint32_t i = 0; i < count; ++i)
+                available |= point >= random_output[i].left && point < random_output[i].right;
+            require(available != excluded);
+        }
+    }
+}
+
 int main() {
+    anchored_exclusions_preserve_free_line_intervals();
     measured_items_share_wrapping_and_line_metrics();
     collapsed_width_preserves_previous_lines_and_rtl_sign_identity();
     trimming_preserves_tab_metrics_and_safe_shaping_boundaries();

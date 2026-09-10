@@ -2106,6 +2106,28 @@ struct text_item_metrics final {
     float descent = 0.0F;
 };
 
+// Resolved half-open exclusion bounds in paragraph DIPs, not paint bounds.
+// Negative origins and zero-area exclusions are valid; all edges are finite.
+struct text_exclusion_rectangle final {
+    float left{}, top{}, right{}, bottom{};
+};
+struct text_line_interval final { float left{}, right{}; };
+
+// Complement of all exclusions intersecting the entire candidate line band.
+// Returns increasing, nonempty intervals; touching intervals are coalesced.
+// No free interval is a real exhausted width, not an unbounded paragraph.
+// next_y is the earliest bottom of a contributing exclusion, or band.top when
+// none contributes. Requery there to make progress; this is not a fitted line.
+// Scratch needs E intervals, output E+1 (E <= 1,048,576). Buffers must be disjoint.
+// No allocation or GPU/device initialization; O(E log E) time, O(E) caller
+// workspace. Intended for native paragraph fitting, never per-line P/Invoke.
+// It does not yet resolve anchors, shape text or admit source documents.
+// Counts reset on failure; output intervals and next_y remain untouched.
+bool try_resolve_text_line_intervals(text_exclusion_rectangle band,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> output,
+    std::uint32_t& count, float& next_y, font_error* error = nullptr) noexcept;
+
 // Non-ink layout item, never a font glyph. Its cluster and resolved advance
 // remain available to caret/selection consumers. Enabled only by tab options.
 inline constexpr std::uint32_t text_tab_glyph_id = 0xFFFFFFFFU;
