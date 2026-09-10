@@ -13,6 +13,11 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#elif defined(__SSE2__) || defined(_M_X64)
+#include <emmintrin.h>
+#endif
 
 // Stable C ABI adapter for the ProGPU-owned native text stack. The shaping
 // algorithms remain in Text/Shaping; this file only validates fixed-layout
@@ -797,7 +802,7 @@ bool try_build_paragraph_capacities(
     const progpu_native_text_shape_request& request,
     const progpu_native_text_context& context,
     paragraph_capacities& result,
-    font_error& error) noexcept {
+    font_error& error, bool measured = false) noexcept {
     result = {};
     if (request.input_count == 0U) {
         error = font_error::none;
@@ -890,7 +895,8 @@ bool try_build_paragraph_capacities(
         !size.add<text_visual_cluster_group>(glyph_count) ||
         !size.add<std::uint32_t>(glyph_count) ||
         !size.add<positioned_text_glyph>(glyph_count) ||
-        !size.add<positioned_text_line>(glyph_count)) {
+        !size.add<positioned_text_line>(glyph_count) ||
+        (measured && !size.add<text_item_metrics>(glyph_count))) {
         error = font_error::invalid_argument;
         return false;
     }
@@ -2014,13 +2020,62 @@ static bool valid_flow_options(const progpu_native_text_flow_options* flow,
         std::isfinite(flow->tab_origin) && layout != nullptr);
 }
 
+struct inline_flow_policy {
+    const progpu_native_text_style_metrics* metrics;
+    const progpu_native_text_inline_object* objects;
+    std::uint32_t object_count;
+};
+
+static bool valid_inline_values(float width, float ascent, float descent) noexcept {
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const float values[4]{width, ascent, descent, 0.0F};
+    const auto lanes = vld1q_f32(values);
+    return vminvq_u32(vandq_u32(vcgeq_f32(lanes, vdupq_n_f32(0.0F)),
+        vcleq_f32(lanes, vdupq_n_f32(std::numeric_limits<float>::max())))) != 0U;
+#elif defined(__SSE2__) || defined(_M_X64)
+    const auto lanes = _mm_setr_ps(width, ascent, descent, 0.0F);
+    return _mm_movemask_ps(_mm_and_ps(_mm_cmpge_ps(lanes, _mm_setzero_ps()),
+        _mm_cmple_ps(lanes, _mm_set1_ps(std::numeric_limits<float>::max())))) == 15;
+#else
+    return std::isfinite(width) && width >= 0.0F && std::isfinite(ascent) &&
+        ascent >= 0.0F && std::isfinite(descent) && descent >= 0.0F;
+#endif
+}
+
+static bool valid_inline_flow(const progpu_native_text_shape_request& shaping,
+    const progpu_native_text_layout_options& layout, std::uint32_t style_count,
+    const inline_flow_policy* policy) noexcept {
+    if (policy == nullptr) return true;
+    if (layout.trimming != 0U || (shaping.input_count != 0U && style_count == 0U) ||
+        !has_aligned_pointer(policy->metrics, style_count) ||
+        !has_aligned_pointer(policy->objects, policy->object_count) ||
+        policy->object_count > shaping.input_count) return false;
+    for (std::uint32_t i = 0; i < style_count; ++i)
+        if (!valid_inline_values(0, policy->metrics[i].ascent, policy->metrics[i].descent)) return false;
+    for (std::uint32_t i = 0; i < policy->object_count; ++i) {
+        const auto& object = policy->objects[i];
+        if (object.scalar_index >= shaping.input_count ||
+            (i != 0U && object.scalar_index <= policy->objects[i - 1U].scalar_index) ||
+            shaping.input[object.scalar_index].code_point != 0xFFFCU ||
+            !valid_inline_values(object.width, object.ascent, object.descent)) return false;
+    }
+    std::uint32_t object_index = 0U;
+    for (std::uint32_t i = 0; i < shaping.input_count; ++i)
+        if (shaping.input[i].code_point == 0xFFFCU) {
+            if (object_index >= policy->object_count ||
+                policy->objects[object_index++].scalar_index != i) return false;
+        }
+    return object_index == policy->object_count;
+}
+
 static progpu_native_status paragraph_requirements_core(
     progpu_native_text_context* context,
     const progpu_native_text_shape_request* shaping,
     const progpu_native_text_layout_options* layout,
     const progpu_native_text_style_run* styles, std::uint32_t style_count,
     const progpu_native_text_flow_options* flow,
-    progpu_native_text_paragraph_requirements* requirements) {
+    progpu_native_text_paragraph_requirements* requirements,
+    const inline_flow_policy* inline_flow = nullptr) {
     if (requirements == nullptr ||
         requirements->struct_size <
             sizeof(progpu_native_text_paragraph_requirements)) {
@@ -2031,7 +2086,7 @@ static progpu_native_status paragraph_requirements_core(
     if (context == nullptr || !valid_request(shaping, false) ||
         shaping->direction > PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT ||
         !valid_paragraph_layout_options(layout) || !valid_style_runs(*context, *shaping, styles, style_count) ||
-        !valid_flow_options(flow, layout)) {
+        !valid_flow_options(flow, layout) || !valid_inline_flow(*shaping, *layout, style_count, inline_flow)) {
         requirements->error_code =
             static_cast<std::uint32_t>(font_error::invalid_argument);
         requirements->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
@@ -2043,7 +2098,7 @@ static progpu_native_status paragraph_requirements_core(
             *shaping,
             *context,
             capacities,
-            error)) {
+            error, inline_flow != nullptr)) {
         requirements->error_code = static_cast<std::uint32_t>(error);
         requirements->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
         return status_from_error(error);
@@ -2070,7 +2125,7 @@ static progpu_native_status paragraph_layout_core(
     progpu_native_text_paragraph_result* result,
     progpu_native_text_intrinsic_widths* widths = nullptr,
     std::uint32_t wrapping = PROGPU_NATIVE_TEXT_WRAPPING_EMERGENCY,
-    float collapse_width = -1.0F) {
+    float collapse_width = -1.0F, const inline_flow_policy* inline_flow = nullptr) {
     if (result == nullptr ||
         result->struct_size < sizeof(progpu_native_text_paragraph_result)) {
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
@@ -2087,7 +2142,8 @@ static progpu_native_status paragraph_layout_core(
     if (context == nullptr || !valid_request(shaping, false) ||
         shaping->direction > PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT ||
         !valid_paragraph_layout_options(layout) || !valid_style_runs(*context, *shaping, styles, style_count) ||
-        !valid_flow_options(flow, layout) || wrapping > PROGPU_NATIVE_TEXT_WRAPPING_WHOLE_WORD ||
+        !valid_flow_options(flow, layout) || !valid_inline_flow(*shaping, *layout, style_count, inline_flow) ||
+        wrapping > PROGPU_NATIVE_TEXT_WRAPPING_WHOLE_WORD ||
         !std::isfinite(collapse_width) || collapse_width < -1.0F ||
         (collapse_width >= 0.0F && (layout->maximum_lines == 0U || layout->trimming == 0U))) {
         result->error_code =
@@ -2108,7 +2164,7 @@ static progpu_native_status paragraph_layout_core(
             *shaping,
             *context,
             capacities,
-            font_result)) {
+            font_result, inline_flow != nullptr)) {
         result->error_code = static_cast<std::uint32_t>(font_result);
         result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
         return status_from_error(font_result);
@@ -2153,6 +2209,7 @@ static progpu_native_status paragraph_layout_core(
         std::span<std::uint32_t> visual_indices{};
         std::span<positioned_text_glyph> positioned{};
         std::span<positioned_text_line> native_lines{};
+        std::span<text_item_metrics> item_metrics{};
         if (!arena.take(capacities.shaping.scratch_bytes, shape_scratch) ||
             !arena.take(glyph_limit, run_glyphs) ||
             !arena.take(input_count, native_input) ||
@@ -2177,7 +2234,8 @@ static progpu_native_status paragraph_layout_core(
             !arena.take(glyph_limit, visual_groups) ||
             !arena.take(glyph_limit, visual_indices) ||
             !arena.take(glyph_limit, positioned) ||
-            !arena.take(glyph_limit, native_lines)) {
+            !arena.take(glyph_limit, native_lines) ||
+            (inline_flow != nullptr && !arena.take(glyph_limit, item_metrics))) {
             result->error_code =
                 static_cast<std::uint32_t>(font_error::insufficient_buffer);
             result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
@@ -2290,6 +2348,7 @@ static progpu_native_status paragraph_layout_core(
         std::size_t scalar_start = 0U;
         std::size_t script_run_index = 0U;
         std::size_t fallback_run_index = 0U;
+        std::uint32_t object_index = 0U;
         while (scalar_start < input_count) {
             while (script_run_index < script_run_count &&
                 scalar_start >= static_cast<std::size_t>(
@@ -2335,6 +2394,23 @@ static progpu_native_status paragraph_layout_core(
                 return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
             }
             const std::int8_t level = scalar_levels[scalar_start].level;
+            if (inline_flow != nullptr && object_index < inline_flow->object_count &&
+                inline_flow->objects[object_index].scalar_index == scalar_start) {
+                const auto& object = inline_flow->objects[object_index++];
+                if (logical_count >= logical_glyphs.size()) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+                shaping_glyph item{};
+                item.glyph_id = UINT32_MAX - 1U;
+                item.code_point = 0xFFFCU;
+                item.cluster = static_cast<std::int32_t>(shaping->input[scalar_start].input_index);
+                item.advance_x = object.width == 0.0F ? 0 : 1;
+                logical_glyphs[logical_count] = item;
+                glyph_levels[logical_count] = level;
+                glyph_font_indices[logical_count] = UINT32_MAX;
+                glyph_scales[logical_count] = object.width == 0.0F ? 1.0F : object.width;
+                item_metrics[logical_count] = {object.ascent, object.descent};
+                ++logical_count; ++scalar_start;
+                continue;
+            }
             const bool tab_flow = flow != nullptr && flow->incremental_tab > 0.0F;
             if (tab_flow && shaping->input[scalar_start].code_point == 9U) {
                 if (logical_count >= logical_glyphs.size()) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
@@ -2346,6 +2422,8 @@ static progpu_native_status paragraph_layout_core(
                 glyph_levels[logical_count] = paragraph_level;
                 glyph_font_indices[logical_count] = fallback_run.font_index;
                 glyph_scales[logical_count] = layout->scale;
+                if (inline_flow != nullptr) item_metrics[logical_count] = {
+                    inline_flow->metrics[fallback_run_index].ascent, inline_flow->metrics[fallback_run_index].descent};
                 ++logical_count;
                 ++scalar_start;
                 continue;
@@ -2354,7 +2432,8 @@ static progpu_native_status paragraph_layout_core(
             while (scalar_end < input_count && scalar_end < script_end &&
                 scalar_end < fallback_end &&
                 scalar_levels[scalar_end].level == level &&
-                (!tab_flow || shaping->input[scalar_end].code_point != 9U)) {
+                (!tab_flow || shaping->input[scalar_end].code_point != 9U) &&
+                (inline_flow == nullptr || shaping->input[scalar_end].code_point != 0xFFFCU)) {
                 ++scalar_end;
             }
             auto run_request = *shaping;
@@ -2405,6 +2484,7 @@ static progpu_native_status paragraph_layout_core(
                     PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
                 return shape_status;
             }
+            const auto first_logical = logical_count;
             if (!append_logical_bidi_run(
                     run_glyphs.first(shape_result.glyph_count),
                     level,
@@ -2422,6 +2502,11 @@ static progpu_native_status paragraph_layout_core(
                 return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
             }
             ++result->shaping_run_count;
+            if (inline_flow != nullptr) {
+                const auto& metric = inline_flow->metrics[fallback_run_index];
+                std::fill(item_metrics.begin() + first_logical, item_metrics.begin() + logical_count,
+                    text_item_metrics{metric.ascent, metric.descent});
+            }
             scalar_start = scalar_end;
         }
         result->shaped_glyph_count = logical_count;
@@ -2463,7 +2548,7 @@ static progpu_native_status paragraph_layout_core(
             result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_CLUSTER_MAP;
             return status_from_error(font_result);
         }
-        if (!try_layout_justified_logical_shaped_text(
+        if (!try_layout_measured_logical_shaped_text(
                 logical,
                 glyph_breaks.first(logical_count),
                 glyph_levels.first(logical_count),
@@ -2479,6 +2564,7 @@ static progpu_native_status paragraph_layout_core(
                 positioned_count,
                 written_lines,
                 justify ? justification.first(logical_count) : std::span<const text_justification_class>{},
+                inline_flow == nullptr ? std::span<const text_item_metrics>{} : item_metrics.first(logical_count),
                 &font_result)) {
             result->error_code = static_cast<std::uint32_t>(font_result);
             result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
@@ -2519,7 +2605,8 @@ static progpu_native_status paragraph_layout_core(
                 0U};
         }
         text_layout_metrics metrics{};
-        if (!try_measure_positioned_text_lines(
+        const auto measure_lines = inline_flow == nullptr ? try_measure_positioned_text_lines : try_measure_measured_text_lines;
+        if (!measure_lines(
                 native_lines.first(written_lines),
                 layout->maximum_width,
                 metrics,
@@ -2609,6 +2696,33 @@ progpu_native_status progpu_native_text_context_layout_configured_flow_paragraph
     return paragraph_layout_core(context, shaping, layout, styles, style_count, flow,
         glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result, widths,
         wrapping);
+}
+
+progpu_native_status progpu_native_text_context_get_inline_flow_paragraph_requirements(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    std::uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, std::uint32_t object_count,
+    progpu_native_text_paragraph_requirements* requirements) {
+    const inline_flow_policy policy{style_metrics, objects, object_count};
+    return paragraph_requirements_core(context, shaping, layout, styles, style_count, flow, requirements, &policy);
+}
+
+progpu_native_status progpu_native_text_context_layout_inline_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    std::uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, std::uint32_t object_count,
+    progpu_native_positioned_text_glyph* glyphs, std::uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, std::uint32_t line_capacity,
+    void* scratch, std::size_t scratch_size, progpu_native_text_paragraph_result* result,
+    std::uint32_t wrapping, progpu_native_text_intrinsic_widths* widths) {
+    const inline_flow_policy policy{style_metrics, objects, object_count};
+    return paragraph_layout_core(context, shaping, layout, styles, style_count, flow,
+        glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result, widths,
+        wrapping, -1.0F, &policy);
 }
 
 progpu_native_status progpu_native_text_context_layout_collapsed_flow_paragraph(

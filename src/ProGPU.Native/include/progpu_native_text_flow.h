@@ -21,6 +21,48 @@ typedef struct progpu_native_text_intrinsic_widths {
     uint32_t reserved;
 } progpu_native_text_intrinsic_widths;
 
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextStyleMetrics */
+typedef struct progpu_native_text_style_metrics {
+    float ascent;
+    float descent;
+} progpu_native_text_style_metrics;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextInlineObject */
+typedef struct progpu_native_text_inline_object {
+    uint32_t scalar_index;
+    float width;
+    float ascent;
+    float descent;
+} progpu_native_text_inline_object;
+
+/* Measured inline flow requires explicit style runs and one DIP metric pair
+ * per style. Objects are strictly ordered scalar indices covering every U+FFFC
+ * exactly once. Inputs are borrowed; no application object pointer is retained.
+ * Positioned objects have glyph_id UINT32_MAX-1 and font_index UINT32_MAX;
+ * cluster retains the source input_index. They are never font/atlas glyphs.
+ * Their y is the line baseline; top is y minus the declared object ascent.
+ * Line baselines are top-relative measured baselines, unlike legacy flow.
+ * line_height is a minimum. Trimming requires sign metrics and is rejected.
+ * Object-free existing APIs retain their layout and scratch requirements. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_get_inline_flow_paragraph_requirements(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    progpu_native_text_paragraph_requirements* requirements);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_inline_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
+    uint32_t wrapping, progpu_native_text_intrinsic_widths* widths);
+
 /* Mirrors NativeTextWrapping in the managed public enum contract. */
 typedef enum progpu_native_text_wrapping {
     PROGPU_NATIVE_TEXT_WRAPPING_EMERGENCY = 0,

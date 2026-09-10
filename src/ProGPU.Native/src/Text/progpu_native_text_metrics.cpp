@@ -21,18 +21,19 @@ bool valid_maximum_width(float value) noexcept {
 
 } // namespace
 
-bool try_measure_positioned_text_lines(
+static bool measure_text_lines(
     std::span<const positioned_text_line> lines,
     float maximum_width,
     text_layout_metrics& result,
-    font_error* error) noexcept {
+    font_error* error, bool measured) noexcept {
     result = {};
     if (!valid_maximum_width(maximum_width)) {
         set_error(error, font_error::invalid_argument);
         return false;
     }
+    double top = 0.0;
     for (const auto& line : lines) {
-        const float bottom = line.baseline_y + line.height;
+        const float bottom = measured ? static_cast<float>(top + line.height) : line.baseline_y + line.height;
         if (!std::isfinite(line.width) || line.width < 0.0F ||
             !std::isfinite(line.baseline_y) ||
             !std::isfinite(line.height) || line.height < 0.0F ||
@@ -43,6 +44,7 @@ bool try_measure_positioned_text_lines(
         }
         result.content_width = std::max(result.content_width, line.width);
         result.content_height = std::max(result.content_height, bottom);
+        top += line.height;
     }
     result.measured_width = maximum_width > 0.0F
         ? maximum_width
@@ -50,6 +52,16 @@ bool try_measure_positioned_text_lines(
     result.measured_height = result.content_height;
     set_error(error, font_error::none);
     return true;
+}
+
+bool try_measure_positioned_text_lines(std::span<const positioned_text_line> lines,
+    float maximum_width, text_layout_metrics& result, font_error* error) noexcept {
+    return measure_text_lines(lines, maximum_width, result, error, false);
+}
+
+bool try_measure_measured_text_lines(std::span<const positioned_text_line> lines,
+    float maximum_width, text_layout_metrics& result, font_error* error) noexcept {
+    return measure_text_lines(lines, maximum_width, result, error, true);
 }
 
 bool try_measure_positioned_text_columns(

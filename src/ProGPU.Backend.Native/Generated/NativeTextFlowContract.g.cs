@@ -26,3 +26,21 @@ public partial struct NativeTextIntrinsicWidths
     public float Maximum;
     public uint Reserved;
 }
+
+// Native source: progpu_native_text_style_metrics.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextStyleMetrics
+{
+    public float Ascent;
+    public float Descent;
+}
+
+// Native source: progpu_native_text_inline_object.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextInlineObject
+{
+    public uint ScalarIndex;
+    public float Width;
+    public float Ascent;
+    public float Descent;
+}

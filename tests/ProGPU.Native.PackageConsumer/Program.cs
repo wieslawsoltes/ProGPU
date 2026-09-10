@@ -30,6 +30,7 @@ if (info.AbiVersion != 4 ||
 ValidateNativeMilSceneBuildTiming();
 ValidateNativeMilCompactGuidelineBuilder();
 ValidateNativeDocumentRows();
+ValidateNativeInlineParagraph();
 
 bool milOnly = args.Contains("--mil-only", StringComparer.Ordinal);
 bool renderOnly = args.Contains("--render-only", StringComparer.Ordinal);
@@ -399,6 +400,42 @@ Console.WriteLine(
     $"ProGPU.Backend.Native package smoke passed: ABI {info.AbiVersion}, " +
     $"Dawn ABI {NativeDawnAdapter.AdapterAbiVersion}, " +
     $"draws={metrics.DrawCallCount}, pixels={pixels.Length}.");
+
+static void ValidateNativeInlineParagraph()
+{
+    using var context = new NativeTextShapingContext(File.ReadAllBytes(
+        Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf")));
+    NativeTextScalar[] scalars =
+    [
+        new() { CodePoint = 'A', InputIndex = 0, InputLength = 1 },
+        new() { CodePoint = 0xFFFC, InputIndex = 1, InputLength = 1 },
+        new() { CodePoint = 'B', InputIndex = 2, InputLength = 1 },
+    ];
+    var input = new NativeTextShapeInput(default, scalars, direction: NativeTextDirection.LeftToRight);
+    var options = new NativeTextParagraphOptions(16f / 2048, MaximumWidth: 31, LineHeight: 20);
+    NativeTextStyleRun[] styles = [new() { ScalarCount = 3, Scale = options.Scale }];
+    NativeTextStyleMetrics[] metrics = [new() { Ascent = 12, Descent = 4 }];
+    NativeTextInlineObject[] objects = [new() { ScalarIndex = 1, Width = 30.25f, Ascent = 35, Descent = 7 }];
+    NativeTextFlowOptions flow = default;
+    if (context.GetInlineFlowParagraphRequirements(input, options, styles, flow, metrics, objects,
+        out var needed) != NativeRendererStatus.Success)
+        throw new InvalidOperationException("Packaged native inline requirements failed.");
+    var glyphs = new NativePositionedTextGlyph[checked((int)needed.GlyphCapacity)];
+    var lines = new NativePositionedTextLine[checked((int)needed.LineCapacity)];
+    var scratch = new byte[checked((int)needed.ScratchBytes)];
+    if (context.LayoutInlineFlowParagraph(input, options, styles, flow, metrics, objects, glyphs, lines,
+        scratch, NativeTextWrapping.Emergency, true, out var result, out var widths) != NativeRendererStatus.Success ||
+        result.GlyphCount != 3 || result.LineCount != 3 || result.ContentHeight != 82 ||
+        glyphs[1].GlyphId != uint.MaxValue - 1 || glyphs[1].FontIndex != uint.MaxValue ||
+        glyphs[1].Cluster != 1 || glyphs[1].AdvanceX != 30.25f ||
+        lines[1].Height != 42 || lines[2].BaselineY != 74 || widths.Minimum < 30.25f)
+        throw new InvalidOperationException("Packaged native inline geometry/identity failed.");
+    bool rejected = false;
+    try { context.GetInlineFlowParagraphRequirements(input, options, styles, flow, [], objects, out _); }
+    catch (ArgumentException) { rejected = true; }
+    if (!rejected) throw new InvalidOperationException("Inline metric span capacity was not checked before native access.");
+    Console.WriteLine("package-consumer: native inline paragraph metrics, identity, wrapping and span validation passed");
+}
 
 static void ValidateNativeDocumentRows()
 {

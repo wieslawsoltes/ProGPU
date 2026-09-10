@@ -11,6 +11,14 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Native inline paragraph calls require explicit styled physical faces, matching
+source-owned style metrics and ordered objects covering actual U+FFFC scalars.
+Keep objects non-ink with reserved object glyph/font identity, real source
+clusters, fractional advances and measured line extents. Old flow APIs retain
+their scratch and baseline convention. Span bindings must validate metric count
+before native pointer access. Snapshot interaction and source control admission
+remain separate required connections; never pass object sentinels to glyph atlases.
+
 Measured native text items use the shared logical paragraph writer. Resolve
 per-line ascent/descent before positioning and advance the same retained line
 prefix; do not grow every line to one paragraph-wide maximum. Empty metrics

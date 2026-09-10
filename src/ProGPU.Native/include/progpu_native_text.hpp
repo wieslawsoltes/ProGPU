@@ -1969,6 +1969,12 @@ bool try_measure_positioned_text_lines(
     text_layout_metrics& result,
     font_error* error = nullptr) noexcept;
 
+// Measured line boxes start at a cumulative top, not at baseline_y.
+bool try_measure_measured_text_lines(
+    std::span<const positioned_text_line> lines,
+    float maximum_width, text_layout_metrics& result,
+    font_error* error = nullptr) noexcept;
+
 bool try_measure_positioned_text_columns(
     std::span<const positioned_text_column> columns,
     float maximum_width,

@@ -8,6 +8,7 @@ export namespace progpu::native::text {
 
 using ::progpu::native::text::text_item_metrics;
 using ::progpu::native::text::try_layout_measured_logical_shaped_text;
+using ::progpu::native::text::try_measure_measured_text_lines;
 
 using ::progpu::native::text::font_error;
 using ::progpu::native::text::sfnt_container_requirements;
