@@ -373,6 +373,7 @@ public sealed class SourceVisualHitTestTests
             "Source opacity input target");
         using var compositor = new Compositor(window.Context, TextureFormat.Rgba8Unorm,
             CompositorOptions.Default with { EnableGpuHitTesting = enableHitTesting });
+        compositor.ClearColor = Vector4.Zero;
         var source = new SourceVisual { Opacity = 0, HitTestId = 4321, Size = new Vector2(64) };
         source.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(new Vector4(1, 0, 0, 1)),
             null, new Rect(10, 20, 30, 40));

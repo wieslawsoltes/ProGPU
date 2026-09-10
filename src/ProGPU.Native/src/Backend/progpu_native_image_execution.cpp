@@ -136,7 +136,7 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     vertex_state.bufferCount = 1U;
     vertex_state.buffers = &vertex_layout;
     WGPUBlendState blend{};
-    blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+    blend.color.srcFactor = WGPUBlendFactor_One;
     blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
     blend.color.operation = WGPUBlendOperation_Add;
     blend.alpha.srcFactor = WGPUBlendFactor_One;
@@ -148,7 +148,7 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     target.writeMask = WGPUColorWriteMask_All;
     WGPUFragmentState fragment{};
     fragment.module = engine.image_shader;
-    fragment.entryPoint = ::progpu::native::webgpu::string_view("fs_main");
+    fragment.entryPoint = ::progpu::native::webgpu::string_view("fs_retained_image");
     fragment.targetCount = 1U;
     fragment.targets = &target;
     WGPURenderPipelineDescriptor pipeline_descriptor{};
@@ -164,6 +164,8 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     engine.image_mask_pipeline = wgpuDeviceCreateRenderPipeline(
         engine.device,
         &pipeline_descriptor);
+    // The color-matrix entry points explicitly return straight RGB.
+    blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
     fragment.entryPoint = ::progpu::native::webgpu::string_view(
         "fs_main_color_matrix_unmasked");
     pipeline_descriptor.label = ::progpu::native::webgpu::string_view(

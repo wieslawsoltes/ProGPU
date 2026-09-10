@@ -131,7 +131,19 @@ static void styled_context_preserves_font_scale_and_atomic_failure() {
     require(std::abs(glyphs[2].advance_x - 2 * glyphs[0].advance_x) < 0.0001F);
     const float first_width = glyphs[0].advance_x + glyphs[1].advance_x;
     layout.maximum_width = first_width + 0.1F;
-    require(run() == PROGPU_NATIVE_STATUS_SUCCESS && result.line_count == 2);
+    // A changed width changes line/scratch capacity; do not reuse the unbounded
+    // request's single-line allocation for the wrapped paragraph.
+    require(progpu_native_text_context_get_styled_paragraph_requirements(context.get(), &shaping, &layout,
+        styles.data(), static_cast<std::uint32_t>(styles.size()), &required) == PROGPU_NATIVE_STATUS_SUCCESS);
+    lines.resize(required.line_capacity);
+    scratch.resize(required.scratch_bytes);
+    const auto wrapped_status = run();
+    std::fprintf(stderr, "styled wrap status=%u lines=%u capacity=%zu glyphs=%u width=%g\n",
+        static_cast<unsigned>(wrapped_status), result.line_count, lines.size(), result.glyph_count, layout.maximum_width);
+    require(wrapped_status == PROGPU_NATIVE_STATUS_SUCCESS && result.line_count == 2);
+    if (lines[0].glyph_count != 2 || glyphs[2].font_index != second_font || glyphs[2].y != 24)
+        std::fprintf(stderr, "styled wrap first count=%u third font=%u expected font=%u y=%g\n",
+            lines[0].glyph_count, glyphs[2].font_index, second_font, glyphs[2].y);
     require(lines[0].glyph_count == 2 && glyphs[2].font_index == second_font && glyphs[2].y == 24);
     glyphs[0].x = 123;
     styles[1].scalar_start = 1; // overlapping style coverage must not publish a paragraph

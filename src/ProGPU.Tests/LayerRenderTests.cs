@@ -1086,12 +1086,12 @@ public sealed class LayerRenderTests
             Assert.NotNull(index);
             var ownerPrimitives = index!.Primitives.Where(primitive => primitive.Id == 991).ToArray();
             var primitive = Assert.Single(ownerPrimitives);
-            Assert.Equal(GpuHitTestPrimitiveKind.AxisAlignedBounds, primitive.Kind);
+            Assert.Equal(GpuHitTestPrimitiveKind.RectangleFill, primitive.Kind);
             Assert.Equal(new Vector2(10f, 5f), primitive.BoundsMin);
             Assert.Equal(new Vector2(90f, 55f), primitive.BoundsMax);
 
             var childPrimitive = Assert.Single(index.Primitives, primitive => primitive.Id == 993);
-            Assert.Equal(GpuHitTestPrimitiveKind.AxisAlignedBounds, childPrimitive.Kind);
+            Assert.Equal(GpuHitTestPrimitiveKind.RectangleFill, childPrimitive.Kind);
             Assert.Equal(new Vector2(20f, 15f), childPrimitive.BoundsMin);
             Assert.Equal(new Vector2(50f, 35f), childPrimitive.BoundsMax);
         }

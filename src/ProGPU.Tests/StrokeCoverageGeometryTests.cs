@@ -191,6 +191,10 @@ public sealed class StrokeCoverageGeometryTests
         Assert.Equal(default, bounds);
         pen.Thickness = 4;
         pen.SetDashPattern([0, 1]);
+        Assert.True(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, Vector2.One, pen, out _, out _, out _));
+        pen.SetDashPattern([0, 0]);
+        Assert.False(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, Vector2.One, pen, out _, out _, out _));
+        pen.SetDashPattern([-1, 1]);
         Assert.False(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, Vector2.One, pen, out _, out _, out _));
         pen.SetDashPattern([double.PositiveInfinity, 1]);
         Assert.False(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, Vector2.One, pen, out _, out _, out _));

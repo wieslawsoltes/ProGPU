@@ -216,9 +216,6 @@ line_scan scan_line(
         const bool break_here = can_break_after(glyphs, breaks_after, index);
         const bool mandatory = break_here &&
             breaks_after[index] == text_line_break_kind::mandatory;
-        if (mandatory) {
-            return line_scan{index + 1U, next_width, false};
-        }
         if (options.maximum_width > 0.0F &&
             next_width > options.maximum_width && index > start) {
             if (last_break > start) {
@@ -244,6 +241,11 @@ line_scan scan_line(
             }
             return line_scan{
                 hard_end, hard_width, final_allowed_line};
+        }
+        // A paragraph-end mandatory break does not exempt its final glyph from
+        // wrapping. Resolve an earlier safe boundary before consuming it.
+        if (mandatory) {
+            return line_scan{index + 1U, next_width, false};
         }
         if (break_here) {
             last_break = index + 1U;
@@ -370,8 +372,7 @@ bool try_get_tabbed_text_layout_requirements(
     result = {};
     if (glyphs.size() > std::numeric_limits<std::uint32_t>::max() ||
         breaks_after.size() != glyphs.size() || !valid_options(options) || !valid_scales(glyphs, glyph_scales) ||
-        !std::isfinite(tabs.interval) || tabs.interval < 0.0F || !std::isfinite(tabs.origin) ||
-        (tabs.interval > 0.0F && options.trimming != text_trimming::none)) {
+        !std::isfinite(tabs.interval) || tabs.interval < 0.0F || !std::isfinite(tabs.origin)) {
         set_error(error, font_error::invalid_argument);
         return false;
     }

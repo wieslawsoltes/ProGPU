@@ -87,7 +87,7 @@ public sealed class LinearDashCoverageCacheTests
         var cache = RenderCommandGeometryCache.ForStrokePath(CreatePath());
         var pen = CreatePen(true);
         Assert.True(cache.TryGetLinearDashCoverage(pen, 1, out var initial));
-        pen.DashArray = [0, 2];
+        pen.DashArray = [0, 0];
         Assert.False(cache.TryGetLinearDashCoverage(pen, 1, out _));
         Assert.False(cache.TryGetLinearDashCoverage(pen, 1, out _));
         pen.DashArray = [2, 2];

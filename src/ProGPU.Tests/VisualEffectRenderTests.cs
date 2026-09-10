@@ -222,7 +222,7 @@ public sealed class VisualEffectRenderTests
             var index = window.Compositor.LastHitTestIndex;
             Assert.NotNull(index);
             var childPrimitive = Assert.Single(index!.Primitives, primitive => primitive.Id == 994);
-            Assert.Equal(GpuHitTestPrimitiveKind.AxisAlignedBounds, childPrimitive.Kind);
+            Assert.Equal(GpuHitTestPrimitiveKind.RectangleFill, childPrimitive.Kind);
             Assert.Equal(new Vector2(20f, 15f), childPrimitive.BoundsMin);
             Assert.Equal(new Vector2(50f, 35f), childPrimitive.BoundsMax);
         }

@@ -813,6 +813,8 @@ bool try_build_paragraph_capacities(
     auto merge = [](shape_capacities& target,
                      const shape_capacities& source) noexcept {
         target.glyphs = std::max(target.glyphs, source.glyphs);
+        target.normalization_scalars = std::max(
+            target.normalization_scalars, source.normalization_scalars);
         target.graphemes = std::max(target.graphemes, source.graphemes);
         target.gsub_lookups = std::max(target.gsub_lookups, source.gsub_lookups);
         target.gpos_lookups = std::max(target.gpos_lookups, source.gpos_lookups);

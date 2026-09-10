@@ -451,7 +451,8 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
         Assert.Equal(source, picture.RetainedCommands.Clone());
         Assert.True(Unsafe.SizeOf<RetainedSimpleGlyphRunCommand>() <= 96);
-        Assert.Equal(8, Unsafe.SizeOf<RetainedScalarStateCommand>());
+        // The source opacity policy is retained independently of its float value.
+        Assert.Equal(12, Unsafe.SizeOf<RetainedScalarStateCommand>());
         Assert.True(Unsafe.SizeOf<RetainedSimpleRoundedRectangleCommand>() <= 80);
         Assert.Equal(16, Unsafe.SizeOf<RetainedSimpleVisualCommand>());
         Assert.True(

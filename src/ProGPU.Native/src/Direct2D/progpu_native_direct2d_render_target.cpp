@@ -4145,7 +4145,9 @@ public:
         if ((format.format != dxgi_format_r8g8b8a8_unorm &&
                 format.format != dxgi_format_b8g8r8a8_unorm &&
                 format.format != dxgi_format_a8_unorm) ||
-            format.alpha != alpha_mode::premultiplied) {
+            (format.alpha != alpha_mode::premultiplied &&
+                !(format.format != dxgi_format_a8_unorm &&
+                    format.alpha == alpha_mode::ignore))) {
             return not_implemented;
         }
         float dpi_x = 96.0F;
@@ -6149,9 +6151,9 @@ private:
                 const auto expected_matrix = bitmap_alpha_matrix(picture);
                 const auto expected_image_flags = image_alpha_flags(pixel_format_.alpha) |
                     (alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX : 0U);
-                const auto expected_storage_flags = picture ? PROGPU_NATIVE_SCENE_IMAGE_PICTURE
-                    : alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_R8
-                    : pixel_format_.format == dxgi_format_b8g8r8a8_unorm ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U;
+                const std::uint32_t expected_storage_flags = picture ? std::uint32_t{PROGPU_NATIVE_SCENE_IMAGE_PICTURE}
+                    : alpha_only ? std::uint32_t{PROGPU_NATIVE_SCENE_IMAGE_R8}
+                    : pixel_format_.format == dxgi_format_b8g8r8a8_unorm ? std::uint32_t{PROGPU_NATIVE_SCENE_IMAGE_BGRA8} : 0U;
                 if (copy.image.flags == expected_image_flags &&
                     copy.resource_flags == (PROGPU_NATIVE_SCENE_RECORD_REQUIRED | expected_storage_flags) &&
                     (!alpha_only || std::memcmp(&copy.color_matrix, &expected_matrix, sizeof(expected_matrix)) == 0)) {

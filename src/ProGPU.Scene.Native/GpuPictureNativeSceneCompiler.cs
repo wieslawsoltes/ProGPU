@@ -1185,15 +1185,6 @@ public static partial class GpuPictureNativeSceneCompiler
             return false;
         }
 
-        if (batches.Count == 0)
-        {
-            failure = new(
-                NativePictureCompileError.InvalidGeometry,
-                -1,
-                default);
-            return false;
-        }
-
         try
         {
             int nativeCommandCount = checked(operations.Count +
@@ -4464,7 +4455,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     node.Kind)
                 : node);
         }
-        uint sampleGrid = command.PathSampleGrid >=
+        uint sampleGrid = command.IsEdgeAliased ? 1U : command.PathSampleGrid >=
             PathAtlas.HighPrecisionCoverageSampleGrid
             ? PathAtlas.HighPrecisionCoverageSampleGrid
             : PathAtlas.StandardCoverageSampleGrid;

@@ -631,8 +631,8 @@ void record_finite_affine_layer(ID2D1RenderTarget* target, bool opacity_mask)
         "finite affine oracle layer creation failed");
     native_com::pointer<ID2D1Layer> layer;
     layer.attach(raw_layer);
-    const D2D1_MATRIX_3X2_F identity{1, 0, 0, 1, 0, 0};
-    const D2D1_MATRIX_3X2_F world{1, 0.5F, 0.25F, 1, 10, 4};
+    const D2D1_MATRIX_3X2_F identity = D2D1::Matrix3x2F(1, 0, 0, 1, 0, 0);
+    const D2D1_MATRIX_3X2_F world = D2D1::Matrix3x2F(1, 0.5F, 0.25F, 1, 10, 4);
     const D2D1_LAYER_PARAMETERS parameters{
         {1, 2, 13, 17}, nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
         identity, 0.625F, opacity_mask ? brush.get() : nullptr, D2D1_LAYER_OPTIONS_NONE};

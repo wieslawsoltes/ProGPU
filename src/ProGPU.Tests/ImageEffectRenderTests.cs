@@ -15,9 +15,12 @@ public sealed class ImageEffectRenderTests
     {
         int commandSize =
             System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>();
+        // Original command budget plus source input geometry and its alignment.
+        // Image-effect parameters must still stay in the separate typed payload.
+        int commandBudget = 576 + System.Runtime.CompilerServices.Unsafe.SizeOf<SourceHitTestGeometry>() + 4;
         Assert.True(
-            commandSize <= 576,
-            $"Expected at most 576 bytes per ordinary command, actual={commandSize} bytes.");
+            commandSize <= commandBudget,
+            $"Expected at most {commandBudget} bytes per ordinary command, actual={commandSize} bytes.");
         Assert.Equal(
             248,
             System.Runtime.CompilerServices.Unsafe.SizeOf<ImageEffectCommandData>());

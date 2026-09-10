@@ -3,6 +3,7 @@
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_validation.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -159,6 +160,20 @@ bool semantic_scene_builder::draw_meshes_3d(
     const progpu_native_scene_camera_3d& camera,
     progpu_native_image_rect bounds,
     std::uint32_t state_resource_index) noexcept {
+    // The wire format derives each packed section's length from mesh ranges.
+    // Discard only unreferenced trailing input; retaining it would shift the
+    // index/light sections without any count in the stream to describe that shift.
+    std::size_t used_vertices = 0U, used_indices = 0U, used_lights = 0U;
+    for (const auto& mesh : meshes) {
+        used_vertices = std::max(used_vertices, static_cast<std::size_t>(mesh.vertex_offset) + mesh.vertex_count);
+        used_indices = std::max(used_indices, static_cast<std::size_t>(mesh.index_offset) + mesh.index_count);
+        used_lights = std::max(used_lights, static_cast<std::size_t>(mesh.light_offset) + mesh.light_count);
+    }
+    if (used_vertices > vertices.size() || used_indices > indices.size() || used_lights > lights.size())
+        return implementation_->fail(scene_build_error::invalid_argument);
+    vertices = vertices.first(used_vertices);
+    indices = indices.first(used_indices);
+    lights = lights.first(used_lights);
     const std::uint64_t auxiliary_bytes =
         static_cast<std::uint64_t>(vertices.size_bytes()) +
         indices.size_bytes() + lights.size_bytes();

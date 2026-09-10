@@ -636,6 +636,36 @@ fn fs_main_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
     return texture_fs_main_with_mask(input, 1.0);
 }
 
+// A retained stream may interleave straight uploads and premultiplied picture
+// captures in one image pipeline. Normalize once to premultiplied output and
+// use One/SrcOver blending; never multiply an already-premultiplied sample twice.
+fn retained_image_premultiplied(input: VertexOutput, color: vec4<f32>) -> vec4<f32> {
+    let ordinary = input.patchKind < 0.5;
+    let premultiplied = select(
+        (input.patchKind > 1.5 && input.patchKind < 2.5) || input.patchKind > 3.5,
+        is_tile_page(input) || input.color.g > 0.5,
+        ordinary);
+    return vec4<f32>(color.rgb * select(color.a, 1.0, premultiplied), color.a);
+}
+
+@fragment
+fn fs_retained_image(input: VertexOutput) -> @location(0) vec4<f32> {
+    return retained_image_premultiplied(input, texture_fs_main(input));
+}
+
+@fragment
+fn fs_retained_image_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
+    return retained_image_premultiplied(input, texture_fs_main_with_mask(input, 1.0));
+}
+
+@fragment
+fn fs_retained_image_chain(input: VertexOutput) -> @location(0) vec4<f32> {
+    let fragmentOrigin = select(vec2<f32>(0.0), uniforms.canvasSize, uniforms.boundedSourcePass > 0.5);
+    let position = input.position.xy + fragmentOrigin;
+    let maskAlpha = sample_mask_alpha(position) * sample_mask_chain_alpha(position);
+    return retained_image_premultiplied(input, texture_fs_main_with_mask(input, maskAlpha));
+}
+
 // Semantic retained images lower all fused affine color operations to this
 // straight-RGBA 4x5 matrix. A 96-byte mask-shaped record stores the five vec4
 // rows; the independent group-three record lets a state mask remain bound at

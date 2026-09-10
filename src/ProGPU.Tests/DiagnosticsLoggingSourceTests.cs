@@ -978,7 +978,7 @@ public class DiagnosticsLoggingSourceTests
 
         Assert.Contains("using System.Buffers;", source, StringComparison.Ordinal);
         Assert.Contains("using System.Runtime.InteropServices;", source, StringComparison.Ordinal);
-        Assert.Contains("public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable", source, StringComparison.Ordinal);
+        Assert.Contains("public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable", source, StringComparison.Ordinal);
         Assert.Contains("CollectionsMarshal.AsSpan(_primitives)", source, StringComparison.Ordinal);
         Assert.Contains("CollectionsMarshal.AsSpan(_pathSegments)", source, StringComparison.Ordinal);
         Assert.Contains("uint startSegment = AppendPathSegments(segments);", source, StringComparison.Ordinal);

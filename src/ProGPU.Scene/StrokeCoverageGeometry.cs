@@ -278,9 +278,12 @@ public static partial class StrokeCoverageGeometry
         for (; index <= intervals.Length - 2; index += 2)
         {
             var values = Vector128.LoadUnsafe(ref first, (nuint)index) * width;
-            if (!Vector128.GreaterThanAll(values, Vector128.Create(0.0001))
+            if (!Vector128.EqualsAll(Vector128.BitwiseOr(
+                    Vector128.GreaterThan(values, Vector128.Create(0.0001)),
+                    Vector128.Equals(values, Vector128<double>.Zero)).AsInt64(), Vector128.Create(-1L))
                 || !Vector128.LessThanAll(values, Vector128.Create((double)float.MaxValue))) return false;
-            minimum = Vector128.Min(minimum, values);
+            minimum = Vector128.Min(minimum, Vector128.ConditionalSelect(
+                Vector128.Equals(values, Vector128<double>.Zero), Vector128.Create(double.PositiveInfinity), values));
             sum += values;
         }
         double smallest = Math.Min(minimum[0], minimum[1]);
@@ -288,13 +291,16 @@ public static partial class StrokeCoverageGeometry
         if (index < intervals.Length)
         {
             double tail = intervals[index] * pen.Thickness;
-            if (!(tail > 0.0001 && tail < float.MaxValue)) return false;
-            smallest = Math.Min(smallest, tail);
+            if (!(tail == 0 || (tail > 0.0001 && tail < float.MaxValue))) return false;
+            if (tail > 0) smallest = Math.Min(smallest, tail);
             total += tail;
         }
         if ((intervals.Length & 1) != 0) total *= 2;
-        return total < float.MaxValue && float.IsFinite((float)(pen.DashOffset * pen.Thickness))
-            && double.IsFinite(length) && length / smallest + sourceRecords <= 1_000_000;
+        // Zero-length entries are valid directed terminal dashes. Bound both
+        // positive-length work and the zero-entry transitions in every cycle.
+        return total > 0 && total < float.MaxValue && float.IsFinite((float)(pen.DashOffset * pen.Thickness))
+            && double.IsFinite(length) && length / smallest + sourceRecords <= 1_000_000
+            && (Math.Ceiling(length / total) + 1) * intervals.Length * 2 + sourceRecords <= 1_000_000;
     }
 
     // Original ProGPU provenance: native MIL try_transformed_line_stroke_bounds

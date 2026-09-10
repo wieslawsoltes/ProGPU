@@ -3025,7 +3025,7 @@ public class NativeRendererInteropTests
             (uint)NativeSceneImageFlags.ExtendedSourceRect);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(16, Unsafe.SizeOf<NativeSceneMesh3DMaterials>());
-        Assert.Equal(4U, (uint)NativeMesh3DFlags.SpecularMaterial);
+        Assert.Equal(1U << 5, (uint)NativeMesh3DFlags.SpecularMaterial);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(5U, (uint)NativeGeometryPrimitiveKind.DotGrid);
@@ -7398,7 +7398,7 @@ public class NativeRendererInteropTests
             execution,
             StringComparison.Ordinal);
         Assert.Contains(
-            "depth.stencilBack.compare = WGPUCompareFunction_Always;",
+            "depth.stencilBack = depth.stencilFront;",
             execution,
             StringComparison.Ordinal);
         Assert.Contains("PROGPU_NATIVE_MESH_3D_FRONT_FACE", contract,
