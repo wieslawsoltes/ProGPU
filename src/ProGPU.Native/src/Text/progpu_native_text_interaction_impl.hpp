@@ -40,18 +40,41 @@ bool validate_inputs(
     std::span<const Line> lines,
     std::span<const std::int32_t> cluster_ends,
     std::span<const std::int8_t> bidi_levels,
-    bool measured_lines = false) noexcept {
+    bool measured_lines = false,
+    std::span<const text_fragment_placement> fragments = {}) noexcept {
     if (cluster_ends.size() != glyphs.size() ||
-        bidi_levels.size() != glyphs.size()) {
+        bidi_levels.size() != glyphs.size() || (!fragments.empty() && fragments.size() != lines.size())) {
         return false;
+    }
+    int row_direction = 0;
+    for (std::size_t i = 0; i < fragments.size(); ++i) {
+        const auto f = fragments[i];
+        if (!std::isfinite(f.left) || !std::isfinite(f.top) || !std::isfinite(f.width) ||
+            f.width <= 0 || !std::isfinite(f.left + f.width)) return false;
+        if (i == 0) { if (f.row_index != 0U) return false; continue; }
+        const auto p = fragments[i - 1U];
+        if (f.row_index == p.row_index) {
+            if (f.top != p.top || lines[i].height != lines[i - 1U].height ||
+                lines[i].baseline_y != lines[i - 1U].baseline_y) return false;
+            const int direction = f.left >= p.left + p.width ? 1 :
+                f.left + f.width <= p.left ? -1 : 0;
+            if (direction == 0 || (row_direction != 0 && direction != row_direction)) return false;
+            row_direction = direction;
+        } else {
+            if (f.row_index != p.row_index + 1U || f.top < p.top + lines[i - 1U].height) return false;
+            row_direction = 0;
+        }
     }
     std::size_t expected = 0U;
     double line_top = 0.0;
+    std::size_t fragment_index = 0U;
     for (const auto& line : lines) {
+        if (!fragments.empty()) line_top = fragments[fragment_index++].top;
         const double line_bottom = line_top + static_cast<double>(line.height);
-        const bool valid_metrics = measured_lines
+        const bool valid_metrics = measured_lines || !fragments.empty()
             ? std::isfinite(line.baseline_y) && std::isfinite(line.height) &&
-                line.height >= 0.0F && line_bottom <= std::numeric_limits<float>::max() &&
+                line.height >= 0.0F && std::isfinite(line_bottom) &&
+                line_bottom <= std::numeric_limits<float>::max() &&
                 line.baseline_y >= static_cast<float>(line_top) &&
                 line.baseline_y <= static_cast<float>(line_bottom)
             : finite_line(line);
@@ -102,9 +125,10 @@ bool get_requirements(
     std::span<const std::int8_t> bidi_levels,
     text_interaction_requirements& result,
     font_error* error,
-    bool measured_lines = false) noexcept {
+    bool measured_lines = false,
+    std::span<const text_fragment_placement> fragments = {}) noexcept {
     result = {};
-    if (!validate_inputs(glyphs, lines, cluster_ends, bidi_levels, measured_lines)) {
+    if (!validate_inputs(glyphs, lines, cluster_ends, bidi_levels, measured_lines, fragments)) {
         set_error(error, font_error::invalid_argument);
         return false;
     }
@@ -129,7 +153,8 @@ bool build(
     std::uint32_t& cluster_box_count,
     std::uint32_t& caret_stop_count,
     font_error* error,
-    bool measured_lines = false) noexcept {
+    bool measured_lines = false,
+    std::span<const text_fragment_placement> fragments = {}) noexcept {
     cluster_box_count = 0U;
     caret_stop_count = 0U;
     text_interaction_requirements requirements{};
@@ -140,7 +165,7 @@ bool build(
             bidi_levels,
             requirements,
             error,
-            measured_lines)) {
+            measured_lines, fragments)) {
         return false;
     }
     if (cluster_boxes.size() < requirements.cluster_box_capacity ||
@@ -155,6 +180,7 @@ bool build(
          line_index < lines.size();
          ++line_index) {
         const Line& line = lines[line_index];
+        if (!fragments.empty()) line_top = fragments[line_index].top;
         const std::size_t end = static_cast<std::size_t>(line.glyph_start) +
             line.glyph_count;
         for (std::size_t index = line.glyph_start; index < end;) {
@@ -186,9 +212,9 @@ bool build(
                 0U,
                 0U,
                 left,
-                measured_lines ? static_cast<float>(line_top) : line.baseline_y,
+                measured_lines || !fragments.empty() ? static_cast<float>(line_top) : line.baseline_y,
                 std::max(0.0F, right - left),
-                measured_lines ? line.height : std::max(1.0F, line.height)};
+                measured_lines || !fragments.empty() ? line.height : std::max(1.0F, line.height)};
             cluster_boxes[cluster_box_count++] = box;
             const bool rtl = (box.bidi_level & 1) != 0;
             const Caret leading{

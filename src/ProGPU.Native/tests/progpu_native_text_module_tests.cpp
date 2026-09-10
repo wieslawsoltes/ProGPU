@@ -1,6 +1,9 @@
 import progpu.native.text;
 
 int main() {
+    unsigned int fragment_boxes = 1, fragment_carets = 1;
+    if (!progpu::native::text::try_build_fragment_text_interaction({}, {}, {}, {}, {}, {}, {},
+        fragment_boxes, fragment_carets) || fragment_boxes != 0 || fragment_carets != 0) return 1;
     const auto band_layout = &progpu::native::text::try_layout_text_exclusion_band;
     progpu::native::text::text_exclusion_band_result band_result{};
     if (band_layout == nullptr || band_result.status != progpu::native::text::text_exclusion_band_status::blocked) return 1;

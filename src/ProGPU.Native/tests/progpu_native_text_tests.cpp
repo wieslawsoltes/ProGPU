@@ -13273,9 +13273,10 @@ static void excluded_paragraphs_retain_rows_and_bounded_progress() {
     text_layout_options options{}; options.maximum_width = 100; options.line_height = 10;
     text_exclusion_flow_result result{};
     font_error error{};
+    std::int8_t paragraph_level = 0;
     const auto run = [&](std::span<const text_exclusion_rectangle> values, std::uint32_t budget = 100U) {
         return try_layout_excluded_logical_shaped_text(glyphs, breaks, levels, {}, {}, metrics,
-            0, options, {}, values, exclusion_scratch, intervals, fragments, advances,
+            paragraph_level, options, {}, values, exclusion_scratch, intervals, fragments, advances,
             {groups, indices}, output, lines, placements, result, budget, &error);
     };
     require(run(exclusions) && result.row_count == 2 && result.fragment_count == 4 &&
@@ -13284,6 +13285,53 @@ static void excluded_paragraphs_retain_rows_and_bounded_progress() {
         placements[2].row_index == 1 && placements[3].row_index == 1 && placements[2].top == 30);
     require(lines[0].baseline_y == 28 && lines[1].baseline_y == 28 && lines[2].baseline_y == 38);
     require(lines[2].glyph_start == 6 && lines[3].glyph_start == 9 && output[9].glyph_index == 9);
+    std::array<std::int32_t, 12> ends{};
+    for (std::size_t i = 0; i < ends.size(); ++i) ends[i] = output[i].cluster + 2;
+    std::array<text_cluster_box, 12> boxes{};
+    std::array<text_caret_stop, 24> carets{};
+    std::uint32_t box_count{}, caret_count{};
+    const auto interaction = [&] {
+        return try_build_fragment_text_interaction(output, std::span(lines).first(4),
+            std::span(placements).first(4), ends, levels, boxes, carets, box_count, caret_count, &error);
+    };
+    require(interaction() && box_count == 12);
+    require(boxes[0].y == 20 && boxes[3].y == 20 && boxes[6].y == 30 &&
+        boxes[9].y == 30 && boxes[3].line_index == 1 && boxes[3].height == 10);
+    text_hit_test_result hit{};
+    require(try_hit_test_text(std::span(boxes).first(box_count), 66, 25, hit) &&
+        hit.inside && hit.input_position == 6 && hit.line_index == 1);
+    require(try_hit_test_text(std::span(boxes).first(box_count), 50, 25, hit) && !hit.inside);
+    require(try_hit_test_text(std::span(boxes).first(box_count), 1, 5, hit) && !hit.inside);
+    require(try_hit_test_text(std::span(boxes).first(box_count), 1, 35, hit) &&
+        hit.inside && hit.input_position == 12);
+    text_caret_stop caret{};
+    require(try_get_text_caret_stop(std::span(carets).first(caret_count), 6, false, caret) &&
+        caret.x == 65 && caret.y == 20 && caret.line_index == 1);
+    std::array<text_rectangle, 12> rectangles{};
+    std::uint32_t rectangle_count{};
+    require(try_get_text_selection_rectangles(std::span(boxes).first(box_count), 0, 24,
+        rectangles, rectangle_count) && rectangle_count == 4 &&
+        rectangles[0].y == 20 && rectangles[1].y == 20 && rectangles[2].y == 30);
+    boxes[0].y = 301;
+    placements[1].top = 21;
+    require(!interaction() && error == font_error::invalid_argument && box_count == 0 && caret_count == 0 && boxes[0].y == 301);
+    placements[1].top = 20;
+    placements[1].left = 20;
+    require(!interaction() && error == font_error::invalid_argument && boxes[0].y == 301);
+    placements[1].left = 65;
+    placements[2].row_index = 2;
+    require(!interaction() && error == font_error::invalid_argument);
+    placements[2].row_index = 1;
+    require(interaction());
+    paragraph_level = 1; levels.fill(1);
+    require(run(exclusions));
+    for (std::size_t i = 0; i < ends.size(); ++i) ends[i] = output[i].cluster + 2;
+    require(interaction() && boxes[0].x == 65 && boxes[0].y == 20 && boxes[0].bidi_level == 1);
+    require(try_get_text_caret_stop(std::span(carets).first(caret_count), 0, false, caret) &&
+        caret.x == 95 && caret.y == 20 && caret.line_index == 0);
+    require(try_hit_test_text(std::span(boxes).first(box_count), 66, 25, hit) &&
+        hit.inside && hit.input_position == 6 && hit.line_index == 0);
+    paragraph_level = 0; levels.fill(0);
     options.maximum_lines = 1;
     require(run(exclusions) && result.row_count == 1 && result.fragment_count == 2 &&
         result.next_glyph == 6 && lines[1].clipped);

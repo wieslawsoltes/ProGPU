@@ -2443,6 +2443,20 @@ bool try_hit_test_text(
     text_hit_test_result& result,
     font_error* error = nullptr) noexcept;
 
+// Fragment-aware geometry over the same retained output as exclusion flow.
+// line_index remains the fragment index; placements maps it to its actual row.
+// Cluster ends/levels follow positioned glyph order. Explicit tops, including
+// clearance gaps, replace the ordinary line-height prefix. Row/interval topology
+// is validated before output. This does not make legacy line-index-based
+// vertical/visual navigation row-aware; consumers must use placement metadata.
+bool try_build_fragment_text_interaction(
+    std::span<const positioned_text_glyph> glyphs, std::span<const positioned_text_line> lines,
+    std::span<const text_fragment_placement> placements,
+    std::span<const std::int32_t> cluster_ends, std::span<const std::int8_t> bidi_levels,
+    std::span<text_cluster_box> cluster_boxes, std::span<text_caret_stop> caret_stops,
+    std::uint32_t& cluster_box_count, std::uint32_t& caret_stop_count,
+    font_error* error = nullptr) noexcept;
+
 bool try_get_text_caret_stop(
     std::span<const text_caret_stop> caret_stops,
     std::int32_t input_position,

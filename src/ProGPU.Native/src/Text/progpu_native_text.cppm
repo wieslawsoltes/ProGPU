@@ -18,6 +18,7 @@ using ::progpu::native::text::try_layout_text_exclusion_band;
 using ::progpu::native::text::text_fragment_placement;
 using ::progpu::native::text::text_exclusion_flow_result;
 using ::progpu::native::text::try_layout_excluded_logical_shaped_text;
+using ::progpu::native::text::try_build_fragment_text_interaction;
 using ::progpu::native::text::try_layout_measured_logical_shaped_text;
 using ::progpu::native::text::try_measure_measured_text_lines;
 
