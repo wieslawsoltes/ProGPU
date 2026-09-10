@@ -645,6 +645,21 @@ static void ValidateNativeDocumentRows()
         if (!rejected || widths[0].ContentWidth != 37 || widths[1].ContentWidth != 88)
             throw new InvalidOperationException($"Packaged {backend} published a partial anchor batch.");
         NativeDocumentFlow.ResolveWidthsWithRows(blocks, 80, rows, columns, cells, boxes, backend);
+        NativeDocumentAnchorRequest[] placementRequests = [
+            new() { Right = 100, Bottom = 100, Width = 30, Height = 10, Alignment = 2, AllowDelay = 1, MaximumAttempts = 8 },
+            new() { Right = 100, Bottom = 100, Width = 30, Height = 15, Alignment = 2, AllowDelay = 1, MaximumAttempts = 8 }];
+        NativeDocumentAnchorRectangle[] obstacles = [new() { Left = 70, Right = 100, Bottom = 20 }];
+        NativeDocumentAnchorRectangle[] anchorPositions = new NativeDocumentAnchorRectangle[2];
+        NativeDocumentFlow.PlaceAnchors(placementRequests, obstacles, anchorPositions, backend);
+        if (anchorPositions[0].Left != 70 || anchorPositions[0].Top != 20 || anchorPositions[1].Top != 30 || anchorPositions[1].Bottom != 45)
+            throw new InvalidOperationException($"Packaged {backend} lost source-ordered anchor collision placement.");
+        placementRequests[0].Alignment = 0;
+        placementRequests[1].Reserved = 1;
+        rejected = false;
+        try { NativeDocumentFlow.PlaceAnchors(placementRequests, obstacles, anchorPositions, backend); }
+        catch (NativeRendererException) { rejected = true; }
+        if (!rejected || anchorPositions[0].Left != 70 || anchorPositions[1].Top != 30)
+            throw new InvalidOperationException($"Packaged {backend} published partial anchor placement.");
         if (boxes[1].X != 1 || boxes[1].Width != 40 || boxes[2].X != 43 || boxes[2].Width != 60)
             throw new InvalidOperationException($"Packaged {backend} lost native cell width constraints.");
         var placed = NativeDocumentFlow.ArrangeWithRows(blocks, 80, lines, objects, rows, columns, cells, boxes, positions, backend);

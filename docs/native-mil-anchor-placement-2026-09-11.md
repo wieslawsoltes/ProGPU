@@ -83,3 +83,30 @@ warnings/errors; both export allowlists passed; the MIL-only consumer passed
 including both-provider anchor checks. This uses local project-reference builds,
 not exact-head published package provenance. Placement transport, source child
 measurement and Figure/Floater interaction remain required.
+
+## Source-ordered placement transport
+
+`progpu_native_document_place_anchors` and `NativeDocumentFlow.PlaceAnchors`
+now carry measured positive outer boxes and their resolved reference frames.
+Each successful placement joins the original collision exclusions for subsequent
+anchors; input order is source order, not a sort by geometry. Three bounded
+temporary arrays are allocated once for the changed batch. The shared native
+interval/placement algorithm owns all collision fitting; managed code only pins
+generated 40-byte requests and 16-byte rectangles. Results are copied out only
+after every anchor fits. Later invalid flags or unsupported fits leave every
+output unchanged. Existing exclusions are validated even with no anchors.
+
+Space is O(E+N); time follows the shared per-request placement bound over E+i
+rectangles for request i, including its explicit attempt budget. This is not
+per-frame work or a per-anchor native crossing. SIMD validation and ordered
+progression remain in the shared core. Source wrap-side policy must separately
+produce the text exclusions; collision rectangles do not establish that policy.
+
+The C fixture and both-provider managed consumer cover chained placement,
+unchanged output after a later invalid request, non-delaying rejection and ABI
+sizes. Native libraries and CTest built/passed locally (1/1, 0.36 seconds).
+The managed consumer built without warnings/errors and passed against both
+local providers; both exported-symbol checks and generated contract verification
+passed. These are project-reference checks, not published package qualification.
+Source-owned child measurement, original TextPointer mapping, retained drawing,
+neutral provider admission and full application qualification remain unfinished.

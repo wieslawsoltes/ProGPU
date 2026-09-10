@@ -290,6 +290,52 @@ bool place(std::span<const block> blocks, std::span<const line> lines, std::span
 }
 }
 
+extern "C" progpu_native_status progpu_native_document_place_anchors(
+    const progpu_native_document_anchor_request* requests, uint32_t count,
+    const progpu_native_document_anchor_rectangle* exclusions, uint32_t exclusion_count,
+    progpu_native_document_anchor_rectangle* results, uint32_t capacity) {
+    using namespace progpu::native::text;
+    if (!valid_buffer(requests, count) || !valid_buffer(exclusions, exclusion_count) ||
+        !valid_buffer(results, count) || capacity < count || count > budget - exclusion_count ||
+        !disjoint(std::array{bytes(requests, count), bytes(exclusions, exclusion_count), bytes(results, count)}))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    try {
+        const auto total = static_cast<std::size_t>(count) + exclusion_count;
+        std::vector<text_exclusion_rectangle> retained(total);
+        std::vector<text_line_interval> scratch(total), intervals(total + 1U);
+        for (uint32_t i = 0U; i < exclusion_count; ++i) {
+            const auto& r = exclusions[i];
+            retained[i] = {r.left, r.top, r.right, r.bottom};
+        }
+        // Validate exclusions even for an empty request batch through the same
+        // SIMD coordinate and half-open rectangle contract as actual placement.
+        uint32_t interval_count = 0U;
+        float next = 0;
+        font_error error{};
+        if (!try_resolve_text_line_intervals({0, 0, 1, 1},
+                std::span<const text_exclusion_rectangle>(retained.data(), exclusion_count),
+                scratch, intervals, interval_count, next, &error))
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        for (uint32_t i = 0U; i < count; ++i) {
+            const auto& r = requests[i];
+            if (r.alignment > 2U || r.allow_delay > 1U || r.reserved != 0U)
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            if (!try_place_text_anchor({r.left, r.top, r.right, r.bottom}, r.width, r.height,
+                    static_cast<text_anchor_alignment>(r.alignment), r.allow_delay != 0U,
+                    std::span<const text_exclusion_rectangle>(retained.data(), exclusion_count + i),
+                    scratch, intervals, retained[exclusion_count + i], r.maximum_attempts, &error))
+                return error == font_error::verification_failed ? PROGPU_NATIVE_STATUS_UNSUPPORTED :
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        }
+        for (uint32_t i = 0U; i < count; ++i) {
+            const auto& r = retained[exclusion_count + i];
+            results[i] = {r.left, r.top, r.right, r.bottom};
+        }
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) { return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
+    catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
+}
+
 extern "C" progpu_native_status progpu_native_document_resolve_anchor_widths(
     const progpu_native_document_anchor_width_request* requests, uint32_t count,
     progpu_native_document_anchor_width_result* results, uint32_t capacity) {

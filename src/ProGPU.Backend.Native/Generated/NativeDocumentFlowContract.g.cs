@@ -47,6 +47,32 @@ public partial struct NativeDocumentAnchorWidthResult
     public uint Reserved;
 }
 
+// Native source: progpu_native_document_anchor_request.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeDocumentAnchorRequest
+{
+    public float Left;
+    public float Top;
+    public float Right;
+    public float Bottom;
+    public float Width;
+    public float Height;
+    public uint Alignment;
+    public uint AllowDelay;
+    public uint MaximumAttempts;
+    public uint Reserved;
+}
+
+// Native source: progpu_native_document_anchor_rectangle.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeDocumentAnchorRectangle
+{
+    public float Left;
+    public float Top;
+    public float Right;
+    public float Bottom;
+}
+
 // Native source: progpu_native_document_line.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeDocumentLine

@@ -24,6 +24,10 @@ outer overflow. Width policy alone does not connect source Figure/Floater layout
 Anchor width batches validate modes/flags before narrowing and preserve every
 output on a later invalid request. Borrow disjoint spans for one synchronous
 call; retain the shared native policy rather than duplicating it in managed code.
+Anchor placement batches retain source order and earlier collision boxes, with
+whole-batch publication only after all fits succeed. Keep collision exclusions
+distinct from source wrap-side policy; a successful box batch is not text flow
+or Figure/Floater source ownership. No per-anchor managed/native crossing.
 
 Anchored text exclusion uses resolved half-open layout rectangles, not paint or
 hit-test envelopes. Preserve every free interval across the whole candidate line

@@ -291,6 +291,31 @@ void pagination_tests() {
 
 int main() {
     {
+        using request = progpu_native_document_anchor_request;
+        using rectangle = progpu_native_document_anchor_rectangle;
+        static_assert(sizeof(request) == 40 && sizeof(rectangle) == 16);
+        std::array<request, 2> anchors{{{0, 0, 100, 100, 30, 10, 2, 1, 8, 0},
+            {0, 0, 100, 100, 30, 15, 2, 1, 8, 0}}};
+        rectangle obstacle{70, 0, 100, 20};
+        std::array<rectangle, 2> placed{};
+        require(progpu_native_document_place_anchors(anchors.data(), 2, &obstacle, 1, placed.data(), 2) == success);
+        require(placed[0].left == 70 && placed[0].top == 20 && placed[0].bottom == 30);
+        require(placed[1].left == 70 && placed[1].top == 30 && placed[1].bottom == 45);
+        anchors[0].alignment = 0;
+        anchors[1].reserved = 1;
+        require(progpu_native_document_place_anchors(anchors.data(), 2, &obstacle, 1, placed.data(), 2) == invalid);
+        require(placed[0].left == 70 && placed[1].top == 30);
+        anchors[1].reserved = 0;
+        anchors[1].allow_delay = 0;
+        require(progpu_native_document_place_anchors(anchors.data(), 2, &obstacle, 1, placed.data(), 2) == PROGPU_NATIVE_STATUS_UNSUPPORTED);
+        require(placed[0].left == 70 && placed[1].top == 30);
+        anchors[1].alignment = 256;
+        require(progpu_native_document_place_anchors(anchors.data(), 2, &obstacle, 1, placed.data(), 2) == invalid);
+        require(progpu_native_document_place_anchors(nullptr, 0, nullptr, 0, nullptr, 0) == success);
+        obstacle.left = std::numeric_limits<float>::quiet_NaN();
+        require(progpu_native_document_place_anchors(nullptr, 0, &obstacle, 1, nullptr, 0) == invalid);
+    }
+    {
         using request = progpu_native_document_anchor_width_request;
         using output = progpu_native_document_anchor_width_result;
         static_assert(sizeof(request) == 24 && sizeof(output) == 16);

@@ -15,6 +15,29 @@ public static unsafe class NativeDocumentFlow
     public const int MaximumItems = 1 << 20;
     public const int MaximumDepth = 128;
 
+    /// <summary>Places measured anchors in source order, retaining prior boxes
+    /// as collision exclusions. No child measurement or wrap policy is inferred.
+    /// A rejected batch leaves all results untouched.</summary>
+    public static void PlaceAnchors(ReadOnlySpan<NativeDocumentAnchorRequest> requests,
+        ReadOnlySpan<NativeDocumentAnchorRectangle> exclusions, Span<NativeDocumentAnchorRectangle> results,
+        NativeMilBackend backend = NativeMilBackend.WgpuNative)
+    {
+        Validate(requests.Length, 0, results.Length, backend);
+        if (exclusions.Length > MaximumItems - requests.Length)
+            throw new ArgumentOutOfRangeException(nameof(exclusions));
+        NativeRendererStatus status;
+        fixed (NativeDocumentAnchorRequest* input = requests)
+        fixed (NativeDocumentAnchorRectangle* obstacles = exclusions)
+        fixed (NativeDocumentAnchorRectangle* output = results)
+            status = backend == NativeMilBackend.Dawn
+                ? NativeDawnDocumentFlowMethods.PlaceAnchors(input, (uint)requests.Length, obstacles,
+                    (uint)exclusions.Length, output, (uint)results.Length)
+                : NativeDocumentFlowMethods.PlaceAnchors(input, (uint)requests.Length, obstacles,
+                    (uint)exclusions.Length, output, (uint)results.Length);
+        if (status != NativeRendererStatus.Success)
+            throw new NativeRendererException(status, "Native anchor placement failed.");
+    }
+
     /// <summary>Resolves a batch of anchor width constraints through the shared
     /// native policy. Requests use mode 0=fixed, 1=fill, 2=fit-content and a 0/1
     /// measurement flag. Source retains and remeasures the actual child subtree.
@@ -232,6 +255,10 @@ public static unsafe class NativeDocumentFlow
 
 internal static unsafe partial class NativeDocumentFlowMethods
 {
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_place_anchors")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus PlaceAnchors(NativeDocumentAnchorRequest* requests, uint count,
+        NativeDocumentAnchorRectangle* exclusions, uint exclusionCount, NativeDocumentAnchorRectangle* results, uint capacity);
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_resolve_anchor_widths")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus ResolveAnchorWidths(NativeDocumentAnchorWidthRequest* requests,
@@ -277,6 +304,10 @@ internal static unsafe partial class NativeDocumentFlowMethods
 
 internal static unsafe partial class NativeDawnDocumentFlowMethods
 {
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_place_anchors")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus PlaceAnchors(NativeDocumentAnchorRequest* requests, uint count,
+        NativeDocumentAnchorRectangle* exclusions, uint exclusionCount, NativeDocumentAnchorRectangle* results, uint capacity);
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_resolve_anchor_widths")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus ResolveAnchorWidths(NativeDocumentAnchorWidthRequest* requests,

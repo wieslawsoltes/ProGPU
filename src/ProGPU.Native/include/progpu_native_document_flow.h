@@ -53,6 +53,41 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_document_resolve_anchor_wid
     const progpu_native_document_anchor_width_request* requests, uint32_t count,
     progpu_native_document_anchor_width_result* results, uint32_t capacity);
 
+/* PROGPU_CSHARP_STRUCT: Public.NativeDocumentAnchorRequest */
+typedef struct progpu_native_document_anchor_request {
+    float left;
+    float top;
+    float right;
+    float bottom;
+    float width;
+    float height;
+    uint32_t alignment;
+    uint32_t allow_delay;
+    uint32_t maximum_attempts;
+    uint32_t reserved;
+} progpu_native_document_anchor_request;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeDocumentAnchorRectangle */
+typedef struct progpu_native_document_anchor_rectangle {
+    float left;
+    float top;
+    float right;
+    float bottom;
+} progpu_native_document_anchor_rectangle;
+
+/* Place positive-size measured outer boxes in source order. Each accepted box
+ * joins the supplied exclusions for subsequent requests. Alignment 0/1/2 means
+ * left/center/right; allow_delay is 0/1; reserved must be zero. Each request owns
+ * an explicit finite reference and attempt budget. Combined count <= 1,048,576.
+ * Disjoint borrowed spans. Bounded O(E+N) temporary storage per changed batch;
+ * no GPU, child measurement or per-anchor allocation. Outputs publish atomically.
+ * UNSUPPORTED means no fit/budget exhausted, not permission to clip or overlap.
+ * This is box collision placement, not source wrap-side or pagination policy. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_document_place_anchors(
+    const progpu_native_document_anchor_request* requests, uint32_t count,
+    const progpu_native_document_anchor_rectangle* exclusions, uint32_t exclusion_count,
+    progpu_native_document_anchor_rectangle* results, uint32_t capacity);
+
 /* PROGPU_CSHARP_STRUCT: Public.NativeDocumentLine */
 typedef struct progpu_native_document_line {
     double width;
