@@ -161,15 +161,17 @@ try {
   // the PNG decoder bundled with our pinned Playwright dependency.
   let visiblePixels = 0;
   let backgroundPixels = 0;
+  let initialDrawingCapture;
   const firstDrawingStarted = Date.now();
   const firstDrawingDeadline = firstDrawingStarted + 120_000;
   while ((visiblePixels < 100 || backgroundPixels < 1000) && Date.now() < firstDrawingDeadline) {
     // A cold software-rendered capture can outlast Playwright's 30-second
     // default. Use the remaining startup budget, without extending that budget
     // for retries or changing the required visible/background pixel counts.
-    const pixels = browserUtilities.PNG.sync.read(await screenshot({
+    initialDrawingCapture = await screenshot({
       clip: drawing, timeout: Math.max(1, firstDrawingDeadline - Date.now()),
-    })).data;
+    });
+    const pixels = browserUtilities.PNG.sync.read(initialDrawingCapture).data;
     visiblePixels = 0;
     backgroundPixels = 0;
     for (let i = 0; i < pixels.length; i += 4) {
@@ -180,16 +182,20 @@ try {
   }
   assert.ok(visiblePixels >= 100 && backgroundPixels >= 1000,
     'The representative CAD drawing remained blank (light or dark).');
+  assert.ok(initialDrawingCapture, 'The representative CAD drawing produced no evidence capture.');
   await fs.writeFile(path.join(evidence, 'startup-capture.json'), JSON.stringify({
     elapsedMs: Date.now() - firstDrawingStarted, budgetMs: 120_000,
     visiblePixels, backgroundPixels,
   }, null, 2) + '\n');
   assert.deepEqual(errors, []);
-  await screenshot({ path: path.join(evidence, 'initial.png') });
+  await fs.writeFile(path.join(evidence, 'initial.png'), initialDrawingCapture);
   // File actions and basic edits occupy only the top 104 logical pixels.
   await page.mouse.click(1210, 22); // More tools, pinned at the right edge.
   await waitForPresentation();
-  await screenshot({ path: path.join(evidence, 'expanded-tools.png') });
+  await screenshot({
+    path: path.join(evidence, 'expanded-tools.png'),
+    clip: { x: 0, y: 0, width: 1280, height: 104 },
+  });
   await page.mouse.click(1210, 22); // Fewer tools.
   await waitForPresentation();
   await page.mouse.move(700, 400);
@@ -402,7 +408,7 @@ try {
   const editReopened = await saveEdit('edit-reopened', 17);
   assert.equal(editReopened.fileName, 'edit-final.dxf', 'Opening the edited file did not replace the session.');
   assert.deepEqual(lineCoordinates(editReopened.added[0]), translated);
-  await screenshot({ path: path.join(evidence, 'edited.png') });
+  await screenshot({ path: path.join(evidence, 'edited.png'), clip: drawing });
 
   // An invalid primitive must produce a diagnostic, not hang exception
   // propagation or prevent opening a subsequent valid drawing. Construct the
@@ -449,7 +455,7 @@ try {
     return canvas.width === 2880 && canvas.height === 1800;
   }, undefined, { timeout: visualTimeoutMs });
   await waitForPresentation();
-  await screenshot({ path: path.join(evidence, 'resized.png') });
+  await screenshot({ path: path.join(evidence, 'resized.png'), clip: drawing });
   assert.deepEqual(errors, []);
   const result = await page.evaluate(() => ({
     frames: Number(document.querySelector('#counter-frames').textContent),
