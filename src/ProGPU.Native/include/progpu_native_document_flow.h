@@ -32,6 +32,19 @@ typedef struct progpu_native_document_line {
     double height;
 } progpu_native_document_line;
 
+/* A real source-measured non-text block. Entries are strictly ordered by block
+ * index and target line-free leaves only. Width/height are finite nonnegative
+ * DIPs, measured after resolve_widths. Zero size is an actual empty object, not
+ * a transparent container through which adjoining margins may collapse.
+ * Source retains object identity, drawing and text-position ownership. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeDocumentObject */
+typedef struct progpu_native_document_object {
+    uint32_t block_index;
+    uint32_t reserved;
+    double width;
+    double height;
+} progpu_native_document_object;
+
 /* Content box, excluding margins and insets. Width-only resolution sets Y and
  * Height to zero. A zero Width is a real exhausted constraint, never unbounded. */
 /* PROGPU_CSHARP_STRUCT: Public.NativeDocumentBox */
@@ -125,6 +138,20 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_document_resolve_widths(
 PROGPU_NATIVE_API progpu_native_status progpu_native_document_arrange(
     const progpu_native_document_block* blocks, uint32_t block_count, double width,
     const progpu_native_document_line* lines, uint32_t line_count,
+    progpu_native_document_box* boxes, uint32_t box_capacity,
+    progpu_native_document_line_position* positions, uint32_t position_capacity,
+    progpu_native_document_flow_result* result);
+
+/* Same placement and failure-publication contract, with explicit measured
+ * non-text leaves. Object metrics never enter the paragraph line array. Insets
+ * and margins surround the measured content; following blocks move by its real
+ * height, and overflow contributes to extent width. Object geometry is returned
+ * in its existing block box. This does not implement inline objects, floats,
+ * tables, fragmentation, source UI measurement or text editing semantics. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_document_arrange_with_objects(
+    const progpu_native_document_block* blocks, uint32_t block_count, double width,
+    const progpu_native_document_line* lines, uint32_t line_count,
+    const progpu_native_document_object* objects, uint32_t object_count,
     progpu_native_document_box* boxes, uint32_t box_capacity,
     progpu_native_document_line_position* positions, uint32_t position_capacity,
     progpu_native_document_flow_result* result);

@@ -26,7 +26,88 @@ block leaf(std::uint32_t parent, std::uint32_t end, std::uint32_t start,
 }
 result fresh() { result r{}; r.struct_size = sizeof(r); return r; }
 
+void measured_object_tests() {
+    using object = progpu_native_document_object;
+    static_assert(sizeof(object) == 24U && offsetof(object, width) == 8U && offsetof(object, height) == 16U);
+    std::array blocks{leaf(UINT32_MAX, 4U, 0U, 1.0, 2.0, 0U),
+        leaf(0U, 2U, 0U, 7.0, 11.0), leaf(0U, 3U, 1U, 13.0, 17.0, 0U),
+        leaf(0U, 4U, 1U, 19.0, 23.0)};
+    blocks[0].inset_left = 2.0; blocks[0].inset_right = 5.0;
+    blocks[0].inset_top = 3.0; blocks[0].inset_bottom = 4.0;
+    blocks[2].inset_left = 6.0; blocks[2].inset_right = 7.0;
+    blocks[2].inset_top = 2.0; blocks[2].inset_bottom = 3.0;
+    std::array<line, 2> lines{{{30.0, 10.0}, {40.0, 12.0}}};
+    std::array<object, 1> objects{{{2U, 0U, 200.0, 20.0}}};
+    std::array<box, 5> boxes{}; boxes.back() = {91, 92, 93, 94};
+    std::array<position, 3> positions{}; positions.back() = {95, 96};
+    auto r = fresh();
+    const auto arrange = [&] { return progpu_native_document_arrange_with_objects(blocks.data(), 4U, 100.0,
+        lines.data(), 2U, objects.data(), 1U, boxes.data(), 5U, positions.data(), 3U, &r); };
+    require(arrange() == success);
+    require(r.block_count == 4U && r.line_count == 2U && r.width == 220.0 && r.height == 119.0);
+    require(boxes[2].x == 8.0 && boxes[2].y == 36.0 && boxes[2].width == 80.0 && boxes[2].height == 20.0);
+    require(positions[0].y == 11.0 && positions[1].y == 78.0);
+    require(boxes.back().x == 91 && positions.back().y == 96);
+    objects[0].height = 50.0;
+    require(arrange() == success && positions[1].y == 108.0 && r.height == 149.0);
+
+    // Ordered object metrics cannot target containers, text leaves or absent
+    // nodes. Late invalid metrics and overlapping inputs publish nothing.
+    const auto reject = [&] {
+        boxes[0].x = 301.0; positions[0].y = 302.0; r.height = 303.0;
+        require(arrange() == invalid);
+        require(boxes[0].x == 301.0 && positions[0].y == 302.0 && r.height == 303.0);
+    };
+    objects[0].block_index = 0U; reject();
+    objects[0].block_index = 1U; reject();
+    objects[0].block_index = 4U; reject();
+    objects[0].block_index = 2U; objects[0].reserved = 1U; reject(); objects[0].reserved = 0U;
+    constexpr std::array invalid_metrics{-1.0, std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::quiet_NaN()};
+    for (const auto value : invalid_metrics) {
+        objects[0].width = value; reject(); objects[0].width = 200.0;
+        objects[0].height = value; reject(); objects[0].height = 50.0;
+    }
+    std::array<object, 2> duplicate{{objects[0], objects[0]}};
+    require(progpu_native_document_arrange_with_objects(blocks.data(), 4U, 100.0, lines.data(), 2U,
+        duplicate.data(), 2U, boxes.data(), 5U, positions.data(), 3U, &r) == invalid);
+    require(progpu_native_document_arrange_with_objects(blocks.data(), 4U, 100.0, lines.data(), 2U,
+        reinterpret_cast<const object*>(boxes.data()), 1U, boxes.data(), 5U, positions.data(), 3U, &r) == invalid);
+    require(progpu_native_document_arrange_with_objects(blocks.data(), 4U, 100.0, lines.data(), 2U,
+        nullptr, 1U, boxes.data(), 5U, positions.data(), 3U, &r) == invalid);
+
+    // A zero-size replaced object is not a through-collapsing empty container.
+    std::array flat{leaf(UINT32_MAX, 1U, 0U, 0.0, 7.0), leaf(UINT32_MAX, 2U, 1U, 11.0, 13.0, 0U),
+        leaf(UINT32_MAX, 3U, 1U, 17.0, 0.0)};
+    object empty{1U, 0U, 0.0, 0.0};
+    require(progpu_native_document_arrange_with_objects(flat.data(), 3U, 100.0, lines.data(), 2U,
+        &empty, 1U, boxes.data(), 5U, positions.data(), 3U, &r) == success);
+    require(positions[1].y == 38.0 && r.height == 50.0);
+    require(progpu_native_document_arrange(flat.data(), 3U, 100.0, lines.data(), 2U,
+        boxes.data(), 5U, positions.data(), 3U, &r) == success);
+    require(positions[1].y == 27.0 && r.height == 39.0);
+
+    // Independent flat scalar oracle, including multiple distinct object sizes.
+    std::array<object, 3> measured{};
+    for (std::uint32_t i = 0U; i < 3U; ++i) { flat[i].line_start = 0U; flat[i].line_count = 0U; }
+    for (std::uint32_t seed = 0U; seed < 32U; ++seed) {
+        double bottom = 0.0, pending = 0.0;
+        std::array<double, 3> expected{};
+        for (std::uint32_t i = 0U; i < 3U; ++i) {
+            measured[i] = {i, 0U, static_cast<double>(seed + i), static_cast<double>((seed * 3U + i) % 17U)};
+            expected[i] = bottom + std::max(pending, flat[i].margin_top);
+            bottom = expected[i] + measured[i].height; pending = flat[i].margin_bottom;
+        }
+        require(progpu_native_document_arrange_with_objects(flat.data(), 3U, 100.0, nullptr, 0U,
+            measured.data(), 3U, boxes.data(), 5U, nullptr, 0U, &r) == success);
+        for (std::uint32_t i = 0U; i < 3U; ++i)
+            require(boxes[i].y == expected[i] && boxes[i].height == measured[i].height);
+        require(r.line_count == 0U && r.height == bottom + pending);
+    }
+}
+
 void pagination_tests() {
+    measured_object_tests();
     using item = progpu_native_document_fragment_line;
     using placed = progpu_native_document_fragment_position;
     using summary = progpu_native_document_pagination_result;

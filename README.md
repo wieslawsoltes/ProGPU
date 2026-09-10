@@ -47,6 +47,10 @@ Choose the area closest to your application to find the relevant packages.
 
 ### UI framework, controls, and layout
 
+Native document flow also supports [source-measured non-text block placement](docs/native-mil-document-block-objects-2026-09-10.md).
+This additive contract keeps objects separate from shaped paragraph lines; source
+control lifetime/editing, inline objects, anchored blocks and tables remain separate.
+
 | Package | Purpose | NuGet |
 | --- | --- | --- |
 | `ProGPU.Layout` | Measure/arrange layout substrate shared by higher-level UI adapters. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Layout.svg)](https://www.nuget.org/packages/ProGPU.Layout/) |

@@ -23,6 +23,7 @@ constexpr std::uint32_t budget = 1U << 20U;
 using block = progpu_native_document_block;
 using box = progpu_native_document_box;
 using line = progpu_native_document_line;
+using measured_object = progpu_native_document_object;
 using position = progpu_native_document_line_position;
 struct state final { double height{}, content_height{}, before{}, after{}; bool through{}; };
 struct region final { std::uintptr_t start{}; std::size_t bytes{}; };
@@ -92,7 +93,8 @@ bool widths(std::span<const block> blocks, double width, std::span<box> output) 
     return true;
 }
 
-bool measure(std::span<const block> blocks, std::span<const line> lines, std::span<state> states) noexcept {
+bool measure(std::span<const block> blocks, std::span<const line> lines, std::span<state> states,
+    std::span<const measured_object> objects) noexcept {
     std::uint32_t cursor = 0U;
     for (std::uint32_t i = 0U; i < blocks.size(); ++i) {
         const auto& b = blocks[i];
@@ -103,12 +105,26 @@ bool measure(std::span<const block> blocks, std::span<const line> lines, std::sp
     if (cursor != lines.size()) return false;
     for (const auto& l : lines)
         if (!finite_nonnegative_pair(l.width, l.height) || l.height == 0.0) return false;
+    for (std::size_t i = 0U; i < objects.size(); ++i) {
+        const auto& object = objects[i];
+        if (object.block_index >= blocks.size() || object.reserved != 0U ||
+            (i != 0U && objects[i - 1U].block_index >= object.block_index) ||
+            blocks[object.block_index].subtree_end != object.block_index + 1U ||
+            blocks[object.block_index].line_count != 0U ||
+            !finite_nonnegative_pair(object.width, object.height)) return false;
+    }
+    std::size_t object_cursor = objects.size();
     for (std::size_t index = blocks.size(); index-- != 0U;) {
         const auto& b = blocks[index];
         auto& s = states[index];
         s.before = b.margin_top; s.after = b.margin_bottom;
+        const bool has_object = object_cursor != 0U && objects[object_cursor - 1U].block_index == index;
         double content_height = 0.0, pending = 0.0;
-        bool content = b.line_count != 0U;
+        if (has_object) {
+            const auto& object = objects[--object_cursor];
+            content_height = object.height;
+        }
+        bool content = b.line_count != 0U || has_object;
         for (std::uint32_t j = 0; j < b.line_count; ++j) content_height += lines[b.line_start + j].height;
         for (std::size_t child = index + 1U; child < b.subtree_end; child = blocks[child].subtree_end) {
             const auto& c = states[child];
@@ -134,12 +150,14 @@ bool measure(std::span<const block> blocks, std::span<const line> lines, std::sp
 }
 
 bool place(std::span<const block> blocks, std::span<const line> lines, std::span<const state> states,
-    std::span<box> boxes, std::span<position> positions, double& extent_width, double& height) {
+    std::span<const measured_object> objects, std::span<box> boxes, std::span<position> positions,
+    double& extent_width, double& height) {
     struct cursor final { double y{}, pending{}, trailing{}; bool content{}; };
     // Preorder traversal lets each parent retain its next-child cursor. Empty
     // transparent boxes share the collapsed gap and do not advance this cursor.
     std::vector<cursor> cursors(blocks.size());
     cursor forest{};
+    std::size_t object_cursor = 0U;
     for (std::size_t i = 0; i < blocks.size(); ++i) {
         const auto& b = blocks[i]; const auto& s = states[i];
         auto& p = b.parent_index == root ? forest : cursors[b.parent_index];
@@ -156,6 +174,8 @@ bool place(std::span<const block> blocks, std::span<const line> lines, std::span
         cursors[i].y = boxes[i].y;
         cursors[i].trailing = p.trailing + b.inset_right + b.margin_right;
         extent_width = std::max(extent_width, boxes[i].x + boxes[i].width + cursors[i].trailing);
+        if (object_cursor < objects.size() && objects[object_cursor].block_index == i)
+            extent_width = std::max(extent_width, boxes[i].x + objects[object_cursor++].width + cursors[i].trailing);
         double line_y = boxes[i].y;
         for (std::uint32_t j = 0; j < b.line_count; ++j) {
             const auto index = b.line_start + j;
@@ -184,14 +204,16 @@ extern "C" progpu_native_status progpu_native_document_resolve_widths(
     catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
 }
 
-extern "C" progpu_native_status progpu_native_document_arrange(
+static progpu_native_status arrange_document(
     const block* blocks, std::uint32_t count, double width, const line* lines, std::uint32_t line_count,
+    const measured_object* objects, std::uint32_t object_count,
     box* output, std::uint32_t capacity, position* positions, std::uint32_t position_capacity,
     progpu_native_document_flow_result* result) {
     if (!valid_buffer(blocks, count) || !valid_buffer(lines, line_count) || !valid_buffer(output, count) ||
+        !valid_buffer(objects, object_count) ||
         !valid_buffer(positions, line_count) || !valid_buffer(result, 1) || capacity < count || position_capacity < line_count ||
         !std::isfinite(width) || width < 0.0 ||
-        !disjoint(std::array{bytes(blocks, count), bytes(lines, line_count), bytes(output, count),
+        !disjoint(std::array{bytes(blocks, count), bytes(lines, line_count), bytes(objects, object_count), bytes(output, count),
             bytes(positions, line_count), bytes(result, 1)}) || result->struct_size != sizeof(*result))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     try {
@@ -199,8 +221,8 @@ extern "C" progpu_native_status progpu_native_document_arrange(
         std::vector<state> states(count);
         std::vector<position> placed(line_count);
         double height = 0.0, extent_width = width;
-        if (!widths({blocks, count}, width, boxes) || !measure({blocks, count}, {lines, line_count}, states) ||
-            !place({blocks, count}, {lines, line_count}, states, boxes, placed, extent_width, height))
+        if (!widths({blocks, count}, width, boxes) || !measure({blocks, count}, {lines, line_count}, states, {objects, object_count}) ||
+            !place({blocks, count}, {lines, line_count}, states, {objects, object_count}, boxes, placed, extent_width, height))
             return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
         if (!boxes.empty()) std::copy(boxes.begin(), boxes.end(), output);
         if (!placed.empty()) std::copy(placed.begin(), placed.end(), positions);
@@ -208,6 +230,23 @@ extern "C" progpu_native_status progpu_native_document_arrange(
         return PROGPU_NATIVE_STATUS_SUCCESS;
     } catch (const std::bad_alloc&) { return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
     catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
+}
+
+extern "C" progpu_native_status progpu_native_document_arrange(
+    const block* blocks, std::uint32_t count, double width, const line* lines, std::uint32_t line_count,
+    box* output, std::uint32_t capacity, position* positions, std::uint32_t position_capacity,
+    progpu_native_document_flow_result* result) {
+    return arrange_document(blocks, count, width, lines, line_count, nullptr, 0U,
+        output, capacity, positions, position_capacity, result);
+}
+
+extern "C" progpu_native_status progpu_native_document_arrange_with_objects(
+    const block* blocks, std::uint32_t count, double width, const line* lines, std::uint32_t line_count,
+    const measured_object* objects, std::uint32_t object_count,
+    box* output, std::uint32_t capacity, position* positions, std::uint32_t position_capacity,
+    progpu_native_document_flow_result* result) {
+    return arrange_document(blocks, count, width, lines, line_count, objects, object_count,
+        output, capacity, positions, position_capacity, result);
 }
 
 extern "C" progpu_native_status progpu_native_document_paginate(

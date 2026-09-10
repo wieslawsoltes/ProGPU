@@ -11,6 +11,14 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Source-measured document block objects use the shared native ArrangeWithObjects
+contract, not fake paragraph lines or a WPF-local placement loop. Preserve real
+leaf identity, source-owned measure/visual/editing lifetime, insets, adjoining
+margins, zero-size object semantics and overflow. Reject duplicate/unsorted,
+container or text-leaf targets; publish no outputs after a failed validation.
+The additive object metrics do not qualify inline/anchored/table layout or source
+UI interaction. Keep old object-free entry points and both providers compatible.
+
 Prepared stroke centerlines may have finite zero extent before widening. Use the
 explicit stroke-spine bounds policy without changing positive-area fill admission.
 Preserve split runs, local-before-widen transforms, cap ownership and real pen

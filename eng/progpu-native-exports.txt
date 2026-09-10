@@ -1,4 +1,5 @@
 progpu_native_document_arrange
+progpu_native_document_arrange_with_objects
 progpu_native_document_paginate
 progpu_native_document_resolve_widths
 progpu_native_engine_begin_hit_test

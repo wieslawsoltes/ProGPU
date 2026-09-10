@@ -35,6 +35,21 @@ public struct PortableDocumentLine
     public double Height;
 }
 
+/// <summary>
+/// Real source-measured non-text leaf, ordered by unique BlockIndex. Measure at
+/// the resolved content width before arrangement. Nonnegative size, including
+/// zero, retains object identity rather than becoming an empty flow container.
+/// Reserved must be zero. Does not transfer source UI or text-position ownership.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct PortableDocumentObject
+{
+    public uint BlockIndex;
+    public uint Reserved;
+    public double Width;
+    public double Height;
+}
+
 /// <summary>Content box excluding margins, border and padding. Zero width is not unbounded.</summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct PortableDocumentBox
@@ -94,6 +109,17 @@ public readonly record struct PortableDocumentPagination(uint FragmentCount, uin
 /// </summary>
 public interface IPortableDocumentFlow
 {
+    /// <summary>
+    /// Optional measured-block placement. Objects target line-free leaves only;
+    /// the caller still owns actual child visuals, editing and invalidation.
+    /// Missing capability rejects nonempty input, never omits object height.
+    /// </summary>
+    PortableDocumentExtent ArrangeWithObjects(ReadOnlySpan<PortableDocumentBlock> blocks, double width,
+        ReadOnlySpan<PortableDocumentLine> lines, ReadOnlySpan<PortableDocumentObject> objects,
+        Span<PortableDocumentBox> boxes, Span<PortableDocumentLinePosition> positions)
+        => objects.IsEmpty ? Arrange(blocks, width, lines, boxes, positions)
+            : throw new PlatformNotSupportedException("The document provider does not support measured block objects.");
+
     void ResolveWidths(ReadOnlySpan<PortableDocumentBlock> blocks, double width, Span<PortableDocumentBox> boxes);
     PortableDocumentExtent Arrange(ReadOnlySpan<PortableDocumentBlock> blocks, double width,
         ReadOnlySpan<PortableDocumentLine> lines, Span<PortableDocumentBox> boxes,

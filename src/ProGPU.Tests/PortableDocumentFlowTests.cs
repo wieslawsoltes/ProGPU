@@ -10,6 +10,9 @@ public class PortableDocumentFlowTests
     {
         IPortableDocumentFlow provider = new Provider();
         Assert.Throws<PlatformNotSupportedException>(() => provider.Paginate([], 100, 1, []));
+        Assert.Throws<PlatformNotSupportedException>(() => provider.ArrangeWithObjects([], 100, [], [new()], [], []));
+        // Empty object input uses the existing provider's ordinary arrangement.
+        Assert.Throws<InvalidOperationException>(() => provider.ArrangeWithObjects([], 100, [], [], [], []));
     }
 
     [Fact]

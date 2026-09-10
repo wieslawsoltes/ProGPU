@@ -91,6 +91,39 @@ public static unsafe class NativeDocumentFlow
         return result;
     }
 
+    /// <summary>
+    /// Arranges source-measured block objects together with real paragraph lines.
+    /// Objects target distinct line-free leaves in increasing block-index order;
+    /// zero size is an actual object, not a margin-collapsing empty container.
+    /// Source owns measurement, visual lifetime and source-position interaction.
+    /// All metrics cross once in borrowed spans. Outputs stay untouched on failure.
+    /// </summary>
+    public static NativeDocumentFlowResult ArrangeWithObjects(ReadOnlySpan<NativeDocumentBlock> blocks, double width,
+        ReadOnlySpan<NativeDocumentLine> lines, ReadOnlySpan<NativeDocumentObject> objects,
+        Span<NativeDocumentBox> boxes, Span<NativeDocumentLinePosition> positions,
+        NativeMilBackend backend = NativeMilBackend.WgpuNative)
+    {
+        Validate(blocks.Length, width, boxes.Length, backend);
+        if (lines.Length > MaximumItems) throw new ArgumentOutOfRangeException(nameof(lines));
+        if (objects.Length > MaximumItems) throw new ArgumentOutOfRangeException(nameof(objects));
+        if (positions.Length < lines.Length) throw new ArgumentException("One position per line is required.", nameof(positions));
+        NativeDocumentFlowResult result = new() { StructSize = (uint)sizeof(NativeDocumentFlowResult) };
+        NativeRendererStatus status;
+        fixed (NativeDocumentBlock* input = blocks)
+        fixed (NativeDocumentLine* metrics = lines)
+        fixed (NativeDocumentObject* measured = objects)
+        fixed (NativeDocumentBox* output = boxes)
+        fixed (NativeDocumentLinePosition* placed = positions)
+            status = backend == NativeMilBackend.Dawn
+                ? NativeDawnDocumentFlowMethods.ArrangeWithObjects(input, (uint)blocks.Length, width, metrics, (uint)lines.Length,
+                    measured, (uint)objects.Length, output, (uint)boxes.Length, placed, (uint)positions.Length, &result)
+                : NativeDocumentFlowMethods.ArrangeWithObjects(input, (uint)blocks.Length, width, metrics, (uint)lines.Length,
+                    measured, (uint)objects.Length, output, (uint)boxes.Length, placed, (uint)positions.Length, &result);
+        if (status != NativeRendererStatus.Success)
+            throw new NativeRendererException(status, "Native document object placement failed.");
+        return result;
+    }
+
     private static void Validate(int count, double width, int capacity, NativeMilBackend backend)
     {
         if (count > MaximumItems) throw new ArgumentOutOfRangeException(nameof(count));
@@ -103,6 +136,13 @@ public static unsafe class NativeDocumentFlow
 
 internal static unsafe partial class NativeDocumentFlowMethods
 {
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_arrange_with_objects")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ArrangeWithObjects(NativeDocumentBlock* blocks, uint count, double width,
+        NativeDocumentLine* lines, uint lineCount, NativeDocumentObject* objects, uint objectCount,
+        NativeDocumentBox* boxes, uint capacity, NativeDocumentLinePosition* positions, uint positionCapacity,
+        NativeDocumentFlowResult* result);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_paginate")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus Paginate(NativeDocumentFragmentLine* lines, uint count,
@@ -123,6 +163,13 @@ internal static unsafe partial class NativeDocumentFlowMethods
 
 internal static unsafe partial class NativeDawnDocumentFlowMethods
 {
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_arrange_with_objects")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ArrangeWithObjects(NativeDocumentBlock* blocks, uint count, double width,
+        NativeDocumentLine* lines, uint lineCount, NativeDocumentObject* objects, uint objectCount,
+        NativeDocumentBox* boxes, uint capacity, NativeDocumentLinePosition* positions, uint positionCapacity,
+        NativeDocumentFlowResult* result);
+
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_paginate")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus Paginate(NativeDocumentFragmentLine* lines, uint count,
