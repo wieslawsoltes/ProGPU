@@ -9,7 +9,33 @@ insets the defining rectangle by half the pen, giving a 51x51 ellipse at (1.5,1.
 primitive-geometry stroke path emits a full elliptical `GEOMETRY_ARC`; complete
 input indexing previously accepted only `GEOMETRY_LINE` records in that command.
 This rejection prevented complete native input admission for the shape's scene.
-The finding is source-backed, not an executed application failure.
+The original finding was source-backed. During the 2026-09-10 release run, the
+actual retained geometry fixture failed: general fixed-spine preparation had
+superseded this canonical path and emitted a path-join record rejected by input
+capture. An isolated builder full-arc test did not cover that routing regression.
+
+## Retained source routing repair — 2026-09-10
+
+Identity-transformed, positive EllipseGeometry solid pens now reuse the existing
+full-arc renderer. Both a missing dash resource and an explicitly empty solid
+dash resource take this route. Fill and stroke retain their original owner,
+ellipse center/radii, three-DIP pen, visual placement and source input metadata.
+The fixture checks the emitted arc as well as both hit records, then changes the
+ellipse and clears its content. Both native cases reach all original assertions.
+
+Geometry-local transforms still enter the prepared-spine path before widening.
+Sampled brushes and nonempty dash patterns retain their prepared material bounds;
+they are not redirected to fill-bound inflation or an unconsumed analytic mask.
+No source input is omitted to obtain a successful index. General transformed,
+sampled and dashed ellipse input qualification remains an explicit separate gap.
+
+This reuses ProGPU-owned `append_positive_fixed_shape_stroke` and the canonical
+ellipse hit encoder; it does not introduce a replacement stroker or shader. The
+paired managed source fixture now covers both null and empty dash storage; its
+existing renderer/input behavior needs no production change. Selection adds only
+fixed field checks and, for an explicit solid style, an existing resource-map
+lookup. It introduces no allocation, native boundary crossing, raster resource,
+readback or extra submission. No performance improvement is claimed.
 
 ## Implementation and paired applicability
 

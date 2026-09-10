@@ -11,14 +11,17 @@ namespace ProGPU.Tests;
 
 public sealed class SourceVisualHitTestTests
 {
-    [Fact]
-    public void ShowcaseEllipseGeometryInputRetainsFillStrokeAndUpdates()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ShowcaseEllipseGeometryInputRetainsFillStrokeAndUpdates(bool explicitSolidDash)
     {
         // WPF Ellipse arranges the 54x54 box by half of its 3-DIP pen.
         // Paired with native canonical EllipseGeometry scene 9838.
         var source = new SourceVisual { HitTestId = 1, Offset = new Vector2(104, 16) };
         var brush = new SolidColorBrush(Vector4.One);
         var pen = new Pen(brush, 3);
+        if (explicitSolidDash) pen.DashArray = Array.Empty<double>();
         using var capture = new GpuRenderCommandHitTestCacheBuilder();
         for (int phase = 0; phase < 3; phase++)
         {

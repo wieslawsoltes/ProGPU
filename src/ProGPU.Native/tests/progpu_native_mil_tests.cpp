@@ -21222,7 +21222,7 @@ int main() {
             PROGPU_REQUIRE(builder.last_error() == progpu::native::scene_build_error::unsupported_hit_test);
         }
     }
-    {
+    for (bool explicit_solid_dash : {false, true}) {
         // Actual ShowcaseShapeEllipse: WPF's 54x54 layout produces a 51x51 spine
         // inset by half the 3-DIP pen. Preserve both fill and full-arc stroke.
         channel state;
@@ -21230,11 +21230,16 @@ int main() {
         append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
         append_create(batch, 3U, 47U); append_create(batch, 4U, 75U);
         append_create(batch, 5U, 85U); append_create(batch, 6U, 70U);
+        if (explicit_solid_dash) {
+            append_create(batch, 7U, 84U);
+            append_dash_style(batch, 7U, 0.0, 0U, {});
+        }
         append_command(batch, command::visual_create, 1U);
         append_command(batch, command::visual_set_offset, 1U, 104.0, 16.0);
         append_command(batch, command::solid_color_brush, 4U, 1.0,
             progpu_native_color{1, 1, 1, 1}, 0U, 0U, 0U, 0U);
-        append_command(batch, command::pen, 5U, 3.0, 10.0, 4U, 0U, 0U, 0U, 0U, 0U, 0U);
+        append_command(batch, command::pen, 5U, 3.0, 10.0, 4U, 0U, 0U, 0U, 0U, 0U,
+            explicit_solid_dash ? 7U : 0U);
         append_command(batch, command::ellipse_geometry, 6U, 25.5, 25.5, 27.0, 27.0, 0U, 0U, 0U, 0U);
         append_command(content, command::draw_geometry, 4U, 5U, 6U, 0U);
         append_render_data(batch, 2U, content);
@@ -21261,9 +21266,19 @@ int main() {
             const std::vector<std::byte> stream(compiled.begin(), compiled.end());
             const auto header = read_value<progpu_native_scene_header>(stream, 0U);
             bool found = false;
+            std::uint32_t ellipse_strokes = 0U;
             for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
                 const auto resource = read_value<progpu_native_scene_resource>(stream,
                     header.resource_offset + i * sizeof(progpu_native_scene_resource));
+                if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+                    PROGPU_REQUIRE(resource.payload_size == sizeof(progpu_native_geometry_primitive));
+                    const auto arc = read_value<progpu_native_geometry_primitive>(stream, resource.payload_offset);
+                    PROGPU_REQUIRE(arc.kind == PROGPU_NATIVE_GEOMETRY_ARC && arc.stroke_thickness == 3.0F);
+                    PROGPU_REQUIRE(arc.p0.x == (phase == 0U ? 27.0F : 37.0F) && arc.p0.y == 27.0F);
+                    PROGPU_REQUIRE(arc.p1.x == (phase == 0U ? 25.5F : 35.5F) && arc.p2.y == 25.5F);
+                    PROGPU_REQUIRE(arc.p3.x == 0.0F && arc.p3.y == std::numbers::pi_v<float> * 2.0F);
+                    ++ellipse_strokes;
+                }
                 if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
                 const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
                 PROGPU_REQUIRE(page.primitive_count == (phase == 2U ? 0U : 2U));
@@ -21281,7 +21296,7 @@ int main() {
                 }
                 found = true;
             }
-            PROGPU_REQUIRE(found);
+            PROGPU_REQUIRE(found && ellipse_strokes == (phase == 2U ? 0U : 1U));
         }
     }
     {
@@ -21856,6 +21871,7 @@ int main() {
             PROGPU_REQUIRE(builder.reset(9816U, 2U));
             layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             layer.flags = 0U; layer.reserved0 = 0U;
+            layer.bounds = {}; // No BOUNDS flag: use the required canonical empty metadata.
             layer.blend_mode = PROGPU_NATIVE_BLEND_MULTIPLY;
             PROGPU_REQUIRE(!builder.push_layer(layer, mode));
             layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
@@ -21904,7 +21920,10 @@ int main() {
             request.generation = request.request_serial = 1U;
             request.dpi_scale_x = request.dpi_scale_y = 1.0;
             std::span<const std::byte> compiled;
-            PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+            const auto effect_status = state.build_scene(request, compiled);
+            if (effect_status != status::success)
+                std::fprintf(stderr, "source effect variant=%u status=%u\n", variant, static_cast<unsigned>(effect_status));
+            PROGPU_REQUIRE(effect_status == status::success);
             const std::vector<std::byte> stream(compiled.begin(), compiled.end());
             const auto header = read_value<progpu_native_scene_header>(stream, 0U);
             if (variant >= 6U) PROGPU_REQUIRE(header.command_count == 0U); // no effect or cache raster work

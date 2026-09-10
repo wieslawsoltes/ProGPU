@@ -17963,6 +17963,15 @@ struct channel::implementation {
                 radius_x = std::clamp(radius_x, 0.0, third * 0.5);
                 radius_y = std::clamp(radius_y, 0.0, fourth * 0.5);
             }
+            // An unchanged ellipse already has a canonical full-arc stroke.
+            // Preparing it as a general contour introduces join records and loses
+            // that exact source representation. Geometry-local transforms still
+            // precede widening; only an identity local transform can bypass that
+            // preparation without changing the pen's coordinate domain.
+            const bool canonical_ellipse = is_ellipse &&
+                local_transform.m11 == 1.0 && local_transform.m12 == 0.0 &&
+                local_transform.m21 == 0.0 && local_transform.m22 == 1.0 &&
+                local_transform.m31 == 0.0 && local_transform.m32 == 0.0;
             const bool prepared_fixed_spine = is_geometry_shape && third > 0.0 && fourth > 0.0;
             const bool prepared_degenerate_shape = is_geometry_shape && (third == 0.0 || fourth == 0.0);
             const bool fill_has_area = !affine_has_zero_area(effective_transform);
@@ -18158,6 +18167,13 @@ struct channel::implementation {
                     return pen_status;
                 }
                 if (pen.brush_handle != 0U && pen.thickness > 0.0) {
+                    // Sampled and dashed material domains still need their exact
+                    // prepared coverage bounds, even with an identity geometry.
+                    bool canonical_ellipse_pen = canonical_ellipse && !is_sampled_brush(pen.brush_handle);
+                    if (canonical_ellipse_pen && pen.dash_style_handle != 0U) {
+                        const auto dash = dash_styles.find(pen.dash_style_handle);
+                        canonical_ellipse_pen = dash != dash_styles.end() && dash->second.intervals.empty();
+                    }
                     if (prepared_degenerate_shape) {
                         fixed_geometry_state shape{};
                         shape.kind = is_ellipse ? fixed_geometry_kind::ellipse : fixed_geometry_kind::rectangle;
@@ -18200,7 +18216,7 @@ struct channel::implementation {
                             }
                             if (drawn != status::success) return drawn;
                         }
-                    } else if (prepared_fixed_spine) {
+                    } else if (prepared_fixed_spine && !canonical_ellipse_pen) {
                         fixed_geometry_state shape{};
                         shape.kind = is_ellipse ? fixed_geometry_kind::ellipse : fixed_geometry_kind::rectangle;
                         shape.first = first;
