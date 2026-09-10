@@ -435,6 +435,50 @@ void bulk_shape_is_deterministic_and_caller_owned() {
         };
         require(measure() == PROGPU_NATIVE_STATUS_SUCCESS);
         require(measured.glyph_count == 3 && measured.line_count == 1 && measured.content_height == 42);
+        {
+            progpu_native_text_exclusion_options exclusion_options{sizeof(exclusion_options), 64, 0, 0};
+            progpu_native_text_exclusion_rectangle rectangle{0, 0, 1000, 20};
+            progpu_native_text_paragraph_requirements excluded_needed{};
+            excluded_needed.struct_size = sizeof(excluded_needed);
+            require(progpu_native_text_context_get_excluded_flow_paragraph_requirements(context, &inline_request,
+                &options, &style, 1, nullptr, &metric, &object, 1, &exclusion_options, &rectangle, 1,
+                &excluded_needed) == PROGPU_NATIVE_STATUS_SUCCESS);
+            require(excluded_needed.scratch_bytes > needed.scratch_bytes &&
+                excluded_needed.glyph_capacity == needed.glyph_capacity);
+            std::vector<std::uint8_t> excluded_scratch(static_cast<std::size_t>(excluded_needed.scratch_bytes));
+            std::vector<progpu_native_text_fragment_placement> placements(excluded_needed.line_capacity);
+            std::vector<progpu_native_positioned_text_glyph> excluded_glyphs(excluded_needed.glyph_capacity);
+            std::vector<progpu_native_positioned_text_line> excluded_lines(excluded_needed.line_capacity);
+            progpu_native_text_paragraph_result excluded_result{};
+            const auto excluded_layout = [&](std::uint32_t count, std::uint32_t capacity, std::size_t bytes) {
+                excluded_result.struct_size = sizeof(excluded_result);
+                return progpu_native_text_context_layout_excluded_flow_paragraph(context, &inline_request,
+                    &options, &style, 1, nullptr, &metric, &object, 1, &exclusion_options, &rectangle, count,
+                    excluded_glyphs.data(), excluded_needed.glyph_capacity,
+                    excluded_lines.data(), excluded_needed.line_capacity, placements.data(), capacity,
+                    excluded_scratch.data(), bytes, &excluded_result, 0, nullptr);
+            };
+            require(excluded_layout(0, excluded_needed.line_capacity, excluded_scratch.size()) == PROGPU_NATIVE_STATUS_SUCCESS);
+            require(excluded_result.glyph_count == measured.glyph_count && excluded_result.line_count == measured.line_count &&
+                excluded_result.content_height == measured.content_height && placements[0].top == 0);
+            for (std::uint32_t i = 0; i < measured.glyph_count; ++i)
+                require(excluded_glyphs[i].x == inline_glyphs[i].x && excluded_glyphs[i].y == inline_glyphs[i].y &&
+                    excluded_glyphs[i].font_index == inline_glyphs[i].font_index && excluded_glyphs[i].cluster == inline_glyphs[i].cluster);
+            require(excluded_layout(1, excluded_needed.line_capacity, excluded_scratch.size()) == PROGPU_NATIVE_STATUS_SUCCESS);
+            require(excluded_result.content_height == 62 && placements[0].top == 20 && placements[0].row_index == 0 &&
+                placements[0].reserved == 0 && excluded_lines[0].baseline_y == 55);
+            excluded_glyphs[0].x = 123; placements[0].top = 456;
+            require(excluded_layout(1, 0, excluded_scratch.size()) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                excluded_result.glyph_count == 0 && excluded_glyphs[0].x == 123 && placements[0].top == 456);
+            require(excluded_layout(1, excluded_needed.line_capacity, excluded_scratch.size() - 1) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+            exclusion_options.maximum_attempts = 1;
+            require(excluded_layout(1, excluded_needed.line_capacity, excluded_scratch.size()) != PROGPU_NATIVE_STATUS_SUCCESS &&
+                excluded_result.glyph_count == 0 && excluded_glyphs[0].x == 123 && placements[0].top == 456);
+            exclusion_options.maximum_attempts = 64; exclusion_options.reserved0 = 1;
+            require(excluded_layout(1, excluded_needed.line_capacity, excluded_scratch.size()) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+            exclusion_options.reserved0 = 0; rectangle.bottom = std::numeric_limits<float>::quiet_NaN();
+            require(excluded_layout(1, excluded_needed.line_capacity, excluded_scratch.size()) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        }
         require(inline_glyphs[1].glyph_id == UINT32_MAX - 1U && inline_glyphs[1].font_index == UINT32_MAX &&
             inline_glyphs[1].cluster == 1 && inline_glyphs[1].advance_x == 30.25F);
         require(measured_lines[0].height == 42 && measured_lines[0].baseline_y == 35 &&

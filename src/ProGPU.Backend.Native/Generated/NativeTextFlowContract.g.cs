@@ -7,6 +7,26 @@ using System.Numerics;
 
 namespace ProGPU.Backend.Native;
 
+// Native source: progpu_native_text_exclusion_rectangle.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextExclusionRectangle
+{
+    public float Left;
+    public float Top;
+    public float Right;
+    public float Bottom;
+}
+
+// Native source: progpu_native_text_exclusion_options.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextExclusionOptions
+{
+    public uint StructSize;
+    public uint MaximumAttempts;
+    public uint Reserved0;
+    public uint Reserved1;
+}
+
 // Native source: progpu_native_text_flow_options.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeTextFlowOptions

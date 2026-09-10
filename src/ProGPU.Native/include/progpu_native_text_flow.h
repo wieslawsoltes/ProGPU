@@ -1,9 +1,26 @@
 #ifndef PROGPU_NATIVE_TEXT_FLOW_H
 #define PROGPU_NATIVE_TEXT_FLOW_H
 #include "progpu_native_text_styles.h"
+#include "progpu_native_text_interaction.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextExclusionRectangle */
+typedef struct progpu_native_text_exclusion_rectangle {
+    float left;
+    float top;
+    float right;
+    float bottom;
+} progpu_native_text_exclusion_rectangle;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextExclusionOptions */
+typedef struct progpu_native_text_exclusion_options {
+    uint32_t struct_size;
+    uint32_t maximum_attempts;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_text_exclusion_options;
 
 /* PROGPU_CSHARP_STRUCT: Public.NativeTextFlowOptions */
 typedef struct progpu_native_text_flow_options {
@@ -60,6 +77,37 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_inline_
     const progpu_native_text_inline_object* objects, uint32_t object_count,
     progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
     progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
+    uint32_t wrapping, progpu_native_text_intrinsic_widths* widths);
+
+/* Excluded flow uses the inline metric contract and resolved half-open paragraph
+ * rectangles. maximum_width must be positive, maximum_attempts in [1, 1048576].
+ * Requirements include all scratch; glyph/line/fragment capacities are identical.
+ * line_count is the fragment count; maximum_lines counts rows. Fragment tops
+ * retain the double layout prefix and reserved fields are zero. All buffers
+ * are synchronously borrowed and must not overlap. Outputs are valid only on
+ * success. This does not size or position application-owned anchor subtrees. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_get_excluded_flow_paragraph_requirements(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_exclusion_options* exclusion_options,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count,
+    progpu_native_text_paragraph_requirements* requirements);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_excluded_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_exclusion_options* exclusion_options,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count,
+    progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    progpu_native_text_fragment_placement* fragments, uint32_t fragment_capacity,
     void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
     uint32_t wrapping, progpu_native_text_intrinsic_widths* widths);
 

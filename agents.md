@@ -55,6 +55,11 @@ build, validate reserved fields and original request ABI before output, and keep
 row/top metadata in the owning snapshot generation. Legacy measured interaction
 continues using ordinary line prefixes. This interaction seam alone does not
 publish excluded-paragraph shaping output or admit source anchors.
+Excluded paragraph C transport shares the inline shaping pipeline and one caller
+scratch arena. Preserve original source glyph/font identity, explicit fragment
+tops/rows and separate content/measured extents. Validate metrics before publishing
+any output; retry exhaustion is an error with zero counts, not a partial success.
+Native transport alone does not admit anchors or replace retained source ownership.
 
 Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
 not optional fields that a text-only provider can silently ignore. Source metrics
