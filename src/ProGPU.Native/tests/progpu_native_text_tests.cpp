@@ -13465,7 +13465,39 @@ void measured_anchors_retain_horizontal_reference() {
         true, obstacles, scratch, intervals, placed, 3, &error) && error == font_error::invalid_argument);
 }
 
+void anchor_width_policy_requires_real_remeasurement() {
+    using namespace progpu::native::text;
+    text_anchor_width_result result{};
+    font_error error{};
+    require(try_resolve_text_anchor_width(100, 12, text_anchor_width_mode::fit_content,
+        0, false, 0, result, &error));
+    require(result.content_width == 88 && result.outer_width == 100 && !result.requires_remeasure);
+    require(try_resolve_text_anchor_width(100, 12, text_anchor_width_mode::fit_content,
+        0, true, 37, result, &error));
+    require(result.content_width == 37 && result.outer_width == 49 && result.requires_remeasure);
+    require(try_resolve_text_anchor_width(100, 12, text_anchor_width_mode::fill,
+        0, true, 37, result, &error));
+    require(result.content_width == 88 && result.outer_width == 100 && !result.requires_remeasure);
+    require(try_resolve_text_anchor_width(100, 12, text_anchor_width_mode::fixed,
+        60, true, 37, result, &error));
+    require(result.content_width == 48 && result.outer_width == 60 && !result.requires_remeasure);
+    require(try_resolve_text_anchor_width(100, 12, text_anchor_width_mode::fit_content,
+        0, true, 200, result, &error));
+    require(result.content_width == 88 && !result.requires_remeasure);
+    require(try_resolve_text_anchor_width(0, 12, text_anchor_width_mode::fill,
+        0, false, 0, result, &error));
+    require(result.content_width == 0 && result.outer_width == 12);
+    require(!try_resolve_text_anchor_width(100, -1, text_anchor_width_mode::fill,
+        0, false, 0, result, &error) && error == font_error::invalid_argument);
+    require(result.content_width == 0 && result.outer_width == 12);
+    require(!try_resolve_text_anchor_width(100, 0, text_anchor_width_mode::fill,
+        0, true, std::numeric_limits<float>::quiet_NaN(), result, &error));
+    require(!try_resolve_text_anchor_width(100, 0, static_cast<text_anchor_width_mode>(255),
+        0, false, 0, result, &error));
+}
+
 int main() {
+    anchor_width_policy_requires_real_remeasurement();
     measured_anchors_retain_horizontal_reference();
     excluded_paragraphs_retain_rows_and_bounded_progress();
     measured_exclusion_fragments_share_one_baseline();

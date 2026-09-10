@@ -637,6 +637,39 @@ bool try_classify_text_justification(std::span<const unicode_scalar> input,
     return true;
 }
 
+bool try_resolve_text_anchor_width(float available_width, float horizontal_insets,
+    text_anchor_width_mode mode, float specified_width, bool has_measurement,
+    float measured_width, text_anchor_width_result& result, font_error* error) noexcept {
+    const float values[]{available_width, horizontal_insets, specified_width, measured_width};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const auto v = vld1q_f32(values);
+    const bool valid = vminvq_u32(vandq_u32(vcgeq_f32(v, vdupq_n_f32(0)),
+        vcleq_f32(v, vdupq_n_f32(std::numeric_limits<float>::max())))) != 0U;
+#elif defined(__SSE2__) || defined(_M_X64)
+    const auto v = _mm_loadu_ps(values);
+    const bool valid = _mm_movemask_ps(_mm_and_ps(_mm_cmpge_ps(v, _mm_setzero_ps()),
+        _mm_cmple_ps(v, _mm_set1_ps(std::numeric_limits<float>::max())))) == 15;
+#else
+    const bool valid = std::all_of(std::begin(values), std::end(values),
+        [](float value) { return std::isfinite(value) && value >= 0; });
+#endif
+    if (!valid || static_cast<unsigned>(mode) > static_cast<unsigned>(text_anchor_width_mode::fit_content)) {
+        set_error(error, font_error::invalid_argument); return false;
+    }
+    const float outer = mode == text_anchor_width_mode::fixed ?
+        std::min(available_width, specified_width) : available_width;
+    const float initial = std::max(0.0F, outer - horizontal_insets);
+    const float content = mode == text_anchor_width_mode::fit_content && has_measurement ?
+        std::min(initial, measured_width) : initial;
+    // Keep insets as real overflow when they exhaust the available content.
+    const double resolved_outer = static_cast<double>(content) + horizontal_insets;
+    if (resolved_outer > std::numeric_limits<float>::max()) {
+        set_error(error, font_error::verification_failed); return false;
+    }
+    result = {content, static_cast<float>(resolved_outer), content != initial};
+    set_error(error, font_error::none); return true;
+}
+
 bool try_place_text_anchor(text_exclusion_rectangle reference, float width, float height,
     text_anchor_alignment alignment, bool allow_delay,
     std::span<const text_exclusion_rectangle> exclusions,

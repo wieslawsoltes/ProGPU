@@ -2114,6 +2114,21 @@ struct text_exclusion_rectangle final {
 struct text_line_interval final { float left{}, right{}; };
 
 enum class text_anchor_alignment : std::uint8_t { left, center, right };
+enum class text_anchor_width_mode : std::uint8_t { fixed, fill, fit_content };
+struct text_anchor_width_result final {
+    float content_width{}, outer_width{};
+    bool requires_remeasure{};
+};
+// Two-pass width policy for source-owned anchor subtrees. Available/specified
+// widths include resolved horizontal insets. The first call has no measurement;
+// a second call receives actual child width measured at that first constraint.
+// fit_content may shrink and explicitly requires remeasurement at its new width.
+// fill never shrinks; fixed is constrained to available width. Insets can exhaust
+// content width to zero, never unbounded. All supplied metrics are finite >= 0.
+// O(1), allocation/device-free; result remains unchanged on invalid input.
+bool try_resolve_text_anchor_width(float available_width, float horizontal_insets,
+    text_anchor_width_mode mode, float specified_width, bool has_measurement,
+    float measured_width, text_anchor_width_result& result, font_error* error = nullptr) noexcept;
 // Place an already measured positive-size outer box in a source-resolved frame.
 // Margins/insets are included in width/height by the caller. Horizontal position
 // stays anchored; collisions may move it down only when allow_delay is true.

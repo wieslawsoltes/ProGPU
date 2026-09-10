@@ -2,8 +2,8 @@
 
 The acceptance consumer is LibreWPF's unchanged RealXamlCompilerHarness document,
 executed by RealApplicationRunHarness. Its Figure and Floater retain child
-Paragraphs and default dimensions. This checkpoint implements a shared native
-placement prerequisite, not automatic sizing or source admission.
+Paragraphs and default dimensions. This checkpoint implements shared native
+placement and width-policy prerequisites, not source admission.
 
 `try_place_text_anchor` places an already measured positive outer box in an
 explicit finite reference frame. Left/center/right alignment fixes its X position.
@@ -33,3 +33,30 @@ transport, retained source subtree layout and original document-position mapping
 The positive-size primitive must not be used to silently discard empty content.
 Default Figure/Floater application behavior, Windows comparison, package startup
 and final cross-platform qualification are not established by these tests.
+
+## Two-pass width policy
+
+`try_resolve_text_anchor_width` distinguishes fixed, fill and fit-content modes.
+The source first resolves the available reference width and horizontal insets.
+The initial native constraint precedes real subtree formatting. Fit-content then
+uses the actual measured child extent to shrink that constraint and explicitly
+requests remeasurement; it never rescales existing lines. Fill preserves its
+available constraint regardless of a narrow child. Fixed width is constrained by
+available space. Exhausted content width stays zero, with insets retained as
+real outer overflow. Content overflow does not enlarge the fitting constraint.
+
+This distinction was traced in LibreWPF's existing `FigureHelper`,
+`FigureParagraph` and `FloaterParagraph`: auto Figures can require a second child
+format, while Stretch Floaters do not shrink. The shared function contains no
+PTS calls or WPF policy names. Source page/column units, margins, rounding policy,
+actual subtree measurement and height remain consumer/transport work, not guessed
+from text length or a substitute TextBlock. The caller must retain the first-pass
+constraint and use the returned remeasurement width; repeatedly shrinking from
+new measurements is not an implicit convergence algorithm.
+
+Metric validation uses four independent NEON/SSE2 lanes and a fixed-size scalar
+reference on other targets. Width selection is allocation-free O(1). Focused
+tests cover initial and measured fit, fill, fixed width, overflowing child extent,
+zero available width, inset overflow, invalid metrics/enums and atomic failure.
+The updated macOS ARM64 native text target compiled and its CTest passed
+(1/1, 0.51 seconds); no source application or package admission follows.

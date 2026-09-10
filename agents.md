@@ -16,6 +16,11 @@ clearing exclusions downward only with explicit delay permission. Keep bounded
 attempts, half-open contact and atomic placement publication. Automatic sizing,
 empty anchors and source subtree ownership are separate required contracts;
 never infer their admission from a positive-size native placement fixture.
+Anchor width policy separates fill from measured fit-content. Format the actual
+source subtree at the initial constraint, then honor explicit remeasurement at
+the resolved width; never rescale retained lines or manufacture intrinsic width
+from character counts. Exhausted content width is zero and real insets remain
+outer overflow. Width policy alone does not connect source Figure/Floater layout.
 
 Anchored text exclusion uses resolved half-open layout rectangles, not paint or
 hit-test envelopes. Preserve every free interval across the whole candidate line
