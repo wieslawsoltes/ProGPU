@@ -102,6 +102,56 @@ public interface IPortableInlineTextParagraph : IPortableTextParagraph
     float GetBaselineOffset(int lineIndex);
 }
 
+/// <summary>Resolved half-open exclusion in paragraph DIPs, not an anchor's paint bounds.</summary>
+public readonly record struct PortableTextExclusion(float Left, float Top, float Right, float Bottom);
+
+/// <summary>Explicit bounded native fitting policy; zero is invalid, not an implicit default.</summary>
+public readonly record struct PortableTextExclusionOptions(uint MaximumAttempts);
+
+/// <summary>One native line fragment. Several fragments can share a row and top.</summary>
+public readonly record struct PortableTextFragment(int RowIndex, float Left, double Top, float Width);
+
+/// <summary>Original UTF-16 position and affinity, owned by one retained paragraph generation.</summary>
+public readonly record struct PortableTextCaretStop(int Position, bool Trailing, int FragmentIndex,
+    float X, float Y, float Height, sbyte BidiLevel);
+
+public enum PortableTextCaretMovement { Left, Right, Up, Down }
+
+/// <summary>
+/// Explicit optional capability for source-owned anchored content. The caller resolves
+/// exclusion rectangles and measures inline objects; the provider performs native
+/// exclusion-dependent fitting. Inputs are borrowed only during this call. Unsupported
+/// empty-row, fitting or source policies must fail, never discard exclusions.
+/// </summary>
+public interface IPortableExcludedTextFormatting : IPortableInlineTextFormatting
+{
+    IPortableExcludedTextParagraph FormatExcluded(in PortableTextParagraphRequest request,
+        ReadOnlySpan<PortableTextStyleMetrics> styleMetrics,
+        ReadOnlySpan<PortableTextInlineObject> inlineObjects,
+        in PortableTextExclusionOptions options, ReadOnlySpan<PortableTextExclusion> exclusions);
+}
+
+/// <summary>
+/// Retained excluded layout. Lines and Fragments have identical indexing; line indices
+/// are not row indices. Native metrics include cleared gaps and must not be recreated
+/// by summing fragment heights. Existing line-local hit/selection conventions remain.
+/// No source document/child ownership is transferred by this contract.
+/// </summary>
+public interface IPortableExcludedTextParagraph : IPortableInlineTextParagraph
+{
+    ReadOnlyMemory<PortableTextFragment> Fragments { get; }
+    ReadOnlyMemory<PortableTextCaretStop> Carets { get; }
+    double ContentWidth { get; }
+    double ContentHeight { get; }
+    double MeasuredWidth { get; }
+    /// <summary>
+    /// Moves an index in this paragraph's Carets, returning an existing index (unchanged
+    /// at an outer boundary). Preferred X is in paragraph DIPs; invalid input fails.
+    /// The provider retains paragraph direction. Never reuse indices after reformatting.
+    /// </summary>
+    int MoveCaret(int caretIndex, PortableTextCaretMovement direction, float preferredX);
+}
+
 public static partial class PortableWpfServiceRegistry
 {
     private static readonly PortableDefaultServiceSlot<IPortableTextFormatting> s_textFormatting = new();

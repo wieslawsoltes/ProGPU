@@ -71,6 +71,9 @@ Fragment navigation transports existing generation-local caret indices through
 the shared C++ algorithm. Keep C byte-affinity validation, physical direction
 mapping and failure-cleared output; bind snapshot-owned carets and placements
 together rather than mixing generations or falling back to ordinary row movement.
+Neutral exclusion formatting is an explicit optional capability. Preserve native
+fragment/row distinction, extents and generation-local carets; never add ignored
+exclusion fields to ordinary formatting or admit source anchors from ABI support alone.
 
 Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
 not optional fields that a text-only provider can silently ignore. Source metrics
