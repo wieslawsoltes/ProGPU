@@ -240,9 +240,12 @@ public sealed class CachedPictureTests
                 dashed ? [2, 1] : null, 0.25);
             if (source == null)
             {
-                Commands.PushOpacity(0.5f);
+                // Cached-source opacity applies once to completed coverage.
+                // Render the ordinary stroke opaque in an independent layer,
+                // then composite it once; PushOpacity multiplies every piece.
+                CacheAsLayer = true;
+                Opacity = 0.5f;
                 Commands.DrawPath(null, pen, path);
-                Commands.PopOpacity();
             }
             else Commands.DrawCachedPictureStroke(source, path, pen, new Rect(0, 0, 64, 64), opacity: 0.5f);
         }

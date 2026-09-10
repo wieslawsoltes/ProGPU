@@ -10394,113 +10394,81 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     const auto group_stroke_header =
         read_value<progpu_native_scene_header>(stream, 0U);
     std::uint32_t group_fill_count = 0U;
-    std::uint32_t first_child_body_count = 0U;
-    std::uint32_t second_child_body_count = 0U;
-    std::uint32_t line_child_body_count = 0U;
-    std::uint32_t rectangle_child_count = 0U;
-    std::uint32_t ellipse_child_count = 0U;
-    std::uint32_t rounded_child_body_count = 0U;
-    std::uint32_t nested_line_body_count = 0U;
-    for (std::uint32_t resource_index = 0U;
-         resource_index < group_stroke_header.resource_count;
-         ++resource_index) {
-        const auto record = read_value<progpu_native_scene_resource>(
-            stream,
-            group_stroke_header.resource_offset +
-                resource_index * sizeof(progpu_native_scene_resource));
-        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
-            const auto path = read_value<progpu_native_scene_path_fill>(
-                stream,
-                record.payload_offset);
-            if (path.segment_count == 20U) {
-                PROGPU_REQUIRE(path.transform.m11 == 1.0F);
-                PROGPU_REQUIRE(path.transform.m22 == 1.0F);
-                ++group_fill_count;
-            }
-            continue;
+    for (std::uint32_t i = 0U; i < group_stroke_header.resource_count; ++i) {
+        const auto resource = read_value<progpu_native_scene_resource>(stream,
+            group_stroke_header.resource_offset + i * group_stroke_header.resource_stride);
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) continue;
+        const auto path = read_value<progpu_native_scene_path_fill>(stream, resource.payload_offset);
+        if (path.segment_count == 20U) {
+            PROGPU_REQUIRE(path.transform.m11 == 1.0F && path.transform.m22 == 1.0F);
+            ++group_fill_count;
         }
-        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
-            const auto stroke = read_value<progpu_native_scene_stroke>(
-                stream,
-                record.payload_offset);
-            if (stroke.transform.m31 == 60.0F &&
-                stroke.transform.m32 == 10.0F &&
-                stroke.point_count == 4U) {
-                PROGPU_REQUIRE(
-                    (stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) !=
-                    0U);
-                PROGPU_REQUIRE(stroke.dash_interval_count == 0U);
-                ++rectangle_child_count;
-            }
-            continue;
-        }
-        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
-            continue;
-        }
-        std::uint32_t primitive_offset = 0U;
-        for (;
-             primitive_offset + primitive_stride <= record.payload_size;
-             primitive_offset += primitive_stride) {
-            const auto primitive =
-                read_value<progpu_native_geometry_primitive>(
-                    stream,
-                    record.payload_offset + primitive_offset);
-            if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN ||
-                primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
-                continue;
-            }
-            if (primitive.transform.m11 == 1.5F &&
-                primitive.transform.m22 == 1.5F &&
-                primitive.transform.m31 == 2.0F &&
-                primitive.transform.m32 == 3.0F) {
-                ++first_child_body_count;
-            } else if (
-                primitive.transform.m11 == 1.0F &&
-                primitive.transform.m22 == 1.0F &&
-                primitive.transform.m31 == 30.0F &&
-                primitive.transform.m32 == 0.0F) {
-                ++second_child_body_count;
-            } else if (
-                primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE &&
-                primitive.transform.m11 == 1.0F &&
-                primitive.transform.m22 == 1.0F &&
-                primitive.transform.m31 == 60.0F &&
-                primitive.transform.m32 == 10.0F) {
-                PROGPU_REQUIRE(
-                    primitive.p0.x == 0.0F && primitive.p0.y == 20.0F &&
-                    primitive.p1.x == 10.0F && primitive.p1.y == 25.0F);
-                ++line_child_body_count;
-            } else if (
-                primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC &&
-                primitive.transform.m31 == 90.0F &&
-                primitive.transform.m32 == 5.0F) {
-                PROGPU_REQUIRE(primitive.p1.x == 6.0F);
-                PROGPU_REQUIRE(primitive.p2.y == 4.0F);
-                ++ellipse_child_count;
-            } else if (
-                primitive.transform.m31 == 120.0F &&
-                primitive.transform.m32 == 5.0F) {
-                PROGPU_REQUIRE(
-                    primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE ||
-                    primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC);
-                ++rounded_child_body_count;
-            } else if (
-                primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE &&
-                primitive.transform.m31 == 260.0F &&
-                primitive.transform.m32 == 25.0F) {
-                ++nested_line_body_count;
-            }
-        }
-        PROGPU_REQUIRE(primitive_offset == record.payload_size);
     }
     PROGPU_REQUIRE(group_fill_count == 1U);
-    PROGPU_REQUIRE(first_child_body_count == 4U);
-    PROGPU_REQUIRE(second_child_body_count == 4U);
-    PROGPU_REQUIRE(line_child_body_count == 1U);
-    PROGPU_REQUIRE(rectangle_child_count == 1U);
-    PROGPU_REQUIRE(ellipse_child_count == 1U);
-    PROGPU_REQUIRE(rounded_child_body_count == 8U);
-    PROGPU_REQUIRE(nested_line_body_count == 1U);
+
+    // Grouping must preserve the same prepared strokes as independent child
+    // draws. Compare complete records, not old transform values used as owner
+    // labels: geometry-local transforms now precede widening.
+    const auto collect_strokes = [](const std::vector<std::byte>& bytes) {
+        std::array<std::vector<std::byte>, 2U> result;
+        const auto scene = read_value<progpu_native_scene_header>(bytes, 0U);
+        for (std::uint32_t i = 0U; i < scene.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(bytes,
+                scene.resource_offset + i * scene.resource_stride);
+            if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+                PROGPU_REQUIRE(resource.payload_size % sizeof(progpu_native_geometry_primitive) == 0U);
+                result[0].insert(result[0].end(), bytes.begin() + resource.payload_offset,
+                    bytes.begin() + resource.payload_offset + resource.payload_size);
+            } else if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+                PROGPU_REQUIRE(resource.payload_size % sizeof(progpu_native_scene_stroke) == 0U);
+                for (std::size_t j = 0U; j < resource.payload_size / sizeof(progpu_native_scene_stroke); ++j) {
+                    auto stroke = read_value<progpu_native_scene_stroke>(bytes,
+                        resource.payload_offset + j * sizeof(progpu_native_scene_stroke));
+                    PROGPU_REQUIRE(stroke.kind == PROGPU_NATIVE_SCENE_STROKE_POLYLINE);
+                    PROGPU_REQUIRE(stroke.knot_count == 0U && stroke.weight_count == 0U);
+                    const auto point_offset = resource.auxiliary_offset + stroke.point_offset;
+                    const auto dash_offset = resource.auxiliary_offset + stroke.dash_interval_offset;
+                    // Resource packing offsets are not stroke semantics.
+                    stroke.point_offset = stroke.dash_interval_offset = 0U;
+                    append_value(result[1], stroke);
+                    result[1].insert(result[1].end(), bytes.begin() + point_offset,
+                        bytes.begin() + point_offset + stroke.point_count * sizeof(progpu_native_point));
+                    result[1].insert(result[1].end(), bytes.begin() + dash_offset,
+                        bytes.begin() + dash_offset + stroke.dash_interval_count * sizeof(double));
+                }
+            }
+        }
+        return result;
+    };
+    const auto actual_group_strokes = collect_strokes(stream);
+    std::array<std::vector<std::byte>, 2U> independent_strokes;
+    const std::array<std::uint32_t, 7U> expected_body_counts{4U, 4U, 1U, 0U, 1U, 8U, 1U};
+    for (std::size_t child_index = 0U; child_index < group_children.size(); ++child_index) {
+        std::vector<std::byte> child_draw, child_update;
+        append_command(child_draw, command::draw_geometry, 0U, pen, group_children[child_index], 0U);
+        append_render_data(child_update, content, child_draw);
+        PROGPU_REQUIRE(state.apply(child_update) == status::success);
+        std::vector<std::byte> child_scene;
+        PROGPU_REQUIRE(state.build_scene(target, 7002U, 1400U + child_index, child_scene) == status::success);
+        const auto child_strokes = collect_strokes(child_scene);
+        std::uint32_t bodies = 0U;
+        for (std::size_t offset = 0U; offset < child_strokes[0].size(); offset += primitive_stride) {
+            const auto primitive = read_value<progpu_native_geometry_primitive>(child_strokes[0], offset);
+            PROGPU_REQUIRE(primitive.stroke_thickness == 2.0F);
+            if (primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_JOIN &&
+                primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_CAP) ++bodies;
+        }
+        PROGPU_REQUIRE(bodies == expected_body_counts[child_index]);
+        PROGPU_REQUIRE(child_strokes[1].empty() == (child_index != 3U));
+        for (std::size_t kind = 0U; kind < independent_strokes.size(); ++kind)
+            independent_strokes[kind].insert(independent_strokes[kind].end(),
+                child_strokes[kind].begin(), child_strokes[kind].end());
+    }
+    PROGPU_REQUIRE(actual_group_strokes == independent_strokes);
+    // Later live pen updates must continue to exercise the original group.
+    std::vector<std::byte> restore_group_draw;
+    append_render_data(restore_group_draw, content, group_stroke_commands);
+    PROGPU_REQUIRE(state.apply(restore_group_draw) == status::success);
 
     std::vector<std::byte> dashed_group_update;
     append_dash_style(
@@ -10526,96 +10494,46 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7002U, 15U, stream, &metrics) ==
         status::success);
-    const auto dashed_group_header =
-        read_value<progpu_native_scene_header>(stream, 0U);
+    const auto actual_dashed_group = collect_strokes(stream);
     std::uint32_t dashed_group_cap_count = 0U;
-    bool found_first_dashed_child = false;
-    bool found_second_dashed_child = false;
-    bool found_dashed_line_child = false;
-    bool found_dashed_rectangle_child = false;
-    bool found_dashed_ellipse_child = false;
-    bool found_dashed_rounded_child = false;
-    bool found_dashed_nested_line = false;
-    for (std::uint32_t resource_index = 0U;
-         resource_index < dashed_group_header.resource_count;
-         ++resource_index) {
-        const auto record = read_value<progpu_native_scene_resource>(
-            stream,
-            dashed_group_header.resource_offset +
-                resource_index * sizeof(progpu_native_scene_resource));
-        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
-            const auto stroke = read_value<progpu_native_scene_stroke>(
-                stream,
-                record.payload_offset);
-            if (stroke.transform.m31 == 60.0F &&
-                stroke.transform.m32 == 10.0F) {
-                PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
-                PROGPU_REQUIRE(stroke.dash_offset == 0.0);
-                if (stroke.point_count == 2U) {
-                    PROGPU_REQUIRE(stroke.start_cap == 1U);
-                    PROGPU_REQUIRE(stroke.end_cap == 2U);
-                    found_dashed_line_child = true;
-                } else if (stroke.point_count == 4U) {
-                    PROGPU_REQUIRE(
-                        (stroke.flags &
-                            PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U);
-                    found_dashed_rectangle_child = true;
-                }
-            } else if (
-                stroke.transform.m31 == 260.0F &&
-                stroke.transform.m32 == 25.0F) {
-                PROGPU_REQUIRE(stroke.point_count == 2U);
-                PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
-                found_dashed_nested_line = true;
-            }
-            continue;
+    for (std::size_t offset = 0U; offset < actual_dashed_group[0].size(); offset += primitive_stride) {
+        const auto primitive = read_value<progpu_native_geometry_primitive>(actual_dashed_group[0], offset);
+        if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
+            const auto cap = (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
+                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+            PROGPU_REQUIRE(cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE);
+            ++dashed_group_cap_count;
         }
-        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
-            continue;
-        }
-        std::uint32_t primitive_offset = 0U;
-        for (;
-             primitive_offset + primitive_stride <= record.payload_size;
-             primitive_offset += primitive_stride) {
-            const auto primitive =
-                read_value<progpu_native_geometry_primitive>(
-                    stream,
-                    record.payload_offset + primitive_offset);
-            if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
-                const std::uint32_t cap =
-                    (primitive.flags &
-                        PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
-                    PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
-                PROGPU_REQUIRE(cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE);
-                ++dashed_group_cap_count;
-            }
-            found_first_dashed_child = found_first_dashed_child ||
-                (primitive.transform.m11 == 1.5F &&
-                 primitive.transform.m22 == 1.5F &&
-                 primitive.transform.m31 == 2.0F &&
-                 primitive.transform.m32 == 3.0F);
-            found_second_dashed_child = found_second_dashed_child ||
-                (primitive.transform.m11 == 1.0F &&
-                 primitive.transform.m22 == 1.0F &&
-                 primitive.transform.m31 == 30.0F &&
-                 primitive.transform.m32 == 0.0F);
-            found_dashed_ellipse_child = found_dashed_ellipse_child ||
-                (primitive.transform.m31 == 90.0F &&
-                 primitive.transform.m32 == 5.0F);
-            found_dashed_rounded_child = found_dashed_rounded_child ||
-                (primitive.transform.m31 == 120.0F &&
-                 primitive.transform.m32 == 5.0F);
-        }
-        PROGPU_REQUIRE(primitive_offset == record.payload_size);
     }
     PROGPU_REQUIRE(dashed_group_cap_count >= 4U);
-    PROGPU_REQUIRE(found_first_dashed_child);
-    PROGPU_REQUIRE(found_second_dashed_child);
-    PROGPU_REQUIRE(found_dashed_line_child);
-    PROGPU_REQUIRE(found_dashed_rectangle_child);
-    PROGPU_REQUIRE(found_dashed_ellipse_child);
-    PROGPU_REQUIRE(found_dashed_rounded_child);
-    PROGPU_REQUIRE(found_dashed_nested_line);
+    for (auto& records : independent_strokes) records.clear();
+    for (std::size_t child_index = 0U; child_index < group_children.size(); ++child_index) {
+        std::vector<std::byte> child_draw, child_update;
+        append_command(child_draw, command::draw_geometry, 0U, pen, group_children[child_index], 0U);
+        append_render_data(child_update, content, child_draw);
+        PROGPU_REQUIRE(state.apply(child_update) == status::success);
+        std::vector<std::byte> child_scene;
+        PROGPU_REQUIRE(state.build_scene(target, 7002U, 1500U + child_index, child_scene) == status::success);
+        const auto child_strokes = collect_strokes(child_scene);
+        PROGPU_REQUIRE(!child_strokes[0].empty() || !child_strokes[1].empty());
+        if (child_index == 2U || child_index == 3U || child_index == 6U) {
+            PROGPU_REQUIRE(child_strokes[0].empty());
+            PROGPU_REQUIRE(child_strokes[1].size() >= sizeof(progpu_native_scene_stroke));
+            const auto stroke = read_value<progpu_native_scene_stroke>(child_strokes[1], 0U);
+            PROGPU_REQUIRE(stroke.point_count == (child_index == 3U ? 4U : 2U));
+            PROGPU_REQUIRE(stroke.dash_interval_count == 2U && stroke.dash_offset == 0.0);
+            PROGPU_REQUIRE(stroke.stroke_thickness == 2.0F);
+            if (child_index == 3U) PROGPU_REQUIRE((stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U);
+            else PROGPU_REQUIRE(stroke.start_cap == 1U && stroke.end_cap == 2U);
+        } else {
+            PROGPU_REQUIRE(!child_strokes[0].empty() && child_strokes[1].empty());
+        }
+        for (std::size_t kind = 0U; kind < independent_strokes.size(); ++kind)
+            independent_strokes[kind].insert(independent_strokes[kind].end(),
+                child_strokes[kind].begin(), child_strokes[kind].end());
+    }
+    PROGPU_REQUIRE(actual_dashed_group == independent_strokes);
+    PROGPU_REQUIRE(state.apply(restore_group_draw) == status::success);
     return true;
 }
 
@@ -17974,6 +17892,15 @@ bool fixed_geometry_spines_match_single_child_groups() {
                     PROGPU_REQUIRE(build_mil_image_brush_fixture(direct, options, 8108U));
                     options.group_geometry_commands = graphs[1U];
                     PROGPU_REQUIRE(build_mil_image_brush_fixture(grouped, options, 8108U));
+                    if (direct != grouped) {
+                        const auto a = read_value<progpu_native_scene_header>(direct, 0U);
+                        const auto b = read_value<progpu_native_scene_header>(grouped, 0U);
+                        const auto mismatch = std::mismatch(direct.begin(), direct.end(), grouped.begin(), grouped.end());
+                        std::fprintf(stderr, "fixed/group mismatch shape=%u extent=%g,%g brush=%u dashed=%d transform=%g,%g,%g,%g,%g,%g size=%zu/%zu commands=%u/%u resources=%u/%u offset=%zu\n",
+                            shape, extent[0], extent[1], brush, dashed, transform[0], transform[1], transform[2], transform[3], transform[4], transform[5],
+                            direct.size(), grouped.size(), a.command_count, b.command_count, a.resource_count, b.resource_count,
+                            static_cast<std::size_t>(mismatch.first - direct.begin()));
+                    }
                     PROGPU_REQUIRE(direct == grouped);
                     // A zero-area world transform still removes both fill and
                     // stroke, unlike a geometry-only rank reduction.
@@ -18052,6 +17979,48 @@ bool degenerate_fixed_geometry_scale_matches_materialized_shape() {
 }
 
 bool drawing_image_degenerate_ellipse_uses_unscaled_pen_bounds() {
+    // Independent scalar extrema of the retained quarter-cubic round caps.
+    // An ideal disk is not their exact support after rotation (the standard
+    // cubic circle has a small radial overshoot). Both endpoint circles have
+    // the same capsule envelope as the two directed semicaps plus line body.
+    const auto capsule_bounds = [](double cx, double cy, double dx, double dy) {
+        std::array<double, 4U> bounds{INFINITY, INFINITY, -INFINITY, -INFINITY};
+        const double length = std::hypot(dx, dy);
+        const double ux = length == 0.0 ? 1.0 : dx / length;
+        const double uy = length == 0.0 ? 0.0 : dy / length;
+        const std::array<std::array<double, 2U>, 4U> axes{{{ux, uy}, {-uy, ux}, {-ux, -uy}, {uy, -ux}}};
+        constexpr double k = 0.5522847498307933984;
+        for (const double sign : {-1.0, 1.0}) {
+            const std::array center{cx + sign * dx, cy + sign * dy};
+            for (std::size_t quadrant = 0U; quadrant < 4U; ++quadrant) {
+                const auto a = axes[quadrant], b = axes[(quadrant + 1U) % 4U];
+                for (std::size_t axis = 0U; axis < 2U; ++axis) {
+                    const double p0 = static_cast<float>(center[axis] + 2.0 * a[axis]);
+                    const double p1 = static_cast<float>(center[axis] + 2.0 * (a[axis] + k * b[axis]));
+                    const double p2 = static_cast<float>(center[axis] + 2.0 * (b[axis] + k * a[axis]));
+                    const double p3 = static_cast<float>(center[axis] + 2.0 * b[axis]);
+                    const auto include = [&](double value) {
+                        bounds[axis] = std::min(bounds[axis], value);
+                        bounds[axis + 2U] = std::max(bounds[axis + 2U], value);
+                    };
+                    include(p0); include(p3);
+                    const double qa = -p0 + 3.0 * p1 - 3.0 * p2 + p3;
+                    const double qb = 2.0 * (p0 - 2.0 * p1 + p2), qc = p1 - p0;
+                    const auto sample = [&](double t) {
+                        if (!(t > 0.0 && t < 1.0)) return;
+                        const double s = 1.0 - t;
+                        include(s * s * s * p0 + 3.0 * s * s * t * p1 + 3.0 * s * t * t * p2 + t * t * t * p3);
+                    };
+                    if (qa == 0.0) { if (qb != 0.0) sample(-qc / qb); }
+                    else if (const double discriminant = qb * qb - 4.0 * qa * qc; discriminant >= 0.0) {
+                        sample((-qb + std::sqrt(discriminant)) / (2.0 * qa));
+                        sample((-qb - std::sqrt(discriminant)) / (2.0 * qa));
+                    }
+                }
+            }
+        }
+        return bounds;
+    };
     const std::array<std::array<double, 6U>, 6U> transforms{{
         {2.0, 0.0, 0.0, 3.0, 4.0, 8.0},
         {0.0, 2.0, -3.0, 0.0, 40.0, 8.0},
@@ -18098,14 +18067,16 @@ bool drawing_image_degenerate_ellipse_uses_unscaled_pen_bounds() {
                 PROGPU_REQUIRE(state.apply(batch) == status::success);
                 std::vector<std::byte> stream;
                 PROGPU_REQUIRE(state.build_scene(3U, 8112U, 1U, stream) == status::success);
-                // Scalar capsule oracle: mapped endpoints plus a radius-two
-                // disk in drawing coordinates, irrespective of geometry scale.
+                // Source endpoints are mapped before widening. Cap radius
+                // remains two in drawing coordinates, not geometry-scaled.
                 const double cx = 12.0 * matrix[0] + 18.0 * matrix[2] + matrix[4];
                 const double cy = 12.0 * matrix[1] + 18.0 * matrix[3] + matrix[5];
-                const double dx = std::abs(radii[0] * matrix[0] + radii[1] * matrix[2]);
-                const double dy = std::abs(radii[0] * matrix[1] + radii[1] * matrix[3]);
-                const double sx = 40.0 / (2.0 * dx + 4.0), sy = 20.0 / (2.0 * dy + 4.0);
-                const double tx = 2.0 - (cx - dx - 2.0) * sx, ty = 4.0 - (cy - dy - 2.0) * sy;
+                const double dx = radii[0] * matrix[0] + radii[1] * matrix[2];
+                const double dy = radii[0] * matrix[1] + radii[1] * matrix[3];
+                const auto expected_bounds = capsule_bounds(cx, cy, dx, dy);
+                const double sx = 40.0 / (expected_bounds[2] - expected_bounds[0]);
+                const double sy = 20.0 / (expected_bounds[3] - expected_bounds[1]);
+                const double tx = 2.0 - expected_bounds[0] * sx, ty = 4.0 - expected_bounds[1] * sy;
                 const auto header = read_value<progpu_native_scene_header>(stream, 0U);
                 bool found = false;
                 for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
@@ -18117,6 +18088,18 @@ bool drawing_image_degenerate_ellipse_uses_unscaled_pen_bounds() {
                         std::abs(scene.transform.m22 - sy) < 0.0001 &&
                         std::abs(scene.transform.m31 - tx) < 0.0001 &&
                         std::abs(scene.transform.m32 - ty) < 0.0001) found = true;
+                }
+                if (!found) {
+                    std::fprintf(stderr, "ellipse bounds radii=%g,%g grouped=%d matrix=%g,%g,%g,%g,%g,%g expected=%g,%g,%g,%g\n",
+                        radii[0], radii[1], grouped, matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5], sx, sy, tx, ty);
+                    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                        const auto resource = read_value<progpu_native_scene_resource>(stream,
+                            header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) continue;
+                        const auto scene = read_value<progpu_native_scene_state>(stream, resource.payload_offset);
+                        std::fprintf(stderr, "state %g,%g,%g,%g,%g,%g\n", scene.transform.m11, scene.transform.m12,
+                            scene.transform.m21, scene.transform.m22, scene.transform.m31, scene.transform.m32);
+                    }
                 }
                 PROGPU_REQUIRE(found);
             }
@@ -20484,16 +20467,24 @@ bool bitmap_cache_brush_strokes_retain_coverage_and_shared_source() {
             std::vector<std::byte> scene;
             PROGPU_REQUIRE(build_mil_image_brush_fixture(scene, options, 8124U));
             const auto header = read_value<progpu_native_scene_header>(scene, 0U);
-            bool coverage = false;
+            std::uint32_t coverage_count = 0U;
             for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
                 const auto resource = read_value<progpu_native_scene_resource>(scene,
                     header.resource_offset + index * sizeof(progpu_native_scene_resource));
                 if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
-                    resource.payload_size != sizeof(progpu_native_scene_layer_picture_mask)) continue;
-                const auto mask = read_value<progpu_native_scene_layer_picture_mask>(scene, resource.payload_offset);
-                coverage |= mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE && mask.stream_size != 0U;
+                    resource.payload_size != sizeof(progpu_native_scene_layer_geometry_mask)) continue;
+                const auto mask = read_value<progpu_native_scene_layer_geometry_mask>(scene, resource.payload_offset);
+                PROGPU_REQUIRE(mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY && mask.primitive_count != 0U);
+                PROGPU_REQUIRE(mask.opacity == 1.0F && mask.brush.opacity == 1.0F);
+                PROGPU_REQUIRE(mask.brush.type == PROGPU_NATIVE_SCENE_BRUSH_SOLID && mask.brush.colors[0].a == 1.0F);
+                for (std::uint32_t primitive_index = 0U; primitive_index < mask.primitive_count; ++primitive_index) {
+                    const auto primitive = read_value<progpu_native_geometry_primitive>(scene,
+                        resource.auxiliary_offset + (mask.primitive_offset + primitive_index) * sizeof(progpu_native_geometry_primitive));
+                    PROGPU_REQUIRE(primitive.stroke_thickness > 0.0F && primitive.color.a == 1.0F);
+                }
+                ++coverage_count;
             }
-            PROGPU_REQUIRE(coverage);
+            PROGPU_REQUIRE(coverage_count == 2U);
             const auto layers = get_scene_layers(scene);
             std::uint32_t source_count = 0U;
             std::uint64_t content_revision = 0U;
@@ -20587,8 +20578,16 @@ bool bitmap_cache_brush_strokes_retain_coverage_and_shared_source() {
         if (consumers++ == 0U) shared_revision = layer.content_revision;
         else PROGPU_REQUIRE(layer.content_revision == shared_revision);
         PROGPU_REQUIRE(try_get_state_resource(scene, layer.reserved0, composite));
-        PROGPU_REQUIRE(std::abs(composite.transform.m31 - 10.3F) < 0.0001F);
+        // Fill keeps Geometry.Transform after relative brush mapping:
+        // R * (([10,20] + [20,14]) / 2) + [3,-2] = [4.8,20.6].
+        // Pen maps its spine before widening, so its brush domain is already
+        // in drawing coordinates and retains [10.3,20.6].
+        PROGPU_REQUIRE(std::abs(composite.transform.m31 - (consumers == 1U ? 4.8F : 10.3F)) < 0.0001F);
         PROGPU_REQUIRE(std::abs(composite.transform.m32 - 20.6F) < 0.0001F);
+        PROGPU_REQUIRE(std::abs(composite.transform.m11 - (consumers == 1U ? 0.4F : 0.5F)) < 0.0001F);
+        PROGPU_REQUIRE(std::abs(composite.transform.m12 - (consumers == 1U ? 0.3F : 0.0F)) < 0.0001F);
+        PROGPU_REQUIRE(std::abs(composite.transform.m21 - (consumers == 1U ? -0.3F : 0.0F)) < 0.0001F);
+        PROGPU_REQUIRE(std::abs(composite.transform.m22 - (consumers == 1U ? 0.4F : 0.5F)) < 0.0001F);
     }
     PROGPU_REQUIRE(consumers == 2U);
     // Matched SmoothStrokeCoverageTests: local affine precedes normal-width

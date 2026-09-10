@@ -5596,8 +5596,9 @@ int main()
             0U,
             &aliased_path_scene,
             &native_hresult) ==
-                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
-            native_hresult == S_OK && aliased_path_scene.required_bytes != 0U,
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
+            aliased_path_scene.required_bytes != 0U,
         "aliased Direct2D filled path was not admitted");
     std::vector<std::byte> aliased_path_bytes(static_cast<std::size_t>(aliased_path_scene.required_bytes));
     require(progpu_native_direct2d_command_list_build_scene_stream(

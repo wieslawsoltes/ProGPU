@@ -11695,6 +11695,12 @@ struct channel::implementation {
         const double length = std::hypot(axis_x, axis_y);
         if (!finite_double_as_float(length)) return status::invalid_graph;
         fixed_geometry_state result = source;
+        if (source.kind == fixed_geometry_kind::rectangle) {
+            // Group children reach this preparer before the direct draw's
+            // radius clamp. Normalize in source space before mapping the spine.
+            result.radius_x = std::min(source.radius_x, source.third * 0.5);
+            result.radius_y = std::min(source.radius_y, source.fourth * 0.5);
+        }
         result.first = result.second = 0.0;
         result.third = source.third > 0.0 ? length : 0.0;
         result.fourth = source.fourth > 0.0 ? length : 0.0;
@@ -11706,14 +11712,14 @@ struct channel::implementation {
             const double ux = axis_x / length, uy = axis_y / length;
             if (source.third > 0.0) {
                 frame.m11 = ux; frame.m12 = uy; frame.m21 = -uy; frame.m22 = ux;
-                result.radius_x = std::min(source.radius_x, source.third * 0.5) * (length / source.third);
+                result.radius_x *= length / source.third;
             } else {
                 frame.m11 = uy; frame.m12 = -ux; frame.m21 = ux; frame.m22 = uy;
-                result.radius_y = std::min(source.radius_y, source.fourth * 0.5) * (length / source.fourth);
+                result.radius_y *= length / source.fourth;
             }
         }
         if (source.kind == fixed_geometry_kind::rectangle &&
-            !(source.radius_x > 0.0 && source.radius_y > 0.0)) result.radius_x = result.radius_y = 0.0;
+            !(result.radius_x > 0.0 && result.radius_y > 0.0)) result.radius_x = result.radius_y = 0.0;
         if (!finite_double_as_float(result.radius_x) || !finite_double_as_float(result.radius_y))
             return status::invalid_graph;
         output = result;
@@ -17053,6 +17059,7 @@ struct channel::implementation {
                         affine_2d_double pen_frame{};
                         bool line{};
                         bool degenerate{};
+                        bool canonical_ellipse{};
                     };
                     std::vector<prepared_group_stroke> prepared_strokes;
                     if (pen_handle != 0U) {
@@ -17096,8 +17103,27 @@ struct channel::implementation {
                                 }
                                 return status::success;
                             }
+                            // Match direct fixed-geometry draws: an unchanged,
+                            // solid ellipse owns one complete arc, not a closing
+                            // join reconstructed from float-angle endpoints.
+                            entry.canonical_ellipse = !entry.degenerate &&
+                                entry.fixed.kind == fixed_geometry_kind::ellipse &&
+                                !is_sampled_brush(group_pen.brush_handle) &&
+                                parent.m11 == 1.0 && parent.m12 == 0.0 &&
+                                parent.m21 == 0.0 && parent.m22 == 1.0 &&
+                                parent.m31 == 0.0 && parent.m32 == 0.0;
+                            if (entry.canonical_ellipse && group_pen.dash_style_handle != 0U) {
+                                const auto dash = dash_styles.find(group_pen.dash_style_handle);
+                                if (dash == dash_styles.end()) return status::invalid_handle;
+                                entry.canonical_ellipse = dash->second.intervals.empty();
+                            }
                             progpu_native_image_rect bounds{};
-                            if (entry.degenerate) {
+                            if (entry.canonical_ellipse) {
+                                if (!try_fixed_shape_stroke_bounds(entry.fixed.first - entry.fixed.third,
+                                        entry.fixed.second - entry.fixed.fourth, entry.fixed.third * 2.0,
+                                        entry.fixed.fourth * 2.0, group_pen.thickness, {}, bounds))
+                                    return status::invalid_graph;
+                            } else if (entry.degenerate) {
                                 const status mapped = prepare_degenerate_fixed_geometry(entry.fixed, parent,
                                     entry.fixed, entry.pen_frame);
                                 if (mapped != status::success) return mapped;
@@ -17352,7 +17378,10 @@ struct channel::implementation {
                         std::vector<progpu_native_path_segment> tile_segments;
                         for (const auto& entry : prepared_strokes) {
                             status drawn = status::success;
-                            if (entry.degenerate) {
+                            if (entry.canonical_ellipse) {
+                                drawn = append_positive_fixed_shape_stroke(entry.fixed, group_pen, {},
+                                    current.transform, brush_index);
+                            } else if (entry.degenerate) {
                                 const auto& shape = entry.fixed;
                                 const auto effective = compose_affine(entry.pen_frame, current.transform);
                                 if (tiled) {

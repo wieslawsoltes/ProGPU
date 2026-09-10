@@ -22,6 +22,12 @@ corners is not equivalent. Preserve geometry-local mapping before widening and
 the original pen width; collapsed shapes may retain only a rigid pen frame.
 Keep paired zero-X/zero-Y managed/native coordinate and material-bounds fixtures.
 
+Grouped fixed strokes must use the same source-radius normalization and canonical
+full-ellipse representation as direct fixed draws. Compare complete prepared child
+records, not stale transform values used as labels. Cached-source alpha tests must
+compare once-composited opaque coverage against an independent ordinary-stroke
+layer; per-piece PushOpacity is a different contract, not its pixel oracle.
+
 Built-in source identity effects preserve input around an admitted local cache.
 The inner cache owns original-content frame conversion; the outer effect owns
 its final source clip, not effect padding. Keep spatial visual masks rejected
