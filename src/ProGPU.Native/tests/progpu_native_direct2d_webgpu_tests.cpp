@@ -1666,6 +1666,35 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "MIL viewport centers red=%u green=%u blue=%u green=%u\n",
             viewport_channel(16U, 32U, 0U), viewport_channel(16U, 32U, 1U),
             viewport_channel(48U, 32U, 2U), viewport_channel(48U, 32U, 1U));
+        if (!viewport_options.gradient &&
+            (viewport_channel(16U, 32U, 0U) != 255U ||
+             viewport_channel(48U, 32U, 2U) != 255U)) {
+            for (std::uint32_t component = 0U; component < 3U; ++component) {
+                std::uint32_t count = 0U, min_x = width, min_y = height;
+                std::uint32_t max_x = 0U, max_y = 0U;
+                for (std::uint32_t y = 0U; y < height; ++y) {
+                    for (std::uint32_t x = 0U; x < width; ++x) {
+                        if (viewport_channel(x, y, component) == 0U) continue;
+                        ++count;
+                        min_x = std::min(min_x, x);
+                        min_y = std::min(min_y, y);
+                        max_x = std::max(max_x, x);
+                        max_y = std::max(max_y, y);
+                    }
+                }
+                std::fprintf(stderr,
+                    "MIL viewport component=%u pixels=%u bounds=%u,%u..%u,%u\n",
+                    component, count, min_x, min_y, max_x, max_y);
+            }
+            progpu_native_layer_metrics failure_metrics{};
+            failure_metrics.struct_size = sizeof(failure_metrics);
+            if (progpu_native_engine_get_layer_metrics(engine, &failure_metrics) ==
+                PROGPU_NATIVE_STATUS_SUCCESS) {
+                std::fprintf(stderr, "MIL viewport cold content=%u cache=%u effect=%u\n",
+                    failure_metrics.content_pass_count, failure_metrics.cache_hit,
+                    failure_metrics.effect_cache_hit);
+            }
+        }
         require(std::abs(static_cast<int>(viewport_channel(16U, 32U, 0U)) -
                     (viewport_options.gradient ? 66 : 255)) <= (viewport_options.gradient ? 1 : 0) &&
                 std::abs(static_cast<int>(viewport_channel(48U, 32U, 2U)) -

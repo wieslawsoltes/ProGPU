@@ -34,3 +34,10 @@ The separate cached/clipped sibling Viewport3D failure on hosted D3D12 and
 Vulkan remains unresolved. Windows VM compilation, other platform checks,
 package/application qualification and ordered PR merges remain open. Passing
 this fixture does not qualify those gates or establish performance parity.
+
+The native sibling test now emits per-channel nonzero pixel counts/extents and
+cache/content-pass counters only when its solid center check fails. This bounded
+64-by-64 test-only scan distinguishes missing coverage from shifted coverage; it
+does not change rendering, submissions, normal success-path work or assertions.
+The rebuilt local Direct2D WebGPU suite still passes; see
+`viewport-diagnostics-build.log` and `viewport-diagnostics-test.log`.
