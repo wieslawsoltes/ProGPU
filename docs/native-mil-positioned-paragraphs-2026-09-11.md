@@ -39,3 +39,26 @@ Local macOS ARM64 document-flow CTest passed (1/1, 0.37 seconds), including the
 table-cell case and existing ordinary flow tests. Both provider export allowlists
 and generated C# record verification passed. These are local native checks, not
 published package, Windows/Linux, module or full application qualification.
+
+## Managed transport and neutral capability
+
+`NativeDocumentFlow.ArrangeWithPositionedParagraphs` now pins the original spans
+for one call to the selected wgpu-native or Dawn export. It validates capacities,
+item budgets and exact local-position coverage before pointer access, fills the
+existing result ABI size, and lets the shared native arranger validate topology
+and geometry. No managed position correction, line copying or reshaping is added.
+Ordinary entry points retain their original native calls.
+
+`IPortablePositionedDocumentFlow` is an explicit optional capability on the
+existing document service, with a sequential native-matched paragraph descriptor.
+It is separate from anchor placement: a host must implement the capability before
+source consumers rely on fragment-aware document arrangement. Missing support
+must not select the old height-prefix path.
+
+The native-backed consumer passes the same reverse-X/same-row and cleared-gap
+paragraph through both providers, verifies original source order and following
+block placement, and checks atomic rejection and short-span admission. Its
+Release project-reference build passed with zero warnings/errors and the MIL-only
+consumer passed. The neutral contract compiled with zero warnings/errors. WPF adapter,
+source formatting request, coordinate normalization and viewer interaction remain
+the next connections, not qualified by this transport check.

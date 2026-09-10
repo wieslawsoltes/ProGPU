@@ -126,6 +126,35 @@ public struct PortableDocumentFragmentPosition
 
 public readonly record struct PortableDocumentPagination(uint FragmentCount, uint PageCount);
 
+/// <summary>Actual paragraph extent with explicit local line positions.
+/// Sorted unique line-bearing leaf BlockIndex; Reserved is zero. Extents retain
+/// clearance gaps and same-row fragments, not a sum of fragment heights.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct PortableDocumentPositionedParagraph
+{
+    public uint BlockIndex;
+    public uint Reserved;
+    public double Width;
+    public double Height;
+}
+
+/// <summary>Optional shared document arrangement of positioned paragraph lines.
+/// Source owns the native fragment metadata and original TextLines. This must
+/// not fall back to ordinary line-height prefix placement when absent.</summary>
+public interface IPortablePositionedDocumentFlow : IPortableDocumentFlow
+{
+    /// <summary>All spans are borrowed synchronously and outputs are disjoint.
+    /// Local positions cover every line if paragraphs is nonempty, otherwise
+    /// the span is empty. Ordinary lines have zero local positions. Invalid
+    /// input leaves all outputs unchanged; source order is preserved.</summary>
+    PortableDocumentExtent ArrangeWithPositionedParagraphs(ReadOnlySpan<PortableDocumentBlock> blocks, double width,
+        ReadOnlySpan<PortableDocumentLine> lines, ReadOnlySpan<PortableDocumentObject> objects,
+        ReadOnlySpan<PortableDocumentRow> rows, ReadOnlySpan<double> columnWidths,
+        ReadOnlySpan<PortableDocumentCell> cells, ReadOnlySpan<PortableDocumentPositionedParagraph> paragraphs,
+        ReadOnlySpan<PortableDocumentLinePosition> localPositions, Span<PortableDocumentBox> boxes,
+        Span<PortableDocumentLinePosition> positions);
+}
+
 public enum PortableDocumentAnchorWidthMode : uint { Fixed, Fill, FitContent }
 public enum PortableDocumentAnchorAlignment : uint { Left, Center, Right }
 

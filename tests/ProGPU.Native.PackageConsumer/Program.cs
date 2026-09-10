@@ -30,6 +30,7 @@ if (info.AbiVersion != 4 ||
 ValidateNativeMilSceneBuildTiming();
 ValidateNativeMilCompactGuidelineBuilder();
 ValidateNativeDocumentRows();
+ValidateNativePositionedParagraphs();
 ValidateNativeInlineParagraph();
 
 bool milOnly = args.Contains("--mil-only", StringComparer.Ordinal);
@@ -608,6 +609,41 @@ static void ValidateNativeInlineParagraph()
             throw new InvalidOperationException($"Inline hard-break ownership failed: object end {hard.ClusterEnds.Span[objectGlyph]}, line end {hard.Lines.Span[0].InputEnd}.");
     }
     Console.WriteLine("package-consumer: native inline paragraph metrics, identity, wrapping and span validation passed");
+}
+
+static void ValidateNativePositionedParagraphs()
+{
+    foreach (var backend in new[] { NativeMilBackend.WgpuNative, NativeMilBackend.Dawn })
+    {
+        NativeDocumentBlock[] blocks = [
+            new() { ParentIndex = uint.MaxValue, SubtreeEnd = 3 },
+            new() { ParentIndex = 0, SubtreeEnd = 2, LineCount = 3, InsetLeft = 4, InsetTop = 3, InsetBottom = 5 },
+            new() { ParentIndex = 0, SubtreeEnd = 3, LineStart = 3, LineCount = 1 }];
+        NativeDocumentLine[] lines = [new() { Width = 50, Height = 10 }, new() { Width = 30, Height = 10 },
+            new() { Width = 60, Height = 12 }, new() { Width = 20, Height = 7 }];
+        NativeDocumentPositionedParagraph[] paragraphs = [new() { BlockIndex = 1, Width = 90, Height = 52 }];
+        NativeDocumentLinePosition[] local = [new() { X = 40, Y = 20 }, new() { Y = 20 }, new() { Y = 40 }, new()];
+        NativeDocumentBox[] boxes = new NativeDocumentBox[3];
+        NativeDocumentLinePosition[] positions = new NativeDocumentLinePosition[4];
+        var result = NativeDocumentFlow.ArrangeWithPositionedParagraphs(blocks, 100, lines, [], [], [], [],
+            paragraphs, local, boxes, positions, backend);
+        if (result.Height != 67 || boxes[1].Height != 52 || positions[0].X != 44 || positions[0].Y != 23 ||
+            positions[1].X != 4 || positions[1].Y != 23 || positions[2].Y != 43 || positions[3].Y != 60)
+            throw new InvalidOperationException($"Packaged {backend} lost fragment frames or following block placement.");
+        paragraphs[0].Height = 51;
+        bool rejected = false;
+        try { NativeDocumentFlow.ArrangeWithPositionedParagraphs(blocks, 100, lines, [], [], [], [],
+            paragraphs, local, boxes, positions, backend); }
+        catch (NativeRendererException) { rejected = true; }
+        if (!rejected || boxes[1].Height != 52 || positions[3].Y != 60)
+            throw new InvalidOperationException($"Packaged {backend} published a partial positioned paragraph.");
+        rejected = false;
+        try { NativeDocumentFlow.ArrangeWithPositionedParagraphs(blocks, 100, lines, [], [], [], [],
+            paragraphs, local.AsSpan(0, 3), boxes, positions, backend); }
+        catch (ArgumentException) { rejected = true; }
+        if (!rejected) throw new InvalidOperationException("Short local-position span reached native code.");
+    }
+    Console.WriteLine("package-consumer: positioned paragraphs retain shared frames on both providers");
 }
 
 static void ValidateNativeDocumentRows()

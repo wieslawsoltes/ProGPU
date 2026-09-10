@@ -243,6 +243,54 @@ public static unsafe class NativeDocumentFlow
         if (cells > MaximumItems) throw new ArgumentOutOfRangeException(nameof(cells));
     }
 
+    /// <summary>Uses explicit paragraph-local fragment positions and extents in
+    /// the same native block/row arranger. Ordinary lines retain zero local
+    /// offsets. Source order, same-row fragments and vertical gaps are retained.
+    /// Borrowed disjoint spans; every output stays untouched on failure.</summary>
+    public static NativeDocumentFlowResult ArrangeWithPositionedParagraphs(
+        ReadOnlySpan<NativeDocumentBlock> blocks, double width,
+        ReadOnlySpan<NativeDocumentLine> lines, ReadOnlySpan<NativeDocumentObject> objects,
+        ReadOnlySpan<NativeDocumentRow> rows, ReadOnlySpan<double> columnWidths,
+        ReadOnlySpan<NativeDocumentCell> cells, ReadOnlySpan<NativeDocumentPositionedParagraph> paragraphs,
+        ReadOnlySpan<NativeDocumentLinePosition> localPositions, Span<NativeDocumentBox> boxes,
+        Span<NativeDocumentLinePosition> positions, NativeMilBackend backend = NativeMilBackend.WgpuNative)
+    {
+        Validate(blocks.Length, width, boxes.Length, backend);
+        ValidateRows(rows.Length, columnWidths.Length, cells.Length);
+        if (lines.Length > MaximumItems) throw new ArgumentOutOfRangeException(nameof(lines));
+        if (objects.Length > MaximumItems) throw new ArgumentOutOfRangeException(nameof(objects));
+        if (paragraphs.Length > MaximumItems) throw new ArgumentOutOfRangeException(nameof(paragraphs));
+        if (positions.Length < lines.Length) throw new ArgumentException("One position per line is required.", nameof(positions));
+        if (localPositions.Length != (paragraphs.IsEmpty ? 0 : lines.Length))
+            throw new ArgumentException("Explicit paragraphs require one local position per line; otherwise the span must be empty.", nameof(localPositions));
+        NativeDocumentFlowResult result = new() { StructSize = (uint)sizeof(NativeDocumentFlowResult) };
+        NativeRendererStatus status;
+        fixed (NativeDocumentBlock* input = blocks)
+        fixed (NativeDocumentLine* metrics = lines)
+        fixed (NativeDocumentObject* measured = objects)
+        fixed (NativeDocumentRow* rowInput = rows)
+        fixed (double* columns = columnWidths)
+        fixed (NativeDocumentCell* cellInput = cells)
+        fixed (NativeDocumentPositionedParagraph* paragraphInput = paragraphs)
+        fixed (NativeDocumentLinePosition* local = localPositions)
+        fixed (NativeDocumentBox* output = boxes)
+        fixed (NativeDocumentLinePosition* placed = positions)
+            status = backend == NativeMilBackend.Dawn
+                ? NativeDawnDocumentFlowMethods.ArrangeWithPositionedParagraphs(input, (uint)blocks.Length, width,
+                    metrics, (uint)lines.Length, measured, (uint)objects.Length,
+                    rowInput, (uint)rows.Length, columns, (uint)columnWidths.Length, cellInput, (uint)cells.Length,
+                    paragraphInput, (uint)paragraphs.Length, local, (uint)localPositions.Length,
+                    output, (uint)boxes.Length, placed, (uint)positions.Length, &result)
+                : NativeDocumentFlowMethods.ArrangeWithPositionedParagraphs(input, (uint)blocks.Length, width,
+                    metrics, (uint)lines.Length, measured, (uint)objects.Length,
+                    rowInput, (uint)rows.Length, columns, (uint)columnWidths.Length, cellInput, (uint)cells.Length,
+                    paragraphInput, (uint)paragraphs.Length, local, (uint)localPositions.Length,
+                    output, (uint)boxes.Length, placed, (uint)positions.Length, &result);
+        if (status != NativeRendererStatus.Success)
+            throw new NativeRendererException(status, "Native positioned paragraph arrangement failed.");
+        return result;
+    }
+
     private static void Validate(int count, double width, int capacity, NativeMilBackend backend)
     {
         if (count > MaximumItems) throw new ArgumentOutOfRangeException(nameof(count));
@@ -255,6 +303,13 @@ public static unsafe class NativeDocumentFlow
 
 internal static unsafe partial class NativeDocumentFlowMethods
 {
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_arrange_with_positioned_paragraphs")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ArrangeWithPositionedParagraphs(NativeDocumentBlock* blocks, uint count, double width,
+        NativeDocumentLine* lines, uint lineCount, NativeDocumentObject* objects, uint objectCount,
+        NativeDocumentRow* rows, uint rowCount, double* columns, uint columnCount, NativeDocumentCell* cells, uint cellCount,
+        NativeDocumentPositionedParagraph* paragraphs, uint paragraphCount, NativeDocumentLinePosition* localPositions, uint localCount,
+        NativeDocumentBox* boxes, uint capacity, NativeDocumentLinePosition* positions, uint positionCapacity, NativeDocumentFlowResult* result);
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_place_anchors")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus PlaceAnchors(NativeDocumentAnchorRequest* requests, uint count,
@@ -304,6 +359,13 @@ internal static unsafe partial class NativeDocumentFlowMethods
 
 internal static unsafe partial class NativeDawnDocumentFlowMethods
 {
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_arrange_with_positioned_paragraphs")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ArrangeWithPositionedParagraphs(NativeDocumentBlock* blocks, uint count, double width,
+        NativeDocumentLine* lines, uint lineCount, NativeDocumentObject* objects, uint objectCount,
+        NativeDocumentRow* rows, uint rowCount, double* columns, uint columnCount, NativeDocumentCell* cells, uint cellCount,
+        NativeDocumentPositionedParagraph* paragraphs, uint paragraphCount, NativeDocumentLinePosition* localPositions, uint localCount,
+        NativeDocumentBox* boxes, uint capacity, NativeDocumentLinePosition* positions, uint positionCapacity, NativeDocumentFlowResult* result);
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_place_anchors")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus PlaceAnchors(NativeDocumentAnchorRequest* requests, uint count,

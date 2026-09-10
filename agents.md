@@ -36,6 +36,9 @@ inside shared document arrangement, never a fragment-height prefix or source-sid
 Y repair. Preserve ordinary lines, row stretching, original order and atomic
 outputs. Validate line partitions before scanning local offsets; source TextLine
 and anchor admission remain separate until drawing and interaction consume them.
+Positioned paragraph span transport must retain exact local-position coverage,
+one native crossing and explicit optional source capability. Do not implement a
+managed prefix/offset correction when the selected document provider lacks it.
 
 Anchored text exclusion uses resolved half-open layout rectangles, not paint or
 hit-test envelopes. Preserve every free interval across the whole candidate line
