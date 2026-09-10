@@ -303,6 +303,7 @@ if (milOnly)
 using var context = new WgpuContext();
 context.Initialize(window: null);
 Console.WriteLine("package-consumer: WebGPU context");
+ValidateNativeCubicControlHull(context);
 using var target = new GpuTexture(
     context,
     64,
@@ -900,6 +901,66 @@ static byte[] CreateMilDrawingGroupBatch()
     batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
     batch.SetTargetRoot(2, 1);
     return batch.ToArray();
+}
+
+static void ValidateNativeCubicControlHull(WgpuContext context)
+{
+    // Same captured SVG curve and sample frame as the managed GPU regression.
+    // The separate rectangle keeps the empty samples inside the path bounds.
+    var path = new NativeMilPathGeometry(NativeMilPathFillRule.Nonzero,
+        70, 30, 22, 10,
+        [
+            new NativeMilPathFigure(new NativeMilPoint(90.447998046875, 37.676002502441406),
+                IsFilled: true, IsClosed: true,
+                [NativeMilPathSegment.CubicBezier(
+                    new NativeMilPoint(90.85600280761719, 37.676002502441406),
+                    new NativeMilPoint(91.12999725341797, 37.465999603271484),
+                    new NativeMilPoint(91.2699966430664, 37.04600143432617))]),
+            new NativeMilPathFigure(new NativeMilPoint(70, 30),
+                IsFilled: true, IsClosed: true,
+                [NativeMilPathSegment.Line(new NativeMilPoint(75, 30)),
+                 NativeMilPathSegment.Line(new NativeMilPoint(75, 40)),
+                 NativeMilPathSegment.Line(new NativeMilPoint(70, 40))])
+        ]);
+    var drawing = new NativeMilRenderDataBuilder();
+    drawing.DrawGeometry(4, 0, 5);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(6, NativeMilResourceType.MatrixTransform);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(1, 1, 1, 1));
+    batch.SetPathGeometry(5, path);
+    batch.SetMatrixTransform(6, new NativeMilMatrix3x2(3, 0, 0, 3, 0, 0));
+    batch.SetVisualTransform(1, 6);
+    batch.SetRenderData(3, drawing);
+    batch.CreateGenericTarget(2, 300, 150);
+    batch.SetTargetRoot(2, 1);
+    using var mil = new NativeMilChannel();
+    mil.Apply(batch.ToArray());
+    NativeMilCompiledScene scene = mil.CompileScene(2, 702, 1);
+    using var renderer = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
+    using var target = new GpuTexture(context, 300, 150, TextureFormat.Rgba8Unorm,
+        TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Cubic control hull",
+        alphaMode: GpuTextureAlphaMode.Premultiplied);
+    renderer.UpdateScene(scene.Stream);
+    renderer.RenderScene(target, 1, 702, 1, new Vector4(0, 0, 0, 1));
+    renderer.WaitForSubmission(renderer.GetLastSubmissionToken());
+    byte[] pixels = target.ReadPixels();
+    for (int x = 237; x <= 243; ++x)
+    {
+        int offset = (114 * 300 + x) * 4;
+        if (pixels[offset] != 0 || pixels[offset + 1] != 0 ||
+            pixels[offset + 2] != 0 || pixels[offset + 3] != 255)
+            throw new InvalidOperationException("Native cubic produced coverage outside its control hull.");
+    }
+    if (pixels[(105 * 300 + 216) * 4] != 255)
+        throw new InvalidOperationException("Native cubic fixture lost its independent rectangle ink.");
+    Console.WriteLine("package-consumer: native cubic control hull passed");
 }
 
 static byte[] CreateMilGuidelineBatch()

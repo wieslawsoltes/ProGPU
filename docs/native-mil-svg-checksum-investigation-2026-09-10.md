@@ -194,3 +194,30 @@ ProGPU run 34522229666 for `e574a911`; SDK consumers consequently remain skipped
 Update downstream pins only with the coherent producer revision, retaining the
 exact-revision requirement. No checksum, performance budget, SDK gate or core
 application acceptance requirement is waived by this investigation.
+
+## Paired old-shader and native MIL regression
+
+Copied the current headless test output into a private artifact directory and
+substituted only the diagnostic backend assembly. With main's ordinary shader
+and no control-hull checks, the new test fails: an expected clear pixel
+`[20,20,31,255]` becomes white `[255,255,255,255]`. Adding only the quadratic
+and cubic control-hull checks back makes that same test pass. Both diagnostic
+backend builds report zero warnings/errors. This isolated single-crossing fixture
+does not depend on the old/new fill-rule encoding distinction (nonzero and
+evenodd both admit one false crossing). Product assemblies were not overwritten.
+Logs: `old-curve-test.log`, `culled-curve-test.log`, and their backend build logs
+under the existing diagnostic artifact directory.
+
+The existing native package consumer now renders the same curve, independent
+rectangle and three-times transform through NativeMilChannel and the C++ retained
+renderer. Seven empty sample pixels must remain exactly opaque black, and the
+rectangle's interior red channel must be 255. This check runs in its ordinary
+rendering lane, including `--render-only`; `--mil-only` still does not claim GPU
+coverage. The project-reference build and rendering run pass locally on macOS
+arm64 with the staged native library. Logs: `native-curve-build.log` and
+`native-curve-test.log`. This is native wgpu rendering evidence, not Dawn rendering,
+fresh package provenance, Windows/Linux qualification or full SVG image parity.
+
+Together these tests establish the correctness reason for retaining the
+control-hull rejection. The representative checksum remains unchanged pending
+the full-image review; no sampled checksum substitutes for that review.
