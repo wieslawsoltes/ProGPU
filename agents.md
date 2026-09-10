@@ -28,6 +28,9 @@ Anchor placement batches retain source order and earlier collision boxes, with
 whole-batch publication only after all fits succeed. Keep collision exclusions
 distinct from source wrap-side policy; a successful box batch is not text flow
 or Figure/Floater source ownership. No per-anchor managed/native crossing.
+Neutral anchored document support is an explicit optional capability over the
+existing document service. Match sequential native layouts and typed enum values;
+do not add ignored anchor fields or fall back to ordinary blocks when absent.
 
 Anchored text exclusion uses resolved half-open layout rectangles, not paint or
 hit-test envelopes. Preserve every free interval across the whole candidate line

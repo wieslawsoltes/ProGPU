@@ -126,6 +126,80 @@ public struct PortableDocumentFragmentPosition
 
 public readonly record struct PortableDocumentPagination(uint FragmentCount, uint PageCount);
 
+public enum PortableDocumentAnchorWidthMode : uint { Fixed, Fill, FitContent }
+public enum PortableDocumentAnchorAlignment : uint { Left, Center, Right }
+
+/// <summary>Source-resolved two-pass width request. Widths include horizontal
+/// insets; measured width is actual child content from the initial constraint.
+/// HasMeasurement is exactly 0/1. Finite nonnegative DIPs; no child is retained.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct PortableDocumentAnchorWidthRequest
+{
+    public float AvailableWidth;
+    public float HorizontalInsets;
+    public float SpecifiedWidth;
+    public float MeasuredWidth;
+    public PortableDocumentAnchorWidthMode Mode;
+    public uint HasMeasurement;
+}
+
+/// <summary>RequiresRemeasure is 0/1; honor it by formatting the actual child
+/// at ContentWidth, never by scaling existing lines. Reserved is zero.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct PortableDocumentAnchorWidthResult
+{
+    public float ContentWidth;
+    public float OuterWidth;
+    public uint RequiresRemeasure;
+    public uint Reserved;
+}
+
+/// <summary>Resolved finite reference edges and measured positive outer size.
+/// AllowDelay is 0/1; MaximumAttempts is 1..1,048,576; Reserved must be zero.
+/// The source owns reference/offset policy, child identity and source positions.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct PortableDocumentAnchorRequest
+{
+    public float Left;
+    public float Top;
+    public float Right;
+    public float Bottom;
+    public float Width;
+    public float Height;
+    public PortableDocumentAnchorAlignment Alignment;
+    public uint AllowDelay;
+    public uint MaximumAttempts;
+    public uint Reserved;
+}
+
+/// <summary>Half-open collision rectangle, not source wrap-side or hit policy.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct PortableDocumentAnchorRectangle
+{
+    public float Left;
+    public float Top;
+    public float Right;
+    public float Bottom;
+}
+
+/// <summary>Optional native anchored-child primitives. The source retains and
+/// measures real child subtrees, resolves wrapping, and preserves document
+/// positions. This capability does not itself admit Figure/Floater content.
+/// Batched synchronous disjoint spans; no input is retained and failures leave
+/// every output unchanged. Missing capability must not use ordinary block flow.</summary>
+public interface IPortableAnchoredDocumentFlow : IPortableDocumentFlow
+{
+    void ResolveAnchorWidths(ReadOnlySpan<PortableDocumentAnchorWidthRequest> requests,
+        Span<PortableDocumentAnchorWidthResult> results);
+
+    /// <summary>Source order is authoritative. Prior boxes join collision
+    /// exclusions, with combined item count at most 1,048,576. A failed fit
+    /// throws rather than clipping or overlapping the child.</summary>
+    void PlaceAnchors(ReadOnlySpan<PortableDocumentAnchorRequest> requests,
+        ReadOnlySpan<PortableDocumentAnchorRectangle> exclusions,
+        Span<PortableDocumentAnchorRectangle> results);
+}
+
 /// <summary>
 /// Device-independent block placement, separate from text shaping and drawing.
 /// The source retains its document, source positions and formatted line objects.

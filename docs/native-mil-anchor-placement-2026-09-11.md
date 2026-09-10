@@ -110,3 +110,13 @@ local providers; both exported-symbol checks and generated contract verification
 passed. These are project-reference checks, not published package qualification.
 Source-owned child measurement, original TextPointer mapping, retained drawing,
 neutral provider admission and full application qualification remain unfinished.
+
+## Neutral provider contract
+
+`IPortableAnchoredDocumentFlow` is an explicit optional extension of the existing
+document-flow service. Sequential request/result layouts mirror native width and
+placement batches; width mode and alignment use typed uint-backed enums. Flags
+retain native 0/1 validation. The source must require this capability before
+formatting anchored subtrees; ordinary block placement is not a fallback.
+The interface retains no child objects and does not transfer source positions.
+An implementation/ABI fixture and actual source consumer remain separate work.
