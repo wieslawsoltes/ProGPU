@@ -29,7 +29,14 @@ public readonly record struct WgpuNativeResourceSnapshot(
     WgpuRegistrySnapshot ShaderModules,
     WgpuRegistrySnapshot RenderPipelines,
     WgpuRegistrySnapshot ComputePipelines,
-    ulong MetalAllocatedBytes);
+    ulong MetalAllocatedBytes)
+{
+    /// <summary>
+    /// Gets whether <see cref="MetalAllocatedBytes"/> was obtained from the
+    /// system-default Metal device. A zero byte value is otherwise ambiguous.
+    /// </summary>
+    public bool MetalAllocatedBytesAvailable { get; init; }
+}
 
 [StructLayout(LayoutKind.Sequential)]
 internal struct WgpuRegistryReportNative

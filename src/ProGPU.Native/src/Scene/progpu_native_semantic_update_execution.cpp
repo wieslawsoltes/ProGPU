@@ -90,6 +90,7 @@ progpu_native_status bind_scene_external_images(
 
     engine->release_semantic_render_bundle();
     engine->release_semantic_image_page();
+    engine->release_semantic_3d_page();
     engine->release_semantic_external_image_bindings();
     engine->semantic_external_image_bindings.swap(next);
     engine->last_error.clear();

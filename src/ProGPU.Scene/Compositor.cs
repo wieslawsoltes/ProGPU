@@ -446,6 +446,7 @@ public unsafe partial class Compositor : IDisposable
     private const float SquarePointHairlineShapeType = 19f;
     private const float RoundPointHairlineShapeType = 20f;
     private const float DotGridShapeType = 21f;
+    private const float DeviceDotGridShapeType = 25f;
     private const float HairlineCapShapeType = 22f;
     private const float HairlineJoinShapeType = 23f;
     private const float AffineRoundCapShapeType = 24f;
@@ -2905,8 +2906,9 @@ public unsafe partial class Compositor : IDisposable
             _currentDpiScale = (float)DisplayScaleResolver.ResolveWindowDisplayScale(_context.Window);
         }
 
-        var totalSw = System.Diagnostics.Stopwatch.StartNew();
-        var compileSw = System.Diagnostics.Stopwatch.StartNew();
+        long totalStarted =
+            System.Diagnostics.Stopwatch.GetTimestamp();
+        long compileStarted = totalStarted;
         _pathAtlas.CleanupFrame(
             _explicitRenderTargetWidth ?? width,
             _explicitRenderTargetHeight ?? height);
@@ -2998,8 +3000,10 @@ public unsafe partial class Compositor : IDisposable
         CommandEncoder* encoder = null;
         int preparedExtensionDrawCallRestoreStart = -1;
         bool renderBundleRecorded = false;
-        System.Diagnostics.Stopwatch uploadSw = null!;
-        System.Diagnostics.Stopwatch passSw = null!;
+        double compileTimeMs;
+        double uploadTimeMs;
+        long uploadStarted;
+        long passStarted;
         try
         {
 
@@ -3177,6 +3181,9 @@ public unsafe partial class Compositor : IDisposable
                         case RenderCommandType.DrawDotGrid:
                             CompileDotGridCommand(cmd, activeTransform);
                             break;
+                        case RenderCommandType.DrawDeviceDotGrid:
+                            CompileDeviceDotGridCommand(cmd, activeTransform);
+                            break;
                         case RenderCommandType.DrawCircle:
                             CompileCircleCommand(cmd, activeTransform);
                             break;
@@ -3202,7 +3209,7 @@ public unsafe partial class Compositor : IDisposable
                             CompileVertexMeshCommand(cmd, activeTransform);
                             break;
                         case RenderCommandType.DrawPointBatch:
-                            CompilePointBatchCommand(cmd, activeTransform);
+                            CompilePointBatchCommand(diagContext, cmd, activeTransform);
                             break;
                         case RenderCommandType.FillQuad:
                             CompileFillQuadCommand(cmd, activeTransform);
@@ -3291,8 +3298,12 @@ SceneCompilationComplete:
             PrepareWavefrontComposite(width, height, renderWidth, renderHeight);
         }
 
-        compileSw.Stop();
-        uploadSw = System.Diagnostics.Stopwatch.StartNew();
+        long compileStopped =
+            System.Diagnostics.Stopwatch.GetTimestamp();
+        compileTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(
+            compileStarted,
+            compileStopped).TotalMilliseconds;
+        uploadStarted = compileStopped;
 
         // Dynamic buffer writing will happen after uploads to keep logic clear
 
@@ -3437,8 +3448,12 @@ SceneStateUploadComplete:
             _compiledRenderBundleDrawCallCount = _drawCalls.Count;
             renderBundleRecorded = true;
         }
-        uploadSw.Stop();
-        passSw = System.Diagnostics.Stopwatch.StartNew();
+        long uploadStopped =
+            System.Diagnostics.Stopwatch.GetTimestamp();
+        uploadTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(
+            uploadStarted,
+            uploadStopped).TotalMilliseconds;
+        passStarted = uploadStopped;
 
         // Recreate MSAA resources if needed (handles initialization and window resizing).
         // Single-sample compositors render directly into the acquired target and retain no
@@ -3826,15 +3841,23 @@ SceneStateUploadComplete:
         SweepUnusedLayerTextures(root, externalLayers, activeToolTip);
         _activeLayerTextureOwners.Clear();
 
-        passSw.Stop();
-        totalSw.Stop();
+        long passStopped =
+            System.Diagnostics.Stopwatch.GetTimestamp();
+        double passTimeMs =
+            System.Diagnostics.Stopwatch.GetElapsedTime(
+                passStarted,
+                passStopped).TotalMilliseconds;
+        double totalTimeMs =
+            System.Diagnostics.Stopwatch.GetElapsedTime(
+                totalStarted,
+                passStopped).TotalMilliseconds;
 
         Metrics = new CompositorMetrics
         {
-            FrameTimeMs = totalSw.Elapsed.TotalMilliseconds,
-            VisualTreeCompileTimeMs = compileSw.Elapsed.TotalMilliseconds,
-            GpuUploadTimeMs = uploadSw.Elapsed.TotalMilliseconds,
-            RenderPassTimeMs = passSw.Elapsed.TotalMilliseconds,
+            FrameTimeMs = totalTimeMs,
+            VisualTreeCompileTimeMs = compileTimeMs,
+            GpuUploadTimeMs = uploadTimeMs,
+            RenderPassTimeMs = passTimeMs,
             RenderTargetWidth = _explicitRenderTargetWidth ?? width,
             RenderTargetHeight = _explicitRenderTargetHeight ?? height,
             DpiScale = _currentDpiScale,
@@ -5208,6 +5231,7 @@ SceneStateUploadComplete:
                 RenderCommandType.DrawLine or
                 RenderCommandType.DrawEllipse or
                 RenderCommandType.DrawDotGrid or
+                RenderCommandType.DrawDeviceDotGrid or
                 RenderCommandType.DrawCircle or
                 RenderCommandType.DrawRoundedRect or
                 RenderCommandType.DrawBezier or
@@ -5357,10 +5381,30 @@ SceneStateUploadComplete:
                 retainedCommands.TargetWidth == _currentWidth &&
                 retainedCommands.TargetHeight == _currentHeight &&
                 retainedCommands.DpiScale == _currentDpiScale;
-            bool usesPooledContext = !hasRetainedCommands && !ownsRenderCommandCache;
+            // The base DrawingVisual renderer only appends its retained Context.
+            // Replay that storage directly so picture/resource leases are not
+            // AddRef'd into a pooled context on every frame. Preserve virtual
+            // OnRender dispatch for derived drawing-visual implementations.
+            DrawingContext? drawingVisualContext =
+                node.GetType() == typeof(DrawingVisual) &&
+                node is DrawingVisual directDrawingVisual
+                    ? directDrawingVisual.Context
+                    : null;
+            bool usesDrawingVisualContext =
+                !hasRetainedCommands &&
+                !ownsRenderCommandCache &&
+                drawingVisualContext is not null;
+            bool usesPooledContext =
+                !hasRetainedCommands &&
+                !ownsRenderCommandCache &&
+                !usesDrawingVisualContext;
             bool keepRetainedCommands = reuseRetainedCommands;
             var ctx = ownedRenderCommandCache?.GetOrUpdateRenderCommandCache() ??
-                (hasRetainedCommands ? retainedCommands!.Context : GetDrawingContext());
+                (hasRetainedCommands
+                    ? retainedCommands!.Context
+                    : usesDrawingVisualContext
+                        ? drawingVisualContext!
+                        : GetDrawingContext());
             try
             {
                 if (!reuseRetainedCommands)
@@ -5370,7 +5414,7 @@ SceneStateUploadComplete:
                         ctx.Clear();
                     }
 
-                    if (!ownsRenderCommandCache)
+                    if (!ownsRenderCommandCache && !usesDrawingVisualContext)
                     {
                         node.OnRender(ctx);
                     }
@@ -5447,7 +5491,7 @@ SceneStateUploadComplete:
                     // the next compilation after its first successful frame.
                     _retainedVisualCommands.Remove(node);
                 }
-                else if (!keepRetainedCommands)
+                else if (!usesDrawingVisualContext && !keepRetainedCommands)
                 {
                     _retainedVisualCommands.Remove(node);
                     ctx.Clear();
@@ -5605,6 +5649,9 @@ SceneStateUploadComplete:
                 case RenderCommandType.DrawDotGrid:
                     CompileDotGridCommand(command, activeTransform);
                     break;
+                case RenderCommandType.DrawDeviceDotGrid:
+                    CompileDeviceDotGridCommand(command, activeTransform);
+                    break;
                 case RenderCommandType.DrawCircle:
                     CompileCircleCommand(command, activeTransform);
                     break;
@@ -5630,7 +5677,7 @@ SceneStateUploadComplete:
                     CompileVertexMeshCommand(command, activeTransform);
                     break;
                 case RenderCommandType.DrawPointBatch:
-                    CompilePointBatchCommand(command, activeTransform);
+                    CompilePointBatchCommand(context, command, activeTransform);
                     break;
                 case RenderCommandType.FillQuad:
                     CompileFillQuadCommand(command, activeTransform);
@@ -6053,6 +6100,9 @@ SceneStateUploadComplete:
                 case RenderCommandType.DrawDotGrid:
                     CompileDotGridCommand(cmd, activeTransform);
                     break;
+                case RenderCommandType.DrawDeviceDotGrid:
+                    CompileDeviceDotGridCommand(cmd, activeTransform);
+                    break;
                 case RenderCommandType.DrawCircle:
                     CompileCircleCommand(cmd, activeTransform);
                     break;
@@ -6078,7 +6128,7 @@ SceneStateUploadComplete:
                     CompileVertexMeshCommand(cmd, activeTransform);
                     break;
                 case RenderCommandType.DrawPointBatch:
-                    CompilePointBatchCommand(cmd, activeTransform);
+                    CompilePointBatchCommand(picture, cmd, activeTransform);
                     break;
                 case RenderCommandType.FillQuad:
                     CompileFillQuadCommand(cmd, activeTransform);
@@ -6290,6 +6340,7 @@ SceneStateUploadComplete:
             RenderCommandType.DrawRect or
             RenderCommandType.DrawEllipse or
             RenderCommandType.DrawDotGrid or
+            RenderCommandType.DrawDeviceDotGrid or
             RenderCommandType.DrawCircle or
             RenderCommandType.DrawRoundedRect or
             RenderCommandType.DrawPath or
@@ -6384,6 +6435,33 @@ SceneStateUploadComplete:
             {
                 Opacity = perlin.Opacity,
                 CoordinateTransform = inverseCommandTransform * perlin.CoordinateTransform
+            },
+            HatchPatternBrush hatch => new HatchPatternBrush(
+                hatch.Angle,
+                hatch.Spacing,
+                hatch.Thickness,
+                hatch.Color)
+            {
+                Opacity = hatch.Opacity,
+                CoordinateTransform = inverseCommandTransform * hatch.CoordinateTransform
+            },
+            CrossHatchBrush crossHatch => new CrossHatchBrush(
+                crossHatch.Angle,
+                crossHatch.Spacing,
+                crossHatch.Thickness,
+                crossHatch.Color)
+            {
+                Opacity = crossHatch.Opacity,
+                CoordinateTransform = inverseCommandTransform * crossHatch.CoordinateTransform
+            },
+            HatchPatternSetBrush hatchSet => new HatchPatternSetBrush(
+                hatchSet.Families.Span,
+                hatchSet.Dashes.Span,
+                hatchSet.Thickness,
+                hatchSet.Color)
+            {
+                Opacity = hatchSet.Opacity,
+                CoordinateTransform = inverseCommandTransform * hatchSet.CoordinateTransform
             },
             _ => brush
         };
@@ -7474,7 +7552,7 @@ SceneStateUploadComplete:
                 : 0f;
             pathCoverageGamma = MathF.Abs(fontSkewX) > 0.0001f || fontScaleX < 0f
                 ? TransformedTextPathCoverageGamma
-                : GetTextPathCoverageGamma(
+                : GetActiveTextPathCoverageGamma(
                     cmd.FontSize,
                     transform,
                     TransformMetrics.GetStrokeScale(transform),
@@ -7493,12 +7571,16 @@ SceneStateUploadComplete:
             var brush = cmd.Brush as SolidColorBrush;
             var color = brush?.Color ?? new Vector4(1f, 1f, 1f, 1f);
 
-            // Extract scale factor from transform
-            var scaleX = new Vector2(transform.M11, transform.M12).Length();
-            var scaleY = new Vector2(transform.M21, transform.M22).Length();
+            // Coverage is rasterized at the final camera scale while the quad
+            // remains in local coordinates for late GPU placement.
+            var coverageTransform = _useGpuTransformsActive
+                ? transform * _cameraViewMatrix
+                : transform;
+            var scaleX = new Vector2(coverageTransform.M11, coverageTransform.M12).Length();
+            var scaleY = new Vector2(coverageTransform.M21, coverageTransform.M22).Length();
             if (scaleX < 0.0001f) scaleX = 1f;
             if (scaleY < 0.0001f) scaleY = 1f;
-            if (!IsAxisAlignedClipTransform(transform))
+            if (!IsAxisAlignedClipTransform(coverageTransform))
             {
                 scaleX = scaleY = Math.Max(scaleX, scaleY);
             }
@@ -7513,8 +7595,8 @@ SceneStateUploadComplete:
                 cmd.Path,
                 scaleX,
                 scaleY,
-                GetSubpixelPhase(transform.M41 * rasterScale),
-                GetSubpixelPhase(transform.M42 * rasterScale),
+                GetSubpixelPhase(coverageTransform.M41 * rasterScale),
+                GetSubpixelPhase(coverageTransform.M42 * rasterScale),
                 cmd.PathSampleGrid,
                 subpixelPhaseGrid,
                 quantizeScale);
@@ -7684,6 +7766,13 @@ SceneStateUploadComplete:
                         }
 
                         continue;
+                    }
+
+                    if (segment is RationalQuadraticBezierSegment or
+                        RationalCubicBezierSegment)
+                    {
+                        throw new NotSupportedException(
+                            "Rational path segments currently support fill and clip rendering only.");
                     }
 
                     if (segment is LineSegment)
@@ -10454,6 +10543,17 @@ SceneStateUploadComplete:
                     out direction,
                     quadratic.ControlPoint - segmentStart,
                     quadratic.Point - segmentStart);
+            case RationalQuadraticBezierSegment rationalQuadratic:
+                return TrySelectDirection(
+                    out direction,
+                    rationalQuadratic.ControlPoint - segmentStart,
+                    rationalQuadratic.Point - segmentStart);
+            case RationalCubicBezierSegment rationalCubic:
+                return TrySelectDirection(
+                    out direction,
+                    rationalCubic.ControlPoint1 - segmentStart,
+                    rationalCubic.ControlPoint2 - segmentStart,
+                    rationalCubic.Point - segmentStart);
             case CubicBezierSegment cubic:
                 return TrySelectDirection(
                     out direction,
@@ -10479,6 +10579,17 @@ SceneStateUploadComplete:
                     out direction,
                     quadratic.Point - quadratic.ControlPoint,
                     quadratic.Point - segmentStart);
+            case RationalQuadraticBezierSegment rationalQuadratic:
+                return TrySelectDirection(
+                    out direction,
+                    rationalQuadratic.Point - rationalQuadratic.ControlPoint,
+                    rationalQuadratic.Point - segmentStart);
+            case RationalCubicBezierSegment rationalCubic:
+                return TrySelectDirection(
+                    out direction,
+                    rationalCubic.Point - rationalCubic.ControlPoint2,
+                    rationalCubic.Point - rationalCubic.ControlPoint1,
+                    rationalCubic.Point - segmentStart);
             case CubicBezierSegment cubic:
                 return TrySelectDirection(
                     out direction,
@@ -10594,6 +10705,12 @@ SceneStateUploadComplete:
                 return true;
             case QuadraticBezierSegment quadratic:
                 endPoint = quadratic.Point;
+                return true;
+            case RationalQuadraticBezierSegment rationalQuadratic:
+                endPoint = rationalQuadratic.Point;
+                return true;
+            case RationalCubicBezierSegment rationalCubic:
+                endPoint = rationalCubic.Point;
                 return true;
             case CubicBezierSegment cubic:
                 endPoint = cubic.Point;
@@ -11566,9 +11683,17 @@ SceneStateUploadComplete:
         }
     }
 
-    private void CompilePointBatchCommand(RenderCommand cmd, Matrix4x4 transform)
+    private void CompilePointBatchCommand(
+        IRenderDataProvider? provider,
+        RenderCommand cmd,
+        Matrix4x4 transform)
     {
-        if (cmd.Brush is null || cmd.PolylinePoints is not { Length: > 0 } points)
+        ReadOnlySpan<Vector2> points = cmd.PolylinePoints is { Length: > 0 } inlinePoints
+            ? inlinePoints
+            : provider is not null && cmd.PointBufferCount > 0
+                ? provider.GetPoints(cmd.PointBufferOffset, cmd.PointBufferCount)
+                : ReadOnlySpan<Vector2>.Empty;
+        if (cmd.Brush is null || points.IsEmpty)
         {
             return;
         }
@@ -11773,6 +11898,70 @@ SceneStateUploadComplete:
                 vertices[index] = vertex;
             }
         }
+    }
+
+    private void CompileDeviceDotGridCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        bool isLineGrid = cmd.RadiusY > 0f;
+        if (cmd.Brush == null || !IsFiniteRect(cmd.Rect) || cmd.Rect.IsEmpty ||
+            !float.IsFinite(cmd.Position2.X) || cmd.Position2.X <= 0f ||
+            !float.IsFinite(cmd.Position2.Y) || cmd.Position2.Y <= 0f ||
+            !float.IsFinite(cmd.RadiusX) || cmd.RadiusX <= 0f ||
+            !float.IsFinite(cmd.RadiusY) || cmd.RadiusY < 0f ||
+            (isLineGrid && (cmd.RadiusY > 100f ||
+                cmd.RadiusY != MathF.Round(cmd.RadiusY))) ||
+            !IsFiniteInvertibleAffine2D(transform))
+        {
+            return;
+        }
+
+        SwitchBatch(BatchType.Vector);
+        float brushIndex = RegisterBrush(cmd.Brush);
+        Vector4 brushColor = cmd.Brush is SolidColorBrush solid
+            ? solid.Color
+            : Vector4.One;
+        Vector2 local0 = new(cmd.Rect.X, cmd.Rect.Y);
+        Vector2 local1 = new(cmd.Rect.Right, cmd.Rect.Y);
+        Vector2 local2 = new(cmd.Rect.Right, cmd.Rect.Bottom);
+        Vector2 local3 = new(cmd.Rect.X, cmd.Rect.Bottom);
+        float shapeType = EncodeShapeType(cmd, DeviceDotGridShapeType);
+        uint baseVertex = (uint)_vectorVerticesList.Count;
+
+        int vertexStart = _vectorVerticesList.Count;
+        CollectionsMarshal.SetCount(_vectorVerticesList, vertexStart + 4);
+        Span<VectorVertex> vertices = CollectionsMarshal.AsSpan(
+            _vectorVerticesList).Slice(vertexStart, 4);
+        float encodedRadiusOrWidth = isLineGrid ? -cmd.RadiusX : cmd.RadiusX;
+        vertices[0] = new VectorVertex(
+            Vector2.Transform(local0, transform), brushColor, local0,
+            brushIndex, cmd.Position2, encodedRadiusOrWidth, cmd.RadiusY,
+            shapeType);
+        vertices[1] = new VectorVertex(
+            Vector2.Transform(local1, transform), brushColor, local1,
+            brushIndex, cmd.Position2, encodedRadiusOrWidth, cmd.RadiusY,
+            shapeType);
+        vertices[2] = new VectorVertex(
+            Vector2.Transform(local2, transform), brushColor, local2,
+            brushIndex, cmd.Position2, encodedRadiusOrWidth, cmd.RadiusY,
+            shapeType);
+        vertices[3] = new VectorVertex(
+            Vector2.Transform(local3, transform), brushColor, local3,
+            brushIndex, cmd.Position2, encodedRadiusOrWidth, cmd.RadiusY,
+            shapeType);
+
+        int indexStart = _vectorIndicesList.Count;
+        CollectionsMarshal.SetCount(_vectorIndicesList, indexStart + 6);
+        Span<uint> indices = CollectionsMarshal.AsSpan(
+            _vectorIndicesList).Slice(indexStart, 6);
+        indices[0] = baseVertex;
+        indices[1] = baseVertex + 1;
+        indices[2] = baseVertex + 2;
+        indices[3] = baseVertex;
+        indices[4] = baseVertex + 2;
+        indices[5] = baseVertex + 3;
+
+        // Draw-call scissoring owns clipping. Moving affine-quad vertices while
+        // retaining their local coordinates would corrupt the derivative map.
     }
 
     private void CompileEllipseCommand(RenderCommand cmd, Matrix4x4 transform)
@@ -12168,6 +12357,7 @@ SceneStateUploadComplete:
             gpuBrush.Center = new Vector2(hatch.Spacing, hatch.Thickness);
             gpuBrush.Color0 = hatch.Color;
             gpuBrush.StopCount = 1;
+            SetBrushCoordinateTransform(ref gpuBrush, hatch.CoordinateTransform);
         }
         else if (brush is CrossHatchBrush crossHatch)
         {
@@ -12176,6 +12366,20 @@ SceneStateUploadComplete:
             gpuBrush.Center = new Vector2(crossHatch.Spacing, crossHatch.Thickness);
             gpuBrush.Color0 = crossHatch.Color;
             gpuBrush.StopCount = 1;
+            SetBrushCoordinateTransform(ref gpuBrush, crossHatch.CoordinateTransform);
+        }
+        else if (brush is HatchPatternSetBrush hatchSet)
+        {
+            gpuBrush.Type = 8;
+            gpuBrush.Radius = hatchSet.Thickness;
+            gpuBrush.Color0 = hatchSet.Color;
+            gpuBrush.SpreadMethod = checked((uint)hatchSet.Families.Length);
+            SetBrushCoordinateTransform(ref gpuBrush, hatchSet.CoordinateTransform);
+            if (!ApplyHatchPatternSet(ref gpuBrush, hatchSet))
+            {
+                TrimGradientStops((uint)gradientStopStart);
+                return 0f;
+            }
         }
 
         for (int i = 0; i < _activeBrushes.Count; i++)
@@ -12230,7 +12434,7 @@ SceneStateUploadComplete:
             return false;
         }
 
-        return !IsGradientBrushType(a.Type) || GradientStopsEqual(a, b);
+        return !UsesAuxiliaryBrushRecords(a.Type) || GradientStopsEqual(a, b);
     }
 
     private float RegisterTextStyle(
@@ -12271,9 +12475,63 @@ SceneStateUploadComplete:
         }
     }
 
-    private static bool IsGradientBrushType(uint brushType)
+    private static bool UsesAuxiliaryBrushRecords(uint brushType)
     {
-        return brushType == 1 || brushType == 2 || brushType == 5 || brushType == 6;
+        return brushType == 1 || brushType == 2 || brushType == 5 ||
+            brushType == 6 || brushType == 8;
+    }
+
+    private bool ApplyHatchPatternSet(
+        ref GpuBrush gpuBrush,
+        HatchPatternSetBrush brush)
+    {
+        const int recordsPerFamily = 4;
+        ReadOnlySpan<HatchPatternLineFamily> families = brush.Families.Span;
+        int recordCount = checked(families.Length * recordsPerFamily);
+        if (recordCount > MaxGradientStops - _activeGradientStops.Count)
+            return false;
+
+        gpuBrush.StopOffset = checked((uint)_activeGradientStops.Count);
+        gpuBrush.StopCount = checked((uint)recordCount);
+        ReadOnlySpan<float> dashes = brush.Dashes.Span;
+        Span<float> packedDashes = stackalloc float[HatchPatternSetBrush.MaximumDashCount];
+        for (int i = 0; i < families.Length; i++)
+        {
+            HatchPatternLineFamily family = families[i];
+            packedDashes.Clear();
+            for (int dashIndex = 0; dashIndex < family.DashCount; dashIndex++)
+                packedDashes[dashIndex] = dashes[family.DashOffset + dashIndex];
+
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = new Vector4(
+                    family.BasePoint.X,
+                    family.BasePoint.Y,
+                    family.Direction.X,
+                    family.Direction.Y),
+                Offset = family.Spacing,
+            });
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = new Vector4(
+                    family.TangentShift,
+                    family.DashPeriod,
+                    family.DashCount,
+                    0f),
+            });
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = new Vector4(
+                    packedDashes[0], packedDashes[1],
+                    packedDashes[2], packedDashes[3]),
+                Offset = packedDashes[4],
+            });
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = new Vector4(packedDashes[5], 0f, 0f, 0f),
+            });
+        }
+        return true;
     }
 
     private static void SetBrushCoordinateTransform(ref GpuBrush gpuBrush, Matrix4x4 transform)
@@ -12710,7 +12968,7 @@ SceneStateUploadComplete:
             * MathF.Max(1f, MathF.Abs(fontScaleX));
         var textPathCoverageGamma = MathF.Abs(fontSkewX) > 0.0001f || fontScaleX < 0f
             ? TransformedTextPathCoverageGamma
-            : GetTextPathCoverageGamma(
+            : GetActiveTextPathCoverageGamma(
                 cmd.FontSize,
                 activeTransform,
                 transformScale,
@@ -12975,7 +13233,7 @@ SceneStateUploadComplete:
             * MathF.Max(1f, MathF.Abs(fontScaleX));
         var textPathCoverageGamma = MathF.Abs(fontSkewX) > 0.0001f || fontScaleX < 0f
             ? TransformedTextPathCoverageGamma
-            : GetTextPathCoverageGamma(
+            : GetActiveTextPathCoverageGamma(
                 cmd.FontSize,
                 activeTransform,
                 transformScale,
@@ -13449,6 +13707,20 @@ SceneStateUploadComplete:
             rasterScale: rasterScale);
     }
 
+    private float GetActiveTextPathCoverageGamma(
+        float fontSize,
+        Matrix4x4 transform,
+        float transformScale,
+        float effectiveDpiScale)
+    {
+        if (_useGpuTransformsActive)
+        {
+            transform *= _cameraViewMatrix;
+            transformScale = TransformMetrics.GetStrokeScale(transform);
+        }
+        return GetTextPathCoverageGamma(fontSize, transform, transformScale, effectiveDpiScale);
+    }
+
     private static float GetTextPathCoverageGamma(
         float fontSize,
         Matrix4x4 transform,
@@ -13512,6 +13784,26 @@ SceneStateUploadComplete:
                             TransformPoint(quadratic.Point),
                             quadratic.IsSmoothJoin,
                             quadratic.IsStroked));
+                        break;
+                    case RationalQuadraticBezierSegment rationalQuadratic:
+                        transformedFigure.Segments.Add(
+                            new RationalQuadraticBezierSegment(
+                                TransformPoint(rationalQuadratic.ControlPoint),
+                                TransformPoint(rationalQuadratic.Point),
+                                rationalQuadratic.Weight,
+                                rationalQuadratic.IsSmoothJoin,
+                                rationalQuadratic.IsStroked));
+                        break;
+                    case RationalCubicBezierSegment rationalCubic:
+                        transformedFigure.Segments.Add(
+                            new RationalCubicBezierSegment(
+                                TransformPoint(rationalCubic.ControlPoint1),
+                                TransformPoint(rationalCubic.ControlPoint2),
+                                TransformPoint(rationalCubic.Point),
+                                rationalCubic.Weight1,
+                                rationalCubic.Weight2,
+                                rationalCubic.IsSmoothJoin,
+                                rationalCubic.IsStroked));
                         break;
                     case CubicBezierSegment cubic:
                         transformedFigure.Segments.Add(new CubicBezierSegment(
@@ -17799,6 +18091,9 @@ SceneStateUploadComplete:
                     case RenderCommandType.DrawDotGrid:
                         CompileDotGridCommand(cmd, activeTransform);
                         break;
+                    case RenderCommandType.DrawDeviceDotGrid:
+                        CompileDeviceDotGridCommand(cmd, activeTransform);
+                        break;
                     case RenderCommandType.DrawCircle:
                         CompileCircleCommand(cmd, activeTransform);
                         break;
@@ -17897,7 +18192,7 @@ SceneStateUploadComplete:
                         CompileVertexMeshCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPointBatch:
-                        CompilePointBatchCommand(cmd, activeTransform);
+                        CompilePointBatchCommand(null, cmd, activeTransform);
                         break;
                     case RenderCommandType.FillQuad:
                         CompileFillQuadCommand(cmd, activeTransform);
@@ -18265,6 +18560,9 @@ SceneStateUploadComplete:
                     case RenderCommandType.DrawDotGrid:
                         CompileDotGridCommand(cmd, activeTransform);
                         break;
+                    case RenderCommandType.DrawDeviceDotGrid:
+                        CompileDeviceDotGridCommand(cmd, activeTransform);
+                        break;
                     case RenderCommandType.DrawCircle:
                         CompileCircleCommand(cmd, activeTransform);
                         break;
@@ -18363,7 +18661,7 @@ SceneStateUploadComplete:
                         CompileVertexMeshCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPointBatch:
-                        CompilePointBatchCommand(cmd, activeTransform);
+                        CompilePointBatchCommand(context, cmd, activeTransform);
                         break;
                     case RenderCommandType.FillQuad:
                         CompileFillQuadCommand(cmd, activeTransform);

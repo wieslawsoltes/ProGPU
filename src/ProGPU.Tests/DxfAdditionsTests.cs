@@ -281,6 +281,58 @@ End of ACIS Solid";
     }
 
     [Fact]
+    public void HatchPatternSetBrushSnapshotsAndValidatesBoundedGrammar()
+    {
+        var families = new[]
+        {
+            new HatchPatternLineFamily(
+                new Vector2(2f, 3f),
+                Vector2.UnitX,
+                4f,
+                5f,
+                0,
+                2,
+                3f),
+        };
+        var dashes = new[] { 2f, -1f };
+        var brush = new HatchPatternSetBrush(
+            families,
+            dashes,
+            0f,
+            Vector4.One);
+
+        families[0] = default;
+        dashes[0] = 99f;
+
+        Assert.Equal(Vector2.UnitX, brush.Families.Span[0].Direction);
+        Assert.Equal(new[] { 2f, -1f }, brush.Dashes.ToArray());
+        Assert.Throws<ArgumentException>(() => new HatchPatternSetBrush(
+            [new HatchPatternLineFamily(
+                Vector2.Zero,
+                new Vector2(2f, 0f),
+                0f,
+                5f,
+                0,
+                0,
+                0f)],
+            [],
+            0f,
+            Vector4.One));
+        Assert.Throws<ArgumentException>(() => new HatchPatternSetBrush(
+            [new HatchPatternLineFamily(
+                Vector2.Zero,
+                Vector2.UnitX,
+                0f,
+                5f,
+                0,
+                2,
+                4f)],
+            [2f, -1f],
+            0f,
+            Vector4.One));
+    }
+
+    [Fact]
     public void DxfRenderContext_MLeaderScanning_CachesCorrectly()
     {
         // Construct a mock DXF stream with a MULTILEADER block

@@ -466,7 +466,25 @@ public static partial class GpuPictureNativeSceneCompiler
         in GpuPathSegment source)
     {
         bool arc = source.SegmentType == (uint)NativePathSegmentKind.Arc;
-        return source.SegmentType <= (uint)NativePathSegmentKind.Arc &&
+        bool rationalQuadratic = source.SegmentType ==
+            (uint)NativePathSegmentKind.RationalQuadratic;
+        bool rationalCubic = source.SegmentType ==
+            (uint)NativePathSegmentKind.RationalCubic;
+        float rationalWeight1 = BitConverter.Int32BitsToSingle(
+            unchecked((int)source.Pad0));
+        float rationalWeight2 = BitConverter.Int32BitsToSingle(
+            unchecked((int)source.Pad1));
+        double rationalScale = Math.Max(
+            1.0,
+            Math.Max(
+                Math.Max(Math.Abs(source.P0.X), Math.Abs(source.P0.Y)),
+                Math.Max(
+                    Math.Max(Math.Abs(source.P1.X), Math.Abs(source.P1.Y)),
+                    Math.Max(
+                        Math.Max(Math.Abs(source.P2.X), Math.Abs(source.P2.Y)),
+                        Math.Max(Math.Abs(source.P3.X), Math.Abs(source.P3.Y))))));
+        return source.SegmentType <=
+                (uint)NativePathSegmentKind.RationalCubic &&
             IsFinite(source.P0) && IsFinite(source.P1) &&
             IsFinite(source.P2) && IsFinite(source.P3) &&
             (arc
@@ -477,8 +495,24 @@ public static partial class GpuPictureNativeSceneCompiler
                         unchecked((int)source.Pad1))) &&
                     float.IsFinite(BitConverter.Int32BitsToSingle(
                         unchecked((int)source.Pad2)))
-                : source.Pad0 == 0U && source.Pad1 == 0U &&
-                    source.Pad2 == 0U);
+            : rationalQuadratic
+                ? source.P3 == Vector2.Zero &&
+                    float.IsFinite(rationalWeight1) &&
+                    rationalWeight1 > 0f && rationalWeight1 <=
+                            float.MaxValue / (4.0 * rationalScale) &&
+                    source.Pad1 == 0U &&
+                    source.Pad2 == 0U
+                : rationalCubic
+                    ? float.IsFinite(rationalWeight1) &&
+                        float.IsFinite(rationalWeight2) &&
+                        rationalWeight1 > 0f && rationalWeight2 > 0f &&
+                        rationalWeight1 <=
+                            float.MaxValue / (8.0 * rationalScale) &&
+                        rationalWeight2 <=
+                            float.MaxValue / (8.0 * rationalScale) &&
+                        source.Pad2 == 0U
+                    : source.Pad0 == 0U && source.Pad1 == 0U &&
+                        source.Pad2 == 0U);
     }
 
     private static bool TryGetOpacityMaskState(

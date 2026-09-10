@@ -691,6 +691,94 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal((byte)255, pixels[GetPathAtlasPixelOffset(wide, 8, 1, 256)]);
     }
 
+    [Fact]
+    public void PathAtlasRasterizesAndRetainsPositiveWeightRationalQuadratic()
+    {
+        using var atlas = new PathAtlas(
+            HeadlessWindow.Shared.Context,
+            atlasSize: 256);
+        var path = new PathGeometry();
+        var figure = new PathFigure(Vector2.Zero, isClosed: true);
+        figure.Segments.Add(new RationalQuadraticBezierSegment(
+            new Vector2(5f, 10f),
+            new Vector2(10f, 0f),
+            0.5f));
+        path.Figures.Add(figure);
+        PathAtlas.PathInfo first = atlas.GetOrCreatePath(
+            path,
+            scale: 1f,
+            sampleGrid: PathAtlas.HighPrecisionCoverageSampleGrid);
+
+        atlas.RasterizePendingPaths();
+
+        byte[] pixels = atlas.AtlasTexture.ReadPixels();
+        Assert.InRange(
+            pixels[GetPathAtlasPixelOffset(first, 5, 2, 256)],
+            (byte)252,
+            byte.MaxValue);
+        Assert.InRange(
+            pixels[GetPathAtlasPixelOffset(first, 5, 5, 256)],
+            byte.MinValue,
+            (byte)3);
+        ulong generation = atlas.Generation;
+
+        atlas.CleanupFrame(anticipatedWidth: 1920, anticipatedHeight: 1080);
+        PathAtlas.PathInfo replayed = atlas.GetOrCreatePath(
+            path,
+            scale: 1f,
+            sampleGrid: PathAtlas.HighPrecisionCoverageSampleGrid);
+
+        Assert.Equal(generation, atlas.Generation);
+        Assert.Equal(first.X, replayed.X);
+        Assert.Equal(first.Y, replayed.Y);
+        Assert.Equal(1, atlas.CachedPathCount);
+    }
+
+    [Fact]
+    public void PathAtlasRasterizesAndRetainsPositiveWeightRationalCubic()
+    {
+        using var atlas = new PathAtlas(
+            HeadlessWindow.Shared.Context,
+            atlasSize: 256);
+        var path = new PathGeometry();
+        var figure = new PathFigure(Vector2.Zero, isClosed: true);
+        figure.Segments.Add(new RationalCubicBezierSegment(
+            new Vector2(0f, 10f),
+            new Vector2(10f, 10f),
+            new Vector2(10f, 0f),
+            0.5f,
+            1.5f));
+        path.Figures.Add(figure);
+        PathAtlas.PathInfo first = atlas.GetOrCreatePath(
+            path,
+            scale: 1f,
+            sampleGrid: PathAtlas.HighPrecisionCoverageSampleGrid);
+
+        atlas.RasterizePendingPaths();
+
+        byte[] pixels = atlas.AtlasTexture.ReadPixels();
+        Assert.InRange(
+            pixels[GetPathAtlasPixelOffset(first, 6, 3, 256)],
+            (byte)252,
+            byte.MaxValue);
+        Assert.InRange(
+            pixels[GetPathAtlasPixelOffset(first, 6, 9, 256)],
+            byte.MinValue,
+            (byte)3);
+        ulong generation = atlas.Generation;
+
+        atlas.CleanupFrame(anticipatedWidth: 1920, anticipatedHeight: 1080);
+        PathAtlas.PathInfo replayed = atlas.GetOrCreatePath(
+            path,
+            scale: 1f,
+            sampleGrid: PathAtlas.HighPrecisionCoverageSampleGrid);
+
+        Assert.Equal(generation, atlas.Generation);
+        Assert.Equal(first.X, replayed.X);
+        Assert.Equal(first.Y, replayed.Y);
+        Assert.Equal(1, atlas.CachedPathCount);
+    }
+
     [Theory]
     [InlineData(0, true, false, false)]
     [InlineData(1, false, true, false)]
@@ -2520,27 +2608,37 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     [Fact]
     public void GpuPictureRecorderPreservesTransformedPictureWrapper()
     {
+        var resource = new CountingDisposable();
         var childRecorder = new GpuPictureRecorder();
         DrawingContext childContext = childRecorder.BeginRecording(
             new Rect(0f, 0f, 16f, 16f));
+        childContext.RetainResource(resource);
         childContext.DrawRectangle(
             new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
             null,
             new Rect(0f, 0f, 16f, 16f));
-        using GpuPicture child = childRecorder.EndRecording();
+        GpuPicture child = childRecorder.EndRecording();
 
         Matrix4x4 transform = Matrix4x4.CreateTranslation(4f, 6f, 0f);
         var parentRecorder = new GpuPictureRecorder();
         DrawingContext parentContext = parentRecorder.BeginRecording(
             new Rect(0f, 0f, 16f, 16f));
         parentContext.DrawPictureTransformed(child, transform);
-        using GpuPicture parent = parentRecorder.EndRecording();
+        GpuPicture parent = parentRecorder.EndRecording();
 
         Assert.Equal(1, parent.CommandCount);
         RenderCommand command = parent.GetCommand(0);
         Assert.Equal(RenderCommandType.DrawPicture, command.Type);
         Assert.Equal(transform, command.Transform);
         Assert.False(parent.SharesRetainedCommandStorageWith(child));
+        GpuPicture parentClone = parent.Clone();
+        child.Dispose();
+        Assert.Equal(0, resource.DisposeCount);
+        Assert.Throws<ObjectDisposedException>(() => child.Clone());
+        parent.Dispose();
+        Assert.Equal(0, resource.DisposeCount);
+        parentClone.Dispose();
+        Assert.Equal(1, resource.DisposeCount);
     }
 
     [Fact]
@@ -2563,7 +2661,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         GpuPicture parentPicture = parentRecorder.EndRecording();
 
         Assert.Equal(1, maskPicture.RetainedResourceCount);
-        Assert.Equal(1, parentPicture.RetainedResourceCount);
+        Assert.Equal(2, parentPicture.RetainedResourceCount);
         maskPicture.Dispose();
         Assert.Equal(0, resource.DisposeCount);
         parentPicture.Dispose();

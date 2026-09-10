@@ -152,6 +152,17 @@ struct alignas(16) mesh_record {
     progpu_native_float_4 material_ambient{};
     float opacity = 0.0F;
     std::uint32_t shading_mode = 0U;
+    std::uint32_t material_image_resource_index = 0U;
+    std::uint32_t material_factors = 0U;
+};
+
+struct alignas(16) edge_record {
+    std::array<float, 4U> start{};
+    std::array<float, 4U> end{};
+    std::array<float, 4U> first_normal{};
+    std::array<float, 4U> second_normal{};
+    std::uint32_t mesh_index = 0U;
+    std::uint32_t topology = 0U;
     std::uint32_t reserved0 = 0U;
     std::uint32_t reserved1 = 0U;
 };
@@ -159,6 +170,7 @@ struct alignas(16) mesh_record {
 static_assert(sizeof(camera_record) == 160U);
 static_assert(sizeof(line_record) == 128U);
 static_assert(sizeof(mesh_record) == 256U);
+static_assert(sizeof(edge_record) == 80U);
 static_assert(sizeof(progpu_native_scene_mesh_3d_vertex) == 48U);
 
 } // namespace progpu::native::three_d
@@ -175,7 +187,9 @@ struct semantic_3d_page {
     WGPUBuffer mesh_buffer = nullptr;
     WGPUBuffer vertex_buffer = nullptr;
     WGPUBuffer index_buffer = nullptr;
+    WGPUBuffer edge_buffer = nullptr;
     WGPUBindGroup bind_group = nullptr;
+    std::vector<WGPUBindGroup> material_bind_groups;
     std::uint64_t scene_hash = 0U;
     float dpi_scale = 0.0F;
     std::uint32_t target_width = 0U;
@@ -183,7 +197,11 @@ struct semantic_3d_page {
     bool cache_valid = false;
     std::vector<semantic_3d_draw> draws;
     std::vector<std::uint32_t> mesh_topologies;
+    std::vector<std::uint32_t> mesh_flags;
     std::vector<std::uint32_t> mesh_index_counts;
+    std::vector<std::uint32_t> mesh_edge_offsets;
+    std::vector<std::uint32_t> mesh_edge_counts;
+    std::vector<std::uint32_t> mesh_edge_vertex_counts;
 };
 
 enum class semantic_replay_kind : std::uint8_t {
@@ -241,6 +259,7 @@ struct semantic_render_bundle_span {
     std::uint32_t mask_source_x = 0U;
     std::uint32_t mask_source_y = 0U;
     std::uint64_t effect_cache_operation_id = 0U;
+    bool uses_depth = false;
     bool backdrop = false;
     bool can_skip_content_on_effect_cache = false;
     bool mask_uses_alpha_channel = false;

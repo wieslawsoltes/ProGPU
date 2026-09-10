@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.CAD\ProGPU.CAD.csproj" />
+    <ProjectReference Include="..\ProGPU.CAD.Native\ProGPU.CAD.Native.csproj" />
+    <ProjectReference Include="..\ProGPU.CAD.Sample\ProGPU.CAD.Sample.csproj" />
+    <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
+    <ProjectReference Include="..\ProGPU.Layout\ProGPU.Layout.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene.Native\ProGPU.Scene.Native.csproj" />
+    <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="xunit.runner.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

@@ -6,6 +6,10 @@ struct VSUniforms {
     view: mat4x4<f32>,
     cameraPosition: vec3<f32>,
     _pad: f32,
+    visibleEdgeColor: vec4<f32>,
+    occludedEdgeColor: vec4<f32>,
+    edgeOptions0: vec4<f32>,
+    edgeOptions1: vec4<f32>,
 };
 
 struct GpuMesh3DRecord {

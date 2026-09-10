@@ -137,6 +137,52 @@ bool semantic_perlin_brush_table_is_exact_and_bounded() {
             bytes.data(), resource, error_offset)) {
         return false;
     }
+
+    progpu_native_scene_brush pattern_set{};
+    pattern_set.type = PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN_SET;
+    pattern_set.opacity = 1.0F;
+    pattern_set.stop_count = 8U;
+    pattern_set.spread_method = 2U;
+    pattern_set.colors[0] = {0.25F, 0.5F, 0.75F, 1.0F};
+    pattern_set.coordinate_transform0[0] = 1.0F;
+    pattern_set.coordinate_transform1[1] = 1.0F;
+    std::memcpy(
+        bytes.data() + brush_offset,
+        &pattern_set,
+        sizeof(pattern_set));
+    const std::array<progpu_native_scene_gradient_stop, 8U> pattern_records{{
+        {{1.0F, 2.0F, 1.0F, 0.0F}, 5.0F, 0U, 0U, 0U},
+        {{3.0F, 8.5F, 6.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
+        {{2.0F, -1.0F, 0.0F, -0.5F}, 3.0F, 0U, 0U, 0U},
+        {{-2.0F, 0.0F, 0.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
+        {{4.0F, 5.0F, 0.0F, 1.0F}, 7.0F, 0U, 0U, 0U},
+        {{-2.0F, 0.0F, 0.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
+        {{0.0F, 0.0F, 0.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
+        {{0.0F, 0.0F, 0.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
+    }};
+    std::memcpy(
+        bytes.data() + table_offset,
+        pattern_records.data(),
+        sizeof(pattern_records));
+    if (!semantic::validate_brush_table(
+            bytes.data(), resource, error_offset)) {
+        return false;
+    }
+    auto invalid_pattern_records = pattern_records;
+    invalid_pattern_records[1].color.g = 9.0F;
+    std::memcpy(
+        bytes.data() + table_offset,
+        invalid_pattern_records.data(),
+        sizeof(invalid_pattern_records));
+    if (semantic::validate_brush_table(
+            bytes.data(), resource, error_offset)) {
+        return false;
+    }
+
+    std::memcpy(
+        bytes.data() + table_offset,
+        pattern_records.data(),
+        sizeof(pattern_records));
     std::memcpy(bytes.data() + brush_offset, &brush, sizeof(brush));
 
     auto truncated = resource;

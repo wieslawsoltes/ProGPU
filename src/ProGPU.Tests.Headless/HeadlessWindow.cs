@@ -15,6 +15,12 @@ using Buffer = Silk.NET.WebGPU.Buffer;
 
 namespace ProGPU.Tests.Headless;
 
+public readonly record struct HeadlessRenderAllocationMetrics(
+    long AnimationBytes,
+    long MeasureBytes,
+    long ArrangeBytes,
+    long CompositorBytes);
+
 public unsafe class HeadlessWindow : IDisposable
 {
     private static readonly TimeSpan ReadbackMapTimeout = TimeSpan.FromSeconds(30);
@@ -201,6 +207,31 @@ public unsafe class HeadlessWindow : IDisposable
 
         // 2. Render visual tree to the offscreen texture view
         _compositor.RenderScene(_content, _width, _height, _offscreenTexture!.ViewPtr);
+    }
+
+    public HeadlessRenderAllocationMetrics RenderWithAllocationMetrics(
+        float deltaTime = 0.016f)
+    {
+        if (_content == null) return default;
+
+        long started = GC.GetAllocatedBytesForCurrentThread();
+        _content.UpdateAnimations(deltaTime);
+        long afterAnimation = GC.GetAllocatedBytesForCurrentThread();
+        _content.Measure(new Vector2(_width, _height));
+        long afterMeasure = GC.GetAllocatedBytesForCurrentThread();
+        _content.Arrange(new Rect(0, 0, _width, _height));
+        long afterArrange = GC.GetAllocatedBytesForCurrentThread();
+        _compositor.RenderScene(
+            _content,
+            _width,
+            _height,
+            _offscreenTexture!.ViewPtr);
+        long afterCompositor = GC.GetAllocatedBytesForCurrentThread();
+        return new HeadlessRenderAllocationMetrics(
+            afterAnimation - started,
+            afterMeasure - afterAnimation,
+            afterArrange - afterMeasure,
+            afterCompositor - afterArrange);
     }
 
     public void RenderAtDpi(uint logicalWidth, uint logicalHeight, float dpiScale, float deltaTime = 0.016f)

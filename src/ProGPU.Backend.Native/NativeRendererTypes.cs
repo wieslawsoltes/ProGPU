@@ -219,7 +219,9 @@ public enum NativePathSegmentKind : uint
     Line = 0,
     Quadratic = 1,
     Cubic = 2,
-    Arc = 3
+    Arc = 3,
+    RationalQuadratic = 4,
+    RationalCubic = 5
 }
 
 public enum NativeFillRule : uint
@@ -566,7 +568,8 @@ public enum NativeSceneBrushKind : uint
     CrossHatch = 4,
     TwoPointConicalGradient = 5,
     SweepGradient = 6,
-    PerlinNoise = 7
+    PerlinNoise = 7,
+    HatchPatternSet = 8
 }
 
 public enum NativeSceneGradientSpread : uint
@@ -616,7 +619,34 @@ public enum NativeSceneCommandKind : uint
 public enum NativeMesh3DTopology : uint
 {
     Triangles = 0,
-    TriangleStrip = 1
+    TriangleStrip = 1,
+    EdgeList = 2
+}
+
+public enum NativeMesh3DEdgeTopology : uint
+{
+    Manifold = 0,
+    Boundary = 1,
+    NonManifold = 2
+}
+
+[Flags]
+public enum NativeMesh3DEdgeDisplay : uint
+{
+    None = 0,
+    Boundary = 1U << 8,
+    Crease = 1U << 9,
+    Silhouette = 1U << 10,
+    Occluded = 1U << 11
+}
+
+/// <summary>Addressing policy for a retained mesh diffuse image.</summary>
+public enum NativeMesh3DTextureTiling : uint
+{
+    None = 0,
+    Tile = 1,
+    Crop = 2,
+    Clamp = 3
 }
 
 public enum NativeMesh3DRenderMode : uint
@@ -624,6 +654,20 @@ public enum NativeMesh3DRenderMode : uint
     Solid = 0,
     Wireframe = 1,
     SolidWireframe = 2
+}
+
+/// <summary>
+/// Shading algorithms shared with the managed ProGPU Mesh3D pipeline.
+/// </summary>
+public enum NativeMesh3DShadingMode : uint
+{
+    Realistic = 0,
+    Conceptual = 1,
+    Flat = 2,
+    HiddenLine = 3,
+    ShadesOfGray = 4,
+    XRay = 5,
+    Normals = 6,
 }
 
 [Flags]
@@ -857,16 +901,43 @@ public struct NativeSceneBrush
         float thickness,
         Vector4 color,
         bool crossHatch = false,
-        float opacity = 1f)
+        float opacity = 1f,
+        Matrix3x2? coordinateTransform = null)
     {
         var brush = CreateBase(
             crossHatch
                 ? NativeSceneBrushKind.CrossHatch
                 : NativeSceneBrushKind.HatchPattern,
             opacity,
-            Matrix3x2.Identity);
+            coordinateTransform ?? Matrix3x2.Identity);
         brush.Radius = angle;
         brush.Center = new Vector2(spacing, thickness);
+        brush.Color0 = color;
+        return brush;
+    }
+
+    /// <summary>
+    /// Creates a retained multi-family hatch. The auxiliary records use four
+    /// canonical 32-byte records per family and begin at
+    /// <paramref name="recordOffset"/>.
+    /// </summary>
+    public static NativeSceneBrush HatchPatternSet(
+        uint recordOffset,
+        uint recordCount,
+        uint familyCount,
+        float thickness,
+        Vector4 color,
+        float opacity = 1f,
+        Matrix3x2? coordinateTransform = null)
+    {
+        var brush = CreateBase(
+            NativeSceneBrushKind.HatchPatternSet,
+            opacity,
+            coordinateTransform ?? Matrix3x2.Identity);
+        brush.StopOffset = recordOffset;
+        brush.StopCount = recordCount;
+        brush.Spread = (NativeSceneGradientSpread)familyCount;
+        brush.Radius = thickness;
         brush.Color0 = color;
         return brush;
     }
@@ -3346,12 +3417,30 @@ public sealed unsafe class NativeClipChain
         for (int index = 0; index < segments.Length; index++)
         {
             NativePathSegment segment = segments[index];
-            if (segment.Kind > NativePathSegmentKind.Arc ||
+            bool arc = segment.Kind == NativePathSegmentKind.Arc;
+            bool rationalQuadratic = segment.Kind ==
+                NativePathSegmentKind.RationalQuadratic;
+            bool rationalCubic = segment.Kind ==
+                NativePathSegmentKind.RationalCubic;
+            float rationalWeight1 = BitConverter.Int32BitsToSingle(
+                unchecked((int)segment.Pad0));
+            float rationalWeight2 = BitConverter.Int32BitsToSingle(
+                unchecked((int)segment.Pad1));
+            double rationalScale = Math.Max(
+                1.0,
+                Math.Max(
+                    Math.Max(Math.Abs(segment.P0.X), Math.Abs(segment.P0.Y)),
+                    Math.Max(
+                        Math.Max(Math.Abs(segment.P1.X), Math.Abs(segment.P1.Y)),
+                        Math.Max(
+                            Math.Max(Math.Abs(segment.P2.X), Math.Abs(segment.P2.Y)),
+                            Math.Max(Math.Abs(segment.P3.X), Math.Abs(segment.P3.Y))))));
+            if (segment.Kind > NativePathSegmentKind.RationalCubic ||
                 !IsFinite(segment.P0) ||
                 !IsFinite(segment.P1) ||
                 !IsFinite(segment.P2) ||
                 !IsFinite(segment.P3) ||
-                (segment.Kind == NativePathSegmentKind.Arc &&
+                (arc &&
                  (segment.P3.X <= 0f || segment.P3.Y <= 0f ||
                   !float.IsFinite(BitConverter.Int32BitsToSingle(
                       unchecked((int)segment.Pad0))) ||
@@ -3359,7 +3448,19 @@ public sealed unsafe class NativeClipChain
                       unchecked((int)segment.Pad1))) ||
                   !float.IsFinite(BitConverter.Int32BitsToSingle(
                       unchecked((int)segment.Pad2))))) ||
-                (segment.Kind != NativePathSegmentKind.Arc &&
+                (rationalQuadratic &&
+                 (segment.P3 != Vector2.Zero ||
+                  !float.IsFinite(rationalWeight1) || rationalWeight1 <= 0f ||
+                  rationalWeight1 > float.MaxValue / (4.0 * rationalScale) ||
+                  segment.Pad1 != 0U || segment.Pad2 != 0U)) ||
+                (rationalCubic &&
+                 (!float.IsFinite(rationalWeight1) ||
+                  !float.IsFinite(rationalWeight2) ||
+                  rationalWeight1 <= 0f || rationalWeight2 <= 0f ||
+                  rationalWeight1 > float.MaxValue / (8.0 * rationalScale) ||
+                  rationalWeight2 > float.MaxValue / (8.0 * rationalScale) ||
+                  segment.Pad2 != 0U)) ||
+                (!arc && !rationalQuadratic && !rationalCubic &&
                  (segment.Pad0 != 0U || segment.Pad1 != 0U ||
                   segment.Pad2 != 0U)))
             {

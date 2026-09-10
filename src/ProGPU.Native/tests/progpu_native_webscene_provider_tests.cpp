@@ -247,13 +247,21 @@ std::vector<std::byte> create_native_3d_scene_stream() {
             {0.0F, 0.0F, 1.0F, 0.0F}, {1.0F, 1.0F}, 0U, 0U},
         progpu_native_scene_mesh_3d_vertex{
             {0.0F, 0.65F, 0.25F, 0.0F},
-            {0.0F, 0.0F, 1.0F, 0.0F}, {0.5F, 0.0F}, 0U, 0U}};
+            {0.0F, 0.0F, 1.0F, 0.0F}, {0.5F, 0.0F}, 0U, 0U},
+        progpu_native_scene_mesh_3d_vertex{
+            {-0.65F, -0.55F, 0.25F, 0.0F},
+            {0.0F, 0.0F, 1.0F, 0.0F},
+            {static_cast<float>(PROGPU_NATIVE_MESH_3D_EDGE_BOUNDARY), 0.0F},
+            0U, 0U},
+        progpu_native_scene_mesh_3d_vertex{
+            {0.65F, -0.55F, 0.25F, 0.0F},
+            {0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F}, 0U, 0U}};
     constexpr std::array<std::uint32_t, 3U> indices{0U, 1U, 2U};
     progpu_native_scene_mesh_3d mesh{};
     mesh.struct_size = sizeof(mesh);
     mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
     mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME;
-    mesh.vertex_count = static_cast<std::uint32_t>(vertices.size());
+    mesh.vertex_count = 3U;
     mesh.index_count = static_cast<std::uint32_t>(indices.size());
     mesh.model_transform = identity;
     mesh.normal_transform = identity;
@@ -264,9 +272,24 @@ std::vector<std::byte> create_native_3d_scene_stream() {
     mesh.material_ambient = {1.0F, 1.0F, 1.0F, 1.0F};
     mesh.opacity = 1.0F;
     mesh.shading_mode = 1U;
+    auto edge_mesh = mesh;
+    edge_mesh.flags =
+        PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_BOUNDARY |
+        PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_SILHOUETTE |
+        PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_OCCLUDED;
+    edge_mesh.topology = PROGPU_NATIVE_MESH_3D_EDGE_LIST;
+    edge_mesh.vertex_offset = 3U;
+    edge_mesh.vertex_count = 2U;
+    edge_mesh.index_count = 0U;
+    edge_mesh.color = {0.9F, 0.9F, 0.9F, 1.0F};
+    edge_mesh.light_direction = {2.0F, 0.8660254F, 5.0F, 3.0F};
+    edge_mesh.ambient_color = {0.4F, 0.7F, 0.9F, 0.7F};
+    edge_mesh.specular_color = {};
+    edge_mesh.material_ambient = {};
+    const std::array meshes{mesh, edge_mesh};
     semantic_scene_builder builder(793U, 1U);
     require(builder.draw_meshes_3d(
-        std::span<const progpu_native_scene_mesh_3d>(&mesh, 1U),
+        meshes,
         vertices, indices, camera, {0.0F, 0.0F, 64.0F, 48.0F}),
         "native retained 3D mesh recording failed");
     require(builder.draw_lines_3d(
@@ -5680,8 +5703,19 @@ int main(int argc, char** argv) {
         &native_3d_frame,
         &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_metrics.command_count == 2U &&
-        semantic_metrics.draw_call_count == 2U,
+        semantic_metrics.draw_call_count == 2U &&
+        semantic_metrics.vertex_upload_bytes != 0U,
         "native retained 3D GPU execution failed");
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &native_3d_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 2U &&
+        semantic_metrics.draw_call_count == 2U &&
+        semantic_metrics.vertex_upload_bytes == 0U,
+        "native retained 3D stable replay reuploaded its edge page");
 
     const auto reused_glyph_scene = create_reused_glyph_resource_scene_stream();
     scene_metrics = {};

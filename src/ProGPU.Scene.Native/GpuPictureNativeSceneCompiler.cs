@@ -2076,6 +2076,9 @@ public static partial class GpuPictureNativeSceneCompiler
                     materials,
                     out error);
             case RenderCommandType.DrawTexture:
+            case RenderCommandType.DrawExtension
+                when command.ExtensionId ==
+                    CompositorBuiltInExtensions.ImageEffect:
                 return TryAppendExternalImage(
                     picture,
                     command,
@@ -2251,6 +2254,16 @@ public static partial class GpuPictureNativeSceneCompiler
                     operations,
                     materials,
                     out error);
+            case RenderCommandType.DrawDeviceDotGrid:
+                return TryAppendDeviceDotGrid(
+                    command,
+                    transform,
+                    geometry,
+                    geometryBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error);
             case RenderCommandType.DrawPath:
                 return TryAppendPath(
                     command,
@@ -2283,6 +2296,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     out error);
             case RenderCommandType.DrawPointBatch:
                 return TryAppendPointBatch(
+                    picture,
                     command,
                     transform,
                     pointBatches,
@@ -3055,7 +3069,64 @@ public static partial class GpuPictureNativeSceneCompiler
         return true;
     }
 
+    private static bool TryAppendDeviceDotGrid(
+        in RenderCommand command,
+        Matrix3x2 transform,
+        List<NativeGeometryPrimitive> primitives,
+        List<uint> brushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        bool isLineGrid = command.RadiusY > 0f;
+        if (command.Brush is null ||
+            !IsFiniteRect(command.Rect) || command.Rect.IsEmpty ||
+            !float.IsFinite(command.Position2.X) || command.Position2.X <= 0f ||
+            !float.IsFinite(command.Position2.Y) || command.Position2.Y <= 0f ||
+            !float.IsFinite(command.RadiusX) || command.RadiusX <= 0f ||
+            !float.IsFinite(command.RadiusY) || command.RadiusY < 0f ||
+            (isLineGrid && (command.RadiusY > 100f ||
+                command.RadiusY != MathF.Round(command.RadiusY))))
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        if (!materials.TryRegister(command.Brush, out uint brushIndex, out error))
+        {
+            return false;
+        }
+
+        int start = primitives.Count;
+        primitives.Add(new(
+            NativeGeometryPrimitiveKind.DotGrid,
+            new Vector2(command.Rect.X, command.Rect.Y),
+            new Vector2(command.Rect.Width, command.Rect.Height),
+            Vector4.One,
+            transform,
+            p2: isLineGrid
+                ? new Vector2(1f, command.RadiusY)
+                : Vector2.Zero,
+            p3: command.Position2,
+            strokeThickness: command.RadiusX,
+            flags: command.IsEdgeAliased
+                ? NativeGeometryPrimitiveFlags.EdgeAliased
+                : NativeGeometryPrimitiveFlags.None));
+        brushIndices.Add(brushIndex);
+        AppendBatch(
+            batches,
+            operations,
+            BatchKind.Geometry,
+            start,
+            start,
+            1,
+            TransformBounds(command.Rect, transform));
+        return true;
+    }
+
     private static bool TryAppendPointBatch(
+        GpuPicture picture,
         in RenderCommand command,
         Matrix3x2 transform,
         List<NativeScenePointBatch> nativeBatches,
@@ -3067,8 +3138,15 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
-        if (command.Brush is null ||
-            command.PolylinePoints is not { Length: > 0 } sourcePoints ||
+        ReadOnlySpan<Vector2> sourcePoints =
+            command.PolylinePoints is { Length: > 0 } inlinePoints
+                ? inlinePoints
+                : command.PointBufferCount > 0
+                    ? picture.GetPoints(
+                        command.PointBufferOffset,
+                        command.PointBufferCount)
+                    : ReadOnlySpan<Vector2>.Empty;
+        if (command.Brush is null || sourcePoints.IsEmpty ||
             !float.IsFinite(command.RadiusX))
         {
             error = NativePictureCompileError.InvalidGeometry;
@@ -4052,6 +4130,12 @@ public static partial class GpuPictureNativeSceneCompiler
             case QuadraticBezierSegment quadratic:
                 endPoint = quadratic.Point;
                 return true;
+            case RationalQuadraticBezierSegment rationalQuadratic:
+                endPoint = rationalQuadratic.Point;
+                return true;
+            case RationalCubicBezierSegment rationalCubic:
+                endPoint = rationalCubic.Point;
+                return true;
             case CubicBezierSegment cubic:
                 endPoint = cubic.Point;
                 return true;
@@ -4085,6 +4169,28 @@ public static partial class GpuPictureNativeSceneCompiler
                         out direction,
                         quadratic.Point - quadratic.ControlPoint,
                         quadratic.Point - start);
+            case RationalQuadraticBezierSegment rationalQuadratic:
+                return atStart
+                    ? TrySelectNativeDirection(
+                        out direction,
+                        rationalQuadratic.ControlPoint - start,
+                        rationalQuadratic.Point - start)
+                    : TrySelectNativeDirection(
+                        out direction,
+                        rationalQuadratic.Point - rationalQuadratic.ControlPoint,
+                        rationalQuadratic.Point - start);
+            case RationalCubicBezierSegment rationalCubic:
+                return atStart
+                    ? TrySelectNativeDirection(
+                        out direction,
+                        rationalCubic.ControlPoint1 - start,
+                        rationalCubic.ControlPoint2 - start,
+                        rationalCubic.Point - start)
+                    : TrySelectNativeDirection(
+                        out direction,
+                        rationalCubic.Point - rationalCubic.ControlPoint2,
+                        rationalCubic.Point - rationalCubic.ControlPoint1,
+                        rationalCubic.Point - start);
             case CubicBezierSegment cubic:
                 return atStart
                     ? TrySelectNativeDirection(

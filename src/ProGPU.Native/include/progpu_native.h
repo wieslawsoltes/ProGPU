@@ -144,12 +144,18 @@ typedef enum progpu_native_scene_brush_kind {
     PROGPU_NATIVE_SCENE_BRUSH_CROSS_HATCH = 4,
     PROGPU_NATIVE_SCENE_BRUSH_TWO_POINT_CONICAL_GRADIENT = 5,
     PROGPU_NATIVE_SCENE_BRUSH_SWEEP_GRADIENT = 6,
-    PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE = 7
+    PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE = 7,
+    PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN_SET = 8
 } progpu_native_scene_brush_kind;
 
 enum {
     PROGPU_NATIVE_SCENE_PERLIN_TABLE_RECORDS = 512U,
     PROGPU_NATIVE_SCENE_MAX_PERLIN_OCTAVES = 255U
+};
+
+enum {
+    PROGPU_NATIVE_SCENE_HATCH_PATTERN_RECORDS_PER_FAMILY = 4U,
+    PROGPU_NATIVE_SCENE_HATCH_PATTERN_MAX_DASHES = 6U
 };
 
 typedef enum progpu_native_scene_gradient_spread {
@@ -913,9 +919,15 @@ typedef enum progpu_native_geometry_primitive_kind {
     PROGPU_NATIVE_GEOMETRY_QUADRATIC_BEZIER = 3,
     PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER = 4,
     /*
-     * One periodic dot-grid quad. p0 is the local bounds origin, p1 is the
-     * bounds extent, p2 is phase, and p3 is {spacing, radius}. The shared
-     * vector shader performs constant bounded work per covered fragment.
+     * One periodic dot-grid quad. p0 is the local bounds origin and p1 is the
+     * bounds extent. A zero stroke_thickness selects the legacy local-radius
+     * form where p2 is phase and p3 is {scalar spacing, local radius}. A
+     * positive stroke_thickness selects the affine fixed-device form. For a
+     * dot grid p2 is zero and stroke_thickness is the physical-pixel radius.
+     * For a line grid p2 is {1, major cadence in [1,100]} and
+     * stroke_thickness is the minor physical-pixel width; major lines use
+     * twice that width. p3 is rectangular local spacing in both forms. The
+     * shared vector shader performs constant bounded work per covered fragment.
      */
     PROGPU_NATIVE_GEOMETRY_DOT_GRID = 5,
     /*
@@ -1215,6 +1227,10 @@ typedef struct progpu_native_scene_image_effect {
  * fractal/turbulence noise. Interpolation 0 selects the bounded hash fallback;
  * interpolation 1 references exactly 512 packed permutation/gradient records
  * at StopOffset. Hatch kinds use Radius as angle and Center as spacing/thickness.
+ * Hatch-pattern-set uses Radius as thickness, SpreadMethod as family count,
+ * Color[0] as color, and four auxiliary records per family. The records carry
+ * base/tangent/spacing, row tangent shift/dash period/dash count, and the six
+ * signed PAT dash values. Reserved record fields remain zero.
  */
 typedef struct progpu_native_scene_brush {
     uint32_t type;
@@ -1646,14 +1662,56 @@ typedef struct progpu_native_scene_line_3d {
 
 typedef enum progpu_native_mesh_3d_topology {
     PROGPU_NATIVE_MESH_3D_TRIANGLES = 0,
-    PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP = 1
+    PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP = 1,
+    /* Paired vertices store start/first normal then end/second normal.
+     * The first texture-coordinate x stores progpu_native_mesh_3d_edge_topology.
+     * Edge policy is packed in the otherwise mesh-only material fields. */
+    PROGPU_NATIVE_MESH_3D_EDGE_LIST = 2
 } progpu_native_mesh_3d_topology;
+
+typedef enum progpu_native_mesh_3d_edge_topology {
+    PROGPU_NATIVE_MESH_3D_EDGE_MANIFOLD = 0,
+    PROGPU_NATIVE_MESH_3D_EDGE_BOUNDARY = 1,
+    PROGPU_NATIVE_MESH_3D_EDGE_NON_MANIFOLD = 2
+} progpu_native_mesh_3d_edge_topology;
+
+typedef enum progpu_native_mesh_3d_edge_display {
+    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_BOUNDARY = 1U << 8,
+    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_CREASE = 1U << 9,
+    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_SILHOUETTE = 1U << 10,
+    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_OCCLUDED = 1U << 11,
+    PROGPU_NATIVE_MESH_3D_EDGE_DISPLAY_MASK = 15U << 8
+} progpu_native_mesh_3d_edge_display;
 
 typedef enum progpu_native_mesh_3d_render_mode {
     PROGPU_NATIVE_MESH_3D_SOLID = 0,
     PROGPU_NATIVE_MESH_3D_WIREFRAME = 1,
     PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME = 2
 } progpu_native_mesh_3d_render_mode;
+
+typedef enum progpu_native_mesh_3d_shading_mode {
+    PROGPU_NATIVE_MESH_3D_REALISTIC = 0,
+    PROGPU_NATIVE_MESH_3D_CONCEPTUAL = 1,
+    PROGPU_NATIVE_MESH_3D_FLAT = 2,
+    PROGPU_NATIVE_MESH_3D_HIDDEN_LINE = 3,
+    PROGPU_NATIVE_MESH_3D_SHADES_OF_GRAY = 4,
+    PROGPU_NATIVE_MESH_3D_XRAY = 5,
+    PROGPU_NATIVE_MESH_3D_NORMALS = 6
+} progpu_native_mesh_3d_shading_mode;
+
+typedef enum progpu_native_mesh_3d_flags {
+    PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE = 1U << 0,
+    PROGPU_NATIVE_MESH_3D_TILING_SHIFT = 1,
+    PROGPU_NATIVE_MESH_3D_TILING_MASK = 3U <<
+        PROGPU_NATIVE_MESH_3D_TILING_SHIFT
+} progpu_native_mesh_3d_flags;
+
+typedef enum progpu_native_mesh_3d_tiling {
+    PROGPU_NATIVE_MESH_3D_NO_TILING = 0,
+    PROGPU_NATIVE_MESH_3D_TILE = 1,
+    PROGPU_NATIVE_MESH_3D_CROP = 2,
+    PROGPU_NATIVE_MESH_3D_CLAMP = 3
+} progpu_native_mesh_3d_tiling;
 
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3DVertex */
 typedef struct progpu_native_scene_mesh_3d_vertex {
@@ -1665,9 +1723,14 @@ typedef struct progpu_native_scene_mesh_3d_vertex {
 } progpu_native_scene_mesh_3d_vertex;
 
 /* Retained mesh ranges address the owning resource auxiliary arena: all
- * vertices form its prefix and all uint32 indices form its suffix. Material
- * fields mirror the proven managed GpuMesh3DRecord baseline without texture
- * handles; texture leases remain an explicit follow-up resource family. */
+ * vertices form its prefix and all uint32 indices form its suffix. Edge-list
+ * records have an even vertex_count, zero index_count, visible color in color,
+ * occluded color in ambient_color, and width/crease cosine/dash/gap in
+ * light_direction. Material
+ * fields mirror the proven managed GpuMesh3DRecord baseline. An optional
+ * scene-local external IMAGE resource supplies a typed same-device diffuse
+ * texture; material_factors packs diffuse-map blend in its low unorm16 and
+ * self-illumination in its high unorm16 without changing the stable layout. */
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3D */
 typedef struct progpu_native_scene_mesh_3d {
     uint32_t struct_size;
@@ -1686,9 +1749,10 @@ typedef struct progpu_native_scene_mesh_3d {
     progpu_native_float_4 specular_color;
     progpu_native_float_4 material_ambient;
     float opacity;
+    /* progpu_native_mesh_3d_shading_mode */
     uint32_t shading_mode;
-    uint32_t reserved0;
-    uint32_t reserved1;
+    uint32_t material_image_resource_index;
+    uint32_t material_factors;
 } progpu_native_scene_mesh_3d;
 
 typedef enum progpu_native_scene_stroke_kind {
@@ -1776,7 +1840,9 @@ typedef enum progpu_native_path_segment_kind {
     PROGPU_NATIVE_PATH_SEGMENT_LINE = 0,
     PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC = 1,
     PROGPU_NATIVE_PATH_SEGMENT_CUBIC = 2,
-    PROGPU_NATIVE_PATH_SEGMENT_ARC = 3
+    PROGPU_NATIVE_PATH_SEGMENT_ARC = 3,
+    PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC = 4,
+    PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_CUBIC = 5
 } progpu_native_path_segment_kind;
 
 typedef enum progpu_native_fill_rule {
@@ -1787,8 +1853,12 @@ typedef enum progpu_native_fill_rule {
 /*
  * Exact storage layout consumed by PathRasterizer.wgsl. Arc records store the
  * resolved center in p2, radii in p3, and theta1/delta-theta/rotation radians
- * as float bit patterns in pad0..pad2. Callers may therefore resolve SVG arcs
- * once and transfer a compact immutable segment stream without flattening.
+ * as float bit patterns in pad0..pad2. Canonical positive-weight rational
+ * quadratics store endpoints/control in p0..p2, zero p3, the middle weight as
+ * float bits in pad0, and zero pad1/pad2. Callers may therefore transfer arcs
+ * and conics as compact immutable segments without flattening. Canonical
+ * positive-weight rational cubics store four controls in p0..p3, their two
+ * interior weights as float bits in pad0/pad1, and zero pad2.
  */
 typedef struct progpu_native_path_segment {
     progpu_native_point p0;

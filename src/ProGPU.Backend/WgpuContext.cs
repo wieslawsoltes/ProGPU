@@ -2210,6 +2210,10 @@ public unsafe class WgpuContext : IDisposable
                 _ => default
             };
 
+            ulong metalBytes = 0;
+            bool hasMetalAllocatedBytes =
+                AdapterBackendType == BackendType.Metal &&
+                MacMetalMemory.TryGetCurrentAllocatedBytes(out metalBytes);
             snapshot = new WgpuNativeResourceSnapshot(
                 WgpuRegistrySnapshot.FromNative(hub.CommandBuffers),
                 WgpuRegistrySnapshot.FromNative(hub.Buffers),
@@ -2220,9 +2224,10 @@ public unsafe class WgpuContext : IDisposable
                 WgpuRegistrySnapshot.FromNative(hub.ShaderModules),
                 WgpuRegistrySnapshot.FromNative(hub.RenderPipelines),
                 WgpuRegistrySnapshot.FromNative(hub.ComputePipelines),
-                MacMetalMemory.TryGetCurrentAllocatedBytes(out ulong metalBytes)
-                    ? metalBytes
-                    : 0);
+                hasMetalAllocatedBytes ? metalBytes : 0)
+            {
+                MetalAllocatedBytesAvailable = hasMetalAllocatedBytes,
+            };
             return true;
         }
     }

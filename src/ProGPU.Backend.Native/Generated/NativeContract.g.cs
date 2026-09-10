@@ -434,8 +434,8 @@ public partial struct NativeSceneMesh3D
     public NativeFloat4 MaterialAmbient;
     public float Opacity;
     public uint ShadingMode;
-    public uint Reserved0;
-    public uint Reserved1;
+    public uint MaterialImageResourceIndex;
+    public uint MaterialFactors;
 }
 
 // Native source: progpu_native_hit_test_primitive.

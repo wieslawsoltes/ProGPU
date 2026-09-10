@@ -251,6 +251,124 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerFoldsNestedAffineGpuCameraIntoNative2DTransform()
+    {
+        Matrix4x4 local = Matrix4x4.CreateTranslation(2f, 3f, 0f);
+        Matrix4x4 camera = Matrix4x4.CreateScale(2f, -2f, 1f) *
+            Matrix4x4.CreateTranslation(11f, 13f, 0f);
+        Matrix4x4 parent = Matrix4x4.CreateTranslation(101f, 103f, 0f);
+        using var leaf = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(1f, 2f, 8f, 6f),
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Transform = local,
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+        using var cameraPicture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPicture,
+                    Picture = leaf,
+                    UseGpuTransforms = true,
+                    CameraView = camera,
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+        using var root = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPicture,
+                    Picture = cameraPicture,
+                    Transform = parent,
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            root,
+            303U,
+            4U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.AnalyticPrimitiveCount);
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneResource resource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        NativeAnalyticPrimitive primitive =
+            MemoryMarshal.Read<NativeAnalyticPrimitive>(
+                compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(
+            ToAffine(local) * ToAffine(camera) * ToAffine(parent),
+            primitive.Transform);
+    }
+
+    [Fact]
+    public void CompilerRejectsNestedPerspectiveGpuCameraForNative2D()
+    {
+        using var leaf = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(1f, 2f, 8f, 6f),
+                    Brush = new SolidColorBrush(Vector4.One),
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+        using var root = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPicture,
+                    Picture = leaf,
+                    UseGpuTransforms = true,
+                    CameraView = Matrix4x4.CreatePerspectiveFieldOfView(
+                        0.75f,
+                        1.5f,
+                        0.1f,
+                        100f),
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            root,
+            304U,
+            5U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.UnsupportedTransform, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.DrawPicture, failure.CommandType);
+    }
+
+    [Fact]
     public void CompilerLowersGpuSeriesWithDeviceFixedWidths()
     {
         Brush brush = new SolidColorBrush(new Vector4(0.8f, 0.3f, 0.2f, 1f));
@@ -1488,6 +1606,101 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersIsometricDeviceDotGridToOneNativeGeometryPrimitive()
+    {
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 80f, 60f));
+        float cosine30 = MathF.Sqrt(3f) * 0.5f;
+        Matrix4x4 transform = new(
+            cosine30, 0.5f, 0f, 0f,
+            -cosine30, 0.5f, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            32f, 32f, 0f, 1f);
+        drawing.DrawDeviceDotGrid(
+            new SolidColorBrush(Vector4.One),
+            new Rect(-10f, -20f, 60f, 40f),
+            new Vector2(7f, 11f),
+            0.875f,
+            transform);
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            93U,
+            4U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.SourceCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(1, compiled.GeometryPrimitiveCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        var primitive = MemoryMarshal.Read<NativeGeometryPrimitive>(
+            compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(NativeGeometryPrimitiveKind.DotGrid, primitive.Kind);
+        Assert.Equal(new Vector2(-10f, -20f), primitive.P0);
+        Assert.Equal(new Vector2(60f, 40f), primitive.P1);
+        Assert.Equal(Vector2.Zero, primitive.P2);
+        Assert.Equal(new Vector2(7f, 11f), primitive.P3);
+        Assert.Equal(0.875f, primitive.StrokeThickness);
+        Assert.Equal(
+            new Matrix3x2(
+                cosine30,
+                0.5f,
+                -cosine30,
+                0.5f,
+                32f,
+                32f),
+            primitive.Transform);
+    }
+
+    [Fact]
+    public void CompilerLowersDeviceLineGridToOneNativeGeometryPrimitive()
+    {
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 80f, 60f));
+        drawing.DrawDeviceLineGrid(
+            new SolidColorBrush(Vector4.One),
+            new Rect(-10f, -20f, 60f, 40f),
+            new Vector2(7f, 11f),
+            1.25f,
+            7,
+            Matrix4x4.CreateScale(2f, 3f, 1f));
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            94U,
+            4U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.SourceCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(1, compiled.GeometryPrimitiveCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        var primitive = MemoryMarshal.Read<NativeGeometryPrimitive>(
+            compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(NativeGeometryPrimitiveKind.DotGrid, primitive.Kind);
+        Assert.Equal(new Vector2(-10f, -20f), primitive.P0);
+        Assert.Equal(new Vector2(60f, 40f), primitive.P1);
+        Assert.Equal(new Vector2(1f, 7f), primitive.P2);
+        Assert.Equal(new Vector2(7f, 11f), primitive.P3);
+        Assert.Equal(1.25f, primitive.StrokeThickness);
+        Assert.Equal(new Matrix3x2(2f, 0f, 0f, 3f, 0f, 0f), primitive.Transform);
+    }
+
+    [Fact]
     public void CompilerCoalescesPointBatchesIntoCompactNativeResource()
     {
         var recorder = new GpuPictureRecorder();
@@ -1556,6 +1769,40 @@ public class NativePictureCompilerTests
             NativePointBatchFlags.EdgeAliased |
                 NativePointBatchFlags.Hairline,
             nativeBatches[1].Flags);
+    }
+
+    [Fact]
+    public void CompilerConsumesSpanBackedPointBatchWithoutInlineArray()
+    {
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 64f, 48f));
+        Span<Vector2> source = stackalloc Vector2[2]
+        {
+            new(7f, 11f),
+            new(19f, 23f),
+        };
+        drawing.DrawPointBatch(
+            new SolidColorBrush(Vector4.One),
+            source,
+            radius: 0f,
+            round: true);
+        RenderCommand command = Assert.Single(drawing.Commands);
+        Assert.Null(command.PolylinePoints);
+        Assert.Equal(0, command.PointBufferOffset);
+        Assert.Equal(2, command.PointBufferCount);
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            94U,
+            6U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.PointBatchCount);
+        Assert.Equal(2, compiled.PointCount);
     }
 
     [Fact]
@@ -1783,9 +2030,19 @@ public class NativePictureCompilerTests
         firstFigure.Segments.Add(new QuadraticBezierSegment(
             new Vector2(36f, 18f),
             new Vector2(24f, 30f)));
-        firstFigure.Segments.Add(new CubicBezierSegment(
-            new Vector2(18f, 34f),
+        firstFigure.Segments.Add(new RationalQuadraticBezierSegment(
+            new Vector2(20f, 34f),
+            new Vector2(16f, 32f),
+            0.75f));
+        firstFigure.Segments.Add(new RationalCubicBezierSegment(
+            new Vector2(14f, 34f),
+            new Vector2(10f, 31f),
             new Vector2(8f, 28f),
+            0.5f,
+            1.5f));
+        firstFigure.Segments.Add(new CubicBezierSegment(
+            new Vector2(6f, 26f),
+            new Vector2(4f, 22f),
             new Vector2(4f, 18f)));
         firstPath.Figures.Add(firstFigure);
 
@@ -1832,7 +2089,7 @@ public class NativePictureCompilerTests
         Assert.Equal(1, compiled.NativeCommandCount);
         Assert.Equal(1, compiled.NativeDrawCount);
         Assert.Equal(2, compiled.PathCount);
-        Assert.Equal(7, compiled.PathSegmentCount);
+        Assert.Equal(9, compiled.PathSegmentCount);
         Assert.Equal(0, compiled.VertexMeshCount);
 
         var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
@@ -1846,11 +2103,11 @@ public class NativePictureCompilerTests
                     checked((int)resource.PayloadSize)));
         Assert.Equal(2, paths.Length);
         Assert.Equal(0UL, paths[0].SegmentOffset);
-        Assert.Equal(4UL, paths[0].SegmentCount);
+        Assert.Equal(6UL, paths[0].SegmentCount);
         Assert.Equal(new Vector2(2f, 3f), new Vector2(
             paths[0].Transform.M31,
             paths[0].Transform.M32));
-        Assert.Equal(4UL, paths[1].SegmentOffset);
+        Assert.Equal(6UL, paths[1].SegmentOffset);
         Assert.Equal(3UL, paths[1].SegmentCount);
         Assert.Equal(NativeFillRule.EvenOdd, paths[1].FillRule);
         Assert.Equal(4U, paths[1].SampleGrid);
@@ -1862,10 +2119,17 @@ public class NativePictureCompilerTests
                     checked((int)resource.AuxiliarySize)));
         Assert.Equal(NativePathSegmentKind.Line, segments[0].Kind);
         Assert.Equal(NativePathSegmentKind.Quadratic, segments[1].Kind);
-        Assert.Equal(NativePathSegmentKind.Cubic, segments[2].Kind);
-        Assert.Equal(new Vector2(4f, 5f), segments[3].P1);
-        Assert.Equal(NativePathSegmentKind.Arc, segments[5].Kind);
-        Assert.True(segments[5].P3.X > 0f && segments[5].P3.Y > 0f);
+        Assert.Equal(NativePathSegmentKind.RationalQuadratic, segments[2].Kind);
+        Assert.Equal(0.75f, BitConverter.UInt32BitsToSingle(segments[2].Pad0));
+        Assert.Equal(Vector2.Zero, segments[2].P3);
+        Assert.Equal(NativePathSegmentKind.RationalCubic, segments[3].Kind);
+        Assert.Equal(0.5f, BitConverter.UInt32BitsToSingle(segments[3].Pad0));
+        Assert.Equal(1.5f, BitConverter.UInt32BitsToSingle(segments[3].Pad1));
+        Assert.Equal(0U, segments[3].Pad2);
+        Assert.Equal(NativePathSegmentKind.Cubic, segments[4].Kind);
+        Assert.Equal(new Vector2(4f, 5f), segments[5].P1);
+        Assert.Equal(NativePathSegmentKind.Arc, segments[7].Kind);
+        Assert.True(segments[7].P3.X > 0f && segments[7].P3.Y > 0f);
     }
 
     [Fact]
@@ -1926,14 +2190,44 @@ public class NativePictureCompilerTests
                 0.35f,
                 6f,
                 1.5f,
-                new Vector4(1f, 0.25f, 0.1f, 1f)),
+                new Vector4(1f, 0.25f, 0.1f, 1f))
+            {
+                CoordinateTransform = Matrix4x4.CreateTranslation(3f, 5f, 0f),
+            },
             path);
         drawing.DrawHatch(
             new CrossHatchBrush(
                 0.7f,
                 8f,
                 2f,
-                new Vector4(0.1f, 0.5f, 1f, 1f)),
+                new Vector4(0.1f, 0.5f, 1f, 1f))
+            {
+                CoordinateTransform = Matrix4x4.CreateScale(2f, 3f, 1f),
+            },
+            path);
+        drawing.DrawHatch(
+            new HatchPatternSetBrush(
+                [
+                    new HatchPatternLineFamily(
+                        new Vector2(1f, 2f),
+                        Vector2.UnitX,
+                        3f,
+                        5f,
+                        0,
+                        6,
+                        8.5f),
+                    new HatchPatternLineFamily(
+                        new Vector2(4f, 5f),
+                        Vector2.UnitY,
+                        -2f,
+                        7f,
+                        6,
+                        0,
+                        0f),
+                ],
+                [2f, -1f, 0f, -0.5f, 3f, -2f],
+                0f,
+                new Vector4(0.25f, 0.5f, 0.75f, 1f)),
             path);
         using GpuPicture picture = recorder.EndRecording();
 
@@ -1945,7 +2239,8 @@ public class NativePictureCompilerTests
             out NativePictureCompileFailure failure),
             failure.ToString());
         Assert.NotNull(compiled);
-        Assert.Equal(2, compiled.PathCount);
+        Assert.Equal(3, compiled.PathCount);
+        Assert.Equal(8, compiled.GradientStopCount);
         NativeMethods.SceneHeader header =
             MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
         ReadOnlySpan<NativeMethods.SceneResource> resources =
@@ -1964,8 +2259,27 @@ public class NativePictureCompilerTests
                     checked((int)brushResource.PayloadSize)));
         Assert.Equal(NativeSceneBrushKind.HatchPattern, brushes[0].Kind);
         Assert.Equal(NativeSceneBrushKind.CrossHatch, brushes[1].Kind);
+        Assert.Equal(NativeSceneBrushKind.HatchPatternSet, brushes[2].Kind);
+        Assert.Equal(8U, brushes[2].StopCount);
+        Assert.Equal((NativeSceneGradientSpread)2U, brushes[2].Spread);
         Assert.Equal(6f, brushes[0].Center.X);
         Assert.Equal(2f, brushes[1].Center.Y);
+        Assert.Equal(3f, brushes[0].CoordinateTransform0.Z);
+        Assert.Equal(5f, brushes[0].CoordinateTransform1.Z);
+        Assert.Equal(2f, brushes[1].CoordinateTransform0.X);
+        Assert.Equal(3f, brushes[1].CoordinateTransform1.Y);
+        ReadOnlySpan<NativeSceneGradientStop> records =
+            MemoryMarshal.Cast<byte, NativeSceneGradientStop>(
+                compiled.Stream.Slice(
+                    checked((int)brushResource.AuxiliaryOffset),
+                    checked((int)brushResource.AuxiliarySize)));
+        Assert.Equal(8, records.Length);
+        Assert.Equal(new Vector4(1f, 2f, 1f, 0f), records[0].Color);
+        Assert.Equal(5f, records[0].Offset);
+        Assert.Equal(new Vector4(3f, 8.5f, 6f, 0f), records[1].Color);
+        Assert.Equal(new Vector4(2f, -1f, 0f, -0.5f), records[2].Color);
+        Assert.Equal(3f, records[2].Offset);
+        Assert.Equal(-2f, records[3].Color.X);
     }
 
     [Fact]
@@ -4233,6 +4547,14 @@ public class NativePictureCompilerTests
     private sealed class UnknownBrush : Brush
     {
     }
+
+    private static Matrix3x2 ToAffine(Matrix4x4 value) => new(
+        value.M11,
+        value.M12,
+        value.M21,
+        value.M22,
+        value.M41,
+        value.M42);
 
     private static GpuTexture CreateUnbackedTexture(uint width, uint height)
     {

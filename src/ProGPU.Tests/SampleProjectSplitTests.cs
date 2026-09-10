@@ -251,6 +251,34 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void BrowserHostReservesCadDraftingFunctionKeys()
+    {
+        string browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js").Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal);
+
+        Assert.Contains(
+            "if (event.code === 'F5' || event.code === 'F8' || event.code === 'F9' || event.code === 'F10' ||\n" +
+            "      (event.code === 'KeyE' && event.ctrlKey) ||",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "(event.code === 'KeyE' && event.ctrlKey) ||\n" +
+            "      ['Tab'",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "event.preventDefault();\n    }\n  }, true);",
+            browserAsset,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ManagedAndNativeBrowserHostsShareTheWebGpuPlatformContract()
     {
         var managedHost = Read(

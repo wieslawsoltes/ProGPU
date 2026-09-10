@@ -98,7 +98,7 @@ bool semantic_scene_builder::draw_meshes_3d(
     const std::uint64_t auxiliary_bytes =
         static_cast<std::uint64_t>(vertices.size_bytes()) +
         indices.size_bytes();
-    if (meshes.empty() || vertices.empty() || indices.empty() ||
+    if (meshes.empty() || vertices.empty() ||
         auxiliary_bytes > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
         !finite_rect(bounds) ||
         !implementation_->valid_state_index(state_resource_index) ||
@@ -119,6 +119,33 @@ bool semantic_scene_builder::draw_meshes_3d(
                 mesh, vertices.size(), indices.size())) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }
+        if (mesh.topology == PROGPU_NATIVE_MESH_3D_EDGE_LIST) {
+            for (std::size_t vertex = mesh.vertex_offset;
+                 vertex < static_cast<std::size_t>(mesh.vertex_offset) +
+                    mesh.vertex_count;
+                 vertex += 2U) {
+                if (!semantic::is_valid_semantic_mesh_3d_edge_pair(
+                        vertices[vertex], vertices[vertex + 1U])) {
+                    return implementation_->fail(
+                        scene_build_error::invalid_argument);
+                }
+            }
+        }
+        if ((mesh.flags & PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE) != 0U) {
+            if (mesh.material_image_resource_index >=
+                implementation_->resources.size()) {
+                return implementation_->fail(
+                    scene_build_error::invalid_argument);
+            }
+            const auto& material_image = implementation_->resources[
+                mesh.material_image_resource_index].record;
+            if (material_image.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+                (material_image.flags &
+                    PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) == 0U) {
+                return implementation_->fail(
+                    scene_build_error::invalid_argument);
+            }
+        }
         for (std::size_t index = mesh.index_offset;
              index < static_cast<std::size_t>(mesh.index_offset) +
                 mesh.index_count;
@@ -136,12 +163,16 @@ bool semantic_scene_builder::draw_meshes_3d(
             implementation_->commands.size() + 1U);
         std::vector<std::byte> auxiliary(
             static_cast<std::size_t>(auxiliary_bytes));
-        std::memcpy(
-            auxiliary.data(), vertices.data(), vertices.size_bytes());
-        std::memcpy(
-            auxiliary.data() + vertices.size_bytes(),
-            indices.data(),
-            indices.size_bytes());
+        if (!vertices.empty()) {
+            std::memcpy(
+                auxiliary.data(), vertices.data(), vertices.size_bytes());
+        }
+        if (!indices.empty()) {
+            std::memcpy(
+                auxiliary.data() + vertices.size_bytes(),
+                indices.data(),
+                indices.size_bytes());
+        }
         return append_3d_command(
             PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH,
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH,
