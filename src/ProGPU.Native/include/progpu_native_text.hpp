@@ -2179,12 +2179,24 @@ struct text_exclusion_band_result final {
 // Multiple fragments may share a row. Explicit tops preserve exclusion gaps.
 struct text_fragment_placement final {
     std::uint32_t row_index{};
-    float left{}, top{}, width{};
+    float left{};
+    double top{}; // Retain the layout prefix before float glyph publication.
+    float width{};
 };
 struct text_exclusion_flow_result final {
     std::uint32_t glyph_count{}, fragment_count{}, row_count{}, next_glyph{}, attempts{};
     double height{};
+    float content_width{};
 };
+
+// Measure retained fragment frames rather than stacking fragment heights.
+// Content width includes the interval offset and actual line width; measured
+// width retains the caller's positive constraint, matching ordinary text.
+// Nonnegative paragraph-local tops include clearance gaps. These are layout
+// extents, not ink bounds. Baselines use the published float coordinate frame.
+bool try_measure_fragment_text_lines(std::span<const positioned_text_line> lines,
+    std::span<const text_fragment_placement> placements, float maximum_width,
+    text_layout_metrics& result, font_error* error = nullptr) noexcept;
 
 // Source-cluster metadata, never inferred from glyph ids or line-break flags.
 enum class text_justification_class : std::uint8_t { content, whitespace, word_space };

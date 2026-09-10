@@ -13285,6 +13285,21 @@ static void excluded_paragraphs_retain_rows_and_bounded_progress() {
         placements[2].row_index == 1 && placements[3].row_index == 1 && placements[2].top == 30);
     require(lines[0].baseline_y == 28 && lines[1].baseline_y == 28 && lines[2].baseline_y == 38);
     require(lines[2].glyph_start == 6 && lines[3].glyph_start == 9 && output[9].glyph_index == 9);
+    text_layout_metrics extent{};
+    require(try_measure_fragment_text_lines(std::span(lines).first(4), std::span(placements).first(4),
+        100, extent) && extent.content_width == 95 && extent.content_height == 40 &&
+        extent.measured_width == 100 && extent.measured_height == 40 && result.content_width == 95);
+    require(try_measure_fragment_text_lines(std::span(lines).first(4), std::span(placements).first(4),
+        0, extent) && extent.measured_width == 95);
+    const float original_width = lines[1].width;
+    lines[1].width = 150;
+    require(try_measure_fragment_text_lines(std::span(lines).first(4), std::span(placements).first(4),
+        100, extent) && extent.content_width == 215 && extent.measured_width == 100);
+    lines[1].width = original_width;
+    placements[1].top = 21;
+    require(!try_measure_fragment_text_lines(std::span(lines).first(4), std::span(placements).first(4),
+        100, extent) && extent.content_width == 0 && extent.content_height == 0);
+    placements[1].top = 20;
     std::array<std::int32_t, 12> ends{};
     for (std::size_t i = 0; i < ends.size(); ++i) ends[i] = output[i].cluster + 2;
     std::array<text_cluster_box, 12> boxes{};
@@ -13393,6 +13408,27 @@ static void excluded_paragraphs_retain_rows_and_bounded_progress() {
     for (std::uint32_t i = 0; i < ordinary_line_count; ++i)
         require(lines[i].baseline_y == ordinary_lines[i].baseline_y &&
             lines[i].height == ordinary_lines[i].height && lines[i].width == ordinary_lines[i].width);
+    // Row topology retains the double prefix, not rounded float adjacency.
+    options.maximum_width = 10; options.line_height = 0.1F;
+    metrics.fill({0.05F, 0.05F});
+    require(run({}) && result.row_count == 12);
+    double expected_top = 0;
+    for (std::uint32_t i = 0; i < result.fragment_count; ++i) {
+        require(placements[i].top == expected_top);
+        expected_top += lines[i].height;
+    }
+    require(result.height == expected_top);
+    require(try_measure_fragment_text_lines(std::span(lines).first(result.fragment_count),
+        std::span(placements).first(result.fragment_count), 10, extent) &&
+        extent.content_height == static_cast<float>(expected_top));
+    // A baseline on the top edge uses the same float publication as carets.
+    metrics.fill({0, 0.1F});
+    require(run({}) && result.row_count == 12);
+    for (std::size_t i = 0; i < ends.size(); ++i) ends[i] = output[i].cluster + 2;
+    require(try_build_fragment_text_interaction(
+        std::span(output).first(result.glyph_count), std::span(lines).first(result.fragment_count),
+        std::span(placements).first(result.fragment_count), ends, levels, boxes, carets,
+        box_count, caret_count));
 }
 
 int main() {

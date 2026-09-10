@@ -1194,7 +1194,7 @@ bool try_layout_excluded_logical_shaped_text(std::span<const shaping_glyph> glyp
         for (std::uint32_t i = 0; i < band.fragment_count; ++i) {
             const auto index = result.fragment_count + i;
             lines[index].glyph_start += result.glyph_count;
-            placements[index] = {result.row_count, fragments[i].left, band.top, fragments[i].width};
+            placements[index] = {result.row_count, fragments[i].left, top, fragments[i].width};
         }
         result.glyph_count += band.glyph_count; result.fragment_count += band.fragment_count;
         result.next_glyph = band.next_glyph; ++result.row_count;
@@ -1205,6 +1205,10 @@ bool try_layout_excluded_logical_shaped_text(std::span<const shaping_glyph> glyp
         }
         if (result.next_glyph < glyphs.size()) height = seed_height(result.next_glyph);
     }
+    text_layout_metrics extent{};
+    if (!try_measure_fragment_text_lines(lines.first(result.fragment_count),
+        placements.first(result.fragment_count), options.maximum_width, extent, error)) { result = {}; return false; }
+    result.content_width = extent.content_width;
     set_error(error, font_error::none);
     return true;
 }

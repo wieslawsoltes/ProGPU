@@ -110,7 +110,7 @@ bool try_move_fragment_text_caret(std::span<const text_caret_stop> carets,
         const auto c = carets[i];
         if (c.line_index >= placements.size() || !std::isfinite(c.x) ||
             !std::isfinite(c.y) || !std::isfinite(c.height) || c.height < 0 ||
-            c.y != placements[c.line_index].top || c.bidi_level < 0 || c.bidi_level > 125 ||
+            c.y != static_cast<float>(placements[c.line_index].top) || c.bidi_level < 0 || c.bidi_level > 125 ||
             c.reserved0 != 0U || c.reserved1 != 0U) return invalid();
         if (i != 0U && c.line_index < carets[i - 1U].line_index) return invalid();
     }

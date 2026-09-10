@@ -1,6 +1,9 @@
 import progpu.native.text;
 
 int main() {
+    progpu::native::text::text_layout_metrics fragment_extent{};
+    if (!progpu::native::text::try_measure_fragment_text_lines({}, {}, 100, fragment_extent) ||
+        fragment_extent.content_height != 0 || fragment_extent.measured_width != 100) return 1;
     unsigned int no_caret = 0;
     if (progpu::native::text::try_move_fragment_text_caret({}, {}, 0,
         progpu::native::text::text_caret_direction::left, 0, 0, no_caret)) return 1;

@@ -43,6 +43,12 @@ generation. Physical X and fragment position, not fragment-array order, own
 left/right movement; paragraph direction owns row wrapping. Up/down select the
 nearest populated row and an existing stop at preferred X, preserving affinity
 when distances tie. Never synthesize a caret inside a glyph or excluded gap.
+Fragment paragraph measurement uses retained nonnegative paragraph-local frames,
+not a sum of fragment heights. Preserve interval offsets, content overflow and
+clearance gaps while keeping the requested measured width separate. Row tops
+retain the double layout prefix; baseline/caret comparisons use its published
+float frame. Do not widen tolerances to hide rounded adjacency failures. This
+native metadata is not C ABI or source Figure/Floater admission by itself.
 
 Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
 not optional fields that a text-only provider can silently ignore. Source metrics
