@@ -106,6 +106,21 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build(
 PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_hit_test(
     const progpu_native_text_cluster_box* boxes, uint32_t count, float x, float y,
     progpu_native_text_hit_test_result* result);
+/* Measured paragraph variants: baseline_y is the actual baseline, not the
+ * legacy line-top coordinate. Line tops are the double-precision prefix of
+ * line heights from zero, including empty lines. Baselines must lie within
+ * their measured line boxes; cumulative float-coordinate overflow is rejected
+ * before output writes. Zero heights remain zero. The request ABI is unchanged.
+ * Use these with layout_inline_flow_paragraph; existing calls retain their
+ * legacy baseline-as-top and minimum-one-unit interaction height convention. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_get_measured_requirements(
+    const progpu_native_text_interaction_request* request,
+    progpu_native_text_interaction_requirements* result);
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build_measured(
+    const progpu_native_text_interaction_request* request,
+    progpu_native_text_cluster_box* boxes, uint32_t box_capacity,
+    progpu_native_text_caret_stop* carets, uint32_t caret_capacity,
+    progpu_native_text_interaction_result* result);
 PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_get_caret(
     const progpu_native_text_caret_stop* carets, uint32_t count,
     int32_t position, uint8_t trailing, progpu_native_text_caret_stop* result);

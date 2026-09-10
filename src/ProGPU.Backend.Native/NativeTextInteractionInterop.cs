@@ -25,6 +25,15 @@ public static unsafe class NativeTextInteractionInterop
 {
     public static NativeRendererStatus GetRequirements(in NativeTextInteractionInput input,
         out NativeTextInteractionRequirements result)
+        => GetRequirementsCore(in input, out result, false);
+
+    /// <summary>Uses measured paragraph baselines and the prefix of actual line heights.</summary>
+    public static NativeRendererStatus GetMeasuredRequirements(in NativeTextInteractionInput input,
+        out NativeTextInteractionRequirements result)
+        => GetRequirementsCore(in input, out result, true);
+
+    private static NativeRendererStatus GetRequirementsCore(in NativeTextInteractionInput input,
+        out NativeTextInteractionRequirements result, bool measuredLines)
     {
         result = new() { StructSize = (uint)Unsafe.SizeOf<NativeTextInteractionRequirements>() };
         fixed (NativePositionedTextGlyph* glyphs = input.Glyphs)
@@ -34,13 +43,26 @@ public static unsafe class NativeTextInteractionInterop
         fixed (NativeTextInteractionRequirements* output = &result)
         {
             var request = Request(in input, glyphs, lines, ends, levels);
-            return NativeMethods.GetTextInteractionRequirements(&request, output);
+            return measuredLines
+                ? NativeMethods.GetMeasuredTextInteractionRequirements(&request, output)
+                : NativeMethods.GetTextInteractionRequirements(&request, output);
         }
     }
 
     public static NativeRendererStatus Build(in NativeTextInteractionInput input,
         Span<NativeTextClusterBox> boxes, Span<NativeTextCaretStop> carets,
         out NativeTextInteractionResult result)
+        => BuildCore(in input, boxes, carets, out result, false);
+
+    /// <summary>Builds interaction at measured line tops without repacking positioned glyphs.</summary>
+    public static NativeRendererStatus BuildMeasured(in NativeTextInteractionInput input,
+        Span<NativeTextClusterBox> boxes, Span<NativeTextCaretStop> carets,
+        out NativeTextInteractionResult result)
+        => BuildCore(in input, boxes, carets, out result, true);
+
+    private static NativeRendererStatus BuildCore(in NativeTextInteractionInput input,
+        Span<NativeTextClusterBox> boxes, Span<NativeTextCaretStop> carets,
+        out NativeTextInteractionResult result, bool measuredLines)
     {
         result = new() { StructSize = (uint)Unsafe.SizeOf<NativeTextInteractionResult>() };
         fixed (NativePositionedTextGlyph* glyphs = input.Glyphs)
@@ -52,8 +74,11 @@ public static unsafe class NativeTextInteractionInterop
         fixed (NativeTextInteractionResult* output = &result)
         {
             var request = Request(in input, glyphs, lines, ends, levels);
-            return NativeMethods.BuildTextInteraction(&request, boxOutput, (uint)boxes.Length,
-                caretOutput, (uint)carets.Length, output);
+            return measuredLines
+                ? NativeMethods.BuildMeasuredTextInteraction(&request, boxOutput, (uint)boxes.Length,
+                    caretOutput, (uint)carets.Length, output)
+                : NativeMethods.BuildTextInteraction(&request, boxOutput, (uint)boxes.Length,
+                    caretOutput, (uint)carets.Length, output);
         }
     }
 
@@ -112,6 +137,15 @@ public static unsafe class NativeTextInteractionInterop
 
 internal static unsafe partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_get_measured_requirements")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetMeasuredTextInteractionRequirements(
+        NativeTextInteractionRequest* request, NativeTextInteractionRequirements* result);
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_build_measured")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus BuildMeasuredTextInteraction(NativeTextInteractionRequest* request,
+        NativeTextClusterBox* boxes, uint boxCapacity, NativeTextCaretStop* carets, uint caretCapacity,
+        NativeTextInteractionResult* result);
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_get_requirements")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus GetTextInteractionRequirements(

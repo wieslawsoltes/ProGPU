@@ -28,9 +28,9 @@ progpu_native_status status(bool success) noexcept {
 }
 }
 
-progpu_native_status progpu_native_text_interaction_get_requirements(
+static progpu_native_status interaction_requirements_core(
     const progpu_native_text_interaction_request* request,
-    progpu_native_text_interaction_requirements* result) {
+    progpu_native_text_interaction_requirements* result, bool measured_lines) {
     if (result == nullptr || result->struct_size != sizeof(*result))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     *result = {};
@@ -43,18 +43,18 @@ progpu_native_status progpu_native_text_interaction_get_requirements(
         std::span(request->glyphs, request->glyph_count),
         std::span(request->lines, request->line_count),
         std::span(request->cluster_ends, request->cluster_end_count),
-        std::span(request->bidi_levels, request->bidi_level_count), required, &error);
+        std::span(request->bidi_levels, request->bidi_level_count), required, &error, measured_lines);
     result->cluster_box_capacity = required.cluster_box_capacity;
     result->caret_stop_capacity = required.caret_stop_capacity;
     result->error_code = static_cast<std::uint32_t>(error);
     return status(success);
 }
 
-progpu_native_status progpu_native_text_interaction_build(
+static progpu_native_status interaction_build_core(
     const progpu_native_text_interaction_request* request,
     progpu_native_text_cluster_box* boxes, std::uint32_t box_capacity,
     progpu_native_text_caret_stop* carets, std::uint32_t caret_capacity,
-    progpu_native_text_interaction_result* result) {
+    progpu_native_text_interaction_result* result, bool measured_lines) {
     if (result == nullptr || result->struct_size != sizeof(*result))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     *result = {};
@@ -69,9 +69,37 @@ progpu_native_status progpu_native_text_interaction_build(
         std::span(request->cluster_ends, request->cluster_end_count),
         std::span(request->bidi_levels, request->bidi_level_count),
         std::span(boxes, box_capacity), std::span(carets, caret_capacity),
-        result->cluster_box_count, result->caret_stop_count, &error);
+        result->cluster_box_count, result->caret_stop_count, &error, measured_lines);
     result->error_code = static_cast<std::uint32_t>(error);
     return status(success);
+}
+
+progpu_native_status progpu_native_text_interaction_get_requirements(
+    const progpu_native_text_interaction_request* request,
+    progpu_native_text_interaction_requirements* result) {
+    return interaction_requirements_core(request, result, false);
+}
+
+progpu_native_status progpu_native_text_interaction_get_measured_requirements(
+    const progpu_native_text_interaction_request* request,
+    progpu_native_text_interaction_requirements* result) {
+    return interaction_requirements_core(request, result, true);
+}
+
+progpu_native_status progpu_native_text_interaction_build(
+    const progpu_native_text_interaction_request* request,
+    progpu_native_text_cluster_box* boxes, std::uint32_t box_capacity,
+    progpu_native_text_caret_stop* carets, std::uint32_t caret_capacity,
+    progpu_native_text_interaction_result* result) {
+    return interaction_build_core(request, boxes, box_capacity, carets, caret_capacity, result, false);
+}
+
+progpu_native_status progpu_native_text_interaction_build_measured(
+    const progpu_native_text_interaction_request* request,
+    progpu_native_text_cluster_box* boxes, std::uint32_t box_capacity,
+    progpu_native_text_caret_stop* carets, std::uint32_t caret_capacity,
+    progpu_native_text_interaction_result* result) {
+    return interaction_build_core(request, boxes, box_capacity, carets, caret_capacity, result, true);
 }
 
 progpu_native_status progpu_native_text_interaction_hit_test(

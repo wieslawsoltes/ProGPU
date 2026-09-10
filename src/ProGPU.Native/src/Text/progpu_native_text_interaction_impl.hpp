@@ -39,14 +39,23 @@ bool validate_inputs(
     std::span<const Glyph> glyphs,
     std::span<const Line> lines,
     std::span<const std::int32_t> cluster_ends,
-    std::span<const std::int8_t> bidi_levels) noexcept {
+    std::span<const std::int8_t> bidi_levels,
+    bool measured_lines = false) noexcept {
     if (cluster_ends.size() != glyphs.size() ||
         bidi_levels.size() != glyphs.size()) {
         return false;
     }
     std::size_t expected = 0U;
+    double line_top = 0.0;
     for (const auto& line : lines) {
-        if (!finite_line(line) || line.glyph_start != expected ||
+        const double line_bottom = line_top + static_cast<double>(line.height);
+        const bool valid_metrics = measured_lines
+            ? std::isfinite(line.baseline_y) && std::isfinite(line.height) &&
+                line.height >= 0.0F && line_bottom <= std::numeric_limits<float>::max() &&
+                line.baseline_y >= static_cast<float>(line_top) &&
+                line.baseline_y <= static_cast<float>(line_bottom)
+            : finite_line(line);
+        if (!valid_metrics || line.glyph_start != expected ||
             line.glyph_count > glyphs.size() - expected) {
             return false;
         }
@@ -59,6 +68,7 @@ bool validate_inputs(
             }
         }
         expected = end;
+        line_top = line_bottom;
     }
     return expected == glyphs.size();
 }
@@ -91,9 +101,10 @@ bool get_requirements(
     std::span<const std::int32_t> cluster_ends,
     std::span<const std::int8_t> bidi_levels,
     text_interaction_requirements& result,
-    font_error* error) noexcept {
+    font_error* error,
+    bool measured_lines = false) noexcept {
     result = {};
-    if (!validate_inputs(glyphs, lines, cluster_ends, bidi_levels)) {
+    if (!validate_inputs(glyphs, lines, cluster_ends, bidi_levels, measured_lines)) {
         set_error(error, font_error::invalid_argument);
         return false;
     }
@@ -117,7 +128,8 @@ bool build(
     std::span<Caret> caret_stops,
     std::uint32_t& cluster_box_count,
     std::uint32_t& caret_stop_count,
-    font_error* error) noexcept {
+    font_error* error,
+    bool measured_lines = false) noexcept {
     cluster_box_count = 0U;
     caret_stop_count = 0U;
     text_interaction_requirements requirements{};
@@ -127,7 +139,8 @@ bool build(
             cluster_ends,
             bidi_levels,
             requirements,
-            error)) {
+            error,
+            measured_lines)) {
         return false;
     }
     if (cluster_boxes.size() < requirements.cluster_box_capacity ||
@@ -136,6 +149,8 @@ bool build(
         return false;
     }
 
+    // Same dependency-bound double prefix as the measured paragraph writer.
+    double line_top = 0.0;
     for (std::uint32_t line_index = 0U;
          line_index < lines.size();
          ++line_index) {
@@ -171,9 +186,9 @@ bool build(
                 0U,
                 0U,
                 left,
-                line.baseline_y,
+                measured_lines ? static_cast<float>(line_top) : line.baseline_y,
                 std::max(0.0F, right - left),
-                std::max(1.0F, line.height)};
+                measured_lines ? line.height : std::max(1.0F, line.height)};
             cluster_boxes[cluster_box_count++] = box;
             const bool rtl = (box.bidi_level & 1) != 0;
             const Caret leading{
@@ -207,6 +222,7 @@ bool build(
             append_caret(leading);
             append_caret(trailing);
         }
+        line_top += static_cast<double>(line.height);
     }
     set_error(error, font_error::none);
     return true;

@@ -430,6 +430,21 @@ static void ValidateNativeInlineParagraph()
         glyphs[1].Cluster != 1 || glyphs[1].AdvanceX != 30.25f ||
         lines[1].Height != 42 || lines[2].BaselineY != 74 || widths.Minimum < 30.25f)
         throw new InvalidOperationException("Packaged native inline geometry/identity failed.");
+    var interaction = new NativeTextInteractionInput(
+        glyphs.AsSpan(0, checked((int)result.GlyphCount)),
+        lines.AsSpan(0, checked((int)result.LineCount)), [1, 2, 3], [0, 0, 0]);
+    if (NativeTextInteractionInterop.GetMeasuredRequirements(interaction, out var interactionNeeded) != NativeRendererStatus.Success ||
+        interactionNeeded.ClusterBoxCapacity != 3 || interactionNeeded.CaretStopCapacity != 6)
+        throw new InvalidOperationException("Packaged measured interaction requirements failed.");
+    NativeTextClusterBox[] boxes = new NativeTextClusterBox[3];
+    NativeTextCaretStop[] carets = new NativeTextCaretStop[6];
+    if (NativeTextInteractionInterop.BuildMeasured(interaction, boxes, carets, out var interactionResult) != NativeRendererStatus.Success ||
+        interactionResult.ClusterBoxCount != 3 || boxes[0].Y != 0 || boxes[1].Y != 20 || boxes[2].Y != 62 ||
+        boxes[1].Height != 42 || boxes[1].Width != 30.25f || carets[2].Y != 20 || carets[2].Height != 42)
+        throw new InvalidOperationException("Packaged measured interaction lost actual line tops.");
+    if (NativeTextInteractionInterop.HitTest(boxes, 10, 21, out var objectHit) != NativeRendererStatus.Success ||
+        objectHit.Inside != 1 || objectHit.LineIndex != 1 || objectHit.InputPosition != 1)
+        throw new InvalidOperationException("Packaged inline object hit ownership failed.");
     bool rejected = false;
     try { context.GetInlineFlowParagraphRequirements(input, options, styles, flow, [], objects, out _); }
     catch (ArgumentException) { rejected = true; }

@@ -11,6 +11,13 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Measured inline paragraph interaction uses the explicit measured C API over the
+original positioned output. Derive tops from the same double line-height prefix,
+including empty lines; keep baseline validation and zero heights authoritative.
+Do not repack glyph Y values in managed code, treat baselines as line tops or
+send non-ink object identities to font atlases. Legacy interaction keeps its
+existing coordinate convention. Snapshot/source admission remains separate.
+
 Native inline paragraph calls require explicit styled physical faces, matching
 source-owned style metrics and ordered objects covering actual U+FFFC scalars.
 Keep objects non-ink with reserved object glyph/font identity, real source

@@ -9,9 +9,78 @@ namespace {
 void require(bool condition) { if (!condition) std::abort(); }
 constexpr auto success = PROGPU_NATIVE_STATUS_SUCCESS;
 constexpr auto invalid = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+
+void measured_interaction() {
+    std::array<progpu_native_positioned_text_glyph, 3> glyphs{{
+        {0, 10, 0, 0, 0, 12, 8, 0},
+        {1, UINT32_MAX - 1U, UINT32_MAX, 1, 0, 62, 30.25F, 0},
+        {2, 11, 0, 2, 0, 81, 9, 0}}};
+    std::array<progpu_native_positioned_text_line, 4> lines{{
+        {0, 1, 0, 1, 8, 12, 20, 0, 0, 0, 0},
+        {1, 0, 1, 1, 0, 22, 7, 0, 0, 0, 0},
+        {1, 1, 1, 2, 30.25F, 62, 42, 0, 0, 0, 0},
+        {2, 1, 2, 3, 9, 81, 20, 0, 0, 0, 0}}};
+    std::array<std::int32_t, 3> ends{1, 2, 3};
+    std::array<std::int8_t, 3> levels{0, 1, 0};
+    progpu_native_text_interaction_request request{
+        sizeof(request), PROGPU_NATIVE_ABI_VERSION,
+        glyphs.data(), 3, lines.data(), 4, ends.data(), 3, levels.data(), 3};
+    progpu_native_text_interaction_requirements needed{};
+    needed.struct_size = sizeof(needed);
+    require(progpu_native_text_interaction_get_measured_requirements(&request, &needed) == success);
+    require(needed.cluster_box_capacity == 3 && needed.caret_stop_capacity == 6);
+    std::array<progpu_native_text_cluster_box, 3> boxes{};
+    std::array<progpu_native_text_caret_stop, 6> carets{};
+    progpu_native_text_interaction_result result{};
+    result.struct_size = sizeof(result);
+    const auto build = [&]() {
+        return progpu_native_text_interaction_build_measured(&request,
+            boxes.data(), 3, carets.data(), 6, &result);
+    };
+    require(build() == success && result.cluster_box_count == 3 && result.caret_stop_count == 6);
+    require(boxes[0].y == 0 && boxes[1].y == 27 && boxes[2].y == 69);
+    require(boxes[1].height == 42 && boxes[1].width == 30.25F && boxes[1].line_index == 2);
+    require(carets[2].y == 27 && carets[2].input_position == 2 && carets[2].trailing == 1);
+    progpu_native_text_hit_test_result hit{};
+    require(progpu_native_text_interaction_hit_test(boxes.data(), 3, 2, 28, &hit) == success);
+    require(hit.inside == 1 && hit.line_index == 2 && hit.input_position == 2 && hit.trailing == 1);
+    progpu_native_text_rectangle selection{};
+    std::uint32_t written = 0;
+    require(progpu_native_text_interaction_get_selection(boxes.data(), 3, 1, 2,
+        &selection, 1, &written) == success);
+    require(written == 1 && selection.y == 27 && selection.height == 42 && selection.width == 30.25F);
+    require(progpu_native_text_interaction_build(&request, boxes.data(), 3, carets.data(), 6, &result) == success);
+    require(boxes[1].y == 62); // Old ABI still treats baseline_y as the top.
+    boxes[0].x = 123;
+    require(progpu_native_text_interaction_build_measured(&request, boxes.data(), 2, carets.data(), 6, &result) == invalid);
+    require(result.cluster_box_count == 0 && boxes[0].x == 123);
+    for (const float baseline : {26.0F, 70.0F, std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::infinity()}) {
+        lines[2].baseline_y = baseline;
+        require(build() == invalid && result.cluster_box_count == 0 && boxes[0].x == 123);
+        require(progpu_native_text_interaction_get_measured_requirements(&request, &needed) == invalid);
+        require(needed.cluster_box_capacity == 0 && needed.caret_stop_capacity == 0);
+    }
+    lines[2].baseline_y = 27;
+    lines[2].height = 0;
+    lines[3].baseline_y = 39;
+    require(build() == success && boxes[1].y == 27 && boxes[1].height == 0 && boxes[2].y == 27);
+    boxes[0].x = 123;
+    for (const float height : {-1.0F, std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::infinity()}) {
+        lines[2].height = height;
+        require(build() == invalid && result.cluster_box_count == 0 && boxes[0].x == 123);
+    }
+    lines[2].height = 0;
+    lines[0].height = std::numeric_limits<float>::max();
+    lines[1].height = std::numeric_limits<float>::max();
+    lines[1].baseline_y = std::numeric_limits<float>::max();
+    require(build() == invalid && result.cluster_box_count == 0 && boxes[0].x == 123);
+}
 }
 
 int main() {
+    measured_interaction();
     using namespace progpu::native::text;
     static_assert(sizeof(progpu_native_text_cluster_box) == 32U);
     static_assert(sizeof(progpu_native_text_caret_stop) == 24U);
