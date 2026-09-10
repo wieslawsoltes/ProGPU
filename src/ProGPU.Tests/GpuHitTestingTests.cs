@@ -271,9 +271,9 @@ public sealed class GpuHitTestingTests
     [InlineData(PenLineJoin.Miter, 2)]
     [InlineData(PenLineJoin.Bevel, 1)]
     [InlineData(PenLineJoin.Round, 6)]
-    public void NativeClosedStrokeCaptureUsesSharedMvpJoins(PenLineJoin join, int trianglesPerCorner)
+    public void NativeClosedStrokeCaptureUsesSharedShowcaseJoins(PenLineJoin join, int trianglesPerCorner)
     {
-        // Same closed MVP contour, width and placement as native scene 9814.
+        // Same closed Showcase contour, width and placement as native scene 9814.
         Vector2[] points = [new(0, 40), new(24, 0), new(48, 40)];
         Span<StrokeJoinTriangle> triangles = stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
         var transform = Matrix4x4.CreateScale(2, 3, 1) * Matrix4x4.CreateTranslation(5, 7, 0);

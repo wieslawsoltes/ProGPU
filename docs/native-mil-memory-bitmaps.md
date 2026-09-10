@@ -2,7 +2,7 @@
 
 ## Core application dependency
 
-LibreWPF's existing SciChart MVP calls `MainWindow.CreateBitmap` after rendering
+LibreWPF's existing SciChart Showcase calls `MainWindow.CreateBitmap` after rendering
 its chart: construct a Pbgra32 `WriteableBitmap`, write the snapshot, freeze it,
 then assign it to `Image.Source`. Its 3D bridge uses the same memory-image path.
 The package SDK smoke also constructs `BitmapSource.Create` and WriteableBitmap

@@ -2,7 +2,7 @@
 
 ## Application dependency
 
-The LibreWPF MVP's text underlines/control chrome must remain hittable at source
+The LibreWPF Showcase's text underlines/control chrome must remain hittable at source
 coordinates when guidelines change raster placement. Source WPF's point and
 geometry drawing-context walkers treat guidelines as input-neutral. This batch
 closes that source-coordinate connection, not complete native host query routing.

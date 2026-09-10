@@ -3,7 +3,7 @@
 ## Contract and core dependency
 
 LibreWPF's package SDK and Toolkit/AvalonDock application must not terminate
-merely because the first native polling window closes. The MVP explicitly uses
+merely because the first native polling window closes. The Showcase explicitly uses
 OnMainWindowClose; the Toolkit uses the default OnLastWindowClose. Explicit
 application lifetime additionally permits closing all windows and creating a new
 one later. These are application/host contracts, not new renderer API breadth.
@@ -55,7 +55,7 @@ OnLastWindowClose handoff, OnMainWindowClose termination with another window,
 and explicit windowless lifetime followed by dispatcher-posted creation and an
 explicit nonzero exit. They assert source identity, close/dispose/Exit counts and
 reentrant Run rejection. They do not instantiate a native GPU host or replace
-the real MVP/Toolkit/package gates. The SDK gate retains its normal application
+the real Showcase/Toolkit/package gates. The SDK gate retains its normal application
 smoke and adds these scenarios after it; build-packages-only never executes them.
 
 The harness shares the neutral interop assembly across its isolated source load

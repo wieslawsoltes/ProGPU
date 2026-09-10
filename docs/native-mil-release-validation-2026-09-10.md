@@ -6,7 +6,7 @@ does not qualify the broader DirectX/Direct2D/Win2D scope.
 
 ## First failure-fix batch
 
-Acceptance application: LibreWPF source-built native MIL host and package MVP.
+Acceptance application: LibreWPF source-built native MIL host and package Showcase.
 Actions: formatted/trimmed text, retained image updates, cached brush strokes,
 native scene submission. Baseline: ProGPU `2a998c86`, rebased on main `73cda9a5`
 (merged PR #155); LibreWPF `bc6c30a89`.
@@ -88,7 +88,7 @@ suites pass. The separate source-built host first-frame/input/device-recovery
 gate passed as recorded above; this is not package or cross-platform qualification.
 
 Other required checks: Svg.Skia zero-length dash parity must rerun; CAD browser
-capture timed out in baseline CI. Neither is waived. Complete package-mode MVP,
+capture timed out in baseline CI. Neither is waived. Complete package-mode Showcase,
 Windows native/ProGPU comparison, Linux/macOS application actions and exact-head
 payload provenance remain required. PR #139 must not merge until these gates are
 green; dependent LibreWPF PR #115 follows only after its own exact-head gate.

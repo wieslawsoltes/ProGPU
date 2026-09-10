@@ -1,5 +1,10 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Use purpose-based final names for APIs, applications, tests, scripts and artifacts,
+not delivery-stage labels. LibreWPF acceptance references use ShowcaseApp and
+SciChartApp; shared fixtures use the corresponding Showcase identifiers. Renaming
+does not qualify rendering, package integration or outstanding release gates.
+
 Welcome, agent! This document serves as a specialized developer guide and architectural handbook for AI coding agents pair-programming on the **ProGPU** codebase. Read this document carefully to align with our established design patterns, mathematical conventions, and diagnostic tools.
 
 ---
@@ -614,7 +619,7 @@ canonical flat line bodies, with one source owner and exact per-record clips.
 Preserve the closing seam, WPF miter semantics and local-affine/world-conformal
 join domains. Index decomposition is not permission to split raster coverage
 draws, use antialias padding as hit geometry, or silently omit open/dashed/device
-stroke batches. Keep paired MVP join fixtures and reject partial index publication.
+stroke batches. Keep paired Showcase join fixtures and reject partial index publication.
 
 Source built-in blur/shadow layers preserve identity-mapped geometry input only
 through the explicit source_identity_effect annotation. Carry actual final

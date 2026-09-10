@@ -2,7 +2,7 @@
 
 ## Core application dependency
 
-LibreWPF MVP and Toolkit/AvalonDock menus, ComboBoxes and tooltips must be able
+LibreWPF Showcase and Toolkit/AvalonDock menus, ComboBoxes and tooltips must be able
 to extend beyond their owner window when hosted by an independent native popup.
 Source inspection found that WPF constrained every portable popup to owner-client
 bounds, including popups that already had a native surface. This change connects
@@ -104,7 +104,7 @@ warnings/0 errors. NU1701 remains visible and runtime qualification is still ope
 
 ## Popup extent and limit connection
 
-Source inspection of the same MVP/Toolkit menu/ComboBox path found a second
+Source inspection of the same Showcase/Toolkit menu/ComboBox path found a second
 mismatch: `Popup.UpdatePosition` used framebuffer DPI to size the root rectangle
 for screen-edge nudging even when portable placement used logical desktop units.
 For a Retina-style desktop scale of one and framebuffer scale of two, this
@@ -147,7 +147,7 @@ No runtime fixtures, GPU/VM applications, source verifiers or CI qualification r
 ## Host, overlay and pointer connection
 
 The acceptance action is opening, moving and clicking a menu/ComboBox in the
-existing MVP/Toolkit applications. Source inspection found that the popup bridge
+existing Showcase/Toolkit applications. Source inspection found that the popup bridge
 still treated legacy `(popupDevice - ownerDevice) / framebufferDpi` as owner DIPs,
 although it is a desktop vector. Native pointer normalization also used framebuffer
 geometry for native window coordinates. These are source-backed findings, not
@@ -192,7 +192,7 @@ contains the latest fetched `origin/main` (zero upstream commits missing).
 
 ## Independent native-popup framebuffer ownership
 
-The same MVP/Toolkit menu action exposed two source-backed overwrite paths:
+The same Showcase/Toolkit menu action exposed two source-backed overwrite paths:
 `WpfPortablePopupBridge.TrySetOwnerGeometry` wrote the popup source DPI directly,
 then the native adapter also forwarded owner DPI to its own host/source. This
 could replace independently resolved popup framebuffer geometry with owner scale.
@@ -229,7 +229,7 @@ The latest fetched ProGPU `origin/main` remains contained (zero missing commits)
 
 ## Windows owned nonactivating native popup connection
 
-The existing MVP/Toolkit menu/ComboBox action could not create a native portable
+The existing Showcase/Toolkit menu/ComboBox action could not create a native portable
 popup on Windows: the factory rejected Windows and the decoration adapter only
 configured Cocoa/X11 ownership. This is source-backed, not a reproduced VM run.
 

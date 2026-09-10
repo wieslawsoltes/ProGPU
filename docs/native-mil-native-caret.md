@@ -2,7 +2,7 @@
 
 ## Core dependency and contract
 
-The LibreWPF MVP TextBox/RichTextBox focus-and-type path reaches source
+The LibreWPF Showcase TextBox/RichTextBox focus-and-type path reaches source
 CaretElement rendering. On Windows its old Win32SetCaretPos route accepted any
 presentation source, even though Win32CreateCaret could not create a caret for
 the non-HWND PortablePresentationSource. That caused a source-local Win32 call
@@ -104,7 +104,7 @@ All fixtures are authored for the final validation phase. Compilation is not
 test execution, native caret accessibility evidence, package-mode success or
 permission to remove the Windows SDK admission guard. Visible text editing,
 focus transitions, DPI changes and native/managed comparison remain in the final
-MVP/Toolkit/Windows gate. Cocoa/Linux native IME/accessibility mirrors and broader
+Showcase/Toolkit/Windows gate. Cocoa/Linux native IME/accessibility mirrors and broader
 COM/Direct2D/Win2D completeness are not implemented by this Windows caret contract.
 
 Build-only checkpoint (2026-09-09): SDK 10.0.201 compiled ProGPU.Tests with

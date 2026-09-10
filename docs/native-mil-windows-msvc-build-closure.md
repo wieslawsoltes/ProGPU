@@ -2,7 +2,7 @@
 
 ## Acceptance dependency and provenance
 
-LibreWPF's package-mode MVP needs Windows native payloads before native MIL
+LibreWPF's package-mode Showcase needs Windows native payloads before native MIL
 startup can be admitted and qualified. The Windows ARM64 build of ProGPU
 `2ab498be3589e151f3ae344139a48667782a2608` exposed strict MSVC compilation
 failures not observed in the preceding macOS/Linux Clang builds. This batch

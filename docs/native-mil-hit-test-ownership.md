@@ -131,7 +131,7 @@ queries and their execution policy are unchanged.
 
 ## Source opacity connection
 
-The MVP's opacity animations and Toolkit/AvalonDock source drawing scopes use
+The Showcase's opacity animations and Toolkit/AvalonDock source drawing scopes use
 opacity without changing the underlying input geometry. Source WPF point and
 region drawing walkers deliberately retain input through PushOpacity, including
 zero opacity; visual input visibility is separate from rendered alpha.
@@ -177,9 +177,9 @@ and capacity reuse; stack traversal is dependent O(C), not a numeric CPU fallbac
 Existing SIMD primitive placement and the canonical GPU shader are unchanged.
 No new readback, per-item submission, pixel work or performance claim is added.
 
-### MVP ordinary line input
+### Showcase ordinary line input
 
-The real package application's `MvpShapeLine` in `MainWindow.xaml` uses endpoints
+The real package application's `ShowcaseShapeLine` in `MainWindow.xaml` uses endpoints
 (16,98)/(154,76), thickness 4 and round caps. MIL's existing
 `append_resolved_line_stroke` emits a geometry-line resource for its undashed pen;
 the hit producer previously rejected every DRAW_GEOMETRY command. It now emits
@@ -201,7 +201,7 @@ submission/readback or stroke-outline allocation. No performance claim is made.
 
 Matched fixtures cover all 16 cap pairs, nonidentity placement, source owner and
 clipping, direction data and the diagonal-square envelope. Native canonical MIL
-scene 9813 uses the actual MVP line values; native builder scene 9812 also keeps
+scene 9813 uses the actual Showcase line values; native builder scene 9812 also keeps
 point-cap rejection explicit. These fixtures are authored for final execution.
 The existing engine references apply; additionally the primary
 [Direct2D stroke-containment contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-strokecontainspoint(d2d1_point_2f_float_id2d1strokestyle_constd2d1_matrix_3x2_f_float_bool))
@@ -372,8 +372,8 @@ deferred to final qualification.
 
 ### Built-in effect input connection — 2026-09-09
 
-Acceptance actions are pointer/selection queries on LibreWPF MVP's
-`MvpBlurEffectBorder` and `MvpDropShadowEffectBorder`. Source `Visual` applies
+Acceptance actions are pointer/selection queries on LibreWPF Showcase's
+`ShowcaseBlurEffectBorder` and `ShowcaseDropShadowEffectBorder`. Source `Visual` applies
 `EffectMapping.Inverse`; BlurEffect and DropShadowEffect inherit identity mapping.
 The public [EffectMapping contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.effects.effect.effectmapping?view=windowsdesktop-10.0)
 confirms the default and the separate unit-space custom mapping contract. Source
@@ -418,7 +418,7 @@ O(P + L) for P captured primitives. No speed claim is made before benchmarks.
 
 Authored native scene 9816 covers all three effect kinds, nested clips, source
 alpha zero, state reuse, restored sibling clips and undeclared/blended rejection.
-Scene 9817 uses canonical visual MIL for MVP effect parameters and zero blur.
+Scene 9817 uses canonical visual MIL for Showcase effect parameters and zero blur.
 The paired managed source fixture covers identity effects, nested clipping and
 unknown-mapping rejection. The public enum also has an import-based module
 consumer fixture. These fixtures are compilation evidence only until execution.
@@ -428,10 +428,10 @@ Exact geometry masks/clips, local bitmap caches, custom effect mappings and host
 query routing remain open. Do not enable partial native host input or claim full
 effect, package, Windows or performance qualification from this connection.
 
-### Closed solid stroke batches — MVP connection, 2026-09-09
+### Closed solid stroke batches — Showcase connection, 2026-09-09
 
-Acceptance action: pointer/selection queries on LibreWPF package MVP
-`MvpShapePath` (`M 0,40 L 24,0 L 48,40 Z`, width 2, miter join, offset 178/20).
+Acceptance action: pointer/selection queries on LibreWPF package Showcase
+`ShowcaseShapePath` (`M 0,40 L 24,0 L 48,40 Z`, width 2, miter join, offset 178/20).
 MIL already emits its fill and a closed polyline stroke batch. Native hit capture
 now accepts that batch and retains every edge and its closing join. This is an
 implementation connection, not a claim that native host queries are enabled.
@@ -451,7 +451,7 @@ world-domain construction, preserving its scale-sensitive miter threshold.
 Managed rendering already uses `StrokeJoinGeometry.WriteWpfLineJoin` and retains
 closed contours through `StrokeCoverageGeometry.TryPrepareLinearPath`. No new
 managed stroker or shader is needed. Matched managed/native fixtures use the
-MVP's contour for miter, bevel and round joins, with an independent apex-miter
+Showcase's contour for miter, bevel and round joins, with an independent apex-miter
 oracle. Native fixtures additionally exercise source ownership, anisotropic
 placement, actual state clips, ignored closed endpoint caps, transactional
 rejection after a supported batch, and canonical MIL fill-plus-stroke scene 9815.

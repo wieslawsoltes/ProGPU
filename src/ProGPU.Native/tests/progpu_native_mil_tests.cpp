@@ -21112,7 +21112,7 @@ int main() {
         return hits;
     };
     {
-        // The MVP's DrawingImage-backed Border owns the painted rectangle,
+        // The Showcase's DrawingImage-backed Border owns the painted rectangle,
         // not its brush source or viewport. Extend the same typed contract to
         // the existing bitmap/drawing/visual brush fixture, including pen scope.
         using namespace progpu::native::tests;
@@ -21223,7 +21223,7 @@ int main() {
         }
     }
     {
-        // Actual MvpShapeEllipse: WPF's 54x54 layout produces a 51x51 spine
+        // Actual ShowcaseShapeEllipse: WPF's 54x54 layout produces a 51x51 spine
         // inset by half the 3-DIP pen. Preserve both fill and full-arc stroke.
         channel state;
         std::vector<std::byte> batch, content;
@@ -21867,7 +21867,7 @@ int main() {
         }
     }
     {
-        // Source visual with MVP Blur/DropShadow settings, through canonical MIL.
+        // Source visual with Showcase Blur/DropShadow settings, through canonical MIL.
         for (std::uint32_t variant = 0U; variant < 9U; ++variant) {
             channel state;
             std::vector<std::byte> batch, content;
@@ -21992,7 +21992,7 @@ int main() {
         }
     }
     {
-        // The MVP underline/control render-data path reaches this policy through MIL Y1/Y2 scopes.
+        // The Showcase underline/control render-data path reaches this policy through MIL Y1/Y2 scopes.
         for (bool paired : {false, true}) {
             channel state;
             std::vector<std::byte> batch, content;
@@ -22203,7 +22203,7 @@ int main() {
         }
     }
     {
-        // The real package MVP's MvpShapeLine, through canonical MIL commands.
+        // The real package Showcase's ShowcaseShapeLine, through canonical MIL commands.
         channel state;
         std::vector<std::byte> batch, content;
         append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
@@ -22245,7 +22245,7 @@ int main() {
         PROGPU_REQUIRE(found);
     }
     {
-        // Paired with NativeClosedStrokeCaptureUsesSharedMvpJoins. Three
+        // Paired with NativeClosedStrokeCaptureUsesSharedShowcaseJoins. Three
         // connected edges, including the closing seam; endpoint caps do not apply.
         const std::array points{progpu_native_point{0.0F, 40.0F},
             progpu_native_point{24.0F, 0.0F}, progpu_native_point{48.0F, 40.0F}};
@@ -22304,7 +22304,7 @@ int main() {
         }
     }
     {
-        // Actual MvpShapePath: M 0,40 L 24,0 L 48,40 Z, fill plus width-2 miter pen.
+        // Actual ShowcaseShapePath: M 0,40 L 24,0 L 48,40 Z, fill plus width-2 miter pen.
         channel state;
         std::vector<std::byte> batch, content, figures;
         append_value(figures, 152U); append_value(figures, 2U);

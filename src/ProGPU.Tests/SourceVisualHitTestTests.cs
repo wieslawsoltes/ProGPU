@@ -12,7 +12,7 @@ namespace ProGPU.Tests;
 public sealed class SourceVisualHitTestTests
 {
     [Fact]
-    public void MvpEllipseGeometryInputRetainsFillStrokeAndUpdates()
+    public void ShowcaseEllipseGeometryInputRetainsFillStrokeAndUpdates()
     {
         // WPF Ellipse arranges the 54x54 box by half of its 3-DIP pen.
         // Paired with native canonical EllipseGeometry scene 9838.

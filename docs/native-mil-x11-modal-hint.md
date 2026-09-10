@@ -1,6 +1,6 @@
 # X11 dialog modal-hint ownership
 
-Acceptance action: open, hide/close and reopen the LibreWPF MVP About dialog.
+Acceptance action: open, hide/close and reopen the LibreWPF Showcase About dialog.
 The source input policy already rejects blocked-window input, activation and
 native close requests. Native X11 ownership publishes WM_TRANSIENT_FOR, but that
 alone does not mark the dialog modal. This change connects the advisory EWMH
@@ -74,7 +74,7 @@ PROGPU_NATIVE_X11_MODAL_TEST=1 dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj 
   --filter FullyQualifiedName~NativeWindowModalHintLinuxTests
 ```
 
-This explicit fixture supplements, not replaces, visible MVP native/managed
+This explicit fixture supplements, not replaces, visible Showcase native/managed
 keyboard, pointer, owner-close, nested-dialog/popup, Hide/reopen and focus tests.
 Mapped WM behavior, WM restarts, unrelated native windows, other UI threads and
 Wayland still require platform implementation/qualification. Submission and

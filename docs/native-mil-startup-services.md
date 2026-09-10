@@ -66,7 +66,7 @@ admission solely because this helper or the direct host compiles.
 ## Source formatter dispatch connection
 
 Acceptance path: the existing native host's pre-host FormattedText and inline
-TextBlock, and the package-mode MVP constructor/first layout. Source inspection
+TextBlock, and the package-mode Showcase constructor/first layout. Source inspection
 found that Windows still used LineServices and that even non-Windows simple text
 could bypass the registered native paragraph provider. This is a source-backed
 blocker, not a reproduced application failure during the deferred-test phase.

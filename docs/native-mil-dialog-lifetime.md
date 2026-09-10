@@ -6,7 +6,7 @@ This does not close Linux native input suppression or the qualification gaps bel
 
 ## Native completion before source input and focus restoration
 
-Acceptance action: Hide or Close the LibreWPF MVP About dialog from a native event
+Acceptance action: Hide or Close the LibreWPF Showcase About dialog from a native event
 callback, including a nested dialog. Source inspection found that its `using`
 scopes restored input/focus when managed ShowDialog unwound, even if AppKit End
 was deferred until the outer native event callback returned. This was a source
@@ -73,7 +73,7 @@ are excluded. These builds do not admit package mode or qualify native modality.
 
 ## Win32 input gates and source focus restoration
 
-Acceptance path: open/close/hide/reopen the MVP About dialog, including an owned
+Acceptance path: open/close/hide/reopen the Showcase About dialog, including an owned
 nested dialog and popups. `PortableModalInputScope.RegisterWindow` binds each
 native surface to its source Window identity. The host owns the registration;
 the thread index holds weak references so registration does not root abandoned
@@ -149,7 +149,7 @@ package-mode startup remain separate open gates, not established by these builds
 
 ## Native top-level owner connection
 
-Acceptance action: the existing LibreWPF MVP About dialog assigns its source
+Acceptance action: the existing LibreWPF Showcase About dialog assigns its source
 `Window.Owner`, then opens through `ShowDialog`. Source inspection found that the
 host retained that identity only as an activation hint; source owner assignment
 could also enter WPF's hidden-HWND taskbar-owner path. The owner is now resolved
@@ -188,7 +188,7 @@ writes, foreign/cyclic handles, disposed source owners, enabled-independent host
 routing and source collection preservation. These are not executed evidence.
 Native OS ordering/close behavior, cross-monitor startup placement, input
 suppression and previous activation/focus restoration still require completion or
-qualification. Windows package admission stays guarded. The package-mode MVP
+qualification. Windows package admission stays guarded. The package-mode Showcase
 still needs fresh package production; source compilation does not bypass its feed.
 
 Compile-only checkpoint: ProGPU.Tests 0 warnings/0 errors, source
@@ -250,12 +250,12 @@ dependency rebuild), source application harness 0/0. The initial ProGPU fixture
 build selected xUnit's obsolete async overload for a throw-only lambda; explicitly
 typing that lambda as Action fixed compilation. No tests, verifiers, native
 applications/input, VM/GPU workloads, benchmarks or CI qualification ran. The
-package-mode MVP still requires the separately planned fresh package production;
+package-mode Showcase still requires the separately planned fresh package production;
 the previously missing local feed is not bypassed by these source builds.
 
 ## Dialog pumping
 
-The LibreWPF MVP About dialog uses the same portable host in native C++ MIL and
+The LibreWPF Showcase About dialog uses the same portable host in native C++ MIL and
 managed rendering modes. Application run lifetime and modal dialog lifetime are
 different: the application may remain alive with hidden windows; a dialog's
 source can end its synchronous invocation without destroying the native window.
@@ -293,7 +293,7 @@ guarded; no native menu, popup or rendering algorithm is replaced here.
 
 Authored regressions cover optional capability separation, continuation identity
 and exception propagation; LibreWPF covers Hide/reuse, canceled result closes,
-missing callbacks, premature host return and modal-scope cleanup. The MVP existing
+missing callbacks, premature host return and modal-scope cleanup. The Showcase existing
 dialog gate additionally hides a live dialog, retains it in Application.Windows,
 then reuses and closes it. Tests and native application runs are deferred until
 the final implementation-freeze qualification phase. Both renderers must pass the
@@ -310,7 +310,7 @@ and managed modes both consume this same host/source lifetime contract.
 
 ## Native enabled-state admission prerequisite
 
-The MVP modal dialog's remaining other-window input blocker requires trustworthy
+The Showcase modal dialog's remaining other-window input blocker requires trustworthy
 native enable/disable admission. The shared `SilkWindowController.SetEnabled`
 previously combined enabled-state and shadow-refresh results with OR, allowing
 an unrelated decoration operation to hide unsupported input-state handling.

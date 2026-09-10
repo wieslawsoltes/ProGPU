@@ -2,7 +2,7 @@
 
 ## Core dependency and current boundary
 
-LibreWPF's MVP contains a FlowDocumentScrollViewer with a heading, Hyperlink and
+LibreWPF's Showcase contains a FlowDocumentScrollViewer with a heading, Hyperlink and
 list, plus FlowDocumentReader and FlowDocumentPageViewer. Its portable
 `FlowDocumentView` now consumes this reusable placement layer and the retained
 paragraph pipeline. Scroll-view and source paginated-viewer implementations are
@@ -114,7 +114,7 @@ admission remain explicit. No application/package/VM/GPU/CI pass is claimed.
 ## Sequential native pagination prerequisite
 
 Historical prerequisite checkpoint, superseded by the source consumer above:
-the MVP's FlowDocumentPageViewer then reached the PTS paginator unconditionally.
+the Showcase's FlowDocumentPageViewer then reached the PTS paginator unconditionally.
 `NativeDocumentFlow.Paginate` now provides the missing reusable sequential page/
 column fitting operation over already-shaped lines. The installed document C
 header owns its generated fixed records. Both wgpu-native and Dawn wrappers pin
@@ -146,7 +146,7 @@ must share source page/column-width policy, resolve keep/widow/orphan constraint
 produce page visuals and fragmented block decorations, and expose original
 document positions through page-local ITextView. Column balancing, changing-width
 fragmentainers and impossible-fit relaxation are not implemented by this fitter.
-Do not silently replace the MVP page viewer with a scroll view or remove its list.
+Do not silently replace the Showcase page viewer with a scroll view or remove its list.
 
 Source inspection also corrects the symbol-font blocker classification: ProGPU's
 managed SfntFontFace and native sfnt_font_view already implement Microsoft symbol
@@ -199,7 +199,7 @@ List markers use the existing generated marker TextSource as separate text,
 preserving source numbering, actual marker font and offset without pretending
 that marker characters exist in the document. Symbol markers require a real
 symbol face; a fallback font rendering ordinary text is rejected. Availability
-and fidelity of those symbol faces remain a required MVP dependency, not qualified
+and fidelity of those symbol faces remain a required Showcase dependency, not qualified
 by numbered-marker fixtures. First-line indentation, hyphenation and exhausted
 zero-width wrapping remain explicit missing native contracts.
 
@@ -285,6 +285,6 @@ compile with 116 warnings and 0 errors across their existing build graph.
 These are authored fixtures, not executed tests. The public header is installed,
 and generation/verification scripts include its records; only generation has run.
 Full platform renderer/package linking, ABI execution, scalar/SIMD comparisons,
-actual MVP viewer interaction, image/lifetime/performance comparisons, Windows
+actual Showcase viewer interaction, image/lifetime/performance comparisons, Windows
 Parallels and exact-head PR CI remain in final qualification. This checkpoint
 does not qualify a package-mode app or close the core application queue.

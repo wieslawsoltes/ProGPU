@@ -6,7 +6,7 @@ This checkpoint supersedes the original fail-closed-only LibreWPF device-loss
 behavior described below. Automatic host reconstruction is now implemented,
 but runtime recovery is not qualified.
 
-The affected acceptance path is the native host harness / package-mode MVP:
+The affected acceptance path is the native host harness / package-mode Showcase:
 present an initial frame, lose the device domain, then resume the existing visual
 tree in the same native window. The host handles this at its composition-target
 loading boundary, never inside an active acquired frame or backend loss callback.
@@ -81,7 +81,7 @@ not promise an indefinitely retrying device-creation loop.
 
 ## Core application blocker — 2026-09-08
 
-The LibreWPF native host harness and package-mode MVP use
+The LibreWPF native host harness and package-mode Showcase use
 `ProGpuWpfWindowHost` for first presentation, updates and resize. Source inspection
 found that both native MIL and managed portable presentation returned false after
 every failed surface acquisition, without invalidating configuration or preserving

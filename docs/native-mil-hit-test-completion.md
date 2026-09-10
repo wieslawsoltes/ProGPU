@@ -2,7 +2,7 @@
 
 ## Core application dependency
 
-The LibreWPF MVP and Toolkit/AvalonDock need synchronous source callbacks for
+The LibreWPF Showcase and Toolkit/AvalonDock need synchronous source callbacks for
 clicking and selection. Their native MIL hosts cannot select native owner queries
 by repeatedly polling from managed code, resolving through a mutable owner map,
 or silently consulting the managed compositor index. This checkpoint supplies the

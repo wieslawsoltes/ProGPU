@@ -2,7 +2,7 @@
 
 ## Acceptance dependency and admission boundary
 
-The LibreWPF MVP About dialog needs native suppression of interaction with other
+The LibreWPF Showcase About dialog needs native suppression of interaction with other
 windows while rendering and source dispatcher work continue. Source input filtering
 and Cocoa title-bar button state do not provide that contract. This checkpoint
 implements the shared native event-session prerequisite, not completed macOS
@@ -84,7 +84,7 @@ failed End without unsafe retry, failed cleanup without notification, reentrant 
 sessions, and unowned identities. The WPF fixture guards release-before-hide and
 current-intent checks in the real host source; it is not a native interaction test.
 Fixtures are compiled, not executed. Actual Hide/Show/Close/cancellation and focus
-ordering in the package MVP remain final application qualification requirements.
+ordering in the package Showcase remain final application qualification requirements.
 
 Deferred-Hide checkpoint (2026-09-09): the final ProGPU.Tests graph compiles with
 0 warnings/0 errors. Eight additional backend lifecycle fixtures and one WPF

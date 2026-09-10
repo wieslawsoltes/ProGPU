@@ -2,7 +2,7 @@
 
 ## Core application dependency
 
-The package MVP and Toolkit/AvalonDock startup path must support interop source
+The package Showcase and Toolkit/AvalonDock startup path must support interop source
 initialization before showing a window. Source inspection found that
 `WindowInteropHelper.EnsureHandle()` called `Window.CreateSourceWindow(false)`
 directly, bypassing portable activation and entering the Windows HWND/MIL path.

@@ -219,7 +219,7 @@ media utility consumers still prevent Windows SDK admission. Keep the SDK guard.
 
 ### Fill bounds and point queries — core layout/input connection
 
-Acceptance path: source-built MVP and Toolkit/AvalonDock layout clips, content
+Acceptance path: source-built Showcase and Toolkit/AvalonDock layout clips, content
 bounds and pointer input. Source inspection found OS-selected MIL calls in
 `PathGeometry.GetPathBoundsAsRB`, `Geometry.GetBoundsHelper` and fill containment.
 Those fill-only operations now select the frozen portable media backend and use
@@ -404,7 +404,7 @@ final-module managed/native comparisons still need the final differential gate.
 
 ### Source-WPF pen query connection — implementation only
 
-MVP/Toolkit `BoundsDrawingContextWalker.DrawGeometry` and
+Showcase/Toolkit `BoundsDrawingContextWalker.DrawGeometry` and
 `HitTestWithPointDrawingContextWalker.DrawGeometry` now reach typed pen operations
 under the frozen portable media selection. The geometry provider exposes
 `GetRenderBounds` and `StrokeContains` with `PortablePenState`, not a shim-owned

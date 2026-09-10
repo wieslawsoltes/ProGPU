@@ -2,7 +2,7 @@
 
 ## Acceptance and scope
 
-LibreWPF's MVP exposes Window / Show system menu. An active portable Window must
+LibreWPF's Showcase exposes Window / Show system menu. An active portable Window must
 not hand its opaque presentation-source identity to WPF's Win32 helpers, including
 when ProGPU happens to own an HWND. The source calls the optional neutral
 `PortableWindowActivationCallbacks.ShowSystemMenu` capability with its activation
@@ -101,13 +101,13 @@ renderers use the same window adapter; no paired rendering algorithm is changed.
 
 ## Cocoa native-action menu
 
-The same MVP action now resolves the real NSWindow through the typed Silk.NET
+The same Showcase action now resolves the real NSWindow through the typed Silk.NET
 host and uses ProGPU's shared provider. The platform menu has **Minimize, Zoom
 and Close**, implemented by AppKit, not by a WPF visual tree or a renderer-specific
 menu implementation. Zoom is AppKit's standard/user-size toggle, not Windows
 maximize/fullscreen. This is a native macOS adaptation, **not** arbitrary Win32
 system-menu customization, Windows Move/Size keyboard modal loops or exact Windows
-menu-item parity. The current labels are English, matching the acceptance MVP;
+menu-item parity. The current labels are English, matching the acceptance Showcase;
 localized/custom menu labels are not claimed by this fixed native-action surface.
 
 Admission requires the actual AppKit main thread, supported 64-bit macOS ABI,
@@ -200,7 +200,7 @@ invalid points and propagation of host exceptions. Host fixtures reject calls
 before native window creation and after disposal.
 
 These fixtures are authored, not executed. Final Windows VM qualification must
-open the actual MVP menu with each renderer, cancel by Escape/outside click,
+open the actual Showcase menu with each renderer, cancel by Escape/outside click,
 select native state/move/size/close commands, exercise Closing cancellation,
 and repeat after moving between monitors/scales. Check images and source/native
 state; the API result or a mock fixture alone does not prove menu display. Keep
@@ -214,7 +214,7 @@ native-long property stride and transactional malformed-property rejection. They
 link the production policy source without widening public API. Both 32-bit and
 64-bit ABI expectations are authored; neither is runtime-qualified by compilation.
 
-Final Linux qualification must run the actual MVP action in both renderer modes
+Final Linux qualification must run the actual Showcase action in both renderer modes
 under a WM advertising the extension (record WM/version, X11 versus XWayland,
 screen/root, input device and package/native artifact commits). Observe the menu,
 Escape/outside-click cancellation and state/close/move/resize actions, close
@@ -233,7 +233,7 @@ authored fixtures, not executed AppKit or image evidence. A source-linked scoped
 context fixture also covers nested tracking interrupted by an exception, restoration
 of the outer selection target, and late actions after scope exit.
 
-Final macOS qualification must invoke the actual MVP action with both renderers,
+Final macOS qualification must invoke the actual Showcase action with both renderers,
 observe the native menu and each available action, cancel by Escape/outside click,
 exercise source Closing cancellation and repeat close/reopen. Include style/button
 restrictions, menu-triggered nested callbacks and owner closure/view/delegate

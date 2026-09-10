@@ -2,8 +2,8 @@
 
 ## Acceptance connection — 2026-09-09
 
-The full LibreWPF MVP's `MvpDrawingImageBrushBorder` is a 36x36 Border filled by
-an ImageBrush over `MvpDrawingImage`. Its background owns source fill selection;
+The full LibreWPF Showcase's `ShowcaseDrawingImageBrushBorder` is a 36x36 Border filled by
+an ImageBrush over `ShowcaseDrawingImage`. Its background owns source fill selection;
 the brush's nested drawing is raster content, not the border's input geometry.
 Source WPF `HitTestWithPointDrawingContextWalker.DrawGeometry` tests a non-null
 brush against the geometry independently of its pixels. The geometry walker has

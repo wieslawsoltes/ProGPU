@@ -2,7 +2,7 @@
 
 ## Core application dependency
 
-LibreWPF's MVP selects text, clicks the highlight to move the caret, and replaces
+LibreWPF's Showcase selects text, clicks the highlight to move the caret, and replaces
 a keyboard-selected range. Source `CaretElement.HitTestCore(PointHitTestParameters)`
 and its `CaretSubElement` return null, while their selection/caret drawing remains
 available to geometry-region queries. The previous portable descriptor could
@@ -65,7 +65,7 @@ final exact-binary image, lifetime and performance gates remain required.
   invalid discriminator/coordinates, zero-sized restoration and sideband removal.
 - Include-based MIL and import-based builder consumers exercise the same library.
 - LibreWPF typed direct/retained replay, sideband updates, real source caret and
-  the MVP live host selection/click/caret/replacement path cover integration.
+  the Showcase live host selection/click/caret/replacement path cover integration.
 
 These fixtures are authored for final execution, not runtime qualification.
 Other source HitTestCore overrides and required application clip/cache/effect

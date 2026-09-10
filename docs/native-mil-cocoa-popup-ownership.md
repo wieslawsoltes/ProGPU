@@ -2,7 +2,7 @@
 
 ## Core acceptance dependency
 
-The LibreWPF MVP's main menu and ComboBoxes use separately surfaced native Cocoa
+The LibreWPF Showcase's main menu and ComboBoxes use separately surfaced native Cocoa
 popups. Configuration previously called addChildWindow directly in WPF and could
 report success without checking the resulting owner. The host ignored rejected
 configuration outside Windows and could proceed to Show. The bounded outcome is
@@ -10,7 +10,7 @@ checked ProGPU-owned parent setup before showing the real hidden popup, with
 rejection disposing that surface rather than showing it unowned.
 
 This is source-backed implementation work. It does not implement AppKit modal
-popup admission. The MVP About view currently contains text and an OK button,
+popup admission. The Showcase About view currently contains text and an OK button,
 not a popup control; do not claim a modal-popup acceptance case from that view.
 
 ## Shared native boundary

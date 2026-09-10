@@ -2,7 +2,7 @@
 
 The existing LibreWPF package SDK gate attaches, replaces and removes real WPF
 WindowChrome. Source inspection found that its worker selected WPF HWND hooks
-by OS alone, treating a ProGPU-owned Windows handle as a WPF HwndSource. The MVP
+by OS alone, treating a ProGPU-owned Windows handle as a WPF HwndSource. The Showcase
 also contains chrome metadata, but that metadata-only check is not evidence of
 an attached custom-chrome window; the SDK application is the concrete consumer.
 

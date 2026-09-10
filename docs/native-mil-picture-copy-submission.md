@@ -2,7 +2,7 @@
 
 ## Package build blocker
 
-The LibreWPF package MVP requires the native renderer package, including both
+The LibreWPF package Showcase requires the native renderer package, including both
 wgpu-native and provider-resolved Dawn binaries. A clean macOS ARM64 build of
 ProGPU `95f9049232b0cc37ad23fb170efdccc75797be50` with the pinned Dawn headers
 `01addc4ba8a2915a061b7095a6768b512071ab96` failed compiling

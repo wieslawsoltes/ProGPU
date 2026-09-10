@@ -2,7 +2,7 @@
 
 ## Core application dependency
 
-LibreWPF's MVP and Toolkit menus, ComboBoxes and tooltips select separately
+LibreWPF's Showcase and Toolkit menus, ComboBoxes and tooltips select separately
 surfaced native popups on X11. Before this connection the WPF-local
 `TryConfigureX11PopupOwner` combined transient-owner and override-redirect results
 with OR and did not confirm the type property. Partial setup could therefore

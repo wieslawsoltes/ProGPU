@@ -1,7 +1,7 @@
 # Native index metadata and host routing
 
 This extends the [desktop completion contract](native-mil-hit-test-completion.md)
-for LibreWPF's existing MVP/Toolkit point and region callbacks. Geometry execution
+for LibreWPF's existing Showcase/Toolkit point and region callbacks. Geometry execution
 stays in ProGPU's C++/shared GPU query path; the WPF adapter only handles source
 owners and neutral candidate DTOs.
 

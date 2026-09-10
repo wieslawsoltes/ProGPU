@@ -2,7 +2,7 @@
 
 ## Core application dependency
 
-LibreWPF's MVP document viewer includes a Hyperlink. Source ComplexLine already
+LibreWPF's Showcase document viewer includes a Hyperlink. Source ComplexLine already
 publishes its underline through TextSpanModifier and real run properties, but
 PortableTextLine rejected all decorations. The native host fixture now contains
 a real Hyperlink and requires positive rectangle coverage plus its baseline

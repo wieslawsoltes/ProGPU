@@ -2,7 +2,7 @@
 
 ## Core dependency
 
-LibreWPF's existing MVP `SelectorScrollViewer` contains wrapping TextBlocks. Its
+LibreWPF's existing Showcase `SelectorScrollViewer` contains wrapping TextBlocks. Its
 wheel gate targets the arranged viewport center and requires a source descendant
 hit. The source `TextBlock.HitTestCore(PointHitTestParameters)` contract accepts
 its arranged rectangle, not merely glyph coverage. It does not override geometry
@@ -11,7 +11,7 @@ coverage; indexing an ordinary fill rectangle would incorrectly change region
 selection. This is a source-backed gap, not a reproduced runtime failure.
 
 Provenance: LibreWPF source `PresentationFramework/System/Windows/Controls/TextBlock.cs`
-and `samples/ProGPU.Wpf.MvpApp/MainWindow.xaml.cs` were consulted for their input
+and `samples/ProGPU.Wpf.ShowcaseApp/MainWindow.xaml.cs` were consulted for their input
 contract. No WPF implementation was ported into ProGPU. The implementation extends
 ProGPU-owned `ProGPU.Vector/GpuHitTesting.cs`, its canonical WGSL, and the existing
 native scene hit-index validators.
@@ -55,7 +55,7 @@ Final platform, shader, package, module/header, performance and PR gates remain.
 ## Historical prerequisite boundary
 
 This checkpoint does **not** publish TextBlock input rectangles yet. Continue the
-same MVP action by exposing an authoritative source-owned point-hit descriptor,
+same Showcase action by exposing an authoritative source-owned point-hit descriptor,
 retaining it through batched MIL metadata and managed command snapshots, and
 emitting point-only rectangle coverage plus region-only drawing coverage for that
 visual. Preserve visual transforms, source clips, descendants, invalidation and
@@ -119,7 +119,7 @@ LibreWPF's `reports/native-mil-source-point-region-2026-09-09.md`.
 
 ## Managed effect composition connection
 
-The MVP Blur/DropShadow borders exposed a remaining ordinary managed path:
+The Showcase Blur/DropShadow borders exposed a remaining ordinary managed path:
 `PrepareAndDrawEffect` emitted padded output textures with the source owner's ID,
 then rebuilt only descendants. Typed source capture existed but was used for
 opacity culling rather than the visible effect root. The pre-effect source tree

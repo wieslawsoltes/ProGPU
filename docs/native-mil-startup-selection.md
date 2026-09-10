@@ -2,7 +2,7 @@
 
 ## Contract and core dependency
 
-The LibreWPF package-mode MVP/Toolkit startup path must choose portable media
+The LibreWPF package-mode Showcase/Toolkit startup path must choose portable media
 ownership before constructing WPF objects. Window-host callbacks are too late to
 make this decision: media objects can acquire composition locks or initialize the
 media system before the first window is shown.
@@ -34,7 +34,7 @@ not a request to migrate live resources.
 
 ### Input device ownership connection
 
-The package MVP/Toolkit action is to focus an editor, hold a modifier, type and
+The package Showcase/Toolkit action is to focus an editor, hold a modifier, type and
 select with the mouse on a ProGPU-hosted Windows window. Source inspection found
 that InputManager still selected Win32 keyboard/mouse devices by OS, while the
 typed portable input bridge updates PortableKeyboardDevice/PortableMouseDevice.

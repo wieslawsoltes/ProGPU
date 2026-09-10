@@ -13,7 +13,7 @@ The original dirty ProGPU checkout was not reset, stashed, cleaned or built.
 Rebase and compilation use an isolated linked worktree. The earlier incomplete
 merge worktree is preserved as a recovery/reference snapshot, not a build input.
 
-Acceptance application: the source-built LibreWPF MVP, with ProGPU's existing
+Acceptance application: the source-built LibreWPF Showcase, with ProGPU's existing
 CAD samples retained as upstream consumers. User actions: native startup and
 retained drawing, including optional viewport materials. Blocking path: the
 shared native scene ABI, shader storage/pipelines and managed source adapter.

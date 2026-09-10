@@ -86,7 +86,7 @@ changed by this source-metadata connection. Latest fetched ProGPU main is includ
 
 ### Incremental tab connection
 
-Core action: editing tab-separated text in the existing MVP/source-host path.
+Core action: editing tab-separated text in the existing Showcase/source-host path.
 `NativeTextFlowOptions` and two generated, borrowed/leased C/.NET paragraph
 entry points now pass the incremental tab interval and text-start grid origin
 into the existing native composer. A positive interval enables the flow behavior;
@@ -212,7 +212,7 @@ fidelity, startup and edit/scroll throughput still require final measurement.
 ### Styled physical-face connection
 
 Core action: changing inline font size/face/foreground/background in the existing
-MVP editor or source-host FormattedText. The previous source adapter rejected
+Showcase editor or source-host FormattedText. The previous source adapter rejected
 these paragraphs as mixed typography. Explicit physical-font styles now reach
 the existing C++ paragraph through generated `NativeTextStyleRun` records and
 two borrowed, leased styled-context APIs. Existing uniform C and C++ entry points
@@ -358,7 +358,7 @@ digit substitution, markers, justification and collapsing
 symbols remain explicit missing connections. Display-mode hinting is rejected;
 localization/variations, changed-width continuation, min/max paragraph measurement
 and full editing behavior remain unqualified. Close these against the existing
-MVP and Toolkit/AvalonDock editor cases; do not replace them with nominal glyphs
+Showcase and Toolkit/AvalonDock editor cases; do not replace them with nominal glyphs
 or redefine this single-domain checkpoint as the application's finish line.
 
 CPU input expansion has intrinsic BMP and four-surrogate-pair blocks; mixed or

@@ -36,7 +36,7 @@ resource invalidation, GPU-first and SIMD policies are unchanged.
 
 ## Acceptance and qualification
 
-The existing LibreWPF MVP uses a `DrawingImage` both as an `Image.Source` and as
+The existing LibreWPF Showcase uses a `DrawingImage` both as an `Image.Source` and as
 an `ImageBrush`; Toolkit uses drawing-image icons. Their content-update contract
 includes clearing and refilling a retained drawing. The source-built native host
 harness now authors this exact transition using real DrawingGroup, DrawingImage,

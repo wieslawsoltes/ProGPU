@@ -2,7 +2,7 @@
 
 ## Concrete application blocker — 2026-09-09
 
-LibreWPF's full package MVP declares `MvpShapeEllipse`, a 54x54 filled ellipse
+LibreWPF's full package Showcase declares `ShowcaseShapeEllipse`, a 54x54 filled ellipse
 with a 3-DIP stroke at Canvas offset (104,16). Source WPF `Ellipse.ArrangeOverride`
 insets the defining rectangle by half the pen, giving a 51x51 ellipse at (1.5,1.5).
 `Ellipse.OnRender` calls DrawGeometry with that real EllipseGeometry. Native MIL's
@@ -61,7 +61,7 @@ No latency, allocation or quality improvement is claimed without final measureme
 ## Authored qualification
 
 - Native canonical MIL scene 9838 pairs with
-  `MvpEllipseGeometryInputRetainsFillStrokeAndUpdates`: actual MVP dimensions,
+  `ShowcaseEllipseGeometryInputRetainsFillStrokeAndUpdates`: actual Showcase dimensions,
   fill/stroke order, owner/placement, widened input bounds, resized radii/center
   and content removal.
 - Native builder scene 9837 pairs with

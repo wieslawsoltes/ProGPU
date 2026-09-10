@@ -2,7 +2,7 @@
 
 ## Core application dependency
 
-The LibreWPF MVP has an ordinary `_File` menu and `_About` action. F10/Alt menu
+The LibreWPF Showcase has an ordinary `_File` menu and `_About` action. F10/Alt menu
 entry with no focused element reaches source `KeyboardNavigation.OnEnterMenuMode`.
 That branch previously called user32 GetActiveWindow on every OS. Independently,
 default AccessKeyManager scope lookup selected a native HWND on Windows or merely
@@ -49,7 +49,7 @@ performance improvement is claimed.
 Authored LibreWPF fixtures cover typed active-root selection, conflicting state,
 missing capability, detached/disposed roots, default access-key dispatch, actual
 source Window visibility/activation/modal admission, and F10 entry without focus.
-Compilation is not runtime evidence. Final package-mode MVP menu/keyboard runs,
+Compilation is not runtime evidence. Final package-mode Showcase menu/keyboard runs,
 multiple-window/dispatcher behavior, native popup focus restoration and Windows
 native/portable comparisons remain required after feature freeze. Windows SDK
 admission is unchanged.

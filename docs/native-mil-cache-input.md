@@ -7,7 +7,7 @@ first frame without stale rendering or input. The existing retained WPF
 `PushVisualCache` sink publishes typed `CacheAsLayer` visuals. Its owner fixture
 already verifies drawing IDs, but source input traversal rejected that cache;
 ordinary compositor replay instead indexed the raster texture's rectangle.
-The package MVP remains the acceptance application, with Toolkit/AvalonDock and
+The package Showcase remains the acceptance application, with Toolkit/AvalonDock and
 the existing third-party gates retained. This is a source-backed integration
 dependency, not a reproduced application result or a reduced replacement app.
 

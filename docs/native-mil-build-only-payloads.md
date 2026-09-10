@@ -1,6 +1,6 @@
 # Native payload production before qualification
 
-The LibreWPF package MVP needs native renderer and SDK payloads on each desktop
+The LibreWPF package Showcase needs native renderer and SDK payloads on each desktop
 RID before package-mode startup can be qualified. The ordinary ProGPU native build
 scripts also execute CTest, output/export checks, samples and differential runs;
 `SkipExtendedIntegration` is a compiler qualification profile, not build-only.
