@@ -61,12 +61,12 @@ passed. Generated MIL/native contract verification passes. Logs are retained in
 the prepared worktree's `artifacts/release-hour` with `group-fixes`,
 `cached-layer-oracle`, `native-group-contract` and native oracle batch names.
 
-The full local native run is still 18/19: MIL now advances through the group,
-DrawingImage cubic bounds, cached coverage and rotated fill/pen cases, then fails
-building the gap-separated cached path fixture at `bitmap_cache_brush_linear_paths_preserve_gap_bounds`
-(scene 8132). No test is skipped; this is the next native blocker. The latest log
-is `native-fill-pen-oracle-tests.log`. Dependency pins are recorded in the LibreWPF
-release status report. Hosted Windows previously compiled successfully but exposed a
+The full local native run now passes 19/19 suites. The final gap-separated cached
+path fixture (scene 8132) had registered handle 470 with GeometryGroup type 71
+instead of PathGeometry type 73. Correcting that fixture setup retains all solid,
+dash, gap and brush-coordinate assertions and lets the entire MIL suite pass.
+The final log is `native-path-type-tests.log`. Dependency pins are recorded in the
+LibreWPF release status report. Hosted Windows previously compiled successfully but exposed a
 cached Viewport3D image failure in addition to the repaired size-query assertion.
 That GPU failure, SVG inventory review, exact-head CI, complete payload/package
 production and real Windows/Linux/application gates remain required. Do not infer

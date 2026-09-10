@@ -20760,7 +20760,7 @@ bool bitmap_cache_brush_linear_paths_preserve_gap_bounds() {
                     std::memcpy(figures.data() + 88U + 32U + 4U, &unstroked, sizeof(unstroked));
                 }
                 std::vector<std::byte> commands, replay;
-                append_create(commands, 470U, 71U);
+                append_create(commands, 470U, 73U);
                 append_path_geometry(commands, 470U, 0U, 0U, figures);
                 append_command(replay, command::draw_geometry, 0U, 20U, 470U, 0U);
                 append_render_data(commands, 2U, replay);
