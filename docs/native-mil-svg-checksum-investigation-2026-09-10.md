@@ -42,3 +42,38 @@ Local downloaded evidence is under `artifacts/svg-checksum.QSsnec`, separately
 under `main` and `branch`; GitHub retains the authoritative run artifacts. No
 images or third-party implementation were copied into product source. This
 investigation changes no managed/native rendering behavior or public contract.
+
+## Matched local reproduction
+
+Built the corpus runner separately against main `cde81083` and branch
+`c5623470` on macOS arm64 with SDK 10.0.201. Both used the CI-pinned Svg.Skia
+`03f64b67badfca9fca216dc25896d0c0ee04e7b7`, SVG.NET submodule
+`fd33bed4ff14c803b800214ddec977ca0a2e0f8e`, and the existing CI project
+overlay (applied locally with patch tooling because the preparation script uses
+GNU sed). Dependency preparation is uncommitted and not product source.
+
+Both builds succeeded with zero errors and 115 upstream warnings. The focused
+quality command retained its existing known difference: main error 0.206989,
+branch 0.179278. Both registered the same 22 pinned font faces with inventory
+digest `7d2494f409eca08073006614ff6a8ccfb6cf7746e39102c432a6d8b945e6e2f3`.
+The centre samples reproduce the CI difference exactly: main alpha 255, branch
+128. Therefore this difference is not exclusive to Linux's software adapter.
+The checked Chrome reference has white at that pixel; the legacy W3C PNG is
+transparent there. Neither tested output is established as correct by that
+sample. The SVG source places a black text label there, not a shape guide.
+
+## Per-fixture performance evidence
+
+The runner now records each existing warmup centre sample, with fixture key and
+dimensions, in `performance-fixture-samples.json`. It writes this file after the
+timed iterations. The measured loop, combined checksum, budget evaluator and
+limits are unchanged. Warmup evidence does not replace the timed gate and does
+not claim image parity; the retained quality PNGs remain necessary.
+
+A local diagnostic run with one iteration produced ten unique ordered samples;
+recomputing their combined hash reproduced the timed `1eff2c56a78504b8` result.
+The final sample identifies `w3c|text-text-01-b` with ARGB `80000000`.
+This one-iteration ARM64 run intentionally did not apply the seven-iteration
+X64 CI budget and is not performance qualification. Its logs and JSON are under
+`artifacts/svg-checksum.QSsnec/diagnostic-performance*`. The renderer cause and
+the original failing CI checksum remain unresolved; no baseline was changed.

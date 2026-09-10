@@ -272,13 +272,17 @@ internal static class CorpusApplication
                 : throw new InvalidOperationException($"Benchmark fixture is missing: {key}"))
             .ToArray();
 
+        var fixtureSamples = new List<PerformanceFixtureSample>(fixtures.Length);
         foreach (var fixture in fixtures)
         {
             var expected = PngDecoder.Load(fixture.ExpectedPath);
             var document = SvgDocument.Open<SvgDocument>(fixture.SvgPath);
             using var bitmap = document.Draw(expected.Width, expected.Height)
                 ?? throw new InvalidOperationException($"SVG rendered an empty bitmap: {fixture.Key}");
-            Consume(bitmap);
+            // Capture the existing warmup sample, never extra work in a timed iteration.
+            fixtureSamples.Add(new PerformanceFixtureSample(
+                fixture.Key, bitmap.Width, bitmap.Height,
+                bitmap.GetPixel(bitmap.Width / 2, bitmap.Height / 2).ToArgb()));
         }
 
         var samples = new List<PerformanceSample>(options.Iterations);
@@ -344,6 +348,7 @@ internal static class CorpusApplication
             BudgetEvaluation: evaluation,
             Samples: samples);
         WriteJson(Path.Combine(options.ArtifactsRoot, "performance-results.json"), report);
+        WriteJson(Path.Combine(options.ArtifactsRoot, "performance-fixture-samples.json"), fixtureSamples);
         Console.WriteLine(
             FormattableString.Invariant(
                 $"SVG System.Drawing performance: {fixtures.Length} fixtures, median/p95 {medianElapsed:F3}/{p95Elapsed:F3} ms, median/p95 {medianAllocated:F0}/{p95Allocated:F0} allocated bytes."));
@@ -456,9 +461,6 @@ internal static class CorpusApplication
 
     private static string ReadCommit()
         => Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local";
-
-    private static void Consume(System.Drawing.Bitmap bitmap)
-        => GC.KeepAlive(bitmap.GetPixel(bitmap.Width / 2, bitmap.Height / 2));
 
     private static ulong Mix(ulong value, int component)
     {
@@ -1012,6 +1014,9 @@ internal sealed record QualityReport(
     IReadOnlyList<FixtureResult> Results);
 
 internal sealed record PerformanceSample(int Iteration, double ElapsedMilliseconds, long AllocatedBytes, ulong Checksum);
+
+// Warmup evidence only. The timed checksum remains authoritative for the gate.
+internal sealed record PerformanceFixtureSample(string Fixture, int Width, int Height, int CenterArgb);
 
 internal sealed record RuntimeEvidence(
     string OperatingSystem,
