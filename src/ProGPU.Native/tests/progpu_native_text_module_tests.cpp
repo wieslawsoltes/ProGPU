@@ -1,8 +1,15 @@
 import progpu.native.text;
 
 int main() {
+    const auto band_layout = &progpu::native::text::try_layout_text_exclusion_band;
+    progpu::native::text::text_exclusion_band_result band_result{};
+    if (band_layout == nullptr || band_result.status != progpu::native::text::text_exclusion_band_status::blocked) return 1;
     progpu::native::text::text_line_fragment empty_fragment[1]{};
     progpu::native::text::text_line_interval empty_interval[1]{};
+    progpu::native::text::positioned_text_line empty_band_line[1]{};
+    if (!band_layout({}, {}, {}, {}, {}, {}, 0, 0, {}, {}, {0, 0, 100, 10},
+        {}, {}, empty_interval, empty_fragment, {}, {}, {}, empty_band_line, band_result, nullptr) ||
+        band_result.status != progpu::native::text::text_exclusion_band_status::complete) return 1;
     unsigned int empty_count = 1, empty_next = 1;
     float empty_y = 1;
     if (!progpu::native::text::try_fit_text_exclusion_band({}, {}, {}, 0, {}, {},

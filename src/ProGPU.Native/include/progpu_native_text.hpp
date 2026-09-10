@@ -2168,6 +2168,13 @@ struct text_intrinsic_widths final {
     float maximum = 0.0F;
 };
 
+enum class text_exclusion_band_status : std::uint8_t { placed, refit_height, blocked, complete };
+struct text_exclusion_band_result final {
+    text_exclusion_band_status status = text_exclusion_band_status::blocked;
+    std::uint32_t next_glyph{}, glyph_count{}, fragment_count{};
+    float top{}, baseline{}, height{}, next_y{};
+};
+
 // Source-cluster metadata, never inferred from glyph ids or line-break flags.
 enum class text_justification_class : std::uint8_t { content, whitespace, word_space };
 bool try_classify_text_justification(std::span<const unicode_scalar> input,
@@ -2202,6 +2209,29 @@ bool try_layout_measured_logical_shaped_text(
     std::uint32_t& glyph_count, std::uint32_t& line_count,
     std::span<const text_justification_class> classes,
     std::span<const text_item_metrics> item_metrics, font_error* error = nullptr) noexcept;
+
+// Measured candidate-band placement over original paragraph glyphs. Each output
+// line is a fragment of ONE row, sharing its top/baseline/height; do not infer
+// row tops from a prefix of fragment heights. Actual source metrics are required.
+// refit_height consumes nothing and writes no positioned output: resolve a band
+// ending at top+height and retry. The caller owns a bounded convergence policy;
+// never accept a mismatched height or turn blocked width into an unbounded line.
+// Uses the common measured writer, including bidi, tabs and justification.
+// Glyph output capacity: remaining input count; line capacity: E+1. Other
+// scratch follows the existing paragraph and exclusion contracts. No allocation,
+// pointers retained or per-fragment C ABI calls. All buffers must be disjoint.
+// A false return invalidates all output; result counters reset.
+bool try_layout_text_exclusion_band(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::uint32_t start,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    text_exclusion_rectangle band, std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, text_exclusion_band_result& result,
+    font_error* error = nullptr) noexcept;
 
 /* O(S + G), O(1) workspace over logical source scalars and shaped clusters.
  * Minimum uses legal, shaping-safe breaks, never emergency cluster splitting.

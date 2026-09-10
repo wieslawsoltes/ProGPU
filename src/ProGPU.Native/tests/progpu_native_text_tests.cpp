@@ -13174,7 +13174,82 @@ static void exclusion_bands_fit_original_shaped_ranges() {
     require(!fit() && error == font_error::invalid_argument);
 }
 
+static void measured_exclusion_fragments_share_one_baseline() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 8> glyphs{};
+    std::array<text_line_break_kind, 8> breaks{};
+    std::array<std::int8_t, 8> levels{};
+    std::array<text_item_metrics, 8> metrics{};
+    std::array<text_justification_class, 8> classes{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = static_cast<std::uint32_t>(i);
+        glyphs[i].cluster = static_cast<std::int32_t>(i * 2);
+        glyphs[i].advance_x = 10;
+        breaks[i] = text_line_break_kind::opportunity;
+        metrics[i] = {8, 2};
+        classes[i] = i % 3 == 1 ? text_justification_class::word_space : text_justification_class::content;
+    }
+    metrics[3] = {20, 5};
+    glyphs[0].offset_x = -2; glyphs[0].offset_y = 3;
+    std::array<text_exclusion_rectangle, 1> exclusions{{{35, 0, 65, 40}}};
+    std::array<text_line_interval, 1> exclusion_scratch{};
+    std::array<text_line_interval, 2> intervals{};
+    std::array<text_line_fragment, 2> fragments{};
+    std::array<text_visual_cluster_group, 8> groups{};
+    std::array<std::uint32_t, 8> indices{};
+    std::array<float, 8> advances{};
+    std::array<positioned_text_glyph, 8> output{};
+    std::array<positioned_text_line, 2> lines{};
+    text_layout_options options{}; options.maximum_width = 100; options.line_height = 10;
+    options.alignment = text_alignment::justify;
+    text_exclusion_band_result result{};
+    std::int8_t direction = 0;
+    const auto place = [&](float bottom) {
+        return try_layout_text_exclusion_band(glyphs, breaks, levels, {}, classes, metrics, 0,
+            direction, options, {}, {0, 5, 100, bottom}, exclusions, exclusion_scratch,
+            intervals, fragments, advances, {groups, indices}, output, lines, result);
+    };
+    output[0].x = 301; lines[0].height = 302;
+    require(place(15) && result.status == text_exclusion_band_status::refit_height &&
+        result.height == 25 && result.next_glyph == 0 && result.glyph_count == 0 &&
+        output[0].x == 301 && lines[0].height == 302);
+    require(place(30) && result.status == text_exclusion_band_status::placed &&
+        result.next_glyph == 6 && result.glyph_count == 6 && result.fragment_count == 2 &&
+        result.baseline == 25 && result.top == 5);
+    require(lines[0].baseline_y == 25 && lines[1].baseline_y == 25 &&
+        lines[0].height == 25 && lines[1].height == 25 && lines[1].glyph_start == 3);
+    require(lines[0].width == 35 && lines[1].width == 35 && lines[0].input_end == 6 &&
+        lines[1].input_start == 6 && lines[1].input_end == 12);
+    require(output[1].advance_x == 15 && output[4].advance_x == 15 &&
+        output[3].glyph_index == 3 && output[3].x == 65);
+    const auto check_positions = [&] {
+        for (std::uint32_t line_index = 0; line_index < result.fragment_count; ++line_index) {
+            const auto line = lines[line_index];
+            float cursor = fragments[line_index].left;
+            for (std::uint32_t i = line.glyph_start; i < line.glyph_start + line.glyph_count; ++i) {
+                const auto original = glyphs[output[i].glyph_index];
+                require(output[i].x == cursor + static_cast<float>(original.offset_x));
+                require(output[i].y == result.baseline + static_cast<float>(original.offset_y));
+                cursor += output[i].advance_x;
+            }
+        }
+    };
+    check_positions();
+    direction = 1; levels.fill(1);
+    require(place(30) && result.status == text_exclusion_band_status::placed &&
+        output[0].glyph_index == 2 && output[0].x == 65 && output[3].glyph_index == 5 &&
+        output[3].x == 0 && lines[0].baseline_y == lines[1].baseline_y);
+    check_positions();
+    require(place(35) && result.status == text_exclusion_band_status::refit_height && result.height == 25);
+    exclusions[0] = {0, 0, 100, 40};
+    require(place(30) && result.status == text_exclusion_band_status::blocked &&
+        result.next_y == 40 && result.next_glyph == 0 && result.glyph_count == 0);
+    metrics[0].ascent = std::numeric_limits<float>::infinity();
+    require(!place(30) && result.glyph_count == 0 && result.fragment_count == 0);
+}
+
 int main() {
+    measured_exclusion_fragments_share_one_baseline();
     exclusion_bands_fit_original_shaped_ranges();
     anchored_exclusions_preserve_free_line_intervals();
     measured_items_share_wrapping_and_line_metrics();

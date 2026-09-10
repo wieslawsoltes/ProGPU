@@ -22,6 +22,12 @@ original glyph ranges and paragraph tab origins, and orders intervals by actual
 paragraph direction. Oversized indivisible content may not overlap an exclusion.
 The caller must validate actual measured height before accepting a candidate band;
 fragment fitting alone does not publish final positioned glyphs or document layout.
+Measured exclusion-band placement uses the common logical writer, with real
+paragraph continuation for justification and source glyph indices restored after
+fragment emission. Every fragment in one row shares a measured baseline/height.
+Do not prefix-sum fragment heights as if they were independent rows. Height refits
+consume no text and publish no positioned output; bounded convergence, retained
+fragment interaction and actual anchor/source ownership are still required.
 
 Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
 not optional fields that a text-only provider can silently ignore. Source metrics

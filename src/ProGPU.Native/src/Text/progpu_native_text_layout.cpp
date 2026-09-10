@@ -44,6 +44,29 @@ bool valid_options(const text_layout_options& options) noexcept {
             (options.maximum_lines > 0U && options.trimming != text_trimming::none));
 }
 
+bool translate_glyph_position(positioned_text_glyph& glyph, float x, float y) noexcept {
+    // Independent coordinate lanes; source-index restoration remains separate.
+#if defined(__aarch64__) || defined(_M_ARM64)
+    float coordinates[2]{glyph.x, glyph.y};
+    const float offsets[2]{x, y};
+    const auto moved = vadd_f32(vld1_f32(coordinates), vld1_f32(offsets));
+    const auto valid = vcle_f32(vabs_f32(moved), vdup_n_f32(std::numeric_limits<float>::max()));
+    if (vget_lane_u32(valid, 0) == 0U || vget_lane_u32(valid, 1) == 0U) return false;
+    vst1_f32(coordinates, moved); glyph.x = coordinates[0]; glyph.y = coordinates[1];
+#elif defined(__SSE2__) || defined(_M_X64)
+    const auto moved = _mm_add_ps(_mm_set_ps(0, 0, glyph.y, glyph.x), _mm_set_ps(0, 0, y, x));
+    const auto absolute = _mm_andnot_ps(_mm_set1_ps(-0.0F), moved);
+    if ((_mm_movemask_ps(_mm_cmple_ps(absolute, _mm_set1_ps(std::numeric_limits<float>::max()))) & 3) != 3) return false;
+    float coordinates[4]; _mm_storeu_ps(coordinates, moved);
+    glyph.x = coordinates[0]; glyph.y = coordinates[1];
+#else
+    const float moved_x = glyph.x + x, moved_y = glyph.y + y;
+    if (!std::isfinite(moved_x) || !std::isfinite(moved_y)) return false;
+    glyph.x = moved_x; glyph.y = moved_y;
+#endif
+    return true;
+}
+
 // Paired independent ascent/descent reductions. The ordered line-height
 // prefix is separate; no GPU dispatch or per-item allocation is justified.
 bool metric_envelope(std::span<const text_item_metrics> metrics,
@@ -754,7 +777,7 @@ bool try_layout_justified_logical_shaped_text(
         positioned_glyphs, lines, glyph_count, line_count, classes, {}, error);
 }
 
-bool try_layout_measured_logical_shaped_text(
+static bool layout_measured_core(
     std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
     std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,
     std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
@@ -762,7 +785,7 @@ bool try_layout_measured_logical_shaped_text(
     std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
     std::uint32_t& glyph_count, std::uint32_t& line_count,
     std::span<const text_justification_class> classes,
-    std::span<const text_item_metrics> item_metrics, font_error* error) noexcept {
+    std::span<const text_item_metrics> item_metrics, bool continues, font_error* error) noexcept {
     glyph_count = 0U;
     line_count = 0U;
     if (!item_metrics.empty()) {
@@ -884,7 +907,7 @@ bool try_layout_measured_logical_shaped_text(
                 is_safe_break_before(logical_glyphs, i + 1U);
         };
         if (options.alignment == text_alignment::justify && !classes.empty() &&
-            !should_trim && !line.clipped && line.end < logical_glyphs.size() &&
+            !should_trim && !line.clipped && (line.end < logical_glyphs.size() || continues) &&
             breaks_after[line.end - 1U] != text_line_break_kind::mandatory && options.maximum_width > 0.0F) {
             while (justify_start < justify_end && classes[justify_start] != text_justification_class::content) ++justify_start;
             while (justify_end > justify_start && classes[justify_end - 1U] != text_justification_class::content) --justify_end;
@@ -993,6 +1016,94 @@ bool try_layout_measured_logical_shaped_text(
     }
     glyph_count = static_cast<std::uint32_t>(output_cursor);
     set_error(error, font_error::none);
+    return true;
+}
+
+bool try_layout_measured_logical_shaped_text(
+    std::span<const shaping_glyph> glyphs, std::span<const text_line_break_kind> breaks,
+    std::span<const std::int8_t> levels, std::span<const float> scales,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    std::span<float> advances, text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned, std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count, std::uint32_t& line_count,
+    std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, font_error* error) noexcept {
+    return layout_measured_core(glyphs, breaks, levels, scales, paragraph_level, options,
+        tabs, advances, scratch, positioned, lines, glyph_count, line_count, classes, metrics, false, error);
+}
+
+bool try_layout_text_exclusion_band(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::uint32_t start,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    text_exclusion_rectangle band, std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, text_exclusion_band_result& result,
+    font_error* error) noexcept {
+    result = {};
+    const auto fail = [&](font_error value) noexcept { result = {}; set_error(error, value); return false; };
+    text_item_metrics maximum{};
+    if (start > glyphs.size() || levels.size() != glyphs.size() || metrics.size() != glyphs.size() ||
+        (!classes.empty() && classes.size() != glyphs.size()) ||
+        (paragraph_level != 0 && paragraph_level != 1) ||
+        !std::all_of(levels.begin(), levels.end(), [](auto level) { return level >= 0 && level <= 125; }) ||
+        !std::all_of(classes.begin(), classes.end(), [](auto value) { return value <= text_justification_class::word_space; }) ||
+        !metric_envelope(metrics, maximum)) return fail(font_error::invalid_argument);
+    const auto remaining = glyphs.size() - start;
+    if (positioned.size() < remaining || lines.size() <= exclusions.size() ||
+        scratch.visual_groups.size() < remaining || scratch.visual_indices.size() < remaining ||
+        (tabs.interval > 0 && advance_scratch.size() < remaining)) return fail(font_error::insufficient_buffer);
+    std::uint32_t count{}, next{};
+    float retry_y{};
+    auto fitting_options = options;
+    fitting_options.direction = paragraph_level == 0 ? shaping_direction::left_to_right : shaping_direction::right_to_left;
+    if (!try_fit_text_exclusion_band(glyphs, breaks, scales, start, fitting_options, tabs,
+        band, exclusions, exclusion_scratch, intervals, fragments, count, next, retry_y, error)) return false;
+    result.next_glyph = start; result.top = band.top; result.next_y = retry_y;
+    if (start == glyphs.size()) { result.status = text_exclusion_band_status::complete; return true; }
+    if (count == 0U) return true;
+    text_item_metrics envelope{};
+    // Fitted fragments consume one contiguous logical range despite spatial gaps.
+    (void)metric_envelope(metrics.subspan(start, next - start), envelope);
+    result.height = std::max(options.line_height, envelope.ascent + envelope.descent);
+    result.baseline = band.top + envelope.ascent;
+    const float bottom = band.top + result.height;
+    if (!std::isfinite(bottom) || !std::isfinite(result.baseline) || bottom <= band.top)
+        return fail(font_error::invalid_argument);
+    if (bottom != band.bottom) { result.status = text_exclusion_band_status::refit_height; return true; }
+    std::uint32_t written = 0U;
+    for (std::uint32_t i = 0; i < count; ++i) {
+        const auto fragment = fragments[i];
+        const auto begin = fragment.glyph_start, length = fragment.glyph_count;
+        auto local = fitting_options; local.maximum_width = fragment.width; local.maximum_lines = 0U;
+        auto local_tabs = tabs;
+        local_tabs.origin += paragraph_level == 0 ? fragment.left - band.left :
+            band.right - (fragment.left + fragment.width);
+        const bool continues = begin + length < glyphs.size() &&
+            breaks[begin + length - 1U] != text_line_break_kind::mandatory;
+        std::uint32_t emitted{}, emitted_lines{};
+        if (!layout_measured_core(glyphs.subspan(begin, length), breaks.subspan(begin, length),
+            levels.subspan(begin, length), scales.empty() ? scales : scales.subspan(begin, length),
+            paragraph_level, local, local_tabs, advance_scratch, scratch, positioned.subspan(written),
+            lines.subspan(i, 1), emitted, emitted_lines, classes.empty() ? classes : classes.subspan(begin, length),
+            metrics.subspan(begin, length), continues, error)) { result = {}; return false; }
+        if (emitted != length || emitted_lines != 1U) return fail(font_error::verification_failed);
+        const float shift_y = result.baseline - lines[i].baseline_y;
+        for (std::uint32_t j = 0; j < emitted; ++j) {
+            auto& glyph = positioned[written + j];
+            glyph.glyph_index += begin;
+            if (!translate_glyph_position(glyph, fragment.left, shift_y)) return fail(font_error::invalid_argument);
+        }
+        lines[i].glyph_start = written;
+        lines[i].baseline_y = result.baseline; lines[i].height = result.height;
+        if (begin + length < glyphs.size()) lines[i].input_end = glyphs[begin + length].cluster;
+        written += emitted;
+    }
+    result.status = text_exclusion_band_status::placed;
+    result.next_glyph = next; result.glyph_count = written; result.fragment_count = count;
     return true;
 }
 
