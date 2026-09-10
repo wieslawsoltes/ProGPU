@@ -23026,6 +23026,44 @@ int main() {
         auto broken = make_curve_path_figures();
         write_value(broken, 52U, 0x0aU); // Open, filled figure.
         write_value(broken, 124U, 0x24U); // Unstroked quadratic splits two runs.
+        // The first remaining run is a line with no area before widening.
+        // Geometry-local mapping must retain it, including rank-one mapping.
+        const std::array<std::array<double, 6U>, 3U> spine_matrices{{
+            {2.0, 0.0, 0.0, 3.0, 4.0, 5.0},
+            {0.0, 2.0, 3.0, 0.0, 4.0, 5.0},
+            {2.0, 0.0, 0.0, 0.0, 4.0, 16.0}}};
+        for (const auto& matrix : spine_matrices) {
+            std::vector<std::byte> scene;
+            PROGPU_REQUIRE(progpu::native::tests::build_mil_image_brush_fixture(scene,
+                {.shape = progpu::native::tests::mil_brush_fixture_shape::path,
+                    .path_figures = broken, .pen = true, .cap = 0U, .end_cap = 1U,
+                    .dash_cap = 2U, .path_matrix = matrix}, 9788U));
+            const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+            bool found_line = false;
+            for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+                const auto resource = read_value<progpu_native_scene_resource>(scene,
+                    header.resource_offset + index * sizeof(progpu_native_scene_resource));
+                if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+                    resource.payload_size != sizeof(progpu_native_scene_layer_geometry_mask)) continue;
+                const auto mask = read_value<progpu_native_scene_layer_geometry_mask>(scene, resource.payload_offset);
+                if (mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY) continue;
+                for (std::uint32_t item = 0U; item < mask.primitive_count; ++item) {
+                    const auto primitive = read_value<progpu_native_geometry_primitive>(scene,
+                        resource.auxiliary_offset + (mask.primitive_offset + item) * sizeof(progpu_native_geometry_primitive));
+                    if (primitive.kind != PROGPU_NATIVE_GEOMETRY_LINE ||
+                        primitive.p0.x != static_cast<float>(6.0 * matrix[0] + 4.0 * matrix[2] + matrix[4]) ||
+                        primitive.p0.y != static_cast<float>(6.0 * matrix[1] + 4.0 * matrix[3] + matrix[5]) ||
+                        primitive.p1.x != static_cast<float>(8.0 * matrix[0] + 4.0 * matrix[2] + matrix[4]) ||
+                        primitive.p1.y != static_cast<float>(8.0 * matrix[1] + 4.0 * matrix[3] + matrix[5])) continue;
+                    PROGPU_REQUIRE(primitive.stroke_thickness == 4.0F);
+                    PROGPU_REQUIRE(primitive.transform.m11 == 1.0F && primitive.transform.m22 == 1.0F &&
+                        primitive.transform.m12 == 0.0F && primitive.transform.m21 == 0.0F &&
+                        primitive.transform.m31 == 0.0F && primitive.transform.m32 == 0.0F);
+                    found_line = true;
+                }
+            }
+            PROGPU_REQUIRE(found_line);
+        }
         const std::array paths{make_curve_path_figures(), make_arc_path_figures(), multiple, broken};
         for (const auto& figures : paths) {
             for (const auto source : {progpu::native::tests::mil_brush_fixture_source::bitmap,

@@ -1716,9 +1716,12 @@ bool try_transformed_rectangle_stroke_bounds(
     return true;
 }
 
+enum class path_bounds_policy { fill_area, stroke_spine };
+
 bool try_get_path_segment_bounds(
     std::span<const progpu_native_path_segment> segments,
-    progpu_native_image_rect& bounds) noexcept {
+    progpu_native_image_rect& bounds,
+    path_bounds_policy policy = path_bounds_policy::fill_area) noexcept {
     double left = std::numeric_limits<double>::infinity();
     double top = std::numeric_limits<double>::infinity();
     double right = -std::numeric_limits<double>::infinity();
@@ -1884,7 +1887,8 @@ bool try_get_path_segment_bounds(
     const double height = bottom - top;
     if (!finite_double_as_float(left) || !finite_double_as_float(top) ||
         !finite_double_as_float(width) || !finite_double_as_float(height) ||
-        width <= 0.0 || height <= 0.0) {
+        width < 0.0 || height < 0.0 ||
+        (policy == path_bounds_policy::fill_area && (width == 0.0 || height == 0.0))) {
         return false;
     }
     bounds = {
@@ -11823,7 +11827,11 @@ struct channel::implementation {
                         segment.kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC ? segment.p2 : segment.p1);
                 }
                 progpu_native_image_rect bounds{};
-                if (!try_get_path_segment_bounds(contour.segments, bounds)) return status::invalid_graph;
+                // A line/point spine can have zero extent before widening.
+                // Keep it distinct from empty fill coverage and preserve its
+                // actual coordinates for the shared pen compiler.
+                if (!try_get_path_segment_bounds(contour.segments, bounds,
+                        path_bounds_policy::stroke_spine)) return status::invalid_graph;
                 result.left = has_bounds ? std::min(result.left, double{bounds.x}) : bounds.x;
                 result.top = has_bounds ? std::min(result.top, double{bounds.y}) : bounds.y;
                 result.right = has_bounds ? std::max(result.right, double{bounds.x} + bounds.width) : double{bounds.x} + bounds.width;

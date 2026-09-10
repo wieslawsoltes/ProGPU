@@ -9,6 +9,36 @@ namespace ProGPU.Tests;
 public sealed class LinearPathStrokeCoverageTests
 {
     [Theory]
+    [InlineData(2, 0, 0, 3, 4, 5)]
+    [InlineData(0, 2, 3, 0, 4, 5)]
+    [InlineData(2, 0, 0, 0, 4, 16)]
+    public void MappedZeroExtentRunRetainsStrokeBeforeGap(
+        float m11, float m12, float m21, float m22, float dx, float dy)
+    {
+        var matrix = new Matrix3x2(m11, m12, m21, m22, dx, dy);
+        Vector2 Map(float x, float y) => Vector2.Transform(new Vector2(x, y), matrix);
+        var source = new PathGeometry();
+        var figure = new PathFigure(Map(6, 4)) { IsFilled = false };
+        figure.Segments.Add(new LineSegment(Map(8, 4)));
+        figure.Segments.Add(new LineSegment(Map(12, 6), isStroked: false));
+        figure.Segments.Add(new LineSegment(Map(15, 8)));
+        source.Figures.Add(figure);
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4,
+            startLineCap: PenLineCap.Flat, endLineCap: PenLineCap.Square, dashCap: PenLineCap.Round);
+        Assert.True(StrokeCoverageGeometry.TryPrepareLinearPath(source, pen,
+            out var prepared, out var coverage, out var bounds));
+        Assert.Equal(2, prepared.Figures.Count);
+        var first = prepared.Figures[0];
+        Assert.Equal(Map(6, 4), first.StartPoint);
+        Assert.Equal(Map(8, 4), Assert.IsType<LineSegment>(Assert.Single(first.Segments)).Point);
+        Assert.Equal(PenLineCap.Flat, first.StrokeStartLineCap);
+        Assert.Equal(PenLineCap.Round, first.StrokeEndLineCap);
+        Assert.Same(pen, coverage);
+        Assert.Equal(4, coverage.Thickness);
+        Assert.True(bounds.Width > 0 && bounds.Height > 0);
+    }
+
+    [Theory]
     [InlineData(3f, 4f)]
     [InlineData(-3f, 4f)]
     [InlineData(3f, -4f)]

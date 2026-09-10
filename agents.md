@@ -11,6 +11,11 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Prepared stroke centerlines may have finite zero extent before widening. Use the
+explicit stroke-spine bounds policy without changing positive-area fill admission.
+Preserve split runs, local-before-widen transforms, cap ownership and real pen
+width; never inflate a centerline into a fake rectangle or discard it as empty.
+
 Built-in source identity effects preserve input around an admitted local cache.
 The inner cache owns original-content frame conversion; the outer effect owns
 its final source clip, not effect padding. Keep spatial visual masks rejected
