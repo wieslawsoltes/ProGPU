@@ -74,3 +74,9 @@ origin 30.25, inline/caret Y 50.25, final fragment top 92.25 and content bottom
 qualification. Both native libraries were compiled/export-checked in the prior
 boundary checkpoint. Neutral provider and source hard-segment consumption remain
 required before anchor application admission.
+
+The optional `IPortableSegmentedTextFormatting` neutral capability now exposes
+`FormatExcludedAt` with a double origin, preserving existing excluded providers
+and request records. Callers must require the capability rather than ignore a
+nonzero origin. The interop Release build passes with zero warnings/errors.
+Source provider and hard-segment consumption remain required.

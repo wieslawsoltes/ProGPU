@@ -132,6 +132,19 @@ public interface IPortableExcludedTextFormatting : IPortableInlineTextFormatting
 }
 
 /// <summary>
+/// Optional hard-segment origin support over the retained excluded paragraph service.
+/// </summary>
+public interface IPortableSegmentedTextFormatting : IPortableExcludedTextFormatting
+{
+    /// <summary>Formats against unchanged paragraph-local exclusions at a finite nonnegative Y origin.
+    /// Fragment tops and ContentHeight retain absolute paragraph coordinates.</summary>
+    IPortableExcludedTextParagraph FormatExcludedAt(in PortableTextParagraphRequest request,
+        ReadOnlySpan<PortableTextStyleMetrics> styleMetrics,
+        ReadOnlySpan<PortableTextInlineObject> inlineObjects,
+        in PortableTextExclusionOptions options, ReadOnlySpan<PortableTextExclusion> exclusions, double originY);
+}
+
+/// <summary>
 /// Retained excluded layout. Lines and Fragments have identical indexing; line indices
 /// are not row indices. Native metrics include cleared gaps and must not be recreated
 /// by summing fragment heights. Existing line-local hit/selection conventions remain.
