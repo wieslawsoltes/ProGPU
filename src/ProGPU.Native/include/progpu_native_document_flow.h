@@ -285,6 +285,23 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_document_arrange_with_rows(
  * otherwise zero. Entries for ordinary lines must be zero. All spans disjoint;
  * atomic publication and existing budgets apply. Source order is preserved,
  * including same-row RTL fragments. No reshaping or line-height prefix repair. */
+/* Same arrangement with a separate content right extent for fit-content sizing.
+ * Includes original insets, margins, fixed row tracks, objects and supplied
+ * paragraph extents, but not ordinary allocated block widths. content_width is
+ * required, disjoint from all spans, and published atomically with other output. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_document_arrange_with_content_measurement(
+    const progpu_native_document_block* blocks, uint32_t block_count, double width,
+    const progpu_native_document_line* lines, uint32_t line_count,
+    const progpu_native_document_object* objects, uint32_t object_count,
+    const progpu_native_document_row* rows, uint32_t row_count,
+    const double* column_widths, uint32_t column_count,
+    const progpu_native_document_cell* cells, uint32_t cell_count,
+    const progpu_native_document_positioned_paragraph* paragraphs, uint32_t paragraph_count,
+    const progpu_native_document_line_position* local_positions, uint32_t local_position_count,
+    progpu_native_document_box* boxes, uint32_t box_capacity,
+    progpu_native_document_line_position* positions, uint32_t position_capacity,
+    progpu_native_document_flow_result* result, double* content_width);
+
 PROGPU_NATIVE_API progpu_native_status progpu_native_document_arrange_with_positioned_paragraphs(
     const progpu_native_document_block* blocks, uint32_t block_count, double width,
     const progpu_native_document_line* lines, uint32_t line_count,

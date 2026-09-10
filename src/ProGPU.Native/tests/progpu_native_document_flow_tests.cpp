@@ -291,6 +291,21 @@ void pagination_tests() {
 
 int main() {
     {
+        auto block = leaf(UINT32_MAX, 1, 0, 0, 0, 1);
+        block.margin_left = 3; block.margin_right = 4;
+        block.inset_left = 5; block.inset_right = 6;
+        line text{25, 10}; box output{}; position placed{}; auto result = fresh();
+        double content = -1;
+        const auto arrange = [&] {
+            return progpu_native_document_arrange_with_content_measurement(&block, 1, 100, &text, 1,
+                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0,
+                &output, 1, &placed, 1, &result, &content);
+        };
+        require(arrange() == success && result.width == 100 && content == 43 && placed.x == 8);
+        content = 123; output.x = 456; block.line_count = 2;
+        require(arrange() != success && content == 123 && output.x == 456);
+    }
+    {
         std::array blocks{leaf(UINT32_MAX, 3, 0, 0, 0, 0), leaf(0, 2, 0, 0, 0, 2),
             leaf(0, 3, 2, 0, 0, 1), leaf(UINT32_MAX, 4, 3, 0, 0, 1)};
         std::array<line, 4> lines{{{10, 10}, {10, 10}, {20, 30}, {20, 7}}};
@@ -307,6 +322,11 @@ int main() {
             &paragraph, 1, local.data(), 4, boxes.data(), 4, positions.data(), 4, &result) == success);
         require(result.height == 39 && boxes[1].height == 30 && positions[3].y == 32);
         require(positions[0].x == 1 && positions[0].y == 6 && positions[1].x == 21 && positions[1].y == 6);
+        double content = -1;
+        require(progpu_native_document_arrange_with_content_measurement(blocks.data(), 4, 100,
+            lines.data(), 4, nullptr, 0, &row, 1, columns.data(), 2, cells.data(), 2,
+            &paragraph, 1, local.data(), 4, boxes.data(), 4, positions.data(), 4, &result, &content) == success &&
+            content == 104 && result.height == 39); // Two fixed tracks plus two 2-DIP spacing allocations.
     }
     {
         std::array blocks{leaf(UINT32_MAX, 3, 0, 0, 0, 0),

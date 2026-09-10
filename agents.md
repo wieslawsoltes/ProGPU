@@ -11,6 +11,12 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Anchor fit-content measurement must distinguish native constrained extent from
+actual content right extent. Use the shared native arrangement measurement,
+retaining source insets/margins, objects and fixed table tracks/spacing. Never
+shrink explicit fixed tracks or derive child width from character counts. This
+measurement is not ink bounds, hit geometry or source anchor admission.
+
 Excluded hard-segment origins belong in native fitting against unchanged
 paragraph-local exclusions. Preserve double placement tops and absolute bottom,
 zero-origin compatibility and representable float bands. Empty native input still

@@ -247,7 +247,8 @@ bool measure(std::span<const block> blocks, std::span<const line> lines, std::sp
 bool place(std::span<const block> blocks, std::span<const line> lines, std::span<const state> states,
     std::span<const measured_object> objects, std::span<box> boxes, std::span<position> positions,
     double& extent_width, double& height, const row_layout& layout,
-    std::span<const positioned_paragraph* const> paragraphs, std::span<const position> local_positions) {
+    std::span<const positioned_paragraph* const> paragraphs, std::span<const position> local_positions,
+    double* content_width) {
     struct cursor final { double y{}, pending{}, trailing{}; bool content{}; };
     // Preorder traversal lets each parent retain its next-child cursor. Empty
     // transparent boxes share the collapsed gap and do not advance this cursor.
@@ -278,12 +279,23 @@ bool place(std::span<const block> blocks, std::span<const line> lines, std::span
         cursors[i].y = boxes[i].y;
         cursors[i].trailing = p.trailing + b.inset_right + b.margin_right;
         extent_width = std::max(extent_width, boxes[i].x + boxes[i].width + cursors[i].trailing);
+        if (content_width != nullptr)
+            *content_width = std::max(*content_width, boxes[i].x + cursors[i].trailing +
+                (layout.row_at(i) != nullptr ? boxes[i].width : 0.0));
         if (object_cursor < objects.size() && objects[object_cursor].block_index == i)
-            extent_width = std::max(extent_width, boxes[i].x + objects[object_cursor++].width + cursors[i].trailing);
+        {
+            const double right = boxes[i].x + objects[object_cursor++].width + cursors[i].trailing;
+            extent_width = std::max(extent_width, right);
+            if (content_width != nullptr) *content_width = std::max(*content_width, right);
+        }
         double line_y = boxes[i].y;
         const auto* paragraph = paragraphs.empty() ? nullptr : paragraphs[i];
         if (paragraph != nullptr)
+        {
             extent_width = std::max(extent_width, boxes[i].x + paragraph->width + cursors[i].trailing);
+            if (content_width != nullptr)
+                *content_width = std::max(*content_width, boxes[i].x + paragraph->width + cursors[i].trailing);
+        }
         for (std::uint32_t j = 0; j < b.line_count; ++j) {
             const auto index = b.line_start + j;
             if (paragraph != nullptr)
@@ -291,6 +303,8 @@ bool place(std::span<const block> blocks, std::span<const line> lines, std::span
             else { positions[index] = {boxes[i].x, line_y}; line_y += lines[index].height; }
             if (!finite_nonnegative_pair(positions[index].x, positions[index].y)) return false;
             extent_width = std::max(extent_width, positions[index].x + lines[index].width + cursors[i].trailing);
+            if (content_width != nullptr)
+                *content_width = std::max(*content_width, positions[index].x + lines[index].width + cursors[i].trailing);
         }
         if (!std::isfinite(boxes[i].y) || !std::isfinite(p.y) || !std::isfinite(line_y)) return false;
     }
@@ -394,25 +408,27 @@ static progpu_native_status arrange_document(
     const double* columns = nullptr, std::uint32_t column_count = 0U,
     const cell* cells = nullptr, std::uint32_t cell_count = 0U,
     const positioned_paragraph* paragraphs = nullptr, std::uint32_t paragraph_count = 0U,
-    const position* local_positions = nullptr, std::uint32_t local_position_count = 0U) {
+    const position* local_positions = nullptr, std::uint32_t local_position_count = 0U,
+    double* content_output = nullptr) {
     if (!valid_buffer(blocks, count) || !valid_buffer(lines, line_count) || !valid_buffer(output, count) ||
         !valid_buffer(objects, object_count) || !valid_buffer(rows, row_count) ||
         !valid_buffer(columns, column_count) || !valid_buffer(cells, cell_count) ||
         !valid_buffer(paragraphs, paragraph_count) || !valid_buffer(local_positions, local_position_count) ||
         local_position_count != (paragraph_count == 0U ? 0U : line_count) ||
         !valid_buffer(positions, line_count) || !valid_buffer(result, 1) || capacity < count || position_capacity < line_count ||
+        (content_output != nullptr && !valid_buffer(content_output, 1U)) ||
         !std::isfinite(width) || width < 0.0 ||
         !disjoint(std::array{bytes(blocks, count), bytes(lines, line_count), bytes(objects, object_count), bytes(output, count),
             bytes(positions, line_count), bytes(result, 1), bytes(rows, row_count),
             bytes(columns, column_count), bytes(cells, cell_count), bytes(paragraphs, paragraph_count),
-            bytes(local_positions, local_position_count)}) || result->struct_size != sizeof(*result))
+            bytes(local_positions, local_position_count), bytes(content_output, content_output == nullptr ? 0U : 1U)}) || result->struct_size != sizeof(*result))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     try {
         std::vector<box> boxes(count);
         std::vector<state> states(count);
         std::vector<position> placed(line_count);
         row_layout layout{{rows, row_count}, {cells, cell_count}, {columns, column_count}, {}, {}, {}};
-        double height = 0.0, extent_width = width;
+        double height = 0.0, extent_width = width, content_width = 0.0;
         std::vector<const positioned_paragraph*> paragraph_map(paragraph_count == 0U ? 0U : count, nullptr);
         if (!layout.initialize({blocks, count}) || !widths({blocks, count}, width, boxes, layout))
             return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
@@ -445,11 +461,12 @@ static progpu_native_status arrange_document(
             }
         }
         if (!place({blocks, count}, {lines, line_count}, states, {objects, object_count}, boxes, placed, extent_width, height,
-                layout, paragraph_map, {local_positions, local_position_count}))
+                layout, paragraph_map, {local_positions, local_position_count}, content_output == nullptr ? nullptr : &content_width))
             return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
         if (!boxes.empty()) std::copy(boxes.begin(), boxes.end(), output);
         if (!placed.empty()) std::copy(placed.begin(), placed.end(), positions);
         *result = {static_cast<std::uint32_t>(sizeof(*result)), count, line_count, 0U, extent_width, height};
+        if (content_output != nullptr) *content_output = content_width;
         return PROGPU_NATIVE_STATUS_SUCCESS;
     } catch (const std::bad_alloc&) { return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
     catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
@@ -514,6 +531,20 @@ extern "C" progpu_native_status progpu_native_document_arrange_with_positioned_p
     return arrange_document(blocks, count, width, lines, line_count, objects, object_count,
         output, capacity, positions, position_capacity, result, rows, row_count, columns, column_count,
         cells, cell_count, paragraphs, paragraph_count, local_positions, local_position_count);
+}
+
+extern "C" progpu_native_status progpu_native_document_arrange_with_content_measurement(
+    const block* blocks, uint32_t count, double width, const line* lines, uint32_t line_count,
+    const measured_object* objects, uint32_t object_count, const row* rows, uint32_t row_count,
+    const double* columns, uint32_t column_count, const cell* cells, uint32_t cell_count,
+    const positioned_paragraph* paragraphs, uint32_t paragraph_count,
+    const position* local_positions, uint32_t local_position_count,
+    box* output, uint32_t capacity, position* positions, uint32_t position_capacity,
+    progpu_native_document_flow_result* result, double* content_width) {
+    if (content_width == nullptr) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    return arrange_document(blocks, count, width, lines, line_count, objects, object_count,
+        output, capacity, positions, position_capacity, result, rows, row_count, columns, column_count,
+        cells, cell_count, paragraphs, paragraph_count, local_positions, local_position_count, content_width);
 }
 
 extern "C" progpu_native_status progpu_native_document_paginate(
