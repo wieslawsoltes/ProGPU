@@ -13,6 +13,28 @@ namespace Avalonia.ProGpu.UnitTests;
 public class NativeRendererInteropTests
 {
     [Fact]
+    public void DirectImageFramesKeepStraightAlphaMaskBlendingSeparateFromRetainedScenes()
+    {
+        string factory = File.ReadAllText(FindRepoFile("src", "ProGPU.Native", "src", "Backend", "progpu_native_image_execution.cpp"));
+        string direct = File.ReadAllText(FindRepoFile("src", "ProGPU.Native", "src", "Backend", "progpu_native_texture_execution.cpp"));
+        string retained = File.ReadAllText(FindRepoFile("src", "ProGPU.Native", "src", "Scene", "progpu_native_semantic_draw_execution.cpp"));
+        string engine = File.ReadAllText(FindRepoFile("src", "ProGPU.Native", "src", "Backend", "progpu_native_engine.hpp"));
+        string interop = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend.Native", "NativeCompositor.cs"));
+
+        Assert.Contains("has_mask ? engine->image_straight_mask_pipeline : engine->image_pipeline", direct, StringComparison.Ordinal);
+        Assert.Contains("engine.image_mask_pipeline", retained, StringComparison.Ordinal);
+        Assert.DoesNotContain("image_straight_mask_pipeline", retained, StringComparison.Ordinal);
+        int straight = factory.IndexOf("engine.image_straight_mask_pipeline = wgpuDeviceCreateRenderPipeline", StringComparison.Ordinal);
+        int retainedCreation = factory.IndexOf("engine.image_mask_pipeline = wgpuDeviceCreateRenderPipeline", StringComparison.Ordinal);
+        Assert.True(retainedCreation >= 0 && straight > retainedCreation);
+        string straightSetup = factory[retainedCreation..straight];
+        Assert.Contains("blend.color.srcFactor = WGPUBlendFactor_SrcAlpha", straightSetup, StringComparison.Ordinal);
+        Assert.Contains("string_view(\"fs_main\")", straightSetup, StringComparison.Ordinal);
+        Assert.Contains("wgpuRenderPipelineRelease(image_straight_mask_pipeline)", engine, StringComparison.Ordinal);
+        Assert.Contains("source.AlphaMode != GpuTextureAlphaMode.Straight", interop, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NativeBuildOnlyLaneIsExplicitAndStopsBeforeQualification()
     {
         string unix = File.ReadAllText(FindRepoFile("eng", "build-progpu-native.sh"));

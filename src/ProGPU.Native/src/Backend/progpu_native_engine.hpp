@@ -170,6 +170,7 @@ struct progpu_native_engine {
     WGPUShaderModule image_shader = nullptr;
     WGPURenderPipeline image_pipeline = nullptr;
     WGPURenderPipeline image_mask_pipeline = nullptr;
+    WGPURenderPipeline image_straight_mask_pipeline = nullptr;
     WGPURenderPipeline image_color_matrix_pipeline = nullptr;
     WGPURenderPipeline image_masked_color_matrix_pipeline = nullptr;
     WGPURenderPipeline image_mask_chain_pipeline = nullptr;
@@ -1660,6 +1661,9 @@ struct progpu_native_engine {
         }
         if (image_mask_pipeline != nullptr) {
             wgpuRenderPipelineRelease(image_mask_pipeline);
+        }
+        if (image_straight_mask_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(image_straight_mask_pipeline);
         }
         if (image_mask_layout != nullptr) {
             wgpuBindGroupLayoutRelease(image_mask_layout);

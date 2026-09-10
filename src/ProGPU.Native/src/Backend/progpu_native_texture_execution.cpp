@@ -328,7 +328,7 @@ progpu_native_status render_image(
         }
         wgpuRenderPassEncoderSetPipeline(
             pass,
-            has_mask ? engine->image_mask_pipeline : engine->image_pipeline);
+            has_mask ? engine->image_straight_mask_pipeline : engine->image_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass, 0U, engine->image_uniform_bind_group, 0U, nullptr);
         wgpuRenderPassEncoderSetBindGroup(

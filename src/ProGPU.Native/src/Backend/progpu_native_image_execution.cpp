@@ -55,6 +55,7 @@ WGPUBindGroup create_image_mask_bind_group(
 
 bool create_image_mask_resources(progpu_native_engine& engine) {
     if (engine.image_mask_pipeline != nullptr &&
+        engine.image_straight_mask_pipeline != nullptr &&
         engine.image_color_matrix_pipeline != nullptr &&
         engine.image_masked_color_matrix_pipeline != nullptr) {
         return true;
@@ -166,8 +167,17 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     engine.image_mask_pipeline = wgpuDeviceCreateRenderPipeline(
         engine.device,
         &pipeline_descriptor);
-    // The color-matrix entry points explicitly return straight RGB.
+    // Direct image frames accept straight-alpha sources only, unlike mixed
+    // retained scene commands. Keep their established fixed-function alpha
+    // multiplication; shader premultiplication changes D3D12 UNORM rounding.
     blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+    fragment.entryPoint = ::progpu::native::webgpu::string_view("fs_main");
+    pipeline_descriptor.label = ::progpu::native::webgpu::string_view(
+        "ProGPU native straight-alpha masked image pipeline");
+    engine.image_straight_mask_pipeline = wgpuDeviceCreateRenderPipeline(
+        engine.device,
+        &pipeline_descriptor);
+    // The color-matrix entry points explicitly return straight RGB.
     fragment.entryPoint = ::progpu::native::webgpu::string_view(
         "fs_main_color_matrix_unmasked");
     pipeline_descriptor.label = ::progpu::native::webgpu::string_view(
@@ -208,6 +218,7 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     }
     wgpuPipelineLayoutRelease(pipeline_layout);
     if (engine.image_mask_pipeline == nullptr ||
+        engine.image_straight_mask_pipeline == nullptr ||
         engine.image_color_matrix_pipeline == nullptr ||
         engine.image_masked_color_matrix_pipeline == nullptr) {
         return false;

@@ -35,6 +35,13 @@ Never index a transient-only array with a retained cache slot or treat a lucky
 platform pass as proof of initialized depth. Keep cold/warm, nested, scaled and
 mixed-content Viewport3D pixel checks in the full gate.
 
+Direct native image frames admit straight-alpha textures only. Preserve their
+fixed-function SrcAlpha blending independently of mixed retained scene images,
+which normalize straight and premultiplied samples once and blend with One.
+Do not share those mask pipelines merely because the layouts match: D3D12 UNORM
+rounding changes with the multiplication stage. Keep both pipelines engine-owned
+and preserve the strict masked-image differential without widening tolerances.
+
 Built-in source identity effects preserve input around an admitted local cache.
 The inner cache owns original-content frame conversion; the outer effect owns
 its final source clip, not effect padding. Keep spatial visual masks rejected
