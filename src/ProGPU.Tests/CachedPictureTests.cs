@@ -184,6 +184,44 @@ public sealed class CachedPictureTests
         }
     }
 
+    [Fact]
+    public void CachedStrokeMaskPreservesEarlierRoundJoinEdgeCoverage()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        var recorder = new GpuPictureRecorder();
+        var bounds = new Rect(0, 0, 64, 64);
+        recorder.BeginRecording(bounds).DrawRectangle(new SolidColorBrush(new Vector4(1, 0, 0, 1)), null, bounds);
+        using var input = recorder.EndRecording();
+        using var cache = new CachedPictureSourceCache<object>();
+        using var source = cache.Acquire(new object(), new PictureSource(input) { CaptureBounds = bounds }, static value => value);
+        var reference = new CachedStrokeHost(null, true, false);
+        var cached = new CachedStrokeHost(source, true, false);
+        try
+        {
+            window.Content = reference;
+            window.Render();
+            var expected = window.ReadPixels();
+            window.Content = cached;
+            window.Render();
+            var actual = window.ReadPixels();
+            // A later join's zero-coverage padding used to overwrite this edge
+            // with alpha=1, reducing the red channel from 137 to 20.
+            const int edge = (6 * 64 + 8) * 4;
+            Assert.True(expected[edge] > 100);
+            Assert.InRange(Math.Abs(expected[edge] - actual[edge]), 0, 2);
+            var texture = source.Picture.GetVisual().LayerTexture;
+            window.Render();
+            Assert.Same(texture, source.Picture.GetVisual().LayerTexture);
+            Assert.Equal(actual, window.ReadPixels());
+        }
+        finally
+        {
+            window.Content = null;
+            reference.Commands.Clear();
+            cached.Commands.Clear();
+        }
+    }
+
     private sealed class CachedStrokeHost : FrameworkElement, IOwnedRenderCommandCache
     {
         internal readonly DrawingContext Commands = new();

@@ -780,11 +780,13 @@ fn fs_main_premultiplied_unmasked(input: VertexOutput) -> @location(0) vec4<f32>
 @fragment
 fn fs_mask(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = texture_fs_main(input);
-    return vec4<f32>(color.a, 0.0, 0.0, 1.0);
+    // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
 
 @fragment
 fn fs_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = texture_fs_main_with_mask(input, 1.0);
-    return vec4<f32>(color.a, 0.0, 0.0, 1.0);
+    // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }

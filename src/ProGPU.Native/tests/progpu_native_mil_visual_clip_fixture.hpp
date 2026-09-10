@@ -251,7 +251,7 @@ inline bool build_mil_visual_clip_fixture(std::vector<std::byte>& scene,
             mesh.normal_transform = identity;
             mesh.opacity = 1.0F;
             mesh.specular_color = {0, 0, 0, 1};
-            mesh.shading_mode = 0U; // Native3D unlit material-color mode.
+            mesh.shading_mode = 2U; // Native3D unlit material-color mode.
         }
         // A later green plane lies behind each colored plane. Losing the
         // isolated target's depth buffer changes center pixels to green.

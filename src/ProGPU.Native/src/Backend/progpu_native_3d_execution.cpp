@@ -441,8 +441,9 @@ progpu_native_status compile_semantic_3d_page(
                 bytes, header.command_offset +
                     static_cast<std::size_t>(command_index) * header.command_stride);
             const auto target = target_cursor.advance(command);
-            const auto state = localize_semantic_state(
-                state_cursor.advance(command), target, frame.dpi_scale);
+            // A render-target crop is pixel placement, not a model-space
+            // transform. Camera viewport mapping below owns that translation.
+            const auto state = state_cursor.advance(command);
             if (command.kind !=
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH &&
                 command.kind !=
@@ -465,34 +466,12 @@ progpu_native_status compile_semantic_3d_page(
             gpu_camera.viewport[1] = static_cast<float>(std::max(1U, target.height));
             gpu_camera.viewport[2] = frame.dpi_scale;
             gpu_camera.viewport[3] = 0.0F;
-            const float target_width = gpu_camera.viewport[0];
-            const float target_height = gpu_camera.viewport[1];
-            const float viewport_left = std::clamp(
-                command.bounds_x * frame.dpi_scale -
-                    static_cast<float>(target.x),
-                0.0F,
-                target_width);
-            const float viewport_top = std::clamp(
-                command.bounds_y * frame.dpi_scale -
-                    static_cast<float>(target.y),
-                0.0F,
-                target_height);
-            const float viewport_right = std::clamp(
-                (command.bounds_x + command.bounds_width) *
-                    frame.dpi_scale - static_cast<float>(target.x),
-                viewport_left,
-                target_width);
-            const float viewport_bottom = std::clamp(
-                (command.bounds_y + command.bounds_height) *
-                    frame.dpi_scale - static_cast<float>(target.y),
-                viewport_top,
-                target_height);
-            gpu_camera.viewport_rect[0] = viewport_left;
-            gpu_camera.viewport_rect[1] = viewport_top;
-            gpu_camera.viewport_rect[2] = std::max(
-                viewport_right - viewport_left, 1.0F);
-            gpu_camera.viewport_rect[3] = std::max(
-                viewport_bottom - viewport_top, 1.0F);
+            // Preserve the full camera viewport even when only its intersection
+            // with this target is visible. Clamping it rescales projected content.
+            gpu_camera.viewport_rect[0] = command.bounds_x * frame.dpi_scale - static_cast<float>(target.x);
+            gpu_camera.viewport_rect[1] = command.bounds_y * frame.dpi_scale - static_cast<float>(target.y);
+            gpu_camera.viewport_rect[2] = command.bounds_width * frame.dpi_scale;
+            gpu_camera.viewport_rect[3] = command.bounds_height * frame.dpi_scale;
             const auto camera_index = static_cast<std::uint32_t>(cameras.size());
             cameras.push_back(gpu_camera);
             const auto state_transform = affine_matrix(state.transform);

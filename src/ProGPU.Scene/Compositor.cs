@@ -20995,9 +20995,10 @@ CompilePathStroke:
     private static GpuTextureAlphaMode GetPipelineSourceAlphaMode(
         DrawCallType type,
         GpuBlendMode blendMode,
-        GpuTextureAlphaMode textureAlphaMode)
+        GpuTextureAlphaMode textureAlphaMode,
+        bool writesOpacityMask = false)
     {
-        if (BlendModeRequiresPremultipliedSource(blendMode))
+        if (writesOpacityMask || BlendModeRequiresPremultipliedSource(blendMode))
         {
             return GpuTextureAlphaMode.Premultiplied;
         }
@@ -21120,7 +21121,7 @@ CompilePathStroke:
                 sourceAlphaMode: GetPipelineSourceAlphaMode(
                     DrawCallType.Vector,
                     blendMode,
-                    GpuTextureAlphaMode.Straight));
+                    GpuTextureAlphaMode.Straight, writesOpacityMask));
             _selectedPipelines[selectionKey] = (nint)pipeline;
             return pipeline;
         }
@@ -21210,7 +21211,7 @@ CompilePathStroke:
                 sourceAlphaMode: GetPipelineSourceAlphaMode(
                     DrawCallType.Vector,
                     blendMode,
-                    GpuTextureAlphaMode.Straight));
+                    GpuTextureAlphaMode.Straight, writesOpacityMask));
             if (!overrideFormat.HasValue &&
                 blendMode == GpuBlendMode.SrcOver &&
                 !hasMask)
@@ -21374,7 +21375,8 @@ CompilePathStroke:
                     GpuTextureAlphaMode.Straight,
                     writesOpacityMask,
                     hasMask);
-                var textSourceAlphaMode = GetPipelineSourceAlphaMode(type, blendMode, GpuTextureAlphaMode.Straight);
+                var textSourceAlphaMode = GetPipelineSourceAlphaMode(type, blendMode, GpuTextureAlphaMode.Straight,
+                    overrideFormat == TextureFormat.R8Unorm);
                 string textFragmentKey = textFragmentEntryPoint == "fs_main" ? string.Empty : $"_{textFragmentEntryPoint}";
                 string textPipelineKey = overrideFormat.HasValue
                     ? $"{textBaseName}_{blendMode}_{overrideFormat.Value}{textFragmentKey}"
@@ -21446,7 +21448,7 @@ CompilePathStroke:
                 textureAlphaMode,
                 writesMaskTarget,
                 hasMask);
-            var sourceAlphaMode = GetPipelineSourceAlphaMode(type, blendMode, textureAlphaMode);
+            var sourceAlphaMode = GetPipelineSourceAlphaMode(type, blendMode, textureAlphaMode, writesMaskTarget);
             string alphaModeKey = type == DrawCallType.Texture ? $"_{textureAlphaMode}" : string.Empty;
             string fragmentKey = fragmentEntryPoint == "fs_main" ? string.Empty : $"_{fragmentEntryPoint}";
             string pipelineKey = overrideFormat.HasValue

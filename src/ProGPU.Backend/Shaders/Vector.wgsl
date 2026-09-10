@@ -1701,13 +1701,15 @@ fn fs_solid_rect_premultiplied_unmasked(input: VertexOutput) -> @location(0) vec
 @fragment
 fn fs_solid_rect_mask(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = solid_rect_fs_main(input, sample_mask_alpha(input.position.xy));
-    return vec4<f32>(color.a, 0.0, 0.0, 1.0);
+    // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
 
 @fragment
 fn fs_solid_rect_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = solid_rect_fs_main(input, 1.0);
-    return vec4<f32>(color.a, 0.0, 0.0, 1.0);
+    // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
 
 // Circular rounded rectangles use a separate bounded specialization only when
@@ -1804,13 +1806,15 @@ fn fs_solid_rounded_premultiplied_unmasked(input: VertexOutput) -> @location(0) 
 @fragment
 fn fs_solid_rounded_mask(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = solid_rounded_fs_main(input, sample_mask_alpha(input.position.xy));
-    return vec4<f32>(color.a, 0.0, 0.0, 1.0);
+    // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
 
 @fragment
 fn fs_solid_rounded_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = solid_rounded_fs_main(input, 1.0);
-    return vec4<f32>(color.a, 0.0, 0.0, 1.0);
+    // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
 fn mesh_unpremultiply(color: vec4<f32>) -> vec4<f32> {
     if (color.a <= 0.0) {
@@ -2978,11 +2982,13 @@ fn fs_mask(input: VertexOutput) -> @location(0) vec4<f32> {
     if (maskAlpha <= 0.0) {
         discard;
     }
-    return vec4<f32>(color.a, 0.0, 0.0, 1.0);
+    // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
 
 @fragment
 fn fs_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = vector_fs_main(input, 1.0);
-    return vec4<f32>(color.a, 0.0, 0.0, 1.0);
+    // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
