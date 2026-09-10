@@ -1,0 +1,8 @@
+# Path relative to src/System.Drawing.Common/tests|reviewed exclusion reason
+Helpers.cs|Replaced by a portable test-only adapter because the upstream helper imports Win32 monitor and HDC APIs.
+System/Drawing/FontFamilyTests.cs|Contains an internal native pointer identity test and therefore cannot compile against the portable implementation unchanged.
+System/Drawing/GdiPlusHandlesTests.cs|Measures Win32 GDI handle counts through P/Invoke and RemoteExecutor.
+System/Drawing/GraphicsTests.cs|Imports Win32 HDC and HWND APIs; its portable GraphicsTests.Core.cs companion remains enabled.
+System/Drawing/IconTests.cs|Depends on RemoteExecutor and internal/native icon handle behavior.
+System/Drawing/ImageTests.cs|Creates native enhanced metafiles through Win32 GDI.
+System/Drawing/Imaging/MetafileTests.cs|Creates and inspects native enhanced metafiles through Win32 GDI.

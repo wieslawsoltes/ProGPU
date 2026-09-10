@@ -1,31 +1,267 @@
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
+using System.Numerics;
 
 namespace System.Drawing;
 
-public class Pen : IDisposable
+public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
 {
     private static readonly double[] s_dashPattern = { 3.0, 1.0 };
     private static readonly double[] s_dotPattern = { 1.0, 1.0 };
     private static readonly double[] s_dashDotPattern = { 3.0, 1.0, 1.0, 1.0 };
     private static readonly double[] s_dashDotDotPattern = { 3.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
     private static readonly double[] s_defaultCustomPattern = { 1.0 };
+
+    private PenAlignment _alignment;
+    private Brush _brush;
+    private float[]? _compoundArray;
+    private float[]? _customDashPattern;
+    private CustomLineCap? _customEndCap;
+    private CustomLineCap? _customStartCap;
     private DashCap _dashCap;
+    private float _dashOffset;
+    private DashStyle _dashStyle;
+    private bool _disposed;
     private LineCap _endCap;
+    private readonly bool _immutable;
     private LineJoin _lineJoin;
     private float _miterLimit = 10f;
     private LineCap _startCap;
+    private Matrix3x2 _transform = Matrix3x2.Identity;
+    private float _width;
 
-    public Brush Brush { get; set; }
-    public float Width { get; set; }
-    public System.Drawing.Drawing2D.DashStyle DashStyle { get; set; }
-    public float DashOffset { get; set; }
+    public Brush Brush
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return (Brush)_brush.Clone();
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            ArgumentNullException.ThrowIfNull(value);
+
+            Brush replacement = (Brush)value.Clone();
+            Brush previous = _brush;
+            _brush = replacement;
+            previous.Dispose();
+        }
+    }
+
+    public float Width
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _width;
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            _width = value;
+        }
+    }
+
+    public DashStyle DashStyle
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _dashStyle;
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            _dashStyle = value;
+        }
+    }
+
+    public float DashOffset
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _dashOffset;
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            _dashOffset = value;
+        }
+    }
+
+    public PenAlignment Alignment
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _alignment;
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            _alignment = value;
+        }
+    }
+
+    public PenType PenType
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _brush switch
+            {
+                HatchBrush => PenType.HatchFill,
+                TextureBrush => PenType.TextureFill,
+                PathGradientBrush => PenType.PathGradient,
+                LinearGradientBrush => PenType.LinearGradient,
+                _ => PenType.SolidColor,
+            };
+        }
+    }
+
+    public Matrix Transform
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return new Matrix(_transform);
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            ArgumentNullException.ThrowIfNull(value);
+
+            if (!value.TryGetMatrixElements(out Matrix3x2 transform) ||
+                !IsFinite(transform) ||
+                !Matrix3x2.Invert(transform, out _))
+            {
+                throw new ArgumentException("Parameter is not valid.", nameof(value));
+            }
+
+            _transform = transform;
+        }
+    }
+
+    public float[] DashPattern
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _customDashPattern is null ? [1f] : (float[])_customDashPattern.Clone();
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            ArgumentNullException.ThrowIfNull(value);
+            if (value.Length == 0 || Array.Exists(value, element => !float.IsFinite(element) || element <= 0f))
+            {
+                throw new ArgumentException("Dash pattern entries must be finite and greater than zero.", nameof(value));
+            }
+
+            _customDashPattern = (float[])value.Clone();
+            _dashStyle = DashStyle.Custom;
+        }
+    }
+
+    public float[] CompoundArray
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _compoundArray is null ? [] : (float[])_compoundArray.Clone();
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            ArgumentNullException.ThrowIfNull(value);
+            if (value.Length < 2 || (value.Length & 1) != 0 ||
+                Array.Exists(value, static element => element < 0f || element > 1f) ||
+                HasDescendingCompoundValue(value))
+            {
+                throw new ArgumentException("Parameter is not valid.", nameof(value));
+            }
+
+            _compoundArray = (float[])value.Clone();
+        }
+    }
+
+    public CustomLineCap CustomEndCap
+    {
+        get
+        {
+            ThrowIfDisposed();
+            if (_customEndCap is null)
+            {
+                throw new ArgumentException("Parameter is not valid.");
+            }
+
+            return (CustomLineCap)_customEndCap.Clone();
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            if (value is null || value.IsDisposed)
+            {
+                throw new ArgumentException("Parameter is not valid.", nameof(value));
+            }
+
+            CustomLineCap replacement = (CustomLineCap)value.Clone();
+            _customEndCap?.Dispose();
+            _customEndCap = replacement;
+            _endCap = LineCap.Custom;
+        }
+    }
+
+    public CustomLineCap CustomStartCap
+    {
+        get
+        {
+            ThrowIfDisposed();
+            if (_customStartCap is null)
+            {
+                throw new ArgumentException("Parameter is not valid.");
+            }
+
+            return (CustomLineCap)_customStartCap.Clone();
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            if (value is null || value.IsDisposed)
+            {
+                throw new ArgumentException("Parameter is not valid.", nameof(value));
+            }
+
+            CustomLineCap replacement = (CustomLineCap)value.Clone();
+            _customStartCap?.Dispose();
+            _customStartCap = replacement;
+            _startCap = LineCap.Custom;
+        }
+    }
 
     public DashCap DashCap
     {
-        get => _dashCap;
+        get
+        {
+            ThrowIfDisposed();
+            return _dashCap;
+        }
         set
         {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
             ValidateDashCap(value, nameof(value));
             _dashCap = value;
         }
@@ -33,9 +269,15 @@ public class Pen : IDisposable
 
     public LineCap EndCap
     {
-        get => _endCap;
+        get
+        {
+            ThrowIfDisposed();
+            return _endCap;
+        }
         set
         {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
             ValidateLineCap(value, nameof(value));
             _endCap = value;
         }
@@ -43,9 +285,15 @@ public class Pen : IDisposable
 
     public LineJoin LineJoin
     {
-        get => _lineJoin;
+        get
+        {
+            ThrowIfDisposed();
+            return _lineJoin;
+        }
         set
         {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
             if (value < LineJoin.Miter || value > LineJoin.MiterClipped)
             {
                 throw new InvalidEnumArgumentException(nameof(value), (int)value, typeof(LineJoin));
@@ -57,15 +305,30 @@ public class Pen : IDisposable
 
     public float MiterLimit
     {
-        get => _miterLimit;
-        set => _miterLimit = value < 1f ? 1f : value;
+        get
+        {
+            ThrowIfDisposed();
+            return _miterLimit;
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            _miterLimit = value < 1f ? 1f : value;
+        }
     }
 
     public LineCap StartCap
     {
-        get => _startCap;
+        get
+        {
+            ThrowIfDisposed();
+            return _startCap;
+        }
         set
         {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
             ValidateLineCap(value, nameof(value));
             _startCap = value;
         }
@@ -73,49 +336,222 @@ public class Pen : IDisposable
 
     public Color Color
     {
-        get => Brush is SolidBrush solidBrush ? solidBrush.Color : Color.Black;
-        set => Brush = new SolidBrush(value);
+        get
+        {
+            ThrowIfDisposed();
+            return _brush is SolidBrush solidBrush ? solidBrush.Color : Color.Black;
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+
+            Brush previous = _brush;
+            _brush = new SolidBrush(value);
+            previous.Dispose();
+        }
     }
 
-    public Pen(Color color) : this(color, 1.0f) {}
+    public Pen(Color color)
+        : this(color, 1.0f)
+    {
+    }
 
     public Pen(Color color, float width)
+        : this(new SolidBrush(color), width, immutable: false, cloneBrush: false)
     {
-        Brush = new SolidBrush(color);
-        Width = width;
     }
 
-    public Pen(Brush brush) : this(brush, 1.0f) {}
+    internal Pen(Color color, bool immutable)
+        : this(new SolidBrush(color), 1.0f, immutable, cloneBrush: false)
+    {
+    }
+
+    public Pen(Brush brush)
+        : this(brush, 1.0f)
+    {
+    }
 
     public Pen(Brush brush, float width)
+        : this(brush, width, immutable: false, cloneBrush: true)
     {
-        Brush = brush;
-        Width = width;
     }
 
-    public ProGPU.Vector.Pen ToProGpuPen()
+    private Pen(Brush brush, float width, bool immutable, bool cloneBrush)
     {
-        return ToProGpuPen(Width);
+        ArgumentNullException.ThrowIfNull(brush);
+        _brush = cloneBrush ? (Brush)brush.Clone() : brush;
+        _width = width;
+        _immutable = immutable;
+    }
+
+    internal ProGPU.Vector.Pen ToProGpuPen()
+    {
+        ThrowIfDisposed();
+        return ToProGpuPen(_width);
     }
 
     internal ProGPU.Vector.Pen ToProGpuPen(float width)
+        => ToProGpuPen(width, Point.Empty);
+
+    internal ProGPU.Vector.Pen ToProGpuPen(float width, Point renderingOrigin)
+    {
+        ThrowIfDisposed();
+        ProGPU.Vector.Brush nativeBrush = Graphics.TransformBrush(_brush, renderingOrigin);
+        return CreateProGpuPen(nativeBrush, width);
+    }
+
+    internal ProGPU.Vector.Pen ToProGpuGeometryPen(float width)
+    {
+        ThrowIfDisposed();
+        return CreateProGpuPen(
+            new ProGPU.Vector.SolidColorBrush(Vector4.One),
+            width);
+    }
+
+    private ProGPU.Vector.Pen CreateProGpuPen(
+        ProGPU.Vector.Brush nativeBrush,
+        float width)
     {
         var nativePen = new ProGPU.Vector.Pen(
-            Brush.ToProGpuBrush(),
+            nativeBrush,
             width,
             lineJoin: ToProGpuLineJoin(_lineJoin),
             miterLimit: float.IsFinite(_miterLimit) ? _miterLimit : 1f,
-            startLineCap: ToProGpuLineCap(_startCap),
-            endLineCap: ToProGpuLineCap(_endCap),
+            startLineCap: ToProGpuLineCap(GetEffectiveStartCap()),
+            endLineCap: ToProGpuLineCap(GetEffectiveEndCap()),
             dashCap: ToProGpuDashCap(_dashCap),
-            dashArray: GetDashArray(DashStyle),
-            dashOffset: DashOffset);
+            dashArray: GetDashArray(),
+            dashOffset: _dashOffset);
         nativePen.MiterLimit = _miterLimit;
         return nativePen;
     }
 
+    internal ProGPU.Vector.Brush ToProGpuBrush(Point renderingOrigin)
+    {
+        ThrowIfDisposed();
+        return Graphics.TransformBrush(_brush, renderingOrigin);
+    }
+
+    internal TextureBrush? TextureBrushValue
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _brush as TextureBrush;
+        }
+    }
+
+    internal bool HasTransformedTip
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _transform.M11 != 1f ||
+                _transform.M12 != 0f ||
+                _transform.M21 != 0f ||
+                _transform.M22 != 1f;
+        }
+    }
+
+    internal bool RequiresWidenedGeometry
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _brush is TextureBrush ||
+                HasTransformedTip ||
+                _compoundArray is { Length: > 0 } ||
+                (_startCap == LineCap.Custom && _customStartCap is not null) ||
+                (_endCap == LineCap.Custom && _customEndCap is not null);
+        }
+    }
+
+    internal ReadOnlySpan<float> CompoundArrayStorage
+        => _compoundArray;
+
+    internal CustomLineCap? StartCustomCap
+        => _startCap == LineCap.Custom ? _customStartCap : null;
+
+    internal CustomLineCap? EndCustomCap
+        => _endCap == LineCap.Custom ? _customEndCap : null;
+
+    internal bool TryGetTipTransform(out Matrix3x2 transform, out Matrix3x2 inverse)
+    {
+        ThrowIfDisposed();
+        transform = new Matrix3x2(
+            _transform.M11,
+            _transform.M12,
+            _transform.M21,
+            _transform.M22,
+            0f,
+            0f);
+        inverse = default;
+        return IsFinite(transform) && Matrix3x2.Invert(transform, out inverse);
+    }
+
+    public void ResetTransform()
+    {
+        ThrowIfDisposed();
+        ThrowIfImmutable();
+        _transform = Matrix3x2.Identity;
+    }
+
+    public void MultiplyTransform(Matrix matrix)
+        => MultiplyTransform(matrix, MatrixOrder.Prepend);
+
+    public void MultiplyTransform(Matrix matrix, MatrixOrder order)
+    {
+        ThrowIfDisposed();
+        ThrowIfImmutable();
+        ArgumentNullException.ThrowIfNull(matrix);
+        if (order is not MatrixOrder.Prepend and not MatrixOrder.Append)
+        {
+            return;
+        }
+
+        if (!matrix.TryGetMatrixElements(out Matrix3x2 operation))
+        {
+            return;
+        }
+
+        Matrix3x2 result = order == MatrixOrder.Prepend
+            ? operation * _transform
+            : _transform * operation;
+        if (!IsFinite(operation) ||
+            !Matrix3x2.Invert(operation, out _) ||
+            !IsFinite(result) ||
+            !Matrix3x2.Invert(result, out _))
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(matrix));
+        }
+
+        _transform = result;
+    }
+
+    public void TranslateTransform(float dx, float dy)
+        => TranslateTransform(dx, dy, MatrixOrder.Prepend);
+
+    public void TranslateTransform(float dx, float dy, MatrixOrder order)
+        => ApplyTransform(Matrix3x2.CreateTranslation(dx, dy), order);
+
+    public void ScaleTransform(float sx, float sy)
+        => ScaleTransform(sx, sy, MatrixOrder.Prepend);
+
+    public void ScaleTransform(float sx, float sy, MatrixOrder order)
+        => ApplyTransform(Matrix3x2.CreateScale(sx, sy), order);
+
+    public void RotateTransform(float angle)
+        => RotateTransform(angle, MatrixOrder.Prepend);
+
+    public void RotateTransform(float angle, MatrixOrder order)
+        => ApplyTransform(Matrix3x2.CreateRotation(angle * (MathF.PI / 180f)), order);
+
     public void SetLineCap(LineCap startCap, LineCap endCap, DashCap dashCap)
     {
+        ThrowIfDisposed();
+        ThrowIfImmutable();
+
         // GDI+ accepts arbitrary LineCap values through this method, while an
         // invalid DashCap is normalized to Flat.
         _startCap = startCap;
@@ -123,17 +559,66 @@ public class Pen : IDisposable
         _dashCap = Enum.IsDefined(dashCap) ? dashCap : DashCap.Flat;
     }
 
-    private static double[]? GetDashArray(System.Drawing.Drawing2D.DashStyle dashStyle)
+    private double[]? GetDashArray()
     {
-        return dashStyle switch
+        if (_dashStyle == DashStyle.Custom && _customDashPattern is not null)
         {
-            System.Drawing.Drawing2D.DashStyle.Dash => s_dashPattern,
-            System.Drawing.Drawing2D.DashStyle.Dot => s_dotPattern,
-            System.Drawing.Drawing2D.DashStyle.DashDot => s_dashDotPattern,
-            System.Drawing.Drawing2D.DashStyle.DashDotDot => s_dashDotDotPattern,
-            System.Drawing.Drawing2D.DashStyle.Custom => s_defaultCustomPattern,
+            return Array.ConvertAll(_customDashPattern, static value => (double)value);
+        }
+
+        return _dashStyle switch
+        {
+            DashStyle.Dash => s_dashPattern,
+            DashStyle.Dot => s_dotPattern,
+            DashStyle.DashDot => s_dashDotPattern,
+            DashStyle.DashDotDot => s_dashDotDotPattern,
+            DashStyle.Custom => s_defaultCustomPattern,
             _ => null
         };
+    }
+
+    public object Clone()
+    {
+        ThrowIfDisposed();
+        return new Pen(_brush, _width, immutable: false, cloneBrush: true)
+        {
+            _alignment = _alignment,
+            _compoundArray = _compoundArray is null ? null : (float[])_compoundArray.Clone(),
+            _dashCap = _dashCap,
+            _dashOffset = _dashOffset,
+            _dashStyle = _dashStyle,
+            _endCap = _endCap,
+            _lineJoin = _lineJoin,
+            _miterLimit = _miterLimit,
+            _startCap = _startCap,
+            _transform = _transform,
+            _customDashPattern = _customDashPattern is null ? null : (float[])_customDashPattern.Clone(),
+            _customStartCap = _customStartCap is null ? null : (CustomLineCap)_customStartCap.Clone(),
+            _customEndCap = _customEndCap is null ? null : (CustomLineCap)_customEndCap.Clone()
+        };
+    }
+
+    private LineCap GetEffectiveStartCap()
+        => _startCap == LineCap.Custom && _customStartCap is not null
+            ? _customStartCap.BaseCap
+            : _startCap;
+
+    private LineCap GetEffectiveEndCap()
+        => _endCap == LineCap.Custom && _customEndCap is not null
+            ? _customEndCap.BaseCap
+            : _endCap;
+
+    private static bool HasDescendingCompoundValue(ReadOnlySpan<float> values)
+    {
+        for (int index = 1; index < values.Length; index++)
+        {
+            if (values[index] < values[index - 1])
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static ProGPU.Vector.PenLineCap ToProGpuLineCap(LineCap lineCap)
@@ -183,8 +668,60 @@ public class Pen : IDisposable
         }
     }
 
+    private void ApplyTransform(Matrix3x2 operation, MatrixOrder order)
+    {
+        ThrowIfDisposed();
+        ThrowIfImmutable();
+        if (order is not MatrixOrder.Prepend and not MatrixOrder.Append)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(order));
+        }
+
+        if (!IsFinite(operation))
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+
+        Matrix3x2 result = order == MatrixOrder.Prepend
+            ? operation * _transform
+            : _transform * operation;
+        if (!IsFinite(result))
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+
+        _transform = result;
+    }
+
+    private static bool IsFinite(Matrix3x2 matrix)
+        => float.IsFinite(matrix.M11) &&
+            float.IsFinite(matrix.M12) &&
+            float.IsFinite(matrix.M21) &&
+            float.IsFinite(matrix.M22) &&
+            float.IsFinite(matrix.M31) &&
+            float.IsFinite(matrix.M32);
+
     public void Dispose()
     {
-        Brush?.Dispose();
+        ThrowIfImmutable();
+        if (_disposed)
+        {
+            return;
+        }
+
+        _brush.Dispose();
+        _customStartCap?.Dispose();
+        _customEndCap?.Dispose();
+        _disposed = true;
+    }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+
+    private void ThrowIfImmutable()
+    {
+        if (_immutable)
+        {
+            throw new ArgumentException("Changes cannot be made to an immutable system pen.");
+        }
     }
 }

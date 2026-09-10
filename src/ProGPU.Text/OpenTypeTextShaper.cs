@@ -8053,6 +8053,9 @@ public static class OpenTypeTextShaper
             ushort invisibleGlyph = preserveDefaultIgnorables || removeDefaultIgnorables
                 ? (ushort)0
                 : font.GetGlyphIndex(' ');
+            ushort visibleDefaultIgnorableGlyph = preserveDefaultIgnorables
+                ? GetVisibleDefaultIgnorableGlyph(font)
+                : (ushort)0;
             int outputCount = substitutions.Count;
             if (invisibleGlyph == 0)
             {
@@ -8112,6 +8115,11 @@ public static class OpenTypeTextShaper
                 if (defaultIgnorable && record.Substituted == 0 && !preserveDefaultIgnorables)
                 {
                     record.GlyphIndex = invisibleGlyph;
+                }
+                else if (defaultIgnorable && record.Substituted == 0 && preserveDefaultIgnorables &&
+                         !HasVisibleOutline(font, record.GlyphIndex))
+                {
+                    record.GlyphIndex = visibleDefaultIgnorableGlyph;
                 }
                 if (vertical)
                 {
@@ -8179,6 +8187,32 @@ public static class OpenTypeTextShaper
                     _glyphs[previous].Cluster = cluster;
             }
         }
+
+        private static ushort GetVisibleDefaultIgnorableGlyph(TtfFont font)
+        {
+            ReadOnlySpan<uint> representatives = [0x25A1, 0x25CC, 0xFFFD, (uint)'?'];
+            for (int index = 0; index < representatives.Length; index++)
+            {
+                ushort glyphIndex = font.GetGlyphIndex(representatives[index]);
+                if (glyphIndex != 0 && HasVisibleOutline(font, glyphIndex))
+                {
+                    return glyphIndex;
+                }
+            }
+
+            return 0;
+        }
+
+        private static bool HasVisibleOutline(TtfFont font, ushort glyphIndex) =>
+            font.TryGetGlyphBounds(
+                glyphIndex,
+                out short xMin,
+                out short yMin,
+                out short xMax,
+                out short yMax) &&
+            xMax > xMin &&
+            yMax > yMin &&
+            font.GetFlippedGlyphOutline(glyphIndex) is not null;
 
         private static void ApplySpaceFallback(TtfFont font, bool vertical, ref GlyphRecord record)
         {

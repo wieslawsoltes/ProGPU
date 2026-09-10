@@ -9,6 +9,7 @@ struct VertexInput {
     @location(4) cubicResampler: vec2<f32>,
     @location(5) colorBlendMode: f32,
     @location(6) patchOpacity: f32,
+    @location(7) projectiveQ: f32,
 };
 
 struct VertexOutput {
@@ -19,6 +20,7 @@ struct VertexOutput {
     @location(3) @interpolate(flat) patchKind: f32,
     @location(4) @interpolate(flat) colorBlendMode: f32,
     @location(5) @interpolate(flat) patchOpacity: f32,
+    @location(6) projectiveQ: f32,
 };
 
 struct Uniforms {
@@ -40,7 +42,9 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     var pos = input.position;
     output.position = uniforms.projection * vec4<f32>(pos, 0.0, 1.0);
     output.color = input.color;
-    output.texCoord = input.texCoord;
+    let projectiveQ = select(1.0, input.projectiveQ, abs(input.projectiveQ) > 0.000001);
+    output.texCoord = input.texCoord * projectiveQ;
+    output.projectiveQ = projectiveQ;
     output.cubicResampler = input.cubicResampler;
     output.patchKind = input.patchKind;
     output.colorBlendMode = input.colorBlendMode;
@@ -553,14 +557,15 @@ fn blend_atlas_color(source: vec4<f32>, destinationPremultiplied: vec4<f32>, mod
 }
 
 fn texture_fs_main_with_mask(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
-    let textureCoordDx = dpdx(input.texCoord);
-    let textureCoordDy = dpdy(input.texCoord);
+    let textureCoord = input.texCoord / max(abs(input.projectiveQ), 0.000001);
+    let textureCoordDx = dpdx(textureCoord);
+    let textureCoordDy = dpdy(textureCoord);
     let addressModes = select(
         vec2<f32>(0.0),
         vec2<f32>(input.colorBlendMode, input.patchOpacity),
         input.patchKind < 0.5);
     let addressedTexCoord = address_texture_coordinates(
-        input.texCoord,
+        textureCoord,
         addressModes);
     if (maskAlpha <= 0.0) {
         discard;
@@ -598,6 +603,17 @@ fn texture_fs_main_with_mask(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     let sourceIsPremultiplied = is_tile_page(input) || input.color.g > 0.5;
     let rgbScale = select(input.color.r, opacity, is_tile_page(input));
     let coverage = opacity * maskAlpha;
+    // A ROP3 bounded source is a GDI device-color input: source alpha does not
+    // participate in the Boolean truth table. Preserve geometry/mask coverage
+    // in alpha while materializing straight RGB, including straight alpha-zero
+    // bitmap pixels.
+    if (uniforms.boundedSourcePass > 1.5) {
+        var rasterRgb = texColor.rgb;
+        if (sourceIsPremultiplied) {
+            rasterRgb = atlas_unpremultiply(texColor).rgb;
+        }
+        return vec4<f32>(rasterRgb, maskAlpha);
+    }
     if (sourceIsPremultiplied) {
         return vec4<f32>(texColor.rgb * rgbScale * maskAlpha, texColor.a * coverage);
     }
@@ -674,14 +690,15 @@ fn color_matrix_fs_main_with_mask(
     input: VertexOutput,
     matrix: MaskSamplingUniforms,
     maskAlpha: f32) -> vec4<f32> {
-    let textureCoordDx = dpdx(input.texCoord);
-    let textureCoordDy = dpdy(input.texCoord);
+    let textureCoord = input.texCoord / max(abs(input.projectiveQ), 0.000001);
+    let textureCoordDx = dpdx(textureCoord);
+    let textureCoordDy = dpdy(textureCoord);
     let addressModes = select(
         vec2<f32>(0.0),
         vec2<f32>(input.colorBlendMode, input.patchOpacity),
         input.patchKind < 0.5);
     let addressedTexCoord = address_texture_coordinates(
-        input.texCoord,
+        textureCoord,
         addressModes);
     var source = sample_image(input, addressedTexCoord, addressModes,
         textureCoordDx, textureCoordDy);
