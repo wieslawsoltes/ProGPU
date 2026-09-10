@@ -5602,7 +5602,7 @@ int main()
     std::vector<std::byte> aliased_path_bytes(static_cast<std::size_t>(aliased_path_scene.required_bytes));
     require(progpu_native_direct2d_command_list_build_scene_stream(
             surface, aliased_path_list.Get(), 7006U, 1U,
-            aliased_path_bytes.data(), aliased_path_bytes.size(), &aliased_path_scene, &native_hresult) ==
+            reinterpret_cast<std::uint8_t*>(aliased_path_bytes.data()), aliased_path_bytes.size(), &aliased_path_scene, &native_hresult) ==
                 PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && native_hresult == S_OK &&
             aliased_path_scene.written_bytes == aliased_path_bytes.size() &&
             progpu::native::direct2d::tests::shape_aliasing_contract(aliased_path_bytes, true),

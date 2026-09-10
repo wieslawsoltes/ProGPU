@@ -16,6 +16,12 @@ explicit stroke-spine bounds policy without changing positive-area fill admissio
 Preserve split runs, local-before-widen transforms, cap ownership and real pen
 width; never inflate a centerline into a fake rectangle or discard it as empty.
 
+Retained rectangle stroke preparation selects a sharp four-line source spine
+when either corner radius is zero. Clearing smooth-join flags on collapsed cubic
+corners is not equivalent. Preserve geometry-local mapping before widening and
+the original pen width; collapsed shapes may retain only a rigid pen frame.
+Keep paired zero-X/zero-Y managed/native coordinate and material-bounds fixtures.
+
 Built-in source identity effects preserve input around an admitted local cache.
 The inner cache owns original-content frame conversion; the outer effect owns
 its final source clip, not effect padding. Keep spatial visual masks rejected

@@ -10036,7 +10036,8 @@ int run_tests()
         for (const bool with_opacity : {false, true}) {
             auto parameters = masked_layer_parameters;
             parameters.mask_antialias_mode = mode;
-            if (!with_opacity) parameters.opacity_brush = nullptr;
+            parameters.opacity_brush = with_opacity
+                ? static_cast<compat::brush*>(linear_brush.get()) : nullptr;
             // The mask's mode is independent of the target's geometry mode.
             target->SetAntialiasMode(mode == compat::antialias_mode::aliased
                 ? compat::antialias_mode::per_primitive : compat::antialias_mode::aliased);

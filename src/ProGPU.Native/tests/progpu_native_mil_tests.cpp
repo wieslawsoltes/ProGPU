@@ -8355,6 +8355,9 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     const auto primitive_geometry_header =
         read_value<progpu_native_scene_header>(stream, 0U);
     std::uint32_t transformed_analytic_count = 0U;
+    std::uint32_t transformed_line_count = 0U;
+    std::uint32_t transformed_cubic_count = 0U;
+    std::uint32_t transformed_arc_count = 0U;
     for (std::uint32_t index = 0U;
         index < primitive_geometry_header.resource_count;
         ++index) {
@@ -8362,6 +8365,25 @@ bool solid_pen_line_compiles_to_geometry_scene() {
             stream,
             primitive_geometry_header.resource_offset +
                 index * sizeof(progpu_native_scene_resource));
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            for (std::size_t i = 0U; i < record.payload_size / sizeof(progpu_native_geometry_primitive); ++i) {
+                const auto p = read_value<progpu_native_geometry_primitive>(stream,
+                    record.payload_offset + i * sizeof(progpu_native_geometry_primitive));
+                PROGPU_REQUIRE(p.transform.m11 == 1.0F && p.transform.m22 == 1.0F);
+                PROGPU_REQUIRE(p.transform.m12 == 0.0F && p.transform.m21 == 0.0F);
+                PROGPU_REQUIRE(p.transform.m31 == 0.0F && p.transform.m32 == 0.0F);
+                PROGPU_REQUIRE(p.stroke_thickness == 2.0F);
+                if (p.kind == PROGPU_NATIVE_GEOMETRY_LINE) ++transformed_line_count;
+                if (p.kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER) ++transformed_cubic_count;
+                if (p.kind == PROGPU_NATIVE_GEOMETRY_ARC) {
+                    PROGPU_REQUIRE(p.p0.x == 18.0F && p.p0.y == 16.0F);
+                    PROGPU_REQUIRE(p.p1.x == 8.0F && p.p1.y == 0.0F);
+                    PROGPU_REQUIRE(p.p2.x == 0.0F && p.p2.y == 6.0F);
+                    ++transformed_arc_count;
+                }
+            }
+            continue;
+        }
         if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
             continue;
         }
@@ -8376,7 +8398,12 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         PROGPU_REQUIRE(primitive.transform.m22 == 2.0F);
         ++transformed_analytic_count;
     }
-    PROGPU_REQUIRE(transformed_analytic_count >= 3U);
+    // Two analytic fills; geometry-local scaling maps the separate stroke
+    // spines before widening, without scaling the source pen a second time.
+    PROGPU_REQUIRE(transformed_analytic_count == 2U);
+    PROGPU_REQUIRE(transformed_line_count == 4U);
+    PROGPU_REQUIRE(transformed_cubic_count == 4U);
+    PROGPU_REQUIRE(transformed_arc_count == 1U);
 
     std::vector<std::byte> nonuniform_rectangle_geometry_update;
     append_command(
@@ -8415,7 +8442,7 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     const auto nonuniform_rectangle_geometry_header =
         read_value<progpu_native_scene_header>(stream, 0U);
     std::uint32_t retained_nonuniform_path_count = 0U;
-    std::uint32_t retained_nonuniform_arc_count = 0U;
+    std::uint32_t retained_nonuniform_cubic_count = 0U;
     for (std::uint32_t index = 0U;
          index < nonuniform_rectangle_geometry_header.resource_count;
          ++index) {
@@ -8443,27 +8470,36 @@ bool solid_pen_line_compiles_to_geometry_scene() {
                         stream,
                         record.payload_offset + primitive_index *
                             sizeof(progpu_native_geometry_primitive));
-                if (primitive.kind != PROGPU_NATIVE_GEOMETRY_ARC) {
+                if (primitive.kind != PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER) {
                     continue;
                 }
-                PROGPU_REQUIRE(primitive.p1.x == 3.0F);
-                PROGPU_REQUIRE(primitive.p2.y == 1.0F);
-                PROGPU_REQUIRE(primitive.transform.m11 == 2.0F);
-                PROGPU_REQUIRE(primitive.transform.m22 == 2.0F);
-                ++retained_nonuniform_arc_count;
+                PROGPU_REQUIRE(retained_nonuniform_cubic_count < 4U);
+                const std::array starts{progpu_native_point{8.0F, 10.0F}, progpu_native_point{26.0F, 8.0F},
+                    progpu_native_point{32.0F, 22.0F}, progpu_native_point{14.0F, 24.0F}};
+                const std::array ends{progpu_native_point{14.0F, 8.0F}, progpu_native_point{32.0F, 10.0F},
+                    progpu_native_point{26.0F, 24.0F}, progpu_native_point{8.0F, 22.0F}};
+                PROGPU_REQUIRE(primitive.p0.x == starts[retained_nonuniform_cubic_count].x);
+                PROGPU_REQUIRE(primitive.p0.y == starts[retained_nonuniform_cubic_count].y);
+                PROGPU_REQUIRE(primitive.p3.x == ends[retained_nonuniform_cubic_count].x);
+                PROGPU_REQUIRE(primitive.p3.y == ends[retained_nonuniform_cubic_count].y);
+                PROGPU_REQUIRE(primitive.transform.m11 == 1.0F);
+                PROGPU_REQUIRE(primitive.transform.m22 == 1.0F);
+                PROGPU_REQUIRE(primitive.stroke_thickness == 2.0F);
+                ++retained_nonuniform_cubic_count;
             }
         }
     }
     PROGPU_REQUIRE(retained_nonuniform_path_count == 1U);
-    PROGPU_REQUIRE(retained_nonuniform_arc_count == 4U);
+    PROGPU_REQUIRE(retained_nonuniform_cubic_count == 4U);
 
+    for (const auto radii : {std::array{0.0, 3.0}, std::array{3.0, 0.0}}) {
     std::vector<std::byte> zero_axis_rectangle_geometry_update;
     append_command(
         zero_axis_rectangle_geometry_update,
         command::rectangle_geometry,
         rectangle_geometry,
-        0.0,
-        3.0,
+        radii[0],
+        radii[1],
         4.0,
         4.0,
         12.0,
@@ -8516,13 +8552,23 @@ bool solid_pen_line_compiles_to_geometry_scene() {
             const auto stroke = read_value<progpu_native_scene_stroke>(
                 stream,
                 record.payload_offset);
-            PROGPU_REQUIRE(stroke.transform.m11 == 2.0F);
-            PROGPU_REQUIRE(stroke.transform.m22 == 2.0F);
+            PROGPU_REQUIRE(stroke.transform.m11 == 1.0F);
+            PROGPU_REQUIRE(stroke.transform.m22 == 1.0F);
+            PROGPU_REQUIRE(stroke.stroke_thickness == 2.0F);
+            PROGPU_REQUIRE(stroke.point_count == 4U);
+            const std::array expected{progpu_native_point{8.0F, 8.0F}, progpu_native_point{32.0F, 8.0F},
+                progpu_native_point{32.0F, 24.0F}, progpu_native_point{8.0F, 24.0F}};
+            for (std::size_t p = 0U; p < expected.size(); ++p) {
+                const auto point = read_value<progpu_native_point>(stream,
+                    record.auxiliary_offset + stroke.point_offset + p * sizeof(progpu_native_point));
+                PROGPU_REQUIRE(point.x == expected[p].x && point.y == expected[p].y);
+            }
             ++retained_zero_axis_stroke_count;
         }
     }
     PROGPU_REQUIRE(retained_zero_axis_fill_count == 1U);
     PROGPU_REQUIRE(retained_zero_axis_stroke_count == 1U);
+    }
 
     std::vector<std::byte> degenerate_ellipse_geometry_update;
     append_command(
@@ -8575,12 +8621,17 @@ bool solid_pen_line_compiles_to_geometry_scene() {
                 stream,
                 record.payload_offset);
         PROGPU_REQUIRE(primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE);
-        PROGPU_REQUIRE(primitive.p0.x == 9.0F);
-        PROGPU_REQUIRE(primitive.p0.y == 5.0F);
-        PROGPU_REQUIRE(primitive.p1.x == 9.0F);
-        PROGPU_REQUIRE(primitive.p1.y == 11.0F);
-        PROGPU_REQUIRE(primitive.transform.m11 == 2.0F);
-        PROGPU_REQUIRE(primitive.transform.m22 == 2.0F);
+        // Collapsed shapes retain a rigid pen frame: geometry scale changes
+        // the local spine length, while its translated origin stays in frame.
+        PROGPU_REQUIRE(primitive.p0.x == 0.0F);
+        PROGPU_REQUIRE(primitive.p0.y == -6.0F);
+        PROGPU_REQUIRE(primitive.p1.x == 0.0F);
+        PROGPU_REQUIRE(primitive.p1.y == 6.0F);
+        PROGPU_REQUIRE(primitive.transform.m11 == 1.0F);
+        PROGPU_REQUIRE(primitive.transform.m22 == 1.0F);
+        PROGPU_REQUIRE(primitive.transform.m31 == 18.0F);
+        PROGPU_REQUIRE(primitive.transform.m32 == 16.0F);
+        PROGPU_REQUIRE(primitive.stroke_thickness == 2.0F);
         ++retained_degenerate_ellipse_line_count;
     }
     PROGPU_REQUIRE(retained_degenerate_ellipse_line_count == 1U);
@@ -8636,8 +8687,10 @@ bool solid_pen_line_compiles_to_geometry_scene() {
             stream,
             record.payload_offset);
         PROGPU_REQUIRE(path.segment_count == 8U);
-        PROGPU_REQUIRE(path.transform.m11 == 2.0F);
-        PROGPU_REQUIRE(path.transform.m22 == 2.0F);
+        PROGPU_REQUIRE(path.transform.m11 == 1.0F);
+        PROGPU_REQUIRE(path.transform.m22 == 1.0F);
+        PROGPU_REQUIRE(path.transform.m31 == 6.0F);
+        PROGPU_REQUIRE(path.transform.m32 == 8.0F);
         ++retained_degenerate_rectangle_path_count;
     }
     PROGPU_REQUIRE(retained_degenerate_rectangle_path_count == 1U);
@@ -8652,10 +8705,10 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
             continue;
         }
-        PROGPU_REQUIRE(record.bounds_x == 18.0F);
-        PROGPU_REQUIRE(record.bounds_y == 32.0F);
-        PROGPU_REQUIRE(record.bounds_width == 8.0F);
-        PROGPU_REQUIRE(record.bounds_height == 24.0F);
+        PROGPU_REQUIRE(record.bounds_x == 20.0F);
+        PROGPU_REQUIRE(record.bounds_y == 34.0F);
+        PROGPU_REQUIRE(record.bounds_width == 4.0F);
+        PROGPU_REQUIRE(record.bounds_height == 20.0F);
         ++retained_degenerate_rectangle_draw_count;
     }
     PROGPU_REQUIRE(retained_degenerate_rectangle_draw_count == 1U);
@@ -9977,18 +10030,20 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
                 (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
                     PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
             PROGPU_REQUIRE(primitive.stroke_thickness == 2.0F);
-            PROGPU_REQUIRE(primitive.transform.m11 == 1.5F);
-            PROGPU_REQUIRE(primitive.transform.m22 == 1.5F);
+            PROGPU_REQUIRE(primitive.transform.m11 == 1.0F);
+            PROGPU_REQUIRE(primitive.transform.m22 == 1.0F);
+            PROGPU_REQUIRE(primitive.transform.m31 == 0.0F);
+            PROGPU_REQUIRE(primitive.transform.m32 == 0.0F);
             if (primitive.p2.x == 1.0F) {
                 PROGPU_REQUIRE(cap == PROGPU_NATIVE_STROKE_CAP_ROUND);
-                PROGPU_REQUIRE(primitive.p0.x == 1.0F);
-                PROGPU_REQUIRE(primitive.p0.y == 2.0F);
+                PROGPU_REQUIRE(primitive.p0.x == 3.5F);
+                PROGPU_REQUIRE(primitive.p0.y == 6.0F);
                 ++start_cap_count;
             } else {
                 PROGPU_REQUIRE(primitive.p2.x == 0.0F);
                 PROGPU_REQUIRE(cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE);
-                PROGPU_REQUIRE(primitive.p0.x == 9.0F);
-                PROGPU_REQUIRE(primitive.p0.y == 8.0F);
+                PROGPU_REQUIRE(primitive.p0.x == 15.5F);
+                PROGPU_REQUIRE(primitive.p0.y == 15.0F);
                 ++end_cap_count;
             }
         }

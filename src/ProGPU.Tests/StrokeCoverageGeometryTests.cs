@@ -8,6 +8,26 @@ namespace ProGPU.Tests;
 public sealed class StrokeCoverageGeometryTests
 {
     [Theory]
+    [InlineData(0f, 3f)]
+    [InlineData(3f, 0f)]
+    public void ZeroCornerAxisKeepsSharpTransformedSpineAndUnscaledPen(float radiusX, float radiusY)
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 2, lineJoin: PenLineJoin.Miter);
+        Assert.True(StrokeCoverageGeometry.TryPrepareRoundedRectangle(new(4, 4, 12, 8), radiusX, radiusY,
+            Matrix3x2.CreateScale(2), pen, out var path, out var preparedPen, out var bounds));
+        var figure = Assert.Single(path.Figures);
+        Assert.True(figure.IsClosed);
+        Assert.Equal(new Vector2(8, 8), figure.StartPoint);
+        Assert.Equal(3, figure.Segments.Count);
+        Vector2[] ends = [new(32, 8), new(32, 24), new(8, 24)];
+        for (int i = 0; i < ends.Length; i++)
+            Assert.Equal(ends[i], Assert.IsType<LineSegment>(figure.Segments[i]).Point);
+        Assert.Same(pen, preparedPen);
+        Assert.Equal(2, preparedPen.Thickness);
+        Assert.Equal(new Rect(7, 7, 26, 18), bounds);
+    }
+
+    [Theory]
     [InlineData(PenLineJoin.Miter)]
     [InlineData(PenLineJoin.Bevel)]
     [InlineData(PenLineJoin.Round)]

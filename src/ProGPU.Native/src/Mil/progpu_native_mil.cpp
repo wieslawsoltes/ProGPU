@@ -13337,7 +13337,8 @@ struct channel::implementation {
                 progpu_native_image_rect stroke_bounds{};
                 if (!contour.segments.empty()) {
                     progpu_native_image_rect curve_bounds{};
-                    if (!try_get_path_segment_bounds(contour.segments, curve_bounds)) return status::invalid_graph;
+                    if (!try_get_path_segment_bounds(contour.segments, curve_bounds,
+                            path_bounds_policy::stroke_spine)) return status::invalid_graph;
                     left = curve_bounds.x;
                     top = curve_bounds.y;
                     right = double{curve_bounds.x} + curve_bounds.width;
@@ -13554,6 +13555,10 @@ struct channel::implementation {
             geometry.fill_rule = 0U;
             radius_x = std::clamp(radius_x, 0.0, width * 0.5);
             radius_y = std::clamp(radius_y, 0.0, height * 0.5);
+            // WPF RectangleGeometry.IsRounded requires both radii. Normalize
+            // before making the source spine, not only its later join flags.
+            const bool rounded = radius_x != 0.0 && radius_y != 0.0;
+            if (!rounded) radius_x = radius_y = 0.0;
             constexpr double arc_as_bezier =
                 0.5522847498307933984;
             const double bezier_x =
@@ -13618,19 +13623,19 @@ struct channel::implementation {
                 segment.p1 = points[start + 1U];
                 geometry.segments.push_back(segment);
             };
-            append_cubic(0U);
+            if (rounded) append_cubic(0U);
             append_line(3U);
-            append_cubic(4U);
+            if (rounded) append_cubic(4U);
             append_line(7U);
-            append_cubic(8U);
+            if (rounded) append_cubic(8U);
             append_line(11U);
-            append_cubic(12U);
+            if (rounded) append_cubic(12U);
             append_line(15U);
             path_stroke_contour_state contour{};
             contour.closed = true;
             contour.points.reserve(geometry.segments.size());
             contour.segments = geometry.segments;
-            contour.smooth_joins.assign(geometry.segments.size(), 1U);
+            contour.smooth_joins.assign(geometry.segments.size(), rounded ? 1U : 0U);
             for (const auto& segment : geometry.segments) {
                 contour.points.push_back(segment.p0);
             }
@@ -14208,10 +14213,6 @@ struct channel::implementation {
                 geometry.third > 0.0 && geometry.fourth > 0.0) {
                 path = make_wpf_rounded_rectangle_geometry(geometry.first, geometry.second,
                     geometry.third, geometry.fourth, geometry.radius_x, geometry.radius_y);
-                if (geometry.radius_x == 0.0 || geometry.radius_y == 0.0) {
-                    path.stroke_contours.front().smooth_joins.assign(
-                        path.stroke_contours.front().segments.size(), 0U);
-                }
             } else if (geometry.kind == fixed_geometry_kind::ellipse &&
                 geometry.third > 0.0 && geometry.fourth > 0.0) {
                 path = make_ellipse_path_geometry(geometry.first, geometry.second,
