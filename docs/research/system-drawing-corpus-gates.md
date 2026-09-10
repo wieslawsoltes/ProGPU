@@ -84,10 +84,25 @@ reason; unknown fixture keys fail the gate.
 The performance command uses ten representative W3C fixtures spanning basic
 shapes, paths, gradients, patterns, and text. It warms the complete pipeline,
 then records seven isolated Release samples with elapsed time, total managed
-allocation, and a pixel-derived checksum. Results are raw evidence rather than
-a single-run performance claim. Establish regression budgets only after
-several alternating runs on a pinned runner image; keep the complete corpus as
-a correctness gate and use the representative set for iteration speed.
+allocation, and a pixel-derived checksum. The automatic gate requires the
+complete fixture set, at least seven samples, the expected semantic checksum,
+the expected x64 process architecture, and both median and nearest-rank p95
+time/allocation budgets from
+`eng/system-drawing-svg-performance-budget.json`. The JSON evidence also
+records the OS, process architecture, runtime, processor count, and GC mode.
+Keep the complete corpus as the correctness gate and use this representative
+set for bounded regression detection rather than as a universal throughput
+claim.
+
+The hosted x64 budget was calibrated from three successful seven-sample runs.
+Their medians were `4,597.710`, `4,637.553`, and `4,593.515` ms and
+`175,522,168`, `175,528,952`, and `175,521,832` allocated bytes. The gate
+allows `5,750` ms median / `6,500` ms p95 and `185,000,000` B median /
+`190,000,000` B p95. These intentionally broad limits detect material
+regressions while allowing hosted-runner noise. Recalibration requires a
+reviewed reference commit and several equivalent Release runs; an improvement
+does not justify silently relaxing a correctness inventory or changing the
+fixture checksum.
 
 The 2026-09-07 pinned-font local ARM64/.NET 10.0.400 software-WebGPU run records
 a `5,655.852` ms median and `176,001,760` median allocated bytes for the complete
@@ -188,6 +203,7 @@ performance
 --corpus-root <Svg.Skia checkout>
 --artifacts <artifact directory>
 --benchmark-fixtures eng/system-drawing-svg-benchmark-fixtures.txt
+--performance-budget eng/system-drawing-svg-performance-budget.json
 --iterations 7
 ```
 
