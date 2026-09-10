@@ -161,10 +161,13 @@ public sealed class CachedPictureTests
             window.Render();
             var actual = window.ReadPixels();
             Assert.Equal(expected.Length, actual.Length);
+            Assert.True(window.Compositor.Metrics.MaskRenderDrawCallCount > 0,
+                $"Stroke mask has no draw calls; passes={window.Compositor.Metrics.MaskRenderPassCount}, source texture={source.Picture.GetVisual().LayerTexture != null}");
             int painted = 0;
             for (int index = 0; index < expected.Length; index++)
             {
-                Assert.InRange(Math.Abs(expected[index] - actual[index]), 0, 2);
+                Assert.True(Math.Abs(expected[index] - actual[index]) <= 2,
+                    $"Pixel ({index / 4 % 64}, {index / 4 / 64}) channel {index % 4}: expected {expected[index]}, actual {actual[index]}");
                 if (index % 4 != 3 && actual[index] > 32) painted++;
             }
             Assert.True(painted > 16);
@@ -303,6 +306,7 @@ public sealed class CachedPictureTests
     public void CachedMaskMatchesAlphaOracleAndRefreshesWithoutReRecording()
     {
         using var window = new HeadlessWindow(64, 64);
+        window.Compositor.ClearColor = Vector4.Zero;
         using var input = CreatePicture(new Vector4(0, 0, 0.5f, 0.5f));
         var provider = new PictureSource(input);
         using var cache = new CachedPictureSourceCache<object>();

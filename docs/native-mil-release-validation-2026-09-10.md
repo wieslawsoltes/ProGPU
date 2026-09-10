@@ -35,6 +35,38 @@ native scene submission. Baseline: ProGPU `2a998c86`, rebased on main `73cda9a5`
 
 ## Evidence and outstanding gates
 
+### Second failure-fix batch
+
+The real source-built macOS ARM64 host now passes at LibreWPF `ecef7f4c1`,
+including native owner input, geometry selection, image/text updates and device
+recovery in the same window (23 commands / 20 resources / 9 draws). It explicitly
+supplies the pre-theme hyperlink decoration; package theme startup is separate.
+
+Native internal tests and geometry-utility tests pass after correcting the
+hit-resource generation fixture and discarding float-equivalent empty split
+edges before boolean side classification. The source rectangle/pen fixture now
+checks the renderer's actual 21 line/triangle stroke pieces, their owner and tight
+stroke bounds, rather than expecting a synthetic analytic rectangle stroke.
+The Direct2D GPU fixture uses separate scene identities and the observed five
+cold submissions; original pixel checks now pass through geometry, effects and
+cache variants, stopping later at Viewport3D sibling/depth pixels.
+
+Nested managed layer compilation must borrow, not return, outer mask draw-call
+lists. This lifetime fix restores cached stroke painting. The original four
+pixel comparisons still fail on coverage/alpha differences; their tolerance is
+unchanged. Focused mask/layer coverage: 95 pass / 4 fail. Cached opacity-mask
+fixtures explicitly clear transparent. The remaining zero-dash rejection fixture
+now uses an actually invalid all-zero pattern.
+
+Windows CI compiled both native RIDs and MSVC successfully, then rejected twenty
+new exports absent from the maintained manifests. Both provider manifests now
+match the actual native library symbol sets exactly. GCC exposed a second
+enum/unsigned conditional, now explicitly typed. No export check was disabled.
+The round-join bounds fixture now includes the incoming horizontal strip's
+actual y=1 extent; the Direct2D compatibility executable advances to its existing
+bevel/round Widen checkpoint 344. MIL advances to ellipse input compilation.
+These later failures remain blocking, not skipped or treated as parity.
+
 All six native RID builds completed at the baseline source. They are build-only,
 unqualified artifacts, not payloads for subsequent fixes. Windows managed payload
 CI passed at LibreWPF `bc6c30a89`; that exact artifact was downloaded.

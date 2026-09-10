@@ -232,7 +232,7 @@ struct portable_scene final {
     native_com::pointer<d2d::scene_render_target_native> scene_target;
 };
 
-[[nodiscard]] portable_scene record_scene()
+[[nodiscard]] portable_scene record_scene(std::uint64_t scene_id = 9301U)
 {
     d2d::factory* raw_factory = nullptr;
     require(d2d::create_factory(&raw_factory) == native_com::ok &&
@@ -245,7 +245,7 @@ struct portable_scene final {
             scene_factory) == native_com::ok &&
         scene_factory, "portable scene factory query failed");
     const d2d::scene_render_target_properties properties{
-        width, height, 96.0F, 96.0F, 9301U, 1U};
+        width, height, 96.0F, 96.0F, scene_id, 1U};
     d2d::render_target* raw_target = nullptr;
     require(scene_factory->CreateSceneRenderTarget(
             &properties, &raw_target) == native_com::ok &&
@@ -684,7 +684,7 @@ struct portable_scene final {
     d2d::scene_render_target_native* scene_target,
     std::uint32_t expected_draws = 17U,
     std::uint32_t expected_commands = 27U,
-    std::uint64_t expected_submissions = 4U,
+    std::uint64_t expected_submissions = 5U,
     std::span<const std::byte> mil_scene = {},
     std::uint64_t mil_scene_id = 9011U,
     std::uint64_t mil_generation = 1U)
@@ -895,6 +895,13 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
             std::abs(static_cast<int>(value[1]) - green) <= 1 &&
             std::abs(static_cast<int>(value[2]) - blue) <= 1 && value[3] == 255U;
     };
+    if (!near_rgba(pixel(12U, 4U), 128, 0, 0) || !near_rgba(pixel(44U, 4U), 64, 128, 0)) {
+        const auto* old_pixel = pixel(12U, 4U);
+        const auto* new_pixel = pixel(44U, 4U);
+        std::fprintf(stderr, "picture generations old=(%u,%u,%u,%u) new=(%u,%u,%u,%u)\n",
+            old_pixel[0], old_pixel[1], old_pixel[2], old_pixel[3],
+            new_pixel[0], new_pixel[1], new_pixel[2], new_pixel[3]);
+    }
     require(near_rgba(pixel(12U, 4U), 128, 0, 0) && near_rgba(pixel(44U, 4U), 64, 128, 0),
         "picture copy-on-write mutated an older capture");
     progpu_native_engine_destroy(reference_engine);
@@ -902,7 +909,8 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
 
 void verify_compatible_bitmap_uploads(const gpu_context& gpu, progpu_native_engine* engine)
 {
-    auto parent = record_scene();
+    // This independently updated target must not rewind the later main fixture.
+    auto parent = record_scene(9302U);
     for (const d2d::pixel_format format : {
             d2d::pixel_format{28U, d2d::alpha_mode::premultiplied},
             d2d::pixel_format{87U, d2d::alpha_mode::premultiplied},
@@ -913,8 +921,12 @@ void verify_compatible_bitmap_uploads(const gpu_context& gpu, progpu_native_engi
         const d2d::size_f logical_size{8.0F, 8.0F};
         const d2d::size_u pixels{16U, 16U};
         d2d::bitmap_render_target* raw_source = nullptr;
-        require(parent.target->CreateCompatibleRenderTarget(&logical_size, &pixels,
-            &format, d2d::compatible_render_target_options::none, &raw_source) == native_com::ok,
+        const auto compatible_status = parent.target->CreateCompatibleRenderTarget(&logical_size, &pixels,
+            &format, d2d::compatible_render_target_options::none, &raw_source);
+        if (compatible_status != native_com::ok)
+            std::fprintf(stderr, "compatible bitmap format=%u alpha=%u status=%x\n",
+                format.format, static_cast<unsigned>(format.alpha), static_cast<unsigned>(compatible_status));
+        require(compatible_status == native_com::ok,
             "copy bitmap target creation");
         native_com::pointer<d2d::bitmap_render_target> source;
         source.attach(raw_source);

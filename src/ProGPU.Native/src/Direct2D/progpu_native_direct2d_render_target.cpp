@@ -6150,7 +6150,7 @@ private:
                 const bool alpha_only = pixel_format_.format == dxgi_format_a8_unorm;
                 const auto expected_matrix = bitmap_alpha_matrix(picture);
                 const auto expected_image_flags = image_alpha_flags(pixel_format_.alpha) |
-                    (alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX : 0U);
+                    (alpha_only ? std::uint32_t{PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX} : 0U);
                 const std::uint32_t expected_storage_flags = picture ? std::uint32_t{PROGPU_NATIVE_SCENE_IMAGE_PICTURE}
                     : alpha_only ? std::uint32_t{PROGPU_NATIVE_SCENE_IMAGE_R8}
                     : pixel_format_.format == dxgi_format_b8g8r8a8_unorm ? std::uint32_t{PROGPU_NATIVE_SCENE_IMAGE_BGRA8} : 0U;

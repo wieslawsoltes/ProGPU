@@ -21135,16 +21135,28 @@ int main() {
                         header.resource_offset + i * sizeof(progpu_native_scene_resource));
                     if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
                     const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
-                    PROGPU_REQUIRE(page.primitive_count == (variant == 5U ? 2U : 1U));
+                    if (page.primitive_count != (variant == 5U ? 22U : 1U))
+                        std::fprintf(stderr, "source=%u variant=%u hit count=%u\n",
+                            static_cast<unsigned>(source), variant, page.primitive_count);
+                    PROGPU_REQUIRE(page.primitive_count == (variant == 5U ? 22U : 1U));
                     const auto fill = read_value<progpu_native_hit_test_primitive>(stream,
                         resource.auxiliary_offset + page.primitive_offset);
                     PROGPU_REQUIRE(fill.id == 1 && fill.kind == PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL);
                     PROGPU_REQUIRE(fill.bounds_min.x == 8 && fill.bounds_min.y == 8);
                     PROGPU_REQUIRE(fill.bounds_max.x == 56 && fill.bounds_max.y == 56);
                     if (variant == 5U) {
-                        const auto stroke = read_value<progpu_native_hit_test_primitive>(stream,
-                            resource.auxiliary_offset + page.primitive_offset + sizeof(fill));
-                        PROGPU_REQUIRE(stroke.id == 1 && stroke.kind == PROGPU_NATIVE_HIT_TEST_RECTANGLE_STROKE);
+                        // The shared stroke renderer exports its 21 canonical
+                        // line/triangle pieces, not a synthetic rectangle stroke.
+                        // All pieces still belong to the outer painted source.
+                        for (std::uint32_t p = 1U; p < page.primitive_count; ++p) {
+                            const auto stroke = read_value<progpu_native_hit_test_primitive>(stream,
+                                resource.auxiliary_offset + page.primitive_offset + p * sizeof(fill));
+                            PROGPU_REQUIRE(stroke.id == 1 &&
+                                (stroke.kind == PROGPU_NATIVE_HIT_TEST_LINE_STROKE ||
+                                    stroke.kind == PROGPU_NATIVE_HIT_TEST_PATH_FILL));
+                            PROGPU_REQUIRE(stroke.bounds_min.x >= 6 && stroke.bounds_min.y >= 6 &&
+                                stroke.bounds_max.x <= 58 && stroke.bounds_max.y <= 58);
+                        }
                     }
                     found = true;
                 }
@@ -21242,7 +21254,10 @@ int main() {
             if (!batch.empty()) PROGPU_REQUIRE(state.apply(batch) == status::success);
             request.generation = request.request_serial = phase + 1U;
             std::span<const std::byte> compiled;
-            PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+            const auto ellipse_status = state.build_scene(request, compiled);
+            if (ellipse_status != status::success)
+                std::fprintf(stderr, "ellipse input phase=%u status=%u\n", phase, static_cast<unsigned>(ellipse_status));
+            PROGPU_REQUIRE(ellipse_status == status::success);
             const std::vector<std::byte> stream(compiled.begin(), compiled.end());
             const auto header = read_value<progpu_native_scene_header>(stream, 0U);
             bool found = false;

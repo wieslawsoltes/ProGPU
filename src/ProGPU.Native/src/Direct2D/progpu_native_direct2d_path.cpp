@@ -4858,6 +4858,10 @@ void append_polygon_boolean_parameter(std::vector<double> &parameters,
               edge_start, edge_end, start_parameter);
           const point_2f end = interpolate_polygon_boolean_point(
               edge_start, edge_end, end_parameter);
+          // A split can round onto its neighbour in the float point domain.
+          // Skip the empty edge before asking which side of its direction is
+          // filled; that direction is undefined under our vertex equivalence.
+          if (same_polygon_boolean_point(start, end, point_tolerance(start))) continue;
           const point_2f midpoint = interpolate_polygon_boolean_point(
               edge_start,
               edge_end,

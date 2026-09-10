@@ -17489,7 +17489,9 @@ SceneStateUploadComplete:
         _blendModeStack.Clear();
         _activeBlendMode = GpuBlendMode.SrcOver;
         _maskStack.Clear();
-        ReturnMaskRenderPassDrawCallLists();
+        // The outer frame snapshot still owns these lists. Returning them here
+        // clears pending masks and lets the child reuse their storage.
+        _maskRenderPasses.Clear();
         _masksToReturnToPool.Clear();
 
         _pendingVectorStart = 0;
@@ -18264,6 +18266,7 @@ SceneStateUploadComplete:
 
             RestoreStack(ref _maskStack, savedMaskStack, savedMaskStackCount);
 
+            ReturnMaskRenderPassDrawCallLists();
             RestoreList(_maskRenderPasses, savedMaskRenderPasses, savedMaskRenderPassesCount);
 
             RestoreList(_masksToReturnToPool, savedMasksToReturnToPool, savedMasksToReturnToPoolCount);

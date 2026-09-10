@@ -3220,11 +3220,19 @@ bool semantic_scene_builder_records_retained_hit_test_index() {
             participation == PROGPU_NATIVE_HIT_TEST_REGION_ONLY;
         const auto selection = scene::validate(selected.data(), selected.size());
         if ((selection.status == PROGPU_NATIVE_STATUS_SUCCESS) != valid) return false;
-        if (valid && semantic::compute_content_hashes(selected.data(), selection.header).hit_test == hashes.hit_test)
-            return false;
-        semantic_scene_builder selected_builder(712U, 1U);
+        semantic_scene_builder selected_builder(711U, 2U);
         if (selected_builder.add_hit_test_index({&flagged, 1U}, {&node, 1U},
                 {&primitive_index, 1U}, {}, resource_index) != valid) return false;
+        // Hashes consume stable resource id/generation pairs, not raw bytes.
+        // Publish the changed resource at a new generation as the producer must.
+        if (valid) {
+            std::vector<std::byte> selected_stream;
+            if (!selected_builder.build(selected_stream)) return false;
+            const auto selected_validation = scene::validate(selected_stream.data(), selected_stream.size());
+            if (selected_validation.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+                semantic::compute_content_hashes(selected_stream.data(), selected_validation.header).hit_test == hashes.hit_test)
+                return false;
+        }
     }
     auto malformed = stream;
     page.node_count = 0U;

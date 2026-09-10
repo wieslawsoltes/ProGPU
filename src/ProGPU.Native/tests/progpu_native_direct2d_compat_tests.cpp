@@ -1833,7 +1833,9 @@ int run_tests()
             sector_case{{compat::point_2f{0, 0}, {0.25F, 0}, {}}, 2U, round, flat, {-1, -1, 0.25F, 1}},
             sector_case{{compat::point_2f{0, 0}, {0.25F, 0}, {}}, 2U, flat, round, {0, -1, 1.25F, 1}},
             sector_case{{compat::point_2f{0, 0}, {0.25F, 0}, {}}, 2U, round, round, {-1, -1, 1.25F, 1}},
-            sector_case{{compat::point_2f{-0.125F, 0}, {0, 0}, {0, 0.25F}}, 3U, flat, flat, {-1, -1, 1, 0.25F}},
+            // The incoming horizontal strip itself reaches y=1 even though
+            // the outgoing segment stops at y=.25; this is not a join cap.
+            sector_case{{compat::point_2f{-0.125F, 0}, {0, 0}, {0, 0.25F}}, 3U, flat, flat, {-1, -1, 1, 1}},
             sector_case{{compat::point_2f{-0.125F, 0}, {0, 0}, {0.125F, 0}}, 3U, flat, flat, {-0.125F, -1, 0.125F, 1}},
             sector_case{{compat::point_2f{0, 0}, {0.125F, 0}, {0, 0}}, 3U, flat, flat, {0, -1, 1.125F, 1}}};
         const compat::matrix_3x2_f transform{-1.0F, 0.5F, 0.25F, 1.25F, 3, -4};
@@ -1852,8 +1854,12 @@ int run_tests()
             if (factory->CreateStrokeStyle(&properties, nullptr, 0U, style.put()) != com::ok ||
                 path->GetWidenedBounds(2.0F, style.get(), nullptr, 0.001F, &bounds) != com::ok ||
                 !approximately_equal(bounds.left, test.expected.left) || !approximately_equal(bounds.top, test.expected.top) ||
-                !approximately_equal(bounds.right, test.expected.right) || !approximately_equal(bounds.bottom, test.expected.bottom))
+                !approximately_equal(bounds.right, test.expected.right) || !approximately_equal(bounds.bottom, test.expected.bottom)) {
+                std::fprintf(stderr, "sector bounds actual=(%g,%g,%g,%g) expected=(%g,%g,%g,%g)\n",
+                    bounds.left, bounds.top, bounds.right, bounds.bottom,
+                    test.expected.left, test.expected.top, test.expected.right, test.expected.bottom);
                 return 9092;
+            }
             compat::rectangle_f emitted{};
             bool has_outline = false;
             if (path->GetWidenedBounds(2.0F, style.get(), &transform, 0.001F, &bounds) != com::ok ||
@@ -5045,6 +5051,11 @@ int run_tests()
       raw_zero_path_widen_sink->bezier_count != 0U ||
       raw_zero_path_widen_sink->set_fill_mode_count != 1U ||
       raw_zero_path_widen_sink->set_segment_flags_count != 0U) {
+    std::fprintf(stderr, "widen records round=%u/%u/%u closed=%u/%u/%u zero=%u/%u/%u/%u/%u/%u\n",
+        raw_round_path_widen_sink->begin_count, raw_round_path_widen_sink->end_count, raw_round_path_widen_sink->bezier_count,
+        raw_closed_cover_dash_widen_sink->begin_count, raw_closed_cover_dash_widen_sink->end_count, raw_closed_cover_dash_widen_sink->bezier_count,
+        raw_zero_path_widen_sink->begin_count, raw_zero_path_widen_sink->end_count, raw_zero_path_widen_sink->line_count,
+        raw_zero_path_widen_sink->bezier_count, raw_zero_path_widen_sink->set_fill_mode_count, raw_zero_path_widen_sink->set_segment_flags_count);
     return 344;
   }
   for (std::uint32_t y_index = 0U; y_index < 28U; ++y_index) {

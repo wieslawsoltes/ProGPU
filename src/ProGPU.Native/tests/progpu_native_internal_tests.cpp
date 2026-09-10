@@ -31,11 +31,14 @@
 #include <future>
 #include <limits>
 #include <thread>
+#include <cstdio>
+#include <source_location>
 
 namespace {
 
-void require(bool condition) {
+void require(bool condition, std::source_location location = std::source_location::current()) {
     if (!condition) {
+        std::fprintf(stderr, "%s:%u: native internal requirement failed\n", location.file_name(), location.line());
         std::abort();
     }
 }

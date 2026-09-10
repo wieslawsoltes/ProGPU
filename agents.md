@@ -1086,3 +1086,12 @@ Figures count: 1
 ```
 
 Use this tool immediately whenever user reports "jagged glyph edges", "horizontal/vertical line artifacts crossing characters", or "weird transformations".
+
+## Retained mask ownership during nested rendering
+
+Offscreen/cached child compilation borrows the outer frame's retained mask-pass
+lists. Detach the outer list collection without clearing or returning its owned
+draw-call lists; return only child-owned lists before restoring the snapshot.
+Keep pixel-oracle and first-frame tests: a non-null cached texture or a compiled
+mask is not proof that pending outer coverage survived. Do not widen pixel
+tolerances to hide differences in overlap, alpha or antialias coverage.
