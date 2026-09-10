@@ -503,10 +503,17 @@ static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompo
                 : participation != NativeGpuHitTestPrimitiveFlags.RegionOnly;
             var token = selected.BeginQuery(selectedQuery);
             count = selected.Wait(token, results, out summary);
+            // Zero-list queries keep their topmost record in the summary.
+            // List queries keep counters there and owners in ordered records.
+            NativeGpuHitTestResult hit = selectedQuery.RequestedResultCapacity == 0 ? summary : results[0];
             if (summary.Hit != (expected ? 1U : 0U) ||
                 count != (expected && selectedQuery.RequestedResultCapacity != 0 ? 1 : 0) ||
-                (expected && summary.Id != 42))
-                throw new InvalidOperationException("Native point/region participation diverged from its declared geometry.");
+                (expected && (hit.Id != 42 || hit.PrimitiveIndex != 0 ||
+                    !selected.TryGetOwner(token, hit, out owner) || !ReferenceEquals(owner, firstOwner))))
+                throw new InvalidOperationException(
+                    $"Native participation {participation}, query flags {selectedQuery.Flags:X8}: " +
+                    $"expected hit {expected}, got summary hits {summary.Hit}, count {count}, " +
+                    $"owner {hit.Id}, primitive {hit.PrimitiveIndex}.");
         }
     }
     Console.WriteLine("package-consumer: native GPU owner snapshot/generation isolation");
