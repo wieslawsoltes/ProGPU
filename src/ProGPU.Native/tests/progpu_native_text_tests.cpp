@@ -13323,6 +13323,30 @@ static void excluded_paragraphs_retain_rows_and_bounded_progress() {
     require(!interaction() && error == font_error::invalid_argument);
     placements[2].row_index = 1;
     require(interaction());
+    const auto caret_index = [&](std::uint32_t fragment, float x, bool last = false) {
+        std::uint32_t found = UINT32_MAX;
+        for (std::uint32_t i = 0; i < caret_count; ++i)
+            if (carets[i].line_index == fragment && carets[i].x == x &&
+                (found == UINT32_MAX || last)) found = i;
+        require(found != UINT32_MAX); return found;
+    };
+    std::uint32_t moved{};
+    const auto move = [&](std::uint32_t current, text_caret_direction direction, float x) {
+        return try_move_fragment_text_caret(std::span(carets).first(caret_count),
+            std::span(placements).first(4), current, direction, paragraph_level, x, moved, &error);
+    };
+    require(move(caret_index(0, 30, true), text_caret_direction::right, 30) &&
+        carets[moved].line_index == 1 && carets[moved].x == 65 && carets[moved].y == 20);
+    require(move(caret_index(1, 65), text_caret_direction::left, 65) &&
+        carets[moved].line_index == 0 && carets[moved].x == 30);
+    require(move(caret_index(1, 65), text_caret_direction::down, 85) &&
+        carets[moved].line_index == 3 && carets[moved].x == 85 && carets[moved].y == 30);
+    require(move(caret_index(1, 95, true), text_caret_direction::right, 95) &&
+        carets[moved].line_index == 2 && carets[moved].x == 0);
+    const auto final_caret = caret_index(3, 95, true);
+    require(move(final_caret, text_caret_direction::right, 95) && moved == final_caret);
+    require(!move(caret_count, text_caret_direction::down, 0) && error == font_error::invalid_argument);
+    require(!move(0, text_caret_direction::down, std::numeric_limits<float>::quiet_NaN()));
     paragraph_level = 1; levels.fill(1);
     require(run(exclusions));
     for (std::size_t i = 0; i < ends.size(); ++i) ends[i] = output[i].cluster + 2;
@@ -13331,6 +13355,14 @@ static void excluded_paragraphs_retain_rows_and_bounded_progress() {
         caret.x == 95 && caret.y == 20 && caret.line_index == 0);
     require(try_hit_test_text(std::span(boxes).first(box_count), 66, 25, hit) &&
         hit.inside && hit.input_position == 6 && hit.line_index == 0);
+    require(move(caret_index(1, 30, true), text_caret_direction::right, 30) &&
+        carets[moved].line_index == 0 && carets[moved].x == 65 && carets[moved].y == 20);
+    require(move(caret_index(1, 0), text_caret_direction::left, 0) &&
+        carets[moved].line_index == 2 && carets[moved].x == 95 && carets[moved].y == 30);
+    require(move(caret_index(0, 65), text_caret_direction::down, 25) &&
+        carets[moved].line_index == 3 && carets[moved].x == 20);
+    require(move(caret_index(3, 20), text_caret_direction::up, 85) &&
+        carets[moved].line_index == 0 && carets[moved].x == 85);
     paragraph_level = 0; levels.fill(0);
     options.maximum_lines = 1;
     require(run(exclusions) && result.row_count == 1 && result.fragment_count == 2 &&

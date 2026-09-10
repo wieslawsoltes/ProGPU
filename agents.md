@@ -38,6 +38,11 @@ preserving same-row baselines and cleared vertical gaps. Validate contiguous row
 identity, nonoverlapping ordered intervals and shared row metrics before output.
 Keep fragment indices on boxes/carets and map them through retained placements;
 legacy line-index navigation is not automatically cross-fragment navigation.
+Native fragment caret navigation consumes an index in the same retained caret
+generation. Physical X and fragment position, not fragment-array order, own
+left/right movement; paragraph direction owns row wrapping. Up/down select the
+nearest populated row and an existing stop at preferred X, preserving affinity
+when distances tie. Never synthesize a caret inside a glyph or excluded gap.
 
 Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
 not optional fields that a text-only provider can silently ignore. Source metrics

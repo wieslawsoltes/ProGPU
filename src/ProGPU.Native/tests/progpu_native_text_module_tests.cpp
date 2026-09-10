@@ -1,6 +1,9 @@
 import progpu.native.text;
 
 int main() {
+    unsigned int no_caret = 0;
+    if (progpu::native::text::try_move_fragment_text_caret({}, {}, 0,
+        progpu::native::text::text_caret_direction::left, 0, 0, no_caret)) return 1;
     unsigned int fragment_boxes = 1, fragment_carets = 1;
     if (!progpu::native::text::try_build_fragment_text_interaction({}, {}, {}, {}, {}, {}, {},
         fragment_boxes, fragment_carets) || fragment_boxes != 0 || fragment_carets != 0) return 1;

@@ -2457,6 +2457,18 @@ bool try_build_fragment_text_interaction(
     std::uint32_t& cluster_box_count, std::uint32_t& caret_stop_count,
     font_error* error = nullptr) noexcept;
 
+enum class text_caret_direction : std::uint8_t { left, right, up, down };
+// Navigate one retained generation by caret index, avoiding ambiguous source
+// affinities at fragment/row boundaries. Horizontal order is physical X, then
+// fragment X and retained affinity order. At an outer edge, paragraph direction
+// selects the previous/next populated row. Up/down retain caller preferred_x.
+// The result is an existing index, never a synthesized stop. At the document
+// boundary it equals current_index. O(C+F), no allocations or retained pointers.
+bool try_move_fragment_text_caret(std::span<const text_caret_stop> carets,
+    std::span<const text_fragment_placement> placements, std::uint32_t current_index,
+    text_caret_direction direction, std::int8_t paragraph_level, float preferred_x,
+    std::uint32_t& next_index, font_error* error = nullptr) noexcept;
+
 bool try_get_text_caret_stop(
     std::span<const text_caret_stop> caret_stops,
     std::int32_t input_position,
