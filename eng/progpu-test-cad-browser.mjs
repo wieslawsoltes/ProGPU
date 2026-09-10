@@ -42,6 +42,10 @@ const errors = [];
 const browserLog = [];
 const softwareRendering = process.env.PROGPU_CAD_BROWSER_USE_SWIFTSHADER === '1';
 const visualTimeoutMs = softwareRendering ? 120_000 : 30_000;
+// A 2x, 2560x1600 SwiftShader surface can deadlock Chromium's WebGPU readback
+// and compositor paths. Keep logical input coverage identical and use a 1x
+// surface only for the hosted software adapter; hardware runs retain HiDPI.
+const appDeviceScaleFactor = softwareRendering ? 1 : 2;
 async function captureCadCanvas(timeout = visualTimeoutMs) {
   // Chromium's page-compositor screenshot can stall indefinitely when a large
   // SwiftShader WebGPU surface is active. Read the presented canvas directly
@@ -149,7 +153,9 @@ try {
   } finally {
     await diagnosticsSession.detach();
   }
-  page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
+  page = await browser.newPage({
+    viewport: { width: 1280, height: 800 }, deviceScaleFactor: appDeviceScaleFactor,
+  });
   const recordError = message => { errors.push(message); console.error(message); };
   page.on('pageerror', error => recordError(error.message));
   page.on('console', message => {
@@ -455,7 +461,8 @@ try {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForFunction(() => {
     const canvas = document.querySelector('#progpu-canvas');
-    return canvas.width === 2880 && canvas.height === 1800;
+    return canvas.width === Math.round(1440 * devicePixelRatio) &&
+      canvas.height === Math.round(900 * devicePixelRatio);
   }, undefined, { timeout: visualTimeoutMs });
   await waitForPresentation();
   await fs.writeFile(path.join(evidence, 'resized.png'), await captureCadCanvas());
@@ -472,6 +479,7 @@ try {
   result.editing = ['line', 'undo', 'redo', 'selection', 'move', 'copy', 'delete', 'save', 'reopen'];
   result.malformedClipRecovery = true;
   result.visualTimeoutMs = visualTimeoutMs;
+  result.deviceScaleFactor = appDeviceScaleFactor;
   await fs.writeFile(path.join(evidence, 'result.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result));
 } catch (error) {
