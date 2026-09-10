@@ -316,6 +316,17 @@ internal static class RetainedViewport3DQualification
             new Vector3(0.8f, -0.8f, 0f), new Vector2(1f, 1f));
         vertices[2] = CreateVertex(
             new Vector3(0f, 0.8f, 0f), new Vector2(0.5f, 0f));
+        if (reverseWinding)
+        {
+            // Reverse the oriented surface, not just its index order. The
+            // renderer flips back-face normals toward the visible side, so
+            // this pair must start with opposite source normals to compare
+            // the same visible lighting while exercising opposite cull modes.
+            for (int index = 0; index < vertices.Length; index++)
+            {
+                vertices[index].Normal = new NativePoint3D(-Vector3.UnitZ);
+            }
+        }
         NativeSceneLight3D[] retainedLights = lights ?? [];
         var mesh = new NativeSceneMesh3D
         {
