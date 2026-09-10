@@ -83,5 +83,28 @@ ProGPU's existing renderer. This is memory-safety repair, not a new architecture
 or a performance claim.
 
 Local Release rebuild after repair: all 19 native suites pass, as does the focused
-ten-case Viewport3D entry (`viewport-depth-slots-*.log`). Windows reproduction and
-fresh hosted CI are required before claiming cross-platform resolution.
+ten-case Viewport3D entry (`viewport-depth-slots-*.log`).
+
+## Cross-platform repair validation
+
+At `cbbb2aed`, a controlled old-bound ASan build reports stack-buffer-overflow
+on `layer_depth_initialized` in the first cached case. Restoring the committed
+bound, rebuilding and rerunning passes all ten cases under ASan/UBSan; the
+prepared source then has no diff. Logs are `viewport-asan-before-test.log` and
+`viewport-asan-restored-test.log` under `artifacts/release-hour`.
+
+Windows ARM64 production build-only compilation at that head completed for both
+providers and all test/sample targets. The focused ten-case matrix passes on
+Parallels Display Adapter / D3D12 in 226 seconds, including the formerly failing
+scaled and nested caches. Guest log: `artifacts/viewport-cbbb2aed-win-arm64-runtime.log`.
+Hosted run `34487437908` passes GCC, MSVC, Linux ARM64 and browser WebGPU checks.
+These are component results, not complete application or package qualification.
+
+The full Windows graphics test still hits its 300-second timeout during initial
+Direct2D work on both hosted ARM64 WARP and the Parallels adapter. The previous
+uncapped VM run already needed about 318 seconds before the Viewport3D matrix.
+Increase only this Windows integration test's bound to 900 seconds so cold D3D12
+pipeline compilation can finish. Preserve the complete matrix, adapter selection,
+all pixel/cache assertions, non-Windows 60-second limit and other suite limits.
+This is a bounded test-run allowance, not a performance improvement or a passing
+result. A fresh complete Windows run is required before closing the timeout.

@@ -1488,10 +1488,11 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
                 "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-direct2d-webgpu.ppm")
         set(_progpu_native_direct2d_webgpu_test_timeout 60)
         if(WIN32)
-            # A cold D3D12 shader cache can exceed one minute in the Windows
-            # ARM64 Parallels validation VM while remaining well below this
-            # integration-test bound.
-            set(_progpu_native_direct2d_webgpu_test_timeout 300)
+            # Cold D3D12 pipeline compilation exceeds five minutes on both
+            # Windows ARM64 WARP CI and the Parallels validation adapter. Keep
+            # the full graphics matrix and its assertions, with a bounded
+            # allowance for compilation rather than skipping slow adapters.
+            set(_progpu_native_direct2d_webgpu_test_timeout 900)
         endif()
         set_tests_properties(
             progpu_native_direct2d_webgpu_tests PROPERTIES
