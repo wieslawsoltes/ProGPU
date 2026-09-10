@@ -13285,6 +13285,21 @@ static void excluded_paragraphs_retain_rows_and_bounded_progress() {
         placements[2].row_index == 1 && placements[3].row_index == 1 && placements[2].top == 30);
     require(lines[0].baseline_y == 28 && lines[1].baseline_y == 28 && lines[2].baseline_y == 38);
     require(lines[2].glyph_start == 6 && lines[3].glyph_start == 9 && output[9].glyph_index == 9);
+    const auto run_at = [&](double origin) {
+        return try_layout_excluded_logical_shaped_text_at(glyphs, breaks, levels, {}, {}, metrics,
+            paragraph_level, options, {}, origin, exclusions, exclusion_scratch, intervals, fragments,
+            advances, {groups, indices}, output, lines, placements, result, 100, &error);
+    };
+    require(run_at(25.25) && result.row_count == 2 && result.fragment_count == 4 && result.height == 45.25);
+    require(placements[0].top == 25.25 && placements[2].top == 35.25 && lines[0].baseline_y == 33.25F);
+    require(run_at(40) && result.row_count == 2 && result.fragment_count == 2 && result.height == 60);
+    require(placements[0].top == 40 && placements[0].left == 0 && placements[0].width == 100);
+    const auto saved_top = placements[0].top;
+    require(!run_at(-1) && error == font_error::invalid_argument && result.fragment_count == 0 && placements[0].top == saved_top);
+    require(!run_at(std::numeric_limits<double>::infinity()) && result.height == 0);
+    require(!run_at(std::numeric_limits<double>::quiet_NaN()) && result.height == 0);
+    require(!run_at(std::numeric_limits<float>::max()) && result.fragment_count == 0);
+    require(run(exclusions));
     text_layout_metrics extent{};
     require(try_measure_fragment_text_lines(std::span(lines).first(4), std::span(placements).first(4),
         100, extent) && extent.content_width == 95 && extent.content_height == 40 &&

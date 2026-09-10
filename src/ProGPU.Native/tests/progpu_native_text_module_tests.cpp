@@ -19,6 +19,9 @@ int main() {
     progpu::native::text::text_exclusion_flow_result empty_flow{};
     progpu::native::text::text_layout_options flow_options{};
     flow_options.maximum_width = 100;
+    if (!progpu::native::text::try_layout_excluded_logical_shaped_text_at({}, {}, {}, {}, {}, {}, 0,
+        flow_options, {}, 20, {}, {}, empty_interval, empty_fragment, {}, {}, {}, {}, {}, empty_flow) ||
+        empty_flow.row_count != 0 || empty_flow.height != 20) return 1;
     if (!progpu::native::text::try_layout_excluded_logical_shaped_text({}, {}, {}, {}, {}, {}, 0,
         flow_options, {}, {}, {}, empty_interval, empty_fragment, {}, {}, {}, {}, {}, empty_flow) ||
         empty_flow.row_count != 0 || empty_flow.fragment_count != 0) return 1;

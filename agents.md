@@ -11,6 +11,12 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Excluded hard-segment origins belong in native fitting against unchanged
+paragraph-local exclusions. Preserve double placement tops and absolute bottom,
+zero-origin compatibility and representable float bands. Empty native input still
+emits no row. Do not implement source-side Y repair or infer source line-break
+admission before C transport, snapshots and cumulative document extents connect.
+
 Measured anchor placement preserves its resolved horizontal reference while
 clearing exclusions downward only with explicit delay permission. Keep bounded
 attempts, half-open contact and atomic placement publication. Automatic sizing,

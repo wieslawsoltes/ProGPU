@@ -2309,6 +2309,22 @@ bool try_layout_excluded_logical_shaped_text(std::span<const shaping_glyph> glyp
     text_exclusion_flow_result& result, std::uint32_t maximum_attempts = 1048576U,
     font_error* error = nullptr) noexcept;
 
+// Same fitting contract in an existing paragraph coordinate frame. origin_y is
+// finite/nonnegative; placements and result.height retain absolute paragraph Y.
+// Empty input emits no row and returns origin_y as its unchanged bottom.
+bool try_layout_excluded_logical_shaped_text_at(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::int8_t paragraph_level,
+    const text_layout_options& options, text_tab_options tabs, double origin_y,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, std::span<text_fragment_placement> placements,
+    text_exclusion_flow_result& result, std::uint32_t maximum_attempts = 1048576U,
+    font_error* error = nullptr) noexcept;
+
 /* O(S + G), O(1) workspace over logical source scalars and shaped clusters.
  * Minimum uses legal, shaping-safe breaks, never emergency cluster splitting.
  * Maximum uses mandatory breaks only. Both exclude trailing Unicode whitespace;

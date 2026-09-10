@@ -1228,10 +1228,28 @@ bool try_layout_excluded_logical_shaped_text(std::span<const shaping_glyph> glyp
     text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
     std::span<positioned_text_line> lines, std::span<text_fragment_placement> placements,
     text_exclusion_flow_result& result, std::uint32_t maximum_attempts, font_error* error) noexcept {
+    return try_layout_excluded_logical_shaped_text_at(glyphs, breaks, levels, scales, classes,
+        metrics, paragraph_level, options, tabs, 0, exclusions, exclusion_scratch, intervals,
+        fragments, advance_scratch, scratch, positioned, lines, placements, result, maximum_attempts, error);
+}
+
+bool try_layout_excluded_logical_shaped_text_at(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::int8_t paragraph_level,
+    const text_layout_options& options, text_tab_options tabs, double origin_y,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, std::span<text_fragment_placement> placements,
+    text_exclusion_flow_result& result, std::uint32_t maximum_attempts, font_error* error) noexcept {
     result = {};
     const auto fail = [&](font_error value) noexcept { result = {}; set_error(error, value); return false; };
     text_item_metrics maximum{};
-    if (glyphs.size() > (1U << 20U) || metrics.size() != glyphs.size() ||
+    if (!std::isfinite(origin_y) || origin_y < 0 ||
+        origin_y > static_cast<double>(std::numeric_limits<float>::max()) ||
+        glyphs.size() > (1U << 20U) || metrics.size() != glyphs.size() ||
         maximum_attempts == 0U || maximum_attempts > (1U << 20U) ||
         !metric_envelope(metrics, maximum) || !valid_options(options) || options.maximum_width <= 0)
         return fail(font_error::invalid_argument);
@@ -1247,12 +1265,13 @@ bool try_layout_excluded_logical_shaped_text(std::span<const shaping_glyph> glyp
             paragraph_level, options, tabs, {0, 0, options.maximum_width, 1}, exclusions,
             exclusion_scratch, intervals, fragments, advance_scratch, scratch, positioned, lines, empty, false, error))
             return false;
+        result.height = origin_y;
         return true;
     }
     const auto seed_height = [&](std::uint32_t start) noexcept {
         return std::max(options.line_height, metrics[start].ascent + metrics[start].descent);
     };
-    double top = 0;
+    double top = origin_y;
     float height = seed_height(0);
     bool validated = false;
     while (result.next_glyph < glyphs.size()) {
