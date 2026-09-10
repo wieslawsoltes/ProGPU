@@ -33,6 +33,10 @@ this is not a new Direct2D/Win2D expansion or application qualification.
   buffers retain their independent lifetimes.
 - Nine storage bindings have stage-specific visibility (six vertex, five
   fragment), rather than requesting nine buffers in every shader stage.
+- Managed CAD edge shaders retain the complete 560-byte mesh array stride,
+  including source light/gradient fields, even though edge classification does
+  not consume those fields. The existing three-shader declaration/stride
+  fixture remains authoritative; omitting the tail would misaddress later meshes.
 - CAD shading values 0–6 remain unchanged. `WpfLighting=7` explicitly selects
   the source uniform-light path even with an empty light range. Source unlit
   material callers select `Flat=2`, not the old ambiguous numeric zero.
@@ -58,7 +62,11 @@ The managed renderer/test/sample dependency graph compiled in Release after
 recursive dependency initialization. Native benchmark sources also compiled.
 The native build-only lane includes wgpu-native, Dawn, SDK static libraries and
 test/sample compilation, with Apple Clang C++20 and warnings as errors.
-Final compilation outcomes are recorded below when the build finishes.
+The macOS ARM64 native graph completed all 351 initial targets (with incremental
+rebuilds after integration fixes); both provider libraries and all configured
+test/sample executables linked. This uses the supported header compatibility
+mode, not C++ module qualification. The final managed graph build completed with
+zero warnings/errors in 60.01 seconds; benchmark compilation took 20.75 seconds.
 
 Generated native contracts and MIL coverage were regenerated from the rebased
 tree; coverage remains 105 top-level and 25 render-data commands, with 11
