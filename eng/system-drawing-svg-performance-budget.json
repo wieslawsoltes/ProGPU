@@ -3,7 +3,7 @@
   "ExpectedProcessArchitecture": "X64",
   "MinimumIterations": 7,
   "ExpectedFixtureCount": 10,
-  "ExpectedChecksum": "1eff2c6cbe8504b8",
+  "ExpectedChecksum": "1eff2c56a78504b8",
   "MaximumMedianElapsedMilliseconds": 5750,
   "MaximumP95ElapsedMilliseconds": 6500,
   "MaximumMedianAllocatedBytes": 185000000,

@@ -221,3 +221,59 @@ fresh package provenance, Windows/Linux qualification or full SVG image parity.
 Together these tests establish the correctness reason for retaining the
 control-hull rejection. The representative checksum remains unchanged pending
 the full-image review; no sampled checksum substitutes for that review.
+
+## Full representative review and checksum decision
+
+Built the corpus runner at delivery revision `7d0571ff` and main `cde81083`
+against the same pinned dependency and 22-face font inventory. Both builds have
+zero errors (the main rebuild reports 115 upstream SVG warnings). Main's isolated
+runner was changed only to retain passing PNGs; its renderer was not changed.
+Captured each of the ten representative fixtures separately on macOS arm64,
+then compared all RGBA pixels and the existing reference-error metric:
+
+| Fixture | Changed pixels | Main error | Current error |
+| --- | ---: | ---: | ---: |
+| shapes-circle-01-t | 1524 | 0.059575 | 0.057365 |
+| shapes-ellipse-01-t | 1524 | 0.060153 | 0.057964 |
+| shapes-line-01-t | 1909 | 0.068320 | 0.064784 |
+| shapes-polygon-01-t | 1524 | 0.060313 | 0.058130 |
+| shapes-polyline-01-t | 1909 | 0.069115 | 0.065622 |
+| shapes-rect-01-t | 1524 | 0.059690 | 0.057484 |
+| paths-data-01-t | 3043 | 0.076028 | 0.067397 |
+| pservers-grad-01-b | 4639 | 0.109090 | 0.098141 |
+| pservers-pattern-01-b | 2787 | 0.075312 | 0.069243 |
+| text-text-01-b | 20753 | 0.206989 | 0.179278 |
+
+All frames are 480 by 360. Nine centre samples are unchanged; the text sample
+alone changes from opaque black to alpha 128. All ten aggregate errors improve.
+Reviewed every complete main/current frame on white contact sheets, in addition
+to the raw images: principal shapes, gradients and patterns remain present;
+text/footer horizontal artifacts are visible on both revisions and remain
+unqualified. Lower aggregate error does not prove each changed pixel correct or
+resolve those existing defects. The text fixture remains a known quality
+difference. Pattern reports a resolved difference with exit 1 on both revisions;
+the diagnostic capture records that exit and continues collecting evidence,
+without changing production quality classification or its baseline.
+
+Given the reproduced old GPU failure, its isolated control-hull-only correction,
+managed/native regression coverage and full representative review, update the
+performance checksum to `1eff2c56a78504b8`. This intentionally stops requiring
+the old impossible crossing; it does not remove the checksum assertion. Keep
+ReferenceCommit `8842f828` as the provenance of the existing performance limits:
+X64, seven iterations, ten fixtures, timing/allocation ceilings and all separate
+quality gates remain unchanged. Windows/Linux CI must still qualify the new head;
+the local arm64 run cannot satisfy the X64 architecture requirement.
+
+Evidence is retained under `review-main/`, `review-current/`, per-fixture logs,
+`review-sheet-{0,1,2}.png`, `capture-representative.sh`, `review-frames.py`, and
+the two capture build logs in the existing artifact directory. The contact-sheet
+script only composites diagnostic captures on white for inspection; it does not
+change the original PNGs, renderer, reference images or gate calculations.
+
+The seven-iteration local performance run produces the new checksum in every
+iteration. Median/p95 time is 594.716/950.072 ms and allocated bytes are
+177459568/177491688. The unchanged evaluator reports exactly one violation:
+`budget targets X64, process architecture is Arm64`, and exits 1. Thus checksum,
+iteration/fixture counts and numeric limits pass locally, but this is explicitly
+not a passing required-architecture performance gate. Results and sample evidence
+are in `review-performance-current/` and `review-performance-current.log`.
