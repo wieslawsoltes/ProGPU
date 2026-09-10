@@ -170,6 +170,7 @@ bool verify_native_text_feature_plan() {
 }
 
 bool finish_evidence_frame(double, void*) {
+    EM_ASM({ document.body.dataset.progpuNativeStage = "evidence-complete"; });
     EM_ASM({
         document.body.dataset.progpuNative = "passed";
         document.body.dataset.progpuNativeSemanticCommands = "2";
@@ -205,6 +206,7 @@ bool finish_evidence_frame(double, void*) {
 }
 
 void finish_browser_evidence(bool success) {
+    EM_ASM({ document.body.dataset.progpuNativeStage = "evidence-callback"; });
     if (!success) {
         fail("The browser WebGPU evidence readback failed.");
     }
@@ -331,6 +333,7 @@ bool begin_browser_hit_test() {
 }
 
 bool render_browser_frame(double, void*) {
+    EM_ASM({ document.body.dataset.progpuNativeStage = "direct-image"; });
     WGPUTexture render_texture = nullptr;
     WGPUTextureView render_view = nullptr;
     if (!progpu::native::browser::create_evidence_target(
@@ -1151,6 +1154,7 @@ bool render_browser_frame(double, void*) {
             "The stable browser semantic brush page was uploaded again.");
     }
 
+    EM_ASM({ document.body.dataset.progpuNativeStage = "rounded-scene"; });
     auto rounded_scene =
         progpu::native::tests::create_semantic_rounded_mask_scene_stream(
             width,
@@ -1206,6 +1210,7 @@ bool render_browser_frame(double, void*) {
         fail_engine("The stable browser rounded mask was rebuilt.");
     }
 
+    EM_ASM({ document.body.dataset.progpuNativeStage = "state-mask"; });
     auto state_mask_scene =
         progpu::native::tests::create_semantic_state_mask_scene_stream(
             width,
@@ -1264,6 +1269,7 @@ bool render_browser_frame(double, void*) {
         fail_engine("The stable browser per-draw mask was rebuilt.");
     }
 
+    EM_ASM({ document.body.dataset.progpuNativeStage = "state-mask-media"; });
     auto state_mask_media_scene =
         progpu::native::tests::create_semantic_state_mask_media_scene_stream(
             width,
@@ -1329,6 +1335,7 @@ bool render_browser_frame(double, void*) {
         fail_engine("The stable browser masked glyph/image page was rebuilt.");
     }
 
+    EM_ASM({ document.body.dataset.progpuNativeStage = "mask-chain-media"; });
     auto mask_chain_media_scene = progpu::native::tests::
         create_semantic_state_mask_chain_media_scene_stream(width, height);
     state_mask_media_scene_metrics = {};
@@ -1504,6 +1511,7 @@ bool render_browser_frame(double, void*) {
         vector_mask_scene_bytes != vector_mask_scene.size()) {
         fail("The browser vector-mask scene stream could not be built.");
     }
+    EM_ASM({ document.body.dataset.progpuNativeStage = "vector-mask"; });
     progpu_native_scene_metrics vector_mask_scene_metrics{};
     vector_mask_scene_metrics.struct_size =
         sizeof(vector_mask_scene_metrics);
@@ -1541,6 +1549,7 @@ bool render_browser_frame(double, void*) {
         fail_engine("The stable browser GPU vector mask was rebuilt.");
     }
 
+    EM_ASM({ document.body.dataset.progpuNativeStage = "brush-mask"; });
     auto brush_mask_scene =
         progpu::native::tests::create_semantic_composite_geometry_mask_scene_stream(
             width,
@@ -1587,6 +1596,7 @@ bool render_browser_frame(double, void*) {
         fail_engine("The stable browser GPU brush mask was rebuilt.");
     }
 
+    EM_ASM({ document.body.dataset.progpuNativeStage = "picture-mask"; });
     auto picture_mask_scene =
         progpu::native::tests::create_semantic_picture_mask_scene_stream(
             width,
@@ -1633,6 +1643,7 @@ bool render_browser_frame(double, void*) {
         fail_engine("The stable browser retained picture mask was rebuilt.");
     }
 
+    EM_ASM({ document.body.dataset.progpuNativeStage = "coverage-mask"; });
     auto coverage_scene =
         progpu::native::tests::create_semantic_coverage_mask_scene_stream(
             width,
@@ -1685,6 +1696,7 @@ bool render_browser_frame(double, void*) {
             &coverage_metrics) != PROGPU_NATIVE_STATUS_DEVICE_LOST) {
         fail_engine("The browser device-loss gate did not fail closed.");
     }
+    EM_ASM({ document.body.dataset.progpuNativeStage = "device-recreation"; });
     progpu_native_browser_engine_options replacement_options{};
     replacement_options.struct_size = sizeof(replacement_options);
     replacement_options.native_abi_version = PROGPU_NATIVE_ABI_VERSION;
@@ -1750,6 +1762,7 @@ bool render_browser_frame(double, void*) {
         fail_engine("The browser evidence glyph/image scene did not render.");
     }
 
+    EM_ASM({ document.body.dataset.progpuNativeStage = "evidence-readback"; });
     resources.render_texture = render_texture;
     resources.render_view = render_view;
     if (!progpu::native::browser::begin_evidence_readback(
