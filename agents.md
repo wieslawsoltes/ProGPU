@@ -11,6 +11,15 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Native document rows and cells extend the shared block-flow passes. Resolve fixed
+shared column tracks before formatting; use the tallest cell for row height and
+retain real line/source order, even when Y is nonmonotonic. Prefix each distinct
+column slice once, keep nested slices independent, and reject overlapping tracks,
+spans or undeclared row children before publishing outputs. Cell boundaries stop
+margin collapse. Do not enable a source table consumer with global Y-ordered text
+lookup, flatten cells into vertical paragraphs, infer automatic widths or hide
+row spans/pagination. Borrow all metrics in one width/arrange crossing per batch.
+
 Source-measured document block objects use the shared native ArrangeWithObjects
 contract, not fake paragraph lines or a WPF-local placement loop. Preserve real
 leaf identity, source-owned measure/visual/editing lifetime, insets, adjoining

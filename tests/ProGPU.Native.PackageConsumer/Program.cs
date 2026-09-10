@@ -29,6 +29,7 @@ if (info.AbiVersion != 4 ||
 }
 ValidateNativeMilSceneBuildTiming();
 ValidateNativeMilCompactGuidelineBuilder();
+ValidateNativeDocumentRows();
 
 bool milOnly = args.Contains("--mil-only", StringComparer.Ordinal);
 bool renderOnly = args.Contains("--render-only", StringComparer.Ordinal);
@@ -398,6 +399,37 @@ Console.WriteLine(
     $"ProGPU.Backend.Native package smoke passed: ABI {info.AbiVersion}, " +
     $"Dawn ABI {NativeDawnAdapter.AdapterAbiVersion}, " +
     $"draws={metrics.DrawCallCount}, pixels={pixels.Length}.");
+
+static void ValidateNativeDocumentRows()
+{
+    // Device-independent, matched on both packaged providers. A real object and
+    // a formatted text cell share a row without manufacturing an object TextLine.
+    NativeDocumentBlock[] blocks = [
+        new() { ParentIndex = uint.MaxValue, SubtreeEnd = 3 },
+        new() { ParentIndex = 0, SubtreeEnd = 2, LineCount = 1 },
+        new() { ParentIndex = 0, SubtreeEnd = 3, LineStart = 1 }];
+    NativeDocumentRow[] rows = [new() { BlockIndex = 0, ColumnCount = 2, CellSpacing = 2 }];
+    NativeDocumentCell[] cells = [
+        new() { BlockIndex = 1, RowIndex = 0, ColumnCount = 1 },
+        new() { BlockIndex = 2, RowIndex = 0, ColumnStart = 1, ColumnCount = 1 }];
+    double[] columns = [40, 60];
+    NativeDocumentLine[] lines = [new() { Width = 30, Height = 10 }];
+    NativeDocumentObject[] objects = [new() { BlockIndex = 2, Width = 50, Height = 20 }];
+    NativeDocumentBox[] boxes = new NativeDocumentBox[3];
+    NativeDocumentLinePosition[] positions = new NativeDocumentLinePosition[1];
+    foreach (var backend in new[] { NativeMilBackend.WgpuNative, NativeMilBackend.Dawn })
+    {
+        NativeDocumentFlow.ResolveWidthsWithRows(blocks, 80, rows, columns, cells, boxes, backend);
+        if (boxes[1].X != 1 || boxes[1].Width != 40 || boxes[2].X != 43 || boxes[2].Width != 60)
+            throw new InvalidOperationException($"Packaged {backend} lost native cell width constraints.");
+        var placed = NativeDocumentFlow.ArrangeWithRows(blocks, 80, lines, objects, rows, columns, cells, boxes, positions, backend);
+        if (placed.Width != 104 || placed.Height != 22 || placed.LineCount != 1 ||
+            boxes[1].Y != 1 || boxes[2].Y != 1 || boxes[1].Height != 20 || boxes[2].Height != 20 ||
+            positions[0].X != 1 || positions[0].Y != 1)
+            throw new InvalidOperationException($"Packaged {backend} lost shared row placement or source line order.");
+    }
+    Console.WriteLine("package-consumer: native document rows, cells and measured objects (both providers)");
+}
 
 static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompositor compositor)
 {

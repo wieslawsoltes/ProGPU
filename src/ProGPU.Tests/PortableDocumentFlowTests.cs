@@ -13,6 +13,11 @@ public class PortableDocumentFlowTests
         Assert.Throws<PlatformNotSupportedException>(() => provider.ArrangeWithObjects([], 100, [], [new()], [], []));
         // Empty object input uses the existing provider's ordinary arrangement.
         Assert.Throws<InvalidOperationException>(() => provider.ArrangeWithObjects([], 100, [], [], [], []));
+        Assert.Throws<PlatformNotSupportedException>(() => provider.ResolveWidthsWithRows([], 100, [new()], [], [], []));
+        Assert.Throws<PlatformNotSupportedException>(() => provider.ResolveWidthsWithRows([], 100, [], [1], [], []));
+        Assert.Throws<PlatformNotSupportedException>(() => provider.ArrangeWithRows([], 100, [], [], [], [], [new()], [], []));
+        Assert.Throws<InvalidOperationException>(() => provider.ResolveWidthsWithRows([], 100, [], [], [], []));
+        Assert.Throws<InvalidOperationException>(() => provider.ArrangeWithRows([], 100, [], [], [], [], [], [], []));
     }
 
     [Fact]

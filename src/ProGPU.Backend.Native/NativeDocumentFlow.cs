@@ -124,6 +124,84 @@ public static unsafe class NativeDocumentFlow
         return result;
     }
 
+    /// <summary>
+    /// Resolves fixed shared column tracks and cell spans inside the block forest
+    /// before source text formatting. Does not guess intrinsic/automatic widths.
+    /// All direct row children must be declared cells; slices are identical or
+    /// disjoint. One synchronous crossing, no pointers retained.
+    /// </summary>
+    public static void ResolveWidthsWithRows(ReadOnlySpan<NativeDocumentBlock> blocks, double width,
+        ReadOnlySpan<NativeDocumentRow> rows, ReadOnlySpan<double> columnWidths,
+        ReadOnlySpan<NativeDocumentCell> cells, Span<NativeDocumentBox> boxes,
+        NativeMilBackend backend = NativeMilBackend.WgpuNative)
+    {
+        Validate(blocks.Length, width, boxes.Length, backend);
+        ValidateRows(rows.Length, columnWidths.Length, cells.Length);
+        NativeRendererStatus status;
+        fixed (NativeDocumentBlock* input = blocks)
+        fixed (NativeDocumentRow* rowInput = rows)
+        fixed (double* columns = columnWidths)
+        fixed (NativeDocumentCell* cellInput = cells)
+        fixed (NativeDocumentBox* output = boxes)
+            status = backend == NativeMilBackend.Dawn
+                ? NativeDawnDocumentFlowMethods.ResolveWidthsWithRows(input, (uint)blocks.Length, width,
+                    rowInput, (uint)rows.Length, columns, (uint)columnWidths.Length, cellInput, (uint)cells.Length,
+                    output, (uint)boxes.Length)
+                : NativeDocumentFlowMethods.ResolveWidthsWithRows(input, (uint)blocks.Length, width,
+                    rowInput, (uint)rows.Length, columns, (uint)columnWidths.Length, cellInput, (uint)cells.Length,
+                    output, (uint)boxes.Length);
+        if (status != NativeRendererStatus.Success)
+            throw new NativeRendererException(status, "Native document column resolution failed.");
+    }
+
+    /// <summary>
+    /// Places horizontal rows alongside ordinary blocks and measured objects.
+    /// Rows use the tallest cell; cells stretch their boxes without stretching
+    /// text. Source line order is unchanged, so output Y need not be monotonic.
+    /// No row spans, automatic columns, pagination or source hit policy inferred.
+    /// </summary>
+    public static NativeDocumentFlowResult ArrangeWithRows(ReadOnlySpan<NativeDocumentBlock> blocks, double width,
+        ReadOnlySpan<NativeDocumentLine> lines, ReadOnlySpan<NativeDocumentObject> objects,
+        ReadOnlySpan<NativeDocumentRow> rows, ReadOnlySpan<double> columnWidths,
+        ReadOnlySpan<NativeDocumentCell> cells, Span<NativeDocumentBox> boxes,
+        Span<NativeDocumentLinePosition> positions, NativeMilBackend backend = NativeMilBackend.WgpuNative)
+    {
+        Validate(blocks.Length, width, boxes.Length, backend);
+        ValidateRows(rows.Length, columnWidths.Length, cells.Length);
+        if (lines.Length > MaximumItems) throw new ArgumentOutOfRangeException(nameof(lines));
+        if (objects.Length > MaximumItems) throw new ArgumentOutOfRangeException(nameof(objects));
+        if (positions.Length < lines.Length) throw new ArgumentException("One position per line is required.", nameof(positions));
+        NativeDocumentFlowResult result = new() { StructSize = (uint)sizeof(NativeDocumentFlowResult) };
+        NativeRendererStatus status;
+        fixed (NativeDocumentBlock* input = blocks)
+        fixed (NativeDocumentLine* metrics = lines)
+        fixed (NativeDocumentObject* measured = objects)
+        fixed (NativeDocumentRow* rowInput = rows)
+        fixed (double* columns = columnWidths)
+        fixed (NativeDocumentCell* cellInput = cells)
+        fixed (NativeDocumentBox* output = boxes)
+        fixed (NativeDocumentLinePosition* placed = positions)
+            status = backend == NativeMilBackend.Dawn
+                ? NativeDawnDocumentFlowMethods.ArrangeWithRows(input, (uint)blocks.Length, width,
+                    metrics, (uint)lines.Length, measured, (uint)objects.Length,
+                    rowInput, (uint)rows.Length, columns, (uint)columnWidths.Length, cellInput, (uint)cells.Length,
+                    output, (uint)boxes.Length, placed, (uint)positions.Length, &result)
+                : NativeDocumentFlowMethods.ArrangeWithRows(input, (uint)blocks.Length, width,
+                    metrics, (uint)lines.Length, measured, (uint)objects.Length,
+                    rowInput, (uint)rows.Length, columns, (uint)columnWidths.Length, cellInput, (uint)cells.Length,
+                    output, (uint)boxes.Length, placed, (uint)positions.Length, &result);
+        if (status != NativeRendererStatus.Success)
+            throw new NativeRendererException(status, "Native document row placement failed.");
+        return result;
+    }
+
+    private static void ValidateRows(int rows, int columns, int cells)
+    {
+        if (rows > MaximumItems) throw new ArgumentOutOfRangeException(nameof(rows));
+        if (columns > MaximumItems) throw new ArgumentOutOfRangeException(nameof(columns));
+        if (cells > MaximumItems) throw new ArgumentOutOfRangeException(nameof(cells));
+    }
+
     private static void Validate(int count, double width, int capacity, NativeMilBackend backend)
     {
         if (count > MaximumItems) throw new ArgumentOutOfRangeException(nameof(count));
@@ -136,6 +214,20 @@ public static unsafe class NativeDocumentFlow
 
 internal static unsafe partial class NativeDocumentFlowMethods
 {
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_resolve_widths_with_rows")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ResolveWidthsWithRows(NativeDocumentBlock* blocks, uint count, double width,
+        NativeDocumentRow* rows, uint rowCount, double* columns, uint columnCount, NativeDocumentCell* cells, uint cellCount,
+        NativeDocumentBox* boxes, uint capacity);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_arrange_with_rows")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ArrangeWithRows(NativeDocumentBlock* blocks, uint count, double width,
+        NativeDocumentLine* lines, uint lineCount, NativeDocumentObject* objects, uint objectCount,
+        NativeDocumentRow* rows, uint rowCount, double* columns, uint columnCount, NativeDocumentCell* cells, uint cellCount,
+        NativeDocumentBox* boxes, uint capacity, NativeDocumentLinePosition* positions, uint positionCapacity,
+        NativeDocumentFlowResult* result);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_document_arrange_with_objects")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus ArrangeWithObjects(NativeDocumentBlock* blocks, uint count, double width,
@@ -163,6 +255,20 @@ internal static unsafe partial class NativeDocumentFlowMethods
 
 internal static unsafe partial class NativeDawnDocumentFlowMethods
 {
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_resolve_widths_with_rows")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ResolveWidthsWithRows(NativeDocumentBlock* blocks, uint count, double width,
+        NativeDocumentRow* rows, uint rowCount, double* columns, uint columnCount, NativeDocumentCell* cells, uint cellCount,
+        NativeDocumentBox* boxes, uint capacity);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_arrange_with_rows")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ArrangeWithRows(NativeDocumentBlock* blocks, uint count, double width,
+        NativeDocumentLine* lines, uint lineCount, NativeDocumentObject* objects, uint objectCount,
+        NativeDocumentRow* rows, uint rowCount, double* columns, uint columnCount, NativeDocumentCell* cells, uint cellCount,
+        NativeDocumentBox* boxes, uint capacity, NativeDocumentLinePosition* positions, uint positionCapacity,
+        NativeDocumentFlowResult* result);
+
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_document_arrange_with_objects")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus ArrangeWithObjects(NativeDocumentBlock* blocks, uint count, double width,

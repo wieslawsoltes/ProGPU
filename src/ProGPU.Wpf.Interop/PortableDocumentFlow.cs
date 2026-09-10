@@ -50,6 +50,34 @@ public struct PortableDocumentObject
     public double Height;
 }
 
+/// <summary>
+/// Horizontal row in the source block tree with a shared slice of fixed column
+/// widths. Outer half-spacing, full inter-cell spacing. Sorted unique BlockIndex;
+/// direct children are declared cells. No automatic columns or row spans implied.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct PortableDocumentRow
+{
+    public uint BlockIndex;
+    public uint ColumnStart;
+    public uint ColumnCount;
+    public uint Reserved;
+    public double CellSpacing;
+}
+
+/// <summary>
+/// Cell block directly owned by the indexed row, using a positive relative
+/// column span. Sorted block indices and ordered, nonoverlapping spans per row.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct PortableDocumentCell
+{
+    public uint BlockIndex;
+    public uint RowIndex;
+    public uint ColumnStart;
+    public uint ColumnCount;
+}
+
 /// <summary>Content box excluding margins, border and padding. Zero width is not unbounded.</summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct PortableDocumentBox
@@ -109,6 +137,29 @@ public readonly record struct PortableDocumentPagination(uint FragmentCount, uin
 /// </summary>
 public interface IPortableDocumentFlow
 {
+    /// <summary>Optional fixed column/cell constraints before source formatting.</summary>
+    void ResolveWidthsWithRows(ReadOnlySpan<PortableDocumentBlock> blocks, double width,
+        ReadOnlySpan<PortableDocumentRow> rows, ReadOnlySpan<double> columnWidths,
+        ReadOnlySpan<PortableDocumentCell> cells, Span<PortableDocumentBox> boxes)
+    {
+        if (!rows.IsEmpty || !columnWidths.IsEmpty || !cells.IsEmpty)
+            throw new PlatformNotSupportedException("Native document row constraints are unavailable.");
+        ResolveWidths(blocks, width, boxes);
+    }
+
+    /// <summary>
+    /// Optional shared row/cell placement. Returned line order remains source
+    /// order, not Y order; consumers must implement table-aware interaction.
+    /// </summary>
+    PortableDocumentExtent ArrangeWithRows(ReadOnlySpan<PortableDocumentBlock> blocks, double width,
+        ReadOnlySpan<PortableDocumentLine> lines, ReadOnlySpan<PortableDocumentObject> objects,
+        ReadOnlySpan<PortableDocumentRow> rows, ReadOnlySpan<double> columnWidths,
+        ReadOnlySpan<PortableDocumentCell> cells, Span<PortableDocumentBox> boxes,
+        Span<PortableDocumentLinePosition> positions)
+        => rows.IsEmpty && columnWidths.IsEmpty && cells.IsEmpty
+            ? ArrangeWithObjects(blocks, width, lines, objects, boxes, positions)
+            : throw new PlatformNotSupportedException("Native document row placement is unavailable.");
+
     /// <summary>
     /// Optional measured-block placement. Objects target line-free leaves only;
     /// the caller still owns actual child visuals, editing and invalidation.

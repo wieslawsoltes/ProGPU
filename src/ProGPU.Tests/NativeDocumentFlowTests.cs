@@ -9,6 +9,23 @@ namespace ProGPU.Tests;
 public class NativeDocumentFlowTests
 {
     [Fact]
+    public void NativeRowAndCellDescriptorsMatchNeutralBorrowedSpans()
+    {
+        Assert.Equal(24, Unsafe.SizeOf<NativeDocumentRow>());
+        Assert.Equal(24, Unsafe.SizeOf<PortableDocumentRow>());
+        Assert.Equal(16, Marshal.OffsetOf<NativeDocumentRow>(nameof(NativeDocumentRow.CellSpacing)).ToInt32());
+        Assert.Equal(16, Unsafe.SizeOf<NativeDocumentCell>());
+        Assert.Equal(16, Unsafe.SizeOf<PortableDocumentCell>());
+        Span<PortableDocumentRow> rows = [new() { BlockIndex = 2, ColumnStart = 3, ColumnCount = 4, Reserved = 0, CellSpacing = 5.25 }];
+        var row = MemoryMarshal.Cast<PortableDocumentRow, NativeDocumentRow>(rows)[0];
+        Assert.Equal(2U, row.BlockIndex); Assert.Equal(3U, row.ColumnStart);
+        Assert.Equal(4U, row.ColumnCount); Assert.Equal(0U, row.Reserved); Assert.Equal(5.25, row.CellSpacing);
+        Span<PortableDocumentCell> cells = [new() { BlockIndex = 6, RowIndex = 7, ColumnStart = 8, ColumnCount = 9 }];
+        var cell = MemoryMarshal.Cast<PortableDocumentCell, NativeDocumentCell>(cells)[0];
+        Assert.Equal(6U, cell.BlockIndex); Assert.Equal(7U, cell.RowIndex);
+        Assert.Equal(8U, cell.ColumnStart); Assert.Equal(9U, cell.ColumnCount);
+    }
+    [Fact]
     public void NeutralDocumentSpansPreserveEveryWireFieldWithoutRepacking()
     {
         Assert.Equal(Unsafe.SizeOf<NativeDocumentBlock>(), Unsafe.SizeOf<PortableDocumentBlock>());
@@ -81,6 +98,8 @@ public class NativeDocumentFlowTests
     [InlineData(double.PositiveInfinity)]
     public void BadWidthsFailBeforeLoadingNativeCode(double width)
     {
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.ResolveWidthsWithRows([], width, [], [], [], []));
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.ArrangeWithRows([], width, [], [], [], [], [], [], []));
         Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.ArrangeWithObjects([], width, [], [], [], []));
         Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.ResolveWidths([], width, []));
         Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.Arrange([], width, [], [], []));
@@ -89,6 +108,9 @@ public class NativeDocumentFlowTests
     [Fact]
     public void BadCapacitiesAndBackendFailBeforeLoadingNativeCode()
     {
+        Assert.Throws<ArgumentException>(() => NativeDocumentFlow.ResolveWidthsWithRows([new()], 100, [], [], [], []));
+        Assert.Throws<ArgumentException>(() => NativeDocumentFlow.ArrangeWithRows([], 100, [new()], [], [], [], [], [], []));
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.ArrangeWithRows([], 100, [], [], [], [], [], [], [], (NativeMilBackend)99));
         Assert.Throws<ArgumentException>(() => NativeDocumentFlow.ArrangeWithObjects([new()], 100, [], [], [], []));
         Assert.Throws<ArgumentException>(() => NativeDocumentFlow.ArrangeWithObjects([], 100, [new()], [], [], []));
         Assert.Throws<ArgumentOutOfRangeException>(() => NativeDocumentFlow.ArrangeWithObjects([], 100, [], [], [], [], (NativeMilBackend)99));

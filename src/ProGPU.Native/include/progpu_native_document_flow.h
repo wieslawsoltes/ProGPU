@@ -9,7 +9,7 @@ extern "C" {
  * exclusive. Containers have no lines; line ranges partition the supplied line
  * array in preorder. Insets are resolved padding plus border, not margins.
  * All metrics are finite nonnegative DIPs. Negative margins, fixed-height boxes,
- * floats, columns, pagination and bidirectional block ordering are not implied. */
+ * floats, page columns, pagination and bidirectional block ordering are not implied. */
 /* PROGPU_CSHARP_STRUCT: Public.NativeDocumentBlock */
 typedef struct progpu_native_document_block {
     uint32_t parent_index;
@@ -44,6 +44,33 @@ typedef struct progpu_native_document_object {
     double width;
     double height;
 } progpu_native_document_object;
+
+/* Horizontal row in the existing preorder tree. Column widths are fixed outer
+ * cell-track widths (including cell insets, excluding spacing), in DIPs.
+ * Rows may reuse an identical column slice; distinct slices must be disjoint.
+ * Half a spacing unit surrounds the row, with full spacing between cells/rows.
+ * Sorted unique block indices. All direct row children must be declared cells.
+ * This contract does not infer automatic widths or row-spanning cells. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeDocumentRow */
+typedef struct progpu_native_document_row {
+    uint32_t block_index;
+    uint32_t column_start;
+    uint32_t column_count;
+    uint32_t reserved;
+    double cell_spacing;
+} progpu_native_document_row;
+
+/* Cell is a direct child of rows[row_index]. column_start is relative to that
+ * row's column slice. Positive spans may leave unused tracks but never overlap;
+ * cells follow increasing column order in each row. Nested rows remain valid.
+ * Cell contents retain the ordinary block/line/object flow and source identity. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeDocumentCell */
+typedef struct progpu_native_document_cell {
+    uint32_t block_index;
+    uint32_t row_index;
+    uint32_t column_start;
+    uint32_t column_count;
+} progpu_native_document_cell;
 
 /* Content box, excluding margins and insets. Width-only resolution sets Y and
  * Height to zero. A zero Width is a real exhausted constraint, never unbounded. */
@@ -152,6 +179,30 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_document_arrange_with_objec
     const progpu_native_document_block* blocks, uint32_t block_count, double width,
     const progpu_native_document_line* lines, uint32_t line_count,
     const progpu_native_document_object* objects, uint32_t object_count,
+    progpu_native_document_box* boxes, uint32_t box_capacity,
+    progpu_native_document_line_position* positions, uint32_t position_capacity,
+    progpu_native_document_flow_result* result);
+/* Batched row/cell placement within the same block forest. Columns are resolved
+ * before formatting; rows measure the maximum cell outer height, not its sum.
+ * Cell boxes stretch to the row height while their original lines stay top
+ * aligned. Ordinary containers/objects, nested rows and all old entry points
+ * retain their contracts. Rows cannot contain direct text or object metrics.
+ * Complexity O(blocks + lines + columns + rows + cells), bounded temporary
+ * storage, one crossing per width/arrange pass. Same atomic publication rules. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_document_resolve_widths_with_rows(
+    const progpu_native_document_block* blocks, uint32_t block_count, double width,
+    const progpu_native_document_row* rows, uint32_t row_count,
+    const double* column_widths, uint32_t column_count,
+    const progpu_native_document_cell* cells, uint32_t cell_count,
+    progpu_native_document_box* boxes, uint32_t box_capacity);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_document_arrange_with_rows(
+    const progpu_native_document_block* blocks, uint32_t block_count, double width,
+    const progpu_native_document_line* lines, uint32_t line_count,
+    const progpu_native_document_object* objects, uint32_t object_count,
+    const progpu_native_document_row* rows, uint32_t row_count,
+    const double* column_widths, uint32_t column_count,
+    const progpu_native_document_cell* cells, uint32_t cell_count,
     progpu_native_document_box* boxes, uint32_t box_capacity,
     progpu_native_document_line_position* positions, uint32_t position_capacity,
     progpu_native_document_flow_result* result);

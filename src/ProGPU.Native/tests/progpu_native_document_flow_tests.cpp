@@ -26,6 +26,120 @@ block leaf(std::uint32_t parent, std::uint32_t end, std::uint32_t start,
 }
 result fresh() { result r{}; r.struct_size = sizeof(r); return r; }
 
+void row_tests() {
+    using row = progpu_native_document_row;
+    using cell = progpu_native_document_cell;
+    static_assert(sizeof(row) == 24U && offsetof(row, cell_spacing) == 16U && sizeof(cell) == 16U);
+    std::array blocks{leaf(UINT32_MAX, 10U, 0U, 0, 0, 0U),
+        leaf(0U, 6U, 0U, 0, 0, 0U),
+        leaf(1U, 4U, 0U, 0, 0, 0U), leaf(2U, 4U, 0U, 3, 4, 2U),
+        leaf(1U, 6U, 2U, 0, 0, 0U), leaf(4U, 6U, 2U, 0, 0),
+        leaf(0U, 9U, 3U, 0, 0, 0U), leaf(6U, 9U, 3U, 0, 0, 0U),
+        leaf(7U, 9U, 3U, 0, 0), leaf(0U, 10U, 4U, 0, 0)};
+    blocks[0].inset_left = 3; blocks[0].inset_right = 7;
+    blocks[0].inset_top = 4; blocks[0].inset_bottom = 5;
+    blocks[2].inset_left = 2; blocks[2].inset_right = 3;
+    blocks[2].inset_top = 2; blocks[2].inset_bottom = 3;
+    blocks[4].inset_left = 4; blocks[4].inset_right = 6;
+    blocks[4].inset_top = 1; blocks[4].inset_bottom = 1;
+    std::array<row, 2> rows{{{1U, 0U, 2U, 0U, 2.0}, {6U, 0U, 2U, 0U, 2.0}}};
+    std::array<double, 2> columns{80, 120};
+    std::array<cell, 3> cells{{{2U, 0U, 0U, 1U}, {4U, 0U, 1U, 1U}, {7U, 1U, 0U, 2U}}};
+    std::array<line, 5> lines{{{30, 10}, {40, 12}, {60, 20}, {70, 9}, {80, 7}}};
+    std::array<box, 11> boxes{}; boxes.back() = {91, 92, 93, 94};
+    std::array<position, 6> positions{}; positions.back() = {95, 96};
+    auto r = fresh();
+    const auto resolve = [&] { return progpu_native_document_resolve_widths_with_rows(blocks.data(), 10U, 160,
+        rows.data(), 2U, columns.data(), 2U, cells.data(), 3U, boxes.data(), 11U); };
+    const auto arrange = [&] { return progpu_native_document_arrange_with_rows(blocks.data(), 10U, 160,
+        lines.data(), 5U, nullptr, 0U, rows.data(), 2U, columns.data(), 2U, cells.data(), 3U,
+        boxes.data(), 11U, positions.data(), 6U, &r); };
+    require(resolve() == success);
+    require(boxes[1].width == 204 && boxes[2].x == 6 && boxes[2].width == 75);
+    require(boxes[4].x == 90 && boxes[4].width == 110 && boxes[7].width == 202);
+    require(arrange() == success);
+    require(r.width == 214 && r.height == 63 && r.line_count == 5U);
+    require(boxes[1].y == 4 && boxes[1].height == 36 && boxes[6].y == 40);
+    require(boxes[2].height == 29 && boxes[4].height == 32);
+    require(positions[0].y == 10 && positions[1].y == 20 && positions[2].y == 6);
+    require(positions[3].y == 41 && positions[4].y == 51);
+    require(boxes.back().x == 91 && positions.back().y == 96);
+
+    // Wider/taller cell changes shared row height, not source line order.
+    lines[2].height = 50;
+    require(arrange() == success && boxes[1].height == 54 && positions[3].y == 59 && r.height == 81);
+    lines[2].height = 20;
+    const auto reject = [&] {
+        boxes[0].x = 301; positions[0].y = 302; r.height = 303;
+        require(arrange() == invalid);
+        require(boxes[0].x == 301 && positions[0].y == 302 && r.height == 303);
+    };
+    columns[1] = std::numeric_limits<double>::quiet_NaN(); reject();
+    require(resolve() == invalid && boxes[0].x == 301); columns[1] = 120;
+    rows[1].block_index = 1; reject(); rows[1].block_index = 6;
+    rows[1].column_count = 1; reject(); rows[1].column_count = 2;
+    rows[0].reserved = 1; reject(); rows[0].reserved = 0;
+    rows[0].cell_spacing = -1; reject(); rows[0].cell_spacing = 2;
+    cells[1].column_start = 0; reject(); cells[1].column_start = 1;
+    cells[1].column_count = 2; reject(); cells[1].column_count = 1;
+    cells[1].row_index = 1; reject(); cells[1].row_index = 0;
+    cells[1].block_index = 5; reject(); cells[1].block_index = 4;
+    blocks[4].parent_index = 0; reject(); blocks[4].parent_index = 1;
+    require(progpu_native_document_arrange_with_rows(blocks.data(), 10U, 160, lines.data(), 5U,
+        nullptr, 0U, rows.data(), 2U, columns.data(), 2U, cells.data(), 2U,
+        boxes.data(), 11U, positions.data(), 6U, &r) == invalid);
+    require(progpu_native_document_resolve_widths_with_rows(blocks.data(), 10U, 160,
+        rows.data(), 2U, reinterpret_cast<const double*>(boxes.data()), 2U,
+        cells.data(), 3U, boxes.data(), 11U) == invalid);
+    require(arrange() == success);
+
+    // Nested tables reuse a separate shared column slice. Source line order is
+    // row-major while native Y positions need not be strictly increasing.
+    std::array nested{leaf(UINT32_MAX, 8U, 0U, 0, 0, 0U), leaf(0U, 8U, 0U, 0, 0, 0U),
+        leaf(1U, 5U, 0U, 0, 0, 0U), leaf(2U, 4U, 0U, 0, 0), leaf(2U, 5U, 1U, 0, 0),
+        leaf(1U, 8U, 2U, 0, 0, 0U), leaf(5U, 7U, 2U, 0, 0), leaf(5U, 8U, 3U, 0, 0)};
+    std::array<row, 3> nested_rows{{{0, 0, 1, 0, 2}, {2, 1, 2, 0, 4}, {5, 1, 2, 0, 4}}};
+    std::array<double, 3> nested_columns{300, 40, 60};
+    std::array<cell, 5> nested_cells{{{1, 0, 0, 1}, {3, 1, 0, 1}, {4, 1, 1, 1}, {6, 2, 0, 1}, {7, 2, 1, 1}}};
+    std::array<line, 4> nested_lines{{{20, 10}, {30, 20}, {20, 30}, {30, 15}}};
+    require(progpu_native_document_arrange_with_rows(nested.data(), 8, 200, nested_lines.data(), 4, nullptr, 0,
+        nested_rows.data(), 3, nested_columns.data(), 3, nested_cells.data(), 5,
+        boxes.data(), 11, positions.data(), 6, &r) == success);
+    require(r.width == 302 && r.height == 60 && boxes[2].width == 108);
+    require(positions[0].y == 3 && positions[1].y == 3 && positions[2].y == 27 && positions[3].y == 27);
+    nested_rows[1].column_start = 0; // Partly overlapping distinct column slices.
+    require(progpu_native_document_resolve_widths_with_rows(nested.data(), 8, 200,
+        nested_rows.data(), 3, nested_columns.data(), 3, nested_cells.data(), 5, boxes.data(), 11) == invalid);
+
+    // Independent scalar row oracle over changing widths/heights/spacing.
+    std::array flat{leaf(UINT32_MAX, 7, 0, 0, 0, 0), leaf(0, 4, 0, 0, 0, 0),
+        leaf(1, 3, 0, 0, 0), leaf(1, 4, 1, 0, 0), leaf(0, 7, 2, 0, 0, 0),
+        leaf(4, 6, 2, 0, 0), leaf(4, 7, 3, 0, 0)};
+    std::array<row, 2> flat_rows{{{1, 0, 2, 0, 0}, {4, 0, 2, 0, 0}}};
+    std::array<cell, 4> flat_cells{{{2, 0, 0, 1}, {3, 0, 1, 1}, {5, 1, 0, 1}, {6, 1, 1, 1}}};
+    std::array<line, 4> flat_lines{};
+    for (std::uint32_t seed = 0; seed < 32; ++seed) {
+        const double spacing = seed % 3U;
+        columns = {static_cast<double>(seed + 1U), static_cast<double>(seed + 2U)};
+        for (auto& row : flat_rows) row.cell_spacing = spacing;
+        for (std::size_t i = 0; i < flat_lines.size(); ++i)
+            flat_lines[i] = {1, 1.0 + static_cast<double>((seed + i * 3U) % 7U)};
+        require(progpu_native_document_arrange_with_rows(flat.data(), 7, 0, flat_lines.data(), 4, nullptr, 0,
+            flat_rows.data(), 2, columns.data(), 2, flat_cells.data(), 4,
+            boxes.data(), 11, positions.data(), 6, &r) == success);
+        double y = 0;
+        for (std::size_t row_index = 0; row_index < 2; ++row_index) {
+            const double height = std::max(flat_lines[row_index * 2].height, flat_lines[row_index * 2 + 1].height);
+            require(positions[row_index * 2].x == spacing * 0.5 &&
+                positions[row_index * 2 + 1].x == columns[0] + spacing * 1.5);
+            require(positions[row_index * 2].y == y + spacing * 0.5 &&
+                positions[row_index * 2 + 1].y == y + spacing * 0.5);
+            y += height + spacing;
+        }
+        require(r.height == y && r.width == columns[0] + columns[1] + spacing * 2);
+    }
+}
+
 void measured_object_tests() {
     using object = progpu_native_document_object;
     static_assert(sizeof(object) == 24U && offsetof(object, width) == 8U && offsetof(object, height) == 16U);
@@ -176,6 +290,7 @@ void pagination_tests() {
 }
 
 int main() {
+    row_tests();
     pagination_tests();
     static_assert(sizeof(block) == 80U && offsetof(block, margin_left) == 16U);
     static_assert(offsetof(block, inset_bottom) == 72U);

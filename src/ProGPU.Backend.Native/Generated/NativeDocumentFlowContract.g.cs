@@ -43,6 +43,27 @@ public partial struct NativeDocumentObject
     public double Height;
 }
 
+// Native source: progpu_native_document_row.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeDocumentRow
+{
+    public uint BlockIndex;
+    public uint ColumnStart;
+    public uint ColumnCount;
+    public uint Reserved;
+    public double CellSpacing;
+}
+
+// Native source: progpu_native_document_cell.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeDocumentCell
+{
+    public uint BlockIndex;
+    public uint RowIndex;
+    public uint ColumnStart;
+    public uint ColumnCount;
+}
+
 // Native source: progpu_native_document_box.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeDocumentBox
