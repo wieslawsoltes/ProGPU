@@ -41,3 +41,19 @@ cache/content-pass counters only when its solid center check fails. This bounded
 does not change rendering, submissions, normal success-path work or assertions.
 The rebuilt local Direct2D WebGPU suite still passes; see
 `viewport-diagnostics-build.log` and `viewport-diagnostics-test.log`.
+
+## Focused native reproduction
+
+`progpu_native_direct2d_webgpu_tests --mil-viewport3d-only` runs the same ten
+Viewport3D cases and every existing exact/tolerant pixel, depth, clip, mixed-2D
+and warm-cache assertion through one shared test function. The normal no-argument
+CI suite still calls that function after all its earlier phases. This explicit
+diagnostic entry is not a replacement for the complete CI/release suite.
+Both entries pass locally after extraction (`viewport-focused-*.log`).
+
+The full Windows ARM64 build-only lane completed all 313 steps at `160cb12b`.
+Its full graphics test on the Parallels Display Adapter / D3D12 completed earlier
+phases in about 318 seconds, then passed Viewport3D cases 0–2 and lost both colored
+centers in case 3 (scale-two cache). This differs from the hosted MSVC identity
+cache and GCC nested-cache failures; the shared cached replay remains unqualified.
+Guest evidence: `artifacts/viewport-160cb12b-win-arm64.log` in the prepared checkout.
