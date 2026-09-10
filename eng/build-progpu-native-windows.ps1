@@ -180,6 +180,7 @@ function Stage-NativePackage {
         "progpu_native_hit_testing.lib",
         "progpu_native_image.lib",
         "progpu_native_mil.lib",
+        "progpu_native_direct2d_core.lib",
         "progpu_native_text.lib",
         "progpu_native_scene_builder.lib"
     )

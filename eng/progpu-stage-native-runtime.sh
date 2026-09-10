@@ -43,6 +43,7 @@ sdk_libraries=(
   libprogpu_native_hit_testing.a
   libprogpu_native_image.a
   libprogpu_native_mil.a
+  libprogpu_native_direct2d_core.a
   libprogpu_native_text.a
   libprogpu_native_scene_builder.a
 )

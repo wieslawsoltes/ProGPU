@@ -209,7 +209,7 @@ if [[ "${build_only}" == 1 ]]; then
   payload_files=("libprogpu_native.${native_extension}" "libprogpu_native_dawn.${native_extension}")
   sdk_files=(libprogpu_native_compression.a libprogpu_native_hit_testing.a
     libprogpu_native_image.a libprogpu_native_mil.a libprogpu_native_text.a
-    libprogpu_native_scene_builder.a)
+    libprogpu_native_scene_builder.a libprogpu_native_direct2d_core.a)
   for payload_file in "${payload_files[@]}" "${sdk_files[@]}"; do
     if [[ ! -s "${build_dir}/${payload_file}" ]]; then
       echo "Missing native package payload: ${build_dir}/${payload_file}" >&2
