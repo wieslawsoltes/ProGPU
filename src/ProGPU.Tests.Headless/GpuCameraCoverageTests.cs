@@ -10,6 +10,44 @@ namespace ProGPU.Tests.Headless;
 
 public sealed class GpuCameraCoverageTests
 {
+    [Fact]
+    public void CubicOutsideControlHullDoesNotManufactureWinding()
+    {
+        // Captured from the SVG text-text-01-b label. The sample row 38.020832
+        // is above every control Y; an accepted polynomial root there is false.
+        var path = new PathGeometry();
+        var curve = new PathFigure(new Vector2(90.447998046875f, 37.676002502441406f), true);
+        curve.Segments.Add(new CubicBezierSegment(
+            new Vector2(90.85600280761719f, 37.676002502441406f),
+            new Vector2(91.12999725341797f, 37.465999603271484f),
+            new Vector2(91.2699966430664f, 37.04600143432617f)));
+        path.Figures.Add(curve);
+        // Keep the empty sample inside the full record's bounds so the curve's
+        // control-hull rejection, not whole-record culling, is exercised.
+        var rectangle = new PathFigure(new Vector2(70, 30), true);
+        rectangle.Segments.Add(new LineSegment(new Vector2(75, 30)));
+        rectangle.Segments.Add(new LineSegment(new Vector2(75, 40)));
+        rectangle.Segments.Add(new LineSegment(new Vector2(70, 40)));
+        path.Figures.Add(rectangle);
+        var recorder = new GpuPictureRecorder();
+        var drawing = recorder.BeginRecording(new Rect(0, 0, 100, 50));
+        drawing.DrawPath(new SolidColorBrush(Vector4.One), null, path);
+        using var picture = recorder.EndRecording();
+        recorder.BeginRecording(new Rect(0, 0, 100, 50));
+        using var emptyPicture = recorder.EndRecording();
+        using var window = new HeadlessWindow(300, 150);
+        window.Content = new PictureVisual(emptyPicture, Matrix4x4.Identity, false);
+        window.Render();
+        byte[] background = window.ReadPixels();
+        window.Content = new PictureVisual(picture, Matrix4x4.CreateScale(3, 3, 1), false);
+        window.Render();
+        byte[] actual = window.ReadPixels();
+        for (int x = 237; x <= 243; ++x)
+            Assert.Equal(background.AsSpan((114 * 300 + x) * 4, 4).ToArray(),
+                actual.AsSpan((114 * 300 + x) * 4, 4).ToArray());
+        Assert.NotEqual(background[(105 * 300 + 216) * 4], actual[(105 * 300 + 216) * 4]);
+    }
+
     [Theory]
     [InlineData(false, 0)]
     [InlineData(true, 0)]

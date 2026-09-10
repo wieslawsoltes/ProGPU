@@ -137,3 +137,60 @@ omitted the absolute ProGpuSourceRoot required by the SVG overlay and failed;
 the corrected explicit-root build succeeded. Probe-source still contains the
 main shader experiment, diagnostic raw encoding and the two control-hull checks;
 none is staged as product code. No new third-party implementation was copied.
+
+## Captured curve and impossible crossing
+
+The probe now emits the fixture's original compiled segments and raster grids.
+It captured 22 path batches (three-times scale). An independent float32 numerical
+probe of the old normalized cubic solver found an accepted root for this actual
+label segment:
+
+| Point | X | Y |
+| --- | --- | --- |
+| Start | 90.447998046875 | 37.676002502441406 |
+| Control 1 | 90.85600280761719 | 37.676002502441406 |
+| Control 2 | 91.12999725341797 | 37.465999603271484 |
+| End | 91.2699966430664 | 37.04600143432617 |
+
+At sample Y 38.02083206176758, the scalar float32 Cardano evaluation returns
+t=0.005859375 with a negative derivative, accepted by the old interior-root
+policy. Yet every control Y is below that sample: a polynomial Bézier's
+nonnegative Bernstein weights cannot produce that Y for t in [0,1]. Double
+roots of the rounded coefficients are approximately 82576.5 and a complex pair,
+not a segment crossing. This proves the candidate crossing is impossible; the
+scalar calculation is not a claim of bit-exact GPU evaluation or whole-image parity.
+
+The authored GPU regression uses this curve plus a separate rectangle so that
+the empty sample is inside the combined record bounds but outside both contours.
+It checks empty sample pixels against the clear frame and checks visible rectangle
+ink separately. The curve control-hull checks must not be reverted merely to
+recover main's checksum. Final sample accounting, matched native coverage and
+full representative-image review remain necessary before a baseline decision.
+
+Diagnostics are curve-dump.log, curve-root-probe.py and curve-dump-build.log under
+the same isolated artifact directory. NumPy from the bundled workspace runtime
+was used for numerical analysis; system Python lacked that dependency. The
+diagnostic worktree also logs its borrowed segment data and forwards worker stderr;
+these temporary logging changes are not part of product rendering.
+
+The focused GPU test passes on macOS arm64, and all eight tests in
+`GpuCameraCoverageTests` pass with no skips. Its initial reference frame had no
+attached scene and returned uninitialized transparent pixels; the fixture now
+attaches an empty retained picture before rendering the reference. Coverage
+assertions are unchanged. This validates the current renderer's empty samples,
+not an old-renderer failure or matched native-backend coverage. Logs are
+`control-hull-regression.log` and `camera-coverage-regression.log` beside the
+diagnostic evidence.
+
+## Current merge gate observations
+
+At ProGPU head `8047a26d`, the browser WebGPU CI job completed successfully.
+The representative performance job still fails only its checksum assertion:
+all seven iterations report `1eff2c56a78504b8`; timing and allocation budgets
+report no violations. Other pending jobs must finish before claiming green CI.
+LibreWinForms PR #29 has passing checks at its existing pin. LibreWPF head
+`124fe3396` successfully queries its exact pinned producer, then rejects failed
+ProGPU run 34522229666 for `e574a911`; SDK consumers consequently remain skipped.
+Update downstream pins only with the coherent producer revision, retaining the
+exact-revision requirement. No checksum, performance budget, SDK gate or core
+application acceptance requirement is waived by this investigation.
