@@ -2137,6 +2137,32 @@ struct text_tab_options final {
     bool allow_emergency_break = true;
 };
 
+// A fitted logical slice within one free interval of a resolved-height band.
+// Indices refer to the original shaped paragraph, not a copied text buffer.
+struct text_line_fragment final {
+    std::uint32_t glyph_start{}, glyph_count{};
+    float left{}, width{}, content_width{};
+};
+
+// Fit a candidate band using the ordinary shaping-safe line scanner. Fragments
+// follow paragraph reading order (right-to-left reverses interval order).
+// Tabs retain the paragraph grid. A mandatory break ends the band. Indivisible
+// content may overflow only when no exclusion constrains the full-width band;
+// it never overlaps an exclusion merely to make progress.
+// Caller owns resolved band height and must check measured fragment metrics
+// before accepting it. next_y is the interval resolver's downward retry hint,
+// not a substitute for that height check. No fragments leaves next_glyph=start.
+// scratch: E, intervals/fragments: E+1; borrowed buffers must be disjoint.
+// No allocations or per-fragment P/Invoke. O(G + E log E) plus rescanning an
+// indivisible non-fitting prefix for each interval. Trimming is not admitted.
+bool try_fit_text_exclusion_band(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after, std::span<const float> scales,
+    std::uint32_t start, const text_layout_options& options, text_tab_options tabs,
+    text_exclusion_rectangle band, std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::uint32_t& fragment_count,
+    std::uint32_t& next_glyph, float& next_y, font_error* error = nullptr) noexcept;
+
 struct text_intrinsic_widths final {
     float minimum = 0.0F;
     float maximum = 0.0F;

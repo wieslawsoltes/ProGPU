@@ -10,6 +10,8 @@ using ::progpu::native::text::text_item_metrics;
 using ::progpu::native::text::text_exclusion_rectangle;
 using ::progpu::native::text::text_line_interval;
 using ::progpu::native::text::try_resolve_text_line_intervals;
+using ::progpu::native::text::text_line_fragment;
+using ::progpu::native::text::try_fit_text_exclusion_band;
 using ::progpu::native::text::try_layout_measured_logical_shaped_text;
 using ::progpu::native::text::try_measure_measured_text_lines;
 

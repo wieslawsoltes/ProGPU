@@ -13121,7 +13121,61 @@ static void anchored_exclusions_preserve_free_line_intervals() {
     }
 }
 
+static void exclusion_bands_fit_original_shaped_ranges() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 8> glyphs{};
+    std::array<text_line_break_kind, 8> breaks{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].cluster = static_cast<std::int32_t>(i);
+        glyphs[i].advance_x = 10;
+        breaks[i] = text_line_break_kind::opportunity;
+    }
+    std::array<text_exclusion_rectangle, 1> exclusions{{{20, 0, 60, 30}}};
+    std::array<text_line_interval, 1> scratch{};
+    std::array<text_line_interval, 2> intervals{};
+    std::array<text_line_fragment, 2> fragments{};
+    text_layout_options options{}; options.maximum_width = 100; options.line_height = 10;
+    text_tab_options tabs{};
+    std::uint32_t count{}, next{};
+    float next_y{};
+    font_error error{};
+    const auto fit = [&](float top = 0.0F, std::uint32_t start = 0U) {
+        return try_fit_text_exclusion_band(glyphs, breaks, {}, start, options, tabs,
+            {0, top, 100, top + 10}, exclusions, scratch, intervals, fragments, count, next, next_y, &error);
+    };
+    require(fit() && count == 2 && next == 6 && next_y == 30);
+    require(fragments[0].glyph_start == 0 && fragments[0].glyph_count == 2 && fragments[0].left == 0);
+    require(fragments[1].glyph_start == 2 && fragments[1].glyph_count == 4 && fragments[1].left == 60);
+    options.direction = shaping_direction::right_to_left;
+    require(fit() && count == 2 && next == 6 && fragments[0].left == 60 &&
+        fragments[0].glyph_count == 4 && fragments[1].glyph_start == 4 && fragments[1].left == 0);
+    options.direction = shaping_direction::left_to_right;
+    breaks[0] = text_line_break_kind::mandatory;
+    require(fit() && count == 1 && next == 1 && fragments[0].content_width == 10);
+    breaks[0] = text_line_break_kind::opportunity;
+    glyphs[0].advance_x = 50;
+    require(fit() && count == 0 && next == 0 && next_y == 30);
+    require(fit(30) && count == 1 && next == 6); // Full width below the anchor.
+    glyphs[0].advance_x = 150;
+    require(fit(30) && count == 1 && next == 1 && fragments[0].content_width == 150);
+    glyphs[0].advance_x = 10;
+    glyphs[1].cluster = 0; glyphs[2].cluster = 0;
+    require(fit() && count == 1 && fragments[0].left == 60 && fragments[0].glyph_count == 4);
+    require(!fit(0, 1) && error == font_error::invalid_argument && count == 0);
+    glyphs[1].cluster = 1; glyphs[2].cluster = 2;
+    exclusions[0] = {0, 0, 60, 30};
+    tabs.interval = 25;
+    glyphs[0].glyph_id = text_tab_glyph_id;
+    require(fit() && count == 1 && fragments[0].content_width == 35 && next == 3);
+    // Absolute paragraph X=60 reaches the next grid at 75, not X=85.
+    exclusions[0] = {0, 0, 100, 30};
+    require(fit() && count == 0 && next == 0 && next_y == 30);
+    options.trimming = text_trimming::character_ellipsis;
+    require(!fit() && error == font_error::invalid_argument);
+}
+
 int main() {
+    exclusion_bands_fit_original_shaped_ranges();
     anchored_exclusions_preserve_free_line_intervals();
     measured_items_share_wrapping_and_line_metrics();
     collapsed_width_preserves_previous_lines_and_rtl_sign_identity();

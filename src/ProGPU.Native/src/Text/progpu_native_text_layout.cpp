@@ -694,6 +694,53 @@ bool try_layout_tabbed_logical_shaped_text(
         positioned_glyphs, lines, glyph_count, line_count, {}, error);
 }
 
+bool try_fit_text_exclusion_band(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after, std::span<const float> scales,
+    std::uint32_t start, const text_layout_options& options, text_tab_options tabs,
+    text_exclusion_rectangle band, std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::uint32_t& fragment_count,
+    std::uint32_t& next_glyph, float& next_y, font_error* error) noexcept {
+    fragment_count = 0U;
+    next_glyph = start;
+    const auto invalid = [&]() noexcept { set_error(error, font_error::invalid_argument); return false; };
+    if (glyphs.size() > UINT32_MAX || start > glyphs.size() ||
+        breaks_after.size() != glyphs.size() || !valid_options(options) ||
+        options.trimming != text_trimming::none || !valid_scales(glyphs, scales) ||
+        !std::isfinite(tabs.interval) || tabs.interval < 0 || !std::isfinite(tabs.origin) ||
+        !is_safe_break_before(glyphs, start)) return invalid();
+    if (exclusions.size() >= fragments.size()) {
+        set_error(error, font_error::insufficient_buffer); return false;
+    }
+    std::uint32_t interval_count = 0U;
+    float retry_y{};
+    if (!try_resolve_text_line_intervals(band, exclusions, scratch, intervals, interval_count, retry_y, error)) return false;
+    const bool rtl = options.direction == shaping_direction::right_to_left;
+    for (std::uint32_t i = 0; i < interval_count && next_glyph < glyphs.size(); ++i) {
+        const auto interval = intervals[rtl ? interval_count - 1U - i : i];
+        auto local = options;
+        local.maximum_width = interval.right - interval.left;
+        auto local_tabs = tabs;
+        local_tabs.origin += rtl ? band.right - interval.right : interval.left - band.left;
+        if (!std::isfinite(local.maximum_width) || !std::isfinite(local_tabs.origin)) {
+            fragment_count = 0U; next_glyph = start; return invalid();
+        }
+        const auto fitted = scan_line(glyphs, breaks_after, local, next_glyph, false, scales, local_tabs);
+        if (!std::isfinite(fitted.width)) {
+            fragment_count = 0U; next_glyph = start; return invalid();
+        }
+        const bool full_width = interval.left == band.left && interval.right == band.right;
+        if (fitted.width > local.maximum_width && !full_width) continue;
+        fragments[fragment_count++] = {next_glyph, static_cast<std::uint32_t>(fitted.end - next_glyph),
+            interval.left, local.maximum_width, fitted.width};
+        next_glyph = static_cast<std::uint32_t>(fitted.end);
+        if (next_glyph != 0U && breaks_after[next_glyph - 1U] == text_line_break_kind::mandatory) break;
+    }
+    next_y = retry_y;
+    set_error(error, font_error::none);
+    return true;
+}
+
 bool try_layout_justified_logical_shaped_text(
     std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
     std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,

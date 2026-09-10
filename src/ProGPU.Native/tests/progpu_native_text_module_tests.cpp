@@ -1,6 +1,13 @@
 import progpu.native.text;
 
 int main() {
+    progpu::native::text::text_line_fragment empty_fragment[1]{};
+    progpu::native::text::text_line_interval empty_interval[1]{};
+    unsigned int empty_count = 1, empty_next = 1;
+    float empty_y = 1;
+    if (!progpu::native::text::try_fit_text_exclusion_band({}, {}, {}, 0, {}, {},
+        {0, 0, 100, 10}, {}, {}, empty_interval, empty_fragment, empty_count, empty_next, empty_y) ||
+        empty_count != 0 || empty_next != 0 || empty_y != 0) return 1;
     progpu::native::text::text_exclusion_rectangle exclusion[]{ {0, 0, 20, 30} };
     progpu::native::text::text_line_interval scratch[1]{}, intervals[2]{};
     unsigned int interval_count = 0;
