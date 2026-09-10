@@ -33,7 +33,11 @@ public readonly record struct PortableTextStyle(int Start, int Length, PortableT
     float FontSize, ReadOnlyMemory<PortableTextFeature> Features = default, uint Language = 0);
 
 public readonly record struct PortableTextGlyph(uint GlyphId, int Cluster, int ClusterEnd,
-    float X, float Y, float Advance, sbyte BidiLevel, uint FontIndex = 0, bool IsTab = false, bool IsCollapseSymbol = false);
+    float X, float Y, float Advance, sbyte BidiLevel, uint FontIndex = 0, bool IsTab = false, bool IsCollapseSymbol = false)
+{
+    /// <summary>Non-ink source object. Never resolve its font index or draw its glyph id.</summary>
+    public bool IsInlineObject { get; init; }
+}
 public readonly record struct PortableTextLineInfo(int GlyphStart, int GlyphCount,
     int InputStart, int InputEnd, float Width, float Y, float Height);
 public readonly record struct PortableTextHit(int Position, bool Trailing);
@@ -62,6 +66,40 @@ public interface IPortableTextParagraph
 public interface IPortableTextFormatting
 {
     IPortableTextParagraph Format(in PortableTextParagraphRequest request);
+}
+
+/// <summary>Source physical-font extents in paragraph DIPs, one per explicit style.</summary>
+public readonly record struct PortableTextStyleMetrics(float Ascent, float Descent);
+
+/// <summary>Measured source object at an actual UTF-16 U+FFFC position, in paragraph DIPs.</summary>
+public readonly record struct PortableTextInlineObject(int Position, float Width, float Ascent, float Descent);
+
+/// <summary>Owned, source-ordered object placement in paragraph coordinates.</summary>
+public readonly record struct PortableTextInlineObjectPlacement(int InputPosition, int GlyphIndex,
+    int LineIndex, float X, float Y, float Width, float Height);
+
+/// <summary>
+/// Explicit optional capability: text-only providers must not silently discard objects.
+/// Nonempty text requires explicit styles, matching metrics and ordered objects covering
+/// every U+FFFC. Input spans are borrowed only until this call returns.
+/// </summary>
+public interface IPortableInlineTextFormatting : IPortableTextFormatting
+{
+    IPortableInlineTextParagraph FormatInline(in PortableTextParagraphRequest request,
+        ReadOnlySpan<PortableTextStyleMetrics> styleMetrics,
+        ReadOnlySpan<PortableTextInlineObject> inlineObjects);
+}
+
+/// <summary>
+/// Measured lines use line-top Y coordinates and their real individual heights.
+/// Glyph positions and object placements remain in paragraph coordinates.
+/// Selection rectangles retain the ordinary line-local convention.
+/// </summary>
+public interface IPortableInlineTextParagraph : IPortableTextParagraph
+{
+    ReadOnlyMemory<PortableTextInlineObjectPlacement> InlineObjects { get; }
+    /// <summary>Actual baseline relative to the selected line's top.</summary>
+    float GetBaselineOffset(int lineIndex);
 }
 
 public static partial class PortableWpfServiceRegistry

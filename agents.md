@@ -11,6 +11,13 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
+not optional fields that a text-only provider can silently ignore. Source metrics
+and U+FFFC objects are borrowed only during formatting; outputs retain original
+source ordering, non-ink glyph identity, line tops and separate baseline offsets.
+Preserve ordinary request constructors and glyph deconstruction. This capability
+does not admit source InlineUIContainer or anchored Figure/Floater layout.
+
 Retained native inline snapshots map source UTF-16 U+FFFC positions to scalar
 indices once and retain source-ordered placements with glyph/line identity.
 Keep native measured interaction and real cluster ends, including tabs, surrogate
