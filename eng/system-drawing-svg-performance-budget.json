@@ -1,0 +1,11 @@
+{
+  "ReferenceCommit": "8842f828a47442dd0d3e583f85c57432e3c448e5",
+  "ExpectedProcessArchitecture": "X64",
+  "MinimumIterations": 7,
+  "ExpectedFixtureCount": 10,
+  "ExpectedChecksum": "1eff2c6cbe8504b8",
+  "MaximumMedianElapsedMilliseconds": 5750,
+  "MaximumP95ElapsedMilliseconds": 6500,
+  "MaximumMedianAllocatedBytes": 185000000,
+  "MaximumP95AllocatedBytes": 190000000
+}
