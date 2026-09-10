@@ -102,3 +102,38 @@ still contains the isolated path-shader experiment, not a proposed product fix.
 The production ordinary path shader, shared text-mask fix and configurable GPU/
 SIMD execution paths remain unchanged. Further source/command or composition
 isolation is needed; these results do not authorize a baseline change.
+
+## Paired path probe correction and control-hull isolation
+
+Further isolation corrected an invalid inference in the earlier shader-only
+probe. Main's path shader interprets fill-rule value 0 as even-odd; the branch's
+shared shader interprets value 1 as even-odd and its encoder deliberately maps
+the managed enum. Substituting only main's shader therefore mixed two incompatible
+encodings. Its unchanged centre pixel did not exclude path rasterization.
+
+In the separate diagnostic worktree, pairing that main shader with main's raw
+managed fill-rule encoding reproduced the local main frame byte-for-byte,
+including centre alpha 255 and aggregate error 0.206989. This is diagnostic
+compatibility isolation, not a proposed rollback of the shared wire encoding.
+
+Adding only the branch's quadratic and cubic control-hull Y rejection checks to
+that matched main shader changed the centre alpha to 128 and aggregate error to
+0.182320. The whole image is not identical to the branch, so this isolates the
+checksum-changing sample, not every rendering difference. The checks originate
+in 5b4f925e. The next investigation must verify actual curve crossings and the
+endpoint/root solver around those rejected sample rows; reverting valid culling
+or accepting a new checksum without that evidence would be premature.
+
+Separately, a private copy of the branch runner with main's ProGPU.Text assembly
+produced an image byte-identical to the branch. Restoring branch text and replacing
+ProGPU.Scene with main's assembly retained the same reported aggregate error.
+These mixed-binary probes are not release or cross-platform qualification. The
+delivery worktree's renderer and checksum were not changed.
+
+Evidence: artifacts/svg-checksum.QSsnec/text-assembly-probe.H9vGyQ (isolated binaries
+and output), fill-rule-probe.log/build log and output directory, and
+control-hull-probe.log/build log and output directory. The first diagnostic build
+omitted the absolute ProGpuSourceRoot required by the SVG overlay and failed;
+the corrected explicit-root build succeeded. Probe-source still contains the
+main shader experiment, diagnostic raw encoding and the two control-hull checks;
+none is staged as product code. No new third-party implementation was copied.
