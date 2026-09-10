@@ -419,7 +419,7 @@ void bulk_shape_is_deterministic_and_caller_owned() {
         needed.struct_size = sizeof(needed);
         require(progpu_native_text_context_get_inline_flow_paragraph_requirements(context, &inline_request,
             &options, &style, 1, nullptr, &metric, &object, 1, &needed) == PROGPU_NATIVE_STATUS_SUCCESS);
-        std::vector<progpu_native_positioned_text_glyph> positioned(needed.glyph_capacity);
+        std::vector<progpu_native_positioned_text_glyph> inline_glyphs(needed.glyph_capacity);
         std::vector<progpu_native_positioned_text_line> measured_lines(needed.line_capacity);
         std::vector<std::uint8_t> workspace(static_cast<std::size_t>(needed.scratch_bytes));
         progpu_native_text_paragraph_result measured{};
@@ -429,16 +429,16 @@ void bulk_shape_is_deterministic_and_caller_owned() {
             widths.struct_size = sizeof(widths);
             return progpu_native_text_context_layout_inline_flow_paragraph(context, &inline_request,
                 &options, &style, 1, nullptr, &metric, &object, 1,
-                positioned.data(), static_cast<std::uint32_t>(positioned.size()),
+                inline_glyphs.data(), static_cast<std::uint32_t>(inline_glyphs.size()),
                 measured_lines.data(), static_cast<std::uint32_t>(measured_lines.size()),
                 workspace.data(), workspace.size(), &measured, 0, &widths);
         };
         require(measure() == PROGPU_NATIVE_STATUS_SUCCESS);
         require(measured.glyph_count == 3 && measured.line_count == 1 && measured.content_height == 42);
-        require(positioned[1].glyph_id == UINT32_MAX - 1U && positioned[1].font_index == UINT32_MAX &&
-            positioned[1].cluster == 1 && positioned[1].advance_x == 30.25F);
+        require(inline_glyphs[1].glyph_id == UINT32_MAX - 1U && inline_glyphs[1].font_index == UINT32_MAX &&
+            inline_glyphs[1].cluster == 1 && inline_glyphs[1].advance_x == 30.25F);
         require(measured_lines[0].height == 42 && measured_lines[0].baseline_y == 35 &&
-            positioned[0].y == 35 && positioned[2].y == 35);
+            inline_glyphs[0].y == 35 && inline_glyphs[2].y == 35);
         require(widths.maximum == measured_lines[0].width && widths.minimum >= object.width);
         options.maximum_width = 31;
         require(measure() == PROGPU_NATIVE_STATUS_SUCCESS && measured.line_count == 3 && measured.content_height == 82);
@@ -449,27 +449,27 @@ void bulk_shape_is_deterministic_and_caller_owned() {
         require(measure() == PROGPU_NATIVE_STATUS_SUCCESS && measured.line_count == 1);
         std::uint32_t object_items = 0;
         for (std::uint32_t i = 0; i < measured.glyph_count; ++i)
-            if (positioned[i].font_index == UINT32_MAX) {
+            if (inline_glyphs[i].font_index == UINT32_MAX) {
                 ++object_items;
-                require(positioned[i].cluster == 1 && positioned[i].advance_x == 30.25F);
+                require(inline_glyphs[i].cluster == 1 && inline_glyphs[i].advance_x == 30.25F);
             }
         require(object_items == 1);
         object.width = 0;
         require(measure() == PROGPU_NATIVE_STATUS_SUCCESS);
-        positioned[0].x = 123; measured_lines[0].height = 456;
+        inline_glyphs[0].x = 123; measured_lines[0].height = 456;
         object.scalar_index = 0;
         require(measure() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && measured.glyph_count == 0 &&
-            positioned[0].x == 123 && measured_lines[0].height == 456);
+            inline_glyphs[0].x == 123 && measured_lines[0].height == 456);
         object.scalar_index = 1;
         for (float invalid : {-1.0F, std::numeric_limits<float>::quiet_NaN(),
                 std::numeric_limits<float>::infinity()}) {
             object.ascent = invalid;
             require(measure() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && measured.glyph_count == 0 &&
-                positioned[0].x == 123 && measured_lines[0].height == 456);
+                inline_glyphs[0].x == 123 && measured_lines[0].height == 456);
         }
         object.ascent = 35;
         options.trimming = PROGPU_NATIVE_TEXT_TRIMMING_CHARACTER_ELLIPSIS;
-        require(measure() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && positioned[0].x == 123);
+        require(measure() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && inline_glyphs[0].x == 123);
     }
     progpu_native_text_paragraph_requirements paragraph_requirements{};
     paragraph_requirements.struct_size = sizeof(paragraph_requirements);
