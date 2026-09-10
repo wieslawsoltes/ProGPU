@@ -2093,6 +2093,13 @@ struct text_logical_layout_scratch final {
     std::span<std::uint32_t> visual_indices{};
 };
 
+// Caller-resolved DIP distances from the baseline, one per logical item.
+// Font glyphs and measured non-ink objects share these line-height inputs.
+struct text_item_metrics final {
+    float ascent = 0.0F;
+    float descent = 0.0F;
+};
+
 // Non-ink layout item, never a font glyph. Its cluster and resolved advance
 // remain available to caret/selection consumers. Enabled only by tab options.
 inline constexpr std::uint32_t text_tab_glyph_id = 0xFFFFFFFFU;
@@ -2124,6 +2131,23 @@ bool try_layout_justified_logical_shaped_text(
     std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
     std::uint32_t& glyph_count, std::uint32_t& line_count,
     std::span<const text_justification_class> classes, font_error* error = nullptr) noexcept;
+
+// Same wrap/order/justification writer, with per-line measured baselines.
+// Nonempty metrics must cover every logical item. line_height is a minimum;
+// extra leading follows the baseline/descent. First baseline is first-line
+// ascent, subsequent lines start after the preceding measured height.
+// Empty metrics preserves legacy baseline-zero, fixed-height positioning.
+// Trimming with metrics requires separate sign metrics and is rejected here.
+// O(G) time, caller-owned scratch/output, no allocation. Inputs are borrowed.
+bool try_layout_measured_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    std::span<float> advance_scratch, text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count, std::uint32_t& line_count,
+    std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> item_metrics, font_error* error = nullptr) noexcept;
 
 /* O(S + G), O(1) workspace over logical source scalars and shaped clusters.
  * Minimum uses legal, shaping-safe breaks, never emergency cluster splitting.

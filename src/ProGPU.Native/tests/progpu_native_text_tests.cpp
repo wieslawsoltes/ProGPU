@@ -12984,7 +12984,77 @@ static void collapsed_width_preserves_previous_lines_and_rtl_sign_identity() {
     require(!run(0) && count == 0 && line_count == 0 && output[0].x == 123);
 }
 
+static void measured_items_share_wrapping_and_line_metrics() {
+    using progpu::native::text::text_item_metrics;
+    using progpu::native::text::try_layout_measured_logical_shaped_text;
+    std::array<shaping_glyph, 6> glyphs{};
+    std::array<text_line_break_kind, 6> breaks{};
+    std::array<std::int8_t, 6> levels{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = static_cast<std::uint32_t>(i);
+        glyphs[i].cluster = static_cast<std::int32_t>(i);
+        glyphs[i].advance_x = 10;
+        breaks[i] = text_line_break_kind::opportunity;
+    }
+    std::array<text_item_metrics, 6> metrics{{{8, 2}, {30, 4}, {5, 2}, {6, 3}, {9, 5}, {4, 2}}};
+    std::array<positioned_text_glyph, 6> output{};
+    std::array<positioned_text_line, 6> lines{};
+    std::array<text_visual_cluster_group, 6> groups{};
+    std::array<std::uint32_t, 6> indices{};
+    std::uint32_t glyph_count = 0, line_count = 0;
+    text_layout_options options{};
+    options.maximum_width = 20; options.line_height = 10;
+    auto run = [&](std::span<const text_item_metrics> values) {
+        return try_layout_measured_logical_shaped_text(glyphs, breaks, levels, {},
+            levels[0], options, {}, {}, {groups, indices}, output, lines,
+            glyph_count, line_count, {}, values);
+    };
+    require(run(metrics) && glyph_count == 6 && line_count == 3);
+    require(lines[0].height == 34 && lines[0].baseline_y == 30);
+    require(lines[1].height == 10 && lines[1].baseline_y == 40);
+    require(lines[2].height == 14 && lines[2].baseline_y == 53);
+    require(output[0].y == 30 && output[2].y == 40 && output[4].y == 53);
+    levels.fill(1);
+    require(run(metrics) && output[0].glyph_index == 1 && output[1].glyph_index == 0);
+    require(lines[0].baseline_y == 30 && lines[2].baseline_y == 53);
+    levels.fill(0);
+    require(run({}) && lines[0].baseline_y == 0 && lines[1].baseline_y == 10 &&
+        lines[2].baseline_y == 20 && lines[0].height == 10);
+    output[0].x = 123; lines[0].height = 456;
+    require(!run(std::span<const text_item_metrics>{metrics}.first(5)));
+    require(glyph_count == 0 && line_count == 0 && output[0].x == 123 && lines[0].height == 456);
+    for (float invalid : {-1.0F, std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::infinity(), std::numeric_limits<float>::max()}) {
+        metrics[5].descent = invalid;
+        require(!run(metrics) && glyph_count == 0 && line_count == 0);
+        require(output[0].x == 123 && lines[0].height == 456);
+    }
+    metrics[5].descent = 2;
+    options.trimming = text_trimming::character_ellipsis;
+    require(!run(metrics) && output[0].x == 123 && lines[0].height == 456);
+    options.trimming = text_trimming::none;
+    // Independent scalar oracle for paired SIMD reductions; hard boundaries
+    // retain the same source pairs while random metrics vary every line.
+    for (std::uint32_t seed = 0; seed < 32; ++seed) {
+        for (std::size_t i = 0; i < metrics.size(); ++i) {
+            metrics[i] = {static_cast<float>((seed * 13U + i * 7U) % 41U),
+                static_cast<float>((seed * 3U + i * 11U) % 17U)};
+            if ((i & 1U) != 0U) breaks[i] = text_line_break_kind::mandatory;
+        }
+        require(run(metrics) && line_count == 3);
+        float top = 0;
+        for (std::size_t i = 0; i < 3; ++i) {
+            const float ascent = std::max(metrics[2 * i].ascent, metrics[2 * i + 1].ascent);
+            const float descent = std::max(metrics[2 * i].descent, metrics[2 * i + 1].descent);
+            const float height = std::max(10.0F, ascent + descent);
+            require(lines[i].baseline_y == top + ascent && lines[i].height == height);
+            top += height;
+        }
+    }
+}
+
 int main() {
+    measured_items_share_wrapping_and_line_metrics();
     collapsed_width_preserves_previous_lines_and_rtl_sign_identity();
     trimming_preserves_tab_metrics_and_safe_shaping_boundaries();
     intrinsic_widths_use_legal_clusters_and_exclude_trailing_space();

@@ -1,6 +1,12 @@
 import progpu.native.text;
 
 int main() {
+    const progpu::native::text::text_item_metrics inline_metric{12.0F, 3.0F};
+    unsigned int measured_glyphs = 1U, measured_lines = 1U;
+    if (inline_metric.ascent + inline_metric.descent != 15.0F ||
+        !progpu::native::text::try_layout_measured_logical_shaped_text(
+            {}, {}, {}, {}, 0, {}, {}, {}, {}, {}, {}, measured_glyphs,
+            measured_lines, {}, {}) || measured_glyphs != 0U || measured_lines != 0U) return 1;
     constexpr auto tag =
         progpu::native::text::open_type_tag::from_chars('c', 'm', 'a', 'p');
     const auto tag_parser = &progpu::native::text::try_parse_open_type_tag;

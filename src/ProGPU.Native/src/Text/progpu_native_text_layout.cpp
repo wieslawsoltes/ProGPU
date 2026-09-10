@@ -44,6 +44,46 @@ bool valid_options(const text_layout_options& options) noexcept {
             (options.maximum_lines > 0U && options.trimming != text_trimming::none));
 }
 
+// Paired independent ascent/descent reductions. The ordered line-height
+// prefix is separate; no GPU dispatch or per-item allocation is justified.
+bool metric_envelope(std::span<const text_item_metrics> metrics,
+    text_item_metrics& maximum) noexcept {
+    maximum = {};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    auto peak = vdup_n_f32(0.0F);
+    const auto limit = vdup_n_f32(std::numeric_limits<float>::max());
+    for (const auto& metric : metrics) {
+        const float pair[2]{metric.ascent, metric.descent};
+        const auto value = vld1_f32(pair);
+        const auto valid = vand_u32(vcge_f32(value, vdup_n_f32(0.0F)), vcle_f32(value, limit));
+        if (vget_lane_u32(valid, 0) == 0U || vget_lane_u32(valid, 1) == 0U) return false;
+        peak = vmax_f32(peak, value);
+    }
+    maximum = {vget_lane_f32(peak, 0), vget_lane_f32(peak, 1)};
+#elif defined(__SSE2__) || defined(_M_X64)
+    auto peak = _mm_setzero_ps();
+    const auto limit = _mm_set1_ps(std::numeric_limits<float>::max());
+    for (const auto& metric : metrics) {
+        const auto value = _mm_setr_ps(metric.ascent, metric.descent, 0.0F, 0.0F);
+        if (_mm_movemask_ps(_mm_and_ps(_mm_cmpge_ps(value, _mm_setzero_ps()),
+                _mm_cmple_ps(value, limit))) != 15) return false;
+        peak = _mm_max_ps(peak, value);
+    }
+    float values[4]{};
+    _mm_storeu_ps(values, peak);
+    maximum = {values[0], values[1]};
+#else
+    // Scalar reference only where the desktop SIMD baseline is unavailable.
+    for (const auto& metric : metrics) {
+        if (!std::isfinite(metric.ascent) || metric.ascent < 0.0F ||
+            !std::isfinite(metric.descent) || metric.descent < 0.0F) return false;
+        maximum.ascent = std::max(maximum.ascent, metric.ascent);
+        maximum.descent = std::max(maximum.descent, metric.descent);
+    }
+#endif
+    return true;
+}
+
 float line_alignment_shift(
     const text_layout_options& options,
     float line_width) noexcept {
@@ -594,8 +634,33 @@ bool try_layout_justified_logical_shaped_text(
     std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
     std::uint32_t& glyph_count, std::uint32_t& line_count,
     std::span<const text_justification_class> classes, font_error* error) noexcept {
+    return try_layout_measured_logical_shaped_text(logical_glyphs, breaks_after, bidi_levels,
+        glyph_scales, paragraph_level, options, tabs, advance_scratch, scratch,
+        positioned_glyphs, lines, glyph_count, line_count, classes, {}, error);
+}
+
+bool try_layout_measured_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    std::span<float> advance_scratch, text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count, std::uint32_t& line_count,
+    std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> item_metrics, font_error* error) noexcept {
     glyph_count = 0U;
     line_count = 0U;
+    if (!item_metrics.empty()) {
+        text_item_metrics maximum{};
+        if (item_metrics.size() != logical_glyphs.size() ||
+            options.trimming != text_trimming::none || !metric_envelope(item_metrics, maximum) ||
+            std::max(static_cast<double>(options.line_height),
+                static_cast<double>(maximum.ascent) + maximum.descent) *
+                static_cast<double>(logical_glyphs.size()) > std::numeric_limits<float>::max()) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+    }
     if (!classes.empty() && (classes.size() != logical_glyphs.size() ||
         !std::all_of(classes.begin(), classes.end(), [](auto value) {
             return value <= text_justification_class::word_space;
@@ -641,6 +706,7 @@ bool try_layout_justified_logical_shaped_text(
 
     std::size_t input_start_index = 0U;
     std::size_t output_cursor = 0U;
+    double measured_top = 0.0;
     while (input_start_index < logical_glyphs.size() &&
         line_count < requirements.line_capacity) {
         const bool final_allowed = options.maximum_lines != 0U &&
@@ -719,8 +785,16 @@ bool try_layout_justified_logical_shaped_text(
             if (opportunities != 0U && available > 0.0F && std::isfinite(visible.content_width + available))
                 expansion = available;
         }
-        const float baseline = static_cast<float>(line_count) *
-            options.line_height;
+        float line_height = options.line_height;
+        float baseline = static_cast<float>(line_count) * options.line_height;
+        if (!item_metrics.empty()) {
+            text_item_metrics envelope{};
+            // Entire input was validated before publishing any output.
+            (void)metric_envelope(item_metrics.subspan(input_start_index,
+                visible.end - input_start_index), envelope);
+            line_height = std::max(line_height, envelope.ascent + envelope.descent);
+            baseline = static_cast<float>(measured_top + envelope.ascent);
+        }
         const float sign_width = should_trim ? options.ellipsis_advance * options.scale : 0.0F;
         const bool leading_sign = should_trim && options.collapse_width >= 0.0F && (paragraph_level & 1) != 0;
         float cursor_x = leading_sign ? sign_width :
@@ -794,10 +868,11 @@ bool try_layout_justified_logical_shaped_text(
             input_end,
             output_width,
             baseline,
-            options.line_height,
+            line_height,
             should_trim || line.clipped ||
                 (final_allowed && line.end < logical_glyphs.size())};
         ++line_count;
+        measured_top += line_height;
         input_start_index = line.end;
         if (final_allowed) break;
     }

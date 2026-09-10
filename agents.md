@@ -11,6 +11,13 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Measured native text items use the shared logical paragraph writer. Resolve
+per-line ascent/descent before positioning and advance the same retained line
+prefix; do not grow every line to one paragraph-wide maximum. Empty metrics
+preserve legacy baseline-zero positioning. Keep metric trimming rejected until
+the sign has a metric contract. This C++ prerequisite does not itself admit
+inline objects, anchored blocks or WPF source consumers.
+
 Native document rows and cells extend the shared block-flow passes. Resolve fixed
 shared column tracks before formatting; use the tallest cell for row height and
 retain real line/source order, even when Y is nonmonotonic. Prefix each distinct

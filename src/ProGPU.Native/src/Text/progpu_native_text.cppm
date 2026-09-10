@@ -6,6 +6,9 @@ export module progpu.native.text;
 
 export namespace progpu::native::text {
 
+using ::progpu::native::text::text_item_metrics;
+using ::progpu::native::text::try_layout_measured_logical_shaped_text;
+
 using ::progpu::native::text::font_error;
 using ::progpu::native::text::sfnt_container_requirements;
 using ::progpu::native::text::sfnt_subset_requirements;
