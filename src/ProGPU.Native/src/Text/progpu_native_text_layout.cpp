@@ -717,19 +717,19 @@ bool try_layout_tabbed_logical_shaped_text(
         positioned_glyphs, lines, glyph_count, line_count, {}, error);
 }
 
-bool try_fit_text_exclusion_band(std::span<const shaping_glyph> glyphs,
+static bool fit_exclusion_band_core(std::span<const shaping_glyph> glyphs,
     std::span<const text_line_break_kind> breaks_after, std::span<const float> scales,
     std::uint32_t start, const text_layout_options& options, text_tab_options tabs,
     text_exclusion_rectangle band, std::span<const text_exclusion_rectangle> exclusions,
     std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
     std::span<text_line_fragment> fragments, std::uint32_t& fragment_count,
-    std::uint32_t& next_glyph, float& next_y, font_error* error) noexcept {
+    std::uint32_t& next_glyph, float& next_y, bool validated, font_error* error) noexcept {
     fragment_count = 0U;
     next_glyph = start;
     const auto invalid = [&]() noexcept { set_error(error, font_error::invalid_argument); return false; };
     if (glyphs.size() > UINT32_MAX || start > glyphs.size() ||
         breaks_after.size() != glyphs.size() || !valid_options(options) ||
-        options.trimming != text_trimming::none || !valid_scales(glyphs, scales) ||
+        options.trimming != text_trimming::none || (!validated && !valid_scales(glyphs, scales)) ||
         !std::isfinite(tabs.interval) || tabs.interval < 0 || !std::isfinite(tabs.origin) ||
         !is_safe_break_before(glyphs, start)) return invalid();
     if (exclusions.size() >= fragments.size()) {
@@ -762,6 +762,17 @@ bool try_fit_text_exclusion_band(std::span<const shaping_glyph> glyphs,
     next_y = retry_y;
     set_error(error, font_error::none);
     return true;
+}
+
+bool try_fit_text_exclusion_band(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const float> scales,
+    std::uint32_t start, const text_layout_options& options, text_tab_options tabs,
+    text_exclusion_rectangle band, std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::uint32_t& fragment_count,
+    std::uint32_t& next_glyph, float& next_y, font_error* error) noexcept {
+    return fit_exclusion_band_core(glyphs, breaks, scales, start, options, tabs, band,
+        exclusions, scratch, intervals, fragments, fragment_count, next_glyph, next_y, false, error);
 }
 
 bool try_layout_justified_logical_shaped_text(
@@ -1032,7 +1043,7 @@ bool try_layout_measured_logical_shaped_text(
         tabs, advances, scratch, positioned, lines, glyph_count, line_count, classes, metrics, false, error);
 }
 
-bool try_layout_text_exclusion_band(std::span<const shaping_glyph> glyphs,
+static bool layout_exclusion_band_core(std::span<const shaping_glyph> glyphs,
     std::span<const text_line_break_kind> breaks, std::span<const std::int8_t> levels,
     std::span<const float> scales, std::span<const text_justification_class> classes,
     std::span<const text_item_metrics> metrics, std::uint32_t start,
@@ -1042,26 +1053,26 @@ bool try_layout_text_exclusion_band(std::span<const shaping_glyph> glyphs,
     std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
     text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
     std::span<positioned_text_line> lines, text_exclusion_band_result& result,
-    font_error* error) noexcept {
+    bool validated, font_error* error) noexcept {
     result = {};
     const auto fail = [&](font_error value) noexcept { result = {}; set_error(error, value); return false; };
     text_item_metrics maximum{};
     if (start > glyphs.size() || levels.size() != glyphs.size() || metrics.size() != glyphs.size() ||
         (!classes.empty() && classes.size() != glyphs.size()) ||
         (paragraph_level != 0 && paragraph_level != 1) ||
-        !std::all_of(levels.begin(), levels.end(), [](auto level) { return level >= 0 && level <= 125; }) ||
+        (!validated && (!std::all_of(levels.begin(), levels.end(), [](auto level) { return level >= 0 && level <= 125; }) ||
         !std::all_of(classes.begin(), classes.end(), [](auto value) { return value <= text_justification_class::word_space; }) ||
-        !metric_envelope(metrics, maximum)) return fail(font_error::invalid_argument);
+        !metric_envelope(metrics, maximum)))) return fail(font_error::invalid_argument);
     const auto remaining = glyphs.size() - start;
-    if (positioned.size() < remaining || lines.size() <= exclusions.size() ||
+    if (positioned.size() < remaining || lines.size() < std::min(remaining, exclusions.size() + 1U) ||
         scratch.visual_groups.size() < remaining || scratch.visual_indices.size() < remaining ||
         (tabs.interval > 0 && advance_scratch.size() < remaining)) return fail(font_error::insufficient_buffer);
     std::uint32_t count{}, next{};
     float retry_y{};
     auto fitting_options = options;
     fitting_options.direction = paragraph_level == 0 ? shaping_direction::left_to_right : shaping_direction::right_to_left;
-    if (!try_fit_text_exclusion_band(glyphs, breaks, scales, start, fitting_options, tabs,
-        band, exclusions, exclusion_scratch, intervals, fragments, count, next, retry_y, error)) return false;
+    if (!fit_exclusion_band_core(glyphs, breaks, scales, start, fitting_options, tabs,
+        band, exclusions, exclusion_scratch, intervals, fragments, count, next, retry_y, validated, error)) return false;
     result.next_glyph = start; result.top = band.top; result.next_y = retry_y;
     if (start == glyphs.size()) { result.status = text_exclusion_band_status::complete; return true; }
     if (count == 0U) return true;
@@ -1104,6 +1115,97 @@ bool try_layout_text_exclusion_band(std::span<const shaping_glyph> glyphs,
     }
     result.status = text_exclusion_band_status::placed;
     result.next_glyph = next; result.glyph_count = written; result.fragment_count = count;
+    return true;
+}
+
+bool try_layout_text_exclusion_band(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::uint32_t start,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    text_exclusion_rectangle band, std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, text_exclusion_band_result& result,
+    font_error* error) noexcept {
+    return layout_exclusion_band_core(glyphs, breaks, levels, scales, classes, metrics, start,
+        paragraph_level, options, tabs, band, exclusions, exclusion_scratch, intervals,
+        fragments, advance_scratch, scratch, positioned, lines, result, false, error);
+}
+
+bool try_layout_excluded_logical_shaped_text(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::int8_t paragraph_level,
+    const text_layout_options& options, text_tab_options tabs,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, std::span<text_fragment_placement> placements,
+    text_exclusion_flow_result& result, std::uint32_t maximum_attempts, font_error* error) noexcept {
+    result = {};
+    const auto fail = [&](font_error value) noexcept { result = {}; set_error(error, value); return false; };
+    text_item_metrics maximum{};
+    if (glyphs.size() > (1U << 20U) || metrics.size() != glyphs.size() ||
+        maximum_attempts == 0U || maximum_attempts > (1U << 20U) ||
+        !metric_envelope(metrics, maximum) || !valid_options(options) || options.maximum_width <= 0)
+        return fail(font_error::invalid_argument);
+    if (positioned.size() < glyphs.size() || lines.size() < glyphs.size() || placements.size() < glyphs.size())
+        return fail(font_error::insufficient_buffer);
+    const float initial_height = std::max(options.line_height, maximum.ascent + maximum.descent);
+    if (!std::isfinite(initial_height) || (!glyphs.empty() && initial_height <= 0))
+        return fail(font_error::invalid_argument);
+    // Empty paragraphs still traverse validation, without manufacturing a line.
+    if (glyphs.empty()) {
+        text_exclusion_band_result empty{};
+        if (!layout_exclusion_band_core(glyphs, breaks, levels, scales, classes, metrics, 0,
+            paragraph_level, options, tabs, {0, 0, options.maximum_width, 1}, exclusions,
+            exclusion_scratch, intervals, fragments, advance_scratch, scratch, positioned, lines, empty, false, error))
+            return false;
+        return true;
+    }
+    const auto seed_height = [&](std::uint32_t start) noexcept {
+        return std::max(options.line_height, metrics[start].ascent + metrics[start].descent);
+    };
+    double top = 0;
+    float height = seed_height(0);
+    bool validated = false;
+    while (result.next_glyph < glyphs.size()) {
+        if (result.attempts++ >= maximum_attempts) return fail(font_error::verification_failed);
+        const float band_top = static_cast<float>(top), bottom = band_top + height;
+        if (!std::isfinite(bottom) || bottom <= band_top) return fail(font_error::invalid_argument);
+        text_exclusion_band_result band{};
+        if (!layout_exclusion_band_core(glyphs, breaks, levels, scales, classes, metrics, result.next_glyph,
+            paragraph_level, options, tabs, {0, band_top, options.maximum_width, bottom}, exclusions,
+            exclusion_scratch, intervals, fragments, advance_scratch, scratch,
+            positioned.subspan(result.glyph_count), lines.subspan(result.fragment_count), band, validated, error)) {
+            result = {}; return false;
+        }
+        validated = true;
+        if (band.status == text_exclusion_band_status::refit_height) { height = band.height; continue; }
+        if (band.status == text_exclusion_band_status::blocked) {
+            if (band.next_y <= band_top) return fail(font_error::verification_failed);
+            top = band.next_y; height = seed_height(result.next_glyph); continue;
+        }
+        if (band.status != text_exclusion_band_status::placed || band.next_glyph <= result.next_glyph)
+            return fail(font_error::verification_failed);
+        for (std::uint32_t i = 0; i < band.fragment_count; ++i) {
+            const auto index = result.fragment_count + i;
+            lines[index].glyph_start += result.glyph_count;
+            placements[index] = {result.row_count, fragments[i].left, band.top, fragments[i].width};
+        }
+        result.glyph_count += band.glyph_count; result.fragment_count += band.fragment_count;
+        result.next_glyph = band.next_glyph; ++result.row_count;
+        top += band.height; result.height = top;
+        if (options.maximum_lines != 0U && result.row_count >= options.maximum_lines) {
+            if (result.next_glyph < glyphs.size()) lines[result.fragment_count - 1U].clipped = true;
+            break;
+        }
+        if (result.next_glyph < glyphs.size()) height = seed_height(result.next_glyph);
+    }
+    set_error(error, font_error::none);
     return true;
 }
 

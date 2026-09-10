@@ -2175,6 +2175,17 @@ struct text_exclusion_band_result final {
     float top{}, baseline{}, height{}, next_y{};
 };
 
+// One record per positioned fragment, paired by index with positioned_text_line.
+// Multiple fragments may share a row. Explicit tops preserve exclusion gaps.
+struct text_fragment_placement final {
+    std::uint32_t row_index{};
+    float left{}, top{}, width{};
+};
+struct text_exclusion_flow_result final {
+    std::uint32_t glyph_count{}, fragment_count{}, row_count{}, next_glyph{}, attempts{};
+    double height{};
+};
+
 // Source-cluster metadata, never inferred from glyph ids or line-break flags.
 enum class text_justification_class : std::uint8_t { content, whitespace, word_space };
 bool try_classify_text_justification(std::span<const unicode_scalar> input,
@@ -2231,6 +2242,29 @@ bool try_layout_text_exclusion_band(std::span<const shaping_glyph> glyphs,
     std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
     text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
     std::span<positioned_text_line> lines, text_exclusion_band_result& result,
+    font_error* error = nullptr) noexcept;
+
+// Whole paragraph over already resolved exclusions. Original shaping is reused;
+// no text is reshaped or cloned during retries. Metrics must cover all glyphs.
+// Each placed row consumes at least one glyph; blocked bands advance to next_y,
+// refits consume nothing. A bounded attempt limit rejects nonconvergence with
+// verification_failed. No oversized-height acceptance, clipping or CPU fallback.
+// maximum_lines counts rows (zero means unlimited); next_glyph reports truncation.
+// Output capacities: G glyphs, G lines and G placement records. Interval/fragment
+// scratch follows the band contract. Empty text emits no row. Nonempty zero-height
+// flow is rejected, not enlarged by an invented epsilon. result resets on failure;
+// output arrays then have no valid prefix. Inputs and buffers must be disjoint.
+bool try_layout_excluded_logical_shaped_text(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::int8_t paragraph_level,
+    const text_layout_options& options, text_tab_options tabs,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, std::span<text_fragment_placement> placements,
+    text_exclusion_flow_result& result, std::uint32_t maximum_attempts = 1048576U,
     font_error* error = nullptr) noexcept;
 
 /* O(S + G), O(1) workspace over logical source scalars and shaped clusters.

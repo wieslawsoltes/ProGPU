@@ -28,6 +28,11 @@ fragment emission. Every fragment in one row shares a measured baseline/height.
 Do not prefix-sum fragment heights as if they were independent rows. Height refits
 consume no text and publish no positioned output; bounded convergence, retained
 fragment interaction and actual anchor/source ownership are still required.
+Native excluded-paragraph flow retains explicit row indices and fragment tops,
+including cleared vertical gaps. MaximumLines counts rows, not fragments.
+Whole-paragraph scale/bidi/metric validation must not repeat on each retry.
+Nonconvergent height fits fail at the explicit attempt budget; this is an open
+compatibility case, not permission to accept an oversized row or claim parity.
 
 Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
 not optional fields that a text-only provider can silently ignore. Source metrics

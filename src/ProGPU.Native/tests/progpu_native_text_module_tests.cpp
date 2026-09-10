@@ -7,6 +7,12 @@ int main() {
     progpu::native::text::text_line_fragment empty_fragment[1]{};
     progpu::native::text::text_line_interval empty_interval[1]{};
     progpu::native::text::positioned_text_line empty_band_line[1]{};
+    progpu::native::text::text_exclusion_flow_result empty_flow{};
+    progpu::native::text::text_layout_options flow_options{};
+    flow_options.maximum_width = 100;
+    if (!progpu::native::text::try_layout_excluded_logical_shaped_text({}, {}, {}, {}, {}, {}, 0,
+        flow_options, {}, {}, {}, empty_interval, empty_fragment, {}, {}, {}, {}, {}, empty_flow) ||
+        empty_flow.row_count != 0 || empty_flow.fragment_count != 0) return 1;
     if (!band_layout({}, {}, {}, {}, {}, {}, 0, 0, {}, {}, {0, 0, 100, 10},
         {}, {}, empty_interval, empty_fragment, {}, {}, {}, empty_band_line, band_result, nullptr) ||
         band_result.status != progpu::native::text::text_exclusion_band_status::complete) return 1;

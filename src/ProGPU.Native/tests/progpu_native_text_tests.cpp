@@ -13248,7 +13248,75 @@ static void measured_exclusion_fragments_share_one_baseline() {
     require(!place(30) && result.glyph_count == 0 && result.fragment_count == 0);
 }
 
+static void excluded_paragraphs_retain_rows_and_bounded_progress() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 12> glyphs{};
+    std::array<text_line_break_kind, 12> breaks{};
+    std::array<std::int8_t, 12> levels{};
+    std::array<text_item_metrics, 12> metrics{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = static_cast<std::uint32_t>(i);
+        glyphs[i].cluster = static_cast<std::int32_t>(i * 2);
+        glyphs[i].advance_x = 10; breaks[i] = text_line_break_kind::opportunity;
+        metrics[i] = {8, 2};
+    }
+    std::array<text_exclusion_rectangle, 2> exclusions{{{0, 0, 100, 20}, {35, 20, 65, 40}}};
+    std::array<text_line_interval, 2> exclusion_scratch{};
+    std::array<text_line_interval, 3> intervals{};
+    std::array<text_line_fragment, 3> fragments{};
+    std::array<text_visual_cluster_group, 12> groups{};
+    std::array<std::uint32_t, 12> indices{};
+    std::array<float, 12> advances{};
+    std::array<positioned_text_glyph, 12> output{}, ordinary_output{};
+    std::array<positioned_text_line, 12> lines{}, ordinary_lines{};
+    std::array<text_fragment_placement, 12> placements{};
+    text_layout_options options{}; options.maximum_width = 100; options.line_height = 10;
+    text_exclusion_flow_result result{};
+    font_error error{};
+    const auto run = [&](std::span<const text_exclusion_rectangle> values, std::uint32_t budget = 100U) {
+        return try_layout_excluded_logical_shaped_text(glyphs, breaks, levels, {}, {}, metrics,
+            0, options, {}, values, exclusion_scratch, intervals, fragments, advances,
+            {groups, indices}, output, lines, placements, result, budget, &error);
+    };
+    require(run(exclusions) && result.row_count == 2 && result.fragment_count == 4 &&
+        result.glyph_count == 12 && result.next_glyph == 12 && result.attempts == 3 && result.height == 40);
+    require(placements[0].row_index == 0 && placements[1].row_index == 0 && placements[0].top == 20 &&
+        placements[2].row_index == 1 && placements[3].row_index == 1 && placements[2].top == 30);
+    require(lines[0].baseline_y == 28 && lines[1].baseline_y == 28 && lines[2].baseline_y == 38);
+    require(lines[2].glyph_start == 6 && lines[3].glyph_start == 9 && output[9].glyph_index == 9);
+    options.maximum_lines = 1;
+    require(run(exclusions) && result.row_count == 1 && result.fragment_count == 2 &&
+        result.next_glyph == 6 && lines[1].clipped);
+    options.maximum_lines = 0;
+    metrics[3] = {20, 5};
+    require(run(exclusions) && result.row_count == 2 && result.fragment_count == 3 &&
+        result.attempts == 4 && result.height == 55 && placements[2].top == 45 &&
+        lines[0].baseline_y == 40 && lines[1].baseline_y == 40);
+    require(!run(exclusions, 1) && error == font_error::verification_failed &&
+        result.glyph_count == 0 && result.fragment_count == 0);
+    // Height 10 fits the tall item, height 25 excludes it: a real refit cycle.
+    // Reject at the caller's budget instead of accepting either wrong band.
+    std::array<text_exclusion_rectangle, 1> cycle{{{20, 10, 100, 40}}};
+    output[0].x = 301;
+    require(!run(cycle, 6) && error == font_error::verification_failed &&
+        result.glyph_count == 0 && result.fragment_count == 0 && output[0].x == 301);
+    metrics[3] = {8, 2};
+    require(run({}) && result.row_count == 2 && result.fragment_count == 2 && result.height == 20);
+    std::uint32_t ordinary_count{}, ordinary_line_count{};
+    require(try_layout_measured_logical_shaped_text(glyphs, breaks, levels, {}, 0, options, {},
+        advances, {groups, indices}, ordinary_output, ordinary_lines, ordinary_count, ordinary_line_count, {}, metrics));
+    require(ordinary_count == result.glyph_count && ordinary_line_count == result.fragment_count);
+    for (std::uint32_t i = 0; i < ordinary_count; ++i)
+        require(output[i].x == ordinary_output[i].x && output[i].y == ordinary_output[i].y &&
+            output[i].glyph_index == ordinary_output[i].glyph_index &&
+            output[i].advance_x == ordinary_output[i].advance_x);
+    for (std::uint32_t i = 0; i < ordinary_line_count; ++i)
+        require(lines[i].baseline_y == ordinary_lines[i].baseline_y &&
+            lines[i].height == ordinary_lines[i].height && lines[i].width == ordinary_lines[i].width);
+}
+
 int main() {
+    excluded_paragraphs_retain_rows_and_bounded_progress();
     measured_exclusion_fragments_share_one_baseline();
     exclusion_bands_fit_original_shaped_ranges();
     anchored_exclusions_preserve_free_line_intervals();
