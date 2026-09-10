@@ -141,6 +141,19 @@ public struct PortableDocumentPositionedParagraph
 /// <summary>Optional shared document arrangement of positioned paragraph lines.
 /// Source owns the native fragment metadata and original TextLines. This must
 /// not fall back to ordinary line-height prefix placement when absent.</summary>
+public interface IPortableMeasuredDocumentFlow : IPortablePositionedDocumentFlow
+{
+    /// <summary>Returns the same arrangement and its independent content right extent.
+    /// Fixed tracks, insets and declared content extents are retained; ordinary
+    /// allocated block widths do not become fit-content measurements.</summary>
+    PortableDocumentExtent ArrangeWithContentMeasurement(ReadOnlySpan<PortableDocumentBlock> blocks, double width,
+        ReadOnlySpan<PortableDocumentLine> lines, ReadOnlySpan<PortableDocumentObject> objects,
+        ReadOnlySpan<PortableDocumentRow> rows, ReadOnlySpan<double> columnWidths,
+        ReadOnlySpan<PortableDocumentCell> cells, ReadOnlySpan<PortableDocumentPositionedParagraph> paragraphs,
+        ReadOnlySpan<PortableDocumentLinePosition> localPositions, Span<PortableDocumentBox> boxes,
+        Span<PortableDocumentLinePosition> positions, out double contentWidth);
+}
+
 public interface IPortablePositionedDocumentFlow : IPortableDocumentFlow
 {
     /// <summary>All spans are borrowed synchronously and outputs are disjoint.

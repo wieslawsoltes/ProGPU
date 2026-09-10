@@ -30,3 +30,14 @@ than changing placement. Existing document tests remain in the same executable.
 Managed/neutral transport and actual source anchor two-pass consumption are still
 required. This native measurement is not automatic Figure/Floater admission,
 unchanged application closure or package/platform/CI qualification.
+
+Managed `NativeDocumentFlow.ArrangeWithContentMeasurement` now binds both native
+providers with pinned spans and a stack-local scalar output, published to the
+caller only on success. Existing entry points retain their exports. The optional
+`IPortableMeasuredDocumentFlow` neutral capability carries the same content-width
+contract without adding ignored fields to ordinary providers.
+
+Release consumer and interop builds pass with zero warnings/errors. The consumer
+passes measurement on both wgpu-native and Dawn: width 94 versus constraint 100,
+unchanged height/positions and preserved scalar/position output after invalid
+fragment extent. Source consumption and two-pass anchor sizing remain required.

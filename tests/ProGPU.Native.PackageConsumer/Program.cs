@@ -643,6 +643,10 @@ static void ValidateNativePositionedParagraphs()
         if (result.Height != 67 || boxes[1].Height != 52 || positions[0].X != 44 || positions[0].Y != 23 ||
             positions[1].X != 4 || positions[1].Y != 23 || positions[2].Y != 43 || positions[3].Y != 60)
             throw new InvalidOperationException($"Packaged {backend} lost fragment frames or following block placement.");
+        var measured = NativeDocumentFlow.ArrangeWithContentMeasurement(blocks, 100, lines, [], [], [], [],
+            paragraphs, local, boxes, positions, out double contentWidth, backend);
+        if (contentWidth != 94 || measured.Width != 100 || measured.Height != 67 || positions[3].Y != 60)
+            throw new InvalidOperationException($"{backend} confused native content width with its constraint.");
         paragraphs[0].Height = 51;
         bool rejected = false;
         try { NativeDocumentFlow.ArrangeWithPositionedParagraphs(blocks, 100, lines, [], [], [], [],
@@ -650,6 +654,12 @@ static void ValidateNativePositionedParagraphs()
         catch (NativeRendererException) { rejected = true; }
         if (!rejected || boxes[1].Height != 52 || positions[3].Y != 60)
             throw new InvalidOperationException($"Packaged {backend} published a partial positioned paragraph.");
+        rejected = false;
+        try { NativeDocumentFlow.ArrangeWithContentMeasurement(blocks, 100, lines, [], [], [], [],
+            paragraphs, local, boxes, positions, out contentWidth, backend); }
+        catch (NativeRendererException) { rejected = true; }
+        if (!rejected || contentWidth != 94 || positions[3].Y != 60)
+            throw new InvalidOperationException($"{backend} published partial content measurement.");
         rejected = false;
         try { NativeDocumentFlow.ArrangeWithPositionedParagraphs(blocks, 100, lines, [], [], [], [],
             paragraphs, local.AsSpan(0, 3), boxes, positions, backend); }
