@@ -29,3 +29,12 @@ and enters rendering. Rendering next rejects static multi-guideline deformation
 for a draw family not yet supported by that executor. That is the next concrete
 application blocker. Locally replaced diagnostic binaries are not exact-package
 qualification; final application, platform, image/input and PR CI gates remain.
+
+The next renderer rejection is localized to command 222, kind 23
+(`DRAW_STROKE_BATCH`), resource 132, inheriting its saved state. The semantic
+preflight currently admits per-point guidelines only for `DRAW_PATH`; stroke
+capacity and compilation otherwise share the existing stroke lowerer. The next
+implementation must preserve real stroke caps/joins, width, brush mapping,
+target localization/DPI, and unsnapped source input, not merely remove this
+preflight guard or snap a control hull. The failure-only renderer probe was
+removed after recording this evidence.
