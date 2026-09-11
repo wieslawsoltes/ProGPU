@@ -1534,8 +1534,11 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     add_executable(progpu_native_mil_tests
         tests/progpu_native_mil_tests.cpp
+        src/Scene/progpu_native_semantic_state.cpp
         src/Mil/progpu_native_mil_interop.cpp)
     target_compile_features(progpu_native_mil_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_mil_tests PRIVATE
+        ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
     target_compile_definitions(progpu_native_mil_tests PRIVATE
         PROGPU_NATIVE_BUILD=1)
     target_link_libraries(progpu_native_mil_tests PRIVATE progpu_native_mil)

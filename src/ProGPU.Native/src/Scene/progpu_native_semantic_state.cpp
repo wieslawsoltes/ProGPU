@@ -308,33 +308,8 @@ void semantic_state_cursor::snap_point(
                 sizeof(value));
             return static_cast<float>(value) * dpi_scale;
         };
-        std::uint32_t selected = 0U;
-        const float first = read_coordinate(0U);
-        if (count > 1U && physical_coordinate > first) {
-            std::uint32_t lower = 0U;
-            std::uint32_t upper = count - 1U;
-            float lower_value = first;
-            float upper_value = read_coordinate(upper);
-            if (physical_coordinate > upper_value) {
-                selected = upper;
-            } else {
-                while (upper - lower > 1U) {
-                    const std::uint32_t middle = (lower + upper) >> 1U;
-                    const float middle_value = read_coordinate(middle);
-                    if (physical_coordinate > middle_value) {
-                        lower = middle;
-                        lower_value = middle_value;
-                    } else {
-                        upper = middle;
-                        upper_value = middle_value;
-                    }
-                }
-                selected = upper_value - physical_coordinate <
-                        physical_coordinate - lower_value
-                    ? upper
-                    : lower;
-            }
-        }
+        const auto selected = nearest_guideline_index(count,
+            physical_coordinate, read_coordinate);
         const float selected_coordinate = read_coordinate(selected);
         float snapping_offset = wpf_guideline_offset(selected_coordinate);
         if (explicit_offsets) {

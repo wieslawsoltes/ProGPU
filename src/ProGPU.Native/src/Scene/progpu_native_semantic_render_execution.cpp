@@ -3,6 +3,7 @@
 #include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_3d_execution.hpp"
 #include <unordered_map>
+#include <cstdio>
 
 namespace progpu::native::execution {
 
@@ -609,9 +610,14 @@ progpu_native_status render_scene(
             preflight_state_cursor.has_per_point_guidelines(state);
         if (per_point_guidelines &&
             command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+            char message[192]{};
+            std::snprintf(message, sizeof(message),
+                "Static multi-guideline deformation is unsupported for command %u (kind %u, resource %u).",
+                static_cast<unsigned>(index), static_cast<unsigned>(command.kind),
+                static_cast<unsigned>(command.resource_index));
             return engine->fail(
                 PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                "Static multi-guideline deformation is not yet supported for this semantic draw family.");
+                message);
         }
         if ((state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
             if (command.kind ==

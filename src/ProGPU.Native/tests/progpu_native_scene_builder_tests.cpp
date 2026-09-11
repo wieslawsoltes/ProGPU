@@ -441,6 +441,27 @@ bool semantic_scene_builder_bounds_composite_only_guidelines() {
     if (!explicit_builder.try_uniform_guideline_translation(explicit_index, 2.0F, displacement) ||
         displacement.x != 0.0625F || displacement.y != -0.125F) return false;
     const auto unchanged = displacement;
+    float glyph_offset = 7.0F;
+    if (!explicit_builder.try_glyph_guideline_offset(explicit_index, 100.0F, 2.0F, glyph_offset) ||
+        glyph_offset != -0.25F) return false;
+    if (explicit_builder.try_glyph_guideline_offset(explicit_state_index, 0.0F, 1.0F, glyph_offset) ||
+        explicit_builder.try_glyph_guideline_offset(explicit_index, 0.0F, 0.0F, glyph_offset) ||
+        glyph_offset != -0.25F) return false;
+    semantic_scene_builder text_guidelines(710U, 1U);
+    std::uint32_t text_index{};
+    const std::array text_x{1.25, 19.75};
+    const std::array text_y{2.25, 20.75};
+    if (!text_guidelines.add_guideline_set(text_x, text_y, text_index, false, true)) return false;
+    for (const float origin : {-10.0F, 2.25F, 11.5F, 11.75F, 30.0F}) {
+        const float expected = origin <= 11.5F ? -0.25F : 0.25F;
+        if (!text_guidelines.try_glyph_guideline_offset(text_index, origin, 1.0F, glyph_offset) ||
+            glyph_offset != expected) return false;
+    }
+    if (!text_guidelines.try_glyph_guideline_offset(text_index, 30.0F, 2.0F, glyph_offset) ||
+        glyph_offset != 0.5F) return false;
+    if (!text_guidelines.add_guideline_set(text_x, {}, text_index, false, true) ||
+        !text_guidelines.try_glyph_guideline_offset(text_index, 30.0F, 1.0F, glyph_offset) ||
+        glyph_offset != 0.0F) return false;
     if (per_point.try_uniform_guideline_translation(per_point_guideline_index, 1.0F, displacement) ||
         builder.try_uniform_guideline_translation(guideline_index, 1.0F, displacement) ||
         explicit_builder.try_uniform_guideline_translation(explicit_state_index, 1.0F, displacement) ||

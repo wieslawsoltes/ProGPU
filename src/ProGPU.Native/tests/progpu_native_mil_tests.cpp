@@ -9,6 +9,7 @@
 #include "progpu_native_mil_image_brush_fixture.hpp"
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
 #include "../src/Scene/progpu_native_semantic_path_stroke.hpp"
+#include "../src/Scene/progpu_native_semantic_state.hpp"
 #include "progpu_native_text.hpp"
 #include "../src/Geometry/progpu_native_arc.hpp"
 #include "../src/Backend/progpu_native_geometry_base.hpp"
@@ -15234,6 +15235,83 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
     return true;
 }
 
+bool retained_glyph_guidelines_translate_baseline_without_deformation() {
+    const auto font_bytes = load_inter_test_font();
+    progpu::native::text::sfnt_font_view font{};
+    PROGPU_REQUIRE(progpu::native::text::sfnt_font_view::try_create(font_bytes, 0U, font));
+    std::uint16_t glyph_index{};
+    PROGPU_REQUIRE(font.try_get_glyph_index('A', glyph_index));
+    channel state;
+    std::vector<std::byte> batch, content;
+    append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
+    append_create(batch, 3U, 47U); append_create(batch, 4U, 75U);
+    append_command(batch, command::visual_create, 1U);
+    append_command(batch, command::visual_set_guideline_collection, 1U,
+        std::uint16_t{2}, std::uint16_t{0}, std::uint16_t{2}, std::uint16_t{0},
+        2.25F, 20.75F, 2.25F, 20.75F);
+    append_command(batch, command::solid_color_brush, 4U, 1.0,
+        progpu_native_color{1, 1, 1, 1}, 0U, 0U, 0U, 0U);
+    const std::array indices{glyph_index, glyph_index};
+    const std::array advances{8.0F, 8.0F};
+    const std::array offsets{progpu_native_point{0.0F, -1.0F}, progpu_native_point{0.0F, 1.5F}};
+    append_glyph_run_create(batch, 5U, 10.0F, 20.25F, 12.0F,
+        indices, advances, offsets, 10.0, 8.0, 20.0, 16.0);
+    append_command(content, command::draw_glyph_run, 4U, 5U);
+    append_command(content, command::draw_rectangle, 2.25, 2.25, 18.5, 18.5, 4U, 0U);
+    append_render_data(batch, 2U, content);
+    append_command(batch, command::visual_set_content, 1U, 2U);
+    append_command(batch, command::generic_target_create, 3U,
+        std::uint64_t{0}, std::uint64_t{0}, 64U, 64U, 0U);
+    append_command(batch, command::target_set_root, 3U, 1U);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(state.set_glyph_run_font_sfnt(5U, 0U, 0U, font_bytes) == status::success);
+    for (const double dpi : {1.0, 2.0}) {
+        scene_build_request request{};
+        request.flags = scene_build_request_flags::hit_test_index;
+        request.target_handle = 3U; request.scene_id = 9844U;
+        request.generation = request.request_serial = static_cast<std::uint64_t>(dpi);
+        request.dpi_scale_x = request.dpi_scale_y = dpi;
+        std::span<const std::byte> compiled;
+        PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+        const std::vector<std::byte> stream(compiled.begin(), compiled.end());
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        progpu::native::semantic::semantic_state_cursor cursor(stream.data(), header, static_cast<float>(dpi));
+        bool found_glyph = false, found_path = false, found_input = false;
+        for (std::uint32_t i = 0U; i < header.command_count; ++i) {
+            const auto command_record = read_value<progpu_native_scene_command>(stream,
+                header.command_offset + i * sizeof(progpu_native_scene_command));
+            const auto resolved = cursor.advance(command_record);
+            if (command_record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+                PROGPU_REQUIRE(!cursor.has_per_point_guidelines(resolved));
+                PROGPU_REQUIRE(resolved.transform.m31 == 0.0F && resolved.transform.m32 == 0.25F);
+                const auto start = command_record.payload_offset + sizeof(progpu_native_scene_glyph_draw);
+                const auto first = read_value<progpu_native_positioned_glyph>(stream, start);
+                const auto second = read_value<progpu_native_positioned_glyph>(stream, start + sizeof(first));
+                PROGPU_REQUIRE(first.position.x == 10.0F && second.position.x == 18.0F);
+                PROGPU_REQUIRE(first.position.y == 19.25F && second.position.y == 21.75F);
+                found_glyph = true;
+            } else if (command_record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+                PROGPU_REQUIRE(cursor.has_per_point_guidelines(resolved));
+                found_path = true;
+            }
+        }
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + i * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+            const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+            PROGPU_REQUIRE(page.primitive_count == 2U);
+            const auto hit = read_value<progpu_native_hit_test_primitive>(stream,
+                resource.auxiliary_offset + page.primitive_offset);
+            PROGPU_REQUIRE(hit.id == 1 && hit.bounds_min.x == 10.0F && hit.bounds_min.y == 8.0F);
+            PROGPU_REQUIRE(hit.bounds_max.x == 30.0F && hit.bounds_max.y == 24.0F);
+            found_input = true;
+        }
+        PROGPU_REQUIRE(found_glyph && found_path && found_input);
+    }
+    return true;
+}
+
 bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -21424,7 +21502,7 @@ int main() {
             PROGPU_REQUIRE(hit.data2.x == 0 && hit.data2.y == 0);
             PROGPU_REQUIRE(hit.bounds_min.x == 6 && hit.bounds_min.y == -1 && hit.bounds_max.y == 13);
             PROGPU_REQUIRE(hit.bounds_max.x == (kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER ? 28 : 24));
-            PROGPU_REQUIRE(segment.kind == (kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER ?
+            PROGPU_REQUIRE(segment.kind == static_cast<std::uint32_t>(kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER ?
                 PROGPU_NATIVE_PATH_SEGMENT_CUBIC : PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC));
             PROGPU_REQUIRE(std::memcmp(&segment.p0, &curve.p0, sizeof(curve.p0) * 3U) == 0);
             PROGPU_REQUIRE(segment.p3.x == (kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER ? 20 : 0));
@@ -24448,6 +24526,7 @@ int main() {
     PROGPU_REQUIRE(retained_drawing_image_infers_drawing_group_bounds());
     PROGPU_REQUIRE(
         retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband());
+    PROGPU_REQUIRE(retained_glyph_guidelines_translate_baseline_without_deformation());
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(
         retained_geometry_group_accepts_combined_fill_and_clip_children());

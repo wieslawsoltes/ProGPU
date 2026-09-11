@@ -137,6 +137,11 @@ public:
         std::uint32_t& resource_index) noexcept;
     // Resolve a single-coordinate-per-axis resource with the executor's exact
     // rounding/offset rules. Multi-coordinate resources fail without mutation.
+    // Resolve the Y-only physical displacement of a bitmap-text run origin.
+    // The caller retains source geometry and emits a uniform raster-only scope.
+    bool try_glyph_guideline_offset(std::uint32_t resource_index,
+        float origin_y, float dpi_scale, float& physical_offset) const noexcept;
+
     bool try_uniform_guideline_translation(
         std::uint32_t resource_index, float dpi_scale,
         progpu_native_point& translation) const noexcept;

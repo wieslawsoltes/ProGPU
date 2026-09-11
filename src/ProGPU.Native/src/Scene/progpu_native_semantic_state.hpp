@@ -52,6 +52,25 @@ inline float wpf_guideline_offset(float value) noexcept {
     return offset;
 }
 
+// Shared nearest-coordinate policy: ties select the lower coordinate. The
+// ordered search is O(log N), O(1) storage; each probe depends on the last, so
+// SIMD batching is not applicable. Callers provide validated nonempty axes.
+template<class ReadCoordinate>
+inline std::uint32_t nearest_guideline_index(std::uint32_t count,
+    float coordinate, ReadCoordinate read) noexcept {
+    if (count <= 1U || coordinate <= read(0U)) return 0U;
+    std::uint32_t lower = 0U, upper = count - 1U;
+    float lower_value = read(lower), upper_value = read(upper);
+    if (coordinate > upper_value) return upper;
+    while (upper - lower > 1U) {
+        const auto middle = (lower + upper) >> 1U;
+        const float value = read(middle);
+        if (coordinate > value) { lower = middle; lower_value = value; }
+        else { upper = middle; upper_value = value; }
+    }
+    return upper_value - coordinate < coordinate - lower_value ? upper : lower;
+}
+
 // Algorithm: resolve at most one guideline per axis, including pre-resolved
 // dynamic physical offsets. Time/space: O(1), alignment-safe fixed-size reads.
 // Multi-coordinate deformation is deliberately not a uniform translation.

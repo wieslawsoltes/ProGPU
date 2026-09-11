@@ -174,6 +174,35 @@ bool semantic_scene_builder::add_state(
     }
 }
 
+bool semantic_scene_builder::try_glyph_guideline_offset(
+    std::uint32_t resource_index, float origin_y, float dpi_scale,
+    float& physical_offset) const noexcept {
+    if (implementation_ == nullptr || resource_index >= implementation_->resources.size() ||
+        !std::isfinite(origin_y) || !std::isfinite(dpi_scale) || dpi_scale <= 0.0F ||
+        !std::isfinite(origin_y * dpi_scale)) return false;
+    const auto& resource = implementation_->resources[resource_index];
+    if (resource.record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) return false;
+    progpu_native_scene_guideline_set header{};
+    std::memcpy(&header, resource.payload.data(), sizeof(header));
+    if (header.guideline_y_count == 0U) { physical_offset = 0.0F; return true; }
+    const auto read = [&](std::size_t index) {
+        double value = 0.0;
+        std::memcpy(&value, resource.payload.data() + sizeof(header) + index * sizeof(double), sizeof(value));
+        return static_cast<float>(value);
+    };
+    const auto selected = semantic::nearest_guideline_index(header.guideline_y_count,
+        origin_y * dpi_scale, [&](std::uint32_t index) {
+            return read(static_cast<std::size_t>(header.guideline_x_count) + index) * dpi_scale;
+        });
+    const auto index = static_cast<std::size_t>(header.guideline_x_count) + selected;
+    const float result = (header.flags & PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) != 0U
+        ? read(index + header.guideline_x_count + header.guideline_y_count)
+        : semantic::wpf_guideline_offset(read(index) * dpi_scale);
+    if (!std::isfinite(result)) return false;
+    physical_offset = result;
+    return true;
+}
+
 bool semantic_scene_builder::try_uniform_guideline_translation(
     std::uint32_t resource_index, float dpi_scale,
     progpu_native_point& translation) const noexcept {

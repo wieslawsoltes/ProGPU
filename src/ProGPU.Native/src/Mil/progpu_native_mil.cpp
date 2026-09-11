@@ -2783,6 +2783,7 @@ struct channel::implementation {
         bool edge_aliased{};
         bool clear_type_enabled{};
         bool subpixel_text_disabled{};
+        bool text_baseline_guideline_resolved{};
         std::uint32_t text_rendering_mode{};
         std::uint32_t text_hinting_mode{};
     };
@@ -10245,7 +10246,8 @@ struct channel::implementation {
         const affine_2d_double& transform,
         float target_raster_size,
         std::uint32_t text_hinting_mode,
-        float dpi_scale) noexcept {
+        float dpi_scale,
+        bool preserve_baseline) noexcept {
         constexpr double transformed_epsilon = 0.0001;
         const bool transformed_placement =
             std::abs(transform.m12) > transformed_epsilon ||
@@ -10279,7 +10281,8 @@ struct channel::implementation {
         } else {
             world.x = static_cast<float>(std::nearbyint(world.x));
         }
-        world.y = static_cast<float>(std::nearbyint(world.y));
+        if (!preserve_baseline)
+            world.y = static_cast<float>(std::nearbyint(world.y));
         world.x /= dpi_scale;
         world.y /= dpi_scale;
         return {phase, transform_affine_point(world, inverse)};
@@ -10484,7 +10487,8 @@ struct channel::implementation {
                 current.transform,
                 target_raster_size,
                 current.text_hinting_mode,
-                dpi_scale);
+                dpi_scale,
+                current.text_baseline_guideline_resolved);
             const auto outline = scene_resource.outline_indices.find(
                 glyph_outline_key(
                     glyph_run.glyph_indices[index],
@@ -15872,7 +15876,7 @@ struct channel::implementation {
             if (rounded) stroke_pen.miter_limit = 1.0;
             return append_tile_pen(stroke_pen, use, state, {}, {}, true, geometry.stroke_contours, collected);
         };
-        const auto append_brushed_glyph_run = [this, &builder, &glyph_resources,
+        const auto append_brushed_glyph_run_core = [this, &builder, &glyph_resources,
             &resolve_uniform_tile_guidelines, &paint_tile_source_in_mask, &resolve_brush_index, &save_state,
             compile_context](
             std::uint32_t glyph_handle, std::uint32_t brush_handle,
@@ -15967,6 +15971,41 @@ struct channel::implementation {
             const bool popped = builder.pop_layer();
             const bool restored = builder.restore();
             return painted && popped && restored ? status::success : status::invalid_graph;
+        };
+        const auto append_brushed_glyph_run = [this, &builder, &save_state,
+            &append_brushed_glyph_run_core, compile_context](
+            std::uint32_t glyph_handle, std::uint32_t brush_handle,
+            const render_scope_state& source_state) -> status {
+            if (glyph_handle == 0U || brush_handle == 0U ||
+                source_state.guideline_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX)
+                return append_brushed_glyph_run_core(glyph_handle, brush_handle, source_state);
+            if (compile_context != nullptr &&
+                compile_context->request.dpi_scale_x != compile_context->request.dpi_scale_y)
+                return status::unsupported_command;
+            const float dpi = compile_context == nullptr ? 1.0F :
+                static_cast<float>(compile_context->request.dpi_scale_y);
+            const auto found = glyph_runs.find(glyph_handle);
+            if (found == glyph_runs.end()) return status::invalid_handle;
+            const auto origin = transform_affine_point(
+                {found->second.origin_x, found->second.origin_y}, source_state.transform);
+            float offset = 0.0F;
+            if (!builder.try_glyph_guideline_offset(source_state.guideline_resource_index,
+                    origin.y, dpi, offset)) return status::invalid_graph;
+            // Bitmap text translates the entire run vertically at its source
+            // origin. Keep X, glyph offsets, outlines and source input intact.
+            // One uniform raster-only scope prevents per-glyph deformation and
+            // a second hinting-time baseline round. Restore before the next draw.
+            auto text_state = source_state;
+            const std::array coordinates{static_cast<double>(origin.y)};
+            const std::array offsets{static_cast<double>(offset)};
+            if (!builder.add_guideline_set_with_offsets({}, coordinates, {}, offsets,
+                    text_state.guideline_resource_index)) return status::invalid_graph;
+            text_state.per_point_guidelines = false;
+            text_state.text_baseline_guideline_resolved = true;
+            if (!save_state(text_state)) return status::invalid_graph;
+            const status drawn = append_brushed_glyph_run_core(glyph_handle, brush_handle, text_state);
+            const bool restored = builder.restore();
+            return drawn != status::success ? drawn : restored ? status::success : status::invalid_graph;
         };
         const auto append_media_player = [
             this,
