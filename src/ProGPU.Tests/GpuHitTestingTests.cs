@@ -13,6 +13,108 @@ namespace ProGPU.Tests;
 
 public sealed class GpuHitTestingTests
 {
+    [Theory]
+    [InlineData(GpuHitTestPrimitiveFlags.None, true, true)]
+    [InlineData(GpuHitTestPrimitiveFlags.PointOnly, true, false)]
+    [InlineData(GpuHitTestPrimitiveFlags.RegionOnly, false, true)]
+    public void QueryParticipationUsesSameCoverageWithoutChangingGeometry(
+        GpuHitTestPrimitiveFlags participation, bool pointHit, bool regionHit)
+    {
+        // Matched by the native package consumer and Dawn provider fixtures.
+        var rectangle = GpuHitTestPrimitive.RectangleFill(42, Vector2.Zero, new Vector2(20, 10), Vector2.Zero);
+        var selected = rectangle.WithFlags(rectangle.Flags | participation);
+        Assert.Equal(rectangle.BoundsMin, selected.BoundsMin);
+        Assert.Equal(rectangle.Data0, selected.Data0);
+        Assert.Equal(selected.Flags, selected.WithWorldBounds(Vector2.Zero, new Vector2(20, 10)).Flags);
+        Assert.Equal(selected.Flags, selected.WithClip(0, 4, FillRule.Nonzero).Flags);
+        var index = GpuHitTestIndex.Build([selected]);
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        Assert.Equal(pointHit, GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(5), out var single));
+        if (pointHit) Assert.Equal(42, single.Id);
+        var results = new GpuHitTestResult[1];
+        Assert.Equal(pointHit, GpuHitTestEngine.TryHitTestPointAll(context, index, new Vector2(5), results, out int count, out var summary));
+        Assert.Equal(pointHit ? 1 : 0, count);
+        Assert.Equal(pointHit ? 1U : 0U, summary.Hit);
+        Assert.Equal(regionHit, GpuHitTestEngine.TryQueryBoundsAll(context, index, new Vector2(4), new Vector2(6), results, out count, out summary));
+        Assert.Equal(regionHit ? 1 : 0, count);
+        Assert.Equal(regionHit ? 1U : 0U, summary.Hit);
+        Assert.Equal(regionHit, GpuHitTestEngine.TryQueryEllipseAll(context, index, new Vector2(4), new Vector2(6), results, out count, out summary));
+        Assert.Equal(regionHit ? 1 : 0, count);
+        Assert.Equal(regionHit ? 1U : 0U, summary.Hit);
+    }
+
+    [Fact]
+    public void QueryParticipationRejectsConflictingAndUnknownFlags()
+    {
+        var rectangle = GpuHitTestPrimitive.RectangleFill(42, Vector2.Zero, Vector2.One, Vector2.Zero);
+        Assert.Throws<ArgumentOutOfRangeException>(() => rectangle.WithFlags(
+            rectangle.Flags | GpuHitTestPrimitiveFlags.PointOnly | GpuHitTestPrimitiveFlags.RegionOnly));
+        Assert.Throws<ArgumentOutOfRangeException>(() => rectangle.WithFlags((GpuHitTestPrimitiveFlags)16));
+        Assert.Equal(GpuHitTestPrimitiveFlags.None, rectangle.WithFlags(GpuHitTestPrimitiveFlags.None).Flags);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4321)]
+    public void SourceOpacityScopesPreserveInputAndRenderedOpacityInSnapshots(int commandId)
+    {
+        var drawing = new DrawingContext();
+        drawing.PushOpacity(0, affectsHitTesting: false);
+        var opacity = drawing.Commands[0]; opacity.HitTestId = commandId;
+        drawing.Commands[0] = opacity; // exercise compact and general snapshots
+        drawing.PushClip(new Rect(15, 26, 10, 10));
+        drawing.PushOpacity(0.5f, affectsHitTesting: false);
+        var rectangle = new RenderCommand {
+            Type = RenderCommandType.DrawRect, Rect = new Rect(10, 20, 30, 40),
+            Brush = new SolidColorBrush(Vector4.One),
+            Transform = Matrix4x4.CreateTranslation(5, 6, 0) };
+        drawing.Commands.Add(rectangle);
+        drawing.PopOpacity(); drawing.PopClip(); drawing.PopOpacity();
+        rectangle.Transform = Matrix4x4.Identity;
+        drawing.Commands.Add(rectangle);
+        using var picture = drawing.CreatePictureSnapshot();
+        Assert.True(picture.GetCommand(0).IsSourceOpacityScope);
+        Assert.Equal(0f, picture.GetCommand(0).FontSize);
+        using var hits = new GpuRenderCommandHitTestCacheBuilder();
+        for (int i = 0; i < picture.CommandCount; i++)
+        {
+            var command = picture.GetCommand(i);
+            hits.AddCommand(command, command.Transform, id: i == picture.CommandCount - 1 ? 4322 : 4321);
+        }
+        var index = hits.BuildIndex();
+        Assert.Equal(2, index.Primitives.Count);
+        Assert.Equal(4321, index.Primitives[0].Id);
+        Assert.Equal(new Vector2(15, 26), index.Primitives[0].BoundsMin);
+        Assert.Equal(new Vector2(25, 36), index.Primitives[0].BoundsMax);
+        Assert.Equal(4322, index.Primitives[1].Id);
+        Assert.Equal(new Vector2(10, 20), index.Primitives[1].BoundsMin);
+        hits.Clear();
+        hits.AddCommand(new RenderCommand { Type = RenderCommandType.PushOpacity, FontSize = 0 }, Matrix4x4.Identity);
+        hits.AddCommand(rectangle, rectangle.Transform);
+        hits.AddCommand(new RenderCommand { Type = RenderCommandType.PopOpacity }, Matrix4x4.Identity);
+        Assert.Empty(hits.BuildIndex().Primitives); // generic ProGPU policy unchanged
+    }
+
+    [Fact]
+    public void NativeMilCaptureFixtureUsesCanonicalPrimitiveEncoding()
+    {
+        // Same source values as progpu_native_mil_tests.cpp owner-capture case.
+        Matrix4x4 transform = Matrix4x4.CreateScale(2, 3, 1) * Matrix4x4.CreateTranslation(10, 20, 0);
+        GpuHitTestPrimitive rectangle = GpuHitTestPrimitive.RectangleFill(-17,
+            Vector2.Zero, new Vector2(10), Vector2.Zero, transform).WithClip(0, 4, FillRule.Nonzero);
+        Assert.Equal(-17, rectangle.Id);
+        Assert.Equal(new Vector2(10, 20), rectangle.BoundsMin);
+        Assert.Equal(new Vector2(30, 50), rectangle.BoundsMax);
+        Assert.Equal(new Vector4(0.5f, 0, -5, 0), rectangle.InverseTransform0);
+        Assert.Equal(4U, rectangle.ClipSegmentCount);
+        Assert.Equal(1U, rectangle.ClipFlags);
+        GpuHitTestPrimitive ellipse = GpuHitTestPrimitive.EllipseFill(42,
+            Vector2.Zero, new Vector2(10), transform, 1);
+        Assert.Equal(new Vector4(5, 5, 0.2f, 0.2f), ellipse.Data2);
+        Assert.Equal(1, ellipse.ZIndex);
+    }
+
     [Fact]
     public void StructLayoutsMatchShaderStorageLayout()
     {
@@ -114,6 +216,101 @@ public sealed class GpuHitTestingTests
         Assert.Equal(0.8f, primitive.Data2.Y, 6);
         Assert.Equal(5f, primitive.Data2.Z, 6);
         Assert.Equal(0f, primitive.Data2.W);
+    }
+
+    [Fact]
+    public void NativeLineCaptureUsesCanonicalCapsAndPlacement()
+    {
+        var transform = Matrix4x4.CreateScale(2, 3, 1) * Matrix4x4.CreateTranslation(5, 7, 0);
+        for (int start = 0; start < 4; start++)
+        for (int end = 0; end < 4; end++)
+        {
+            var line = GpuHitTestPrimitive.LineStroke(-73, new Vector2(10, 20), new Vector2(30, 40), 4,
+                (LineGeometryCap)start, (LineGeometryCap)end, 0, transform);
+            float padding = 2 * (start == 1 || end == 1 ? MathF.Sqrt(2) : 1);
+            Assert.Equal((10 - padding) * 2 + 5, line.BoundsMin.X);
+            Assert.Equal((40 + padding) * 3 + 7, line.BoundsMax.Y);
+            Assert.Equal(new Vector4(4, 0, start, end), line.Data1);
+            Assert.Equal(MathF.Sqrt(0.5f), line.Data2.X, 6);
+            Assert.Equal(MathF.Sqrt(800), line.Data2.Z, 5);
+        }
+    }
+
+    [Fact]
+    public void NativeFullEllipseArcUsesCanonicalStrokeAndAffinePlacement()
+    {
+        // Paired with native builder scene 9837 (arc and analytic encoders).
+        var transform = Matrix4x4.CreateTranslation(4, 6, 0) *
+            new Matrix4x4(2, 0.25f, 0, 0, 0.5f, 3, 0, 0, 0, 0, 1, 0, 5, 7, 0, 1);
+        var hit = GpuHitTestPrimitive.EllipseStroke(701, new Vector2(-22, 4), new Vector2(42, 36), 3, 0, transform);
+        Assert.Equal(new Vector4(-22, 4, 42, 36), hit.Data0);
+        Assert.Equal(new Vector4(3, 0, 0, 0), hit.Data1);
+        Assert.Equal(new Vector4(10, 20, 1f / 32, 1f / 16), hit.Data2);
+        Vector2[] corners = [new(-23.5f, 2.5f), new(43.5f, 2.5f), new(43.5f, 37.5f), new(-23.5f, 37.5f)];
+        Vector2 min = new(float.PositiveInfinity), max = new(float.NegativeInfinity);
+        foreach (var corner in corners)
+        {
+            var placed = Vector2.Transform(corner, transform);
+            min = Vector2.Min(min, placed); max = Vector2.Max(max, placed);
+        }
+        Assert.Equal(min, hit.BoundsMin); Assert.Equal(max, hit.BoundsMax);
+    }
+
+    [Fact]
+    public void DiagonalSquareCapCornersRemainInsideBroadPhaseBounds()
+    {
+        var line = GpuHitTestPrimitive.LineStroke(1, Vector2.Zero, new Vector2(10), 4,
+            LineGeometryCap.Square, LineGeometryCap.Flat);
+        float cornerX = -2 * MathF.Sqrt(2);
+        Assert.True(line.BoundsMin.X <= cornerX);
+        Assert.Equal(GpuHitTestPrimitiveKind.LineStroke, line.Kind);
+        Assert.Equal((float)LineGeometryCap.Square, line.Data1.Z);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NativeCurveCaptureUsesCanonicalPathStrokePayload(bool cubic)
+    {
+        // Paired with native scene 9840: retain curve segments, not hull fills.
+        var maximum = new Vector2(cubic ? 20 : 16, 12);
+        var hit = GpuHitTestPrimitive.PathStroke(702, Vector2.Zero, maximum, 0, 1, 2, 0,
+            LineGeometryCap.Flat, LineGeometryCap.Flat, Matrix4x4.CreateTranslation(7, 0, 0));
+        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, hit.Kind);
+        Assert.Equal(new Vector4(0, 0, maximum.X, maximum.Y), hit.Data0);
+        Assert.Equal(new Vector4(0, 1, 2, 0), hit.Data1);
+        Assert.Equal(Vector4.Zero, hit.Data2);
+        Assert.Equal(new Vector2(6, -1), hit.BoundsMin);
+        Assert.Equal(new Vector2(cubic ? 28 : 24, 13), hit.BoundsMax);
+    }
+
+    [Theory]
+    [InlineData(PenLineJoin.Miter, 2)]
+    [InlineData(PenLineJoin.Bevel, 1)]
+    [InlineData(PenLineJoin.Round, 6)]
+    public void NativeClosedStrokeCaptureUsesSharedShowcaseJoins(PenLineJoin join, int trianglesPerCorner)
+    {
+        // Same closed Showcase contour, width and placement as native scene 9814.
+        Vector2[] points = [new(0, 40), new(24, 0), new(48, 40)];
+        Span<StrokeJoinTriangle> triangles = stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
+        var transform = Matrix4x4.CreateScale(2, 3, 1) * Matrix4x4.CreateTranslation(5, 7, 0);
+        for (int edge = 0; edge < points.Length; edge++)
+        {
+            Vector2 first = points[edge], corner = points[(edge + 1) % points.Length];
+            Vector2 next = points[(edge + 2) % points.Length];
+            var line = GpuHitTestPrimitive.LineStroke(-74, first, corner, 2,
+                LineGeometryCap.Flat, LineGeometryCap.Flat, 0, transform);
+            Assert.Equal(new Vector4(first.X, first.Y, corner.X, corner.Y), line.Data0);
+            Assert.Equal(new Vector4(2, 0, 0, 0), line.Data1);
+            int count = StrokeJoinGeometry.WriteWpfLineJoin(triangles, join, 2, 10, first, corner, next);
+            Assert.Equal(trianglesPerCorner, count);
+            if (join == PenLineJoin.Miter && edge == 0)
+            {
+                // Apex miter extends above the spine by 1 / sin(atan(24/40)).
+                float top = MathF.Min(triangles[1].P0.Y, MathF.Min(triangles[1].P1.Y, triangles[1].P2.Y));
+                Assert.Equal(-MathF.Sqrt(24 * 24 + 40 * 40) / 24, top, 5);
+            }
+        }
     }
 
     [Fact]
@@ -238,21 +435,22 @@ public sealed class GpuHitTestingTests
         builder.AddCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawGlyphRun,
-            Rect = new Rect(10f, 20f, 30f, 12f),
+            Rect = new Rect(-2f, -7f, 12f, 9f),
             FontSize = 12f,
             GlyphPositions =
             [
                 new Vector2(1f, 2f),
                 new Vector2(10_000f, 10_000f)
             ]
-        }, Matrix4x4.CreateTranslation(2f, 3f, 0f), id: 77);
+        }, Matrix4x4.CreateScale(2, 3, 1) * Matrix4x4.CreateTranslation(10, 20, 0), id: 77);
 
         var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
 
         var primitive = Assert.Single(index.Primitives);
         Assert.Equal(77, primitive.Id);
-        Assert.Equal(new Vector2(12f, 23f), primitive.BoundsMin);
-        Assert.Equal(new Vector2(42f, 35f), primitive.BoundsMax);
+        Assert.Equal(GpuHitTestPrimitiveKind.RectangleFill, primitive.Kind);
+        Assert.Equal(new Vector2(6f, -1f), primitive.BoundsMin);
+        Assert.Equal(new Vector2(30f, 26f), primitive.BoundsMax);
     }
 
     [Fact]
@@ -510,9 +708,75 @@ public sealed class GpuHitTestingTests
 
         var primitive = Assert.Single(index.Primitives);
         Assert.Equal(4321, primitive.Id);
-        Assert.Equal(GpuHitTestPrimitiveKind.AxisAlignedBounds, primitive.Kind);
+        Assert.Equal(GpuHitTestPrimitiveKind.RectangleFill, primitive.Kind);
         Assert.Equal(new Vector2(15f, 26f), primitive.BoundsMin);
         Assert.Equal(new Vector2(45f, 66f), primitive.BoundsMax);
+    }
+
+    [Fact]
+    public void RenderCommandImagePatchHitsRetainGapsAndLocalTransforms()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawTexture,
+            Rect = new Rect(0, 0, 400, 400), // batch culling envelope is not coverage
+            TexturePatches = [
+                new(new Rect(0, 0, 2, 2), new Rect(0, 0, 4, 6)),
+                new(new Rect(0, 0, 2, 2), new Rect(10, 0, 4, 6)),
+                new(new Rect(0, 0, 2, 2), new Rect(0, 0, 4, 6), new Matrix3x2(0, 1, -1, 0, 20, 1))]
+        }, Matrix4x4.Identity, id: -9);
+        var index = builder.BuildIndex();
+        Assert.Equal(3, index.Primitives.Count);
+        var rotated = index.Primitives[2];
+        Assert.Equal(GpuHitTestPrimitiveKind.RectangleFill, rotated.Kind);
+        Assert.Equal(new Vector2(14, 1), rotated.BoundsMin);
+        Assert.Equal(new Vector2(20, 5), rotated.BoundsMax);
+        Assert.Equal(new Vector4(0, 1, -1, 0), rotated.InverseTransform0);
+        Assert.All(index.Primitives, item => Assert.Equal(-9, item.Id));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4321)]
+    public void ImageHitScopeRetainsDestinationAcrossPackedSnapshots(int commandId)
+    {
+        var context = new DrawingContext();
+        context.Commands.Add(new RenderCommand {
+            Type = RenderCommandType.PushClip, IsImageHitTestScope = true,
+            Rect = new Rect(10, 20, 30, 40), HitTestId = commandId,
+            Transform = Matrix4x4.CreateTranslation(5, 6, 0) });
+        context.PushOpacity(0);
+        context.PushClip(new Rect(100, 200, 1, 1));
+        context.Commands.Add(new RenderCommand {
+            Type = RenderCommandType.DrawEllipse,
+            Rect = new Rect(0, 0, 1, 1), Brush = new SolidColorBrush(Vector4.One) });
+        context.PopClip();
+        context.PopOpacity();
+        context.PopClip();
+        using var picture = context.CreatePictureSnapshot();
+        Assert.True(picture.GetCommand(0).IsImageHitTestScope);
+        using var builder = new GpuRenderCommandHitTestCacheBuilder();
+        for (int i = 0; i < picture.CommandCount; i++)
+        {
+            var command = picture.GetCommand(i);
+            builder.AddCommand(command, command.Transform, id: 4321);
+        }
+        var hit = Assert.Single(builder.BuildIndex().Primitives);
+        Assert.Equal(4321, hit.Id);
+        Assert.Equal(GpuHitTestPrimitiveKind.RectangleFill, hit.Kind);
+        Assert.Equal(new Vector2(15, 26), hit.BoundsMin);
+        Assert.Equal(new Vector2(45, 66), hit.BoundsMax);
+        // Empty scopes also retain source image coverage, and internal opacity
+        // must not leak to the next source operation.
+        builder.AddCommand(picture.GetCommand(0), Matrix4x4.Identity, id: 4322);
+        builder.PushClip(new Rect(200, 300, 1, 1), Matrix4x4.Identity);
+        builder.PopClip(); // compositor-owned visual clip inside image content
+        Assert.Throws<InvalidOperationException>(() => builder.BuildIndex());
+        builder.AddCommand(new RenderCommand { Type = RenderCommandType.PopClip }, Matrix4x4.Identity);
+        Assert.Equal(2, builder.BuildIndex().Primitives.Count);
+        builder.Clear();
+        Assert.Empty(builder.BuildIndex().Primitives);
     }
 
     [Theory]
@@ -1322,6 +1586,10 @@ public sealed class GpuHitTestingTests
             Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f))
         }, Matrix4x4.CreateTranslation(10f, 20f, 0f), id: 88);
         var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        Assert.Equal(
+            (float)(uint)FillRule.Nonzero,
+            Assert.Single(index.Primitives).Data1.Z);
 
         bool hit = GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(15f, 24f), out GpuHitTestResult result);
 

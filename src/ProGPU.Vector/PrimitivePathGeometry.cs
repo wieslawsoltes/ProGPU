@@ -8,6 +8,28 @@ public static class PrimitivePathGeometry
     private const float Epsilon = 0.0001f;
 
     /// <summary>
+    /// Recognizes one open, stroked line without allocating or replacing a
+    /// polyline, closed contour, curve, boolean path or cap override with a line.
+    /// Geometry-local transforms must already be applied by the producer.
+    /// Its fill has zero area, regardless of the figure's fill participation.
+    /// </summary>
+    public static bool TryGetOpenLine(PathGeometry path, out Vector2 start, out Vector2 end)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        start = end = default;
+        if (path.IsCombined || path.Figures.Count != 1) return false;
+        var figure = path.Figures[0];
+        if (figure.IsClosed || figure.Segments.Count != 1
+            || figure.StrokeStartLineCap.HasValue || figure.StrokeEndLineCap.HasValue
+            || figure.Segments[0] is not LineSegment line || !line.IsStroked) return false;
+        if (!float.IsFinite(figure.StartPoint.X) || !float.IsFinite(figure.StartPoint.Y)
+            || !float.IsFinite(line.Point.X) || !float.IsFinite(line.Point.Y)) return false;
+        start = figure.StartPoint;
+        end = line.Point;
+        return true;
+    }
+
+    /// <summary>
     /// Recognizes a filled, closed axis-aligned rectangle without allocating.
     /// Redundant collinear edges are accepted when their signed area still
     /// covers the complete bounding rectangle.
@@ -44,8 +66,7 @@ public static class PrimitivePathGeometry
                     next = line.Point;
                     break;
                 case ArcSegment arc
-                    when MathF.Abs(arc.Size.X) <= Epsilon ||
-                         MathF.Abs(arc.Size.Y) <= Epsilon:
+                    when arc.Size.X == 0 || arc.Size.Y == 0:
                     next = arc.Point;
                     break;
                 default:
@@ -115,7 +136,9 @@ public static class PrimitivePathGeometry
 
         radiusX = MathF.Min(MathF.Abs(radiusX), width * 0.5f);
         radiusY = MathF.Min(MathF.Abs(radiusY), height * 0.5f);
-        if (radiusX <= Epsilon || radiusY <= Epsilon)
+        // A positive rounded clip must retain its corner geometry, even below
+        // the rectangle-classification epsilon. Only a zero axis is square.
+        if (radiusX == 0 || radiusY == 0)
         {
             return CreateRectangle(x, y, width, height);
         }

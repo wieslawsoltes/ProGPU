@@ -8,7 +8,26 @@ public interface IPortableViewport3DSceneSource
 public enum PortableViewport3DCameraKind
 {
     Perspective = 0,
-    Orthographic = 1
+    Orthographic = 1,
+    Matrix = 2
+}
+
+public enum PortableViewport3DLightKind
+{
+    Ambient = 0,
+    Directional = 1,
+    Point = 2,
+    Spot = 3
+}
+
+/// <summary>
+/// Identifies one ordered WPF material pass in a flattened Viewport3D scene.
+/// </summary>
+public enum PortableViewport3DMaterialKind
+{
+    Diffuse = 0,
+    Specular = 1,
+    Emissive = 2
 }
 
 public readonly struct PortableVector3
@@ -144,12 +163,27 @@ public sealed class PortableViewport3DCamera
     public bool HasTransform { get; set; }
 
     public PortableMatrix4x4 Transform { get; set; } = PortableMatrix4x4.Identity;
+
+    /// <summary>
+    /// Gets or sets the complete world-to-camera matrix when <see cref="Kind"/>
+    /// is <see cref="PortableViewport3DCameraKind.Matrix"/>.
+    /// </summary>
+    public PortableMatrix4x4 ViewMatrix { get; set; } = PortableMatrix4x4.Identity;
+
+    /// <summary>
+    /// Gets or sets the complete camera projection matrix when <see cref="Kind"/>
+    /// is <see cref="PortableViewport3DCameraKind.Matrix"/>.
+    /// </summary>
+    public PortableMatrix4x4 ProjectionMatrix { get; set; } = PortableMatrix4x4.Identity;
 }
 
 public sealed class PortableViewport3DMesh
 {
     private static readonly PortableVector3[] s_emptyVectors = System.Array.Empty<PortableVector3>();
+    private static readonly PortablePoint[] s_emptyPoints = System.Array.Empty<PortablePoint>();
     private static readonly int[] s_emptyIndices = System.Array.Empty<int>();
+    private static readonly PortableViewport3DMaterial[] s_emptyMaterials =
+        System.Array.Empty<PortableViewport3DMaterial>();
 
     public object? Geometry { get; set; }
 
@@ -158,6 +192,12 @@ public sealed class PortableViewport3DMesh
     public PortableVector3[] Positions { get; set; } = s_emptyVectors;
 
     public PortableVector3[] Normals { get; set; } = s_emptyVectors;
+
+    /// <summary>
+    /// Gets or sets WPF mesh brush coordinates. Missing trailing coordinates
+    /// have the canonical WPF value (0,0).
+    /// </summary>
+    public PortablePoint[] TextureCoordinates { get; set; } = s_emptyPoints;
 
     public int[] Indices { get; set; } = s_emptyIndices;
 
@@ -174,11 +214,62 @@ public sealed class PortableViewport3DMesh
     public double Opacity { get; set; } = 1.0;
 
     public bool IsBackFace { get; set; }
+
+    /// <summary>
+    /// Gets or sets the ordered material passes produced by WPF material-group
+    /// flattening. An empty array selects the legacy aggregate material fields.
+    /// </summary>
+    public PortableViewport3DMaterial[] Materials { get; set; } =
+        s_emptyMaterials;
+}
+
+/// <summary>
+/// Neutral typed state for one WPF Viewport3D material pass. The brush DTO is
+/// intentionally retained so consumers can select a native uniform, gradient,
+/// or texture realization without probing the source WPF object.
+/// </summary>
+public sealed class PortableViewport3DMaterial
+{
+    public PortableViewport3DMaterialKind Kind { get; set; }
+
+    public PortableBrush? Brush { get; set; }
+
+    public PortableTileBrush? TileBrush { get; set; }
+
+    public PortableColor4 Color { get; set; } = new(1, 1, 1, 1);
+
+    public PortableVector3 AmbientColor { get; set; } = new(1, 1, 1);
+
+    public double SpecularPower { get; set; } = 40.0;
+}
+
+public sealed class PortableViewport3DLight
+{
+    public PortableViewport3DLightKind Kind { get; set; }
+
+    public PortableColor4 Color { get; set; } = new(1, 1, 1, 1);
+
+    public PortableVector3 Position { get; set; }
+
+    public PortableVector3 Direction { get; set; } = new(0, 0, -1);
+
+    public double Range { get; set; } = double.PositiveInfinity;
+
+    public double ConstantAttenuation { get; set; } = 1.0;
+
+    public double LinearAttenuation { get; set; }
+
+    public double QuadraticAttenuation { get; set; }
+
+    public double OuterConeAngle { get; set; } = 90.0;
+
+    public double InnerConeAngle { get; set; } = 180.0;
 }
 
 public sealed class PortableViewport3DScene
 {
     private static readonly PortableViewport3DMesh[] s_emptyMeshes = System.Array.Empty<PortableViewport3DMesh>();
+    private static readonly PortableViewport3DLight[] s_emptyLights = System.Array.Empty<PortableViewport3DLight>();
 
     public PortableRect Viewport { get; set; } = PortableRect.Empty;
 
@@ -191,6 +282,8 @@ public sealed class PortableViewport3DScene
     public PortableVector3 AmbientColor { get; set; } = new(1.0, 1.0, 1.0);
 
     public double AmbientIntensity { get; set; } = 0.2;
+
+    public PortableViewport3DLight[] Lights { get; set; } = s_emptyLights;
 
     public PortableViewport3DMesh[] Meshes { get; set; } = s_emptyMeshes;
 }

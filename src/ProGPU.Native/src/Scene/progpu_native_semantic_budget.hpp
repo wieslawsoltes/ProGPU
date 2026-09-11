@@ -4,10 +4,74 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <limits>
+#include <memory>
+#include <utility>
 
 namespace progpu::native::semantic {
+
+// Shared retained-payload accounting. Charges belong to live allocations,
+// not cache slots, so eviction cannot release bytes still held by a consumer.
+// Fixed work without contention; atomic retry is dependent ownership work.
+class residency_budget final {
+public:
+    explicit residency_budget(std::uint64_t limit) noexcept : limit_(limit) {}
+    std::uint64_t bytes() const noexcept { return bytes_.load(std::memory_order_relaxed); }
+    std::uint64_t limit() const noexcept { return limit_; }
+
+private:
+    friend class residency_reservation;
+    bool acquire(std::uint64_t count) noexcept {
+        auto current = bytes_.load(std::memory_order_relaxed);
+        do {
+            if (count > limit_ || current > limit_ - count) return false;
+        } while (!bytes_.compare_exchange_weak(current, current + count,
+            std::memory_order_relaxed, std::memory_order_relaxed));
+        return true;
+    }
+    void release(std::uint64_t count) noexcept { bytes_.fetch_sub(count, std::memory_order_relaxed); }
+    const std::uint64_t limit_;
+    std::atomic<std::uint64_t> bytes_{};
+};
+
+class residency_reservation final {
+public:
+    residency_reservation() noexcept = default;
+    ~residency_reservation() { reset(); }
+    residency_reservation(const residency_reservation&) = delete;
+    residency_reservation& operator=(const residency_reservation&) = delete;
+    residency_reservation(residency_reservation&& source) noexcept
+        : owner_(std::move(source.owner_)), bytes_(std::exchange(source.bytes_, 0U)) {}
+    residency_reservation& operator=(residency_reservation&& source) noexcept {
+        if (this != &source) {
+            reset();
+            owner_ = std::move(source.owner_);
+            bytes_ = std::exchange(source.bytes_, 0U);
+        }
+        return *this;
+    }
+    static residency_reservation try_acquire(const std::shared_ptr<residency_budget>& owner,
+        std::uint64_t bytes) noexcept {
+        residency_reservation result;
+        if (owner && owner->acquire(bytes)) {
+            result.owner_ = owner;
+            result.bytes_ = bytes;
+        }
+        return result;
+    }
+    explicit operator bool() const noexcept { return bool(owner_); }
+    void reset() noexcept {
+        if (owner_) owner_->release(bytes_);
+        owner_.reset();
+        bytes_ = 0U;
+    }
+
+private:
+    std::shared_ptr<residency_budget> owner_;
+    std::uint64_t bytes_{};
+};
 
 struct scissor final {
     std::uint32_t x = 0U;
@@ -21,6 +85,12 @@ struct scissor final {
 
 inline constexpr std::uint32_t max_draw_passes = 16U * 1024U;
 inline constexpr std::uint32_t max_effect_passes = 16U * 1024U;
+inline constexpr std::uint32_t max_cached_layers =
+    PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS;
+inline constexpr std::uint32_t cached_layer_slot_base =
+    PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS;
+inline constexpr std::uint32_t layer_slot_count =
+    PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS + max_cached_layers;
 inline constexpr std::uint32_t effect_uniform_alignment = 256U;
 inline constexpr std::uint64_t max_vertex_bytes =
     256ULL * 1024ULL * 1024ULL;
@@ -199,6 +269,87 @@ private:
                 width * height * bytes_per_pixel;
             if (result >
                 std::numeric_limits<std::uint64_t>::max() - bytes) {
+                return std::numeric_limits<std::uint64_t>::max();
+            }
+            result += bytes;
+        }
+        return result;
+    }
+};
+
+struct cache_budget {
+    std::array<std::uint64_t, max_cached_layers> identities{};
+    std::array<std::uint64_t, max_cached_layers> revisions{};
+    std::array<bool, max_cached_layers> shared{};
+    std::array<std::uint32_t, max_cached_layers> widths{};
+    std::array<std::uint32_t, max_cached_layers> heights{};
+    std::array<bool, max_cached_layers> effected{};
+    std::array<std::uint32_t, max_cached_layers> slots{};
+    std::uint32_t count = 0U;
+
+    bool add(
+        std::uint64_t identity,
+        const scissor& extent,
+        bool has_effect,
+        bool allow_shared = false,
+        std::uint64_t revision = 0U) noexcept {
+        if (allow_shared && (revision == 0U || has_effect || extent.x != 0U || extent.y != 0U))
+            return false;
+        for (std::uint32_t index = 0U; index < count; ++index) {
+            if (identities[index] == identity) {
+                return allow_shared && shared[index] && revisions[index] == revision &&
+                    widths[index] == std::max(extent.width, 1U) &&
+                    heights[index] == std::max(extent.height, 1U) && !effected[index];
+            }
+        }
+        if (identity == 0U || count == max_cached_layers) {
+            return false;
+        }
+        identities[count] = identity;
+        revisions[count] = revision;
+        shared[count] = allow_shared;
+        widths[count] = std::max(extent.width, 1U);
+        heights[count] = std::max(extent.height, 1U);
+        effected[count] = has_effect;
+        ++count;
+        return pooled_bytes() <= PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES;
+    }
+
+    std::uint64_t pooled_bytes() const noexcept {
+        return pooled_bytes_per_pixel(4U, false);
+    }
+
+    std::uint64_t pooled_effect_bytes() const noexcept {
+        return pooled_bytes_per_pixel(12U, true);
+    }
+
+    std::uint32_t maximum_width() const noexcept {
+        return *std::max_element(widths.begin(), widths.end());
+    }
+
+    std::uint32_t maximum_height() const noexcept {
+        return *std::max_element(heights.begin(), heights.end());
+    }
+
+private:
+    std::uint64_t pooled_bytes_per_pixel(
+        std::uint64_t bytes_per_pixel,
+        bool only_effected) const noexcept {
+        std::uint64_t result = 0U;
+        for (std::uint32_t index = 0U; index < count; ++index) {
+            if (only_effected && !effected[index]) {
+                continue;
+            }
+            const std::uint64_t width = widths[index];
+            const std::uint64_t height = heights[index];
+            if (height > std::numeric_limits<std::uint64_t>::max() / width ||
+                width * height >
+                    std::numeric_limits<std::uint64_t>::max() /
+                        bytes_per_pixel) {
+                return std::numeric_limits<std::uint64_t>::max();
+            }
+            const std::uint64_t bytes = width * height * bytes_per_pixel;
+            if (result > std::numeric_limits<std::uint64_t>::max() - bytes) {
                 return std::numeric_limits<std::uint64_t>::max();
             }
             result += bytes;

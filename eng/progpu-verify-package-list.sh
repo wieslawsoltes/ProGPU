@@ -108,8 +108,8 @@ while IFS= read -r project; do
   fi
 done < <(find "${repo_root}/src" -type f -name '*.csproj' -not -path '*/bin/*' -not -path '*/obj/*' | sort)
 
-if [[ "${#classified_projects[@]}" -ne 78 ]]; then
-  echo "Expected 78 classified projects, found ${#classified_projects[@]}. Update the manifest and this audit count together." >&2
+if [[ "${#classified_projects[@]}" -ne 80 ]]; then
+  echo "Expected 80 classified projects, found ${#classified_projects[@]}. Update the manifest and this audit count together." >&2
   exit 1
 fi
 

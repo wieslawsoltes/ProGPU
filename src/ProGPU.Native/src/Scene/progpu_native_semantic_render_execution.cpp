@@ -1,6 +1,9 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_semantic_draw_execution.hpp"
+#include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_3d_execution.hpp"
+#include <unordered_map>
+#include <cstdio>
 
 namespace progpu::native::execution {
 
@@ -51,10 +54,24 @@ progpu_native_status render_scene(
     }
     constexpr std::uint32_t allowed_frame_flags =
         PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET |
-        PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT;
+        PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT |
+        PROGPU_NATIVE_SCENE_FRAME_PRESENTATION;
     const bool has_extended_frame =
-        frame->struct_size >= sizeof(progpu_native_scene_frame);
+        frame->struct_size >= offsetof(progpu_native_scene_frame, damage_height) + sizeof(float);
     const auto frame_flags = has_extended_frame ? frame->flags : 0U;
+    progpu_native_scene_presentation presentation{};
+    if (!semantic::try_resolve_scene_presentation(*frame, presentation)) {
+        return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The semantic scene presentation descriptor is invalid.");
+    }
+    // Keep unsupported mappings explicit until paths, text, masks, layers,
+    // effects and retained cache keys all consume independent device axes.
+    if (presentation.viewport_x != 0U || presentation.viewport_y != 0U ||
+        presentation.viewport_width != frame->width || presentation.viewport_height != frame->height ||
+        presentation.dpi_scale_x != frame->dpi_scale || presentation.dpi_scale_y != frame->dpi_scale) {
+        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+            "Semantic viewport and independent-axis presentation execution is not yet available.");
+    }
     const bool damage_requested =
         (frame_flags & PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT) != 0U;
     const bool preserve_requested =
@@ -247,11 +264,14 @@ progpu_native_status render_scene(
     };
 
     semantic_layer_budget layer_budget{};
+    semantic::cache_budget cache_budget{};
+    std::array<std::uint64_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> active_cache_owners{};
+    std::uint32_t cache_scope_depth = 0U;
     semantic_layer_target_cursor layer_budget_cursor(
         bytes,
         frame->width,
         frame->height,
-        frame->dpi_scale);
+        presentation);
     bool semantic_has_materialized_layers = false;
     bool semantic_has_layer_masks = false;
     std::uint32_t semantic_layer_mask_kind =
@@ -282,6 +302,17 @@ progpu_native_status render_scene(
             }
             const bool materialized =
                 progpu::native::scene::layer_requires_materialization(layer);
+            const bool cached =
+                (layer.flags &
+                    PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
+            if (cache_scope_depth == active_cache_owners.size() ||
+                (cached && std::find(active_cache_owners.begin(),
+                    active_cache_owners.begin() + cache_scope_depth, layer.composite_revision) !=
+                        active_cache_owners.begin() + cache_scope_depth)) {
+                return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A semantic cache owner recursively references its active page.");
+            }
+            active_cache_owners[cache_scope_depth++] = cached ? layer.composite_revision : 0U;
             semantic_has_materialized_layers |= materialized;
             if (layer.mask_resource_index !=
                     PROGPU_NATIVE_SCENE_NO_INDEX) {
@@ -356,6 +387,16 @@ progpu_native_status render_scene(
             }
             const bool effected = layer.effect_resource_index !=
                 PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (cached && !cache_budget.add(
+                    layer.composite_revision,
+                    target_extent,
+                    effected,
+                    (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED) != 0U,
+                    layer.content_revision)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A semantic retained cache owner conflicts or the bounded cache-page pool is exceeded.");
+            }
             semantic_has_layer_effects |= effected;
             if (effected) {
                 const auto effect_resource = read_resource(
@@ -396,19 +437,8 @@ progpu_native_status render_scene(
                     }
                     semantic_effect_pass_count += passes;
                     semantic_has_drop_shadows |= drop_shadow;
-                    constexpr float maximum_physical_sigma =
-                        128.0F / 3.0F;
-                    const float sigma_x = effect.sigma_x * frame->dpi_scale;
-                    const float sigma_y = effect.sigma_y * frame->dpi_scale;
-                    const float offset_x = effect.offset_x * frame->dpi_scale;
-                    const float offset_y = effect.offset_y * frame->dpi_scale;
-                    if (!std::isfinite(sigma_x) ||
-                        !std::isfinite(sigma_y) ||
-                        sigma_x > maximum_physical_sigma ||
-                        sigma_y > maximum_physical_sigma ||
-                        (drop_shadow &&
-                            (!std::isfinite(offset_x) ||
-                             !std::isfinite(offset_y)))) {
+                    progpu_native_group_effect physical_effect{};
+                    if (!semantic::try_resolve_semantic_effect(effect, presentation, physical_effect)) {
                         return engine->fail(
                             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                             "A semantic effect exceeds the finite physical kernel contract.");
@@ -439,15 +469,75 @@ progpu_native_status render_scene(
             }
             if (!layer_budget.push(
                     target_extent,
-                    materialized,
-                    effected)) {
+                    materialized && !cached,
+                    effected && !cached)) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                     "The semantic isolated-layer stack exceeds its bounded depth or aggregate pixel budget.");
             }
         } else if (command.kind ==
             PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+            --cache_scope_depth;
             layer_budget.pop();
+        }
+    }
+
+    std::array<bool, semantic::max_cached_layers> retained_cache_slots{};
+    for (std::uint32_t cache_index = 0U;
+         cache_index < cache_budget.count;
+         ++cache_index) {
+        const std::uint64_t identity = cache_budget.identities[cache_index];
+        std::uint32_t retained_index = semantic::max_cached_layers;
+        for (std::uint32_t index = 0U;
+             index < semantic::max_cached_layers;
+             ++index) {
+            if (engine->semantic_cached_layer_identities[index] == identity) {
+                retained_index = index;
+                break;
+            }
+        }
+        if (retained_index == semantic::max_cached_layers) {
+            for (std::uint32_t index = 0U;
+                 index < semantic::max_cached_layers;
+                 ++index) {
+                if (!retained_cache_slots[index] &&
+                    std::find(
+                        cache_budget.identities.begin(),
+                        cache_budget.identities.begin() +
+                            cache_budget.count,
+                        engine->semantic_cached_layer_identities[index]) ==
+                        cache_budget.identities.begin() +
+                            cache_budget.count) {
+                    retained_index = index;
+                    break;
+                }
+            }
+        }
+        if (retained_index == semantic::max_cached_layers) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "A semantic retained cache page could not obtain a stable GPU slot.");
+        }
+        auto& slot = engine->semantic_layer_slots[
+            semantic::cached_layer_slot_base + retained_index];
+        if (engine->semantic_cached_layer_identities[retained_index] !=
+            identity) {
+            engine->semantic_cached_layer_identities[retained_index] =
+                identity;
+            slot.effect_output_cache = {};
+        }
+        retained_cache_slots[retained_index] = true;
+        cache_budget.slots[cache_index] =
+            semantic::cached_layer_slot_base + retained_index;
+    }
+    for (std::uint32_t index = 0U;
+         index < semantic::max_cached_layers;
+         ++index) {
+        if (!retained_cache_slots[index]) {
+            engine->semantic_cached_layer_identities[index] = 0U;
+            engine->semantic_layer_slots[
+                semantic::cached_layer_slot_base + index]
+                .effect_output_cache = {};
         }
     }
 
@@ -478,12 +568,13 @@ progpu_native_status render_scene(
     bool semantic_has_masked_glyphs = false;
     bool semantic_has_masked_images = false;
     semantic_compilation_budget compilation_budget{};
-    semantic_state_cursor preflight_state_cursor(bytes, header);
+    semantic_state_cursor preflight_state_cursor(
+        bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
     semantic_layer_target_cursor preflight_target_cursor(
         bytes,
         frame->width,
         frame->height,
-        frame->dpi_scale);
+        presentation);
     std::vector<std::uint8_t> semantic_generated_masks_budgeted;
     std::vector<std::uint8_t> semantic_glyph_resources_budgeted;
     try {
@@ -500,6 +591,7 @@ progpu_native_status render_scene(
         const auto state = localize_semantic_state(
             preflight_state_cursor.advance(command),
             target_extent,
+            preflight_target_cursor.current_presentation(),
             frame->dpi_scale);
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE) {
@@ -513,6 +605,19 @@ progpu_native_status render_scene(
             command.kind >
                 PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
             continue;
+        }
+        const bool per_point_guidelines =
+            preflight_state_cursor.has_per_point_guidelines(state);
+        if (per_point_guidelines &&
+            command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+            char message[192]{};
+            std::snprintf(message, sizeof(message),
+                "Static multi-guideline deformation is unsupported for command %u (kind %u, resource %u).",
+                static_cast<unsigned>(index), static_cast<unsigned>(command.kind),
+                static_cast<unsigned>(command.resource_index));
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                message);
         }
         if ((state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
             if (command.kind ==
@@ -966,6 +1071,11 @@ progpu_native_status render_scene(
                     boolean_node_count <= (1U << 22U) &&
                     path_count <=
                         std::numeric_limits<std::uint32_t>::max() / 6U;
+                if (per_point_guidelines && boolean_node_count != 0U) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                        "Static multi-guideline path deformation does not yet support boolean path programs.");
+                }
                 const auto* boolean_nodes = reinterpret_cast<const
                     progpu_native_scene_path_boolean_node*>(
                         bytes + resource.auxiliary_offset +
@@ -985,7 +1095,14 @@ progpu_native_status render_scene(
                             segment_index * sizeof(segment),
                         sizeof(segment));
                     valid = is_valid_semantic_segment(segment, true);
+                    if (per_point_guidelines &&
+                        segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "Static multi-guideline deformation of analytic arc segments requires path lowering.");
+                    }
                 }
+                std::uint64_t per_point_segment_end = 0U;
                 for (std::uint64_t path_index = 0U;
                      valid && budget_valid && path_index < path_count;
                      ++path_index) {
@@ -1019,6 +1136,18 @@ progpu_native_status render_scene(
                         boolean_nodes,
                         boolean_node_count,
                         &path_coverage_bytes);
+                    if (valid && per_point_guidelines) {
+                        const std::uint64_t path_segment_offset =
+                            path.segment_offset;
+                        const std::uint64_t path_segment_end =
+                            path_segment_offset + path.segment_count;
+                        if (path_segment_offset < per_point_segment_end) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                                "Static multi-guideline path deformation requires ordered disjoint segment ranges.");
+                        }
+                        per_point_segment_end = path_segment_end;
+                    }
                     budget_valid = valid &&
                         path_coverage_bytes <=
                             semantic_max_coverage_bytes -
@@ -1147,7 +1276,10 @@ progpu_native_status render_scene(
                 semantic_image_options image_options{};
                 const bool external_image =
                     (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
-                const std::uint64_t validation_bytes = external_image
+                const bool picture_image = (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
+                progpu_native_scene_picture_image picture{};
+                if (picture_image) std::memcpy(&picture, bytes + resource.payload_offset, sizeof(picture));
+                const std::uint64_t validation_bytes = (external_image || picture_image)
                     ? static_cast<std::uint64_t>(image.row_bytes) *
                             (image.image_height - 1U) +
                         static_cast<std::uint64_t>(image.image_width) * 4U
@@ -1169,13 +1301,16 @@ progpu_native_status render_scene(
                         resource.generation,
                         PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_MASK)
                     : nullptr;
-                valid = resource.auxiliary_size == 0U &&
+                valid = (picture_image || resource.auxiliary_size == 0U) &&
+                    (!picture_image || (picture.width == image.image_width && picture.height == image.image_height &&
+                        image.row_bytes == picture.width * 4U &&
+                        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) != 0U)) &&
                     validate_image_draw_payload(
                         bytes,
                         command,
                         image,
                         validation_bytes,
-                        image_options) &&
+                        image_options, (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U ? 1U : 4U) &&
                     (!external_image ||
                         (external_binding != nullptr &&
                             external_binding->width == image.image_width &&
@@ -1199,6 +1334,7 @@ progpu_native_status render_scene(
                     : 0U;
                 compiled_texture_bytes = external_image
                     ? 0U
+                    : picture_image ? static_cast<std::uint64_t>(picture.width) * picture.height * 4U
                     : resource.payload_size;
                 if (valid) {
                     semantic_image_vertex_count += image_vertex_count;
@@ -1218,17 +1354,28 @@ progpu_native_status render_scene(
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH: {
+                const std::uint64_t mesh_count = resource.payload_size /
+                    sizeof(progpu_native_scene_mesh_3d);
+                const std::uint64_t material_payload_size =
+                    sizeof(progpu_native_scene_camera_3d) +
+                    sizeof(progpu_native_scene_mesh_3d_materials) +
+                    mesh_count * sizeof(std::uint32_t);
                 valid = resource.kind ==
                         PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH &&
                     resource.payload_size != 0U &&
                     resource.auxiliary_size != 0U &&
                     span_is_multiple(resource.payload_size,
                         sizeof(progpu_native_scene_mesh_3d)) &&
-                    command.payload_size ==
-                        sizeof(progpu_native_scene_camera_3d);
+                    (command.payload_size ==
+                            sizeof(progpu_native_scene_camera_3d) ||
+                        command.payload_size == material_payload_size);
                 compiled_vertex_bytes = resource.payload_size +
                     resource.auxiliary_size +
-                    sizeof(progpu::native::three_d::camera_record);
+                    sizeof(progpu::native::three_d::camera_record) +
+                    (command.payload_size == material_payload_size
+                        ? command.payload_size -
+                            sizeof(progpu_native_scene_camera_3d)
+                        : 0U);
                 break;
             }
             default:
@@ -1353,6 +1500,9 @@ progpu_native_status render_scene(
     const std::uint64_t pooled_layer_bytes = layer_budget.pooled_bytes();
     const std::uint64_t pooled_effect_bytes =
         layer_budget.pooled_effect_bytes();
+    const std::uint64_t pooled_cache_bytes = cache_budget.pooled_bytes();
+    const std::uint64_t pooled_cache_effect_bytes =
+        cache_budget.pooled_effect_bytes();
     const auto texture_bytes = [](std::uint32_t width,
                                   std::uint32_t height,
                                   std::uint64_t texture_count,
@@ -1376,7 +1526,7 @@ progpu_native_status render_scene(
     const bool semantic_partial_damage_active =
         damage_requested && semantic_partial_replay_supported;
     const bool semantic_preserve_target_active =
-        preserve_requested && semantic_partial_replay_supported &&
+        preserve_requested &&
         (!damage_requested || semantic_partial_damage_active);
     semantic_scissor semantic_frame_damage{
         0U, 0U, frame->width, frame->height, true};
@@ -1437,12 +1587,18 @@ progpu_native_status render_scene(
                 semantic_advanced_source_bytes;
     const bool invalid_layer_pool =
         pooled_layer_bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES ||
-        pooled_effect_bytes >
+        pooled_cache_bytes >
             PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES - pooled_layer_bytes ||
+        pooled_effect_bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES -
+                pooled_layer_bytes - pooled_cache_bytes ||
+        pooled_cache_effect_bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES -
+                pooled_layer_bytes - pooled_cache_bytes -
+                pooled_effect_bytes ||
         invalid_destination_pool;
     const std::uint64_t retained_layer_base = invalid_layer_pool
         ? std::numeric_limits<std::uint64_t>::max()
-        : pooled_layer_bytes + pooled_effect_bytes +
+        : pooled_layer_bytes + pooled_cache_bytes + pooled_effect_bytes +
+            pooled_cache_effect_bytes +
             semantic_destination_texture_bytes;
     const bool invalid_mask_pool = invalid_layer_pool ||
         semantic_layer_coverage_texture_bytes >
@@ -1585,7 +1741,11 @@ progpu_native_status render_scene(
         }
     }
 
-    auto semantic_bundle_replay_hash = engine->semantic_scene_hash;
+    const auto analytic_replay_hash = semantic::presentation_content_hash(engine->semantic_hashes.analytic, *frame, presentation);
+    const auto path_replay_hash = semantic::presentation_content_hash(engine->semantic_hashes.path, *frame, presentation);
+    const auto glyph_replay_hash = semantic::presentation_content_hash(engine->semantic_hashes.glyph, *frame, presentation);
+    const auto image_replay_hash = semantic::presentation_content_hash(engine->semantic_hashes.image, *frame, presentation);
+    auto semantic_bundle_replay_hash = semantic::presentation_content_hash(engine->semantic_scene_hash, *frame, presentation);
     semantic_bundle_replay_hash = append_fnv1a64(
         semantic_bundle_replay_hash,
         &semantic_partial_damage_active,
@@ -1610,10 +1770,10 @@ progpu_native_status render_scene(
         engine->semantic_render_bundle_height == frame->height &&
         (semantic_path_draw_count == 0U ||
             engine->semantic_path_gpu_scene_hash ==
-                engine->semantic_hashes.path) &&
+                path_replay_hash) &&
         (semantic_glyph_draw_count == 0U ||
             engine->semantic_glyph_gpu_scene_hash ==
-                engine->semantic_hashes.glyph);
+                glyph_replay_hash);
     if (!semantic_render_bundle_hit) {
         engine->release_semantic_render_bundle();
     }
@@ -1625,7 +1785,7 @@ progpu_native_status render_scene(
         semantic_analytic_draw_count != 0U &&
         semantic_analytic_page.cache_valid &&
         semantic_analytic_page.scene_hash ==
-            engine->semantic_hashes.analytic &&
+            analytic_replay_hash &&
         semantic_analytic_page.dpi_scale == frame->dpi_scale &&
         semantic_analytic_page.target_width == frame->width &&
         semantic_analytic_page.target_height == frame->height &&
@@ -1647,12 +1807,13 @@ progpu_native_status render_scene(
             engine->geometry_cache_valid = false;
             engine->geometry_gpu_cache_valid = false;
 
-            semantic_state_cursor state_cursor(bytes, header);
+            semantic_state_cursor state_cursor(
+                bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
                 frame->height,
-                frame->dpi_scale);
+                presentation);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
@@ -1661,6 +1822,7 @@ progpu_native_status render_scene(
                 const auto state = localize_semantic_state(
                     state_cursor.advance(command),
                     target_extent,
+                    target_cursor.current_presentation(),
                     frame->dpi_scale);
                 if (command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
@@ -2000,7 +2162,7 @@ progpu_native_status render_scene(
         semantic_analytic_page.vertex_bytes = compiled_vertex_bytes;
         semantic_analytic_page.index_bytes = compiled_index_bytes;
         semantic_analytic_page.scene_hash =
-            engine->semantic_hashes.analytic;
+            analytic_replay_hash;
         semantic_analytic_page.dpi_scale = frame->dpi_scale;
         semantic_analytic_page.target_width = frame->width;
         semantic_analytic_page.target_height = frame->height;
@@ -2013,7 +2175,7 @@ progpu_native_status render_scene(
     const bool semantic_path_page_hit =
         semantic_path_draw_count != 0U &&
         semantic_path_page.cache_valid &&
-        semantic_path_page.scene_hash == engine->semantic_hashes.path &&
+        semantic_path_page.scene_hash == path_replay_hash &&
         semantic_path_page.dpi_scale == frame->dpi_scale &&
         semantic_path_page.target_width == frame->width &&
         semantic_path_page.target_height == frame->height &&
@@ -2038,20 +2200,23 @@ progpu_native_status render_scene(
             compiled_brush_indices.reserve(
                 static_cast<std::size_t>(semantic_path_count));
             compiled_draws.reserve(semantic_path_draw_count);
-            semantic_state_cursor state_cursor(bytes, header);
+            semantic_state_cursor state_cursor(
+                bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
                 frame->height,
-                frame->dpi_scale);
+                presentation);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
                 const auto command = read_command(index);
                 const auto target_extent = target_cursor.advance(command);
+                const auto target_state = state_cursor.advance(command);
                 const auto state = localize_semantic_state(
-                    state_cursor.advance(command),
+                    target_state,
                     target_extent,
+                    target_cursor.current_presentation(),
                     frame->dpi_scale);
                 if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
                     continue;
@@ -2095,7 +2260,9 @@ progpu_native_status render_scene(
                      node_index < boolean_node_count;
                      ++node_index) {
                     auto node = source_boolean_nodes[node_index];
-                    if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+                    if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+                        node.kind ==
+                            PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF) {
                         node.segment_offset += segment_start;
                     }
                     compiled_boolean_nodes.push_back(node);
@@ -2122,11 +2289,76 @@ progpu_native_status render_scene(
                             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                             "A validated semantic path brush map could not be resolved.");
                     }
-                    if (brush == nullptr) {
+                    const bool per_point_guidelines =
+                        state_cursor.has_per_point_guidelines(target_state);
+                    if (brush == nullptr && !per_point_guidelines) {
                         apply_semantic_state(path, state);
-                    } else {
+                    } else if (brush == nullptr) {
+                        path.color.a *= state.opacity;
+                    } else if (!per_point_guidelines) {
                         apply_semantic_transform(path, state);
                         apply_path_material(path, *brush);
+                    } else {
+                        apply_path_material(path, *brush);
+                    }
+                    if (per_point_guidelines) {
+                        const auto transform = compose_affine(
+                            path.transform,
+                            target_state.transform);
+                        const auto target_presentation = target_cursor.current_presentation();
+                        float min_x =
+                            std::numeric_limits<float>::infinity();
+                        float min_y =
+                            std::numeric_limits<float>::infinity();
+                        float max_x =
+                            -std::numeric_limits<float>::infinity();
+                        float max_y =
+                            -std::numeric_limits<float>::infinity();
+                        const auto deform_point = [&](progpu_native_point& point) {
+                            transform_point(
+                                transform,
+                                point.x,
+                                point.y,
+                                point.x,
+                                point.y);
+                            state_cursor.snap_draw_point(
+                                target_state,
+                                point.x,
+                                point.y);
+                            semantic::localize_semantic_point(point.x, point.y, target_extent,
+                                target_presentation, frame->dpi_scale);
+                            min_x = std::min(min_x, point.x);
+                            min_y = std::min(min_y, point.y);
+                            max_x = std::max(max_x, point.x);
+                            max_y = std::max(max_y, point.y);
+                        };
+                        const std::size_t first_segment = segment_start +
+                            static_cast<std::size_t>(path.segment_offset);
+                        const std::size_t last_segment = first_segment +
+                            static_cast<std::size_t>(path.segment_count);
+                        for (std::size_t segment_index = first_segment;
+                             segment_index < last_segment;
+                             ++segment_index) {
+                            auto& segment = compiled_segments[segment_index];
+                            deform_point(segment.p0);
+                            deform_point(segment.p1);
+                            if (segment.kind ==
+                                    PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC ||
+                                segment.kind ==
+                                    PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+                                deform_point(segment.p2);
+                            }
+                            if (segment.kind ==
+                                PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+                                deform_point(segment.p3);
+                            }
+                        }
+                        path.min_x = min_x;
+                        path.min_y = min_y;
+                        path.max_x = max_x;
+                        path.max_y = max_y;
+                        path.transform = {
+                            1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
                     }
                     path.segment_offset += segment_start;
                     if (path.boolean_node_count != 0U) {
@@ -2161,7 +2393,7 @@ progpu_native_status render_scene(
         semantic_path_page.brush_indices =
             std::move(compiled_brush_indices);
         semantic_path_page.draws = std::move(compiled_draws);
-        semantic_path_page.scene_hash = engine->semantic_hashes.path;
+        semantic_path_page.scene_hash = path_replay_hash;
         semantic_path_page.dpi_scale = frame->dpi_scale;
         semantic_path_page.target_width = frame->width;
         semantic_path_page.target_height = frame->height;
@@ -2171,7 +2403,7 @@ progpu_native_status render_scene(
 
     if (semantic_path_draw_count != 0U &&
         engine->semantic_path_gpu_scene_hash !=
-            engine->semantic_hashes.path) {
+            path_replay_hash) {
         engine->path_cache_valid = false;
         engine->path_gpu_cache_valid = false;
     }
@@ -2180,7 +2412,7 @@ progpu_native_status render_scene(
     const bool semantic_glyph_page_hit =
         semantic_glyph_draw_count != 0U &&
         semantic_glyph_page.cache_valid &&
-        semantic_glyph_page.scene_hash == engine->semantic_hashes.glyph &&
+        semantic_glyph_page.scene_hash == glyph_replay_hash &&
         semantic_glyph_page.dpi_scale == frame->dpi_scale &&
         semantic_glyph_page.target_width == frame->width &&
         semantic_glyph_page.target_height == frame->height &&
@@ -2226,12 +2458,13 @@ progpu_native_status render_scene(
                 static_cast<std::size_t>(semantic_glyph_count));
             compiled_draws.reserve(semantic_glyph_draw_count);
             compiled_resources.resize(header.resource_count);
-            semantic_state_cursor state_cursor(bytes, header);
+            semantic_state_cursor state_cursor(
+                bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
                 frame->height,
-                frame->dpi_scale);
+                presentation);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
@@ -2240,6 +2473,7 @@ progpu_native_status render_scene(
                 const auto state = localize_semantic_state(
                     state_cursor.advance(command),
                     target_extent,
+                    target_cursor.current_presentation(),
                     frame->dpi_scale);
                 if (command.kind !=
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
@@ -2416,7 +2650,7 @@ progpu_native_status render_scene(
             std::move(compiled_color_bitmap_indices);
         semantic_glyph_page.color_rasters.clear();
         semantic_glyph_page.draws = std::move(compiled_draws);
-        semantic_glyph_page.scene_hash = engine->semantic_hashes.glyph;
+        semantic_glyph_page.scene_hash = glyph_replay_hash;
         semantic_glyph_page.dpi_scale = frame->dpi_scale;
         semantic_glyph_page.target_width = frame->width;
         semantic_glyph_page.target_height = frame->height;
@@ -2426,7 +2660,7 @@ progpu_native_status render_scene(
 
     if (semantic_glyph_draw_count != 0U &&
         engine->semantic_glyph_gpu_scene_hash !=
-            engine->semantic_hashes.glyph) {
+            glyph_replay_hash) {
         engine->glyph_cache_valid = false;
         engine->glyph_gpu_cache_valid = false;
     }
@@ -2441,6 +2675,9 @@ progpu_native_status render_scene(
             "The semantic retained color-glyph atlas could not be prepared.");
     }
 
+    const std::uint64_t submission_start = engine->submission_count;
+    std::uint64_t picture_vertex_upload_bytes = 0U;
+    std::uint64_t picture_index_upload_bytes = 0U;
     std::uint64_t semantic_image_vertex_upload_bytes = 0U;
     std::uint64_t semantic_image_index_upload_bytes = 0U;
     std::uint64_t semantic_image_texture_upload_bytes = 0U;
@@ -2449,7 +2686,7 @@ progpu_native_status render_scene(
     const bool semantic_image_page_hit =
         semantic_image_draw_count != 0U &&
         semantic_image_page.cache_valid &&
-        semantic_image_page.scene_hash == engine->semantic_hashes.image &&
+        semantic_image_page.scene_hash == image_replay_hash &&
         semantic_image_page.dpi_scale == frame->dpi_scale &&
         semantic_image_page.target_width == frame->width &&
         semantic_image_page.target_height == frame->height &&
@@ -2469,6 +2706,9 @@ progpu_native_status render_scene(
         }
         std::vector<progpu::native::vector_vertex> vertices;
         std::vector<semantic_image_draw> compiled_draws;
+        // Borrowed views remain owned by the first draw in this page. Repeated
+        // picture instances rasterize once per resource, not once per draw.
+        std::unordered_map<std::uint32_t, WGPUTextureView> picture_views;
         WGPUBuffer compiled_vertex_buffer = nullptr;
         const auto release_compiled = [&]() noexcept {
             for (auto& draw : compiled_draws) {
@@ -2519,12 +2759,13 @@ progpu_native_status render_scene(
             vertices.reserve(static_cast<std::size_t>(
                 semantic_image_vertex_count));
             compiled_draws.reserve(semantic_image_draw_count);
-            semantic_state_cursor state_cursor(bytes, header);
+            semantic_state_cursor state_cursor(
+                bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
                 frame->height,
-                frame->dpi_scale);
+                presentation);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
@@ -2533,6 +2774,7 @@ progpu_native_status render_scene(
                 const auto state = localize_semantic_state(
                     state_cursor.advance(command),
                     target_extent,
+                    target_cursor.current_presentation(),
                     frame->dpi_scale);
                 if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
                     continue;
@@ -2547,7 +2789,8 @@ progpu_native_status render_scene(
                 semantic_image_options image_options{};
                 const bool external_image =
                     (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
-                const std::uint64_t validation_bytes = external_image
+                const bool picture_image = (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
+                const std::uint64_t validation_bytes = (external_image || picture_image)
                     ? static_cast<std::uint64_t>(image.row_bytes) *
                             (image.image_height - 1U) +
                         static_cast<std::uint64_t>(image.image_width) * 4U
@@ -2574,7 +2817,7 @@ progpu_native_status render_scene(
                         command,
                         image,
                         validation_bytes,
-                        image_options) ||
+                        image_options, (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U ? 1U : 4U) ||
                     (external_image &&
                         (external_binding == nullptr ||
                             external_binding->width != image.image_width ||
@@ -2588,8 +2831,10 @@ progpu_native_status render_scene(
                     image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
                 const std::uint32_t first_vertex =
                     static_cast<std::uint32_t>(vertices.size());
+                const float base_sampling = base_image_sampling_coefficient(
+                    engine->engine_flags, image.sampling);
                 const auto append_quad = [&image, &image_options, &vertices,
-                    frame, cubic_sampling](
+                    frame, cubic_sampling, base_sampling](
                     const progpu_native_scene_image_patch* patch) {
                     const auto& source = patch == nullptr
                         ? image.source_rect
@@ -2604,8 +2849,14 @@ progpu_native_status render_scene(
                             image.transform);
                     float color[4]{};
                     float patch_kind = 0.0F;
-                    float color_blend_mode = 0.0F;
-                    float patch_opacity = 1.0F;
+                    float color_blend_mode = static_cast<float>(
+                        (image.flags &
+                            PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK) >>
+                        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT);
+                    float patch_opacity = static_cast<float>(
+                        (image.flags &
+                            PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK) >>
+                        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT);
                     if (patch == nullptr) {
                         semantic::resolve_image_vertex_color(
                             image,
@@ -2683,7 +2934,7 @@ progpu_native_status render_scene(
                         vertex.brush_index = patch_kind;
                         vertex.shape_size[0] = cubic_sampling
                             ? image_options.cubic_b
-                            : 0.0F;
+                            : base_sampling;
                         vertex.shape_size[1] = cubic_sampling
                             ? image_options.cubic_c
                             : 0.5F;
@@ -2713,13 +2964,22 @@ progpu_native_status render_scene(
                 WGPUTextureDescriptor texture_descriptor{};
                 texture_descriptor.label =
                     progpu::native::webgpu::string_view(
-                        "ProGPU semantic retained RGBA image");
+                        (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U
+                            ? "ProGPU semantic retained R8 image"
+                            : (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_BGRA8) != 0U
+                            ? "ProGPU semantic retained BGRA image"
+                            : "ProGPU semantic retained RGBA image");
                 texture_descriptor.usage = WGPUTextureUsage_TextureBinding |
                     WGPUTextureUsage_CopyDst;
                 texture_descriptor.dimension = WGPUTextureDimension_2D;
                 texture_descriptor.size = {
                     image.image_width, image.image_height, 1U};
-                texture_descriptor.format = WGPUTextureFormat_RGBA8Unorm;
+                texture_descriptor.format =
+                    (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U
+                    ? WGPUTextureFormat_R8Unorm
+                    : (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_BGRA8) != 0U
+                    ? WGPUTextureFormat_BGRA8Unorm
+                    : WGPUTextureFormat_RGBA8Unorm;
                 texture_descriptor.mipLevelCount = 1U;
                 texture_descriptor.sampleCount = 1U;
                 semantic_image_draw draw{};
@@ -2747,7 +3007,27 @@ progpu_native_status render_scene(
                         "An image effect is missing its mask binding.");
                 }
                 draw.has_effect_mask = requires_effect_mask;
-                if (external_image) {
+                if (picture_image) {
+                    const auto existing_picture = picture_views.find(command.resource_index);
+                    if (existing_picture != picture_views.end()) {
+                        draw.view = existing_picture->second;
+                        progpu::native::webgpu::texture_view_add_ref(draw.view);
+                    } else {
+                        progpu_native_scene_picture_image picture{};
+                        std::memcpy(&picture, bytes + resource.payload_offset, sizeof(picture));
+                        progpu_native_scene_frame_metrics child_metrics{};
+                        if (!create_semantic_picture_image(*engine, picture,
+                                bytes + resource.auxiliary_offset, resource.auxiliary_size, draw, child_metrics)) {
+                            release_compiled();
+                            return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                                "A retained picture image could not be rendered.");
+                        }
+                        semantic_image_texture_upload_bytes += child_metrics.texture_upload_bytes;
+                        semantic_image_color_uniform_upload_bytes += child_metrics.uniform_upload_bytes;
+                        picture_vertex_upload_bytes += child_metrics.vertex_upload_bytes;
+                        picture_index_upload_bytes += child_metrics.index_upload_bytes;
+                    }
+                } else if (external_image) {
                     draw.view = external_binding->view;
                     progpu::native::webgpu::texture_view_add_ref(draw.view);
                 } else {
@@ -2755,14 +3035,15 @@ progpu_native_status render_scene(
                         engine->device,
                         &texture_descriptor);
                 }
-                if (!external_image && draw.texture != nullptr) {
+                if (!external_image && !picture_image && draw.texture != nullptr) {
                     draw.view = wgpuTextureCreateView(draw.texture, nullptr);
                 }
                 const WGPUSampler image_sampler =
                     semantic::resolve_semantic_image_sampler(
                         *engine,
                         image.sampling,
-                        image.max_anisotropy);
+                        image.max_anisotropy,
+                        image.flags);
                 if (draw.view != nullptr && image_sampler != nullptr) {
                     draw.texture_bind_group = create_image_texture_bind_group(
                         *engine,
@@ -2830,7 +3111,7 @@ progpu_native_status render_scene(
                 }
                 compiled_draws.push_back(draw);
                 auto& retained_draw = compiled_draws.back();
-                if ((!external_image && retained_draw.texture == nullptr) ||
+                if ((!external_image && !picture_image && retained_draw.texture == nullptr) ||
                     retained_draw.view == nullptr ||
                     retained_draw.texture_bind_group == nullptr ||
                     (image_options.has_color_matrix &&
@@ -2845,17 +3126,21 @@ progpu_native_status render_scene(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                         "A semantic image page texture could not be allocated.");
                 }
-                if (!external_image) {
+                if (picture_image)
+                    picture_views.emplace(command.resource_index, retained_draw.view);
+                if (!external_image && !picture_image) {
                     progpu::native::webgpu::image_copy_texture destination{};
                     destination.texture = retained_draw.texture;
                     destination.aspect = WGPUTextureAspect_All;
                     progpu::native::webgpu::texture_data_layout layout{};
                     layout.bytesPerRow = image.row_bytes;
                     layout.rowsPerImage = image.image_height;
+                    const std::uint32_t bytes_per_pixel =
+                        (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U ? 1U : 4U;
                     const std::uint64_t upload_bytes =
                         static_cast<std::uint64_t>(image.row_bytes) *
                             (image.image_height - 1U) +
-                        static_cast<std::uint64_t>(image.image_width) * 4U;
+                        static_cast<std::uint64_t>(image.image_width) * bytes_per_pixel;
                     const WGPUExtent3D extent{
                         image.image_width, image.image_height, 1U};
                     wgpuQueueWriteTexture(
@@ -2919,7 +3204,7 @@ progpu_native_status render_scene(
         compiled_vertex_buffer = nullptr;
         semantic_image_page.vertex_bytes = vertex_bytes;
         semantic_image_page.draws = std::move(compiled_draws);
-        semantic_image_page.scene_hash = engine->semantic_hashes.image;
+        semantic_image_page.scene_hash = image_replay_hash;
         semantic_image_page.dpi_scale = frame->dpi_scale;
         semantic_image_page.target_width = frame->width;
         semantic_image_page.target_height = frame->height;
@@ -2930,16 +3215,15 @@ progpu_native_status render_scene(
             : 0U;
     }
 
-    const std::uint64_t submission_start = engine->submission_count;
     std::uint32_t draw_calls = 0U;
     std::uint32_t family_switches = 0U;
     std::uint32_t previous_family = 0U;
     std::uint64_t vertex_upload_bytes =
         semantic_analytic_vertex_upload_bytes +
-        semantic_image_vertex_upload_bytes;
+        semantic_image_vertex_upload_bytes + picture_vertex_upload_bytes;
     std::uint64_t index_upload_bytes =
         semantic_analytic_index_upload_bytes +
-        semantic_image_index_upload_bytes;
+        semantic_image_index_upload_bytes + picture_index_upload_bytes;
     std::uint64_t texture_upload_bytes =
         semantic_image_texture_upload_bytes +
         semantic_color_glyph_upload_bytes;
@@ -2954,9 +3238,9 @@ progpu_native_status render_scene(
     std::uint32_t semantic_effect_operation_count = 0U;
     std::uint32_t semantic_effect_cache_hit_count = 0U;
     std::array<progpu::native::effects::semantic_output_cache,
-        PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+        semantic::layer_slot_count>
         semantic_effect_working_caches{};
-    std::array<bool, PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+    std::array<bool, semantic::layer_slot_count>
         semantic_effect_cache_updates{};
     for (std::size_t index = 0U;
          index < semantic_effect_working_caches.size();
@@ -2976,6 +3260,7 @@ progpu_native_status render_scene(
             wgpuCommandEncoderRelease(engine->semantic_encoder);
             engine->semantic_encoder = nullptr;
         }
+        engine->semantic_vector_mask_uses_shared_clip_resources = false;
     };
     const auto begin_encoder = [&]() noexcept {
         if (engine->semantic_encoder != nullptr) {
@@ -2995,6 +3280,7 @@ progpu_native_status render_scene(
         }
         WGPUCommandEncoder encoder = engine->semantic_encoder;
         engine->semantic_encoder = nullptr;
+        engine->semantic_vector_mask_uses_shared_clip_resources = false;
         WGPUCommandBufferDescriptor descriptor{};
         descriptor.label = progpu::native::webgpu::string_view(
             "ProGPU native semantic scene commands");
@@ -3051,7 +3337,7 @@ progpu_native_status render_scene(
 
     if (semantic_path_draw_count != 0U &&
         (engine->semantic_path_gpu_scene_hash !=
-                engine->semantic_hashes.path ||
+                path_replay_hash ||
             !engine->path_cache_valid ||
             !engine->path_gpu_cache_valid)) {
         progpu_native_path_frame family{};
@@ -3152,7 +3438,7 @@ progpu_native_status render_scene(
         family.segment_count = semantic_path_page.segments.size();
         family.flags =
             PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
-        family.content_revision = revision32(engine->semantic_hashes.path);
+        family.content_revision = revision32(path_replay_hash);
         progpu_native_path_frame_metrics family_metrics{};
         family_metrics.struct_size = sizeof(family_metrics);
         engine->semantic_prepare_only = true;
@@ -3174,12 +3460,12 @@ progpu_native_status render_scene(
             return status;
         }
         engine->semantic_path_gpu_scene_hash =
-            engine->semantic_hashes.path;
+            path_replay_hash;
     }
 
     if (semantic_glyph_draw_count != 0U &&
         (engine->semantic_glyph_gpu_scene_hash !=
-                engine->semantic_hashes.glyph ||
+                glyph_replay_hash ||
             !engine->glyph_cache_valid ||
             !engine->glyph_gpu_cache_valid)) {
         progpu_native_glyph_frame family{};
@@ -3245,7 +3531,7 @@ progpu_native_status render_scene(
         family.glyph_count = semantic_glyph_page.glyphs.size();
         family.flags =
             PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
-        family.content_revision = revision32(engine->semantic_hashes.glyph);
+        family.content_revision = revision32(glyph_replay_hash);
         progpu_native_glyph_frame_metrics family_metrics{};
         family_metrics.struct_size = sizeof(family_metrics);
         engine->semantic_prepare_only = true;
@@ -3265,7 +3551,7 @@ progpu_native_status render_scene(
             return status;
         }
         engine->semantic_glyph_gpu_scene_hash =
-            engine->semantic_hashes.glyph;
+            glyph_replay_hash;
     }
 
     if (semantic_has_masked_glyphs &&
@@ -3355,6 +3641,7 @@ progpu_native_status render_scene(
         if (!prepare_semantic_depth_resources(
                 *engine,
                 layer_budget,
+                cache_budget,
                 frame->width,
                 frame->height)) {
             discard_encoder();
@@ -3392,6 +3679,7 @@ progpu_native_status render_scene(
         if (!prepare_semantic_layer_resources(
                 *engine,
                 layer_budget,
+                cache_budget,
                 frame->width,
                 frame->height,
                 frame->dpi_scale,
@@ -3466,13 +3754,13 @@ progpu_native_status render_scene(
         WGPURenderBundleEncoder bundle_encoder = nullptr;
         std::uint32_t semantic_effect_uniform_cursor = 0U;
         std::uint32_t active_bundle_draw_count = 0U;
+        bool active_bundle_uses_depth = false;
         semantic_scissor active_scissor{};
         bool has_active_scissor = false;
         std::uint32_t active_target_layer =
             PROGPU_NATIVE_SCENE_NO_INDEX;
         std::uint32_t active_mask_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX;
-        bool active_bundle_uses_depth = false;
         semantic_render_bundle_span active_mask{};
         enum class pending_draw_kind : std::uint8_t {
             none,
@@ -3638,6 +3926,7 @@ progpu_native_status render_scene(
             std::uint32_t target_layer,
             std::uint32_t mask_resource_index,
             semantic_scissor target_extent,
+            const progpu_native_scene_presentation& target_presentation,
             bool uses_depth) {
             WGPURenderBundleEncoderDescriptor bundle_descriptor{};
             bundle_descriptor.label = progpu::native::webgpu::string_view(
@@ -3674,8 +3963,11 @@ progpu_native_status render_scene(
                         resource,
                         target_extent,
                         frame->dpi_scale,
+                        nullptr,
+                        nullptr,
                         active_mask,
-                        mask_texture_upload_bytes)) {
+                        mask_texture_upload_bytes,
+                        target_presentation)) {
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                         "A retained per-draw semantic mask binding could not be prepared.");
@@ -3692,7 +3984,7 @@ progpu_native_status render_scene(
             std::uint32_t resource_index,
             semantic_render_bundle_span& operation) {
             if (resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) {
-                return;
+                return true;
             }
             const auto resource = read_resource(resource_index);
             progpu_native_scene_effect_chain chain{};
@@ -3737,7 +4029,11 @@ progpu_native_status render_scene(
             for (std::uint32_t effect_index = 0U;
                  effect_index < chain.effect_count;
                  ++effect_index) {
-                const auto& effect = effects[effect_index];
+                progpu_native_group_effect effect{};
+                // The identical mapping was qualified during preflight, before
+                // resource allocation. The immutable stream cannot change here.
+                if (!semantic::try_resolve_semantic_effect(effects[effect_index], presentation, effect))
+                    return false;
                 semantic_effect_dispatch dispatch{};
                 dispatch.kind = effect.kind;
                 dispatch.source_texture = plan[effect_index].source;
@@ -3745,19 +4041,34 @@ progpu_native_status render_scene(
                     plan[effect_index].horizontal;
                 dispatch.vertical_texture = plan[effect_index].vertical;
                 dispatch.output_texture = plan[effect_index].output;
-                const auto create_blur = [frame](float sigma) {
+                const auto create_blur = [](
+                                             const progpu_native_group_effect& node,
+                                             bool horizontal) {
                     gpu_gaussian_blur_params parameters{};
-                    parameters.sigma = sigma * frame->dpi_scale;
-                    parameters.radius =
-                        static_cast<std::uint32_t>(std::clamp(
-                            static_cast<int>(std::ceil(
-                                parameters.sigma * 3.0F)),
-                            0,
-                            128));
+                    const float value = horizontal
+                        ? node.sigma_x
+                        : node.sigma_y;
+                    if (node.kind == PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR) {
+                        parameters.radius =
+                            static_cast<std::uint32_t>(std::clamp(
+                                static_cast<int>(std::floor(
+                                    value)),
+                                0,
+                                128));
+                        parameters.kernel_type = 1U;
+                    } else {
+                        parameters.sigma = value;
+                        parameters.radius =
+                            static_cast<std::uint32_t>(std::clamp(
+                                static_cast<int>(std::ceil(
+                                    parameters.sigma * 3.0F)),
+                                0,
+                                128));
+                    }
                     return parameters;
                 };
-                const auto horizontal = create_blur(effect.sigma_x);
-                const auto vertical = create_blur(effect.sigma_y);
+                const auto horizontal = create_blur(effect, true);
+                const auto vertical = create_blur(effect, false);
                 dispatch.horizontal_uniform_offset =
                     append_effect_uniform(horizontal);
                 dispatch.vertical_uniform_offset =
@@ -3765,8 +4076,8 @@ progpu_native_status render_scene(
                 if (effect.kind ==
                     PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW) {
                     gpu_drop_shadow_params drop{};
-                    drop.offset[0] = effect.offset_x * frame->dpi_scale;
-                    drop.offset[1] = effect.offset_y * frame->dpi_scale;
+                    drop.offset[0] = effect.offset_x;
+                    drop.offset[1] = effect.offset_y;
                     drop.color[0] = effect.color_r;
                     drop.color[1] = effect.color_g;
                     drop.color[2] = effect.color_b;
@@ -3776,14 +4087,16 @@ progpu_native_status render_scene(
                 }
                 compiled_effect_dispatches.push_back(dispatch);
             }
+            return true;
         };
 
-        semantic_state_cursor state_cursor(bytes, header);
+        semantic_state_cursor state_cursor(
+            bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
         semantic_layer_target_cursor target_cursor(
             bytes,
             frame->width,
             frame->height,
-            frame->dpi_scale);
+            presentation);
         std::array<bool,
             PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH>
             layer_scope_materialized{};
@@ -3796,8 +4109,12 @@ progpu_native_status render_scene(
         std::array<std::size_t,
             PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
             materialized_push_span_indices{};
+        std::array<std::uint32_t,
+            PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+            materialized_slots{};
         std::uint32_t layer_scope_depth = 0U;
         std::uint32_t materialized_depth = 0U;
+        std::uint32_t transient_materialized_depth = 0U;
         std::uint32_t advanced_operation_index = 0U;
         std::uint32_t current_target_layer =
             PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -3819,6 +4136,10 @@ progpu_native_status render_scene(
                 const bool materialized =
                     progpu::native::scene::layer_requires_materialization(
                         layer);
+                if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U &&
+                    (engine->engine_flags & PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING) != 0U) {
+                    return fail_bundle(PROGPU_NATIVE_STATUS_UNSUPPORTED);
+                }
                 layer_scope_materialized[layer_scope_depth++] =
                     materialized;
                 if (materialized) {
@@ -3829,7 +4150,7 @@ progpu_native_status render_scene(
                     const std::uint32_t parent_layer =
                         materialized_depth == 0U
                             ? PROGPU_NATIVE_SCENE_NO_INDEX
-                            : materialized_depth - 1U;
+                            : materialized_slots[materialized_depth - 1U];
                     const semantic_scissor parent_extent =
                         parent_layer == PROGPU_NATIVE_SCENE_NO_INDEX
                             ? semantic_scissor{
@@ -3838,16 +4159,45 @@ progpu_native_status render_scene(
                                 frame->width,
                                 frame->height,
                                 true}
-                            : materialized_extents[parent_layer];
-                    const std::uint32_t slot = materialized_depth;
-                    materialized_layers[materialized_depth++] = layer;
-                    materialized_extents[slot] = target_extent;
+                            : materialized_extents[
+                                materialized_depth - 1U];
+                    const bool cached =
+                        (layer.flags &
+                            PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
+                    std::uint32_t slot = transient_materialized_depth;
+                    if (cached) {
+                        slot = PROGPU_NATIVE_SCENE_NO_INDEX;
+                        for (std::uint32_t cache_index = 0U;
+                             cache_index < cache_budget.count;
+                             ++cache_index) {
+                            if (cache_budget.identities[cache_index] ==
+                                layer.composite_revision) {
+                                slot = cache_budget.slots[cache_index];
+                                break;
+                            }
+                        }
+                        if (slot == PROGPU_NATIVE_SCENE_NO_INDEX) {
+                            return fail_bundle(engine->fail(
+                                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                                "A retained cache layer lost its stable GPU slot during compilation."));
+                        }
+                    } else {
+                        ++transient_materialized_depth;
+                    }
+                    const std::uint32_t depth_index = materialized_depth++;
+                    materialized_layers[depth_index] = layer;
+                    materialized_extents[depth_index] = target_extent;
+                    materialized_slots[depth_index] = slot;
                     semantic_render_bundle_span operation{};
                     operation.kind = semantic_replay_kind::push_layer;
                     operation.target_layer = slot;
                     operation.source_layer = slot;
                     operation.parent_layer = parent_layer;
                     operation.operation_id = command.command_id;
+                    operation.cache_content = cached;
+                    operation.cache_identity = layer.composite_revision;
+                    operation.cache_content_revision =
+                        semantic::presentation_content_hash(layer.content_revision, *frame, presentation);
                     operation.backdrop =
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
@@ -3858,9 +4208,10 @@ progpu_native_status render_scene(
                             target_extent.x - parent_extent.x;
                         operation.backdrop_source_y =
                             target_extent.y - parent_extent.y;
-                        append_effect_program(
+                        if (!append_effect_program(
                             layer.effect_resource_index,
-                            operation);
+                            operation))
+                            return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
                         if (operation.effect_count != 0U) {
                             operation.first_backdrop_resolve_vertex =
                                 static_cast<std::uint32_t>(
@@ -3869,8 +4220,8 @@ progpu_native_status render_scene(
                                 semantic_layer_vertices,
                                 target_extent,
                                 target_extent,
-                                layer_budget.slot_widths[slot],
-                                layer_budget.slot_heights[slot],
+                                engine->semantic_layer_slots[slot].width,
+                                engine->semantic_layer_slots[slot].height,
                                 frame->dpi_scale,
                                 1.0F);
                         }
@@ -3878,7 +4229,7 @@ progpu_native_status render_scene(
                             ? 0U
                             : 1U;
                     }
-                    materialized_push_span_indices[slot] =
+                    materialized_push_span_indices[depth_index] =
                         compiled_spans.size();
                     compiled_spans.push_back(operation);
                     current_target_layer = slot;
@@ -3894,63 +4245,253 @@ progpu_native_status render_scene(
                     if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                         return fail_bundle(finish_status);
                     }
-                    const std::uint32_t source_layer =
+                    const std::uint32_t source_depth =
                         --materialized_depth;
-                    const auto& layer = materialized_layers[source_layer];
+                    const std::uint32_t source_layer =
+                        materialized_slots[source_depth];
+                    const auto& layer = materialized_layers[source_depth];
                     const auto& source_extent =
-                        materialized_extents[source_layer];
+                        materialized_extents[source_depth];
+                    const bool cached =
+                        (layer.flags &
+                            PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
+                    if (!cached) {
+                        --transient_materialized_depth;
+                    }
                     const std::uint32_t first_vertex =
                         static_cast<std::uint32_t>(
                             semantic_layer_vertices.size());
-                    append_semantic_layer_quad(
-                        semantic_layer_vertices,
-                        source_extent,
-                        target_extent,
-                        layer_budget.slot_widths[source_layer],
-                        layer_budget.slot_heights[source_layer],
-                        frame->dpi_scale,
-                        layer.opacity);
+                    const bool local_cache =
+                        (layer.flags &
+                            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) !=
+                        0U;
+                    const bool has_composite_state = local_cache ||
+                        (layer.flags &
+                            PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U;
+                    semantic_scissor composite_scissor{
+                        0U,
+                        0U,
+                        target_extent.width,
+                        target_extent.height,
+                        target_extent.drawable};
+                    bool has_composite_scissor = true;
+                    bool composite_drawable = target_extent.drawable;
+                    progpu_native_scene_state composite_state{};
+                    if (has_composite_state) {
+                        composite_state =
+                            state_cursor.read_composite_state(layer.reserved0);
+                        if ((composite_state.flags &
+                                PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) {
+                            composite_scissor =
+                                resolve_semantic_target_scissor(
+                                    composite_state,
+                                    target_extent,
+                                    frame->width,
+                                    frame->height,
+                                    target_cursor.current_presentation());
+                            composite_drawable = composite_scissor.drawable;
+                        }
+                    }
+                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U) {
+                        const auto resource = read_resource(layer.reserved1);
+                        progpu_native_scene_tile_composite tile{};
+                        std::memcpy(&tile, bytes + resource.payload_offset, sizeof(tile));
+                        std::array<::progpu::native::vector_vertex, 4U> quad{};
+                        if (!::progpu::native::try_write_tile_page_quad(quad,
+                                {tile.output_x, tile.output_y, tile.output_width, tile.output_height},
+                                {tile.m11, tile.m12, tile.m21, tile.m22, tile.m31, tile.m32},
+                                source_extent.width, source_extent.height,
+                                engine->semantic_layer_slots[source_layer].width,
+                                engine->semantic_layer_slots[source_layer].height,
+                                tile.address_u, tile.address_v,
+                                (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) != 0U
+                                    ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST :
+                                    (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) != 0U
+                                        ? PROGPU_NATIVE_IMAGE_SAMPLING_FANT : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR,
+                                layer.opacity)) {
+                            return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+                        }
+                        const auto target_presentation = target_cursor.current_presentation();
+                        for (auto& vertex : quad) {
+                            semantic::localize_semantic_point(vertex.position[0], vertex.position[1],
+                                target_extent, target_presentation, frame->dpi_scale);
+                        }
+                        semantic_layer_vertices.insert(semantic_layer_vertices.end(), quad.begin(), quad.end());
+                    } else if (local_cache) {
+                        const auto target_presentation = target_cursor.current_presentation();
+                        const bool legacy_mapping = target_presentation.viewport_x == 0U &&
+                            target_presentation.viewport_y == 0U &&
+                            presentation.dpi_scale_x == frame->dpi_scale &&
+                            presentation.dpi_scale_y == frame->dpi_scale;
+                        // Advanced mapping first reconstructs logical source coordinates
+                        // from each physical cache axis, then snaps and localizes once.
+                        append_semantic_transformed_layer_quad(
+                            semantic_layer_vertices,
+                            source_extent,
+                            legacy_mapping ? target_extent : semantic_scissor{},
+                            engine->semantic_layer_slots[source_layer].width,
+                            engine->semantic_layer_slots[source_layer].height,
+                            frame->dpi_scale,
+                            layer.opacity,
+                            composite_state.transform,
+                            presentation.dpi_scale_x,
+                            presentation.dpi_scale_y);
+                        if (!legacy_mapping || (composite_state.flags &
+                                PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) !=
+                            0U) {
+                            const float target_x =
+                                static_cast<float>(target_extent.x) /
+                                frame->dpi_scale;
+                            const float target_y =
+                                static_cast<float>(target_extent.y) /
+                                frame->dpi_scale;
+                            for (std::size_t vertex_index = first_vertex;
+                                 vertex_index <
+                                    semantic_layer_vertices.size();
+                                 ++vertex_index) {
+                                auto& vertex =
+                                    semantic_layer_vertices[vertex_index];
+                                float absolute_x =
+                                    vertex.position[0] + (legacy_mapping ? target_x : 0.0F);
+                                float absolute_y =
+                                    vertex.position[1] + (legacy_mapping ? target_y : 0.0F);
+                                state_cursor.snap_composite_point(
+                                    composite_state,
+                                    absolute_x,
+                                    absolute_y);
+                                if (legacy_mapping) {
+                                    vertex.position[0] = absolute_x - target_x;
+                                    vertex.position[1] = absolute_y - target_y;
+                                } else {
+                                    semantic::localize_semantic_point(absolute_x, absolute_y,
+                                        target_extent, target_presentation, frame->dpi_scale);
+                                    vertex.position[0] = absolute_x;
+                                    vertex.position[1] = absolute_y;
+                                }
+                            }
+                        }
+                    } else {
+                        append_semantic_layer_quad(
+                            semantic_layer_vertices,
+                            source_extent,
+                            target_extent,
+                            engine->semantic_layer_slots[source_layer].width,
+                            engine->semantic_layer_slots[source_layer].height,
+                            frame->dpi_scale,
+                            layer.opacity);
+                    }
+                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) == 0U &&
+                        (engine->engine_flags & PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING) != 0U &&
+                        source_extent.width != 0U && source_extent.height != 0U) {
+                        const auto sampling = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) != 0U
+                            ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST :
+                            (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) != 0U
+                                ? PROGPU_NATIVE_IMAGE_SAMPLING_FANT : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+                        if (!::progpu::native::try_encode_captured_page_quad(
+                                std::span(semantic_layer_vertices).subspan(first_vertex, 4U),
+                                source_extent.width, source_extent.height,
+                                engine->semantic_layer_slots[source_layer].width,
+                                engine->semantic_layer_slots[source_layer].height,
+                                sampling, layer.opacity))
+                            return fail_bundle(PROGPU_NATIVE_STATUS_UNSUPPORTED);
+                    } else if ((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT |
+                            PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE)) == PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) {
+                        for (std::size_t vertex_index = first_vertex;
+                             vertex_index < semantic_layer_vertices.size();
+                             ++vertex_index) {
+                            semantic_layer_vertices[vertex_index].brush_index =
+                                -1.0F;
+                            semantic_layer_vertices[vertex_index].shape_size[0] =
+                                base_image_sampling_coefficient(engine->engine_flags,
+                                    PROGPU_NATIVE_IMAGE_SAMPLING_FANT);
+                            // Cached layers use clamp, not image repeat modes.
+                            semantic_layer_vertices[vertex_index].corner_radius = 0.0F;
+                            semantic_layer_vertices[vertex_index].stroke_thickness = 0.0F;
+                        }
+                    }
                     semantic_render_bundle_span operation{};
                     operation.kind = semantic_replay_kind::pop_layer;
                     operation.operation_id = command.command_id;
                     operation.target_layer = materialized_depth == 0U
                         ? PROGPU_NATIVE_SCENE_NO_INDEX
-                        : materialized_depth - 1U;
+                        : materialized_slots[materialized_depth - 1U];
                     operation.source_layer = source_layer;
                     operation.first_composite_vertex = first_vertex;
                     operation.blend_mode = layer.blend_mode;
                     operation.backdrop =
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
+                    operation.cache_content = cached;
+                    operation.cache_identity = layer.composite_revision;
+                    operation.cache_content_revision =
+                        semantic::presentation_content_hash(layer.content_revision, *frame, presentation);
+                    operation.has_composite_scissor =
+                        has_composite_scissor;
+                    operation.composite_drawable = composite_drawable;
+                    operation.composite_nearest =
+                        (layer.flags &
+                            PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) != 0U;
+                    if (has_composite_scissor && composite_drawable) {
+                        operation.clip_x = composite_scissor.x;
+                        operation.clip_y = composite_scissor.y;
+                        operation.clip_width = composite_scissor.width;
+                        operation.clip_height = composite_scissor.height;
+                    }
                     const bool advanced_blend =
                         is_advanced_group_blend(layer.blend_mode);
                     if (!operation.backdrop) {
-                        append_effect_program(
+                        if (!append_effect_program(
                             layer.effect_resource_index,
-                            operation);
+                            operation))
+                            return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
                     }
                     if (operation.effect_count != 0U &&
                         !operation.backdrop) {
                         auto& push_operation = compiled_spans[
-                            materialized_push_span_indices[source_layer]];
+                            materialized_push_span_indices[source_depth]];
                         push_operation.effect_cache_operation_id =
                             operation.operation_id;
+                        push_operation.effect_count =
+                            operation.effect_count;
                         push_operation.can_skip_content_on_effect_cache =
                             true;
                     }
-                    if (layer.mask_resource_index !=
+                    if (cached) {
+                        auto& push_operation = compiled_spans[
+                            materialized_push_span_indices[source_depth]];
+                        push_operation.can_skip_content_on_effect_cache =
+                            true;
+                        push_operation.effect_cache_operation_id =
+                            layer.composite_revision;
+                    }
+                    // Replay does not composite a non-drawable parent target.
+                    // In particular its zero extent cannot host a picture mask.
+                    // Retain the layer operation and source input; only omit
+                    // the unused GPU mask binding, not resource validation.
+                    if (composite_drawable && layer.mask_resource_index !=
                             PROGPU_NATIVE_SCENE_NO_INDEX) {
                         const auto resource = read_resource(
                             layer.mask_resource_index);
                         std::uint64_t mask_texture_upload_bytes = 0U;
+                        const bool deform_mask_with_composite_guidelines =
+                            local_cache &&
+                            (composite_state.flags &
+                                PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U;
                         if (!create_semantic_layer_mask_binding(
                                 *engine,
                                 bytes,
                                 resource,
                                 target_extent,
                                 frame->dpi_scale,
+                                deform_mask_with_composite_guidelines
+                                    ? &state_cursor
+                                    : nullptr,
+                                deform_mask_with_composite_guidelines
+                                    ? &composite_state
+                                    : nullptr,
                                 operation,
-                                mask_texture_upload_bytes)) {
+                                mask_texture_upload_bytes,
+                                target_cursor.current_presentation())) {
                             return fail_bundle(engine->fail(
                                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                                 "A retained semantic layer-mask binding could not be prepared."));
@@ -3969,22 +4510,22 @@ progpu_native_status render_scene(
                             semantic_layer_vertices,
                             source_extent,
                             source_extent,
-                            layer_budget.slot_widths[source_layer],
-                            layer_budget.slot_heights[source_layer],
+                            engine->semantic_layer_slots[source_layer].width,
+                            engine->semantic_layer_slots[source_layer].height,
                             frame->dpi_scale,
                             layer.opacity);
                         operation.target_width =
                             operation.target_layer ==
                                 PROGPU_NATIVE_SCENE_NO_INDEX
                                 ? frame->width
-                                : layer_budget.slot_widths[
-                                    operation.target_layer];
+                                : engine->semantic_layer_slots[
+                                    operation.target_layer].width;
                         operation.target_height =
                             operation.target_layer ==
                                 PROGPU_NATIVE_SCENE_NO_INDEX
                                 ? frame->height
-                                : layer_budget.slot_heights[
-                                    operation.target_layer];
+                                : engine->semantic_layer_slots[
+                                    operation.target_layer].height;
                         // WebGPU rejects zero-sized scissors. Empty semantic
                         // sources retain their canonical zero sampling extent,
                         // but resolve through the one-pixel bounded scratch
@@ -4046,7 +4587,9 @@ progpu_native_status render_scene(
                     compiled_spans.push_back(operation);
                     current_target_layer = operation.target_layer;
                     has_active_scissor = false;
-                    draw_calls += advanced_blend ? 3U : 1U;
+                    draw_calls += composite_drawable
+                        ? (advanced_blend ? 3U : 1U)
+                        : 0U;
                 }
                 continue;
             }
@@ -4061,7 +4604,7 @@ progpu_native_status render_scene(
                 target_extent,
                 frame->width,
                 frame->height,
-                frame->dpi_scale);
+                target_cursor.current_presentation());
             if (semantic_partial_damage_active &&
                 current_target_layer == PROGPU_NATIVE_SCENE_NO_INDEX) {
                 scissor = intersect_semantic_scissors(
@@ -4091,6 +4634,7 @@ progpu_native_status render_scene(
                     current_target_layer,
                     mask_resource_index,
                     target_extent,
+                    target_cursor.current_presentation(),
                     command_uses_depth);
                 if (begin_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                     return fail_bundle(begin_status);
@@ -4553,13 +5097,37 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_SCENE_NO_INDEX;
         bool active_pass_uses_depth = false;
         bool root_depth_initialized = false;
-        std::array<bool,
-            PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+        // Retained caches occupy the second slot range, after transient
+        // layers. Depth initialization follows the actual attachment slot,
+        // including those cache slots, and is reset for each cold content pass.
+        std::array<bool, semantic::layer_slot_count>
             layer_depth_initialized{};
         std::uint32_t skipped_cached_depth = 0U;
-        std::array<bool,
-            PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+        std::array<bool, semantic::layer_slot_count>
             cached_layer_replay{};
+        const auto output_cache_key = [&engine, frame, &presentation](
+            const semantic_render_bundle_span& operation,
+            const semantic_layer_slot& slot) noexcept {
+            const bool effect_output = operation.effect_count != 0U;
+            if (operation.cache_content) {
+                return progpu::native::effects::semantic_output_cache_key{
+                    operation.cache_content_revision,
+                    operation.cache_identity,
+                    effect_output
+                        ? slot.effect_generation
+                        : slot.generation,
+                    effect_output ? slot.effect_width : slot.width,
+                    effect_output ? slot.effect_height : slot.height};
+            }
+            return progpu::native::effects::semantic_output_cache_key{
+                semantic::presentation_content_hash(engine->semantic_scene_hash, *frame, presentation),
+                operation.effect_cache_operation_id != 0U
+                    ? operation.effect_cache_operation_id
+                    : operation.operation_id,
+                slot.effect_generation,
+                slot.effect_width,
+                slot.effect_height};
+        };
         const auto finish_pass = [&]() noexcept {
             if (pass != nullptr) {
                 wgpuRenderPassEncoderEnd(pass);
@@ -4656,7 +5224,9 @@ progpu_native_status render_scene(
 
         if (!begin_pass(
                 PROGPU_NATIVE_SCENE_NO_INDEX,
-                WGPULoadOp_Clear,
+                semantic_preserve_target_active
+                    ? WGPULoadOp_Load
+                    : WGPULoadOp_Clear,
                 false)) {
             return fail_replay(
                 "The semantic isolated-layer root pass could not be created.");
@@ -4682,13 +5252,9 @@ progpu_native_status render_scene(
                         engine->semantic_layer_slots.size()) {
                     const auto& slot = engine->semantic_layer_slots[
                         operation.source_layer];
-                    const progpu::native::effects::semantic_output_cache_key
-                        cache_key{
-                            engine->semantic_scene_hash,
-                            operation.effect_cache_operation_id,
-                            slot.effect_generation,
-                            slot.effect_width,
-                            slot.effect_height};
+                    const auto cache_key = output_cache_key(
+                        operation,
+                        slot);
                     if (progpu::native::effects::semantic_output_cache_hit(
                             semantic_effect_working_caches[
                                 operation.source_layer],
@@ -4754,13 +5320,9 @@ progpu_native_status render_scene(
                     }
                     const auto& slot = engine->semantic_layer_slots[
                         operation.source_layer];
-                    const progpu::native::effects::semantic_output_cache_key
-                        cache_key{
-                            engine->semantic_scene_hash,
-                            operation.operation_id,
-                            slot.effect_generation,
-                            slot.effect_width,
-                            slot.effect_height};
+                    const auto cache_key = output_cache_key(
+                        operation,
+                        slot);
                     if (content_cached) {
                         // Push-layer cache lookup already proved that the
                         // immutable effect output belongs to this exact scene,
@@ -4786,6 +5348,20 @@ progpu_native_status render_scene(
                                 operation.source_layer] = true;
                         }
                     }
+                } else if (operation.cache_content && !content_cached) {
+                    if (operation.source_layer >=
+                            engine->semantic_layer_slots.size()) {
+                        return fail_replay(
+                            "A semantic retained cache layer index is invalid.");
+                    }
+                    const auto& slot = engine->semantic_layer_slots[
+                        operation.source_layer];
+                    progpu::native::effects::commit_semantic_output_cache(
+                        semantic_effect_working_caches[
+                            operation.source_layer],
+                        output_cache_key(operation, slot));
+                    semantic_effect_cache_updates[
+                        operation.source_layer] = true;
                 }
                 const bool composite_ready = effect_ready &&
                     (advanced_blend
@@ -4821,7 +5397,9 @@ progpu_native_status render_scene(
                     return fail_replay(
                         "A semantic isolated-layer composite pass could not be encoded.");
                 }
-                executed_draw_calls += advanced_blend ? 3U : 1U;
+                executed_draw_calls += operation.composite_drawable
+                    ? (advanced_blend ? 3U : 1U)
+                    : 0U;
                 continue;
             }
             if (operation.target_layer != active_target_layer ||
@@ -4896,10 +5474,11 @@ progpu_native_status render_scene(
         uniform_upload_bytes += clear_metrics.uniform_upload_bytes;
     }
 
+    // A successful layer-free frame must not report the previous scene's
+    // offscreen passes or cache hits when the same engine is reused.
+    engine->last_layer_metrics = {};
+    engine->last_layer_metrics.struct_size = sizeof(progpu_native_layer_metrics);
     if (semantic_has_materialized_layers || semantic_has_state_masks) {
-        engine->last_layer_metrics = {};
-        engine->last_layer_metrics.struct_size =
-            sizeof(progpu_native_layer_metrics);
         std::uint32_t texture_generation = 0U;
         std::uint32_t effect_texture_generation = 0U;
         for (std::uint32_t index = 0U;
@@ -4912,10 +5491,26 @@ progpu_native_status render_scene(
                 effect_texture_generation,
                 engine->semantic_layer_slots[index].effect_generation);
         }
+        for (std::uint32_t index = 0U;
+             index < cache_budget.count;
+             ++index) {
+            const auto& slot = engine->semantic_layer_slots[
+                cache_budget.slots[index]];
+            texture_generation = std::max(
+                texture_generation,
+                slot.generation);
+            effect_texture_generation = std::max(
+                effect_texture_generation,
+                slot.effect_generation);
+        }
         engine->last_layer_metrics.texture_width =
-            layer_budget.maximum_width();
+            std::max(
+                layer_budget.maximum_width(),
+                cache_budget.maximum_width());
         engine->last_layer_metrics.texture_height =
-            layer_budget.maximum_height();
+            std::max(
+                layer_budget.maximum_height(),
+                cache_budget.maximum_height());
         engine->last_layer_metrics.texture_generation = texture_generation;
         engine->last_layer_metrics.allocation_count =
             engine->semantic_layer_allocation_count;
@@ -4927,6 +5522,7 @@ progpu_native_status render_scene(
             semantic_render_bundle_hit ? 1U : 0U;
         engine->last_layer_metrics.texture_bytes =
             layer_budget.pooled_bytes() +
+            cache_budget.pooled_bytes() +
             semantic_destination_texture_bytes;
         engine->last_layer_metrics.vertex_upload_bytes =
             semantic_layer_vertex_upload_bytes;
@@ -4962,7 +5558,7 @@ progpu_native_status render_scene(
             ? 1U
             : 0U;
         engine->last_layer_metrics.effect_texture_bytes =
-            pooled_effect_bytes;
+            pooled_effect_bytes + pooled_cache_effect_bytes;
         engine->last_layer_metrics.effect_uniform_upload_bytes =
             semantic_layer_effect_uniform_upload_bytes;
         engine->last_layer_metrics.effect_count =

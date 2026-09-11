@@ -19,6 +19,10 @@ struct semantic_scene_builder::implementation final {
         bool brush_table = false;
         bool text_style_table = false;
         bool rgba8_image = false;
+        bool bgra8_image = false;
+        bool r8_image = false;
+        bool picture_image = false;
+        bool source_geometry_clip = false;
         std::uint32_t image_width = 0U;
         std::uint32_t image_height = 0U;
         std::uint32_t image_row_bytes = 0U;
@@ -29,6 +33,70 @@ struct semantic_scene_builder::implementation final {
         progpu_native_scene_command record{};
         std::vector<std::byte> payload{};
     };
+
+    struct hit_test_owner_boundary final {
+        std::size_t first_command{};
+        std::optional<std::int32_t> owner;
+    };
+    std::vector<hit_test_owner_boundary> hit_test_owners{};
+    struct glyph_hit_bounds_entry final {
+        std::size_t command_index{};
+        progpu_native_image_rect local_bounds{};
+    };
+    // Sparse optional input metadata: do not enlarge every retained draw record.
+    std::vector<glyph_hit_bounds_entry> glyph_hit_bounds{};
+    struct hit_rectangle_scope final {
+        std::size_t first_command{};
+        std::size_t last_command{};
+        progpu_native_image_rect local_bounds{};
+        bool point_only{};
+        bool empty_point_region{};
+    };
+    std::vector<hit_rectangle_scope> hit_rectangle_scopes{};
+    struct source_hit_layer final {
+        std::size_t command_index{};
+        bool changes_frame{};
+        progpu_native_affine_2d content_to_parent{};
+    };
+    std::vector<source_hit_layer> source_geometry_hit_layers{};
+    struct input_only_range final {
+        std::size_t first_command{}, last_command{};
+    };
+    // Balanced source-only saves remain available to input capture but are not
+    // serialized as raster commands. Nested ranges are covered by their parent.
+    std::vector<input_only_range> input_only_ranges{};
+    std::array<std::size_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> input_only_stack{};
+    std::vector<input_only_range> render_only_ranges{};
+    std::array<std::size_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> render_only_stack{};
+
+    std::size_t render_command_count() const noexcept {
+        std::size_t count = commands.size(), covered_end = 0U;
+        for (const auto& range : input_only_ranges) {
+            if (range.first_command < covered_end) continue;
+            count -= range.last_command - range.first_command + 1U;
+            covered_end = range.last_command + 1U;
+        }
+        return count;
+    }
+
+    template<class Visitor>
+    bool visit_render_commands(Visitor&& visit) const {
+        std::size_t range_index = 0U;
+        for (std::size_t index = 0U; index < commands.size(); ++index) {
+            while (range_index < input_only_ranges.size() &&
+                input_only_ranges[range_index].first_command < index) ++range_index;
+            if (range_index < input_only_ranges.size() &&
+                input_only_ranges[range_index].first_command == index) {
+                index = input_only_ranges[range_index++].last_command;
+                continue;
+            }
+            if (!visit(commands[index])) return false;
+        }
+        return true;
+    }
+    // One-based sparse scope indices, zero for ordinary saves. Layer slots are
+    // never read here: restore admits only a matching save stack kind.
+    std::array<std::size_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> hit_rectangle_stack{};
 
     std::uint64_t scene_id = 0U;
     std::uint64_t generation = 0U;
@@ -52,10 +120,42 @@ struct semantic_scene_builder::implementation final {
         return false;
     }
 
-    bool valid_state_index(std::uint32_t index) const noexcept {
-        return index == PROGPU_NATIVE_SCENE_NO_INDEX ||
-            (index < resources.size() && resources[index].record.kind ==
-                PROGPU_NATIVE_SCENE_RESOURCE_STATE);
+    bool valid_state_index(
+        std::uint32_t index,
+        bool allow_per_point = false) const noexcept {
+        if (index == PROGPU_NATIVE_SCENE_NO_INDEX) {
+            return true;
+        }
+        if (index >= resources.size() || resources[index].record.kind !=
+                PROGPU_NATIVE_SCENE_RESOURCE_STATE ||
+            resources[index].payload.size() !=
+                sizeof(progpu_native_scene_state)) {
+            return false;
+        }
+        progpu_native_scene_state state{};
+        std::memcpy(
+            &state,
+            resources[index].payload.data(),
+            sizeof(state));
+        if ((state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U) {
+            return true;
+        }
+        if (state.guideline_resource_index >= resources.size()) {
+            return false;
+        }
+        const auto& guidelines = resources[state.guideline_resource_index];
+        if (guidelines.record.kind !=
+                PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET ||
+            guidelines.payload.size() <
+                sizeof(progpu_native_scene_guideline_set)) {
+            return false;
+        }
+        progpu_native_scene_guideline_set header{};
+        std::memcpy(&header, guidelines.payload.data(), sizeof(header));
+        return (header.flags &
+                PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY) == 0U &&
+            (allow_per_point || (header.flags &
+                PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) == 0U);
     }
 
     bool try_merge_image_draw(

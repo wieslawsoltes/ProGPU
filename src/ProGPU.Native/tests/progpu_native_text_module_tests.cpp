@@ -1,6 +1,67 @@
 import progpu.native.text;
 
 int main() {
+    progpu::native::text::text_layout_metrics fragment_extent{};
+    if (!progpu::native::text::try_measure_fragment_text_lines({}, {}, 100, fragment_extent) ||
+        fragment_extent.content_height != 0 || fragment_extent.measured_width != 100) return 1;
+    unsigned int no_caret = 0;
+    if (progpu::native::text::try_move_fragment_text_caret({}, {}, 0,
+        progpu::native::text::text_caret_direction::left, 0, 0, no_caret)) return 1;
+    unsigned int fragment_boxes = 1, fragment_carets = 1;
+    if (!progpu::native::text::try_build_fragment_text_interaction({}, {}, {}, {}, {}, {}, {},
+        fragment_boxes, fragment_carets) || fragment_boxes != 0 || fragment_carets != 0) return 1;
+    const auto band_layout = &progpu::native::text::try_layout_text_exclusion_band;
+    progpu::native::text::text_exclusion_band_result band_result{};
+    if (band_layout == nullptr || band_result.status != progpu::native::text::text_exclusion_band_status::blocked) return 1;
+    progpu::native::text::text_line_fragment empty_fragment[1]{};
+    progpu::native::text::text_line_interval empty_interval[1]{};
+    progpu::native::text::positioned_text_line empty_band_line[1]{};
+    progpu::native::text::text_exclusion_flow_result empty_flow{};
+    progpu::native::text::text_layout_options flow_options{};
+    flow_options.maximum_width = 100;
+    if (!progpu::native::text::try_layout_excluded_logical_shaped_text_at({}, {}, {}, {}, {}, {}, 0,
+        flow_options, {}, 20, {}, {}, empty_interval, empty_fragment, {}, {}, {}, {}, {}, empty_flow) ||
+        empty_flow.row_count != 0 || empty_flow.height != 20) return 1;
+    if (!progpu::native::text::try_layout_excluded_logical_shaped_text({}, {}, {}, {}, {}, {}, 0,
+        flow_options, {}, {}, {}, empty_interval, empty_fragment, {}, {}, {}, {}, {}, empty_flow) ||
+        empty_flow.row_count != 0 || empty_flow.fragment_count != 0) return 1;
+    if (!band_layout({}, {}, {}, {}, {}, {}, 0, 0, {}, {}, {0, 0, 100, 10},
+        {}, {}, empty_interval, empty_fragment, {}, {}, {}, empty_band_line, band_result, nullptr) ||
+        band_result.status != progpu::native::text::text_exclusion_band_status::complete) return 1;
+    unsigned int empty_count = 1, empty_next = 1;
+    float empty_y = 1;
+    if (!progpu::native::text::try_fit_text_exclusion_band({}, {}, {}, 0, {}, {},
+        {0, 0, 100, 10}, {}, {}, empty_interval, empty_fragment, empty_count, empty_next, empty_y) ||
+        empty_count != 0 || empty_next != 0 || empty_y != 0) return 1;
+    progpu::native::text::text_exclusion_rectangle exclusion[]{ {0, 0, 20, 30} };
+    progpu::native::text::text_line_interval scratch[1]{}, intervals[2]{};
+    const progpu::native::text::text_floating_item floating_items[]{ {0, 20, 10,
+        progpu::native::text::text_anchor_alignment::left} };
+    progpu::native::text::text_exclusion_rectangle floating_collisions[1]{};
+    progpu::native::text::text_line_fragment floating_fragments[2]{};
+    progpu::native::text::text_fragment_placement floating_frames[1]{};
+    progpu::native::text::text_floating_placement floating_placements[1]{};
+    progpu::native::text::text_floating_flow_result floating_result{};
+    if (!progpu::native::text::try_layout_floating_logical_shaped_text_at({}, {}, {}, {}, {}, {}, 0,
+        flow_options, {}, 0, {8, 2}, floating_items, {}, floating_collisions, scratch, intervals,
+        floating_fragments, {}, {}, {}, empty_band_line, floating_frames, floating_placements, floating_result) ||
+        floating_result.text.row_count != 1 || floating_result.float_count != 1 ||
+        floating_placements[0].bounds.top != 10 || floating_result.height != 20) return 1;
+    progpu::native::text::text_exclusion_rectangle floater{};
+    if (!progpu::native::text::try_place_text_floater({0, 0, 100, 40}, 20, 10,
+        progpu::native::text::text_anchor_alignment::left, false,
+        exclusion, scratch, intervals, floater, 1) || floater.left != 20 || floater.top != 0) return 1;
+    unsigned int interval_count = 0;
+    float next_y = 0;
+    if (!progpu::native::text::try_resolve_text_line_intervals({0, 0, 100, 10},
+        exclusion, scratch, intervals, interval_count, next_y) ||
+        interval_count != 1 || intervals[0].left != 20 || intervals[0].right != 100 || next_y != 30) return 1;
+    const progpu::native::text::text_item_metrics inline_metric{12.0F, 3.0F};
+    unsigned int measured_glyphs = 1U, measured_lines = 1U;
+    if (inline_metric.ascent + inline_metric.descent != 15.0F ||
+        !progpu::native::text::try_layout_measured_logical_shaped_text(
+            {}, {}, {}, {}, 0, {}, {}, {}, {}, {}, {}, measured_glyphs,
+            measured_lines, {}, {}) || measured_glyphs != 0U || measured_lines != 0U) return 1;
     constexpr auto tag =
         progpu::native::text::open_type_tag::from_chars('c', 'm', 'a', 'p');
     const auto tag_parser = &progpu::native::text::try_parse_open_type_tag;
@@ -54,6 +115,7 @@ int main() {
     const progpu::native::text::text_logical_layout_scratch
         logical_layout_scratch{};
     const progpu::native::text::text_layout_options layout_options{};
+    if (layout_options.collapse_width != -1.0F) return 1;
     const progpu::native::text::positioned_text_column positioned_column{};
     const progpu::native::text::text_vertical_layout_requirements
         vertical_layout_requirements{};

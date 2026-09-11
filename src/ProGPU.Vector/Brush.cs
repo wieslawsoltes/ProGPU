@@ -369,6 +369,33 @@ public class Pen
     internal double[]? DashArrayStorage => _dashArray;
     public double DashOffset { get; set; }
 
+    /// <summary>Copies caller-owned intervals once into immutable retained storage.</summary>
+    public void SetDashPattern(ReadOnlySpan<double> intervals) =>
+        _dashArray = intervals.IsEmpty ? null : intervals.ToArray();
+
+    /// <summary>
+    /// Snapshots stroke state with a different material. The immutable dash
+    /// storage is shared; assigning or reading DashArray still makes an owned
+    /// copy, so subsequent mutations of either pen cannot change the other.
+    /// The brush itself is borrowed under the normal retained-brush contract.
+    /// </summary>
+    public Pen WithBrush(Brush brush)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        return new Pen(brush)
+        {
+            Thickness = Thickness,
+            LineJoin = LineJoin,
+            MiterLimit = MiterLimit,
+            StartLineCap = StartLineCap,
+            EndLineCap = EndLineCap,
+            DashCap = DashCap,
+            StrokeTransformMode = StrokeTransformMode,
+            DashOffset = DashOffset,
+            _dashArray = _dashArray
+        };
+    }
+
     public Pen(
         Brush brush,
         float thickness = 1.0f,

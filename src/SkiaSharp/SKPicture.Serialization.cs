@@ -364,6 +364,8 @@ internal static class PictureArchive
         int depth,
         int version)
     {
+        if (command.SourceHitGeometry.Kind != SourceHitTestGeometryKind.None)
+            throw new NotSupportedException("Picture archives do not yet encode source-input geometry overrides.");
         if (command.Texture is not null ||
             command.StaticBuffer is not null ||
             command.SeriesCacheKey is not null ||

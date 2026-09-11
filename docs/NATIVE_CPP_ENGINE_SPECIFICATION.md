@@ -9,6 +9,9 @@ Initial implementation: `src/ProGPU.Native`
 Pure C++ browser gallery and AOT publish guide:
 [`NATIVE_CPP_BROWSER_GALLERY.md`](NATIVE_CPP_BROWSER_GALLERY.md)
 
+Typed GPU-stage and intrinsic-SIMD fallback policy:
+[`GPU_COMPUTE_FALLBACK_POLICY.md`](GPU_COMPUTE_FALLBACK_POLICY.md)
+
 Managed baseline commit: `eab6754b` plus the exact ProGPU-owned source
 provenance recorded for each ported tranche
 Native ABI: `PROGPU_NATIVE_ABI_VERSION == 3`
@@ -125,6 +128,8 @@ submission percentiles in its matched managed/native qualification.
 | [WebGPU texture formats](https://www.w3.org/TR/webgpu/#texture-formats) and [DirectWrite `IDWriteGlyphRunAnalysis::CreateAlphaTexture`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwriteglyphrunanalysis-createalphatexture) | WebGPU defines `r8unorm` as a filterable one-channel normalized format. DirectWrite exposes bounded glyph coverage as caller-owned alpha bytes for a physical rectangle, separating text analysis from later compositing. | Add one exact pointer-free R8 coverage-mask resource for precomputed text, image-alpha, or reusable visual coverage. Upload the immutable bytes once, retain the texture/view/binding with the compiled replay span, and apply its independently invertible affine in the production mask shader. ProGPU does not adopt DirectWrite's rasterizer or buffer organization. |
 | [wgpu-native pinned C API](https://github.com/gfx-rs/wgpu-native/tree/33133da4ec5a0174cb21539ef2d3346f75200411/ffi) | A native WebGPU C ABI over Metal, Vulkan, and D3D12. Header layouts are revision-sensitive. | The Silk lane is compiled only against commit `33133da4...` and headers `aef5e428...`; incompatible ABIs are rejected before handle use. |
 | [Dawn architecture overview](https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/overview.md) | Native WebGPU implementation with proc dispatch, validation, backend abstraction, wire support, and Tint. | Add a separately compiled Dawn adapter. Do not reinterpret current Dawn handles through the older Silk/wgpu-native structs. |
+| [Microsoft DirectX Graphics Samples](https://github.com/microsoft/DirectX-Graphics-Samples) | Microsoft's native D3D12 samples provide small, reviewable rendering contracts and exercise the Windows runtime directly, but the executables are Windows-only. | Pin source and file hashes for one sample at a time, apply only an auditable capture patch in an ignored worktree, and compare its Windows frame with a semantically equivalent ProGPU scene rendered through D3D12, Metal, and Vulkan. Do not attempt to compile the native D3D12 sample on macOS or Linux. |
+| [DirectX 12 Agility SDK](https://devblogs.microsoft.com/directx/gettingstarted-dx12agility/) and [`Microsoft.Direct3D.D3D12`](https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/) | The NuGet package carries native D3D12 headers and an app-local redistributable runtime selected by exports from the process executable; it is not a managed Direct3D wrapper. | Restore the version declared by the pinned Microsoft sample and record it in oracle evidence. Treat that runtime as native-oracle provenance. ProGPU's Dawn/wgpu-native D3D12 provider remains independently owned until the host executable and provider are deliberately qualified against the same app-local runtime contract. |
 | [Dawn Emdawnwebgpu build and package guidance](https://dawn.googlesource.com/dawn/+/HEAD/src/emdawnwebgpu/README.md) and the [stable WebGPU C headers](https://github.com/webgpu-native/webgpu-headers) | Emdawnwebgpu maps the stable `webgpu.h` contract to JavaScript WebGPU for WebAssembly; Dawn documents `emcmake` builds and browser-served HTML tests. | Compile the same private renderer modules and shared WGSL with the pinned Emscripten Emdawnwebgpu port, expose a distinct browser ABI, keep browser queue completion in the host scheduler, and gate the result through a real `navigator.gpu` Chromium run rather than a mock proc table. |
 | [Skia Graphite `Recorder`](https://skia.googlesource.com/skia/+/refs/heads/main/include/gpu/graphite/Recorder.h) and [`Context`](https://skia.googlesource.com/skia/+/refs/heads/main/include/gpu/graphite/Context.h) | Recording is separable from device submission; recordings own transferable GPU work while context/device resources remain explicit. | Separate semantic scene recording, native compilation, and queue submission. Make recordings immutable and device-domain caches explicit. |
 | [Skia `SkImage`](https://api.skia.org/classSkImage.html) | Images are immutable logical resources and may be raster- or texture-backed; drawing does not imply rebuilding their pixel payload. | Treat image and draw-content revisions independently. A changed image revision updates the retained GPU texture; a changed content revision alone recompiles the transformed destination quad. |
@@ -133,12 +138,26 @@ submission percentiles in its matched managed/native qualification.
 | [Skia text shaper design](https://skia.org/docs/dev/design/text_shaper/) and [SkParagraph](https://skia.googlesource.com/skia/+/refs/heads/main/modules/skparagraph/) | Unicode shaping and paragraph layout are reusable CPU results distinct from glyph rendering. | Preserve ProGPU.Text shaped results during migration, then fully port the proven ProGPU-owned parser, shaper, fallback, and layout algorithms to C++ while keeping the reusable CPU-result/GPU-rendering boundary. |
 | [Direct2D resources and resource domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains) and [render targets](https://learn.microsoft.com/en-us/windows/win32/direct2d/render-targets-overview) | Device-dependent resources belong to a render-target/resource domain; drawing is batched and failures are observed at submission boundaries. | Every native handle is domain-stamped. Cross-device use fails before submission. Deferred errors and device loss invalidate the entire dependent cache generation. |
 | [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in typed image records. Keep the direct-frame and semantic lanes on the same full managed sampler contract, cached independently from image ownership. |
-| [Direct2D `FillOpacityMask`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-fillopacitymask) | A sampled mask alpha modulates a brush over explicit source and destination rectangles. | Keep mask mapping independent from image mapping, use the red coverage channel accepted by production WGSL, and retain the same-device mask view rather than reading it back. |
+| [Direct2D `FillOpacityMask`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-fillopacitymask) | A sampled mask alpha modulates a brush over explicit source and destination rectangles. | Keep mask mapping independent from image mapping. R8 coverage samples red while compatible-target RGBA intermediates sample alpha. Both use the same affine GPU mask uniforms and retained same-device texture; neither path reads pixels back, repacks them, or submits per item. |
+| [Direct2D `ID2D1BitmapRenderTarget`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1bitmaprendertarget) | A compatible render target records offscreen content and exposes it as an `ID2D1Bitmap`; A8 compatible targets are the canonical source for reusable opacity masks. | Implement the canonical COM IID/vtable portably, record compatible content as an independently versioned semantic scene, and render it directly into a bounded child WebGPU attachment. `GetBitmap` retains the typed scene target rather than manufacturing CPU pixels. Source cropping plus translated, scaled, or affine destination mapping stays in the production GPU mask shaders; incompatible nonuniform-DPI and GDI-compatible requests fail closed. |
+| [Direct2D `CreateBitmapFromWicBitmap`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-createbitmapfromwicbitmap), [`IWICBitmapSource`](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nn-wincodec-iwicbitmapsource), and [WIC native pixel formats](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-codec-native-pixel-formats) | Direct2D copies an already decoded WIC source whose pixel format must match the requested bitmap; WIC defines straight RGBA/BGRA and premultiplied PRGBA/PBGRA 32-bit layouts. Null/default properties infer the source format, both zero DPI values mean 96, and embedded WIC DPI is ignored. | Publish the canonical source IID/vtable portably. Copy exact PBGRA/PRGBA rows directly into the final retained allocation. Admit standard straight BGRA/RGBA by copying once into that same allocation and either premultiplying its independent pixels in place with NEON or SSE2 plus a bounded scalar tail, or preserving RGB for an explicit alpha-ignore bitmap whose shader samples as opaque. Test every vector/tail byte against the integer scalar oracle and alpha-ignore on a real GPU. Do not activate codecs, reflect over source shapes, allocate a second conversion buffer, read pixels back from the GPU, or keep a whole-buffer scalar conversion path. |
+| [Direct2D `CreateSharedBitmap`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-createsharedbitmap) and [`IWICBitmapLock`](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nn-wincodec-iwicbitmaplock) | A resource-compatible `ID2D1Bitmap` view shares the original data and may select independent DPI or alpha interpretation; the DXGI format must match. An `IWICBitmapLock` is a lifetime-bounded rectangular memory window whose stride and data pointer remain valid while the lock is retained. DXGI-surface inputs have separate device-domain constraints. | Implement exact same-factory bitmap views: ordinary bitmaps retain storage, forward mutation, keep one live generation/identity, deduplicate retained/GPU upload, and may reinterpret premultiplied source storage as alpha-ignore through typed draw metadata and the shared GPU shader. Compatible-target bitmaps retain and forward the typed child scene/GPU attachment. For PBGRA/PRGBA WIC locks, retain the canonical COM lock, validate dimensions/stride/buffer bounds once, alias the live memory without a copy, preserve padding, and write explicit bitmap mutations back to the lock. Explicit alpha-ignore also admits straight BGRA/RGBA lock memory without mutation; a straight lock requested as premultiplied fails closed. Reject incompatible formats, alpha modes, patch-atlas combinations, DXGI surfaces, and foreign domains until their typed ownership contracts exist. |
+| [Direct2D `DrawGlyphRun`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-drawglyphrun) and [DirectWrite `GetGlyphRunOutline`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritefontface-getglyphrunoutline) | Direct2D consumes already-shaped glyph IDs, optional advances/offsets, direction, baseline, and a physical font face; DirectWrite can synchronously stream the complete outline to a caller-owned geometry sink. Text layout is deliberately separable from rendering. | Preserve the exact glyph-run layout and font-face vtable prefix, request the complete run outline once, translate it immediately into a pointer-free retained GPU path, and apply the baseline/current target transform plus the existing arbitrary-brush pipeline. Do not remap text, reshape it, rasterize pixels on the CPU, read back, or submit per glyph. |
+| [DirectWrite custom text rendering](https://learn.microsoft.com/en-us/windows/win32/directwrite/how-to-implement-a-custom-text-renderer) and [`IDWriteTextLayout::Draw`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextlayout-draw) | A retained layout is renderer-independent and synchronously emits glyph-run, decoration, and inline-object callbacks through `IDWriteTextRenderer`; pixel snapping and the current transform are explicit callback state. | Implement the canonical renderer vtable over the portable target, route glyphs to the complete-run path, decorations to analytic geometry, inline objects recursively, typed brush effects through `QueryInterface`, and `CLIP` through one balanced retained clip. `DrawText` queries an explicit portable layout-factory extension on the supplied format and delegates the resulting retained layout through the identical renderer; foreign formats fail closed instead of triggering hidden platform discovery. Color options remain gated on color-glyph translation. |
+| [Direct2D `SetTextRenderingParams`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-settextrenderingparams) | The render target retains optional DirectWrite gamma, contrast, ClearType, pixel-geometry, and rendering-mode state, and incompatible text-antialias combinations fail on subsequent text drawing. | Preserve canonical `IDWriteRenderingParams` identity and strong ownership immediately. Map qualified parameters into the native GPU coverage/text-style path and defer incompatible-mode errors at draw time; never invoke DirectWrite CPU rasterization merely to honor this state. |
+| [Direct2D `ID2D1Geometry::Outline`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-outline) | Outline removes transverse intersections, normalizes outer contours, and produces fill-mode-invariant geometry in a caller-owned sink. | Emit analytic rectangles directly. For paths, flatten each filled contour with the caller tolerance, normalize orientation, and transactionally accept any count of independent, point-touching, or interacting simple contours. Alternate nesting reverses odd containment depths; winding nesting sums retained signed source contributions, omits boundaries with equal fill state on both sides, and reverses true holes. Split every inter-contour crossing/positive-collinear pair, evaluate alternate or signed-winding fill on both sides of each sub-edge, deduplicate, and trace the complete boundary graph. Every contour/edge pair shares the four-lane NEON/SSE2 AABB broad phase. Preserve contact-only T-junction figures but insert the contact vertex into the touched edge. Split one proper transverse self-crossing into two simple lobes; for alternate or winding contours, split any count of distinct proper self-crossings, probe both sides of every sub-edge, remove internal edges, and trace all filled lobes. Preserve every positive/negative integer winding layer as signed simple contours before whole-path normalization, so other figures can add or cancel winding without losing magnitude. Preserve Direct2D's alternate fill callback and caller segment flags, then compare callback counts, dense regions, and area for disjoint/contact/shared-edge/two-and-three-way overlap/hole/bow-tie/alternate-and-winding-five-crossing-star and mixed signed-layer cases with Windows ARM64/x64. Reject repeated/triple, collinear, endpoint-ambiguous, numerically invalid graphs, and graphs beyond the bounded segment cap before replay; topology walks are scalar by dependency, not an unoptimized data-parallel fallback. |
+| [Direct2D `ID2D1Geometry::Tessellate`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-tessellate) | Tessellation emits triangles for the geometry's selected fill rule after the optional transform; holes and overlaps must not be triangulated as independent positive figures. | Reuse normalized Outline contours. Associate every negative hole with its smallest containing positive component, eliminate holes rightmost-first through zero-area bridges, then ear-clip each prepared weakly-simple component transactionally. Treat duplicate bridge endpoints as one topological vertex, remove collinear bridge points, prepare the complete bounded triangle array before caller mutation, and retain the dependency-bound scalar ear walk. Compare area and dense triangle coverage—not undocumented diagonal order/count—for single-hole and multi-hole/nested-island inputs with genuine Direct2D on Windows ARM64/x64; also qualify alternate/winding self-intersections locally. |
+| [Direct2D `ID2D1Geometry::ComputeArea`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-computearea) | Area is measured after the optional world transform and selected fill rule, so holes subtract and overlapping figures must not be counted independently. | Reuse transactionally normalized Outline contours, then reduce their signed shoelace areas and publish the absolute half-area. The exported Windows path facade caches a typed portable transcript after first use and calls this same implementation instead of summing independent figure areas. This shares alternate xor, winding union/hole, shared-edge, point-contact, bow-tie, and alternate/winding multiple-crossing semantics with rendering and keeps failure output initialized. Compare nested, shared-edge, alternate-overlap, winding-overlap, corner/T-contact, bow-tie, alternate/winding five-crossing-star, and mixed signed-layer values with genuine Direct2D on Windows ARM64/x64. Keep the signed reduction scalar because it is order-dependent; independent boundary-pair qualification stays in the shared NEON/SSE2 Boolean broad phase. |
+| [Direct2D `ID2D1Geometry::GetWidenedBounds`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-getwidenedbounds) | Stroke geometry is widened before the optional world transform; an intrinsic transformed geometry changes the geometry but must not scale the later stroke width. | Keep one analytic rectangle lane shared by the portable COM implementation and the exported Windows `ID2D1Factory1` facade. For independent simple closed/open figures, tolerance-flatten each figure locally and collect segment offsets, typed cap/join extrema, clipped/full miter extrema, and Direct2D's conservative dashed source envelope. Split `FORCE_UNSTROKED` edges into independent runs, restart dash phase, select source versus dash caps by endpoint provenance, and apply `FORCE_ROUND_LINE_JOIN` only at original segment boundaries. Affine-transform and reduce candidates four-wide with ARM64 NEON/SSE2, then union figure bounds. Compare mixed open/closed, solid/dashed, flagged, styled cap/join, zero-width, and nonuniform transformed bounds with system Direct2D on ARM64 and x64. Fail closed for degeneracy or unsupported topology. |
+| [Direct2D `ID2D1Geometry::StrokeContainsPoint`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-strokecontainspoint) | The centered stroke contains its outer and inner boundaries; geometry is stroked before the optional world transform. | Keep one analytic rectangle lane shared by the portable COM implementation and the exported Windows `ID2D1Factory1` facade. For independent simple closed/open figures, inverse-map through any nonsingular affine world transform and evaluate independent segment distances four-wide with NEON/SSE2. Closed figures apply typed joins around their seam. Open figures apply typed joins only between segments and exact caps. Every figure and `FORCE_UNSTROKED` split run restarts the typed dash phase; true source endpoints select start/end caps, split endpoints select dash caps, and `FORCE_ROUND_LINE_JOIN` overrides only its incoming original-segment boundary. Compare mixed open/closed solid/dashed/flagged probes with genuine Direct2D on Windows ARM64 and x64. Fail closed for degenerate input or singular transforms. |
+| [Direct2D `ID2D1Geometry::Widen`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-widen) | Widen writes caller-owned filled contours for the centered stroke after intrinsic geometry transforms and before the optional caller transform. Sink fill mode, segment flags, figure closure, and bridge points are observable compatibility state. | Keep the rectangle and qualified transformed-rectangle transcripts in shared typed functions consumed by both COM facades. Tolerance-flatten line/cubic/quadratic/arc figures, treating float-noise near-collinear joins as straight. Prepare every independent figure before caller-sink mutation: closed null/default strokes use validated outer/inner miter rings and omit the inner ring when convex erosion consumes it; closed styled/full-dash strokes build paired typed join contours and accept non-convex input only when the flattened sides are simple and the inner side is contained; open solid or split-dash/`FORCE_UNSTROKED` figures use joined outlines with provenance-selected caps/joins and per-run dash reset. Apply `FORCE_ROUND_LINE_JOIN` only at original source boundaries. Round containment is limited to the actual outer circular sector, not a full vertex disk. Represent round output as cubics and batch-transform endpoints/controls through NEON/SSE2. Path output uses `WINDING` with the inner contour reversed in place; rectangle/transformed-rectangle lanes retain their exact system fill/transcript; no lane mutates caller segment flags. Preserve Direct2D's terminal zero-length on-dash rule and geometry-specific zero-width transcripts. Compare sink callback counts, mixed closed/open, curved, flagged, concave styled, and zero-width output with genuine Direct2D on Windows ARM64/x64. Fail closed for split/self-intersecting erosion or invalid topology. |
+| [Direct2D `ID2D1Geometry::CompareWithGeometry`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-comparewithgeometry) | The relation describes this geometry relative to the optionally transformed input geometry; `IS_CONTAINED` means this geometry is inside the input. Boundary-only contact is an overlap, shared boundaries preserve an otherwise exact containment relation, and equal geometry reports `IS_CONTAINED`. | Keep the allocation-free convex rectangle lane. For paths, tolerance-normalize both operands into component/hole contour sets, use transactional exclusions in both directions for equality/containment, use intersection for interior overlap, and reject boundary pairs in four-lane NEON/SSE2 AABB batches before exact contact checks. Preserve `UNKNOWN` on rejection and fail closed for degenerate, repeated/triple-crossing, or contact-ambiguous inputs. Compare every relation, transformed containment, equality, boundary contact, multiple components, shared containment boundaries, nested holes, alternate self-crossing holes, and mixed-winding self-crossing containment with system Direct2D on Windows ARM64/x64. |
+| [Direct2D `ID2D1Geometry::CombineWithGeometry`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-combinewithgeometry) | Union, intersection, xor, and exclusion write normalized filled geometry to the caller sink after transforming only the input operand. Boundary topology remains observable by later fill, outline, and stroke operations. | Keep the exact fixed-grid tracer for axis-aligned rectangle operands and the allocation-free split/classify/trace lane for independently affine rectangles. For paths, tolerance-normalize each operand through `Outline`, tag every resulting component/hole boundary by operand, reject edge pairs in four-lane NEON/SSE2 AABB batches, split crossings and collinear overlaps, evaluate the requested Boolean on both sides, deduplicate directed boundaries, and publish traced alternate-fill contours transactionally. Handle empty identities explicitly. Compare all four modes, concave overlap, identical operands, shared edges, transformed rectangles, disjoint components, nested holes, alternate self-crossing holes, and mixed-winding self-crossing centers with system Direct2D on Windows ARM64/x64; fail closed before sink mutation for degeneracy, repeated/triple crossings, ambiguous contacts, or invalid topology. |
 | [Direct2D opacity masks overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/opacity-masks-overview) | Opacity-mask content and the content being masked are independent resources; a layer is required when one mask must affect a composed group. | Apply a common mask to the pooled family result, not to every family primitive. Retain the mask view and its mapping independently from the retained content revision. |
 | [Skia `SkCanvas::saveLayer`](https://api.skia.org/classSkCanvas.html) and [`SaveLayerRec`](https://api.skia.org/structSkCanvas_1_1SaveLayerRec.html) | Layer restore applies paint alpha, blend, and filtering to an offscreen result. An optional backdrop filter initializes the new layer from filtered prior canvas content before later child drawing. | Keep direct masks independent. For a semantic backdrop push, snapshot/filter the already rendered parent first, draw child commands over that result, then apply restore opacity/mask/blend exactly once at pop. |
 | [WinUI `CompositionBackdropBrush`](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionbackdropbrush) | A composition brush samples content behind a visual so an effect graph can consume the visual's backdrop. | Preserve parent-pixel provenance inside the native scene and expose backdrop as typed layer state. Adapt the compositor contract to bounded retained WebGPU textures rather than introducing a platform brush or per-frame managed callback. |
 | [Skia `SkCanvas` clipping](https://api.skia.org/classSkCanvas.html) | A rectangle clip is transformed by the current matrix and intersects the current clip; save/restore preserves clip and matrix state. | The first native state lane accepts the already resolved target-space logical rectangle. Nested transform/clip stack evaluation remains the semantic-scene compiler's responsibility. |
-| [Direct2D layers overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview) and [axis-aligned clip guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1111-using-layer-when-clip-is-sufficient) | Axis-aligned clips avoid a layer; layer opacity composites a group result, while primitive opacity multiplies each draw independently. | Keep the physical scissor direct for primitive-only frames. When group opacity is requested, render un-clipped family content to the transparent pool and apply the resolved scissor only to its final composite. |
+| [Direct2D layers overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview) and [axis-aligned clip guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1111-using-layer-when-clip-is-sufficient) | Axis-aligned clips avoid a layer; layer opacity composites a group result, while primitive opacity multiplies each draw independently. An opacity brush contributes mapped alpha to the final group composite. | Keep the physical scissor direct for primitive-only frames. When group opacity is requested, render un-clipped family content to the transparent pool and apply the resolved scissor only to its final composite. Evaluate finite or full-target opacity brushes in the existing GPU mask lane. For an infinite content rectangle, inverse-map the finite visible target through an invertible axis-preserving world transform so the mask remains bounded without changing brush coordinates; fail closed for rotation, shear, or singular transforms until exact general bounds exist. |
 | [Direct2D Gaussian blur](https://learn.microsoft.com/en-us/windows/win32/direct2d/gaussian-blur), [Direct2D built-in effects](https://learn.microsoft.com/en-us/windows/win32/direct2d/built-in-effects), and the [Win2D effects quickstart](https://microsoft.github.io/Win2D/WinUI3/html/QuickStart.htm) | Blur is a device effect over an image/command-list input; Win2D records vector content and supplies that retained result to an effect instead of filtering every primitive independently. | Apply blur once to the pooled family result, keep source-content and effect revisions independent, express sigma in logical coordinates, and dispatch the existing shared WebGPU horizontal/vertical kernels only when either retained input changes. |
 | [WinUI `DropShadow`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.dropshadow), [Win2D `ShadowEffect`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Effects_ShadowEffect.htm), and [Skia `SkImageFilters::DropShadow`](https://api.skia.org/classSkImageFilters.html) | A retained shadow carries offset, blur, and color; GPU effect graphs derive shadow alpha from retained source content and either return shadow-only output or composite the source above it. | Keep source content and shadow parameters independently revisioned. Blur source alpha on the GPU, apply physical-pixel offset/tint in a bounded compute composition pass, preserve premultiplied source-over, and cache the completed effect output rather than rebuilding the family. |
 | [Direct2D effects](https://learn.microsoft.com/en-us/windows/win32/direct2d/effects-overview), [Win2D custom effect graphs](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/custom-effects), [Win2D effect precision](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/effect-precision-and-clamping), and [Skia `SkImageFilters::Compose`](https://api.skia.org/classSkImageFilters.html) | Effects consume image outputs, can be chained as retained graphs, may require intermediate GPU textures, and define composition as `outer(inner(source))`. Intermediate precision and clamping are observable quality decisions. | Add an original bounded linear chain evaluated in caller order, keep `RGBA8Unorm` intermediates explicit for parity with the existing effect lanes, reuse three textures without sampled/storage aliasing, and preserve one completed-output revision. Reuse that chain inside semantic layers; general branching, shader linking, and precision selection remain later work. |
@@ -150,9 +169,10 @@ submission percentiles in its matched managed/native qualification.
 | [Vello](https://github.com/linebender/vello) | Compact scene encoding, including brushes, is separated from GPU compute path processing/rasterization through a WebGPU-capable backend. | Reuse ProGPU's compute path/glyph/material WGSL and move parallel path and material work to the native WebGPU lane. Keep deterministic synchronous geometry queries on CPU. Do not adopt Vello's scene encoding, shader layout, or dynamic-allocation strategy. |
 | [Vello scene layers](https://docs.rs/vello/latest/vello/struct.Scene.html) | Scene encoding exposes paired layer push/pop operations carrying blend and alpha, clip paths, and mask composition while rendering remains GPU-oriented; it does not define ProGPU's backdrop ownership contract. | Use explicit semantic push/pop commands with depth-indexed pooled targets. Extend that model independently with typed bounded parent capture; do not infer backdrop behavior from ordinary isolated-layer alpha/blend state. General branching effect graphs remain future work. |
 | [Skia `SkDashPathEffect`](https://api.skia.org/classSkDashPathEffect.html) | A dash is an even alternating on/off interval sequence with a phase normalized modulo the total pattern length; the effect applies to stroked paths. | Keep dashing as a centerline transformation before stroke expansion. Normalize once per borrowed style, carry state across connected segments, and avoid a per-dash scene object or FFI record. |
-| [Direct2D stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle), [dash styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_dash_style), and [stroke transform types](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_stroke_transform_type) | Custom dash values and offsets are pen-width-relative. Fixed and hairline modes transform the geometry but keep width-derived pen properties, including caps and dashes, out of the world transform. | Normal strokes measure/dash the source centerline and transform the completed outline. Fixed/hairline strokes first transform the centerline, then measure dashes, joins, and caps in device space. |
+| [Direct2D stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle), [dash styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_dash_style), and [stroke transform types](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_stroke_transform_type) | Custom dash values and offsets are pen-width-relative. Fixed and hairline modes transform the geometry but keep width-derived pen properties, including caps and dashes, out of the world transform. | Normal strokes measure/dash the source centerline and transform the completed outline. Fixed/hairline strokes first transform the centerline, then measure dashes, joins, and caps in device space. Portable `DrawLine`, `DrawRectangle`, `DrawRoundedRectangle`, and `DrawEllipse` calls with a non-null base `ID2D1StrokeStyle` lower through the same exact geometry compiler instead of rejecting the style or approximating it with analytic solid strokes. Unequal-radius rounded rectangles use that cubic geometry lane for both fill and stroke while equal-radius unstyled shapes retain the analytic fast path. Connected curve-dash fragments are snapped only at already epsilon-qualified joins so closed cubic seams remain bit-connected for cap/join compilation. |
 | [SVG stroke dashing](https://www.w3.org/TR/svg-strokes/#StrokeDashing) | Odd lists repeat to even length, negative entries are invalid, phase is reduced modulo the pattern sum, and each subpath restarts the pattern. | Match the existing ProGPU/WinUI observable odd-list, invalid-input, and offset contract. A native polyline is one subpath, so its state starts once and is continuous through every segment. |
-| [Kurbo stroke contract](https://github.com/linebender/kurbo/blob/ca273499e3e48bd2de6f02aa8e99a148984e45f3/kurbo/src/stroke.rs) and [Lyon path walking](https://docs.rs/lyon_algorithms/latest/lyon_algorithms/walk/index.html) | Dashing is separable from undashed stroke expansion; correct closed-contour output must join a dash that crosses the close seam. Distance walking needs explicit curve-flattening tolerance. | Use an original allocation-bounded two-pass dash walker feeding the existing connected-stroke compiler. Merge the first/final visible runs at a closed seam and retain adaptive curve/spline sampling rather than inventing a second fixed flattening policy. |
+| [Kurbo stroke contract](https://github.com/linebender/kurbo/blob/ca273499e3e48bd2de6f02aa8e99a148984e45f3/kurbo/src/stroke.rs) and [Lyon path walking](https://docs.rs/lyon_algorithms/latest/lyon_algorithms/walk/index.html) | Dashing is separable from undashed stroke expansion; correct closed-contour output must join a dash that crosses the close seam. Distance walking needs an explicit bounded curve-length policy. | Use an original allocation-bounded dash walker feeding the existing connected-stroke compiler. Store run metadata, exact segments, and join flags in three render-stream-reused flat buffers rather than per-run containers, and merge the first/final visible runs at a closed seam. For MIL parity, port ProGPU's owned managed 32-chord Bézier and bounded 64-entry analytic-arc length tables, then retain exact De Casteljau/analytic sub-curves rather than flattening final output. |
+| WPF `CMilGeometryGroupDuce::GetShapeDataCore` and `CDrawingContext::DrawGeometry` in the tracked source tree | A geometry group recursively appends every child figure into one `CShape`; drawing fills first, computes one aggregate stroke bound when the pen brush needs it, then strokes the same multi-figure shape. | Preserve the original child figure/contour boundaries, including open line and positive-area fixed-shape figures, recurse through nested groups with an explicit depth bound, reset dash state per figure, resolve one root group pen brush, compose leaf/inner/root/drawing transforms in WPF order, and submit fill before stroke. Reuse direct fixed-shape stroke helpers rather than forking shape semantics; fail closed for child kinds whose exact stroke contours are not yet represented. |
 | [Parley](https://github.com/linebender/parley) | Text layout output is reusable independently of a particular renderer. | Define a positioned-glyph/run transfer ABI first; later C++ shaping must be differentially equivalent before it replaces managed shaping. |
 | [HarfBuzz shaping plans](https://harfbuzz.github.io/shaping-and-shape-plans.html) and [glyph rendering boundary](https://harfbuzz.github.io/glyphs-and-rendering.html) | Cached plans produce glyph IDs, advances, offsets, and cluster data; outline/rasterization is downstream. | Retain glyph indices and positioned results across the ABI. Never remap characters in the native compositor hot path. |
 
@@ -202,6 +222,19 @@ Important parity surfaces include:
   extension pipelines;
 - compiled-scene reuse, incremental pages/uploads, GPU hit testing, external
   texture/media interop, presentation, device loss, and diagnostics.
+
+The native MIL wire authority is generated rather than independently mirrored.
+`eng/progpu-generate-mil-protocol.py` reads WPF's checked-in MCG command enum,
+116 packed native command structures, and 25 render-data structures, records
+their SHA-256 provenance in `eng/mil/wpf-mil-protocol.json`, and emits the
+public C++ command/layout header. The 108 explicit `Pack=1` managed layouts are
+an independent overlap oracle: shared sizes and field offsets/widths must
+match. The manifest covers all 141 retail commands plus invalid/debug
+sentinels, and every retail command maps to exactly one DWORD-framed layout.
+Standalone builds reject stale artifacts; the LibreWPF package gate checks all
+four generated WPF inputs against the live source tree. Active top-level and
+nested render-data packet readers consume those constants while retaining
+bounded-copy parsing and transactional rejection behavior.
 
 The native migration must preserve the managed invalidation and resource
 generation contract. A native cache hit may skip compilation/uploads but never
@@ -906,7 +939,7 @@ quad. Stable replay performs neither path compute nor vertex/index/brush/path
 upload; a DPI or content-revision change rebuilds the bounded payload.
 
 For `P` path instances, `U <= P` unique coverage keys, `S` transferred
-segments, atlas area `A`, and sample grid `G` in `{4,8}`, validation is
+segments, atlas area `A`, and sample grid `G` in `{1,4,8}`, validation is
 `O(P + S)`, retained-key construction is average `O(P)`, raster work is
 `O(A * G^2 * S_u)` over each unique key's segment count `S_u`, and compositing
 is `O(P)`. The single-page R8 atlas starts at 1024 square, grows geometrically
@@ -1171,7 +1204,7 @@ nonzero/even-odd fill rule, a 4x4 or 8x8 coverage grid, and intersection or
 difference. The containing mask revision is the retained identity. The safe
 .NET owner copies the arenas once into pinned-object-heap arrays, validates all
 ranges, canonical program ownership, finite state, the 63-instruction limit,
-and the 16-mask stack bound, then publishes stable typed pointers only for
+and the 16-value stack bound, then publishes stable typed pointers only for
 the duration of the native render call. C++ never retains caller memory.
 
 Changed chains reuse the production `PathRasterizer.wgsl` compute kernel. Each
@@ -1196,7 +1229,29 @@ combined path is a direct port of the managed `PathAtlas` postfix contract:
 leaf contours reference the shared segment arena and empty/difference/
 intersection/union/xor/reverse-difference instructions execute inside the
 canonical `PathRasterizer.wgsl` pass. No CPU boolean flattening or shader fork
-is introduced. Non-finite/non-invertible transforms, malformed or unowned
+is introduced. Exact Nonzero GeometryGroup programs append raw signed-winding
+leaf, winding-add, and winding-negate instructions without changing the
+existing enum values or 48-byte node layout. Boolean results are normalized to
+`+1`; only a negative-determinant containing group negates that contribution,
+matching the native WPF contour oracle. Signed programs use the same analytic
+segment walker. The fastest/default policy evaluates the bounded vector
+postfix program inline in `PathRasterizer.wgsl`, avoiding intermediate leaf
+storage. A typed forced compatibility policy selects a staged GPU pipeline: a
+vectorized leaf pass records raw winding for all supersamples, a bounded postfix
+pass evaluates eight horizontal samples in two `vec4<i32>` lanes per
+supersample row, and a coverage pass counts the resulting masks and packs R8
+texels. The stages are separate build-time WGSL modules sharing
+`PathRasterizerCommon.wgsl`; neither path adds runtime shader concatenation,
+CPU readback, or CPU repacking. Signed staging retains 64 words per leaf texel
+plus a two-word predicate mask. Atlas rows use
+256-byte pitch, while each path, retained-clip, and glyph buffer-copy source is
+independently aligned to 512 bytes for D3D12 placed-footprint compatibility.
+When translated-equivalent mask-only leaves overlap, the renderer keeps
+all 64 leaf supersamples in two packed words per pixel and evaluates the same
+postfix program in a phased GPU combine pass before one final R8 average. Safe
+non-overlapping mixed programs retain the ordinary single dispatch. Pure
+left-fold XOR and detected overlapping mixed programs batch all work by leaf
+ordinal; they do not read back, repack, or submit per path. Non-finite/non-invertible transforms, malformed or unowned
 program ranges, a program above 63 instructions or 16 stack entries, and a
 clip depth above 64 fail with a typed compile or validation result. The native atlas
 stores pixel-space UV bounds during packing and normalizes all vertices only
@@ -1512,6 +1567,82 @@ continue to run the complete native renderer and report the deferral in their
 JSON/text contracts. Hardware WebGPU, Metal, and Vulkan/llvmpipe gates execute
 the exact query. No smaller semantic shader or CPU fallback is accepted.
 
+The Windows managed retained-renderer qualification similarly keeps the full
+640x360 scene on hardware and Parallels. Microsoft Basic Render Driver compiles
+that complete picture and passes all 16 source commands through the native C++
+validator with exact parser/resource/draw/stack counters. It separately
+GPU-executes a four-source-command analytic managed scene at 320x180 and 0.5
+DPI: nested/direct solid rectangles plus one linear gradient coalesce to one
+retained batch. Submission, second-frame zero uploads, readback, and scaled
+pixel probes remain required. The full managed path/glyph coverage scene loses
+that software device after roughly 80 seconds even at half resolution, so it
+remains a hardware/Parallels GPU gate. The independent full C++ renderer stays
+mandatory on Basic Render Driver; no CPU rendering fallback is introduced.
+
+The separate mixed-picture differential follows the same adapter boundary.
+Microsoft Basic Render Driver compiles and transactionally updates the full
+384-item native scene, verifies exact source/native command and draw counts,
+and requires the identical second update to reuse the retained snapshot. It
+then executes a live one-item managed/native differential after one
+cache-establishing warm frame. The hosted software adapter has independently
+removed its device in both the dense managed path and the full native-only
+profile during teardown; treating a printed timing line from a lost device as
+GPU qualification would be incorrect. Parallels retains the full 384-item,
+four-warmup/eight-iteration C++ stress plus bounded live differential, and
+hardware Windows keeps the full managed/native 384-item differential. The
+Basic lane still initializes the real D3D12 native compositor for full stream
+update and submits both renderers for bounded pixel comparison; it introduces
+no CPU renderer or reduced command stream.
+
+The full portable Win2D Canvas frame remains a D3D12/Metal/Vulkan pixel gate.
+On Microsoft Basic Render Driver only, CI partitions its independent feature
+groups with `CanvasDrawingSession.Flush()` so no single CPU-D3D12 command
+batch contains the complete path/text/layer workload. Every original command
+and pixel probe remains, automatic GPU-first execution is unchanged, and no
+intermediate readback or CPU composition is introduced. This exposed and
+fixed an incremental-target defect: `NativeCompositor` now has a typed
+full-target-preserve entry, Canvas no longer models preservation as a full
+damage rectangle, and isolated-layer root replay selects `WGPULoadOp_Load`
+when preservation is requested. A partitioned Metal run retains the exact
+qualified `D72F667FCB6AC14B2C28A1C45001734C3B62B85B1816069521C9019985D1B39B`
+frame hash and reports all work as 17+2 native draws after batch boundaries.
+
+Microsoft Basic Render Driver also defers only the two forced signed-winding
+compute execution profiles after its inline four-rectangle rerasterization
+deterministically spent roughly 100 seconds and lost the device during final
+readback. Exact native validation and compiler contracts remain in that x64
+job. Forced inline/staged live execution stays mandatory on Parallels or
+hardware Windows, Metal, and Vulkan; production automatic selection and CPU
+fallback policy are unchanged.
+
+The same hosted software adapter has one nondeterministic managed-reference
+failure in the otherwise complete 96-item path/vector-clip differential. A
+failed run retained the previously qualified native image hash
+`8430B1A822156BAC` while the managed-reference hash and 126,912 pixels changed;
+the immediately preceding exact-head run passed with that native hash and only
+1,050 pixels over tolerance. The Basic Render Driver lane therefore retries
+that exact benchmark once in a fresh process. Rectangle count, warmup and
+iteration counts, native and managed execution, image dimensions, and every
+pixel threshold remain unchanged. Hardware Windows and Parallels execute it
+once, and a second Basic-adapter failure remains a hard CI failure.
+
+The 40x28 per-point multi-guideline qualification also performs one discarded
+baseline submission/readback before measuring its three semantic images. A
+hosted Basic Render Driver run returned an empty first baseline while its
+immediately following guided image and independently authored deformed
+reference were identical. The warm submission uses the exact baseline GPU
+scene at generation 1; the measured baseline advances to generation 2 so
+retained no-damage reuse cannot elide its redraw, followed by guided/reference
+generations 3/4 and the rejection probe at generation 5. All measured
+visibility, color sums, changed-pixel counts, native frame metrics, and
+byte-exact guided/reference comparison remain mandatory. This is pipeline
+qualification, not a retry, CPU result, or tolerance change.
+
+The 10,000-iteration mixed semantic-stream allocation contract snapshots the
+thread allocation counter immediately after the builder loop, before invoking
+xUnit assertions. This keeps the required builder delta at exactly zero while
+excluding one-time assertion/JIT allocation from the measured product window.
+
 Primary contract references used for this design are
 [Skia `SkPath::contains`](https://api.skia.org/classSkPath.html),
 [Direct2D `ID2D1Geometry::FillContainsPoint`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-fillcontainspoint),
@@ -1790,6 +1921,8 @@ already covered prefix, preserving repeated transformed instances without
 duplicating immutable segments; the union must remain gap-free and consume the
 complete arena. Combined fills additionally reference a contiguous
 resource-local arena of canonical 48-byte postfix nodes.
+Those nodes may retain raw signed winding for exact Nonzero group aggregation;
+the same representation is consumed by direct fills and vector clips.
 Nonzero/even-odd fill rules, 4x4/8x8
 coverage selection, affine transforms, and the shared solid/gradient brush
 table remain explicit. Every segment and transformed bound is finite-checked;
@@ -2179,14 +2312,671 @@ An absent bounds flag requires four canonical zero values and means the full
 target. The existing empty-payload push prefix remains a canonical full-target,
 unit-opacity, source-over layer so version-one streams stay append-compatible.
 `BACKDROP` requests parent pixels as layer input; `FORCE_ISOLATION` prevents a
-later compiler from folding an otherwise trivial scope. `NO_INDEX` disables a
-mask or effect. Otherwise the index must reference a preceding exact typed
-resource: a 104-byte analytic rounded-rectangle mask, an 80-byte R8 coverage
-mask whose exact row-strided pixels occupy its auxiliary span, or a 16-byte
-effect-chain header whose auxiliary span contains one to eight exact 56-byte
-effect records.
+later compiler from folding an otherwise trivial scope. `CACHE_CONTENT`
+materializes into a persistent owner-keyed page: `composite_revision` is the
+nonzero stable owner identity and `content_revision` is the nonzero pixel
+version. A matching owner/version/texture generation skips the enclosed draw
+subtree and composites the retained page. The cache key deliberately excludes
+the whole-scene hash, so an unrelated sibling or outer-composite update cannot
+invalidate content. A changed content version or texture extent/generation
+fails closed to a redraw. Cached layers cannot request backdrop input, and one
+owner identity may occur only once in a scene. `NO_INDEX` disables a mask or
+effect. Otherwise the index must reference a preceding exact typed resource: a
+104-byte analytic rounded-rectangle mask, an 80-byte R8 coverage mask whose
+exact row-strided pixels occupy its auxiliary span, or a 16-byte effect-chain
+header whose auxiliary span contains one to eight exact 56-byte effect records.
 The resource generation and chain/effect revisions are caller-owned immutable
 identities; no record retains a pointer to caller storage.
+
+Temporary materialized layers retain their 16 depth-indexed slots. Cached
+layers use a separate bounded pool of 16 stable owner slots, while both pools
+and their effect intermediates remain inside the aggregate 256 MiB layer
+budget. Missing owners are evicted after preflight, owner replacement
+invalidates the completed-output key, texture reallocation increments the slot
+generation, and normal engine/device teardown releases every page.
+Source-built WPF descendant bounds arrive through the typed
+`progpu_native_mil_channel_set_visual_cache_bounds` sideband. Its cache-specific
+symbol name is retained for ABI compatibility, but the metadata is the general
+Visual descendant extent used by both persistent cache pages and bounded
+temporary effect layers. LibreWPF fails closed when a cache/effect Visual lacks
+that typed extent; direct native consumers that omit it retain the conservative
+full-target effect layer, while a BitmapCache still fails closed.
+
+`PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE` is the additive local-raster
+contract. It preserves the 64-byte layer ABI: bounds are a positive zero-origin
+raster-page extent, and `reserved0` references a preceding transform/clip/
+guideline State resource that maps page logical coordinates into the parent
+target. The local
+flag requires `CACHE_CONTENT`, `BOUNDS`, source-over, and no layer-local effect;
+an optional typed layer mask is evaluated only while compositing the retained
+page. The target cursor does not intersect the page allocation with parent
+placement; the executor instead transforms the four composite vertices and
+localizes them to the parent materialized target. This representation is
+backend-neutral and is shared by wgpu-native, provider-resolved Dawn, and
+DirectX. `PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST` is an additive local-cache-
+only sampler selector over the same page view. Each slot owns both linear and
+nearest bind groups; selecting either does not invalidate retained pixels.
+`PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT` is the mutually exclusive high-quality
+selector. It uses the same linear binding but asks the shared texture shader to
+apply a bounded Fant-style area prefilter only when either source-axis
+footprint exceeds sqrt(2). The shader integrates one destination-pixel
+parallelogram with a fixed stratified 4x4 footprint, including rotation and
+shear, then uses linear reconstruction. This matches WPF's Fant activation and
+anti-aliasing semantics with bounded backend work; it is not asserted to be
+byte-identical to WIC's `WICBitmapInterpolationModeFant`. The separate
+`PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC` contract remains Mitchell-Netravali, while
+`PROGPU_NATIVE_IMAGE_SAMPLING_FANT` selects this Fant path for typed immediate
+and retained images.
+
+The canonical MIL channel now consumes WPF's packed cache protocol on top of
+that primitive: `VisualSetCacheMode` is an exact 12-byte command payload,
+`BitmapCache` is an exact 28-byte resource update for type 94, and the optional
+RenderAtScale animation must be a live type-49 DoubleResource. Both Visual-to-
+cache and cache-to-animation edges participate in transactional deletion
+protection. The executable subset resolves scale at compile time, suppresses
+an exact non-positive result, and emits a persistent local cached layer for any
+positive finite RenderAtScale with composite-only pixel snapping and typed
+ClearType raster policy. Page bounds are local bounds multiplied by scale;
+raster state maps Visual-local coordinates into that page, while the inverse
+scale/local-origin plus outer Visual affine maps the page back into its parent.
+
+MIL cache content identity is independent of scene generation and unrelated
+sibling updates. It hashes the typed cached Visual/resource dependency graph,
+including nested render-data references and their brush, pen, transform,
+geometry, drawing, image, glyph, effect, guideline, cache, and animation
+generations. Cache-root bounds and raster-affecting state remain in that hash,
+while root offset, transform, and opacity are composite-only state. Outer-only
+changes therefore rebuild transformed composite vertices without invalidating
+the completed page. SnapsToDevicePixels follows `CMilVisualCache::Render`: it
+transforms the exact local bounds through outer placement, floors the
+world-space left/top, and post-offsets only the page composite. WPF
+`DrawCacheVisualTree` renders the root content/children directly rather than
+running the root through `PreSubgraph`, so cache-root render options, clip,
+guidelines, transform, opacity, and offset are composite-only; descendant
+Visual state remains part of retained raster content. The local-cache State
+resource now carries exact rectangle composite clips and one static guideline
+per axis. The shared executor resolves guideline translation and a target-local
+scissor when drawing the page, including empty-clip suppression, without
+rerasterizing it. Cache-root NearestNeighbor bitmap scaling selects the
+retained page's nearest bind group and is composite-only; validation rejects
+that flag without local-cache state. A cache-root linear or radial gradient
+opacity mask now resolves against the exact Visual-local bounds and reuses the
+typed GPU brush-mask resource at composite time. Its outer transform and
+SnapsToDevicePixels correction match the retained quad; mask-only updates keep
+the content revision and skip the content pass. Solid masks remain uniform
+opacity. Cache-root gradient-mask plus static-guideline composition is handled
+by the shared post-cache coordinate frame described below. Arbitrary inherited
+semantic masks remain fail-closed. Cache-root linear, nearest, and Fant
+selection is composite-only and does not invalidate the retained page.
+BitmapCache EnableClearType is a raster-scope policy: false
+converts requested descendant subpixel glyph styles to grayscale; true
+preserves descendant inherited/explicit text rendering mode without forcing
+unrequested ClearType. A cache-root text mode does not leak into the retained
+page because WPF applies that root state to the bitmap composite.
+
+Nested local caches retain one owner-keyed slot per Visual. WPF cache updates
+skip only the cache root's own state; descendant Visuals still execute their
+normal cache and effect scopes. The canonical nesting is therefore parent
+local-cache layer, descendant effect layer, descendant local-cache layer. A
+uniform descendant opacity is legal with this shape because it is applied once
+on the isolated descendant cache composite before the effect. The parent
+content identity includes the descendant placement/effect generation, while
+the descendant page content identity excludes its own cache-root outer state.
+This permits a parent miss plus child hit after a child move or effect update.
+One cache-root linear/radial spatial mask may also remain on the inner local
+cache composite before the descendant effect. Per-Visual uncached and nested
+opacity/mask ownership is represented by bounded semantic isolation layers.
+Arbitrary semantic inherited masks and non-rectangle clip/effect combinations
+remain fail closed until their distinct isolation and inflated output regions
+are represented explicitly.
+
+`PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE` is the append-only final-output
+clip contract. It reuses `reserved0` without changing the 64-byte layer ABI and
+is valid only on a materialized non-local layer. The referenced preceding State
+must have an identity transform, unit opacity, no mask or guideline, and no
+flags except `CLIP_RECT`. The executor resolves that rectangle into a
+target-local scissor only while popping the materialized layer, after its effect
+chain has consumed the complete isolated source. Local caches keep their
+existing transform/clip/guideline composite State and cannot also set the new
+flag. Native builder, serialized-stream, managed builder, and semantic identity
+validation all enforce the same typed contract; transformed, non-materialized,
+wrong-resource, or noncanonical states fail before GPU submission.
+
+MIL lowering uses the combined current rectangle clip as the effect layer's
+explicit composite State. It deliberately omits that clip from the ordinary
+saved draw State, and when a local cache is the effect input it also omits the
+clip from the inner cache composite. The resulting order is final rectangle
+clip, outer effect layer, then inner cache opacity/mask, exactly preserving
+WPF's unclipped blur/drop-shadow sampling. Uncached uniform opacity uses the
+separate bounded isolation layer described below; arbitrary geometry clips
+remain fail closed.
+
+The matched Metal and D3D12 nested-cache qualification renders a parent cache,
+Gaussian layer, and half-opacity child cache over three frames. Initial,
+stable, and child-moved content/effect-input pass counts are `3 -> 0 -> 2`;
+effect passes are `2 -> 0 -> 2`. Stable pixels are byte-identical. Moving only
+the child shifts the nonzero extent five pixels, changes 572 pixels, and keeps
+the red sum fixed, proving page reuse, ordering, and parent invalidation on the
+shared backend-neutral executor.
+
+The matched cached spatial-mask/effect gate likewise produces identical Metal
+and D3D12 evidence. A stable or mask-only frame reuses the retained source page
+but deliberately reruns mask composition and both Gaussian passes. Halving
+only mask opacity changes 164 pixels and red sum `756 -> 372`; it does not
+change the cached content identity.
+
+The live final-output clip gate uses an outer Gaussian layer with an explicit
+composite State around one local retained page. On Apple M3 Pro Metal, a stable
+frame and a clip-only update both reuse the retained source and the completed
+effect cache: content/effect-input passes are `2 -> 1 -> 1`, Gaussian passes
+are `2 -> 2 -> 2` with effect-cache hits on both later frames, and the stable
+pixels are byte-identical. Narrowing the output clip changes 428 pixels and
+crops the red extent from `[6,4]-[33,27]` to `[14,8]-[25,21]`. Every pixel
+inside the new rectangle is byte-identical to the already blurred wide output,
+while every pixel outside is black, proving the clip executes after effect
+sampling rather than truncating its input.
+
+The same gate passed with identical pass counts and pixels on the Parallels
+Display Adapter D3D12 backend from clean detached commit `234687b7`. The strict
+Windows ARM64 MSVC `/W4 /WX` lane passed all 11 native/Dawn CTests, both export
+allowlists, two zero-warning managed Release builds, independent C++ and
+managed D3D12 allocation/readback, the complete bounded
+semantic/image/mask/effect/vector/text/blend smoke matrix, and nine-file package
+staging. Qualified win-arm64 SHA-256 values are
+`86062D03035829A8E6B7DA8CC52EC63FB9E4F3BEA15A91C4C8530B5AFC89D952`
+for `progpu_native.dll` and
+`CF01D087373FD1580EBE1A5B72BC2314CDCE2AEFA4FE02DBF782C88F3DB11C91`
+for `progpu_native_dawn.dll`.
+
+The bounded-effect checkpoint consumes that same Visual extent before emitting
+the semantic layer. The compiler transforms the source rectangle through the
+effective affine state. Blur expands all sides by WPF's physical kernel radius
+`min(100, floor(floor(Radius) * minimumOrthogonalScale))`. DropShadow unions
+the original source with its transformed offset copy expanded by the kernel
+radius. A zero-radius effect that exists only for final rectangle clipping uses
+the exact transformed source. Output clipping stays on the independent
+composite State and is not folded into these input bounds.
+
+The shared executor therefore receives an ordinary bounded semantic layer; no
+backend-specific DirectX branch or managed rendering fallback is introduced.
+The Metal qualification reduces one Gaussian layer from `96x64` to `28x24`,
+layer bytes `24576 -> 2688`, and effect bytes `73728 -> 8064`, while exact
+readback remains unchanged at extent `[24,14]-[51,37]`, red sum 48,960. Native
+MIL tests separately assert the compatibility unbounded case and exact blur,
+drop-shadow, and zero-radius descriptors.
+
+The same `--semantic-bounded-effect` gate passed with identical metrics and
+pixels on the Parallels Display Adapter D3D12 backend from clean detached
+commit `ef811a7c`. Strict ARM64 MSVC `/W4 /WX` passed all 11 native/Dawn CTests,
+both export allowlists, two zero-warning managed builds, both independent D3D12
+samples, the complete bounded smoke matrix, and package staging. The qualified
+win-arm64 DLL hashes are
+`09B17325EFC71E90131AAA4538F883C4D3C9EAFFA3A54539BCE50E18FB07F47B`
+and `CE4A5E6E81F11DB499E8B160A550A14701F4D050EC80AC484C5CEEA57BA92F0A`
+for the base and Dawn exports respectively.
+
+Uncached uniform opacity before an effect is represented by a second bounded
+materialized layer, not by attenuating each draw. When the effect Visual has no
+inherited opacity, the compiler emits outer effect then inner
+`FORCE_ISOLATION` with the combined local uniform alpha, resets saved/content
+opacity to one, and pops the inner layer before effect execution. Exact typed
+source bounds size the inner layer; WPF-inflated bounds size the outer layer;
+the independent final rectangle clip remains outermost. A zero-radius blur
+keeps the opacity isolation even when it contributes no effect node.
+
+Inherited non-unit opacity and spatial opacity masks remain unsupported because
+moving those owner boundaries across a descendant effect would change WPF
+composition. MIL regressions cover exact nesting/bounds, final clip, the
+zero-radius edge, and inherited-opacity rejection. The live Metal gate proves
+the grouped output is byte-identical to a half-opacity union reference while a
+per-primitive-alpha fallback changes 420 pixels and raises an overlap sample
+from 128 to 188. It executes `2/2/2` content/composite/effect passes at extent
+`[5,5]-[46,30]`, red sum 65,536. The same stream passed with identical metrics
+and pixels on the Parallels Display Adapter D3D12 backend from clean detached
+commit `a47d80b5`. The complete strict Windows ARM64 MSVC `/W4 /WX` lane passed
+all 11 native/Dawn CTests, exports, two zero-warning managed Release builds,
+independent C++ and managed D3D12 samples, the bounded smoke matrix, and package
+staging. Qualified base/Dawn SHA-256 values are
+`07E97B185A066124719A2593CBE2AD7762B9FF00FEB406255B428FC7CF2BA85D` and
+`35744D6CAF0F8C7789D7DE0E7EFA0985529A27217C7F65613BD0889487D879B2`.
+
+Source-built WPF may publish the final effect clip through the existing typed
+Visual geometry and scroll-rectangle commands. The supported geometry subset
+is a non-rounded rectangle with an axis-preserving effective matrix; the
+scroll rectangle likewise requires an axis-preserving parent matrix because
+WPF defines it as a world-space pixel-aligned rectangle and disables the
+accelerated scroll path under rotation. The native compiler intersects both
+rectangles and attaches the result to the outer effect composite State.
+Ellipse/path clips, either nonzero rectangle radius, rotation, and shear return
+`unsupported_command` rather than broadening to an axis-aligned bound. The
+LibreWPF producer preflights the local typed primitive shape, while this native
+check remains authoritative for complete ancestor transforms.
+
+Exact implementation commit `3403e841` passes all 10 local native tests and
+the Apple M3 Pro Metal gate. A clean detached Windows qualification passes
+strict ARM64 MSVC `/W4 /WX`, all 11 native/Dawn CTests, both exports, two
+zero-warning managed builds, independent D3D12 samples, the full bounded smoke
+matrix, and package staging. Metal and D3D12 produce identical final-clip
+evidence: content passes `2 -> 1 -> 1`, effect passes `2 -> 2 -> 2`, 428 changed
+pixels, extent `[6,4]-[33,27] -> [14,8]-[25,21]`, and red sum
+`48,960 -> 32,960`. Qualified base/Dawn SHA-256 values are
+`991F9301B71660FEF89DDA9A4D1E6400D01C92EFAD10B521D3C58BB12482D0F9` and
+`616B0650CF74D5D84FB45D908DB6285A82760B59E6A8D56313D827B6885038C7`.
+
+An uncached effect Visual may also own one typed linear/radial opacity mask.
+MIL resolves it to the existing semantic brush-mask resource and combines it
+with local uniform opacity on the bounded inner `FORCE_ISOLATION` layer. The
+outer effect therefore samples the already masked source, matching WPF's
+`Clip > Effect > OpacityMask > Opacity` stack. Cached inputs retain their
+local-page mask layer, while solid masks use uniform alpha. Inherited masks and
+inherited non-unit opacity remain unsupported ownership boundaries.
+
+The expanded Metal gate reports `2/2/2` content/composite/effect passes,
+gradient samples `36/217`, extent `[7,5]-[47,30]`, and red sum 65,264. Reversing
+mask/effect order changes 666 pixels and yields `[10,10]-[41,25]`, red sum
+56,038, proving that the mask is sampled before blur rather than applied to the
+finished effect output.
+
+Clean detached `3c22b004` produces identical evidence on the Parallels Display
+Adapter D3D12 backend. The strict Windows ARM64 MSVC `/W4 /WX` lane passes all
+11 native/Dawn CTests, both export allowlists, two zero-warning managed Release
+builds, independent C++ and managed D3D12 allocation/readback, the complete
+bounded differential smoke matrix, and nine-file package staging. Qualified
+base/Dawn SHA-256 values are
+`F7B72CAF58C8B4675A3B26FBBC4B62D314F26737CFFC9DC625F1E2BF640A681C` and
+`6921A4037372B7A327370DA2035750FD48E791164BD2B5E0407E05F3A01C4A14`.
+
+Non-unit opacity is owned by its Visual. WPF pushes that node's group boundary
+before visiting children, so it is outside any descendant effect; an effect-
+owning node separately orders its own stack as clip, effect, opacity mask, and
+opacity. Native MIL preserves that distinction for uncached Visuals with exact
+typed descendant bounds by emitting a bounded opacity-only `FORCE_ISOLATION`
+layer and resetting the isolated local alpha before compiling descendants.
+Cache roots and Visuals that own effects continue to use their cache-composite
+and inner source-isolation paths. Missing bounds plus a descendant effect fail
+closed rather than distributing ancestor alpha across descendant primitives.
+
+The Metal ownership gate executes `2/2/2` passes and keeps correct
+exclusive/overlap samples at `128/128`, extent `[4,4]-[41,31]`, red sum 67,186.
+The deliberately flattened comparison reaches `128/189`, changes 392 pixels,
+and produces `[5,5]-[41,30]`, red sum 74,382.
+
+Clean detached `a3affb9d` produces the same evidence on the Parallels Display
+Adapter D3D12 backend. Strict Windows ARM64 MSVC `/W4 /WX` passes all 11
+native/Dawn CTests, both export allowlists, two zero-warning managed Release
+builds, independent C++ and managed allocation/readback samples, the complete
+bounded differential smoke matrix, and nine-file staging. Qualified base/Dawn
+SHA-256 values are
+`32B4876D3930276798732AF91C5D0C866A4A189FED22BEAF7C93016E6006B8C1` and
+`636748FE9C8E29EA5687625E5EF0B77E77017F62FFD463139B36E75162A13DC6`.
+
+The next ownership slice applies the same Visual boundary to a typed
+linear/radial opacity mask. An uncached non-effect Visual with exact descendant
+bounds emits one bounded outer `FORCE_ISOLATION` layer containing both its
+local uniform alpha and brush-mask resource. Content and child State alpha are
+reset past that boundary; descendant effects and child-local opacity/masks are
+therefore nested inside the ancestor mask, matching WPF's per-node
+`PreSubgraph`/`PostSubgraph` stack. The compiler never distributes the mask
+across descendant effect inputs or sibling draws.
+
+This uses the existing Visual bounds sideband and semantic brush-mask resource;
+there is no ABI or backend fork. A spatial mask without exact bounds fails
+closed. Cache roots and effect-owning Visuals retain their specialized paths,
+and a solid mask still lowers to uniform alpha. Native regressions assert
+parent mask -> child effect -> child-local opacity layer order, exact bounds,
+gradient payload, and unit descendant States.
+
+On Apple M3 Pro Metal, the correct common ancestor mask executes `2/2/2`
+content/composite/effect passes, samples red `60/200`, and yields extent
+`[6,4]-[41,31]`, red sum 66,698. A deliberately flattened per-child version
+executes `3/3/2`, changes 420 pixels, and yields `[6,5]-[41,30]`, red sum
+74,122.
+
+Clean detached implementation commit `9fb7c4aa` produces identical evidence
+on the Parallels Display Adapter D3D12 backend. Strict Windows ARM64 MSVC
+`/W4 /WX` passes all 11 native/Dawn CTests, both export allowlists, two
+zero-warning managed Release builds, independent C++ and managed D3D12
+allocation/readback samples, the complete bounded differential smoke matrix,
+and nine-file runtime/SDK staging. Qualified base/Dawn win-arm64 SHA-256 values
+are `A4A917F47FBA3BA246BCE9D61C1160384C660F8D07D0BA06A02292BDFDAC0018`
+and `743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`.
+
+Nested Visual masks retain separate owner boundaries. With a horizontal mask
+on an ancestor and a vertical mask plus effect on its child, the semantic
+stack is parent mask -> child effect -> child mask/local opacity. Each brush
+mask carries its own Visual-local bounds, mapping, gradient range, and resource
+identity. The generalized per-Visual planner composes these layers directly;
+it does not merge, replace, or distribute either mask and needs no new ABI or
+backend branch.
+
+Native tests assert the independent 48x30 and 32x24 mask resources, three-layer
+order, child-local alpha, and unit descendant State opacity. On Apple M3 Pro
+Metal the correct nested stack executes `3/3/2` content/composite/effect
+passes, samples red `28/200`, and yields `[7,4]-[41,29]`, red sum 59,308. A
+deliberately flattened parent mask executes `4/4/2`, changes 348 pixels,
+samples `29/200`, and yields `[6,5]-[41,28]`, red sum 63,032.
+
+Clean detached `66592f2c` produces identical evidence on the Parallels Display
+Adapter D3D12 backend. Strict Windows ARM64 MSVC `/W4 /WX` passes all 11
+native/Dawn CTests, both export allowlists, two zero-warning managed Release
+builds, independent C++ and managed D3D12 allocation/readback samples, the
+complete bounded differential smoke matrix, and nine-file runtime/SDK staging.
+Qualified base/Dawn win-arm64 SHA-256 values are
+`9BC233F2462CCA5CE5A9BA31A296BEF80E22D6982D5B706F9756D9F62EC6CB97`
+and `743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`.
+
+Nested masks also preserve retained-cache ownership. A cache-root mask is
+composite-only around a child effect and independently cached child mask.
+Updating only the root mask leaves both cached content revisions stable.
+Updating the child mask leaves the child raster stable but invalidates the
+root page, because that child composite is root-page content. Tests assert the
+three layer descriptors, two typed brush-mask payloads, and those revision
+relationships.
+
+The Apple M3 Pro Metal first/stable/root-mask/child-mask sequence reports
+content passes `3 -> 0 -> 0 -> 2`, effect passes `2 -> 0 -> 0 -> 2`, and pixel
+changes `0/379/161`. Extent/red sum changes from
+`[12,6]-[33,25]`/23,482 to `[12,6]-[33,25]`/11,772 and finally
+`[12,6]-[33,24]`/11,266. Existing semantic cache, effect, and mask resources
+carry the complete state without an ABI or backend-specific path.
+
+Exact DirectX qualification completed on 2026-08-26 from clean detached commit
+`f8bd57b5`. ARM64 MSVC passed all 11 native/Dawn CTests under `/W4 /WX`, both
+export allowlists, two zero-warning managed builds, independent native and
+managed D3D12 allocation/readback samples, and the complete bounded smoke lane.
+The Parallels D3D12 live gate matched Metal exactly: content passes
+`3 -> 0 -> 0 -> 2`, effect passes `2 -> 0 -> 0 -> 2`, pixel changes
+`0/379/161`, and the same three extents/red sums above. The staged win-arm64
+package contained nine files; SHA-256 was
+`3E5617D3A46F3B2F26A0F727796277A7A9C026C00188EE88BE1D21C320CF8483`
+for `progpu_native.dll` and
+`743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`
+for `progpu_native_dawn.dll`.
+
+The pinned provider/Dawn Metal hardware test validates first render, stable
+composite-only translation, and scale-driven rerasterization at 24x18 then
+12x9 page extents. Package-mode managed Dawn rendering/readback and forced
+device-loss recreation pass at provider revision
+`02823bf8d2e56548b2780d6b92ae7065be1d8605` and Dawn revision
+`710c33013c53ab2700d332c25ff51430251a8cc4`.
+The composite-state checkpoint also changes only the local-cache rectangle
+clip on a live Metal frame and observes zero content passes. A subsequent
+NearestNeighbor checkpoint changes only the sampler and again observes zero
+content passes. All 12 provider-configured native CTests, the base export
+allowlist, package-mode managed Dawn readback, and forced device-loss recovery
+pass with unchanged capture hashes.
+
+The Fant sampling checkpoint also passes all 12 local native/provider CTests,
+both native export allowlists, the focused managed scene/image contract tests,
+and a live Apple M3 Pro Metal qualification. The first linear retained render
+uses one content and one composite pass; changing only the sampling selector to
+Fant uses zero content and one composite pass. For phase-misaligned 0.3x
+minification of alternating one-pixel stripes, the interior red min/mean/max
+changes from `43/117/213` to `106/130/149`. These bounds qualify deterministic
+alias suppression and cache reuse, not byte-exact WIC color output.
+
+The exact DirectX qualification completed on 2026-08-26 from clean detached
+commit `ac38938b`. ARM64 MSVC passed all 11 native/Dawn CTests and both export
+allowlists, two zero-warning managed builds, independent C++ and managed D3D12
+allocation/readback samples, and the complete bounded differential smoke
+matrix. On the Parallels Display Adapter (WDDM), changing only linear to Fant
+kept the page (`passes=1/1 -> 0/1`) and changed stripe red min/mean/max from
+`0/63/255` to `64/135/191`. The staged DLL SHA-256 values are
+`FACAE389AC4EC1A818004D3C881B301342BC22C1C3E3E145B5660E03715FFF65` for
+`progpu_native.dll` and
+`A39DCD04927D02D7EDFB08E747AB08C7CF8FAEE620A45B52162CC1C58169C0FA` for
+`progpu_native_dawn.dll`. This qualifies the same bounded shader algorithm and
+cache-reuse invariant through wgpu-native/Dawn on Metal and D3D12.
+
+Static multi-guideline execution must preserve the WPF snapping algorithm, not
+approximate it with one averaged translation. `CSnappingFrame` maps sorted
+coordinates through scale/translate using floats and reverses the source order
+for a negative scale. Each mapped coordinate owns its own round-to-pixel
+offset. For more than one coordinate per axis, `SnapCoordinate` uses a binary
+search for the nearest guide and chooses the lower guide at an exact midpoint;
+`CShapeClipperForFEB` applies that selection independently to every figure
+start, line endpoint, and cubic control/endpoint after transforming it to
+device space. Rotation or shear disables the frame.
+
+The first additive native capability is intentionally local-cache-composite
+only and is implemented. A retained page has exactly four composite vertices,
+so the executor can
+apply the WPF nearest-guide function to each absolute target-space vertex and
+then localize it to the parent target. Validation rejects that composite-only
+resource from normal SAVE/draw states and accepts it only through the
+`CACHE_LOCAL_SPACE` layer's composite State. Zero/one-guide resources keep the
+existing general uniform-offset contract. Ordinary path deformation uses the
+separate append-only capability described below.
+
+Commit `9eb46b92` gives a cache-root brush mask that explicit shared frame.
+The renderer passes the local-cache composite State and the same semantic state
+cursor into brush-mask preparation. The cached quad continues to snap each
+absolute corner independently. The exact mask-bounds rectangle snaps the same
+corners and derives the separable affine coverage transform before rasterizing
+the brush mask. Rotation/shear already disables WPF's guideline frame, so this
+is exact for the supported cache-root rectangle. The brush material keeps its
+original target-space coordinate mapping while coverage deforms; no ABI,
+shader contract, managed fallback, or backend-specific path is added.
+
+The C++ and managed pointer-free scene builders enforce the same flag/count,
+UInt16 count bound, finite-coordinate, and per-axis sorted-order rules. The
+managed builder serializes directly into its caller-owned arena. The native
+executor performs a bounded binary search per composite vertex and axis, with
+strict comparison preserving WPF's lower-guide midpoint tie. MIL cache-root
+compilation maps through scale/translate with float arithmetic, reverses input
+under negative scale, and keeps the composite-only State out of ordinary
+SAVE/draw state. Native, managed, and MIL regressions plus the updated live
+Metal gate prove cache reuse and shared mask deformation: baseline, guided, and
+independent affine-reference frames execute `1/1 -> 0/1 -> 0/1`
+content/composite passes; the mask changes 40 pixels, moves from
+`[21,8]-[25,15]`/red 1,881 to `[21,9]-[25,15]`/red 1,617, and the guided output
+is byte-identical to the reference. Exact DirectX qualification completed on
+2026-08-26 from clean detached commit `9eb46b92`. ARM64 MSVC passed all 11
+native/Dawn CTest cases under `/W4 /WX`, both export allowlists, two zero-warning
+managed builds, independent native and managed D3D12 allocation/readback
+samples, the complete bounded smoke suite, and nine-file staging. D3D12
+reproduced Metal exactly: `passes=1/1->0/1->0/1`, baseline
+`[21,8]-[25,15]`/red 1,881, guided `[21,9]-[25,15]`/red 1,617, affine reference
+`[21,9]-[25,15]`/red 1,617, `changed=40`, and `referenceChanged=0`. The staged
+base DLL was 2,001,920 bytes with SHA-256
+`FF3EAAB807826914615FD98EEEC5EBACB6E783EB8E3A4061178D785CD5B95780`;
+the Dawn DLL was 2,039,808 bytes with SHA-256
+`1B181A7CF2692164C809D8799539A1FDB8839688C6C01B66AF11F326E39908D1`.
+
+Commit `80560d34` introduces mutually exclusive
+`GUIDELINE_COMPOSITE_ONLY` and `GUIDELINE_PER_POINT` resource modes. The latter
+is legal for an ordinary State only when the eventual draw family can deform
+its native geometry. The first checkpoint implemented one non-boolean semantic
+path per resource with line, quadratic, and cubic segments. Commit `2f8cf3c9`
+extends that same algorithm to multiple path records when their segment ranges
+are ordered and disjoint. The executor must:
+
+1. preserve the per-point flag while resolving State rather than adding the
+   first guide's offset to the affine transform;
+2. compose path-local and complete MIL scope transforms in WPF row-vector
+   order;
+3. transform and snap each active segment point/control point in absolute
+   target space using the same bounded nearest-guide binary search and lower
+   midpoint tie as cache composites;
+4. subtract the materialized parent-target origin only after snapping;
+5. write identity transform plus recomputed conservative control-hull bounds
+   for the deformed immutable path page.
+
+The executor must reject analytic arcs, shared/overlapping/out-of-order segment
+ranges, boolean path programs, analytic/geometry primitives, point batches,
+meshes, connected strokes, glyphs, images, and 3D while those families lack
+exact deformation. Direct builder APIs reject a per-point State on non-path
+draw commands and on a cache composite. Scoped SAVE remains legal for MIL tree
+state; preflight inspects the resolved State on every descendant command and
+returns `UNSUPPORTED` before rendering an unimplemented family. Dynamic
+leading/driven pairs remain outside this static resource mode.
+
+Commit `dab5db6f` makes the current Metal qualification use four X and four Y
+guides over a line-only rectangle plus a quadratic/line/cubic/line figure
+stored in one
+resource. Guided execution and a separate already-deformed reference are
+byte-identical: red/green sums are `40,800/13,045` for both and
+`referenceChanged=0`; baseline red/green sums are `37,536/11,542` and 76
+pixels change. It additionally proves that a shared segment range fails with
+`UNSUPPORTED`. All ten native CTests, 80 managed native-interop tests after
+warmup, and the zero-warning benchmark build pass. The common macOS/Linux
+build and Windows smoke profiles include the same live gate. WPF lowers an
+`ArcSegment` to one through four cubic Beziers before its snapping task walks
+the shape, so analytic arcs remain unsupported until that exact lowering is
+implemented. Exact DirectX qualification for the original one-path checkpoint
+completed on 2026-08-26 from clean detached implementation commit
+`80560d340d6d12eb5e4f846cbcac61a53a482b24`. ARM64 MSVC rebuilt the base and
+Dawn modules under `/W4 /WX`; all 11 native/Dawn CTests, both export allowlists,
+two zero-warning managed Release builds, independent native and managed D3D12
+allocation/readback samples, managed/C++ text-shaping parity, the complete
+bounded differential smoke profile, and runtime staging passed. The Parallels
+Display Adapter D3D12 gate reproduced Metal exactly: baseline
+`[10,8]-[25,17]`/red 37,536, guided and independently deformed reference
+`[10,8]-[25,17]`/red 40,800, `changed=48`, and `referenceChanged=0`. The guest
+remained clean and the full script exited normally. The staged base DLL was
+2,004,480 bytes with SHA-256
+`D1F0CF2A09D021523B3F42D43C7E1549CB5FD1DF5FCACEB0FBA3A07CF12FC34D`;
+the Dawn DLL was 2,042,368 bytes with SHA-256
+`DB359E0C6155530B87DFC7183E4BE071455964F84B9A3D1ED9DAE20A2AB7148F`.
+
+Exact gate commit `7889fa17` then proves that the same composite remains inside
+an outer effect without losing the guideline frame. The MIL regression retains
+the static guideline packet while adding BlurEffect and asserts the resulting
+layer stack as outer effect -> local cache with brush mask plus guideline
+composite State. The live semantic scene adds a two-pass Gaussian layer around
+the cache and compares the complete blurred output with the independent affine
+reference. Apple M3 Pro Metal executes `2/2/2 -> 1/2/2 -> 1/2/2`
+content/composite/effect passes, changes 69 pixels, moves from
+`[19,6]-[27,17]`/red 1,876 to `[19,7]-[27,17]`/red 1,617, and matches the
+reference byte for byte (`referenceChanged=0`). No ABI, shader, or
+backend-specific execution path is involved. Exact DirectX qualification
+completed on 2026-08-26 from clean detached commit `7889fa17`. ARM64 MSVC
+rebuilt both base and Dawn modules under `/W4 /WX`; all 11 native/Dawn CTest
+cases, both export allowlists, two zero-warning managed builds, independent
+native and managed D3D12 allocation/readback samples, and nine-file staging
+passed. D3D12 reproduced Metal exactly: `2/2/2 -> 1/2/2 -> 1/2/2`, baseline
+`[19,6]-[27,17]`/red 1,876, guided and affine reference
+`[19,7]-[27,17]`/red 1,617, `changed=69`, and `referenceChanged=0`. A transient
+Parallels Tools command-channel disconnect occurred later in the smoke tail;
+the remaining semantic-layer-effect, text-shaping, vector-clip, image-effect,
+Overlay, and ColorDodge commands were rerun individually with the script's
+unchanged arguments against the same binaries and all passed. The guest ended
+clean at the exact commit. The staged base DLL was 2,001,920 bytes with SHA-256
+`AD812584A2F7E549755320A44CA76ED5C20DB5DAD1BD66006EB2D0C7B98F0C2D`;
+the Dawn DLL was 2,039,808 bytes with SHA-256
+`1B181A7CF2692164C809D8799539A1FDB8839688C6C01B66AF11F326E39908D1`.
+
+The exact latest-main-integrated commit `d99acbc8` then passed strict Windows
+11 ARM64 MSVC and live Parallels D3D12 qualification. All 11 native/Dawn CTests,
+both export allowlists, two zero-warning managed Release builds, independent
+C++/managed allocation and readback samples, the complete bounded differential
+smoke matrix, and nine-file package staging passed. D3D12 produced the same
+multi-guide evidence as Metal: `passes=1/1 -> 0/1`, extent
+`[10,8]-[25,15] -> [11,9]-[25,15]`, red sum `32640 -> 26775`, and 23 changed
+pixels. Packaged win-arm64 SHA-256 values are
+`F65DA33BFCE4242A869369052E4C52C3CDB67951988FFCB740E85173A74D2C75` for the
+base module and
+`E445C3DED9FC741EFECEDC4764A5AE84C120A4FECD15293058504C39ED8E400F` for the
+Dawn module.
+
+The exact-bounds implementation at `dd3857a4` is qualified on Windows 11 ARM64
+under Parallels. Both wgpu-native and provider-resolved Dawn modules rebuilt
+with strict MSVC warnings-as-errors, all 11 native/Dawn CTests and both export
+allowlists passed, and the C++ plus managed samples executed on the live
+Parallels D3D12 adapter with successful allocation and readback checks. The
+bounded D3D12 differential smoke matrix and managed/C++ text-shaping parity
+also passed. Packaged `progpu_native.dll` and `progpu_native_dawn.dll` hashes
+are respectively
+`D17701FB0669A241183AF064080A1FD1ADD29AE1B000A531CCE5E7307B2650C6` and
+`02414A74F7C6CB1A84F2846D5E5B701102E4812B5AEFCBA25688AE881592BD42`.
+This is evidence for the preceding target-coordinate subset only; the new
+local-space/RenderAtScale checkpoint requires its own strict Windows gate.
+
+That strict gate completed on 2026-08-25 from clean detached ProGPU commit
+`1a75a958` (native implementation `dee81dff`) in the Parallels Windows 11 ARM64
+guest. Both modules rebuilt with MSVC `/W4 /WX`; all 11 native/Dawn CTests,
+both export allowlists, the independent C++ and managed D3D12 samples, managed
+allocation/readback checks, managed/C++ text shaping, and the bounded D3D12
+differential smoke matrix passed. The expected Parallels-only retained GPU
+hit-test deferral remained isolated from the required renderer sample. The
+staged win-arm64 package hashes are
+`FBC4EC3D71A1BB63CA2DE3A092C7F25D63747C47C40AF7FC9D19EA4A379FE5B4` for
+`progpu_native.dll` and
+`ECC81DF8437FE0C4EC8BB18D9692E248048F04270471E04DC053BF7610E5B173` for
+`progpu_native_dawn.dll`. This qualifies the executable local-space and
+positive-finite RenderAtScale subset on DirectX; the remaining cache work is
+post-raster policy/ordering and LibreWPF package integration, not native D3D12
+execution.
+
+The combined SnapsToDevicePixels/EnableClearType checkpoint then passed the
+same strict gate on 2026-08-25 from clean detached ProGPU commit `bff32414`.
+Both modules rebuilt with MSVC `/W4 /WX`; all 11 native/Dawn CTests, both export
+allowlists, the independent C++ and managed D3D12 samples, allocation/readback
+checks, managed/C++ text shaping, and the bounded D3D12 differential smoke
+matrix passed. The expected Parallels-only retained GPU hit-test deferral
+remained isolated from the required renderer sample. The staged win-arm64
+package contains nine files, with SHA-256
+`768BE3DB0A8970334FE6B4574370CCC96E63A653C94B9ECBD769FAEAD3825891` for
+`progpu_native.dll` and
+`FC95E25FF8E5313D6151F199E236D376E28C9FF7243AD0887F8FA360B89AA73E` for
+`progpu_native_dawn.dll`. This qualifies the executable local-space,
+RenderAtScale, pixel-snapping, and ClearType cache subset on DirectX; the
+remaining cache work is inherited/ordered spatial-mask composition, general
+multi-guideline geometry deformation, nested-cache/effect ordering, and
+LibreWPF package integration.
+
+The post-raster cache-root State checkpoint passed that strict Windows gate on
+2026-08-26 from clean detached ProGPU commit `7eb17727`. MSVC rebuilt both
+modules under `/W4 /WX`; all 11 native/Dawn CTests, both export allowlists, the
+independent C++ and managed D3D12 samples, managed allocation/readback checks,
+managed/C++ text shaping, and the bounded D3D12 differential matrix passed.
+Both managed builds had zero warnings, and the expected Parallels-only retained
+GPU hit-test deferral remained isolated from the required renderer sample. The
+staged nine-file win-arm64 package hashes are
+`B2258721E6AFA621ADB5AC6E284DBF392342288A5620B22156667EE357E7D710` for
+`progpu_native.dll` and
+`73327D9C482EEE4F387789A9B2561220FD41C8659A4C781AF094CBFC8FB2C3E1` for
+`progpu_native_dawn.dll`. Exact rectangle post-raster clips, one static
+composite guideline per axis, and cache-root raster/composite state separation
+are therefore qualified on DirectX as well as Metal/Dawn.
+
+The cache-root NearestNeighbor checkpoint then passed the same strict Windows
+gate on 2026-08-26 from clean detached ProGPU commit `625a0961` after merging
+current `main`. ARM64 MSVC rebuilt the modified MIL compiler, validators,
+retained-layer resources/compositor, and both modules under `/W4 /WX`; all 11
+native/Dawn CTests and both export allowlists passed. The independent C++ and
+managed samples selected the live Parallels D3D12 adapter and completed
+retained render, allocation, and pixel-readback checks. The managed sample and
+benchmark Release builds were repeated serially with `-m:1 -nr:false` to stay
+inside the VM memory envelope, completing with zero warnings and zero errors.
+The complete bounded differential smoke matrix passed, including the
+384-command native mixed-picture stress, bounded managed pixel parity, retained
+mask/effect/vector-clip coverage, and managed/C++ text shaping. Group opacity,
+zero-copy image, Overlay, and ColorDodge were pixel-exact. The staged
+win-arm64 package DLL hashes are
+`8CFCBD3BFCC362611EC4A1DB0F17684838C2E1EA1DC30F3EA994B04C63709E2D` for
+`progpu_native.dll` and
+`9BFB20223CCC046B2280B2B3A8F25E353C916FB001118B3DC5DC47C744968D5F` for
+`progpu_native_dawn.dll`. Exact linear/NearestNeighbor retained-page sampling
+is therefore qualified on DirectX as well as Metal/Dawn without invalidating
+retained content.
+
+The cache-root spatial opacity-mask implementation at `a3d6b0fd` and dedicated
+live gate at exact commit `7497ff59` then passed on both Metal and D3D12. The
+backend-neutral scene renders one 24x18 owner-keyed local page through a linear
+GPU brush mask, changes only mask opacity from 1.0 to 0.5, and observes one
+content/one composite pass followed by zero content/one composite pass. Both
+adapters produced the same sampled green-channel evidence `0/112 -> 56`.
+The exact clean Windows ARM64 checkout also passed strict MSVC `/W4 /WX`, all
+11 native/Dawn CTests, both export allowlists, zero-warning managed builds,
+independent C++/managed live-D3D12 render/readback, the complete bounded parity
+matrix, and package staging. The staged DLL hashes are
+`8B1C5FCD58EA5794D14C9F6E75F84B5BDFF890A3B8BAA9054B195D2BC6F63622`
+for `progpu_native.dll` and
+`E6920A87784984ED82F1E172DD441B8909499DCA8CEC149B145C45B811236D89`
+for `progpu_native_dawn.dll`. Radial mask normalization is additionally covered
+by the canonical MIL regression; inherited/ordered mask combinations remain
+fail-closed.
 
 The command vocabulary is deliberately semantic:
 
@@ -2735,6 +3525,9 @@ runtime boundary:
 - property/fuzz tests for command validation and bounded counts/offsets;
 - managed/native CPU compilation differentials;
 - hardware offscreen pixel differentials with exact fixture inventories;
+- a pinned Microsoft D3D12 sample capture on Windows plus the equivalent
+  ProGPU D3D12, Metal, and Vulkan frames, compared by deterministic probes and
+  bounded whole-image differential;
 - resource lifetime, cache generation, device loss, resize/DPI, and teardown;
 - native sample on Metal, D3D12, and Vulkan without software fallback;
 - .NET package consumer and NativeAOT smoke tests;
@@ -2756,6 +3549,49 @@ runtime, pixel, performance, or package coverage from the required CI graph.
 CI must report the exact native dependency revisions and binary hashes. A
 backend lane is skipped only by an explicit unsupported-platform condition, not
 by converting failures into warnings.
+
+The DirectX sample oracle is a cross-platform comparison gate, not a
+cross-platform build of Microsoft's Windows program. The Windows lane checks
+out commit `213dd4fd4918ea009dd8f35adee1aff1f2ecaba4`, verifies the selected
+source files before applying ProGPU's capture-only patch, restores the sample's
+declared `Microsoft.Direct3D.D3D12` 1.618.3 package, and captures
+`D3D12HelloTriangle` and `D3D12HelloTexture` with WARP. WARP makes the
+references independent of hosted runner GPU availability; it is not reported
+as physical-device qualification. Platform lanes render the same clear color,
+geometry, interpolation or point-sampling contract, viewport, and edge policy
+through ProGPU. The texture case retains the upstream checkerboard, affine UV
+mapping, and triangular boundary through a typed image resource and
+edge-aliased cover mesh. It qualifies those observable semantics, not a new
+combined textured-mesh ABI. The aggregate job compares D3D12, Metal, and
+Vulkan candidates with each native frame and publishes the images, manifests,
+and differential JSON. A newer Agility package is adopted only by an explicit
+reviewed lock update; silently following the latest NuGet version would make
+the oracle non-reproducible.
+
+The first complete hosted aggregate, GitHub Actions run `32957387184`, passed
+on 2026-08-26. Native Windows/WARP and the ProGPU D3D12, Metal, and Vulkan
+candidates produced one byte-identical 1280x720 PPM with SHA-256
+`1269AE803032CC2BF6AD717E8491CC19BAF7F9FD5C6B233F8C0012D2DFA53933`;
+all three comparisons reported maximum/mean channel difference 0, zero changed
+pixels, and zero difference at all four probes. The D3D12, Metal, and Vulkan
+candidates identify Microsoft Basic Render Driver, Apple Paravirtual device,
+and llvmpipe LLVM 20.1.2 respectively, so this result remains software/virtual
+adapter evidence rather than physical-GPU qualification.
+
+GitHub Actions run `32959809523` repeated that byte-exact aggregate at
+implementation/package commit `885fa670` and completed all 27 jobs. In
+particular, the native NuGet package and every runnable desktop JIT/NativeAOT
+consumer passed after the focused DrawingGroup fixture was corrected from 25
+to its actual 26 commands. Oracle success therefore remains coupled to the
+shipping package graph rather than replacing package qualification.
+
+The first local `D3D12HelloTexture` qualification at implementation commit
+`a4ae5576` is byte-exact across Apple M3 Pro Metal, Parallels Display Adapter
+D3D12, and the native Microsoft ARM64/WARP capture. The common 1280x720 PPM
+SHA-256 is
+`480B613A9F4FA0E799E46D310E7A3AB9F917B9B60CDA035A2E2718CBF2391397`;
+ProGPU's RGBA readback SHA-256 is
+`591CC311F35E3C2612F529C3D4D7061FC93751A9B8614BF588A73599B0AA2790`.
 
 ## 13. Packaging and security
 
@@ -2818,6 +3654,276 @@ CPU-projected 2D geometry. Validation establishes exact vertex/index suffix
 layout and rejects non-finite matrices, invalid indices, unsupported modes, or
 non-canonical reserved storage before resource allocation.
 
+The WPF mesh DTO preserves `MeshGeometry3D.TextureCoordinates` as neutral
+`PortablePoint` values. Source export copies at most one coordinate per vertex
+and pads a short or missing WPF collection with `(0,0)`, matching MIL's
+`CopyTextureCoordinatesFromDoubles` behavior. Managed replay feeds those values
+to the existing ProGPU textured-mesh vertex path; native MIL writes them into
+the already-stable 48-byte mesh vertex record. This is required geometric state
+for the following typed 3D brush-resource slice and does not introduce a CPU
+projection or texture fallback.
+
+The portable scene contract also carries an ordered
+`PortableViewport3DMaterial[]` per mesh. Each layer identifies diffuse,
+specular, or emissive behavior and retains its typed `PortableBrush` or
+`PortableTileBrush`, material color, ambient color, and specular power. An
+empty layer array preserves the
+legacy aggregate fields for existing producers. The shared managed mesh
+compiler supports a per-entry shading override, allowing an emissive layer to
+select the existing GPU unlit shader branch without forcing unrelated meshes
+in the viewport out of realistic lighting. It now also realizes typed linear
+and radial gradient layers directly in its fragment shader. Each entry
+references the framework-neutral `ProGPU.Vector.Brush`; retained compile
+scratch appends finite stops to a bounded storage buffer and uploads the
+caller-owned list through `CollectionsMarshal.AsSpan(...)`. UV-space
+coordinates, inverse affine transforms, Pad/Reflect/Repeat spread, sRGB/scRGB
+interpolation, brush opacity, and stop alpha remain GPU state. WinUI and
+LibreWPF therefore share the same shader path instead of sampling the first
+stop or rasterizing a CPU texture. The native C++ path uses the same canonical
+brush and stop records through its additive material sideband. Tile-brush
+realization remains explicit follow-up work and fails closed.
+
+The managed gradient shader is cross-backend qualified rather than inferred
+from Metal alone. Exact commit `8eee2170` builds warning-free with .NET SDK
+10.0.400 in the Windows 11 ARM64 Parallels VM; all 18 focused Mesh3D tests
+pass. The live gradient readback independently reports
+`Parallels Display Adapter (WDDM)` and `D3D12` and passes without WebGPU
+validation/device errors. The isolated archive is completed only with the
+exact `microsoft-ui-xaml` submodule file pinned by the commit, so the gate does
+not depend on or mutate the VM's existing checkout.
+
+Retained 3D command bounds are executable viewport state, not diagnostic
+metadata. The native replay camera retains both the current target extent and
+the command-local viewport rectangle in physical pixels. The shared WGSL maps
+projected clip coordinates into that rectangle and expands 3D lines against
+its extent, so a nested viewport no longer stretches across the complete
+render target. A full-target rectangle reduces algebraically to the original
+clip coordinates. This remains one GPU projection/depth path on Metal, D3D12,
+Vulkan, and browser WebGPU; no CPU projection or host-specific shader is used.
+
+Canonical MIL `TYPE_VIEWPORT3DVISUAL` retention uses a typed pointer-free
+sideband for the flattened scene because the legacy WPF resource graph owns
+process-local camera/model objects. The channel copies a validated semantic
+camera, viewport, mesh descriptors, vertices, and uint32 indices, increments
+the retained Visual generation, and compiles the payload through the same
+shared native 3D resource/command family. Missing sideband data, a wrong
+handle type, non-finite state, invalid ranges, or out-of-range indices fail
+closed. The source-built WPF host remains responsible only for typed scene
+flattening; projection, viewport placement, lighting, depth, and rasterization
+remain reusable ProGPU GPU work.
+
+The neutral camera contract includes WPF `MatrixCamera` as an additive third
+kind. `PortableViewport3DCamera.ViewMatrix` and `ProjectionMatrix` carry the
+complete typed matrices, including the source camera transform already folded
+into the view matrix. Managed and native MIL consumers pass those values to the
+same GPU uniforms used by perspective and orthographic cameras; they do not
+decompose or approximate the caller's projection. Non-finite matrices and a
+singular view matrix fail closed because the compositor cannot derive the
+world-space camera position required by WPF specular lighting.
+
+The typed WPF scene boundary now preserves the complete MIL light vocabulary
+instead of forcing every scene into the legacy single-directional fields.
+`PortableViewport3DLight` carries ambient/directional/point/spot identity,
+linear color, transformed position and direction, range, constant/linear/
+quadratic attenuation, and inner/outer cone angles. The legacy directional
+and ambient members remain for source compatibility. Native retained scenes
+append validated 80-byte `progpu_native_scene_light_3d` records after vertex
+and index data, bind them as a read-only WGSL storage buffer, and address at
+most 16 lights through each mesh's `light_offset`/`light_count` range. Those
+two fields replace the mesh record's former reserved words, so the public mesh
+ABI remains exactly 256 bytes. The original MIL sideband entry point remains
+the zero-light compatibility path; the versioned
+`progpu_native_mil_channel_set_viewport3d_scene_lights` entry point copies the
+typed light suffix transactionally.
+
+Mesh materials use an additive command-payload sideband rather than widening
+either public or internal mesh records. The camera remains the exact payload
+prefix. Extended mesh commands append the 16-byte
+`progpu_native_scene_mesh_3d_materials` header plus one uint32 brush index per
+mesh; its resource reference targets the canonical semantic brush table.
+Only solid, linear-gradient, and radial-gradient brushes are accepted. The
+shared gradient-stop auxiliary array, coordinate transform, spread mode,
+interpolation mode, opacity, and UV coordinates are evaluated in
+`Native3D.wgsl`. Camera-only commands select an implicit opaque-white material
+and remain valid without reinterpretation. The new MIL
+`progpu_native_mil_channel_set_viewport3d_scene_materials` entry point copies
+one material per mesh plus its gradient stops transactionally.
+
+Mesh flag bit 2 is `PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL`. When set, the
+canonical brush multiplies `specular_color.rgb`; the normal diffuse/emissive
+path continues to multiply `mesh.color`. This allows an ordered WPF specular
+gradient pass to carry black diffuse RGB, its material color and exponent in
+the existing specular vector, and its typed brush without changing the
+256-byte mesh ABI. The flag is independent of front/back culling, while an
+entry carrying both exclusive face bits or any unknown bit fails validation.
+
+The 3D retained-content hash hashes the normalized stable identity of that
+brush resource rather than the serialized table ordinal. A material-generation
+change therefore rebuilds the 3D GPU page; inserting an unrelated lower
+ordinal resource does not. Native builder and MIL tests cover both the exact
+payload layout and malformed range rejection. The live Metal MIL gate renders
+one linear-gradient triangle and requires distinct red- and blue-dominant
+regions after GPU readback. A second generation enables only the specular
+gradient contribution and requires a distinct non-black red/blue readback, in
+addition to the camera, face, light, clip, and opacity generations.
+
+The buffered shader accumulates ambient, directional, point, and spot terms.
+Point and spot lights apply WPF's range cutoff and diminishing-only
+`1 / max(constant + linear*d + quadratic*d*d, 1)` attenuation. Spot cones
+clamp the outer angle to `[0,180]` degrees and the inner angle to the clamped
+outer angle before storing their half-angle cosines, matching MIL's ordering;
+specular lighting uses WPF's normalized view-plus-light half vector. Validation
+rejects nonpositive range, negative or all-zero attenuation, invalid cone
+ordering, non-finite records, unknown kinds, and out-of-range mesh slices
+before retention or GPU allocation. A zero `light_count` deliberately executes
+the previous single-directional/ambient shader path byte-for-byte for existing
+callers.
+
+The portable managed `Mesh3DExtensionPipeline` exposes the same bounded
+vocabulary through `Light3DCompilationEntry`. Its 80-byte `GpuLight3DRecord`
+array is retained in the viewport resource, uploaded from reusable compile
+scratch, and bound to both solid/material and wireframe WGSL pipelines. Each
+560-byte managed mesh record carries a light range plus typed gradient
+coordinates and stop range; zero lights preserves the
+existing ProGPU three-light PBR presentation path for WinUI/Avalonia consumers,
+while an explicit array selects WPF-compatible ambient/diffuse/half-vector
+specular, range, attenuation, and spot-cone evaluation. The public WinUI
+`Viewport3D.Lights` collection uses this reusable compositor contract, and the
+LibreWPF bridge maps its neutral portable light DTOs into the same payload
+without reflection. A Metal headless readback renders point-lit red and
+spot-lit blue meshes, so this is shader execution coverage rather than a
+record-layout-only assertion.
+
+The portable managed record also gives linear/radial material brushes an
+explicit `MaterialBrushTarget3D`. `Color = 0` is the source-compatible default;
+`Specular = 1` is stored in the previously unused
+`GpuMesh3DRecord.MaterialStopMetadata.z` lane. The latter preserves diffuse RGB
+and alpha separately, multiplies the sampled brush RGB into
+`SpecularColor`, and feeds the result to explicit WPF lights or the default
+presentation light rig. Specular-only passes exclude the latter rig's ambient
+and rim terms. The record remains exactly 560 bytes and uses the existing
+gradient-stop storage binding. Unknown targets and a specular target without a
+typed brush are rejected before upload. A Metal live gate requires at least
+500 pixels dominated by each gradient endpoint and currently observes
+3,300 red-dominant plus 3,300 blue-dominant pixels, with maximum red/blue
+channel deltas of 134. The default color-target gate runs beside it.
+
+Exact managed implementation `ed98df5d` passes the corresponding Windows 11
+ARM64 Parallels gate from archive SHA-256
+`0EAA66E17840D35DE955854F31C0D9398115D4D7473D451218B363071B68AC50`.
+The hydrated file from pinned `microsoft-ui-xaml` commit `25d2cb1c` has SHA-256
+`4C4085838721C0AFCB1A9EE17591C0655CDDDADB26D330788E08BCD7F1AF8285`.
+.NET SDK 10.0.400 completes a zero-warning build plus 8/8 focused tests. Both
+live cases select the Parallels WDDM D3D12 adapter; the specular result contains
+3,304 red-dominant and 3,304 blue-dominant pixels with channel deltas of 134.
+
+Live qualification must execute this route, not merely validate its retained
+bytes. The shared gate renders a typed MIL mesh into a non-origin sub-viewport
+and proves by GPU readback that every colored pixel remains inside it. Mesh
+vertex storage keeps the public `NativePoint3D` reserved field canonical at
+zero; WGSL must construct a homogeneous position with `w = 1` rather than
+interpreting that reserved field as position state. Shader code must also stay
+valid on wgpu-native/Naga and initialize unused depth-stencil descriptor enums
+to valid WebGPU values on both wgpu-native and Dawn.
+
+`progpu_native_mesh_3d_flags` carries an optional exclusive front-face or
+back-face selection; zero preserves the public two-sided default. The native
+page retains that mode per mesh and selects back culling, front culling, or no
+culling without duplicating geometry, projection, or material shaders. Setting
+both face bits or any unknown bit is invalid. This is the reusable face-
+material primitive consumed by WPF `GeometryModel3D.Material` and
+`BackMaterial`, not a WPF-specific renderer branch.
+
+Exact inherited rectangle and scrollable-area clips are retained as semantic
+viewport composite state and execute as a physical scissor around the shared
+3D draw. The live gate combines a 0.75 axis scale, `[8,6]` retained offset,
+0.5 opacity, a local rectangle clip, and a world-space scroll clip. This maps
+the viewport to `[32,21]-[80,57]`, produces the effective clip
+`[48,28.5]-[66.5,47.25]`, and observes 291 colored pixels at
+`[48,28]-[66,47]` plus the expected half-red center sample for byte-identical
+front- and back-material generations. Arbitrary geometry clips, masks,
+guidelines, effects, and caches remain fail-closed rather than being
+approximated or silently discarded.
+
+The shared shader must execute the bounded lighting values already present in
+the stable mesh record: directional intensity is `light_direction.w`, ambient
+intensity is `ambient_color.w`, and the specular exponent is
+`specular_color.w`. Diffuse and specular terms scale by directional intensity,
+the material ambient product scales by ambient intensity, and the exponent is
+clamped to a positive minimum before `pow`. The live transformed/clipped gate
+uses realistic shading and observes center RGBA `77/51/0/255` from 0.4
+directional intensity, 0.2 ambient intensity, and 0.5 visual opacity; changing
+shininess from 1 to 256 must also change the readback. A hardcoded exponent or
+ignored ABI intensity therefore fails live cross-backend qualification.
+An additional retained generation uses an orthographic projection and must
+differ from the perspective readback while staying inside the identical
+transformed viewport and clip. The Metal reference contains 278 colored pixels
+at `[48,28]-[66,47]`; this keeps perspective and orthographic cameras on the
+same reusable GPU projection, depth, lighting, and rasterization implementation.
+Two further generations execute the new retained buffer with ambient-plus-point
+and ambient-plus-spot scenes. Metal readback observes center RGBA
+`91/85/0/255` and `103/78/0/255`, respectively; each differs from the legacy
+directional result and proves that position, attenuation, cone, and light-range
+storage reach the shared GPU shader rather than a CPU or default-light fallback.
+
+Windows 11 ARM64 qualification on the Parallels Display Adapter (WDDM) rebuilds
+both native modules with MSVC `/W4 /WX` and passes all 11 native/Dawn CTests.
+Both DLL export tables contain the versioned light-sideband entry point. The
+bounded retained MIL gate then executes the same generations on D3D12 and reads
+point RGBA `91/85/0/255` and spot RGBA `103/79/0/255`; the one-code-value blue
+rounding difference from Metal is within the gate's backend tolerance. The
+Microsoft D3D12HelloTriangle and D3D12HelloTexture semantic oracle scenes also
+render and read back successfully on that adapter, with SHA-256
+`AE1BC0A9B0623BACAB15BE1706FFA3E7FC15E33676A66F05C969C1B86A66FEA3`
+and `591CC311F35E3C2612F529C3D4D7061FC93751A9B8614BF588A73599B0AA2790`.
+The broad standalone sample and the managed headless Mesh3D test currently
+stall in unrelated mixed-scene/headless submission on this Parallels driver;
+they are explicitly not counted as light-path passes. Hardware Windows and a
+non-Parallels D3D12 adapter remain required before removing that deferral.
+
+The native validation boundary requires directional and ambient intensities to
+be nonnegative and shininess to be strictly positive. Invalid values fail before
+scene retention or GPU resource allocation; the shader's minimum clamps are
+defense in depth only. The C++ scene-builder test exercises each invalid scalar
+independently in addition to simultaneous front/back face-flag rejection.
+
+### DirectX texture ownership into retained scenes
+
+The DirectX compatibility layer and native scene compiler share texture
+identity through `IProGpuInvalidatingTextureSource`; they do not exchange raw
+D3D/WebGPU handles. An eligible `ProGpuDirectXTexture2D` owns its backend
+`GpuTexture` through `SharedGpuTextureSource`. `DrawingContext` acquires a
+reference-counted same-device lease and transfers that lease into the immutable
+picture snapshot. Native lowering records only the pointer-free external-image
+resource identity in the scene stream and supplies the live `GpuTexture`
+through the compositor's existing binding table.
+
+Eligibility is deliberately narrower than DirectX resource creation:
+GPU-backed, `ShaderResource`, one array layer, one sample, and non-depth. Array,
+multisample, depth/stencil, CPU-only, and non-bindable resources return false;
+no readback/upload compatibility path is permitted. The drawing context checks
+the consuming `WgpuContext` device domain, and the native compositor retains its
+existing format, dimension, sample, usage, alpha, role, and live-view checks.
+DirectX content writes, render/compute/copy completion, mip generation, writable
+unmap, and resize publish typed invalidation so host retained caches can replace
+only affected command streams.
+
+This ownership seam is reusable by WPF, WinUI, and Avalonia. Framework layers
+adapt presentation and invalidation scheduling only; they must not create a
+second DirectX-specific scene representation, manufacture a CPU bitmap, or
+infer resource compatibility from a native pointer.
+
+Exact implementation checkpoint `5bae678a` passes the complete 3,875-test
+managed suite on Apple ARM64 and the focused 3/3 contract gate on Windows 11
+ARM64 with .NET SDK `10.0.400`/runtime `10.0.11`. The Windows current-user
+diagnostic identifies `Parallels Display Adapter (WDDM)` and backend `D3D12`;
+the retained DirectX-texture/native-external-image test passes in 480 ms. The
+isolated archive hydrates only the pinned `microsoft-ui-xaml` `generic.xaml`
+required by the aggregate test graph, whose SHA-256 is
+`4C4085838721C0AFCB1A9EE17591C0655CDDDADB26D330788E08BCD7F1AF8285`.
+This qualifies correctness and ownership on that adapter, not physical D3D12
+performance.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned
@@ -2844,3 +3950,567 @@ path with WebGPU validation and bounded resource policies.
    to be reported as hardware evidence.
 5. Complete the requested desktop/browser manual review. Mark the draft ready
    or merge only after explicit user approval.
+
+### Portable Direct2D stroke-transform integration, 2026-09-05
+
+The portable COM recorder now preserves `ID2D1StrokeStyle1` normal/fixed/
+hairline policies through the same ProGPU-owned semantic stroke compiler used
+by the Windows recorder. The installed compatibility header adds a typed
+constructor without claiming the wider portable Factory1 activation surface.
+The canonical vector shader fixes high-DPI hairline body/cap/join widths for
+both managed and native consumers; neither implementation gains a shader
+fork or CPU rendering fallback. Aliased stroke-batch edges are preserved by
+both COM recorders, and portable hairline dash scaling uses NEON/SSE2 with a
+bounded tail. No public scene/C ABI version changes.
+
+See [the compatibility design and validation record](DIRECT2D_WIN2D_COMPATIBILITY.md#portable-stroke-transform-parity-2026-09-05)
+for source provenance, primary references, DPI limits, SIMD oracle coverage,
+and remaining Factory1/device-context gaps. This checkpoint does not complete
+the broader LibreWPF MIL/DirectX/Direct2D/Win2D replacement goal.
+
+### Exact native MIL visual geometry clips, 2026-09-05
+
+`Visual.SetClip` now reuses the existing ProGPU-owned render-data geometry
+clip compiler for ellipses, rounded rectangles, paths, geometry groups, and
+combined geometry. Axis-preserving plain rectangles retain the analytic
+rectangle fast path; rotated/sheared geometry stays exact through the shared
+vector-mask resource instead of becoming its bounding rectangle. Geometry
+transforms, winding rules, and boolean programs use the same original native
+lowering as `PushClip`, with no new shader, public ABI, or CPU raster fallback.
+
+The scene build owns one path/segment/boolean scratch set for visual traversal
+and render-data replay. Each scope retains prefix counts and its immutable
+semantic mask index, so nested clips intersect ancestors and siblings restore
+their parent's prefix. This removes the former per-visual render-data scratch
+containers; it does not claim an allocation-free scene build or measured
+speedup. Recording is proportional to the emitted geometry and active clip
+chain, bounded by the existing 64-path/63-boolean-instruction limits. Pixel
+coverage stays in the existing GPU path-mask implementation; no new scalar
+compute-heavy CPU fallback is introduced.
+
+Regression coverage checks rectangle fast paths, ellipse/rounded masks,
+sheared ellipses, path/group/combined boolean programs, inherited clips,
+nested `PushClip`/`Pop`, and sibling restoration. The existing portable
+Direct2D WebGPU executable also submits an original raw-MIL fixture through
+the exported C ABI: two independently colored sibling ellipses intersect a
+rounded ancestor and an additional rounded render-data clip. Exact interior
+pixels check all three clip levels and reject bounding-box broadening. The
+fixture records two draws, twelve commands, and two submissions (mask
+preparation plus rendering); it runs unchanged in the existing Metal,
+Vulkan, and D3D12 gate without replacing the Direct2D oracle capture.
+
+Qualification so far: macOS ARM64 15/15 native tests including the GPU fixture;
+native MIL tests also pass under ASan/UBSan and x64/Rosetta. Windows and CI
+qualification are recorded with the implementation PR checkpoint.
+
+Remaining boundaries are explicit: arbitrary masks combined with visual
+effects, local bitmap caches, and Viewport3D still fail closed until their
+post-composite mask ordering is implemented. Rotated/sheared accelerated
+scrollable-area clips remain unsupported. This does not resolve the separate
+ImageBrush/DrawingBrush/VisualBrush or programmable shader-effect packet gaps,
+and does not complete the full replacement goal.
+
+### Exact geometry clips at native MIL effect output, 2026-09-05
+
+Visual geometry masks now attach to the existing semantic effect layer's
+output mask, alongside the independent final rectangle scissor. The complete
+source is isolated before Gaussian/box blur or drop shadow; the clip is not
+applied to source draws or propagated into their nested render-data scopes.
+Zero-radius blur retains a clip-only isolation layer when a geometry mask is
+present, preserving the same pixels as ordinary clipped replay.
+
+A BitmapCache used as an effect source now records without the outer geometry
+clip; the completed cache feeds the effect, whose output receives that clip.
+Uncached source opacity/gradient masks retain their existing inner isolation
+order. Isolated effect/cache content gets independent geometry-clip scratch
+only when it records nested clips, preserving the outer visual tree's scratch
+prefix for siblings. Empty scratch containers allocate nothing; scene recording
+is not claimed allocation-free. No shader, CPU fallback, or ABI change is
+needed: this composes the existing native layer-mask and effect contracts.
+
+LibreWPF's typed producer can now send rounded/affine/ellipse/path geometry
+clips for effects instead of enforcing its obsolete rectangle-only preflight.
+Unsupported or missing typed geometry still fails closed through the normal
+resolver. Native effect transform restrictions remain authoritative.
+
+The raw-MIL integration fixture covers zero-radius blur, Gaussian blur,
+box blur, green drop shadow, and a BitmapCache Gaussian-blur source. Each has
+two separately clipped siblings, an ancestor mask, and an independent nested
+content clip. Source-edge probes remain fully colored; blur/shadow can spread
+outside the inner content clip but never outside the final geometry clip.
+Zero-radius pixels match the non-effect fixture exactly. All effect fixtures
+use four submissions; ordinary variants record sixteen commands and the
+cached-source variant twenty-four. Structural tests assert that final
+two-path masks occur only on output layers, never on source draw states.
+macOS native 15/15, native MIL sanitizer/x64 checks, and freshly rebuilt
+LibreWPF scene-compiler 104/104 pass. Windows and exact-head CI are separate
+qualification evidence in the implementation PR.
+
+The remaining direct local-cache case without an outer effect still needs
+geometry-clip plus opacity-mask/guideline composition. Viewport3D masks,
+rotated accelerated scroll clips, tile-brush packets, programmable shader
+effects, and the broader DirectX/Direct2D/Win2D families remain in the goal.
+
+### Retained-engine GPU integration gate, 2026-09-05
+
+The Windows MSVC, ClangCL x64, and ClangCL ARM64 jobs at `86f8bfb2`
+compiled successfully but exceeded the GPU test's 300-second bound. An
+instrumented, uninterrupted Parallels ARM64 run passed every original
+Direct2D, stroke, MIL geometry, and effect pixel assertion in 590.230 seconds:
+Direct2D completed at 145.594 seconds, strokes at 153.294 seconds, and MIL
+geometry at 255.974 seconds. This was a timeout, not evidence of pixel parity
+failure or a deadlock.
+
+The integration test now owns one native engine across its scene updates,
+like a retained host, instead of destroying its device-local pipelines after
+every fixture. Independently compiled MIL fixtures use distinct scene IDs;
+generation-one contents never overwrite another fixture under the same
+identity. Per-frame command/submission assertions, pixel assertions, capture
+output, and the 300-second Windows/60-second desktop timeouts are unchanged.
+Timestamped fixture phases remain in failure logs. macOS passes all 15 native
+tests with this change; Windows and hosted exact-head qualification remain
+pending until those runs complete. This is test-lifetime correction, not a
+claim of new product rendering throughput or reduced cold-start latency.
+
+Hosted MSVC qualification at `26b29a40` passes all 16 native tests; the GPU
+fixture takes 76.20 seconds under the unchanged timeout. The managed gate's
+source-contract assertion is updated for the explicit retained-engine
+parameter and now also guards engine ownership and independent MIL scene
+identities. Its 10 Direct2D contract tests pass locally. The interrupted
+Parallels rerun is not counted as qualification; hosted ClangCL and full
+managed exact-head checks still require their own results.
+
+### Exact geometry clips on native MIL local bitmap caches, 2026-09-05
+
+The local BitmapCache output now consumes its cache-root/ancestor vector
+clip chain directly. When a linear/radial gradient opacity mask is also
+present, the compiler emits the existing two-component GPU composite mask:
+one vector chain and one typed brush. No CPU pixel path, shader fork, extra
+color-isolation layer, or public ABI is introduced. Composite guidelines
+deform only the brush component; vector clips retain their world-space
+coordinates. SnapsToDevicePixels still moves the cached quad and its brush
+together. Cache content starts with empty clip prefixes, so nested render-data
+clips cannot inherit or overwrite the parent/sibling output masks.
+
+The scaled-page regression exposed a separate native scissor bug: local
+cache targets larger than the presentation window were clipped to the root
+frame before localization. The shared target-scissor resolver now includes
+the actual target's coordinate domain, with overflow-safe extent arithmetic.
+Explicit state clips still intersect that target exactly. Unit probes cover
+128x128 pages behind a 64x64 window, explicit clips beyond the window edge,
+and offset offscreen targets.
+
+Raw-MIL GPU cases cover plain and gradient-masked caches, RenderAtScale=2,
+fractional placement plus snapping/multiple guidelines, and nested caches.
+Each has two clipped siblings, an ancestor rounded clip, and an independent
+render-data clip. An identity cache matches uncached pixels exactly; gradient
+probes allow only one byte of channel rounding. Warm replays match every
+pixel, submit once, and report zero cache-content passes. Cold cases retain
+20 commands/four submissions, or 24 commands/five submissions for the nested
+cache, including the necessary shared vector-mask reuse fences. Structural
+tests additionally cover scaled nested gradient caches and prove clip-only
+updates preserve content revision and owner identity.
+
+Qualification: macOS native 15/15, MIL/internal ASan+UBSan 2/2,
+x64/Rosetta MIL/internal 2/2, generated native/MIL/Unicode contracts, and the
+complete managed suite 3,922/3,922 pass. Windows and hosted exact-head
+qualification remain separate pending evidence. Full MIL/DirectX/Direct2D/
+Win2D parity is not implied: broader Viewport3D composition, broader nested
+effect/oversized-cache domains, tile-brush packets, programmable shader
+effects, and the remaining protocol/API families stay in scope.
+
+The subsequent strict MSVC ARM64 Parallels build passes all 16 native tests,
+including all five new cold cache variants; the GPU gate takes 143.07 seconds
+under its unchanged 300-second limit. The additional warm-cache assertions
+and tightened one-byte gradient probes are being rerun separately on Windows;
+hosted exact-head jobs remain a distinct gate.
+
+### Nested effect domains and live cache clip updates, 2026-09-05
+
+Transient isolated layers nested inside local bitmap caches now resolve their
+declared bounds against the parent target's coordinate domain, not only the
+presentation window. The same overflow-safe extent helper is shared with
+draw scissoring. Explicit bounds still intersect the parent exactly, layers
+without explicit bounds inherit its full extent, and pop restores the parent
+and finally the presentation domain.
+
+Before the change, both a CPU target-cursor test and a raw-MIL GPU fixture
+failed: Gaussian-blur siblings inside a 128x128 root cache behind a 64x64
+window lost their center pixels. The fixture now passes with both ordinary
+and BitmapCache-backed effect sources while retaining their exact output
+geometry clips. This extends the oversized-cache fix beyond ordinary draws.
+
+The raw-MIL fixture can also retain its channel through RAII ownership.
+Plain and gradient-masked caches now mutate both ellipse clips on that same
+channel, advance scene generation, and submit the newly compiled stream.
+The changed edge pixels and unchanged center pixels are asserted together
+with zero cache-content passes. No stream-header patch, fabricated resource
+generation, or fresh-channel substitution is used to make the cache hit.
+
+Local native 15/15, MIL/internal sanitizers 2/2 and x64/Rosetta 2/2 pass. A
+strict Windows ARM64 build passes 16/16 including the nested-effect cases
+(GPU 180.88 seconds under the unchanged 300-second timeout); the final live
+clip-update GPU rerun passes in 83.44 seconds. A complete managed run observed
+one intermittent AppWindow property-allocation assertion (6,192 bytes versus
+zero); its isolated test and three 20-test class reruns pass without changing
+the product or its budget. The cause remains unproven; evidence is retained
+under artifacts/performance/appwindow-allocation-20260905. The subsequent
+full managed rerun passes 3,922/3,922 with its TRX retained there; this is not
+a claim that the intermittent allocation issue has been fixed.
+
+### Viewport3D geometry output and cached depth, 2026-09-05
+
+Native MIL creates a clip-only isolated output layer for Viewport3D geometry
+masks when no effect/cache already owns isolation. Shared output-clip attachment
+keeps ancestor rectangles and exact vector masks on the final image. Mesh
+draw states and their depth shaders remain mask-free. Typed visual cache bounds
+now accept Viewport3DVisual as well as Visual, with all other handle and finite
+bounds validation preserved.
+
+This exposed two independent GPU backend gaps: 2D layer composites inherited
+depth-bearing render passes, and retained cache slots had no depth allocation.
+Replay now ends/stores the mesh pass before a depth-free group composite and
+loads stored depth for subsequent mesh bundles. Depth allocation includes
+stable retained-cache slots at their own physical page dimensions.
+
+The original raw-MIL gate now contains seven Viewport3D variants: plain,
+identity cache, gradient-masked cache, twice-resolution cache, blur, cached
+blur, and nested cache. Two sibling foreground planes must occlude later green
+background planes. Exact ellipse/ancestor boundaries, unchanged warm pixels,
+identity-cache/uncached whole-image equality, and zero retained mesh-content
+passes are checked. Cached blur still has two outer effect-content passes;
+its effect-cache diagnostic is one and neither mesh page is redrawn.
+
+Qualification: native MIL structural tests, MIL/internal sanitizer 2/2,
+x64/Rosetta 2/2, native contract verification, managed ProGPU 3,922/3,922,
+and LibreWPF 1,472/1,472 pass locally. All seven GPU variants pass on Metal and
+Windows ARM64 D3D12 (Parallels Display Adapter, 101.79 seconds, unchanged
+300-second gate timeout). Hosted exact-head CI is a separate pending gate.
+Mixed 2D/3D bundle transitions, general viewport transforms, guideline
+deformation, and complete shading-mode/lighting parity remain unqualified;
+the test explicitly uses Native3D's material-color mode rather than assuming
+its numeric shading modes are interchangeable with Mesh3DSolid.
+
+### Mixed 2D/3D bundle transitions, 2026-09-05
+
+The next raw-MIL fixture reproduced a WebGPU validation abort when a masked
+2D draw inherited the frame-wide Depth24Plus bundle descriptor merely because
+the frame also contained 3D. Each compiled bundle now records `uses_depth`;
+the compiler flushes at changes of depth requirement and the replay pass
+matches that flag. The transition-aware replay path also handles layer-free
+3D frames, while the all-2D fast path remains one depth-free pass. Stored
+depth survives intervening 2D passes and resumes with load semantics.
+
+The gate now has ten variants. The added mixed cases place 2D rectangles
+before and after clipped 3D siblings, with exact vector clips, rectangle-only
+clips directly on the presentation target, and nested retained caches. Cold
+and warm pixels, exact clip probes, occlusion, cache-content pass counts, and
+submission counts are enforced. Reusing the same engine also caught stale
+layer diagnostics after a layer-free frame; successful semantic frames now
+reset those metrics before publishing current layer/mask data.
+
+The earlier Viewport3D checkpoint passed the complete Windows native suite
+16/16 (GPU 71.95 seconds). The mixed-scene extension passes local native
+15/15 and a Windows ARM64 16/16 run (GPU 107.55 seconds); final warm-frame
+and diagnostic-reset qualification is recorded with the subsequent PR update.
+One full managed run observed a third-frame cache miss in the existing dense
+rounded-rectangle specialization test after its specialization and pixel
+equality checks passed. Its isolated test and initial 229-test class rerun
+pass; the assertion now reports the existing typed miss reason without
+weakening the invariant. Evidence is retained under
+`artifacts/performance/rounded-scene-cache-20260905`; no cause or product fix
+is claimed from a non-reproduced cache miss. Exact-head CI remains required.
+
+The final mixed cold/warm Windows GPU gate passes in 158.45 seconds and the
+Metal native suite passes 15/15. The rounded-cache test also passes a second
+229-test class run and the next full run, but that full run instead observes
+an unrelated SurfaceBrush zero-allocation assertion (6,192 bytes versus zero).
+Its isolated rerun passes; both observations remain explicitly unresolved.
+
+Hosted Linux x64 CI on `d8052ea6` passed every pixel case but failed
+LeakSanitizer at shutdown: three direct `wgpuDeviceCreateBuffer` allocations
+retained their Vulkan resources. Source ownership inspection identified the
+three missing releases in `release_semantic_3d_resources`: light, material,
+and material-gradient-stop storage buffers. They now use the same destroy /
+release / null sequence as the other five 3D buffers. A managed source guard
+requires all eight releases, and the existing full GPU teardown remains the
+LeakSanitizer regression gate. No leak suppression or CI timeout was changed.
+
+### GCC Unicode action-table bounds, 2026-09-05
+
+The follow-up full managed run passes 3,923/3,923, including the new 3D buffer
+ownership guard; LibreWPF passes 1,472/1,472. The earlier intermittent cache
+and allocation observations remain unresolved rather than being declared
+fixed by a successful rerun.
+
+An additional Ubuntu 24.04 ARM64 / GCC 13.3 sanitizer build rejected the
+templated Unicode action lookup with `-Werror=array-bounds`, reporting a
+138-entry array specialization against the 127-entry USE from-state table.
+The shared lookup now takes `std::span<const std::uint8_t>` so its range check
+and indexed read use the same explicit table extent. The last valid state,
+first invalid state, and maximum 16-bit state are covered for both action
+directions in all four syllable machines, including zeroed failure output.
+The macOS native text sanitizer test passes and the strict Linux GPU target
+build now succeeds. This does not yet qualify Linux runtime parity: its GPU
+test subsequently stops in GCC UBSan at the Direct2D `PopLayer` / `EndUse`
+call, before rendering or leak qualification finishes. That separate issue
+remains under investigation; no sanitizer was disabled in the gate.
+
+### GCC 13 ARM64 sanitized COM layer release, 2026-09-05
+
+The Linux debugger confirmed that the stopped `scene_layer_native` pointer
+referenced a live `portable_layer` secondary base and its expected `EndUse`
+thunk. GCC's optimized-tree dump showed the speculative branch comparing
+that exact thunk and then calling `__ubsan_handle_builtin_unreachable` with
+the layer object as its argument instead of invoking `EndUse`. Preventing
+interprocedural optimization of that one implementation preserves the call
+and passes the previously failing GPU run. The workaround is guarded to GCC
+13, ARM64, and address-sanitized builds only; normal release builds and other
+compilers retain their existing optimization. It leaves sanitizer
+instrumentation enabled. See GCC's
+[function-attribute reference](https://gcc.gnu.org/onlinedocs/gcc-13.3.0/gcc/Common-Function-Attributes.html#index-noipa-function-attribute)
+for the `noipa` boundary. Retire this workaround when the GCC 13 sanitizer
+lane is retired or its replacement has passed without it; no upstream bug
+number or fixed compiler version is asserted.
+
+The portable COM regression additionally releases a nested layer's primary
+interface while it is active, then pops both layers. The retained secondary
+interface must preserve lifetime and release ownership without a stale
+pointer. Existing wrong-state unwind and layer-reuse assertions remain.
+
+The initial workaround experiment passes the entire Linux Direct2D WebGPU
+gate in 4.93 seconds, including all ten MIL Viewport3D variants and final
+resource teardown, with ASan/UBSan halt-on-error and LeakSanitizer enabled.
+The existing suppression file is unchanged. The observed adapter is Vulkan
+llvmpipe (LLVM 20.1.2, 128 bits), which qualifies software-adapter correctness,
+not native GPU throughput. The committed conditional form and added ownership
+regression require the follow-up qualification recorded in the PR.
+
+Follow-up qualification: the conditional source workaround passes Linux's
+GPU gate in 6.05 seconds. The extended GPU ownership regression then passes
+in 2.63 seconds with leak detection enabled. macOS passes native 15/15 and
+the focused COM sanitizer test; Windows passes native 16/16 (GPU 238.26
+seconds) with the nested COM regression and all three buffer releases. The
+last GPU-only primary-reference release assertion was added after that
+Windows run and is locally qualified on Metal and Linux Vulkan.
+
+The broad GCC-sanitized COM test separately times out at its unchanged
+60-second deadline. A debugger sample during that run was in stroke polygon
+construction (`build_flat_polylines`, called by the containment grid around
+compatibility-test line 4555), before the layer tests. No timeout, allocation
+budget, or sanitizer option was relaxed. This GCC sanitizer CPU qualification
+gap remains open; neither the successful GPU gate nor other-platform COM
+passes are substituted for it. Exact-head hosted PR CI remains required.
+
+### Immutable viewport ingress retention, 2026-09-05
+
+The native MIL channel now compares an incoming viewport with its previously
+validated owned state after handle/envelope checks and before allocating replacement arrays.
+Exact equality proves the payload is still valid; changed bits or lengths still
+run every per-element validator. This avoids repeating a full vertex-validation
+pass on an identical payload without weakening invalid-input behavior.
+Equal wire values do not advance resource generation or discard the build cache.
+The managed native adapter additionally provides `NativeMilViewport3DSnapshot`,
+which lets LibreWPF skip that ABI call entirely on unchanged producer updates.
+It owns its baseline; comparing previous DTO array references would be incorrect
+when producers mutate them in place. The ABI byte-coverage test recursively
+checks every field and mutates every byte, including reserved bytes. Native
+regressions check camera, viewport, mesh, vertex, index, light, material, gradient
+changes, invalid input, unchanged generation, and byte-identical scene output.
+
+Applicability review: this is a native MIL ingress/lifetime change shared by
+wgpu-native and Dawn, with a backend-neutral managed comparison helper. The
+managed `Mesh3DExtensionPipeline` owns separate pooled `ViewportResource` state;
+it does not call the MIL sideband API. No rendering or shader algorithm changed,
+so no duplicate managed/native shader implementation is introduced. The current
+native validator still runs for changed direct-native payloads, and this work does not
+claim to SIMD-vectorize its existing semantic-validation loops. Comparison uses
+runtime-intrinsic `SequenceEqual` or the platform's optimized `memcmp`, and the
+managed tests also run with hardware intrinsics disabled as a scalar oracle.
+
+Cross-engine primary-source review (concepts only; no foreign code copied):
+
+- [Skia pictures](https://api.skia.org/classSkPicture.html) retain recorded work;
+  immutable identity is useful only if mutation is excluded. Our mutable DTO
+  arrays instead require an owned baseline.
+- [Direct2D resource reuse](https://learn.microsoft.com/en-us/windows/win32/direct2d/improving-direct2d-performance)
+  and [Win2D command lists](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm)
+  motivate avoiding repeated construction at replay boundaries, without changing
+  device ownership or treating a bounds rectangle as an exact clip.
+- [WebRender scene building](https://doc.servo.org/webrender/scene_building/index.html)
+  and [Vello Scene](https://docs.rs/vello/latest/vello/struct.Scene.html) inform the
+  distinction between retained content identity and mutable submission state.
+  We use collision-free exact bytes, not an unverified content hash.
+- [DirectWrite layout reuse](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
+  [SkParagraph's layout/paint boundary](https://github.com/google/skia/blob/main/modules/skparagraph/include/Paragraph.h),
+  [Parley layout](https://docs.rs/parley/latest/parley/layout/struct.Layout.html),
+  and [HarfBuzz shape plans](https://harfbuzz.github.io/harfbuzz-hb-shape-plan.html)
+  were checked for applicability. This change does not touch shaping, glyph
+  placement, font identity, DPI raster keys, atlases, or text rendering; their
+  existing generation and device-lifetime rules remain authoritative.
+
+Memory/latency boundary: one baseline stores O(B) bytes per viewport and copies
+on successful initial/changed binding. Unchanged matches allocate nothing but
+scan O(B) bytes; native equality reuses its already-owned vectors. No GPU is
+initialized by the component benchmark. Producer flattening, semantic stream
+allocation, GPU upload, rasterization, and frame pacing are excluded. Neither
+this component test nor primary-source reuse guidance establishes an FPS gain.
+
+Initial macOS ARM64 Release qualification passes native 15/15, managed 3,926/3,926,
+and the new managed tests 3/3 with hardware intrinsics disabled. LibreWPF passes
+1,473/1,473 and its actual-channel smoke verifies unchanged content, in-place
+producer mutation, mutable target resize, structural replacement, and disposal.
+The smoke is part of the existing native-MIL package SDK gate on all three OSes.
+Windows and GCC/ASan Linux qualification and exact-head CI are recorded in the
+corresponding PR updates; unfinished jobs are not counted as passes.
+
+The full managed headless suite additionally passes 240/240. The initial native
+implementation passed Windows 16/16 (GPU 104.97 s) and GCC 13 ARM64 MIL with
+ASan/UBSan/leak detection. The latter initially lacked the staged Inter test font;
+copying that existing fixture restored the unchanged test without a gate or
+source workaround. Final qualification is repeated after moving the exact-match
+check before redundant per-vertex validation.
+
+Matched component observations on M3 Pro / macOS 26.6, .NET 10.0.5 Release,
+`DOTNET_TieredCompilation=0`, 128 warmups and nine 500-update batches:
+
+| Vertices / owned bytes | Previous native binding median (us) | Managed retained match median (us) | Final direct native binding median (us) |
+| --- | ---: | ---: | ---: |
+| 3 / 412 | 0.142 | 0.039 | 0.045 |
+| 3,000 / 156,256 | 10.555 | 3.196 | 3.479 |
+| 60,000 / 3,120,256 | 205.748 | 67.306 | 68.653 |
+
+These are medians of batch means, not per-call p95/p99. The large retained case
+had a 151.463 us maximum batch mean; all raw samples remain in the local artifact
+`artifacts/performance/viewport3d-sidebands-20260905/final-matched-release.txt`.
+Old bindings advanced generation 4,500 times; both new paths advanced it zero
+times. Every timed path measured zero managed thread allocations. Native old
+binding allocations are not counted by that managed metric. The earlier native
+prototype checked equality after every validator and regressed direct-call cost;
+measurement prompted the validated-baseline early-out now tested above.
+
+Time Profiler captures include the old native validation/vector assignment work
+and the retained comparison workload. Matched .NET 10.0.5 captures are named
+`before-matched-time.trace`, `after-time.trace`, and `final-native-time.trace`.
+The first exploratory `before-time.trace` used another runtime installation and
+hit its time limit; it is excluded from matched timing conclusions. Allocations
+captures (`before-allocations.trace`, `after-allocations.trace`) both exited zero
+and include VM Tracker. This Xcode export exposes those as Instruments detail
+tracks, not allocation schema rows; no fabricated native allocation totals or
+working-set delta is asserted. Capture cost and O(B) retained memory remain
+explicit tradeoffs. Metal profiling is not applicable to this CPU-only ingress
+workload. No application FPS, end-to-end allocation, or GPU throughput claim is
+made from these component observations.
+
+Final validated-baseline early-out qualification: macOS native 15/15 and both
+LibreWPF native host smokes pass; Windows native 16/16 passes (GPU 95.29 s), and
+GCC 13 ARM64 MIL passes with ASan/UBSan and leak detection (0.65 s). ProGPU PR CI
+first rejected the source change because its generated MIL coverage ledger was
+not refreshed. Regeneration and the complete native-contract verification gate
+pass on the follow-up commit; no ledger check, sanitizer, or test is
+disabled. Exact-head hosted results remain a separate requirement.
+
+## Tile-brush resource ingress and bitmap resolution, 2026-09-05
+
+### Single-tile rendering continuation and provenance
+
+The subsequent [single ImageBrush checkpoint](native-mil-compositor.md#single-imagebrush-rendering-checkpoint-2026-09-05)
+uses original ProGPU-owned image drawing, retained bitmap resources, gradient
+relative-transform conjugation and exact MIL rectangle/vector clipping. The
+in-repository `AvaloniaTileBrushMapping.cs` supplied the established content /
+viewport / alignment decomposition; no Avalonia host code or foreign renderer
+implementation was ported. Managed and native paths continue consuming the same
+production image and clip shaders; no duplicate shader algorithm was added.
+LibreWPF emits typed packets with explicit portable-to-MIL tile enum mapping.
+
+[WPF Viewbox documentation](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.tilebrush.viewbox)
+establishes that Viewbox is mapping, not clipping; adopt that distinction and
+reject source-rectangle cropping as a substitute. The independent test deliberately
+makes red source content outside Viewbox visible inside Viewport. Public
+[BitmapScalingMode](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.bitmapscalingmode)
+contracts and native Windows WPF observations inform filtering qualification.
+Native WPF uses a linear blend for the tested ImageBrush despite requesting
+nearest; its explicit Linear output matches ProGPU's explicit Linear output.
+Native WPF rendering code was inspected only to locate option propagation while
+diagnosing that observation; no source text or implementation structure was
+copied. No claim is made that the discrepancy's cause is resolved.
+
+Original raw-packet fixtures and a public-API Windows WPF C# oracle provide
+independent conformance evidence. C++ nearest-neighbor reference boxes are hand
+specified; the Windows linear comparison uses the actual Microsoft renderer,
+not a duplicate mapping implementation. Scalar pixel loops exist only in these
+diagnostic oracles. Product work is fixed-size mapping and existing GPU batching,
+not a new whole-buffer CPU fallback. The bitmap adapter's pre-existing scalar
+conversion debt remains open under the full intrinsic-SIMD goal.
+
+The implementation checkpoint is described in [native MIL compositor](native-mil-compositor.md#tile-brush-ingress-and-source-dpi-checkpoint-2026-09-05).
+It adds three canonical retained brush packets and source-resolution transport;
+general sampled tile-brush painting remains unfinished; the later single-tile
+ImageBrush checkpoint adds a rectangular subset. The existing
+portable replay implementation remains available alongside native MIL.
+
+Research and clean-room provenance:
+
+- [WPF TileBrush overview](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/graphics-multimedia/tilebrush-overview)
+  defines content, mapped base tile, and output region as separate spaces.
+  Adopt this separation; reject whole-image repeat as a general substitute for
+  cropped/padded viewport tiling. Generated packet schemas supply wire contracts,
+  not foreign renderer implementation. WPF TileBrush/RenderOptions public property
+  registrations were checked for Empty rectangles and unconstrained cache hints;
+  no WPF native renderer source was ported.
+- [Direct2D DPI](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-high-dpi)
+  distinguishes source bitmap DPI from target DPI. Adopt typed independent X/Y
+  source metadata; do not change physical texture dimensions or explicit image
+  destinations. Exact WPF bitmap-brush numeric/degenerate DPI behavior still
+  needs Windows pixel-oracle qualification; finite positive metadata transport
+  alone is not that qualification.
+- [Win2D CanvasImageBrush](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Brushes_CanvasImageBrush.htm)
+  and [Skia image shaders](https://api.skia.org/classSkImage.html) provide source
+  rectangle/tiling/sampling contracts. Retain explicit address and sampling
+  metadata and lazy resource creation; reject implicit filtering changes or a
+  CPU-expanded repeated bitmap.
+- [WebRender scene building](https://doc.servo.org/webrender/scene_building/index.html)
+  and [Vello Scene](https://docs.rs/vello/latest/vello/struct.Scene.html) inform
+  retained source preparation and batched GPU execution. Source generation,
+  transforms, viewbox/viewport, target scale and device identity must participate
+  in future tile-cache keys. No new atlas or tile cache is allocated by decoding
+  these packets; visibility, eviction, and worker scheduling are unchanged.
+- The shaping/layout boundary research above for SkParagraph, DirectWrite,
+  Parley and HarfBuzz remains applicable: this ingress change does not shape,
+  lay out, resolve fallback fonts, rasterize glyphs, or alter variable-font and
+  subpixel keys. Tile brushes used to paint glyphs still require a later exact
+  sampling/mask path; this non-applicability finding does not mark it complete.
+
+Original in-repository rendering precedents examined are
+`src/ProGPU.Avalonia.Rendering/AvaloniaTileBrushMapping.cs` (source-to-base-tile
+stretch/alignment and intermediate clip mapping) and
+`src/ProGPU.Native/src/Direct2D/progpu_native_direct2d_render_target.cpp`
+(`draw_bitmap_brush_image` and exact bitmap-brush geometry masks). These are
+ProGPU-owned sources. The current change does not copy either algorithm or add
+a backend-specific shader. It prepares their reusable native MIL inputs. The
+managed/native applicability audit pairs NativeMilBatchBuilder/NativeMilChannel
+with the C++ channel and both wgpu-native/Dawn imports/export inventories; the
+source-built WPF carrier supplies the shared portable replay metadata. The
+managed scene renderer does not decode canonical MIL packets, and its existing
+tile algorithms have not been replaced by this ingress work.
+
+Complexity: fixed packet parsing and DPI validation are O(1) per binding, with
+no GPU initialization. Existing pixel ownership is still O(B) per changed copied
+bitmap, implemented by contiguous native vector assignment; external bindings
+remain pixel-copy-free. No compute kernel, fallback selection, GPU submission,
+or new whole-buffer scalar loop was introduced. Cached dependency traversal
+reuses existing cycle/depth handling. Tiny fixed-field conformance loops are not
+product pixel-processing workloads. No throughput or frame-rate claim is made.
+
+Local checkpoint qualification: macOS native 15/15, managed 3,931/3,931, headless
+240/240, and LibreWPF 1,474/1,474. New tests cover all canonical brush fields,
+transaction rollback, typed references/deletion, Empty/cache hints, all four
+native copied/external DPI bindings, invalid DPI state preservation, legacy
+96-DPI calls, and both-axis managed retained comparisons. Windows ARM64 passes
+16/16 native targets (GPU test 174.27 s while other validation builds were active;
+this is not a matched throughput measurement). Ubuntu ARM64 GCC 13 MIL passes
+with ASan, UBSan, and leak detection (1.22 s). The source-built LibreWPF host gate
+passes actual managed/native DPI imports, public ImageSource natural-size/clone
+checks, retained viewport regression, and one presented native frame. No test,
+timeout, sanitizer, or image threshold was weakened. Hosted exact-head CI is a
+separate gate; pending jobs are not counted as passes.

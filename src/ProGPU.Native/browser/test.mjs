@@ -32,7 +32,11 @@ const page = await browser.newPage({
   deviceScaleFactor
 });
 const errors = [];
+const consoleDiagnostics = [];
 page.on("console", (message) => {
+  if (consoleDiagnostics.length < 64) {
+    consoleDiagnostics.push({ type: message.type(), text: message.text().slice(0, 4096) });
+  }
   if (message.type() === "error") {
     errors.push(message.text());
   }
@@ -51,12 +55,15 @@ try {
       undefined,
       { timeout: 120_000 });
   } catch (error) {
-    const stage = await page.evaluate(() =>
-      document.body.dataset.progpuNativeStage ?? "uninitialized");
+    const state = await page.evaluate(() => ({ ...document.body.dataset }));
+    const stage = state.progpuNativeStage ?? "uninitialized";
+    await fs.writeFile(path.join(evidenceDirectory, "progpu-native-browser-timeout.json"),
+      JSON.stringify({ url: testUrl.toString(), deviceScaleFactor, useSwiftShader,
+        state, errors, consoleDiagnostics }, null, 2));
     const diagnostics = errors.length === 0 ? "no browser errors" :
       errors.join(" | ");
     throw new Error(
-      `Browser smoke timed out at native stage '${stage}': ${diagnostics}.`, {
+      `Browser smoke timed out at native stage '${stage}', readback '${state.progpuNativeReadback ?? "uninitialized"}': ${diagnostics}.`, {
       cause: error
     });
   }

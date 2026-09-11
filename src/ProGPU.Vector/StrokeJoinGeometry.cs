@@ -44,6 +44,27 @@ public static class StrokeJoinGeometry
             maxRoundSegments);
     }
 
+    public static StrokeJoinTriangle[] CreateWpfLineJoin(
+        PenLineJoin lineJoin,
+        float thickness,
+        float miterLimit,
+        Vector2 previousPoint,
+        Vector2 joinPoint,
+        Vector2 nextPoint,
+        bool isSmoothJoin = false,
+        int maxRoundSegments = MaxTrianglesPerJoin)
+    {
+        return CreateWpfDirectionalJoin(
+            lineJoin,
+            thickness,
+            miterLimit,
+            joinPoint,
+            joinPoint - previousPoint,
+            nextPoint - joinPoint,
+            isSmoothJoin,
+            maxRoundSegments);
+    }
+
     public static int WriteLineJoin(
         Span<StrokeJoinTriangle> destination,
         PenLineJoin lineJoin,
@@ -55,6 +76,55 @@ public static class StrokeJoinGeometry
         bool isSmoothJoin = false,
         int maxRoundSegments = MaxTrianglesPerJoin)
     {
+        return WriteLineJoinCore(
+            destination,
+            lineJoin,
+            thickness,
+            miterLimit,
+            previousPoint,
+            joinPoint,
+            nextPoint,
+            isSmoothJoin,
+            maxRoundSegments,
+            useWpfJoinSemantics: false);
+    }
+
+    public static int WriteWpfLineJoin(
+        Span<StrokeJoinTriangle> destination,
+        PenLineJoin lineJoin,
+        float thickness,
+        float miterLimit,
+        Vector2 previousPoint,
+        Vector2 joinPoint,
+        Vector2 nextPoint,
+        bool isSmoothJoin = false,
+        int maxRoundSegments = MaxTrianglesPerJoin)
+    {
+        return WriteLineJoinCore(
+            destination,
+            lineJoin,
+            thickness,
+            miterLimit,
+            previousPoint,
+            joinPoint,
+            nextPoint,
+            isSmoothJoin,
+            maxRoundSegments,
+            useWpfJoinSemantics: true);
+    }
+
+    private static int WriteLineJoinCore(
+        Span<StrokeJoinTriangle> destination,
+        PenLineJoin lineJoin,
+        float thickness,
+        float miterLimit,
+        Vector2 previousPoint,
+        Vector2 joinPoint,
+        Vector2 nextPoint,
+        bool isSmoothJoin,
+        int maxRoundSegments,
+        bool useWpfJoinSemantics)
+    {
         if (isSmoothJoin || !float.IsFinite(thickness) || thickness <= Epsilon ||
             !TryNormalize(joinPoint - previousPoint, out var incomingDirection) ||
             !TryNormalize(nextPoint - joinPoint, out var outgoingDirection))
@@ -65,7 +135,16 @@ public static class StrokeJoinGeometry
         var turn = Cross(incomingDirection, outgoingDirection);
         if (MathF.Abs(turn) <= Epsilon)
         {
-            return 0;
+            return useWpfJoinSemantics &&
+                Vector2.Dot(incomingDirection, outgoingDirection) < -1f + Epsilon
+                ? WriteReversalJoin(
+                    destination,
+                    lineJoin,
+                    thickness,
+                    joinPoint,
+                    incomingDirection,
+                    Math.Clamp(maxRoundSegments, 1, MaxTrianglesPerJoin))
+                : 0;
         }
 
         var radius = thickness * 0.5f;
@@ -89,14 +168,44 @@ public static class StrokeJoinGeometry
                 outgoingDirection,
                 out var miterPoint) &&
                 Vector2.Distance(joinPoint, miterPoint) <= radius * clampedMiterLimit + Epsilon;
-            var count = hasMiter ? 2 : 1;
-            EnsureDestination(destination, count);
-            destination[0] = new StrokeJoinTriangle(previousOuterPoint, joinPoint, nextOuterPoint);
             if (hasMiter)
             {
+                EnsureDestination(destination, 2);
+                destination[0] = new StrokeJoinTriangle(previousOuterPoint, joinPoint, nextOuterPoint);
                 destination[1] = new StrokeJoinTriangle(previousOuterPoint, miterPoint, nextOuterPoint);
+                return 2;
             }
-            return count;
+
+            if (!useWpfJoinSemantics)
+            {
+                EnsureDestination(destination, 1);
+                destination[0] = new StrokeJoinTriangle(
+                    previousOuterPoint,
+                    joinPoint,
+                    nextOuterPoint);
+                return 1;
+            }
+
+            if (!TryGetClippedMiterPoints(
+                    incomingDirection,
+                    outgoingDirection,
+                    previousOuterPoint,
+                    nextOuterPoint,
+                    radius,
+                    clampedMiterLimit,
+                    out var firstClipPoint,
+                    out var secondClipPoint))
+            {
+                EnsureDestination(destination, 1);
+                destination[0] = new StrokeJoinTriangle(previousOuterPoint, joinPoint, nextOuterPoint);
+                return 1;
+            }
+
+            EnsureDestination(destination, 3);
+            destination[0] = new StrokeJoinTriangle(joinPoint, previousOuterPoint, firstClipPoint);
+            destination[1] = new StrokeJoinTriangle(joinPoint, firstClipPoint, secondClipPoint);
+            destination[2] = new StrokeJoinTriangle(joinPoint, secondClipPoint, nextOuterPoint);
+            return 3;
         }
 
         var start = MathF.Atan2(
@@ -160,6 +269,51 @@ public static class StrokeJoinGeometry
         bool isSmoothJoin = false,
         int maxRoundSegments = MaxTrianglesPerJoin)
     {
+        return CreateDirectionalJoinCore(
+            lineJoin,
+            thickness,
+            miterLimit,
+            joinPoint,
+            incomingDirection,
+            outgoingDirection,
+            isSmoothJoin,
+            maxRoundSegments,
+            useWpfJoinSemantics: false);
+    }
+
+    public static StrokeJoinTriangle[] CreateWpfDirectionalJoin(
+        PenLineJoin lineJoin,
+        float thickness,
+        float miterLimit,
+        Vector2 joinPoint,
+        Vector2 incomingDirection,
+        Vector2 outgoingDirection,
+        bool isSmoothJoin = false,
+        int maxRoundSegments = MaxTrianglesPerJoin)
+    {
+        return CreateDirectionalJoinCore(
+            lineJoin,
+            thickness,
+            miterLimit,
+            joinPoint,
+            incomingDirection,
+            outgoingDirection,
+            isSmoothJoin,
+            maxRoundSegments,
+            useWpfJoinSemantics: true);
+    }
+
+    private static StrokeJoinTriangle[] CreateDirectionalJoinCore(
+        PenLineJoin lineJoin,
+        float thickness,
+        float miterLimit,
+        Vector2 joinPoint,
+        Vector2 incomingDirection,
+        Vector2 outgoingDirection,
+        bool isSmoothJoin,
+        int maxRoundSegments,
+        bool useWpfJoinSemantics)
+    {
         if (isSmoothJoin || !float.IsFinite(thickness) || thickness <= Epsilon)
         {
             return Array.Empty<StrokeJoinTriangle>();
@@ -174,7 +328,22 @@ public static class StrokeJoinGeometry
         var turn = Cross(incomingDirection, outgoingDirection);
         if (MathF.Abs(turn) <= Epsilon)
         {
-            return Array.Empty<StrokeJoinTriangle>();
+            if (!useWpfJoinSemantics ||
+                Vector2.Dot(incomingDirection, outgoingDirection) >= -1f + Epsilon)
+            {
+                return Array.Empty<StrokeJoinTriangle>();
+            }
+
+            Span<StrokeJoinTriangle> reversal =
+                stackalloc StrokeJoinTriangle[MaxTrianglesPerJoin];
+            var reversalCount = WriteReversalJoin(
+                reversal,
+                lineJoin,
+                thickness,
+                joinPoint,
+                incomingDirection,
+                Math.Clamp(maxRoundSegments, 1, MaxTrianglesPerJoin));
+            return reversal[..reversalCount].ToArray();
         }
 
         var radius = thickness * 0.5f;
@@ -200,7 +369,8 @@ public static class StrokeJoinGeometry
                 joinPoint,
                 nextOuterPoint,
                 radius,
-                miterLimit)
+                miterLimit,
+                useWpfJoinSemantics)
         };
     }
 
@@ -212,6 +382,45 @@ public static class StrokeJoinGeometry
         return new[] { new StrokeJoinTriangle(previousOuterPoint, joinPoint, nextOuterPoint) };
     }
 
+    private static int WriteReversalJoin(
+        Span<StrokeJoinTriangle> destination,
+        PenLineJoin lineJoin,
+        float thickness,
+        Vector2 joinPoint,
+        Vector2 incomingDirection,
+        int maxRoundSegments)
+    {
+        var radius = thickness * 0.5f;
+        var normal = GetLeftNormal(incomingDirection);
+        if (lineJoin == PenLineJoin.Round)
+        {
+            var segmentCount = Math.Clamp(maxRoundSegments, 1, MaxTrianglesPerJoin);
+            EnsureDestination(destination, segmentCount);
+            for (var index = 0; index < segmentCount; index++)
+            {
+                var angle0 = MathF.PI * index / segmentCount;
+                var angle1 = MathF.PI * (index + 1) / segmentCount;
+                var point0 = joinPoint +
+                    (normal * MathF.Cos(angle0) + incomingDirection * MathF.Sin(angle0)) * radius;
+                var point1 = joinPoint +
+                    (normal * MathF.Cos(angle1) + incomingDirection * MathF.Sin(angle1)) * radius;
+                destination[index] = new StrokeJoinTriangle(joinPoint, point0, point1);
+            }
+
+            return segmentCount;
+        }
+
+        EnsureDestination(destination, 3);
+        var first = joinPoint + normal * radius;
+        var second = joinPoint - normal * radius;
+        var firstOuter = first + incomingDirection * radius;
+        var secondOuter = second + incomingDirection * radius;
+        destination[0] = new StrokeJoinTriangle(joinPoint, first, firstOuter);
+        destination[1] = new StrokeJoinTriangle(joinPoint, firstOuter, secondOuter);
+        destination[2] = new StrokeJoinTriangle(joinPoint, secondOuter, second);
+        return 3;
+    }
+
     private static StrokeJoinTriangle[] CreateMiterJoin(
         Vector2 incomingDirection,
         Vector2 outgoingDirection,
@@ -219,7 +428,8 @@ public static class StrokeJoinGeometry
         Vector2 joinPoint,
         Vector2 nextOuterPoint,
         float radius,
-        float miterLimit)
+        float miterLimit,
+        bool useWpfJoinSemantics)
     {
         var clampedMiterLimit = float.IsFinite(miterLimit) && miterLimit >= 1.0f ? miterLimit : 1.0f;
         if (TryIntersectLines(previousOuterPoint, incomingDirection, nextOuterPoint, outgoingDirection, out var miterPoint) &&
@@ -232,7 +442,61 @@ public static class StrokeJoinGeometry
             };
         }
 
+        if (!useWpfJoinSemantics)
+        {
+            return CreateBevelJoin(previousOuterPoint, joinPoint, nextOuterPoint);
+        }
+
+        if (TryGetClippedMiterPoints(
+                incomingDirection,
+                outgoingDirection,
+                previousOuterPoint,
+                nextOuterPoint,
+                radius,
+                clampedMiterLimit,
+                out var firstClipPoint,
+                out var secondClipPoint))
+        {
+            return new[]
+            {
+                new StrokeJoinTriangle(joinPoint, previousOuterPoint, firstClipPoint),
+                new StrokeJoinTriangle(joinPoint, firstClipPoint, secondClipPoint),
+                new StrokeJoinTriangle(joinPoint, secondClipPoint, nextOuterPoint)
+            };
+        }
+
         return CreateBevelJoin(previousOuterPoint, joinPoint, nextOuterPoint);
+    }
+
+    private static bool TryGetClippedMiterPoints(
+        Vector2 incomingDirection,
+        Vector2 outgoingDirection,
+        Vector2 previousOuterPoint,
+        Vector2 nextOuterPoint,
+        float radius,
+        float miterLimit,
+        out Vector2 firstClipPoint,
+        out Vector2 secondClipPoint)
+    {
+        var dot = Vector2.Dot(incomingDirection, outgoingDirection);
+        var denominator = radius * MathF.Sqrt(MathF.Max(0f, (1f - dot) * 0.5f));
+        var numerator = radius * MathF.Sqrt(MathF.Max(0f, (1f + dot) * 0.5f));
+        if (!float.IsFinite(denominator) || denominator <= Epsilon)
+        {
+            firstClipPoint = default;
+            secondClipPoint = default;
+            return false;
+        }
+
+        var ratio = MathF.Max(0f, (miterLimit * radius - numerator) / denominator);
+        var offset = radius * ratio;
+        firstClipPoint = new Vector2(
+            previousOuterPoint.X + incomingDirection.X * offset,
+            previousOuterPoint.Y + incomingDirection.Y * offset);
+        secondClipPoint = new Vector2(
+            nextOuterPoint.X - outgoingDirection.X * offset,
+            nextOuterPoint.Y - outgoingDirection.Y * offset);
+        return IsFinite(firstClipPoint) && IsFinite(secondClipPoint);
     }
 
     private static StrokeJoinTriangle[] CreateRoundJoin(
@@ -305,6 +569,11 @@ public static class StrokeJoinGeometry
     private static float Cross(Vector2 a, Vector2 b)
     {
         return a.X * b.Y - a.Y * b.X;
+    }
+
+    private static bool IsFinite(Vector2 point)
+    {
+        return float.IsFinite(point.X) && float.IsFinite(point.Y);
     }
 
     private static bool TryIntersectLines(

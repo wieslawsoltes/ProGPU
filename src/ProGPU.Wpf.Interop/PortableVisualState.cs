@@ -53,21 +53,41 @@ public sealed class PortableVisualState
 
     public object? BitmapScalingMode { get; set; }
 
+    public bool HasPortableBitmapScalingMode { get; set; }
+
+    public PortableBitmapScalingMode PortableBitmapScalingMode { get; set; }
+
     public bool HasEdgeMode { get; set; }
 
     public object? EdgeMode { get; set; }
+
+    public bool HasPortableEdgeMode { get; set; }
+
+    public PortableEdgeMode PortableEdgeMode { get; set; }
 
     public bool HasClearTypeHint { get; set; }
 
     public object? ClearTypeHint { get; set; }
 
+    public bool HasPortableClearTypeHint { get; set; }
+
+    public PortableClearTypeHint PortableClearTypeHint { get; set; }
+
     public bool HasTextRenderingMode { get; set; }
 
     public object? TextRenderingMode { get; set; }
 
+    public bool HasPortableTextRenderingMode { get; set; }
+
+    public PortableTextRenderingMode PortableTextRenderingMode { get; set; }
+
     public bool HasTextHintingMode { get; set; }
 
     public object? TextHintingMode { get; set; }
+
+    public bool HasPortableTextHintingMode { get; set; }
+
+    public PortableTextHintingMode PortableTextHintingMode { get; set; }
 
     public bool HasSnappingGuidelinesX { get; set; }
 

@@ -146,7 +146,13 @@ static class ArcSegmentGeometry
         theta1 = MathF.Atan2(uy, ux);
         float theta2 = MathF.Atan2(vy, vx);
 
-        deltaTheta = theta2 - theta1;
+        // A zero center offset means the endpoints are antipodal, including
+        // radii corrected to fit the chord. Preserve exactly one half turn;
+        // subtracting branch-cut angles can otherwise add an ULP and an extra
+        // cubic span to a canonical ellipse export.
+        deltaTheta = sqTerm == 0.0f
+            ? (sweepDirection == SweepDirection.Clockwise ? MathF.PI : -MathF.PI)
+            : theta2 - theta1;
         if (sweepDirection == SweepDirection.Clockwise)
         {
             if (deltaTheta < 0.0f)
@@ -605,6 +611,11 @@ static class ArcSegmentGeometry
             normalizedPatternIndex,
             normalizedDistanceInPattern,
             dashSegments);
+        if (dashSegmentCount < 0)
+        {
+            dashSegments = Array.Empty<ArcDashSegment>();
+            return false;
+        }
         if (dashSegmentCount == 0)
         {
             dashSegments = Array.Empty<ArcDashSegment>();
@@ -671,6 +682,7 @@ static class ArcSegmentGeometry
                 {
                     dashSegments[dashSegmentCount++] = new ArcDashSegment(dashStart, dashArc);
                 }
+                else return -1;
             }
 
             DashPattern.Advance(dashPattern, ref patternIndex, ref distanceInPattern, remainingInElement, step);
@@ -720,7 +732,7 @@ static class ArcSegmentGeometry
             cumulativeLengths[i] = totalLength;
         }
 
-        return totalLength > Epsilon;
+        return float.IsFinite(totalLength) && totalLength > Epsilon;
     }
 
     private static float GetArcParameterAtDistance(float[] cumulativeLengths, float distance)

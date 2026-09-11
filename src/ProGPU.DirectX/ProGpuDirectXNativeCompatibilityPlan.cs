@@ -9,7 +9,11 @@ public enum ProGpuDirectXNativeModuleKind
     Win32System,
     SciChartLicensing,
     SciChartVisualXccelerator,
-    ManagedAssemblyHint
+    ManagedAssemblyHint,
+    Direct2D,
+    DirectWrite,
+    WindowsImagingComponent,
+    Win2D
 }
 
 public enum ProGpuDirectXNativeCompatibilityAction
@@ -17,7 +21,8 @@ public enum ProGpuDirectXNativeCompatibilityAction
     Investigate,
     ImplementProGpuNativeFacade,
     ImplementHostOsAbstraction,
-    ManagedAssemblyReferenceOnly
+    ManagedAssemblyReferenceOnly,
+    UseWindowsNativeGraphicsInterop
 }
 
 public sealed record ProGpuDirectXNativeCompatibilityModule(
@@ -34,6 +39,9 @@ public sealed record ProGpuDirectXNativeCompatibilityPlan(
 
     public bool RequiresHostOsAbstraction =>
         Modules.Any(static module => module.Action == ProGpuDirectXNativeCompatibilityAction.ImplementHostOsAbstraction);
+
+    public bool RequiresWindowsNativeGraphicsInterop =>
+        Modules.Any(static module => module.Action == ProGpuDirectXNativeCompatibilityAction.UseWindowsNativeGraphicsInterop);
 
     public IReadOnlyList<string> ProGpuNativeFacadeModules =>
         Modules
@@ -53,6 +61,12 @@ public sealed record ProGpuDirectXNativeCompatibilityPlan(
             .Select(static module => module.ModuleName)
             .ToArray();
 
+    public IReadOnlyList<string> WindowsNativeGraphicsInteropModules =>
+        Modules
+            .Where(static module => module.Action == ProGpuDirectXNativeCompatibilityAction.UseWindowsNativeGraphicsInterop)
+            .Select(static module => module.ModuleName)
+            .ToArray();
+
     public IReadOnlyList<string> UnknownModules =>
         Modules
             .Where(static module => module.Action == ProGpuDirectXNativeCompatibilityAction.Investigate)
@@ -69,6 +83,7 @@ public sealed record ProGpuDirectXNativeCompatibilityPlan(
         List<string> parts = [];
         AddModuleGroup(parts, "ProGPU native facade", ProGpuNativeFacadeModules);
         AddModuleGroup(parts, "host OS abstraction", HostOsAbstractionModules);
+        AddModuleGroup(parts, "Windows native graphics interop", WindowsNativeGraphicsInteropModules);
         AddModuleGroup(parts, "managed assembly hints", ManagedAssemblyHints);
         AddModuleGroup(parts, "investigate", UnknownModules);
         return parts.Count == 0 ? "none" : string.Join("; ", parts);
@@ -179,6 +194,42 @@ public static class ProGpuDirectXNativeCompatibilityPlanner
                 ProGpuDirectXNativeModuleKind.D3DCompiler,
                 ProGpuDirectXNativeCompatibilityAction.ImplementProGpuNativeFacade,
                 "D3DCompiler entry points should feed the ProGPU HLSL/bytecode translation path.");
+        }
+
+        if (comparisonName == "d2d1.dll")
+        {
+            return new ProGpuDirectXNativeCompatibilityModule(
+                normalized,
+                ProGpuDirectXNativeModuleKind.Direct2D,
+                ProGpuDirectXNativeCompatibilityAction.UseWindowsNativeGraphicsInterop,
+                "Direct2D is a Windows COM API. Use the operating-system runtime through typed DXGI shared-surface interop; portable drawing belongs in the ProGPU Canvas API, not a d2d1.dll facade.");
+        }
+
+        if (comparisonName == "dwrite.dll")
+        {
+            return new ProGpuDirectXNativeCompatibilityModule(
+                normalized,
+                ProGpuDirectXNativeModuleKind.DirectWrite,
+                ProGpuDirectXNativeCompatibilityAction.UseWindowsNativeGraphicsInterop,
+                "DirectWrite is a Windows COM API. Windows hosts may use it through a typed boundary; portable text remains in ProGPU's shaping and glyph pipeline.");
+        }
+
+        if (comparisonName == "windowscodecs.dll")
+        {
+            return new ProGpuDirectXNativeCompatibilityModule(
+                normalized,
+                ProGpuDirectXNativeModuleKind.WindowsImagingComponent,
+                ProGpuDirectXNativeCompatibilityAction.UseWindowsNativeGraphicsInterop,
+                "WIC is a Windows COM API. Windows hosts may use the system decoder through typed texture interop; portable image decoding must not impersonate windowscodecs.dll.");
+        }
+
+        if (comparisonName == "microsoft.graphics.canvas.dll")
+        {
+            return new ProGpuDirectXNativeCompatibilityModule(
+                normalized,
+                ProGpuDirectXNativeModuleKind.Win2D,
+                ProGpuDirectXNativeCompatibilityAction.UseWindowsNativeGraphicsInterop,
+                "The native Win2D WinRT component requires Windows Direct2D/Direct3D interop. Use the real component on Windows; portable source compatibility belongs in the ProGPU Canvas API.");
         }
 
         if (Win32SystemModules.Contains(comparisonName))

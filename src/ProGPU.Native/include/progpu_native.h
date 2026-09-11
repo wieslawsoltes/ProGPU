@@ -20,7 +20,7 @@ typedef struct progpu_native_engine progpu_native_engine;
 typedef struct progpu_native_text_context progpu_native_text_context;
 
 enum {
-    PROGPU_NATIVE_ABI_VERSION = 3U,
+    PROGPU_NATIVE_ABI_VERSION = 4U,
     PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05 = 1U,
     PROGPU_NATIVE_BACKEND_ABI_DAWN_WEBSCENE_2026_07 = 2U,
     PROGPU_NATIVE_BACKEND_ABI_BROWSER_WEBGPU_2025_10 = 3U
@@ -81,6 +81,9 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_IMAGE_FRAME_MIPMAP_SAMPLING (UINT64_C(1) << 49U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_VECTOR_CLIP_MASK (UINT64_C(1) << 50U)
 #define PROGPU_NATIVE_CAPABILITY_RETAINED_GPU_HIT_TESTING (UINT64_C(1) << 51U)
+#define PROGPU_NATIVE_CAPABILITY_WPF_MIL_CHANNEL (UINT64_C(1) << 52U)
+#define PROGPU_NATIVE_CAPABILITY_GROUP_BOX_BLUR (UINT64_C(1) << 53U)
+#define PROGPU_NATIVE_CAPABILITY_SEMANTIC_MESH_3D_MATERIALS (UINT64_C(1) << 54U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -99,6 +102,7 @@ enum {
     PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES = 256U * 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_BRUSHES = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS = 64U * 1024U,
+    PROGPU_NATIVE_SCENE_MAX_GUIDELINES_PER_AXIS = 65535U,
     PROGPU_NATIVE_SCENE_MAX_DRAW_BRUSH_INDICES = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_IMAGE_PATCHES = 64U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_TEXT_STYLES = 1024U * 1024U,
@@ -107,6 +111,14 @@ enum {
     PROGPU_NATIVE_SCENE_GLYPH_STYLED = 1U << 1U,
     PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS = 1U << 2U,
     PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE = 1U << 3U,
+    /* Upload-backed image payload bytes use BGRA8 rather than RGBA8. */
+    PROGPU_NATIVE_SCENE_IMAGE_BGRA8 = 1U << 4U,
+    /* Upload-backed single-channel UNORM bytes; sampled red, zero GB, one A. */
+    PROGPU_NATIVE_SCENE_IMAGE_R8 = 1U << 5U,
+    /* Image payload is a picture descriptor, auxiliary bytes a nested scene. */
+    PROGPU_NATIVE_SCENE_IMAGE_PICTURE = 1U << 6U,
+    /* Picture-mask stream renders at the source extent carried in reserved0/1. */
+    PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT = 1U << 0U,
     PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED = 1U << 0U
 };
 
@@ -126,7 +138,10 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH = 13,
     PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH = 14,
     PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH = 15,
-    PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX = 16
+    PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX = 16,
+    /* Device-space WPF/MIL pixel-snapping coordinates referenced by state. */
+    PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET = 17,
+    PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE = 18
 } progpu_native_scene_resource_kind;
 
 typedef enum progpu_native_scene_text_rendering_mode {
@@ -167,6 +182,19 @@ typedef enum progpu_native_scene_gradient_spread {
     PROGPU_NATIVE_SCENE_GRADIENT_REPEAT = 2,
     PROGPU_NATIVE_SCENE_GRADIENT_DECAL = 3
 } progpu_native_scene_gradient_spread;
+
+enum {
+    PROGPU_NATIVE_SCENE_GRADIENT_SPREAD_MASK = 0x3fffffffU,
+    /*
+     * Colors[0]/Colors[1] contain the distinct start/end colors sampled only
+     * outside a Pad gradient. Exact t=0/t=1 coordinates still sample the
+     * normalized stop range. This preserves WPF duplicate-endpoint semantics
+     * without widening the canonical 256-byte brush ABI.
+     */
+    PROGPU_NATIVE_SCENE_GRADIENT_PAD_OUTSIDE_COLORS = 0x40000000U,
+    /* Colors[0] is returned when a two-point conical solve has no coverage. */
+    PROGPU_NATIVE_SCENE_GRADIENT_CONICAL_OUTSIDE_COLOR = 0x80000000U
+};
 
 typedef enum progpu_native_scene_gradient_interpolation {
     PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB = 0,
@@ -223,7 +251,17 @@ enum {
 
 enum {
     PROGPU_NATIVE_SCENE_STATE_CLIP_RECT = 1U << 0U,
-    PROGPU_NATIVE_SCENE_STATE_MASK = 1U << 1U
+    PROGPU_NATIVE_SCENE_STATE_MASK = 1U << 1U,
+    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET = 1U << 2U
+};
+
+enum {
+    /* Multi-guide point deformation is valid only for local-cache composites. */
+    PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY = 1U << 0U,
+    /* Multi-guide point deformation is applied to ordinary draw geometry. */
+    PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT = 1U << 1U,
+    /* One device-pixel offset double follows every coordinate double. */
+    PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS = 1U << 2U
 };
 
 enum {
@@ -234,8 +272,24 @@ enum {
     /* Source RGB channels are already multiplied by source alpha. */
     PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED = 1U << 3U,
     /* A bounded patch-batch suffix follows all other image suffixes. */
-    PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH = 1U << 4U
+    PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH = 1U << 4U,
+    /* U/V sampler addressing; the value in each two-bit field is the
+     * progpu_native_image_address_mode value. */
+    PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT = 5U,
+    PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK = 3U << 5U,
+    PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT = 7U,
+    PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK = 3U << 7U,
+    /* Allows finite positive source rectangles outside the image extent. */
+    PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT = 1U << 9U,
+    /* Ignore sampled source alpha and treat every texel as fully opaque. */
+    PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE = 1U << 10U
 };
+
+typedef enum progpu_native_image_address_mode {
+    PROGPU_NATIVE_IMAGE_ADDRESS_CLAMP = 0,
+    PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT = 1,
+    PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT = 2
+} progpu_native_image_address_mode;
 
 enum {
     /* Apply Skia-compatible luma-to-alpha after the affine transform. */
@@ -262,7 +316,30 @@ enum {
 enum {
     PROGPU_NATIVE_SCENE_LAYER_BOUNDS = 1U << 0U,
     PROGPU_NATIVE_SCENE_LAYER_BACKDROP = 1U << 1U,
-    PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION = 1U << 2U
+    PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION = 1U << 2U,
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT = 1U << 3U,
+    /*
+     * Rasterizes cached content into layer-local coordinates and composites
+     * it through the STATE resource referenced by reserved0. Requires
+     * CACHE_CONTENT, BOUNDS, a zero bounds origin, and a canonical
+     * transform/clip/guideline composite state.
+    */
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE = 1U << 4U,
+    /* Selects nearest-neighbor sampling for a CACHE_LOCAL_SPACE composite. */
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST = 1U << 5U,
+    /* Selects bounded Fant-style minification for a local cache composite. */
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT = 1U << 6U,
+    /* Applies the clip-only STATE in reserved0 to a materialized composite. */
+    PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE = 1U << 7U,
+    /* reserved1 references TILE_COMPOSITE; requires local cache. */
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE = 1U << 8U,
+    /* Allows sequential consumers of identical local cached content to share
+     * one GPU page. Requires CACHE_LOCAL_SPACE. All consumers of the same
+     * composite_revision must opt in and have identical content_revision and
+     * raster extent. Recursive use of an active cache owner is invalid.
+     * The producer must preserve identical source content for that revision;
+     * opacity, composite state, sampling and final mask may differ. */
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED = 1U << 9U
 };
 
 typedef enum progpu_native_image_sampling {
@@ -275,7 +352,9 @@ typedef enum progpu_native_image_sampling {
     PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_NEAREST_MIP_NEAREST = 6,
     PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_LINEAR = 7,
     PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_NEAREST = 8,
-    PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_NEAREST_MIP_LINEAR = 9
+    PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_NEAREST_MIP_LINEAR = 9,
+    /* WPF Fant/HighQuality bounded area-prefilter minification. */
+    PROGPU_NATIVE_IMAGE_SAMPLING_FANT = 10
 } progpu_native_image_sampling;
 
 typedef enum progpu_native_scene_image_patch_kind {
@@ -299,7 +378,8 @@ typedef enum progpu_native_clip_operation {
 typedef enum progpu_native_group_effect_kind {
     PROGPU_NATIVE_GROUP_EFFECT_NONE = 0,
     PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR = 1,
-    PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW = 2
+    PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW = 2,
+    PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR = 3
 } progpu_native_group_effect_kind;
 
 /* Values intentionally match ProGPU.Backend.GpuBlendMode. */
@@ -352,7 +432,15 @@ typedef enum progpu_native_image_source_flags {
 
 enum {
     PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH = 1U << 0U,
-    PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD = 1U << 1U
+    PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD = 1U << 1U,
+    /* Path frames only: force the multi-pass signed-winding compatibility
+     * pipeline instead of the fastest bounded inline vector evaluator. */
+    PROGPU_NATIVE_PATH_FRAME_STAGED_SIGNED_WINDING = 1U << 2U
+};
+
+enum {
+    /* Clip chains default to the fastest bounded inline vector evaluator. */
+    PROGPU_NATIVE_CLIP_CHAIN_STAGED_SIGNED_WINDING = 1U << 0U
 };
 
 typedef enum progpu_native_status {
@@ -833,6 +921,43 @@ typedef struct progpu_native_engine_options {
     uint64_t flags;
 } progpu_native_engine_options;
 
+typedef enum progpu_native_engine_flag {
+    /*
+     * Rasterize cold monochrome glyph coverage with the intrinsic-SIMD CPU
+     * implementation and upload it to the retained atlas.
+     */
+    /* PROGPU_CSHARP_ULONG: EngineGlyphIntrinsicSimdCpuFallback */
+    PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK = 1ULL,
+    /* Source-compatible name retained for clients built against ABI v3. */
+    PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK =
+        PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK,
+    /*
+     * Run the equivalent fragment shader directly against the retained R8
+     * atlas. This is the automatic Parallels D3D12 fallback and stays on GPU.
+     */
+    /* PROGPU_CSHARP_ULONG: EngineGlyphRasterShaderFallback */
+    PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK = 2ULL,
+    /* Explicit scalar CPU reference path for diagnostics and parity tests. */
+    /* PROGPU_CSHARP_ULONG: EngineGlyphScalarCpuFallback */
+    PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK = 4ULL,
+    /*
+     * Reconstruct base-level nearest/linear image samples using 1/4 texel
+     * loads in the canonical fragment shader. Fant preserves its bounded
+     * 4x4 footprint using explicit bilinear taps (at most 64 texel loads).
+     * No readback or extra pass.
+     * Independent of glyph flags; immutable for the engine lifetime.
+     * Raw C hosts select this after adapter qualification (Parallels D3D12
+     * requires it). Zero preserves the native sampler on other adapters.
+     * Does not replace cubic, mipmapped, anisotropic or effect samplers.
+     */
+    /* PROGPU_CSHARP_ULONG: EngineImageExplicitShaderSampling */
+    PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING = 8ULL,
+    /* Fail instead of using an explicit occupied-tile shader when a host
+     * forces hardware sampling. Mutually exclusive with explicit sampling. */
+    /* PROGPU_CSHARP_ULONG: EngineImageRequireNativeSampling */
+    PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING = 16ULL
+} progpu_native_engine_flag;
+
 /*
  * Same-device image views are bound outside the immutable pointer-free scene
  * stream. Flags carries progpu_native_scene_external_image_role. The engine
@@ -912,7 +1037,8 @@ enum {
     PROGPU_NATIVE_POLYLINE_END_CAP_MASK = 3U << 5U,
     PROGPU_NATIVE_POLYLINE_JOIN_SHIFT = 7U,
     PROGPU_NATIVE_POLYLINE_JOIN_MASK = 3U << 7U,
-    PROGPU_NATIVE_POLYLINE_FLAG_CLOSED = 1U << 9U
+    PROGPU_NATIVE_POLYLINE_FLAG_CLOSED = 1U << 9U,
+    PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS = 1U << 10U
 };
 
 typedef enum progpu_native_geometry_primitive_kind {
@@ -986,7 +1112,8 @@ typedef struct progpu_native_image_rect {
  * PROGPU_NATIVE_SCENE_STATE_MASK is set, mask_resource_index references a
  * preceding LAYER_MASK resource and coverage is applied independently to each
  * draw. The index must be zero when the flag is absent. Reserved fields must
- * remain zero.
+ * remain zero. When PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET is set,
+ * guideline_resource_index references a preceding GUIDELINE_SET resource.
  */
 typedef struct progpu_native_scene_state {
     uint32_t struct_size;
@@ -996,8 +1123,31 @@ typedef struct progpu_native_scene_state {
     uint32_t reserved;
     progpu_native_image_rect clip_rect;
     uint32_t mask_resource_index;
-    uint32_t reserved1;
+    uint32_t guideline_resource_index;
 } progpu_native_scene_state;
+
+/*
+ * Prefix of one immutable static WPF/MIL guideline resource. The prefix is
+ * followed by guideline_x_count doubles and then guideline_y_count doubles.
+ * With flags zero, version one accepts at most one coordinate on each axis:
+ * that exact uniform-offset subset works for every semantic draw family. With
+ * GUIDELINE_COMPOSITE_ONLY, at least one axis has multiple sorted coordinates
+ * and the State may be referenced only by a CACHE_LOCAL_SPACE composite. The
+ * executor applies WPF nearest-guide snapping independently to the retained
+ * page's four vertices. With GUIDELINE_PER_POINT, at least one axis has
+ * multiple sorted coordinates and ordinary supported draw geometry is first
+ * transformed to target space, then each path point/control point is snapped
+ * to the nearest guide's WPF pixel offset. The multi-guide flags are mutually
+ * exclusive. With GUIDELINE_EXPLICIT_OFFSETS, an equally sized X/Y offset
+ * array follows both coordinate arrays and replaces grid-derived offsets;
+ * offsets are expressed in physical device pixels.
+ */
+typedef struct progpu_native_scene_guideline_set {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t guideline_x_count;
+    uint32_t guideline_y_count;
+} progpu_native_scene_guideline_set;
 
 /*
  * Pointer-free semantic isolated-layer descriptor stored directly in one
@@ -1008,6 +1158,28 @@ typedef struct progpu_native_scene_state {
  * references PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK and an effect references
  * PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN; NO_INDEX disables each feature.
  * Revisions are caller-owned retained identities; zero disables reuse hints.
+ * With LAYER_CACHE_CONTENT, composite_revision is the stable cache-owner
+ * identity and content_revision is the subtree pixel version. Both must be
+ * nonzero. With LAYER_CACHE_LOCAL_SPACE, bounds describe the zero-origin
+ * raster-page extent and reserved0 is a preceding transform/clip/guideline
+ * PROGPU_NATIVE_SCENE_RESOURCE_STATE used to place the cached quad in its
+ * parent target. Its optional mask_resource_index is applied to the cached
+ * quad during that composite and does not participate in retained content
+ * reuse; effects remain unsupported on local cached layers. LAYER_CACHE_NEAREST
+ * selects nearest-neighbor sampling for that local cached quad. LAYER_CACHE_FANT
+ * selects a bounded area-prefilter reconstruction for WPF Fant/HighQuality
+ * minification and normal linear reconstruction otherwise. Both sampling flags
+ * are invalid without LAYER_CACHE_LOCAL_SPACE and are mutually exclusive.
+ * LAYER_COMPOSITE_STATE applies the identity-transform, clip-only State in
+ * reserved0 while restoring any materialized non-local layer. It is used for
+ * final-output clipping after effects without clipping their sampled input.
+ * The 64-byte version-one record remains unchanged.
+ */
+/*
+ * CACHE_TILE restores the occupied local page over the TILE_COMPOSITE output
+ * rectangle in parent logical target coordinates. reserved0 remains the final
+ * clip-only composite state; reserved1 is the tile-composite resource index.
+ * The tile mapping is output-only state, not captured content identity.
  */
 typedef struct progpu_native_scene_layer {
     uint32_t struct_size;
@@ -1022,6 +1194,30 @@ typedef struct progpu_native_scene_layer {
     uint32_t reserved0;
     uint32_t reserved1;
 } progpu_native_scene_layer;
+
+/* Zero-origin premultiplied page; inverse mapping yields normalized tile UVs.
+ * No pointers, texture ownership or source data cross this 64-byte record.
+ * Address modes use progpu_native_image_address_mode; the containing layer's
+ * CACHE_NEAREST/CACHE_FANT flags select nearest/Fant, otherwise linear. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeSceneTileComposite */
+typedef struct progpu_native_scene_tile_composite {
+    uint32_t struct_size;
+    uint32_t address_u;
+    uint32_t address_v;
+    uint32_t reserved;
+    float output_x;
+    float output_y;
+    float output_width;
+    float output_height;
+    float m11;
+    float m12;
+    float m21;
+    float m22;
+    float m31;
+    float m32;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_tile_composite;
 
 /*
  * Pointer-free semantic layer mask. The first additive kind is an analytic
@@ -1147,6 +1343,23 @@ typedef struct progpu_native_scene_image_patch {
     progpu_native_affine_2d transform;
     float color[4];
 } progpu_native_scene_image_patch;
+
+/*
+ * IMAGE_PICTURE resource payload; auxiliary bytes own a complete nested scene.
+ * Width/height are physical pixels, dpi_scale is uniform, clear_color is straight
+ * RGBA. Rasterization produces a premultiplied image without CPU pixel readback.
+ * Flags and reserved words must be zero. Image draws must match these dimensions
+ * and use width * 4 row bytes and premultiplied-alpha sampling.
+ */
+typedef struct progpu_native_scene_picture_image {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t width;
+    uint32_t height;
+    float dpi_scale;
+    uint32_t reserved[3];
+    progpu_native_color clear_color;
+} progpu_native_scene_picture_image;
 
 /*
  * Optional suffix required by semantic image draws whose sampling mode is
@@ -1315,8 +1528,12 @@ typedef struct progpu_native_scene_layer_geometry_mask {
  * complete nested semantic scene in the owning resource's picture-stream
  * auxiliary arena. The nested stream is independently versioned, bounded,
  * and validated before any child GPU engine or texture is created. Bounds and
- * transform preserve the managed PushOpacityMask picture provenance; the
- * nested scene already carries the composed root transform and bounded clip.
+ * transform preserve the managed PushOpacityMask picture provenance. With
+ * PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT, bounds describe the source
+ * scene's logical extent, transform maps that extent into target logical
+ * coordinates, and reserved0/reserved1 carry the source pixel width/height.
+ * Otherwise the nested scene already carries the composed root transform and
+ * bounded clip.
  */
 typedef struct progpu_native_scene_layer_picture_mask {
     uint32_t struct_size;
@@ -1468,10 +1685,33 @@ typedef enum progpu_native_scene_frame_flags {
      * translucent/blended content, or request a full cleared frame. */
     PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET = 1U << 0U,
     /* Restrict flat semantic replay to the logical-coordinate damage rect. */
-    PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT = 1U << 1U
+    PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT = 1U << 1U,
+    /* Explicit presentation suffix. Unsupported mappings must fail closed;
+     * the legacy dpi_scale field never substitutes for either axis. */
+    /* PROGPU_CSHARP_ULONG: SceneFramePresentationFlag */
+    PROGPU_NATIVE_SCENE_FRAME_PRESENTATION = 4ULL
 } progpu_native_scene_frame_flags;
 
 #define PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT_AVAILABLE 1
+
+/* Physical viewport inside the target; scene coordinates remain logical DIPs.
+ * Device position = viewport origin + logical position * per-axis scale.
+ * Extents are positive, wholly inside the target, with finite positive scales.
+ * The viewport clips presentation, not the retained scene's logical geometry.
+ * reserved must be zero. This descriptor owns no surface or resource lifetime.
+ * Availability of this record does not imply renderer support for every mapping.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.ScenePresentation */
+typedef struct progpu_native_scene_presentation {
+    uint32_t struct_size;
+    uint32_t viewport_x;
+    uint32_t viewport_y;
+    uint32_t viewport_width;
+    uint32_t viewport_height;
+    float dpi_scale_x;
+    float dpi_scale_y;
+    uint32_t reserved;
+} progpu_native_scene_presentation;
 
 /* PROGPU_CSHARP_STRUCT: NativeMethods.SceneFrame */
 typedef struct progpu_native_scene_frame {
@@ -1488,6 +1728,8 @@ typedef struct progpu_native_scene_frame {
     float damage_y;
     float damage_width;
     float damage_height;
+    /* Read only with PRESENTATION and a complete extended descriptor. */
+    progpu_native_scene_presentation presentation;
 } progpu_native_scene_frame;
 
 /* PROGPU_CSHARP_STRUCT: NativeMethods.SceneFrameMetrics */
@@ -1699,14 +1941,23 @@ typedef enum progpu_native_mesh_3d_shading_mode {
     PROGPU_NATIVE_MESH_3D_HIDDEN_LINE = 3,
     PROGPU_NATIVE_MESH_3D_SHADES_OF_GRAY = 4,
     PROGPU_NATIVE_MESH_3D_XRAY = 5,
-    PROGPU_NATIVE_MESH_3D_NORMALS = 6
+    PROGPU_NATIVE_MESH_3D_NORMALS = 6,
+    /* Source lighting, including the legacy uniform-light path when empty. */
+    PROGPU_NATIVE_MESH_3D_WPF_LIGHTING = 7
 } progpu_native_mesh_3d_shading_mode;
 
 typedef enum progpu_native_mesh_3d_flags {
     PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE = 1U << 0,
     PROGPU_NATIVE_MESH_3D_TILING_SHIFT = 1,
     PROGPU_NATIVE_MESH_3D_TILING_MASK = 3U <<
-        PROGPU_NATIVE_MESH_3D_TILING_SHIFT
+        PROGPU_NATIVE_MESH_3D_TILING_SHIFT,
+    PROGPU_NATIVE_MESH_3D_TWO_SIDED = 0,
+    PROGPU_NATIVE_MESH_3D_FRONT_FACE = 1U << 3,
+    PROGPU_NATIVE_MESH_3D_BACK_FACE = 1U << 4,
+    /* Apply the optional canonical material brush to specular reflectance
+     * instead of diffuse/emissive color. The mesh color remains the alpha
+     * carrier for ordered WPF SpecularMaterial passes. */
+    PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL = 1U << 5
 } progpu_native_mesh_3d_flags;
 
 typedef enum progpu_native_mesh_3d_tiling {
@@ -1716,6 +1967,32 @@ typedef enum progpu_native_mesh_3d_tiling {
     PROGPU_NATIVE_MESH_3D_CLAMP = 3
 } progpu_native_mesh_3d_tiling;
 
+typedef enum progpu_native_light_3d_kind {
+    PROGPU_NATIVE_LIGHT_3D_AMBIENT = 0,
+    PROGPU_NATIVE_LIGHT_3D_DIRECTIONAL = 1,
+    PROGPU_NATIVE_LIGHT_3D_POINT = 2,
+    PROGPU_NATIVE_LIGHT_3D_SPOT = 3
+} progpu_native_light_3d_kind;
+
+enum {
+    PROGPU_NATIVE_SCENE_MAX_3D_LIGHTS_PER_MESH = 16
+};
+
+/* Pointer-free WPF/MIL light state. position_range.w is range;
+ * direction_inner_cos.w is cos(innerConeAngle / 2); and
+ * attenuation_outer_cos.xyz stores constant/linear/quadratic attenuation
+ * while .w is cos(outerConeAngle / 2). Unused fields must be zero. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeSceneLight3D */
+typedef struct progpu_native_scene_light_3d {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t reserved0;
+    /* PROGPU_CSHARP_TYPE: Vector4 */ progpu_native_color color;
+    progpu_native_float_4 position_range;
+    progpu_native_float_4 direction_inner_cos;
+    progpu_native_float_4 attenuation_outer_cos;
+} progpu_native_scene_light_3d;
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3DVertex */
 typedef struct progpu_native_scene_mesh_3d_vertex {
     progpu_native_point_3d position;
@@ -1726,14 +2003,17 @@ typedef struct progpu_native_scene_mesh_3d_vertex {
 } progpu_native_scene_mesh_3d_vertex;
 
 /* Retained mesh ranges address the owning resource auxiliary arena: all
- * vertices form its prefix and all uint32 indices form its suffix. Edge-list
+ * vertices form its prefix, followed by uint32 indices and typed light records.
+ * Edge-list
  * records have an even vertex_count, zero index_count, visible color in color,
  * occluded color in ambient_color, and width/crease cosine/dash/gap in
  * light_direction. Material
  * fields mirror the proven managed GpuMesh3DRecord baseline. An optional
  * scene-local external IMAGE resource supplies a typed same-device diffuse
  * texture; material_factors packs diffuse-map blend in its low unorm16 and
- * self-illumination in its high unorm16 without changing the stable layout. */
+ * self-illumination in its high unorm16. ABI v4 retains those CAD fields and
+ * appends light_offset/light_count: the wire record is 264 bytes; GPU upload
+ * adds explicit tail padding for a 272-byte, 16-byte-aligned storage record. */
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3D */
 typedef struct progpu_native_scene_mesh_3d {
     uint32_t struct_size;
@@ -1756,7 +2036,22 @@ typedef struct progpu_native_scene_mesh_3d {
     uint32_t shading_mode;
     uint32_t material_image_resource_index;
     uint32_t material_factors;
+
+    uint32_t light_offset;
+    uint32_t light_count;
 } progpu_native_scene_mesh_3d;
+
+/* Optional DRAW_MESH_3D_BATCH command payload suffix. The camera remains the
+ * payload prefix for stream-version compatibility. brush_resource_index names
+ * one canonical BRUSH_TABLE resource and exactly brush_count uint32 brush
+ * indices follow this header, one per mesh record in source order. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3DMaterials */
+typedef struct progpu_native_scene_mesh_3d_materials {
+    uint32_t struct_size;
+    uint32_t brush_resource_index;
+    uint32_t brush_count;
+    uint32_t reserved0;
+} progpu_native_scene_mesh_3d_materials;
 
 typedef enum progpu_native_scene_stroke_kind {
     PROGPU_NATIVE_SCENE_STROKE_POLYLINE = 0,
@@ -1874,6 +2169,116 @@ typedef struct progpu_native_path_segment {
     uint32_t pad2;
 } progpu_native_path_segment;
 
+typedef struct progpu_native_geometry_outline progpu_native_geometry_outline;
+
+typedef enum progpu_native_geometry_relation {
+    /* PROGPU_CSHARP_ULONG: GeometryRelationUnknown */
+    PROGPU_NATIVE_GEOMETRY_RELATION_UNKNOWN = 0ULL,
+    /* PROGPU_CSHARP_ULONG: GeometryRelationDisjoint */
+    PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT = 1ULL,
+    /* PROGPU_CSHARP_ULONG: GeometryRelationIsContained */
+    PROGPU_NATIVE_GEOMETRY_RELATION_IS_CONTAINED = 2ULL,
+    /* PROGPU_CSHARP_ULONG: GeometryRelationContains */
+    PROGPU_NATIVE_GEOMETRY_RELATION_CONTAINS = 3ULL,
+    /* PROGPU_CSHARP_ULONG: GeometryRelationOverlap */
+    PROGPU_NATIVE_GEOMETRY_RELATION_OVERLAP = 4ULL
+} progpu_native_geometry_relation;
+
+/* Filled-area relation of first relative to second, using the same canonical
+ * input/fill/tolerance/budget contract as geometry_combine. Empty normalized
+ * coverage in either operand is disjoint; equal nonempty coverage is contained.
+ * No GPU, COM activation, input retention or output allocation for the caller.
+ * A valid caller-owned uint32 output is reset to UNKNOWN before input validation;
+ * successful results are DISJOINT, IS_CONTAINED, CONTAINS or OVERLAP.
+ * Internal temporary topology storage is bounded by the shared geometry core.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_compare_fill(
+    const progpu_native_path_segment* first, uint32_t first_count, uint32_t first_fill,
+    const progpu_native_path_segment* second, uint32_t second_count, uint32_t second_fill,
+    float tolerance, uint32_t* relation);
+
+/* Device-independent filled-path boolean utility; no engine/window/GPU required.
+ * Input segments use the canonical path layout above, already transformed into
+ * one coordinate space. Discontinuous segments begin separate filled contours;
+ * contours are implicitly closed. Mode uses canonical MIL values: union=0,
+ * intersect=1, xor=2, exclude=3. Tolerance is positive, finite and absolute.
+ * On success, result owns immutable point and contour-offset views until destroy.
+ * Offsets has contour_count+1 entries, starts at zero and ends at point_count.
+ * Each contour has >=3 points, is implicitly closed and uses even-odd fill.
+ * Empty success has no points, zero contours and offsets[0]=0.
+ * Copy each view at most once if managed ownership is needed; no sizing retry.
+ * Valid output addresses are required; after their validation, failures zero all
+ * outputs. Input count is limited to 2^20 segments per operand. No input retained.
+ * Calls on independent results are concurrent; destroy must not race a view read.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_combine(
+    const progpu_native_path_segment* first, uint32_t first_count, uint32_t first_fill,
+    const progpu_native_path_segment* second, uint32_t second_count, uint32_t second_fill,
+    uint32_t mode, float tolerance, progpu_native_geometry_outline** result,
+    const progpu_native_point** points, uint32_t* point_count,
+    const uint32_t** contour_offsets, uint32_t* contour_count);
+
+PROGPU_NATIVE_API void progpu_native_geometry_outline_destroy(
+    progpu_native_geometry_outline* result);
+
+/* Synchronous filled-path point query over the same canonical contours as
+ * geometry_combine. No engine, GPU or input retention. Tolerance is finite,
+ * positive and absolute in the already-transformed input coordinate space.
+ * Output is 0 or 1; a valid output address is zeroed before input validation.
+ * Input count is bounded to 2^20. Hollow figures must be excluded by the caller.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_fill_contains(
+    const progpu_native_path_segment* segments, uint32_t segment_count,
+    uint32_t fill_rule, const progpu_native_point* point, float tolerance,
+    uint32_t* contains);
+
+/* Query figures partition the entire segment span in order, including empty
+ * figures. Flags: bit 0 closed, bit 1 filled; other bits must be zero.
+ * Segment flags: bit 0 stroked, bit 1 forced-round incoming join. The incoming
+ * flag of the first segment also describes the closed figure seam. Nonempty
+ * closed figures must explicitly return to start, preserving closing-edge flags.
+ * Constant edges retain endpoint/gap/join state. All-constant stroked runs use
+ * ProGPU's canonical X-axis point-cap pair (round pair for a closed run), with
+ * dash visibility resolved at the source phase. Empty figures emit no caps. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeGeometryQueryFigure */
+typedef struct progpu_native_geometry_query_figure {
+    progpu_native_point start;
+    uint32_t first_segment;
+    uint32_t segment_count;
+    uint32_t flags;
+} progpu_native_geometry_query_figure;
+
+/* Caps and joins use the existing canonical stroke enums. Thickness is finite
+ * and nonnegative; miter_limit >= 1. Dash intervals are finite/nonnegative,
+ * in thickness units, and a nonempty pattern must have positive total length. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeGeometryQueryPen */
+typedef struct progpu_native_geometry_query_pen {
+    float thickness;
+    float miter_limit;
+    float dash_offset;
+    uint32_t start_cap;
+    uint32_t end_cap;
+    uint32_t dash_cap;
+    uint32_t line_join;
+} progpu_native_geometry_query_pen;
+
+/* Device-independent stroke query. Geometry-local transforms have already been
+ * applied to the spine; world_transform is applied AFTER widening (null=identity).
+ * Tolerance is positive/finite in pre-world coordinates. Inputs are borrowed for
+ * this call, with <=2^20 figures/segments/dashes; segment_flags has segment_count
+ * bytes. A null point queries emitted stroke bounds only. A nonnull point queries
+ * stroke containment only. All three output addresses are required and zeroed
+ * before input validation. Empty coverage is explicit through has_bounds=0.
+ * Query status/semantics are shared with the portable Direct2D path core; no
+ * engine/device, COM activation, GPU readback or renderer fallback is performed.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_stroke_query(
+    const progpu_native_geometry_query_figure* figures, uint32_t figure_count,
+    const progpu_native_path_segment* segments, const uint8_t* segment_flags, uint32_t segment_count,
+    const progpu_native_geometry_query_pen* pen, const float* dashes, uint32_t dash_count,
+    const progpu_native_affine_2d* world_transform, const progpu_native_point* point, float tolerance,
+    progpu_native_image_rect* bounds, uint32_t* has_bounds, uint32_t* contains);
+
 /* Values and storage intentionally match ProGPU.Vector.GpuHitTesting and the
  * canonical GpuHitTesting.wgsl storage-buffer contract. The C declarations
  * are the wire-layout authority for generated managed interop records. */
@@ -1888,9 +2293,26 @@ typedef enum progpu_native_hit_test_primitive_kind {
     PROGPU_NATIVE_HIT_TEST_PATH_STROKE = 7
 } progpu_native_hit_test_primitive_kind;
 
+/* Source-owned MIL point input, submitted as one sorted retained snapshot.
+ * is_empty: 0 rectangle (including zero extent), 1 no own point coverage.
+ * Empty input requires all four coordinates zero. Region drawing is retained. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeMilPointHitRectangle */
+typedef struct progpu_native_mil_point_hit_rectangle {
+    uint32_t handle;
+    uint32_t is_empty;
+    double x;
+    double y;
+    double width;
+    double height;
+} progpu_native_mil_point_hit_rectangle;
+
 enum {
     PROGPU_NATIVE_HIT_TEST_VISIBLE = 1U << 0U,
     PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT = 1U << 1U,
+    /* Neither bit means all query kinds. Both bits together are invalid.
+     * These affect input only, not raster visibility or source bounds. */
+    PROGPU_NATIVE_HIT_TEST_POINT_ONLY = 1U << 2U,
+    PROGPU_NATIVE_HIT_TEST_REGION_ONLY = 1U << 3U,
     PROGPU_NATIVE_HIT_TEST_MAX_RESULT_COUNT = 256U,
     PROGPU_NATIVE_HIT_TEST_RESULT_CAPACITY_MASK = 0x0000ffffU,
     PROGPU_NATIVE_HIT_TEST_ELLIPSE_REGION = 0x40000000U,
@@ -1978,7 +2400,8 @@ typedef struct progpu_native_scene_hit_test_index {
 /*
  * A filled path borrows a contiguous segment range. Bounds are the exact local
  * coverage bounds including analytic curve extrema. The renderer selects a
- * transform-aware atlas resolution, rasterizes with a 4x4 or 8x8 sample grid,
+ * transform-aware atlas resolution, rasterizes with a 1x1, 4x4, or 8x8 sample
+ * grid,
  * and draws one affine coverage quad with the supplied solid color.
  */
 typedef struct progpu_native_path_fill {
@@ -2047,8 +2470,10 @@ typedef struct progpu_native_scene_clip_path {
  * One postfix/RPN boolean-program instruction. Leaf records borrow a
  * contiguous segment range and carry exact local bounds/fill state. Empty and
  * operation records require every range, bound, fill, and reserved field to be
- * zero. Programs are bounded to 63 instructions and a 16-mask stack, matching
- * the canonical PathRasterizer.wgsl contract.
+ * zero. WINDING_LEAF retains the raw signed winding instead of reducing it to
+ * an inside predicate; WINDING_ADD and WINDING_NEGATE compose those values for
+ * exact Nonzero GeometryGroup semantics. Programs are bounded to 63
+ * instructions and a 16-value stack, matching PathRasterizer.wgsl.
  */
 typedef enum progpu_native_path_boolean_node_kind {
     PROGPU_NATIVE_PATH_BOOLEAN_LEAF = 0,
@@ -2057,7 +2482,10 @@ typedef enum progpu_native_path_boolean_node_kind {
     PROGPU_NATIVE_PATH_BOOLEAN_INTERSECT = 3,
     PROGPU_NATIVE_PATH_BOOLEAN_UNION = 4,
     PROGPU_NATIVE_PATH_BOOLEAN_XOR = 5,
-    PROGPU_NATIVE_PATH_BOOLEAN_REVERSE_DIFFERENCE = 6
+    PROGPU_NATIVE_PATH_BOOLEAN_REVERSE_DIFFERENCE = 6,
+    PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF = 7,
+    PROGPU_NATIVE_PATH_BOOLEAN_WINDING_ADD = 8,
+    PROGPU_NATIVE_PATH_BOOLEAN_WINDING_NEGATE = 9
 } progpu_native_path_boolean_node_kind;
 
 typedef struct progpu_native_path_boolean_node {
@@ -2174,9 +2602,11 @@ typedef struct progpu_native_group_mask {
 /*
  * One retained effect applied to the pooled frame-family result before its
  * final mask/opacity composite. The revision identifies immutable effect
- * parameters independently from group content. Gaussian sigma and drop-shadow
- * offset are expressed in logical coordinates and converted to physical pixels
- * with frame DPI. Drop-shadow color is straight-alpha linear RGBA.
+ * parameters independently from group content. Gaussian sigma, box radius,
+ * and drop-shadow offset are expressed in logical coordinates and converted
+ * to physical pixels with frame DPI. Drop-shadow color is straight-alpha
+ * linear RGBA. Box blur stores its logical radii in sigma_x/sigma_y to retain
+ * the stable descriptor layout.
  *
  * The original 32-byte Gaussian prefix remains accepted. Drop shadow requires
  * the full descriptor so older callers cannot accidentally select it without
@@ -2599,6 +3029,32 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_poll_hit_test(
     uint32_t* result_count,
     progpu_native_hit_test_result* summary,
     uint8_t* complete);
+/*
+ * Desktop owner-thread completion of a previously begun query, using the same
+ * ordered results, summary and discard contracts as poll_hit_test. SUCCESS
+ * means the request has completed and retired. This waits for the map callback,
+ * not just submission completion; it never pumps host application callbacks.
+ * Browser builds return UNSUPPORTED without consuming the request. Invalid
+ * arguments or failure to complete the wait also preserve the pending token so
+ * the caller may poll it later or dispose the engine. A terminal map failure
+ * retires the request, as in poll_hit_test. No CPU hit-test fallback is used.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_wait_hit_test(
+    progpu_native_engine* engine,
+    uint64_t request_token,
+    progpu_native_hit_test_result* results,
+    uint32_t result_capacity,
+    uint32_t* result_count,
+    progpu_native_hit_test_result* summary);
+/* Reads the installed scene's index metadata without uploading or querying it.
+ * Absent index: has_index and uploaded are zero and index is zero-initialized.
+ * uploaded describes this exact scene's retained GPU index, not pipeline setup.
+ * Owner-thread affine; index layout is the existing canonical scene record. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_hit_test_index(
+    progpu_native_engine* engine,
+    progpu_native_scene_hit_test_index* index,
+    uint8_t* has_index,
+    uint8_t* uploaded);
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render(
     progpu_native_engine* engine,
     const progpu_native_frame* frame,
@@ -2680,6 +3136,12 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_create(
     progpu_native_text_context** context);
 PROGPU_NATIVE_API void progpu_native_text_context_destroy(
     progpu_native_text_context* context);
+
+/* Context plans and fallback-font storage are mutable. C/C++ callers must
+ * serialize operations and destruction on the same context. Distinct contexts
+ * may execute concurrently. The managed NativeTextShapingContext wrapper owns
+ * that per-call synchronization and pointer lifetime; separate requirements and
+ * execution calls are not one atomic transaction. */
 /* Adds one immutable fallback face snapshot during context initialization.
  * Returned indices start at one; zero always identifies the primary face. */
 PROGPU_NATIVE_API progpu_native_status

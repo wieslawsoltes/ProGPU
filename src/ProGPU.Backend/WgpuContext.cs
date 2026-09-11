@@ -55,6 +55,28 @@ public unsafe class WgpuContext : IDisposable
     public bool SupportsTextureFormatsTier1 { get; private set; }
     public BackendType AdapterBackendType { get; private set; } = BackendType.Undefined;
     public string AdapterName { get; private set; } = string.Empty;
+    /// <summary>Configure before device creation; retained vertices keep the resolved path.</summary>
+    public GpuImageSamplingPreference ImageSamplingPreference { get; init; } =
+        GpuImageSamplingPolicy.ReadEnvironmentPreference();
+    public GpuImageSamplingPath ImageSamplingPath => GpuImageSamplingPolicy.Resolve(
+        ImageSamplingPreference, AdapterBackendType, AdapterName);
+    /// <summary>
+    /// Gets or sets the requested compute execution policy. Set this before
+    /// constructing workload-owned GPU resources.
+    /// </summary>
+    public GpuComputeExecutionPreference ComputeExecutionPreference { get; set; } =
+        GpuComputeExecutionPolicy.ReadEnvironmentPreference();
+    /// <summary>Gets the resolved glyph coverage implementation.</summary>
+    public GpuComputeExecutionPath GlyphRasterizationPath =>
+        GpuComputeExecutionPolicy.ResolveGlyphRasterization(
+            ComputeExecutionPreference,
+            AdapterBackendType,
+            AdapterName);
+    /// <summary>
+    /// Gets whether glyph coverage must avoid the adapter's compute shader.
+    /// </summary>
+    public bool RequiresGlyphComputeFallback =>
+        GlyphRasterizationPath != GpuComputeExecutionPath.NativeCompute;
     public WgpuAdapterSelectionDiagnostics AdapterSelectionDiagnostics { get; private set; } =
         WgpuAdapterSelectionDiagnostics.Unknown;
     public IProGpuExternalTextureImporter?
@@ -240,7 +262,7 @@ public unsafe class WgpuContext : IDisposable
             ObjectDisposedException.ThrowIf(_isDisposed, this);
             if (IsDeviceLost)
             {
-                throw new InvalidOperationException(
+                throw new WgpuDeviceLostException(
                     "Cannot submit commands to a lost WebGPU device.");
             }
             Api.QueueSubmit(Queue, commandCount, commandBuffers);
@@ -877,7 +899,7 @@ public unsafe class WgpuContext : IDisposable
         _window = window;
         Wgpu = CreateNativeWebGpuApi();
         Api = new SilkWebGpuApi(Wgpu, RenderLock);
-        
+
         // 1. Create WebGPU Instance (isolated per context)
         SafeLog("[WGPUCONTEXT] Creating WebGPU Instance\n");
         var instanceExtras = CreateNativeInstanceExtras();
@@ -964,7 +986,7 @@ public unsafe class WgpuContext : IDisposable
         {
             adapterStateHandle.Free();
         }
-        
+
         SafeLog($"[WGPUCONTEXT] RequestAdapter finished, adapter={adapterState.Result:X}\n");
         if (adapterState.Result == 0)
         {
@@ -1266,11 +1288,13 @@ public unsafe class WgpuContext : IDisposable
 
     private static NativeInstanceExtras CreateNativeInstanceExtras()
     {
-        uint backends = OperatingSystem.IsAndroid()
-            ? NativeInstanceExtras.VulkanBackend
-            : OperatingSystem.IsIOS()
-                ? NativeInstanceExtras.MetalBackend
-                : 0u;
+        uint backends = OperatingSystem.IsWindows()
+            ? NativeInstanceExtras.D3D12Backend
+            : OperatingSystem.IsAndroid()
+                ? NativeInstanceExtras.VulkanBackend
+                : OperatingSystem.IsIOS()
+                    ? NativeInstanceExtras.MetalBackend
+                    : 0u;
         return backends == 0u
             ? default
             : new NativeInstanceExtras
@@ -1289,6 +1313,7 @@ public unsafe class WgpuContext : IDisposable
         public const uint STypeValue = 0x00030006;
         public const uint VulkanBackend = 1u << 0;
         public const uint MetalBackend = 1u << 2;
+        public const uint D3D12Backend = 1u << 3;
 
         public ChainedStruct Chain;
         public uint Backends;
@@ -1714,6 +1739,11 @@ public unsafe class WgpuContext : IDisposable
             throw new InvalidOperationException("The WebGPU context is already initialized.");
         }
 
+        if (deviceOwner.IsDeviceLost)
+        {
+            throw new WgpuDeviceLostException(
+                "Cannot create a shared surface on a lost WebGPU device; resolve its replacement owner first.");
+        }
         if (deviceOwner._isDisposed ||
             deviceOwner.Instance == null ||
             deviceOwner.Adapter == null ||
@@ -1788,6 +1818,14 @@ public unsafe class WgpuContext : IDisposable
         AdapterSelectionDiagnostics = diagnostics;
         AdapterBackendType = diagnostics.BackendType;
         AdapterName = diagnostics.Name;
+        ProGpuBackendDiagnostics.WriteLine(
+            $"[Image] Base-level sampling path={ImageSamplingPath}, " +
+            $"preference={ImageSamplingPreference}, adapter='{AdapterName}', " +
+            $"backend={AdapterBackendType}.");
+        ProGpuBackendDiagnostics.WriteLine(
+            $"[Compute] Glyph rasterization path={GlyphRasterizationPath}, " +
+            $"preference={ComputeExecutionPreference}, adapter='{AdapterName}', " +
+            $"backend={AdapterBackendType}.");
     }
 
     /// <summary>
@@ -1977,6 +2015,36 @@ public unsafe class WgpuContext : IDisposable
     {
         _isSurfaceConfigured = false;
         _hasSurfaceConfigurationCapabilities = false;
+    }
+
+    /// <summary>
+    /// Applies the shared recovery policy after an unsuccessful surface acquisition.
+    /// The caller must release any returned texture before calling this method.
+    /// Returns true when the host should schedule another frame, or false for a
+    /// terminally lost device. Out-of-memory and invalid statuses fail explicitly.
+    /// No acquisition, configuration, device recreation or scheduling is performed.
+    /// </summary>
+    public bool HandleSurfaceAcquisitionFailure(SurfaceGetCurrentTextureStatus status)
+    {
+        switch (status)
+        {
+            case SurfaceGetCurrentTextureStatus.Timeout:
+                return !IsDeviceLost;
+            case SurfaceGetCurrentTextureStatus.Outdated:
+            case SurfaceGetCurrentTextureStatus.Lost:
+                InvalidateSurfaceConfiguration();
+                return !IsDeviceLost;
+            case SurfaceGetCurrentTextureStatus.DeviceLost:
+                ReportDeviceLost(DeviceLostReason.Unknown,
+                    "The presentation surface reported device loss.");
+                return false;
+            case SurfaceGetCurrentTextureStatus.OutOfMemory:
+                throw new OutOfMemoryException(
+                    "The WebGPU presentation surface ran out of memory.");
+            default:
+                throw new ArgumentOutOfRangeException(nameof(status), status,
+                    "Expected a known unsuccessful surface acquisition status.");
+        }
     }
 
     public static bool CanConfigureSurface(

@@ -5,6 +5,76 @@ namespace ProGPU.Tests;
 
 public sealed class PortableWpfServiceRegistryTests
 {
+    [Fact]
+    public void DialogLoopIsSeparateFromApplicationRunAndBorrowsSourceContinuation()
+    {
+        object activation = new();
+        int applicationRuns = 0, iterations = 0;
+        bool keepRunning = true;
+        var callbacks = new PortableWindowActivationCallbacks(_ => activation, run: _ => applicationRuns++)
+        {
+            RunDialog = (owner, continuation) =>
+            {
+                Assert.Same(activation, owner);
+                while (continuation())
+                {
+                    iterations++;
+                    keepRunning = false;
+                }
+            }
+        };
+        Assert.Null(new PortableWindowActivationCallbacks(_ => activation).RunDialog);
+        callbacks.RunDialog(activation, () => keepRunning);
+        Assert.Equal(1, iterations);
+        Assert.Equal(0, applicationRuns);
+        callbacks.RunDialog(activation, () => false);
+        Assert.Equal(1, iterations);
+        var failure = new InvalidOperationException("Source continuation failed.");
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() =>
+            callbacks.RunDialog(activation, () => throw failure)));
+    }
+
+    [Fact]
+    public void HiddenWindowFactoryIsAnExplicitSeparateCapability()
+    {
+        object window = new(), visible = new(), hidden = new();
+        int ordinaryCalls = 0, hiddenCalls = 0;
+        var legacy = new PortableWindowActivationCallbacks(_ => visible);
+        Assert.Null(legacy.CreateHidden);
+        var callbacks = new PortableWindowActivationCallbacks(_ => { ordinaryCalls++; return visible; })
+        {
+            CreateHidden = value =>
+            {
+                Assert.Same(window, value);
+                hiddenCalls++;
+                return hidden;
+            }
+        };
+        Assert.Same(hidden, callbacks.CreateHidden(window));
+        Assert.Equal(0, ordinaryCalls);
+        Assert.Equal(1, hiddenCalls);
+        Assert.Same(visible, callbacks.Activate(window));
+        Assert.Equal(1, ordinaryCalls);
+    }
+
+    [Fact]
+    public void WindowRegionOwnsImmutableExclusionsForRetainedConsumers()
+    {
+        var original = new PortableRect(10, 20, 30, 40);
+        PortableRect[] rectangles = [original];
+        var region = new PortableWindowRegion(new(0, 0, 100, 100), rectangles);
+        rectangles[0] = new(0, 0, 1, 1);
+        Assert.Equal(original, Assert.Single(region.ExcludedRects));
+        Assert.Equal(original, region.ExcludedRectSpan[0]);
+        var mutableView = Assert.IsAssignableFrom<IList<PortableRect>>(region.ExcludedRects);
+        Assert.Throws<NotSupportedException>(() => mutableView[0] = rectangles[0]);
+        var list = new List<PortableRect> { original };
+        var fromList = new PortableWindowRegion(new(0, 0, 100, 100), list);
+        list.Clear();
+        Assert.Equal(original, Assert.Single(fromList.ExcludedRects));
+        Assert.True(new PortableWindowRegion(PortableRect.Empty).ExcludedRectSpan.IsEmpty);
+    }
+
     private static readonly PortableWpfServiceKey ServiceKey =
         new($"PopupTests-{Guid.NewGuid():N}");
 
@@ -127,6 +197,27 @@ public sealed class PortableWpfServiceRegistryTests
         }
     }
 
+    [Fact]
+    public void PopupBoundsQueryUsesOnlyItsRegisteredOwnerAndDoesNotFallThrough()
+    {
+        var key = new PortableWpfServiceKey($"PopupBounds-{Guid.NewGuid():N}");
+        var owner = new object();
+        var first = new TestPopupService(key, owner);
+        var other = new TestPopupService(key, new object());
+        using var firstRegistration = PortableWpfServiceRegistry.RegisterPopupService(first);
+        using var otherRegistration = PortableWpfServiceRegistry.RegisterPopupService(other);
+        Assert.True(PortableWpfServiceRegistry.TryGetPopupService(key, out var router));
+        Assert.True(router.TryCreatePopup(CreateRequest(owner), out var popup));
+        var target = new PortableRect(10, 20, 30, 40);
+        Assert.True(router.TryGetPopupPlacementBounds(popup!, target, out var bounds));
+        Assert.Equal(PortablePopupPlacementBoundsKind.OwnerSurface, bounds.Kind);
+        first.RejectBounds = true;
+        Assert.False(router.TryGetPopupPlacementBounds(popup!, target, out _));
+        Assert.False(router.TryGetPopupPlacementBounds(new object(), target, out _));
+        Assert.Equal(2, first.BoundsQueries);
+        Assert.Equal(0, other.BoundsQueries);
+    }
+
     private static PortablePopupCreateRequest CreateRequest(object owner)
     {
         return new PortablePopupCreateRequest(
@@ -150,6 +241,16 @@ public sealed class PortableWpfServiceRegistryTests
         public int CreateAttempts { get; private set; }
 
         public int OperationCount { get; private set; }
+
+        public int BoundsQueries { get; private set; }
+        public bool RejectBounds { get; set; }
+
+        public bool TryGetPopupPlacementBounds(object source, PortableRect target, out PortablePopupPlacementBounds bounds)
+        {
+            BoundsQueries++;
+            bounds = new(PortablePopupPlacementBoundsKind.OwnerSurface, PortableRect.Empty, PortableRect.Empty);
+            return !RejectBounds && _popups.Contains(source);
+        }
 
         public bool TryCreatePopup(PortablePopupCreateRequest request, out object? presentationSource)
         {

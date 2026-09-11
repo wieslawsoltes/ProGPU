@@ -16,6 +16,8 @@
 #include "progpu_native_replay_execution.hpp"
 #include "progpu_native_semantic_budget.hpp"
 #include "progpu_native_semantic_replay.hpp"
+#include "progpu_native_semantic_state.hpp"
+#include "progpu_native_semantic_identity.hpp"
 #include "progpu_webgpu_compat.hpp"
 
 #include <array>
@@ -33,9 +35,13 @@ bool create_semantic_coverage_mask_binding(
     const semantic::scissor& target_extent,
     float dpi_scale,
     semantic_render_bundle_span& operation,
-    std::uint64_t& texture_upload_bytes) {
+    std::uint64_t& texture_upload_bytes,
+    const progpu_native_scene_presentation& presentation) {
     texture_upload_bytes = 0U;
-    if (coverage == nullptr || !create_layer_mask_resources(engine)) {
+    std::array<double, 6U> uv_transform{};
+    if (coverage == nullptr || !semantic::try_resolve_semantic_mask_uv(
+            source.transform, source.bounds, target_extent, presentation, dpi_scale, uv_transform) ||
+        !create_layer_mask_resources(engine)) {
         return false;
     }
 
@@ -61,41 +67,7 @@ bool create_semantic_coverage_mask_binding(
         return false;
     }
 
-    const double m11 = source.transform.m11;
-    const double m12 = source.transform.m12;
-    const double m21 = source.transform.m21;
-    const double m22 = source.transform.m22;
-    const double m31 = source.transform.m31 -
-        static_cast<double>(target_extent.x) / dpi_scale;
-    const double m32 = source.transform.m32 -
-        static_cast<double>(target_extent.y) / dpi_scale;
-    const double determinant = m11 * m22 - m12 * m21;
-    const double inverse_m11 = m22 / determinant;
-    const double inverse_m12 = -m12 / determinant;
-    const double inverse_m21 = -m21 / determinant;
-    const double inverse_m22 = m11 / determinant;
-    const double inverse_m31 = (m21 * m32 - m22 * m31) / determinant;
-    const double inverse_m32 = (m12 * m31 - m11 * m32) / determinant;
-    const double physical_x = dpi_scale * source.bounds.width;
-    const double physical_y = dpi_scale * source.bounds.height;
     gpu_mask_sampling_uniforms uniforms{};
-    const std::array<double, 6U> uv_transform{
-        inverse_m11 / physical_x,
-        inverse_m21 / physical_x,
-        (inverse_m31 - source.bounds.x) / source.bounds.width,
-        inverse_m12 / physical_y,
-        inverse_m22 / physical_y,
-        (inverse_m32 - source.bounds.y) / source.bounds.height};
-    for (double value : uv_transform) {
-        if (!std::isfinite(value) ||
-            value < -std::numeric_limits<float>::max() ||
-            value > std::numeric_limits<float>::max()) {
-            wgpuTextureViewRelease(view);
-            wgpuTextureDestroy(texture);
-            wgpuTextureRelease(texture);
-            return false;
-        }
-    }
     uniforms.coordinate0[0] = static_cast<float>(uv_transform[0]);
     uniforms.coordinate0[1] = static_cast<float>(uv_transform[1]);
     uniforms.coordinate0[2] = static_cast<float>(uv_transform[2]);
@@ -175,11 +147,48 @@ bool create_semantic_vector_mask_binding(
     const progpu_native_scene_resource& resource,
     const semantic::scissor& target_extent,
     float dpi_scale,
-    semantic_render_bundle_span& operation) {
+    semantic_render_bundle_span& operation,
+    const progpu_native_scene_presentation* presentation) {
     if (target_extent.width == 0U || target_extent.height == 0U ||
         !std::isfinite(dpi_scale) || dpi_scale <= 0.0F ||
         !create_layer_mask_resources(engine)) {
         return false;
+    }
+
+    // Vector-mask rasterization reuses the engine-wide clip buffers. Queue
+    // writes to those buffers are ordered before a later command-buffer
+    // submission, even when the writes happened between encoder commands.
+    // Submit an earlier mask before another mask can overwrite its inputs.
+    // The common single-vector-mask frame stays on the existing one-submit
+    // path; each additional mask adds only the required reuse fence.
+    if (engine.semantic_vector_mask_uses_shared_clip_resources) {
+        if (engine.semantic_encoder == nullptr) {
+            engine.semantic_vector_mask_uses_shared_clip_resources = false;
+        } else {
+            WGPUCommandEncoder encoder = engine.semantic_encoder;
+            engine.semantic_encoder = nullptr;
+            engine.semantic_vector_mask_uses_shared_clip_resources = false;
+            WGPUCommandBufferDescriptor command_descriptor{};
+            command_descriptor.label = webgpu::string_view(
+                "ProGPU retained semantic vector-mask reuse fence");
+            WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+                encoder, &command_descriptor);
+            wgpuCommandEncoderRelease(encoder);
+            if (command == nullptr) {
+                return false;
+            }
+            engine.submit(command);
+            wgpuCommandBufferRelease(command);
+
+            WGPUCommandEncoderDescriptor encoder_descriptor{};
+            encoder_descriptor.label = webgpu::string_view(
+                "ProGPU retained semantic vector-mask continuation");
+            engine.semantic_encoder = wgpuDeviceCreateCommandEncoder(
+                engine.device, &encoder_descriptor);
+            if (engine.semantic_encoder == nullptr) {
+                return false;
+            }
+        }
     }
 
     try {
@@ -219,8 +228,13 @@ bool create_semantic_vector_mask_binding(
             path.max_x = source.max_x;
             path.max_y = source.max_y;
             path.transform = source.transform;
-            path.transform.m31 -= logical_offset_x;
-            path.transform.m32 -= logical_offset_y;
+            if (presentation != nullptr) {
+                path.transform = semantic::localize_semantic_transform(
+                    source.transform, target_extent, *presentation, dpi_scale);
+            } else {
+                path.transform.m31 -= logical_offset_x;
+                path.transform.m32 -= logical_offset_y;
+            }
             path.fill_rule = source.fill_rule;
             path.sample_grid = source.sample_grid;
             path.operation = source.operation;
@@ -268,6 +282,15 @@ bool create_semantic_vector_mask_binding(
             0xC2B2AE3D27D4EB4FULL;
         mixed_revision ^= static_cast<std::uint64_t>(target_extent.y) *
             0x165667B19E3779F9ULL;
+        if (presentation != nullptr) {
+            // This helper's cache compares a folded revision, dimensions and
+            // base DPI. Include the other axes/origin when that basis differs.
+            progpu_native_scene_frame identity_frame{};
+            identity_frame.width = presentation->viewport_width;
+            identity_frame.height = presentation->viewport_height;
+            identity_frame.dpi_scale = dpi_scale;
+            mixed_revision = semantic::presentation_content_hash(mixed_revision, identity_frame, *presentation);
+        }
         mask.revision = static_cast<std::uint32_t>(
             mixed_revision ^ (mixed_revision >> 32U));
         if (mask.revision == 0U) {
@@ -282,6 +305,9 @@ bool create_semantic_vector_mask_binding(
                 target_extent.height,
                 dpi_scale)) {
             return false;
+        }
+        if (engine.semantic_encoder != nullptr) {
+            engine.semantic_vector_mask_uses_shared_clip_resources = true;
         }
 
         WGPUTextureDescriptor texture_descriptor{};
@@ -314,8 +340,11 @@ bool create_semantic_vector_mask_binding(
         WGPUCommandEncoderDescriptor encoder_descriptor{};
         encoder_descriptor.label = webgpu::string_view(
             "ProGPU retain semantic vector mask copy");
-        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
-            engine.device, &encoder_descriptor);
+        const bool owns_encoder = engine.semantic_encoder == nullptr;
+        WGPUCommandEncoder encoder = owns_encoder
+            ? wgpuDeviceCreateCommandEncoder(
+                engine.device, &encoder_descriptor)
+            : engine.semantic_encoder;
         if (encoder == nullptr) {
             wgpuTextureViewRelease(view);
             wgpuTextureDestroy(texture);
@@ -338,20 +367,23 @@ bool create_semantic_vector_mask_binding(
             &copy_source,
             &copy_destination,
             &copy_extent);
-        WGPUCommandBufferDescriptor command_descriptor{};
-        command_descriptor.label = webgpu::string_view(
-            "ProGPU retained semantic vector mask copy commands");
-        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
-            encoder, &command_descriptor);
-        wgpuCommandEncoderRelease(encoder);
-        if (command == nullptr) {
-            wgpuTextureViewRelease(view);
-            wgpuTextureDestroy(texture);
-            wgpuTextureRelease(texture);
-            return false;
+        if (owns_encoder) {
+            WGPUCommandBufferDescriptor command_descriptor{};
+            command_descriptor.label = webgpu::string_view(
+                "ProGPU retained semantic vector mask copy commands");
+            WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+                encoder, &command_descriptor);
+            wgpuCommandEncoderRelease(encoder);
+            if (command == nullptr) {
+                wgpuTextureViewRelease(view);
+                wgpuTextureDestroy(texture);
+                wgpuTextureRelease(texture);
+                return false;
+            }
+            engine.submit(command);
+            wgpuCommandBufferRelease(command);
+            engine.semantic_vector_mask_uses_shared_clip_resources = false;
         }
-        engine.submit(command);
-        wgpuCommandBufferRelease(command);
 
         gpu_mask_sampling_uniforms uniforms{};
         uniforms.coordinate1[0] =

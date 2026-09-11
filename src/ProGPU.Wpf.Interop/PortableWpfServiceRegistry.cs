@@ -90,6 +90,18 @@ public interface IPortablePopupServiceRegistrar
 
     bool TrySetPopupHitTestable(object presentationSource, bool hitTestable);
 
+    /// <summary>
+    /// Queries placement limits for an already-owned popup, before or after Show.
+    /// False means unavailable, not permission to constrain a native popup to its
+    /// owner. Query and result use the host's desktop placement coordinates.
+    /// </summary>
+    bool TryGetPopupPlacementBounds(object presentationSource, PortableRect targetBounds,
+        out PortablePopupPlacementBounds bounds)
+    {
+        bounds = default;
+        return false;
+    }
+
     bool TryDestroyPopup(object presentationSource);
 
     void Clear();
@@ -450,15 +462,22 @@ public sealed class PortablePopupCreateRequest
 
 public sealed class PortableWindowRegion
 {
+    private readonly PortableRect[] _excludedRects;
+
     public PortableWindowRegion(PortableRect bounds, IReadOnlyList<PortableRect>? excludedRects = null)
     {
         Bounds = bounds;
-        ExcludedRects = excludedRects ?? Array.Empty<PortableRect>();
+        // Capture once: a caller changing its list must not mutate a region
+        // already installed in a retained managed or native scene.
+        _excludedRects = excludedRects is null ? [] : excludedRects.ToArray();
+        ExcludedRects = Array.AsReadOnly(_excludedRects);
     }
 
     public PortableRect Bounds { get; }
 
     public IReadOnlyList<PortableRect> ExcludedRects { get; }
+
+    public ReadOnlySpan<PortableRect> ExcludedRectSpan => _excludedRects;
 
     public bool IsEmpty => Bounds.IsEmpty || Bounds.Width <= 0 || Bounds.Height <= 0;
 }
@@ -505,6 +524,28 @@ public sealed class PortableWindowActivationCallbacks
 
     public Func<object, object?> Activate { get; }
 
+    /// <summary>
+    /// Creates an owned, hidden window source without attaching the visual tree,
+    /// showing the window, or requesting foreground activation. The ordinary
+    /// Show callback attaches the tree later and reuses this activation object.
+    /// </summary>
+    /// <remarks>
+    /// Optional for existing hosts. A consumer must reject hidden-source creation
+    /// when absent, not fall back to Activate or a different window backend.
+    /// GetHandle must return the stable nonzero portable source identity before
+    /// this callback returns. That identity is not necessarily a native HWND.
+    /// A failing factory owns cleanup of every resource it allocated.
+    /// </remarks>
+    public Func<object, object?>? CreateHidden { get; init; }
+
+    /// <summary>
+    /// Displays the existing activation's system menu at absolute native desktop
+    /// coordinates. Source handles are opaque; only the host resolves native
+    /// ownership. Return false when unsupported/rejected, not silent success.
+    /// May run a modal platform loop and reenter source callbacks.
+    /// </summary>
+    public Func<object, double, double, bool>? ShowSystemMenu { get; init; }
+
     public Action<object>? Show { get; }
 
     public Action<object>? Hide { get; }
@@ -523,7 +564,41 @@ public sealed class PortableWindowActivationCallbacks
 
     public Action<object>? Close { get; }
 
+    /// <summary>
+    /// Pumps one live activation on its source thread until that host retires or
+    /// the application requests shutdown. Returning does not request application
+    /// shutdown. The source may then select another existing host without showing
+    /// or activating it again, or wait without windows under explicit lifetime.
+    /// A premature return while both host and application are live is an error.
+    /// </summary>
     public Action<object>? Run { get; }
+
+    /// <summary>
+    /// Pumps an already shown dialog synchronously while the source-owned
+    /// continuation returns true. Check it between event/render iterations and
+    /// return without closing or disposing a hidden window. Invoke and borrow the
+    /// continuation only on the host thread for the duration of this call; do not
+    /// retain it. Exceptions propagate. This is distinct from the application Run
+    /// lifetime and does not itself implement owner disabling or native ownership.
+    /// </summary>
+    public Action<object, Func<bool>>? RunDialog { get; init; }
+
+    /// <summary>
+    /// Ends native modality for this activation, then invokes completion exactly
+    /// once on its host thread (synchronously if no native session owns it).
+    /// May retain completion until native event callbacks and nested sessions
+    /// unwind. A failed release must throw, not report success. Dialog consumers
+    /// require this capability before Show, together with RunDialog; input gates
+    /// and focus restoration belong after completion, not after requesting it.
+    /// </summary>
+    public Action<object, Action>? ReleaseDialog { get; init; }
+
+    /// <summary>
+    /// Sets the source Window owner (null clears it). The host resolves its own
+    /// live native identity, never an opaque presentation-source handle. Reject
+    /// unsupported ownership explicitly. This does not establish input modality.
+    /// </summary>
+    public Action<object, object?>? SetOwner { get; init; }
 
     public Action<object>? Dispose { get; }
 
@@ -682,7 +757,7 @@ public interface IPortableWindowActivationServiceRegistrar
     void Clear();
 }
 
-public static class PortableWpfServiceRegistry
+public static partial class PortableWpfServiceRegistry
 {
     private static readonly object SyncRoot = new();
     private static readonly Dictionary<PortableWpfServiceKey, IPortableWindowActivationServiceRegistrar> WindowActivationServices = new();
@@ -1248,6 +1323,19 @@ public static class PortableWpfServiceRegistry
                 }
             }
 
+            return false;
+        }
+
+        public bool TryGetPopupPlacementBounds(object presentationSource, PortableRect targetBounds,
+            out PortablePopupPlacementBounds bounds)
+        {
+            ArgumentNullException.ThrowIfNull(presentationSource);
+            // Unlike compatibility operation routing, an ownership query must
+            // never let another window's service guess bounds for this popup.
+            IPortablePopupServiceRegistrar? owner = GetPopupOwner(presentationSource);
+            if (owner != null)
+                return owner.TryGetPopupPlacementBounds(presentationSource, targetBounds, out bounds);
+            bounds = default;
             return false;
         }
 

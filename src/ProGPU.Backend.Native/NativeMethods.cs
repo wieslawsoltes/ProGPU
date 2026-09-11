@@ -7,11 +7,13 @@ namespace ProGPU.Backend.Native;
 internal static unsafe partial class NativeMethods
 {
     internal const string LibraryName = "progpu_native";
-    internal const uint AbiVersion = 3;
+    internal const uint AbiVersion = 4;
     internal const uint WgpuNativeMay2024BackendAbi = 1;
     internal const uint DawnWebScene2026JulyBackendAbi = 2;
     internal const uint GeometryFrameCapturePayloadHash = 1U;
     internal const uint GeometryFrameRetainCompiledPayload = 1U << 1;
+    internal const uint PathFrameStagedSignedWinding = 1U << 2;
+    internal const uint ClipChainStagedSignedWinding = 1U;
     internal const uint SceneStreamMagic = 0x31534750U;
     internal const uint SceneStreamVersion = 1U;
     internal const uint SceneStreamEndianMarker = 0x01020304U;
@@ -23,6 +25,7 @@ internal static unsafe partial class NativeMethods
     internal const uint SceneMaximumLayerBytes = 256U * 1024U * 1024U;
     internal const uint SceneMaximumBrushes = 1024U * 1024U;
     internal const uint SceneMaximumGradientStops = 64U * 1024U;
+    internal const uint SceneMaximumGuidelinesPerAxis = 65535U;
     internal const uint SceneMaximumDrawBrushIndices = 1024U * 1024U;
     internal const uint SceneMaximumTextStyles = 1024U * 1024U;
     internal const uint SceneNoIndex = uint.MaxValue;
@@ -488,6 +491,21 @@ internal static unsafe partial class NativeMethods
         uint* resultCount,
         NativeGpuHitTestResult* summary,
         byte* complete);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_wait_hit_test")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus WaitHitTest(
+        nint engine,
+        ulong requestToken,
+        NativeGpuHitTestResult* results,
+        uint resultCapacity,
+        uint* resultCount,
+        NativeGpuHitTestResult* summary);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_get_hit_test_index")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetHitTestIndex(
+        nint engine, NativeSceneHitTestIndex* index, byte* hasIndex, byte* uploaded);
 
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_render")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

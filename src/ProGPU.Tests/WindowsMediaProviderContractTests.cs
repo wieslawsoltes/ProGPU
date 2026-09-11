@@ -1564,6 +1564,10 @@ public sealed class WindowsMediaProviderContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
+            "MediaPcm16FloatConverter",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "AddProcessed(",
             pcmMixer,
             StringComparison.Ordinal);

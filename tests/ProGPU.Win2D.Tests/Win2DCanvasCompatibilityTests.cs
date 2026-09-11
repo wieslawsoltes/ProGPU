@@ -1,0 +1,574 @@
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Brushes;
+using Microsoft.Graphics.Canvas.Geometry;
+using Microsoft.UI;
+using ProGPU.Backend;
+using Windows.Graphics.DirectX;
+using Xunit;
+using Pen = ProGPU.Vector.Pen;
+using PenLineCap = ProGPU.Vector.PenLineCap;
+using PenStrokeTransformMode = ProGPU.Vector.PenStrokeTransformMode;
+using SolidColorBrush = ProGPU.Vector.SolidColorBrush;
+
+namespace ProGPU.Win2D.Tests;
+
+public sealed class Win2DCanvasCompatibilityTests
+{
+    [Fact]
+    public void PinnedSimpleSampleDrawingBodyCompilesUnchanged()
+    {
+        Action<CanvasDrawingSession> body = DrawPinnedSimpleSample;
+
+        Assert.NotNull(body);
+    }
+
+    [Fact]
+    public void PinnedGeometryAndLayerDrawingBodyCompilesUnchanged()
+    {
+        Action<ICanvasResourceCreator, CanvasDrawingSession> body =
+            DrawPinnedGeometrySample;
+
+        Assert.NotNull(body);
+    }
+
+    [Fact]
+    public void PinnedBrushDrawingBodyCompilesUnchanged()
+    {
+        Action<ICanvasResourceCreator, CanvasDrawingSession> body =
+            DrawPinnedBrushSample;
+
+        Assert.NotNull(body);
+    }
+
+    [Fact]
+    public void PinnedImageBrushDrawingBodyCompilesUnchanged()
+    {
+        Action<ICanvasResourceCreator, CanvasBitmap, CanvasDrawingSession> body =
+            DrawPinnedImageBrushSample;
+
+        Assert.NotNull(body);
+    }
+
+    [Fact]
+    public void DpiConversionMatchesWin2DRoundingContract()
+    {
+        Assert.Equal(
+            1U,
+            CanvasContract.SizeDipsToPixels(0.1f, 96f));
+        Assert.Equal(
+            3,
+            CanvasContract.DipsToPixels(
+                2.5f,
+                96f,
+                CanvasDpiRounding.Round));
+        Assert.Equal(
+            -3,
+            CanvasContract.DipsToPixels(
+                -2.5f,
+                96f,
+                CanvasDpiRounding.Round));
+        Assert.Equal(
+            2,
+            CanvasContract.DipsToPixels(
+                2.9f,
+                96f,
+                CanvasDpiRounding.Floor));
+        Assert.Equal(
+            3,
+            CanvasContract.DipsToPixels(
+                2.1f,
+                96f,
+                CanvasDpiRounding.Ceiling));
+    }
+
+    [Fact]
+    public void ColorToBgraIntrinsicSimdMatchesScalarOracleAndBoundedTail()
+    {
+        Windows.UI.Color[] colors =
+        [
+            Windows.UI.Color.FromArgb(0, 1, 2, 3),
+            Windows.UI.Color.FromArgb(4, 5, 6, 7),
+            Windows.UI.Color.FromArgb(8, 9, 10, 11),
+            Windows.UI.Color.FromArgb(12, 13, 14, 15),
+            Windows.UI.Color.FromArgb(16, 17, 18, 19),
+            Windows.UI.Color.FromArgb(20, 21, 22, 23),
+            Windows.UI.Color.FromArgb(24, 25, 26, 27),
+            Windows.UI.Color.FromArgb(28, 29, 30, 31),
+            Windows.UI.Color.FromArgb(32, 33, 34, 35),
+            Windows.UI.Color.FromArgb(36, 37, 38, 39),
+            Windows.UI.Color.FromArgb(40, 41, 42, 43)
+        ];
+        Assert.Equal(4, Unsafe.SizeOf<Windows.UI.Color>());
+        Assert.Equal(
+            [0, 1, 2, 3],
+            MemoryMarshal.AsBytes(colors.AsSpan(0, 1)).ToArray());
+
+        byte[] expected = new byte[colors.Length * 4];
+        ProGpuCanvasCpuConversionPath scalarPath =
+            CanvasColorBgraConverter.Convert(
+                colors,
+                expected,
+                ProGpuCanvasCpuConversionMode.ScalarReference);
+        Assert.Equal(
+            ProGpuCanvasCpuConversionPath.ScalarReference,
+            scalarPath);
+
+        byte[] actual = Enumerable.Repeat(
+            (byte)0xCC,
+            expected.Length + 5).ToArray();
+        ProGpuCanvasCpuConversionPath actualPath =
+            CanvasColorBgraConverter.Convert(
+                colors,
+                actual,
+                ProGpuCanvasCpuConversionMode.Automatic);
+        Assert.Equal(expected, actual.AsSpan(0, expected.Length).ToArray());
+        Assert.All(actual.AsSpan(expected.Length).ToArray(),
+            static value => Assert.Equal(0xCC, value));
+
+        if (Vector128.IsHardwareAccelerated)
+        {
+            byte[] forced = new byte[expected.Length];
+            ProGpuCanvasCpuConversionPath forcedPath =
+                CanvasColorBgraConverter.Convert(
+                    colors,
+                    forced,
+                    ProGpuCanvasCpuConversionMode.IntrinsicSimd);
+            Assert.Equal(expected, forced);
+            Assert.NotEqual(
+                ProGpuCanvasCpuConversionPath.ScalarReference,
+                forcedPath);
+            Assert.NotEqual(
+                ProGpuCanvasCpuConversionPath.ScalarReference,
+                actualPath);
+
+            byte[] smallAutomatic = new byte[12];
+            Assert.Equal(
+                ProGpuCanvasCpuConversionPath.ScalarReference,
+                CanvasColorBgraConverter.Convert(
+                    colors.AsSpan(0, 3),
+                    smallAutomatic,
+                    ProGpuCanvasCpuConversionMode.Automatic));
+            byte[] smallForced = new byte[12];
+            Assert.NotEqual(
+                ProGpuCanvasCpuConversionPath.ScalarReference,
+                CanvasColorBgraConverter.Convert(
+                    colors.AsSpan(0, 3),
+                    smallForced,
+                    ProGpuCanvasCpuConversionMode.IntrinsicSimd));
+            Assert.Equal(smallAutomatic, smallForced);
+        }
+    }
+
+    [Fact]
+    public void UnsupportedPortableCanvasModesFailClosed()
+    {
+        Assert.DoesNotContain(
+            typeof(CanvasRenderTarget).GetConstructors(),
+            static constructor => constructor.GetParameters().Any(
+                static parameter =>
+                    parameter.ParameterType == typeof(nint)));
+        Assert.Throws<NotSupportedException>(() =>
+            CanvasContract.ValidateFormat(
+                DirectXPixelFormat.R8G8B8A8UIntNormalized));
+        Assert.Throws<NotSupportedException>(() =>
+            CanvasContract.ValidateAlphaMode(CanvasAlphaMode.Straight));
+        Assert.Throws<NotSupportedException>(() =>
+            CanvasDevice.GetSharedDevice(forceSoftwareRenderer: true));
+        Assert.Equal(
+            (int)DirectXPixelFormat.B8G8R8A8UIntNormalized,
+            87);
+    }
+
+    [Fact]
+    public void CanvasDrawingSessionPublishesPinnedShapeOverloads()
+    {
+        Type type = typeof(CanvasDrawingSession);
+
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.DrawEllipse),
+            [
+                typeof(float),
+                typeof(float),
+                typeof(float),
+                typeof(float),
+                typeof(Windows.UI.Color),
+                typeof(float)
+            ]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.DrawText),
+            [
+                typeof(string),
+                typeof(float),
+                typeof(float),
+                typeof(Windows.UI.Color)
+            ]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.DrawLine),
+            [
+                typeof(Vector2),
+                typeof(Vector2),
+                typeof(Windows.UI.Color),
+                typeof(float)
+            ]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.DrawImage),
+            [
+                typeof(ICanvasImage),
+                typeof(Windows.Foundation.Rect),
+                typeof(Windows.Foundation.Rect),
+                typeof(float),
+                typeof(CanvasImageInterpolation)
+            ]));
+        Assert.True(typeof(ICanvasImage).IsAssignableFrom(
+            typeof(CanvasBitmap)));
+        Assert.True(typeof(IProGpuTextureLeaseSource).IsAssignableFrom(
+            typeof(CanvasBitmap)));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromBytes),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(byte[]),
+                typeof(int),
+                typeof(int),
+                typeof(DirectXPixelFormat)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromBytes),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(byte[]),
+                typeof(int),
+                typeof(int),
+                typeof(DirectXPixelFormat),
+                typeof(float)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromBytes),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(byte[]),
+                typeof(int),
+                typeof(int),
+                typeof(DirectXPixelFormat),
+                typeof(float),
+                typeof(CanvasAlphaMode)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.SetPixelBytes),
+            [typeof(byte[])]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.SetPixelBytes),
+            [
+                typeof(byte[]),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromColors),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(Windows.UI.Color[]),
+                typeof(int),
+                typeof(int)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromColors),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(Windows.UI.Color[]),
+                typeof(int),
+                typeof(int),
+                typeof(float)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromColors),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(Windows.UI.Color[]),
+                typeof(int),
+                typeof(int),
+                typeof(float),
+                typeof(CanvasAlphaMode)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.SetPixelColors),
+            [typeof(Windows.UI.Color[])]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.SetPixelColors),
+            [
+                typeof(Windows.UI.Color[]),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CopyPixelsFromBitmap),
+            [typeof(CanvasBitmap)]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CopyPixelsFromBitmap),
+            [typeof(CanvasBitmap), typeof(int), typeof(int)]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CopyPixelsFromBitmap),
+            [
+                typeof(CanvasBitmap),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int)
+            ]));
+        Assert.True(typeof(ICanvasImage).IsAssignableFrom(
+            typeof(CanvasCommandList)));
+        Assert.NotNull(typeof(ICanvasImage).GetMethod(
+            nameof(ICanvasImage.GetBounds),
+            [typeof(ICanvasResourceCreator)]));
+        Assert.NotNull(typeof(ICanvasImage).GetMethod(
+            nameof(ICanvasImage.GetBounds),
+            [typeof(ICanvasResourceCreator), typeof(Matrix3x2)]));
+        Assert.NotNull(typeof(CanvasCommandList).GetConstructor(
+            [typeof(ICanvasResourceCreator)]));
+        Assert.NotNull(typeof(CanvasCommandList).GetMethod(
+            nameof(CanvasCommandList.CreateDrawingSession),
+            Type.EmptyTypes));
+        Assert.NotNull(typeof(CanvasCommandList).GetMethod(
+            nameof(CanvasCommandList.GetBounds),
+            [typeof(ICanvasResourceCreator), typeof(Matrix3x2)]));
+        Assert.NotNull(typeof(CanvasGeometry).GetMethod(
+            nameof(CanvasGeometry.CreatePath),
+            [typeof(CanvasPathBuilder)]));
+        Assert.NotNull(typeof(CanvasGeometry).GetMethod(
+            nameof(CanvasGeometry.CreateGroup),
+            [typeof(ICanvasResourceCreator), typeof(CanvasGeometry[])]));
+        Assert.NotNull(typeof(CanvasGeometry).GetMethod(
+            nameof(CanvasGeometry.CombineWith),
+            [typeof(CanvasGeometry), typeof(Matrix3x2), typeof(CanvasGeometryCombine)]));
+        Assert.NotNull(typeof(CanvasGeometry).GetMethod(
+            nameof(CanvasGeometry.Transform),
+            [typeof(Matrix3x2)]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.DrawGeometry),
+            [
+                typeof(CanvasGeometry),
+                typeof(Windows.UI.Color),
+                typeof(float)
+            ]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.DrawGeometry),
+            [
+                typeof(CanvasGeometry),
+                typeof(Windows.UI.Color),
+                typeof(float),
+                typeof(CanvasStrokeStyle)
+            ]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.FillGeometry),
+            [typeof(CanvasGeometry), typeof(Windows.UI.Color)]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.FillGeometry),
+            [typeof(CanvasGeometry), typeof(ICanvasBrush)]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.FillRectangle),
+            [
+                typeof(float),
+                typeof(float),
+                typeof(float),
+                typeof(float),
+                typeof(ICanvasBrush)
+            ]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.CreateLayer),
+            [typeof(float), typeof(Windows.Foundation.Rect)]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.CreateLayer),
+            [typeof(float), typeof(CanvasGeometry), typeof(Matrix3x2)]));
+        Assert.NotNull(typeof(CanvasImageBrush).GetConstructor(
+            [typeof(ICanvasResourceCreator), typeof(ICanvasImage)]));
+        Assert.Equal(CanvasEdgeBehavior.Clamp,
+            default(CanvasEdgeBehavior));
+        Assert.Equal(CanvasImageInterpolation.Linear,
+            (CanvasImageInterpolation)1);
+    }
+
+    [Fact]
+    public void CanvasStrokeStyleCachesTypedPenAndCustomDashWins()
+    {
+        using var style = new CanvasStrokeStyle();
+        var brush = new SolidColorBrush(Vector4.One);
+
+        Pen first = style.GetOrCreatePen(brush, 4f);
+        Pen repeated = style.GetOrCreatePen(brush, 4f);
+        Assert.Same(first, repeated);
+        Assert.Equal(PenLineCap.Flat, first.StartLineCap);
+        Assert.Equal(PenLineCap.Flat, first.EndLineCap);
+        Assert.Equal(PenLineCap.Square, first.DashCap);
+        Assert.Equal(10f, first.MiterLimit);
+        Assert.Null(first.DashArray);
+
+        style.DashStyle = CanvasDashStyle.Dash;
+        Pen dashed = style.GetOrCreatePen(brush, 4f);
+        Assert.NotSame(first, dashed);
+        Assert.Equal([2d, 2d], dashed.DashArray!);
+
+        float[] custom = [1f, 3f, 2f, 4f];
+        style.CustomDashStyle = custom;
+        custom[0] = 99f;
+        Pen customPen = style.GetOrCreatePen(brush, 4f);
+        Assert.Equal([1d, 3d, 2d, 4d], customPen.DashArray!);
+        Assert.Equal([1f, 3f, 2f, 4f], style.CustomDashStyle);
+
+        style.TransformBehavior = CanvasStrokeTransformBehavior.Hairline;
+        Pen hairline = style.GetOrCreatePen(brush, 4f);
+        Assert.True(hairline.IsHairline);
+        Assert.Equal(PenStrokeTransformMode.Fixed, hairline.StrokeTransformMode);
+    }
+
+    [Fact]
+    public void UnsupportedMiterOrBevelFailsClosed()
+    {
+        using var style = new CanvasStrokeStyle
+        {
+            LineJoin = CanvasLineJoin.MiterOrBevel
+        };
+
+        Assert.Throws<NotSupportedException>(() =>
+            style.GetOrCreatePen(
+                new SolidColorBrush(Vector4.One),
+                2f));
+    }
+
+    [Fact]
+    public void CanvasGradientValidationCopiesStopsAndFailsClosed()
+    {
+        CanvasGradientStopHdr[] source =
+        [
+            new() { Position = 0f, Color = Vector4.One },
+            new() { Position = 1f, Color = Vector4.Zero }
+        ];
+
+        CanvasGradientStopHdr[] copy =
+            CanvasBrushUtilities.ValidateAndCopyStops(source);
+        source[0].Position = 0.5f;
+        Assert.Equal(0f, copy[0].Position);
+        Assert.Equal(
+            ProGPU.Vector.GradientSpreadMethod.Repeat,
+            CanvasBrushUtilities.MapEdgeBehavior(CanvasEdgeBehavior.Wrap));
+        Assert.Throws<ArgumentException>(() =>
+            CanvasBrushUtilities.ValidateAndCopyStops(
+            [
+                new() { Position = 1f, Color = Vector4.One },
+                new() { Position = 0f, Color = Vector4.One }
+            ]));
+        Assert.Throws<NotSupportedException>(() =>
+            CanvasBrushUtilities.ValidateGradientOptions(
+                CanvasEdgeBehavior.Clamp,
+                CanvasAlphaMode.Straight,
+                CanvasColorSpace.Srgb,
+                CanvasColorSpace.Srgb,
+                CanvasBufferPrecision.Precision8UIntNormalized));
+    }
+
+    private static void DrawPinnedSimpleSample(CanvasDrawingSession drawingSession)
+    {
+        drawingSession.DrawEllipse(155, 115, 80, 30, Colors.Black, 3);
+        drawingSession.DrawText("Hello, world!", 100, 100, Colors.Yellow);
+    }
+
+    private static void DrawPinnedGeometrySample(
+        ICanvasResourceCreator resourceCreator,
+        CanvasDrawingSession drawingSession)
+    {
+        using var builder = new CanvasPathBuilder(resourceCreator);
+        builder.SetFilledRegionDetermination(
+            CanvasFilledRegionDetermination.Winding);
+        builder.BeginFigure(8, 8);
+        builder.AddLine(48, 8);
+        builder.AddQuadraticBezier(
+            new Vector2(56, 28),
+            new Vector2(48, 48));
+        builder.AddCubicBezier(
+            new Vector2(36, 56),
+            new Vector2(20, 56),
+            new Vector2(8, 48));
+        builder.AddArc(
+            new Vector2(8, 8),
+            20,
+            20,
+            0,
+            CanvasSweepDirection.Clockwise,
+            CanvasArcSize.Small);
+        builder.EndFigure(CanvasFigureLoop.Closed);
+        using CanvasGeometry geometry = CanvasGeometry.CreatePath(builder);
+        drawingSession.FillGeometry(geometry, Colors.Blue);
+        using var strokeStyle = new CanvasStrokeStyle
+        {
+            StartCap = CanvasCapStyle.Round,
+            EndCap = CanvasCapStyle.Triangle
+        };
+        drawingSession.DrawGeometry(
+            geometry,
+            Colors.White,
+            2,
+            strokeStyle);
+        using CanvasActiveLayer layer = drawingSession.CreateLayer(
+            1,
+            new Windows.Foundation.Rect(8, 8, 20, 40));
+        drawingSession.FillGeometry(geometry, Colors.Red);
+    }
+
+
+    private static void DrawPinnedBrushSample(
+        ICanvasResourceCreator resourceCreator,
+        CanvasDrawingSession drawingSession)
+    {
+        using var linear = new CanvasLinearGradientBrush(
+            resourceCreator,
+            Colors.Red,
+            Colors.Blue)
+        {
+            StartPoint = new Vector2(0, 0),
+            EndPoint = new Vector2(100, 0)
+        };
+        drawingSession.FillRectangle(0, 0, 100, 20, linear);
+
+        using var radial = new CanvasRadialGradientBrush(
+            resourceCreator,
+            Colors.White,
+            Colors.Black)
+        {
+            Center = new Vector2(50, 50),
+            RadiusX = 25,
+            RadiusY = 25
+        };
+        drawingSession.FillCircle(50, 50, 25, radial);
+    }
+
+    private static void DrawPinnedImageBrushSample(
+        ICanvasResourceCreator resourceCreator,
+        CanvasBitmap checks,
+        CanvasDrawingSession drawingSession)
+    {
+        using var checkedFillPattern = new CanvasImageBrush(
+            resourceCreator,
+            checks)
+        {
+            ExtendX = CanvasEdgeBehavior.Wrap,
+            ExtendY = CanvasEdgeBehavior.Wrap,
+            Transform = Matrix3x2.CreateScale(16),
+            Interpolation = CanvasImageInterpolation.NearestNeighbor
+        };
+        drawingSession.FillRectangle(
+            0,
+            0,
+            100,
+            100,
+            checkedFillPattern);
+    }
+}

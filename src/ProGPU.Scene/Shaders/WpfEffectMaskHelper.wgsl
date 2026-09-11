@@ -65,12 +65,20 @@ fn wpf_active_mask_alpha(screenPosition: vec4<f32>) -> f32 {
         return wpf_analytic_rounded_mask_alpha(screenPosition.xy) *
             activeMaskSampling.options.y;
     }
-    let screenUv = (screenPosition.xy - activeMaskSampling.coordinate0.xy) *
+    var screenUv = (screenPosition.xy - activeMaskSampling.coordinate0.xy) *
         activeMaskSampling.coordinate1.xy;
-    let sampled = textureSample(
+    if (activeMaskSampling.options.z > 0.5) {
+        screenUv = vec2<f32>(
+            dot(vec3<f32>(screenPosition.xy, 1.0), activeMaskSampling.coordinate0.xyz),
+            dot(vec3<f32>(screenPosition.xy, 1.0), activeMaskSampling.coordinate1.xyz));
+    }
+    let sample = textureSample(
         activeMaskTexture,
         activeMaskSampler,
-        clamp(screenUv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+        clamp(screenUv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    let sampled = select(sample.r, sample.a, activeMaskSampling.options.w > 1.5);
     let inside = all(screenUv >= vec2<f32>(0.0)) && all(screenUv <= vec2<f32>(1.0));
-    return select(0.0, sampled, inside);
+    let textureOpacity = select(1.0, activeMaskSampling.options.y,
+        activeMaskSampling.options.w > 0.5);
+    return select(0.0, sampled * textureOpacity, inside);
 }

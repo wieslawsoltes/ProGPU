@@ -172,10 +172,9 @@ std::uint16_t get_unicode_syllable_machine_start_state(
     return 0U;
 }
 
-template<typename Actions>
-bool try_get_state_action(
+static bool try_get_state_action(
     std::uint16_t state,
-    const Actions& actions,
+    std::span<const std::uint8_t> actions,
     std::uint8_t& action) noexcept {
     action = 0U;
     if (state >= actions.size()) {

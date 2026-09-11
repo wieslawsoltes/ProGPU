@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -18,7 +19,30 @@ enum class scene_build_error : std::uint32_t {
     invalid_state,
     unbalanced_stack,
     capacity_exceeded,
-    out_of_memory
+    out_of_memory,
+    unsupported_hit_test
+};
+
+enum class scene_layer_hit_test_mode : std::uint32_t {
+    unspecified = 0U,
+    // Source drawing opacity changes pixels, not geometric input coverage.
+    // Admitted only for an unmasked, effect-free SrcOver opacity layer.
+    source_opacity,
+    // Source-owned identity input mapping through built-in blur/shadow. Raster
+    // bounds are not input bounds; an optional final composite clip still applies.
+    source_identity_effect,
+    // Cached commands use a separate raster-local frame. The caller supplies
+    // its unsnapped content-to-parent input transform; storage bounds are not clips.
+    source_local_cache,
+    // Source drawing PushOpacityMask changes alpha only. Its mask and storage
+    // bounds do not clip input; actual source geometry clips stay in draw state.
+    // Never use this annotation for a geometric clipping layer.
+    source_opacity_mask
+};
+
+enum class scene_hit_test_opacity_mode : std::uint32_t {
+    rendered_visibility = 0U,
+    source_geometry
 };
 
 struct scene_build_metrics final {
@@ -38,6 +62,15 @@ struct shaped_text_scene_options final {
     float atlas_to_logical_scale = 1.0F;
     float bold_offset = 0.0F;
     float italic_skew = 0.0F;
+};
+
+// Typed metadata only; no pointer into builder-owned resource storage is exposed.
+struct scene_full_image_copy final {
+    std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t resource_flags = 0U;
+    progpu_native_scene_image_draw image{};
+    progpu_native_scene_image_color_matrix color_matrix{};
+    progpu_native_scene_picture_image picture{};
 };
 
 /*
@@ -81,17 +114,106 @@ public:
     bool add_state(
         const progpu_native_scene_state& state,
         std::uint32_t& resource_index) noexcept;
+    bool add_guideline_set(
+        std::span<const double> guidelines_x,
+        std::span<const double> guidelines_y,
+        std::uint32_t& resource_index,
+        bool composite_only = false,
+        bool per_point = false) noexcept;
+    bool add_guideline_set_with_offsets(
+        std::span<const double> guidelines_x,
+        std::span<const double> guidelines_y,
+        std::span<const double> offsets_x,
+        std::span<const double> offsets_y,
+        std::uint32_t& resource_index,
+        bool composite_only = false,
+        bool per_point = false) noexcept;
+    // Copy one typed guideline resource into an independently owned scene.
+    // Preserves coordinates, flags and resolved dynamic offsets without a
+    // serialize/parse round trip. Source indices never escape into the target.
+    bool copy_guideline_set_from(
+        const semantic_scene_builder& source,
+        std::uint32_t source_resource_index,
+        std::uint32_t& resource_index) noexcept;
+    // Resolve a single-coordinate-per-axis resource with the executor's exact
+    // rounding/offset rules. Multi-coordinate resources fail without mutation.
+    // Resolve the Y-only physical displacement of a bitmap-text run origin.
+    // The caller retains source geometry and emits a uniform raster-only scope.
+    bool try_glyph_guideline_offset(std::uint32_t resource_index,
+        float origin_y, float dpi_scale, float& physical_offset) const noexcept;
+
+    bool try_uniform_guideline_translation(
+        std::uint32_t resource_index, float dpi_scale,
+        progpu_native_point& translation) const noexcept;
     bool add_rgba8_image(
         std::uint32_t width,
         std::uint32_t height,
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels,
         std::uint32_t& resource_index) noexcept;
+    bool add_bgra8_image(
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint32_t& resource_index) noexcept;
+    // Retain compact one-channel bytes, including row padding but no final-row
+    // padding. Samples are (R, 0, 0, 1); use a color matrix for alpha-only masks.
+    bool add_r8_image(
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint32_t& resource_index) noexcept;
+    // Atomically append an owned upload and a bounded SRC layer/image/pop.
+    // Root scope only, identity transform, nearest sampling and full opacity.
+    // storage_flags is zero (RGBA8), IMAGE_BGRA8 or IMAGE_R8. An optional
+    // canonical color matrix supports compact alpha-only uploads. Failure
+    // leaves prior commands/resources unchanged; last_error reports the cause.
+    bool copy_image_from_memory(
+        const progpu_native_scene_image_draw& image,
+        std::uint32_t storage_flags,
+        std::span<const std::byte> pixels,
+        const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
+    // Consume a staging builder and move its selected owned image into an
+    // atomic SRC copy. Accepts uploaded or picture images, not external handles.
+    // The staging builder is consumed even on failure; destination history is
+    // unchanged on failure. No second payload/scene byte copy is performed.
+    bool copy_image_from_builder(
+        semantic_scene_builder source,
+        std::uint32_t source_resource_index,
+        const progpu_native_scene_image_draw& image,
+        const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
+    // Recognize exactly one root SRC-layer/full-image/pop covering bounds with
+    // 1:1 pixel sampling and integral source origin (including exact crops).
+    // No allocations or serialization. The caller must also
+    // qualify alpha flags/matrix and storage format before bypassing rasterization.
+    bool try_get_full_image_copy(
+        progpu_native_image_rect bounds, std::uint32_t pixel_width,
+        std::uint32_t pixel_height, scene_full_image_copy& copy) const noexcept;
+    // Copy an owned upload/picture resource without adding a drawing command.
+    // Resource ownership is independent; rejects self-import/external handles.
+    bool copy_image_resource_from(
+        const semantic_scene_builder& source, std::uint32_t source_resource_index,
+        std::uint32_t& resource_index) noexcept;
+    // Rasterize an owned nested scene at its declared source resolution before
+    // sampling it as an ordinary premultiplied image. No CPU pixel materialization.
+    bool add_picture_image(
+        const progpu_native_scene_picture_image& picture,
+        std::span<const std::byte> nested_scene,
+        std::uint32_t& resource_index) noexcept;
     bool add_external_image(
         std::uint32_t width,
         std::uint32_t height,
         std::uint32_t& resource_index) noexcept;
     bool update_rgba8_image(
+        std::uint32_t resource_index,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint64_t resource_generation) noexcept;
+    bool update_bgra8_image(
         std::uint32_t resource_index,
         std::uint32_t width,
         std::uint32_t height,
@@ -107,6 +229,13 @@ public:
         std::span<const std::uint32_t> primitive_indices,
         std::span<const progpu_native_path_segment> path_segments,
         std::uint32_t& resource_index) noexcept;
+    // CPU-only owner boundaries, not draw commands or native object pointers.
+    // nullopt excludes subsequent draws until a source owner is selected.
+    bool set_hit_test_owner(std::optional<std::int32_t> owner) noexcept;
+    // Lower owned retained commands into the canonical GPU hit-test index.
+    // Transactional: unsupported coverage never installs a partial index.
+    bool add_recorded_hit_test_index(std::uint32_t& resource_index,
+        scene_hit_test_opacity_mode opacity_mode = scene_hit_test_opacity_mode::rendered_visibility) noexcept;
     bool add_glyph_outlines(
         std::span<const progpu_native_scene_glyph_outline> outlines,
         std::span<const progpu_native_path_segment> segments,
@@ -122,6 +251,23 @@ public:
         const progpu_native_scene_layer_coverage_mask& mask,
         std::span<const std::byte> coverage,
         std::uint32_t& resource_index) noexcept;
+    // Records one canonical typed brush mask and its inline gradient stops.
+    bool add_brush_mask(
+        const progpu_native_scene_layer_brush_mask& mask,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+        std::uint32_t& resource_index) noexcept;
+    // Records one canonical GPU-rasterized geometry mask. The primitive span
+    // is retained directly and never round-trips through CPU pixels.
+    bool add_geometry_mask(
+        const progpu_native_scene_layer_geometry_mask& mask,
+        std::span<const progpu_native_geometry_primitive> primitives,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+        std::uint32_t& resource_index) noexcept;
+    // Records one GPU-rendered nested scene as an alpha opacity mask.
+    bool add_picture_mask(
+        const progpu_native_scene_layer_picture_mask& mask,
+        std::span<const std::byte> nested_scene,
+        std::uint32_t& resource_index) noexcept;
     bool add_analytic_mask_chain(
         std::span<const progpu_native_scene_layer_mask> masks,
         std::uint32_t& resource_index) noexcept;
@@ -129,11 +275,27 @@ public:
         std::span<const progpu_native_scene_clip_path> paths,
         std::span<const progpu_native_path_segment> segments,
         float opacity,
-        std::uint32_t& resource_index) noexcept;
+        std::uint32_t& resource_index,
+        bool source_geometry_clip = false) noexcept;
+    // Source annotation declares original input clipping, not raster/material
+    // coverage. The hit producer separately admits its supported exact topology.
     bool add_vector_clip_mask(
         std::span<const progpu_native_scene_clip_path> paths,
         std::span<const progpu_native_path_segment> segments,
         std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
+        float opacity,
+        std::uint32_t& resource_index,
+        bool source_geometry_clip = false) noexcept;
+    bool add_composite_mask(
+        std::span<const progpu_native_scene_layer_brush_mask> brush_masks,
+        std::span<const progpu_native_scene_layer_geometry_mask> geometry_masks,
+        std::span<const progpu_native_geometry_primitive> geometry_primitives,
+        std::span<const progpu_native_scene_layer_picture_mask> picture_masks,
+        std::span<const std::byte> picture_streams,
+        std::span<const progpu_native_scene_clip_path> paths,
+        std::span<const progpu_native_path_segment> segments,
+        std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
         float opacity,
         std::uint32_t& resource_index) noexcept;
     bool add_effect_chain(
@@ -141,11 +303,33 @@ public:
         std::uint32_t revision,
         std::uint32_t& resource_index) noexcept;
 
+    // Optional source-owned local rectangle replaces input coverage for this
+    // complete save/restore scope, including nested render-only content. The
+    // selected owner and saved state's transform/clip own that rectangle; this
+    // is not a culling-bounds fallback. Copied only when an owner is active.
+    // point_only_rectangle instead replaces just point input, preserving the
+    // enclosed drawing for region queries. End it before source child traversal.
+    // empty_point_region requires point_only_rectangle and suppresses rectangle
+    // emission while retaining region drawing. It is not a zero-size point hit.
+    // input_only retains the entire balanced scope for hit-index capture while
+    // excluding its commands from serialization; resources remain builder-owned.
+    // render_only is the complementary material/coverage scope: preserve raster
+    // commands but exclude their internals from source input. The producer must
+    // retain original geometry separately (for example an input_only scope).
     bool save(
         std::uint32_t state_resource_index =
-            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+        const progpu_native_image_rect* local_hit_rectangle = nullptr,
+        bool point_only_rectangle = false,
+        bool input_only = false,
+        bool empty_point_region = false,
+        bool render_only = false) noexcept;
     bool restore() noexcept;
-    bool push_layer(const progpu_native_scene_layer& layer) noexcept;
+    bool add_tile_composite(const progpu_native_scene_tile_composite& tile,
+        std::uint32_t& resource_index) noexcept;
+    bool push_layer(const progpu_native_scene_layer& layer,
+        scene_layer_hit_test_mode hit_test_mode = scene_layer_hit_test_mode::unspecified,
+        const progpu_native_affine_2d* source_content_to_parent = nullptr) noexcept;
     bool pop_layer() noexcept;
 
     bool draw_analytic(
@@ -173,6 +357,28 @@ public:
 
     bool draw_lines_3d(
         std::span<const progpu_native_scene_line_3d> lines,
+        const progpu_native_scene_camera_3d& camera,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    bool draw_meshes_3d(
+        std::span<const progpu_native_scene_mesh_3d> meshes,
+        std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
+        std::span<const std::uint32_t> indices,
+        std::span<const progpu_native_scene_light_3d> lights,
+        std::span<const progpu_native_scene_brush> materials,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+        const progpu_native_scene_camera_3d& camera,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    bool draw_meshes_3d(
+        std::span<const progpu_native_scene_mesh_3d> meshes,
+        std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
+        std::span<const std::uint32_t> indices,
+        std::span<const progpu_native_scene_light_3d> lights,
         const progpu_native_scene_camera_3d& camera,
         progpu_native_image_rect bounds,
         std::uint32_t state_resource_index =
@@ -224,6 +430,9 @@ public:
         const progpu_native_scene_image_effect*
             effect = nullptr) noexcept;
 
+    // Optional source-owned ink rectangle is local to the active scene state,
+    // includes the baseline, and is copied only for an active hit-test owner.
+    // Culling bounds, raster padding and font-size estimates are not substitutes.
     bool draw_glyph_run(
         std::uint32_t glyph_resource_index,
         std::span<const progpu_native_positioned_glyph> glyphs,
@@ -231,7 +440,8 @@ public:
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX,
         std::uint32_t text_style_index =
-            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+        const progpu_native_image_rect* local_ink_bounds = nullptr) noexcept;
 
     bool draw_shaped_text_run(
         std::uint32_t glyph_resource_index,
@@ -263,6 +473,26 @@ public:
     static progpu_native_scene_state identity_state() noexcept;
 
 private:
+    bool append_image_copy_commands(
+        std::uint32_t resource_index,
+        const progpu_native_scene_image_draw& image,
+        const progpu_native_scene_image_color_matrix* color_matrix) noexcept;
+    bool add_upload_image(
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        bool bgra8,
+        std::uint32_t& resource_index,
+        bool r8 = false) noexcept;
+    bool update_32bit_image(
+        std::uint32_t resource_index,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint64_t resource_generation,
+        bool bgra8) noexcept;
     bool try_measure_stream(
         std::uint32_t& command_offset,
         std::uint32_t& resource_offset,
@@ -275,6 +505,7 @@ private:
         std::vector<std::byte> payload,
         std::vector<std::byte> auxiliary,
         const progpu_native_scene_camera_3d& camera,
+        std::span<const std::uint32_t> material_brush_indices,
         progpu_native_image_rect bounds,
         std::uint32_t state_resource_index);
 

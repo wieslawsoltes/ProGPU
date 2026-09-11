@@ -3,7 +3,7 @@ using Silk.NET.Windowing;
 
 namespace ProGPU.Backend;
 
-internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
+internal sealed unsafe partial class X11NativeWindowPlatform : GlfwNativeWindowPlatform, INativeWindowModalHintOperations
 {
     private const string X11Library = "libX11.so.6";
     private const int ClientMessage = 33;
@@ -131,6 +131,8 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
 
     public override bool SetParent(NativeWindowHandle parent)
     {
+        if (parent.IsValid && (parent.Kind != NativeWindowKind.X11 || parent.Display != _display ||
+            (nuint)parent.Handle == _window)) return false;
         if (!parent.IsValid)
         {
             var transientFor = XInternAtom(_display, "WM_TRANSIENT_FOR", false);
@@ -139,8 +141,9 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
             return true;
         }
 
-        return parent.Kind == NativeWindowKind.X11 &&
-            XSetTransientForHint(_display, _window, (nuint)parent.Handle) != 0;
+        bool accepted = XSetTransientForHint(_display, _window, (nuint)parent.Handle) != 0;
+        if (accepted) XFlush(_display);
+        return accepted;
     }
 
     public override bool SetClientAreaExtension(bool enabled, double titleBarHeight) => true;
@@ -226,9 +229,9 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
         return SendClientMessage(stateAtom, data);
     }
 
-    private bool SendClientMessage(nuint messageType, long* values)
+    private bool SendClientMessage(nuint messageType, long* values, nuint rootWindow = 0)
     {
-        var root = XDefaultRootWindow(_display);
+        var root = rootWindow != 0 ? rootWindow : XDefaultRootWindow(_display);
         var clientMessage = new XClientMessageEvent
         {
             Type = ClientMessage,

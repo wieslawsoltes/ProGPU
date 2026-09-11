@@ -18,6 +18,7 @@ progpu_native_status poll_hit_test(
     std::uint32_t result_capacity,
     std::uint32_t* result_count,
     progpu_native_hit_test_result* summary,
-    std::uint8_t* complete);
+    std::uint8_t* complete,
+    bool wait = false);
 
 } // namespace progpu::native::execution

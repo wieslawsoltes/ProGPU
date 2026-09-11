@@ -24,6 +24,40 @@
 using progpu::native::gpu_clip_compose_uniforms;
 using progpu::native::gpu_clip_vertex;
 
+bool create_sampled_mask_composition_resources(progpu_native_engine& engine) {
+    if (engine.sampled_mask_compose_pipeline != nullptr) return true;
+    if (!create_clip_chain_resources(engine)) return false;
+    const std::array<WGPUBindGroupLayout, 2U> layouts{
+        engine.clip_compose_layout, engine.layer_mask_layout};
+    WGPUPipelineLayoutDescriptor layout_descriptor{};
+    layout_descriptor.bindGroupLayoutCount = layouts.size();
+    layout_descriptor.bindGroupLayouts = layouts.data();
+    WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(engine.device, &layout_descriptor);
+    if (layout == nullptr) return false;
+    WGPUColorTargetState target{};
+    target.format = WGPUTextureFormat_R8Unorm;
+    target.writeMask = WGPUColorWriteMask_All;
+    WGPUFragmentState fragment{};
+    fragment.module = engine.clip_compose_shader;
+    fragment.entryPoint = progpu::native::webgpu::string_view("fs_compose_sampled");
+    fragment.targetCount = 1U;
+    fragment.targets = &target;
+    WGPURenderPipelineDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view("ProGPU shared sampled-mask composition");
+    descriptor.layout = layout;
+    descriptor.vertex.module = engine.clip_compose_shader;
+    descriptor.vertex.entryPoint = progpu::native::webgpu::string_view("vs_compose");
+    descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    descriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    descriptor.primitive.cullMode = WGPUCullMode_None;
+    descriptor.multisample.count = 1U;
+    descriptor.multisample.mask = 0xFFFFFFFFU;
+    descriptor.fragment = &fragment;
+    engine.sampled_mask_compose_pipeline = wgpuDeviceCreateRenderPipeline(engine.device, &descriptor);
+    wgpuPipelineLayoutRelease(layout);
+    return engine.sampled_mask_compose_pipeline != nullptr;
+}
+
 bool create_clip_chain_resources(progpu_native_engine& engine) {
     if (engine.clip_path_pipeline != nullptr &&
         engine.clip_compose_pipeline != nullptr &&

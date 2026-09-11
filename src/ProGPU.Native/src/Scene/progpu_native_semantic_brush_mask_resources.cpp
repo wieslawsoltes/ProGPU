@@ -1,5 +1,6 @@
 #include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_semantic_layer_mask.hpp"
+#include "progpu_native_semantic_state.hpp"
 
 #if !defined(PROGPU_NATIVE_DAWN_ABI)
 #include <webgpu.h>
@@ -55,14 +56,19 @@ void release_transient_buffer(WGPUBuffer buffer, bool submitted) noexcept {
 semantic::scissor geometry_mask_scissor(
     const progpu_native_scene_layer_geometry_mask& mask,
     const semantic::scissor& target_extent,
-    float dpi_scale) noexcept {
+    float dpi_scale,
+    const progpu_native_scene_presentation* presentation) noexcept {
     constexpr double mask_scissor_padding_pixels = 2.0;
+    const double scale_x = presentation ? presentation->dpi_scale_x : dpi_scale;
+    const double scale_y = presentation ? presentation->dpi_scale_y : dpi_scale;
+    const double origin_x = presentation ? presentation->viewport_x : 0U;
+    const double origin_y = presentation ? presentation->viewport_y : 0U;
     const auto transform_point = [&](double x, double y) noexcept {
         return std::array<double, 2U>{
             (x * mask.transform.m11 + y * mask.transform.m21 +
-                mask.transform.m31) * dpi_scale - target_extent.x,
+                mask.transform.m31) * scale_x + (origin_x - target_extent.x),
             (x * mask.transform.m12 + y * mask.transform.m22 +
-                mask.transform.m32) * dpi_scale - target_extent.y};
+                mask.transform.m32) * scale_y + (origin_y - target_extent.y)};
     };
     const double right = mask.bounds.x + mask.bounds.width;
     const double bottom = mask.bounds.y + mask.bounds.height;
@@ -117,7 +123,13 @@ bool create_semantic_brush_mask_binding(
     const semantic::semantic_layer_mask& parsed,
     const semantic::scissor& target_extent,
     float dpi_scale,
-    semantic_render_bundle_span& operation) {
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
+    semantic_render_bundle_span& operation,
+    const progpu_native_scene_presentation* presentation) {
+    const bool advanced = presentation != nullptr &&
+        (presentation->viewport_x != 0U || presentation->viewport_y != 0U ||
+            presentation->dpi_scale_x != dpi_scale || presentation->dpi_scale_y != dpi_scale);
     const bool geometry_mask = parsed.kind ==
         PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY;
     const auto& source_brush = geometry_mask
@@ -145,10 +157,13 @@ bool create_semantic_brush_mask_binding(
                  ++index) {
                 auto primitive = parsed.composite_geometry_primitives[
                     parsed.geometry.primitive_offset + index];
-                primitive.transform.m31 -=
-                    static_cast<float>(target_extent.x) / dpi_scale;
-                primitive.transform.m32 -=
-                    static_cast<float>(target_extent.y) / dpi_scale;
+                if (advanced) {
+                    primitive.transform = semantic::localize_semantic_transform(
+                        primitive.transform, target_extent, *presentation, dpi_scale);
+                } else {
+                    primitive.transform.m31 -= static_cast<float>(target_extent.x) / dpi_scale;
+                    primitive.transform.m32 -= static_cast<float>(target_extent.y) / dpi_scale;
+                }
                 if (source_brush.type == PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
                     primitive.color = source_brush.colors[0];
                 }
@@ -176,19 +191,77 @@ bool create_semantic_brush_mask_binding(
                         0.0F,
                         1.0F};
             primitive.transform = parsed.brush.transform;
-            primitive.transform.m31 -=
-                static_cast<float>(target_extent.x) / dpi_scale;
-            primitive.transform.m32 -=
-                static_cast<float>(target_extent.y) / dpi_scale;
+            if (!advanced) {
+                primitive.transform.m31 -= static_cast<float>(target_extent.x) / dpi_scale;
+                primitive.transform.m32 -= static_cast<float>(target_extent.y) / dpi_scale;
+            }
+            if (composite_state_cursor != nullptr &&
+                composite_state != nullptr) {
+                if (primitive.width <= 0.0F || primitive.height <= 0.0F) {
+                    return false;
+                }
+                // A WPF cache-root guideline deforms the retained bitmap and
+                // opacity-mask coverage as one post-cache shape. Visual
+                // guidelines are disabled under rotation/shear, so snapping
+                // the exact mask rectangle corners yields the separable
+                // affine frame used by the composite quad. Brush coordinates
+                // intentionally remain in their original target-space frame.
+                const float target_x =
+                    advanced ? 0.0F : static_cast<float>(target_extent.x) / dpi_scale;
+                const float target_y =
+                    advanced ? 0.0F : static_cast<float>(target_extent.y) / dpi_scale;
+                float left = primitive.x * primitive.transform.m11 +
+                    primitive.y * primitive.transform.m21 +
+                    primitive.transform.m31 + target_x;
+                float top = primitive.x * primitive.transform.m12 +
+                    primitive.y * primitive.transform.m22 +
+                    primitive.transform.m32 + target_y;
+                float right =
+                    (primitive.x + primitive.width) *
+                        primitive.transform.m11 +
+                    (primitive.y + primitive.height) *
+                        primitive.transform.m21 +
+                    primitive.transform.m31 + target_x;
+                float bottom =
+                    (primitive.x + primitive.width) *
+                        primitive.transform.m12 +
+                    (primitive.y + primitive.height) *
+                        primitive.transform.m22 +
+                    primitive.transform.m32 + target_y;
+                composite_state_cursor->snap_composite_point(
+                    *composite_state,
+                    left,
+                    top);
+                composite_state_cursor->snap_composite_point(
+                    *composite_state,
+                    right,
+                    bottom);
+                primitive.transform.m11 =
+                    (right - left) / primitive.width;
+                primitive.transform.m12 = 0.0F;
+                primitive.transform.m21 = 0.0F;
+                primitive.transform.m22 =
+                    (bottom - top) / primitive.height;
+                primitive.transform.m31 = left - target_x -
+                    primitive.x * primitive.transform.m11;
+                primitive.transform.m32 = top - target_y -
+                    primitive.y * primitive.transform.m22;
+            }
+            if (advanced) {
+                // Guideline deformation above stays logical. Apply the device
+                // mapping after it, exactly as for the retained composite quad.
+                primitive.transform = semantic::localize_semantic_transform(
+                    primitive.transform, target_extent, *presentation, dpi_scale);
+            }
             float minimum_scale = 0.0F;
             vertices.reserve(4U);
             indices.reserve(6U);
             if (!try_get_minimum_scale(primitive.transform, minimum_scale) ||
                 !append_analytic_primitive(
-                    primitive,
-                    antialias_padding_pixels / minimum_scale,
-                    vertices,
-                    indices)) {
+                        primitive,
+                        antialias_padding_pixels / minimum_scale,
+                        vertices,
+                        indices)) {
                 return false;
             }
         }
@@ -356,9 +429,10 @@ bool create_semantic_brush_mask_binding(
     WGPUCommandEncoderDescriptor encoder_descriptor{};
     encoder_descriptor.label = webgpu::string_view(
         "ProGPU retained brush-mask encoder");
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
-        engine.device,
-        &encoder_descriptor);
+    const bool owns_encoder = engine.semantic_encoder == nullptr;
+    WGPUCommandEncoder encoder = owns_encoder
+        ? wgpuDeviceCreateCommandEncoder(engine.device, &encoder_descriptor)
+        : engine.semantic_encoder;
     if (encoder == nullptr) {
         cleanup();
         return false;
@@ -378,7 +452,9 @@ bool create_semantic_brush_mask_binding(
         encoder,
         &pass_descriptor);
     if (pass == nullptr) {
-        wgpuCommandEncoderRelease(encoder);
+        if (owns_encoder) {
+            wgpuCommandEncoderRelease(encoder);
+        }
         cleanup();
         return false;
     }
@@ -394,7 +470,7 @@ bool create_semantic_brush_mask_binding(
     wgpuRenderPassEncoderSetIndexBuffer(
         pass, index_buffer, WGPUIndexFormat_Uint32, 0U, index_bytes);
     const semantic::scissor draw_extent = geometry_mask
-        ? geometry_mask_scissor(parsed.geometry, target_extent, dpi_scale)
+        ? geometry_mask_scissor(parsed.geometry, target_extent, dpi_scale, presentation)
         : semantic::scissor{
             0U,
             0U,
@@ -419,19 +495,24 @@ bool create_semantic_brush_mask_binding(
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
 
-    WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = webgpu::string_view(
-        "ProGPU retained brush-mask commands");
-    WGPUCommandBuffer command = wgpuCommandEncoderFinish(
-        encoder,
-        &command_descriptor);
-    wgpuCommandEncoderRelease(encoder);
-    if (command == nullptr) {
-        cleanup();
-        return false;
+    if (owns_encoder) {
+        WGPUCommandBufferDescriptor command_descriptor{};
+        command_descriptor.label = webgpu::string_view(
+            "ProGPU retained brush-mask commands");
+        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+            encoder,
+            &command_descriptor);
+        wgpuCommandEncoderRelease(encoder);
+        if (command == nullptr) {
+            cleanup();
+            return false;
+        }
+        engine.submit(command);
+        wgpuCommandBufferRelease(command);
     }
-    engine.submit(command);
-    wgpuCommandBufferRelease(command);
+    // The command encoder retains every transient GPU object referenced by
+    // the pass. Release the handles without destroying their backing storage;
+    // the shared semantic encoder will submit them with the final image draw.
     submitted = true;
 
     operation.mask_texture = texture;
@@ -453,13 +534,17 @@ bool create_semantic_geometry_mask_binding(
     const semantic::semantic_layer_mask& parsed,
     const semantic::scissor& target_extent,
     float dpi_scale,
-    semantic_render_bundle_span& operation) {
+    semantic_render_bundle_span& operation,
+    const progpu_native_scene_presentation* presentation) {
     return create_semantic_brush_mask_binding(
         engine,
         parsed,
         target_extent,
         dpi_scale,
-        operation);
+        nullptr,
+        nullptr,
+        operation,
+        presentation);
 }
 
 } // namespace progpu::native::execution

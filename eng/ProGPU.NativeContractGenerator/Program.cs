@@ -130,6 +130,31 @@ static string Generate(string header, string sourceName)
     builder.AppendLine("namespace ProGPU.Backend.Native;");
     builder.AppendLine();
 
+    // Explicitly opted-in unsigned constants have one literal authority in C.
+    // Expressions/aliases are intentionally unsupported rather than evaluated
+    // with a second language's potentially different integer promotion rules.
+    const string constantMarker = @"/\*\s*PROGPU_CSHARP_ULONG:\s*(?<target>[A-Za-z_][A-Za-z0-9_]*)\s*\*/\s*(?<native>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?<value>[0-9]+)ULL";
+    MatchCollection constants = Regex.Matches(header, constantMarker, RegexOptions.CultureInvariant);
+    int constantMarkerCount = Regex.Matches(header, @"PROGPU_CSHARP_ULONG:", RegexOptions.CultureInvariant).Count;
+    if (constants.Count != constantMarkerCount)
+        throw new InvalidDataException("Unsupported PROGPU_CSHARP_ULONG constant declaration.");
+    if (constants.Count != 0)
+    {
+        builder.AppendLine("internal static unsafe partial class NativeMethods");
+        builder.AppendLine("{");
+        foreach (Match constant in constants)
+        {
+            string name = constant.Groups["target"].Value;
+            if (!targets.Add("NativeMethods." + name))
+                throw new InvalidDataException($"Duplicate generated constant: {name}.");
+            ulong value = ulong.Parse(constant.Groups["value"].Value, System.Globalization.CultureInfo.InvariantCulture);
+            builder.AppendLine($"    // Native source: {constant.Groups["native"].Value}.");
+            builder.AppendLine($"    internal const ulong {name} = {value.ToString(System.Globalization.CultureInfo.InvariantCulture)}UL;");
+        }
+        builder.AppendLine("}");
+        builder.AppendLine();
+    }
+
     foreach (IGrouping<string, ContractStruct> group in structures.GroupBy(
         static value => value.Container,
         StringComparer.Ordinal))
@@ -194,11 +219,13 @@ static string MapType(string nativeType) => nativeType switch
     "size_t" => "nuint",
     "uintptr_t" => "nuint",
     "float" => "float",
+    "double" => "double",
     "progpu_native_color" => "NativeColor",
     "progpu_native_point" => "Vector2",
     "progpu_native_point_3d" => "NativePoint3D",
     "progpu_native_float_4" => "NativeFloat4",
     "progpu_native_matrix_4x4" => "NativeMatrix4x4",
+    "progpu_native_scene_presentation" => "ScenePresentation",
     _ => throw new InvalidDataException(
         $"Unsupported native contract field type: {nativeType}.")
 };

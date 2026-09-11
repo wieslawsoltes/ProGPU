@@ -122,6 +122,27 @@ internal static unsafe class NativeRendererInterop
                 summary,
                 complete);
 
+    internal static NativeRendererStatus WaitHitTest(
+        NativeRendererInteropKind kind,
+        nint engine,
+        ulong requestToken,
+        NativeGpuHitTestResult* results,
+        uint resultCapacity,
+        uint* resultCount,
+        NativeGpuHitTestResult* summary) =>
+        kind == NativeRendererInteropKind.Dawn
+            ? NativeDawnMethods.WaitHitTest(
+                engine, requestToken, results, resultCapacity, resultCount, summary)
+            : NativeMethods.WaitHitTest(
+                engine, requestToken, results, resultCapacity, resultCount, summary);
+
+    internal static NativeRendererStatus GetHitTestIndex(
+        NativeRendererInteropKind kind, nint engine,
+        NativeSceneHitTestIndex* index, byte* hasIndex, byte* uploaded) =>
+        kind == NativeRendererInteropKind.Dawn
+            ? NativeDawnMethods.GetHitTestIndex(engine, index, hasIndex, uploaded)
+            : NativeMethods.GetHitTestIndex(engine, index, hasIndex, uploaded);
+
     internal static NativeRendererStatus Render(
         NativeRendererInteropKind kind,
         nint engine,

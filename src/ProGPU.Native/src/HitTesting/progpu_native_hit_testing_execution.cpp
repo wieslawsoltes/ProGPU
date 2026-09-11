@@ -546,6 +546,35 @@ bool valid_query(const progpu_native_hit_test_query& query) noexcept {
 
 } // namespace
 
+progpu_native_status get_hit_test_index(
+    progpu_native_engine* engine,
+    progpu_native_scene_hit_test_index* index,
+    std::uint8_t* has_index,
+    std::uint8_t* uploaded) {
+    if (engine == nullptr || index == nullptr || has_index == nullptr || uploaded == nullptr)
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (!engine->is_owner_thread())
+        return engine->fail(PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "Native GPU hit-test metadata is owner-thread affine.");
+    if (engine->device_lost || engine->device == nullptr)
+        return engine->fail(PROGPU_NATIVE_STATUS_DEVICE_LOST,
+            "A lost device cannot publish current GPU hit-test metadata.");
+    *index = {};
+    *has_index = 0U;
+    *uploaded = 0U;
+    progpu_native_scene_resource resource{};
+    progpu_native_scene_hit_test_index page{};
+    if (!engine->semantic_scene_snapshot.empty() &&
+        find_hit_test_resource(*engine, resource, page)) {
+        *index = page;
+        *has_index = 1U;
+        *uploaded = engine->semantic_hit_test_bind_group != nullptr &&
+            engine->semantic_hit_test_gpu_hash == engine->semantic_hashes.hit_test ? 1U : 0U;
+    }
+    engine->last_error.clear();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 progpu_native_status begin_hit_test(
     progpu_native_engine* engine,
     const progpu_native_hit_test_query* query,
@@ -775,7 +804,7 @@ progpu_native_status begin_hit_test(
     callback.mode = WGPUCallbackMode_AllowSpontaneous;
     callback.callback = hit_test_map_complete;
     callback.userdata1 = engine->semantic_hit_test_map_state;
-    webgpu::buffer_map_async(
+    engine->semantic_hit_test_map_future = webgpu::buffer_map_async(
         engine->semantic_hit_test_readback_buffer,
         WGPUMapMode_Read,
         0U,
@@ -811,7 +840,8 @@ progpu_native_status poll_hit_test(
     std::uint32_t result_capacity,
     std::uint32_t* result_count,
     progpu_native_hit_test_result* summary,
-    std::uint8_t* complete) {
+    std::uint8_t* complete,
+    bool wait) {
     if (engine == nullptr || request_token == 0U || result_count == nullptr ||
         summary == nullptr || complete == nullptr ||
         ((results == nullptr) != (result_capacity == 0U))) {
@@ -836,20 +866,48 @@ progpu_native_status poll_hit_test(
             "The retained GPU hit-test token or result capacity is invalid.");
     }
     *complete = 0U;
+    if (wait) {
+#if defined(PROGPU_NATIVE_BROWSER)
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_UNSUPPORTED,
+            "Browser GPU hit tests must complete on later event-loop turns.");
+#elif defined(PROGPU_NATIVE_DAWN_ABI)
+        // Wait on the map future, not queue completion: submitted work may
+        // finish before its map callback. No event-loop or managed polling spin.
+        if (!webgpu::poll_submission(
+                engine->instance, engine->device, engine->queue,
+                engine->semantic_hit_test_map_future, true)) {
+            return engine->fail(
+                engine->device_lost ? PROGPU_NATIVE_STATUS_DEVICE_LOST
+                                    : PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native GPU hit-test map wait did not complete; the request remains pending.");
+        }
+#else
+        (void)wgpuDevicePoll(engine->device, true, nullptr);
+#endif
+    }
     const WGPUBufferMapState state = webgpu::poll_buffer_map(
         engine->device,
         engine->semantic_hit_test_readback_buffer,
         *engine->semantic_hit_test_map_state);
     if (state == WGPUBufferMapState_Pending) {
+        if (wait) {
+            return engine->fail(
+                engine->device_lost ? PROGPU_NATIVE_STATUS_DEVICE_LOST
+                                    : PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native GPU hit-test map is still pending after waiting; retain its request token.");
+        }
         engine->last_error.clear();
         return PROGPU_NATIVE_STATUS_SUCCESS;
     }
     if (state != WGPUBufferMapState_Mapped) {
         engine->semantic_hit_test_pending_token = 0U;
+        engine->semantic_hit_test_map_future = 0U;
         engine->semantic_hit_test_pending_bytes = 0U;
         engine->semantic_hit_test_requested_result_count = 0U;
         return engine->fail(
-            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            engine->device_lost ? PROGPU_NATIVE_STATUS_DEVICE_LOST
+                                : PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The retained GPU hit-test readback map failed.");
     }
     const auto* mapped = static_cast<const progpu_native_hit_test_result*>(
@@ -859,6 +917,7 @@ progpu_native_status poll_hit_test(
     if (mapped == nullptr) {
         webgpu::buffer_unmap(engine->semantic_hit_test_readback_buffer);
         engine->semantic_hit_test_pending_token = 0U;
+        engine->semantic_hit_test_map_future = 0U;
         engine->semantic_hit_test_pending_bytes = 0U;
         engine->semantic_hit_test_requested_result_count = 0U;
         return engine->fail(
@@ -883,6 +942,7 @@ progpu_native_status poll_hit_test(
         webgpu::buffer_map_pending,
         std::memory_order_relaxed);
     engine->semantic_hit_test_pending_token = 0U;
+    engine->semantic_hit_test_map_future = 0U;
     engine->semantic_hit_test_pending_bytes = 0U;
     engine->semantic_hit_test_requested_result_count = 0U;
     engine->last_error.clear();
@@ -919,6 +979,28 @@ progpu_native_status progpu_native_engine_poll_hit_test(
         result_count,
         summary,
         complete);
+}
+
+progpu_native_status progpu_native_engine_wait_hit_test(
+    progpu_native_engine* engine,
+    std::uint64_t request_token,
+    progpu_native_hit_test_result* results,
+    std::uint32_t result_capacity,
+    std::uint32_t* result_count,
+    progpu_native_hit_test_result* summary) {
+    std::uint8_t complete = 0U;
+    return progpu::native::execution::poll_hit_test(
+        engine, request_token, results, result_capacity, result_count,
+        summary, &complete, true);
+}
+
+progpu_native_status progpu_native_engine_get_hit_test_index(
+    progpu_native_engine* engine,
+    progpu_native_scene_hit_test_index* index,
+    std::uint8_t* has_index,
+    std::uint8_t* uploaded) {
+    return progpu::native::execution::get_hit_test_index(
+        engine, index, has_index, uploaded);
 }
 
 } // extern "C"

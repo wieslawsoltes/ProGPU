@@ -56,6 +56,8 @@ internal readonly record struct WindowsPcm16MixLevels(
 internal static class WindowsPcm16Mixer
 {
     internal const int FramesPerBlock = 1_024;
+    private const string NonFiniteProcessedSampleMessage =
+        "A typed Windows composition audio effect emitted a non-finite sample.";
 
     internal static void Add(
         ReadOnlySpan<short> source,
@@ -106,34 +108,22 @@ internal static class WindowsPcm16Mixer
                 Math.Max(
                     levels.Left,
                     levels.Right);
-            for (int index = 0;
-                 index < source.Length;
-                 index++)
-            {
-                destination[
-                    destinationSampleOffset + index] +=
-                    (long)source[index] *
-                    level /
-                    32_768;
-            }
+            MediaPcm16WideAccumulator.AddMono(
+                source,
+                level,
+                destination.Slice(
+                    destinationSampleOffset,
+                    source.Length));
             return;
         }
 
-        for (int index = 0;
-             index < source.Length;
-             index += 2)
-        {
-            destination[
-                destinationSampleOffset + index] +=
-                (long)source[index] *
-                levels.Left /
-                32_768;
-            destination[
-                destinationSampleOffset + index + 1] +=
-                (long)source[index + 1] *
-                levels.Right /
-                32_768;
-        }
+        MediaPcm16WideAccumulator.AddStereo(
+            source,
+            levels.Left,
+            levels.Right,
+            destination.Slice(
+                destinationSampleOffset,
+                source.Length));
     }
 
     /// <summary>
@@ -189,37 +179,24 @@ internal static class WindowsPcm16Mixer
                 Math.Max(
                     levels.Left,
                     levels.Right);
-            for (int index = 0;
-                 index < source.Length;
-                 index++)
-            {
-                AddProcessedSample(
-                    ref destination[
-                        destinationSampleOffset +
-                        index],
-                    source[index],
-                    level);
-            }
+            MediaPcm16ProcessedAccumulator.AddMono(
+                source,
+                level,
+                destination.Slice(
+                    destinationSampleOffset,
+                    source.Length),
+                NonFiniteProcessedSampleMessage);
             return;
         }
 
-        for (int index = 0;
-             index < source.Length;
-             index += 2)
-        {
-            AddProcessedSample(
-                ref destination[
-                    destinationSampleOffset +
-                    index],
-                source[index],
-                levels.Left);
-            AddProcessedSample(
-                ref destination[
-                    destinationSampleOffset +
-                    index + 1],
-                source[index + 1],
-                levels.Right);
-        }
+        MediaPcm16ProcessedAccumulator.AddStereo(
+            source,
+            levels.Left,
+            levels.Right,
+            destination.Slice(
+                destinationSampleOffset,
+                source.Length),
+            NonFiniteProcessedSampleMessage);
     }
 
     internal static void WriteSaturated(
@@ -232,55 +209,9 @@ internal static class WindowsPcm16Mixer
                 "Accumulator and PCM16 output lengths must match.",
                 nameof(destination));
         }
-        for (int index = 0;
-             index < source.Length;
-             index++)
-        {
-            destination[index] =
-                (short)Math.Clamp(
-                    source[index],
-                    short.MinValue,
-                    short.MaxValue);
-        }
+        MediaPcm16WideAccumulator.WriteSaturated(
+            source,
+            destination);
     }
 
-    private static void AddProcessedSample(
-        ref long accumulator,
-        float sample,
-        int level)
-    {
-        if (!float.IsFinite(sample))
-        {
-            throw new InvalidDataException(
-                "A typed Windows composition audio effect emitted a non-finite sample.");
-        }
-
-        double scaled = (double)sample * level;
-        long contribution =
-            scaled >= long.MaxValue
-                ? long.MaxValue
-                : scaled <= long.MinValue
-                    ? long.MinValue
-                    : checked(
-                        (long)Math.Round(
-                            scaled,
-                            MidpointRounding
-                                .AwayFromZero));
-        if (contribution > 0 &&
-            accumulator >
-                long.MaxValue - contribution)
-        {
-            accumulator = long.MaxValue;
-        }
-        else if (contribution < 0 &&
-                 accumulator <
-                    long.MinValue - contribution)
-        {
-            accumulator = long.MinValue;
-        }
-        else
-        {
-            accumulator += contribution;
-        }
-    }
 }

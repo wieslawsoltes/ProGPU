@@ -11,8 +11,8 @@ struct GlyphUniforms {
     width: u32,
     height: u32,
     subpixelX: f32,
-    _pad0: f32,
-    _pad1: f32,
+    atlasX: f32,
+    atlasY: f32,
     _pad2: f32,
 };
 
@@ -379,4 +379,29 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = packed;
+}
+
+// The fragment entry is the same per-pixel algorithm without compute-only
+// storage writes. A three-vertex viewport-local triangle writes coverage
+// directly into the retained R8 atlas on adapters whose compute profile is
+// rejected, avoiding CPU readback, repacking, and upload.
+@vertex
+fn vs_raster_fallback(@builtin(vertex_index) vertex_index: u32) ->
+    @builtin(position) vec4<f32> {
+    var position = vec2<f32>(-1.0, -1.0);
+    if (vertex_index == 1u) {
+        position = vec2<f32>(3.0, -1.0);
+    } else if (vertex_index == 2u) {
+        position = vec2<f32>(-1.0, 3.0);
+    }
+    return vec4<f32>(position, 0.0, 1.0);
+}
+
+@fragment
+fn fs_raster_fallback(@builtin(position) position: vec4<f32>) ->
+    @location(0) vec4<f32> {
+    let local_x = u32(position.x - uniforms.atlasX);
+    let local_y = u32(position.y - uniforms.atlasY);
+    let coverage = f32(glyph_coverage_byte(local_x, local_y)) / 255.0;
+    return vec4<f32>(coverage, 0.0, 0.0, 1.0);
 }

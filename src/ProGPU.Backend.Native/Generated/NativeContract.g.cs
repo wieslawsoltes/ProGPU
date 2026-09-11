@@ -7,6 +7,32 @@ using System.Numerics;
 
 namespace ProGPU.Backend.Native;
 
+internal static unsafe partial class NativeMethods
+{
+    // Native source: PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK.
+    internal const ulong EngineGlyphIntrinsicSimdCpuFallback = 1UL;
+    // Native source: PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK.
+    internal const ulong EngineGlyphRasterShaderFallback = 2UL;
+    // Native source: PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK.
+    internal const ulong EngineGlyphScalarCpuFallback = 4UL;
+    // Native source: PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING.
+    internal const ulong EngineImageExplicitShaderSampling = 8UL;
+    // Native source: PROGPU_NATIVE_ENGINE_IMAGE_REQUIRE_NATIVE_SAMPLING.
+    internal const ulong EngineImageRequireNativeSampling = 16UL;
+    // Native source: PROGPU_NATIVE_SCENE_FRAME_PRESENTATION.
+    internal const ulong SceneFramePresentationFlag = 4UL;
+    // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_UNKNOWN.
+    internal const ulong GeometryRelationUnknown = 0UL;
+    // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT.
+    internal const ulong GeometryRelationDisjoint = 1UL;
+    // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_IS_CONTAINED.
+    internal const ulong GeometryRelationIsContained = 2UL;
+    // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_CONTAINS.
+    internal const ulong GeometryRelationContains = 3UL;
+    // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_OVERLAP.
+    internal const ulong GeometryRelationOverlap = 4UL;
+}
+
 // Native source: progpu_native_text_scalar.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeTextScalar
@@ -329,6 +355,28 @@ public partial struct NativeTextParagraphResult
     public ulong ScratchBytesUsed;
 }
 
+// Native source: progpu_native_scene_tile_composite.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneTileComposite
+{
+    public uint StructSize;
+    public uint AddressU;
+    public uint AddressV;
+    public uint Reserved;
+    public float OutputX;
+    public float OutputY;
+    public float OutputWidth;
+    public float OutputHeight;
+    public float M11;
+    public float M12;
+    public float M21;
+    public float M22;
+    public float M31;
+    public float M32;
+    public uint Reserved0;
+    public uint Reserved1;
+}
+
 // Native source: progpu_native_point_3d.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativePoint3D
@@ -402,6 +450,20 @@ public partial struct NativeSceneLine3D
     public NativeMatrix4x4 Transform;
 }
 
+// Native source: progpu_native_scene_light_3d.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneLight3D
+{
+    public uint StructSize;
+    public uint Kind;
+    public uint Flags;
+    public uint Reserved0;
+    public Vector4 Color;
+    public NativeFloat4 PositionRange;
+    public NativeFloat4 DirectionInnerCos;
+    public NativeFloat4 AttenuationOuterCos;
+}
+
 // Native source: progpu_native_scene_mesh_3d_vertex.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeSceneMesh3DVertex
@@ -436,6 +498,53 @@ public partial struct NativeSceneMesh3D
     public uint ShadingMode;
     public uint MaterialImageResourceIndex;
     public uint MaterialFactors;
+    public uint LightOffset;
+    public uint LightCount;
+}
+
+// Native source: progpu_native_scene_mesh_3d_materials.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneMesh3DMaterials
+{
+    public uint StructSize;
+    public uint BrushResourceIndex;
+    public uint BrushCount;
+    public uint Reserved0;
+}
+
+// Native source: progpu_native_geometry_query_figure.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeGeometryQueryFigure
+{
+    public Vector2 Start;
+    public uint FirstSegment;
+    public uint SegmentCount;
+    public uint Flags;
+}
+
+// Native source: progpu_native_geometry_query_pen.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeGeometryQueryPen
+{
+    public float Thickness;
+    public float MiterLimit;
+    public float DashOffset;
+    public uint StartCap;
+    public uint EndCap;
+    public uint DashCap;
+    public uint LineJoin;
+}
+
+// Native source: progpu_native_mil_point_hit_rectangle.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeMilPointHitRectangle
+{
+    public uint Handle;
+    public uint IsEmpty;
+    public double X;
+    public double Y;
+    public double Width;
+    public double Height;
 }
 
 // Native source: progpu_native_hit_test_primitive.
@@ -634,6 +743,20 @@ internal static unsafe partial class NativeMethods
         internal float A;
     }
 
+    // Native source: progpu_native_scene_presentation.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct ScenePresentation
+    {
+        internal uint StructSize;
+        internal uint ViewportX;
+        internal uint ViewportY;
+        internal uint ViewportWidth;
+        internal uint ViewportHeight;
+        internal float DpiScaleX;
+        internal float DpiScaleY;
+        internal uint Reserved;
+    }
+
     // Native source: progpu_native_scene_frame.
     [StructLayout(LayoutKind.Sequential)]
     internal partial struct SceneFrame
@@ -651,6 +774,7 @@ internal static unsafe partial class NativeMethods
         internal float DamageY;
         internal float DamageWidth;
         internal float DamageHeight;
+        internal ScenePresentation Presentation;
     }
 
     // Native source: progpu_native_scene_frame_metrics.

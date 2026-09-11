@@ -8,6 +8,34 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# CMake's ClangCL/Ninja generator invokes lld-link directly. Keep the compiler
+# runtime selected by the clang-cl driver on that link line as an absolute
+# library path so compiler-emitted helpers such as 128-bit integer division are
+# resolved for every executable and shared-library target on both Windows RIDs.
+if(MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(_progpu_native_clang_runtime_arguments
+        "/clang:--print-libgcc-file-name"
+        "/clang:--rtlib=compiler-rt")
+    if(CMAKE_CXX_COMPILER_TARGET)
+        list(APPEND _progpu_native_clang_runtime_arguments
+            "/clang:--target=${CMAKE_CXX_COMPILER_TARGET}")
+    endif()
+    execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}"
+            ${_progpu_native_clang_runtime_arguments}
+        RESULT_VARIABLE _progpu_native_clang_runtime_result
+        OUTPUT_VARIABLE _progpu_native_clang_runtime
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT _progpu_native_clang_runtime_result EQUAL 0 OR
+       NOT EXISTS "${_progpu_native_clang_runtime}")
+        message(FATAL_ERROR
+            "clang-cl did not resolve its compiler runtime library: "
+            "${_progpu_native_clang_runtime}")
+    endif()
+    string(APPEND CMAKE_CXX_STANDARD_LIBRARIES
+        " \"${_progpu_native_clang_runtime}\"")
+endif()
+
 set(_progpu_native_modules_default OFF)
 if(NOT EMSCRIPTEN
     AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
@@ -51,6 +79,18 @@ set(PROGPU_NATIVE_VECTOR_SHADER
 set(PROGPU_NATIVE_PATH_RASTERIZER_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathRasterizer.wgsl"
     CACHE FILEPATH "Shared ProGPU path-rasterizer shader source")
+set(PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathRasterizerCommon.wgsl"
+    CACHE FILEPATH "Shared ProGPU path-rasterizer declarations and algorithms")
+set(PROGPU_NATIVE_PATH_SIGNED_WINDING_LEAF_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathSignedWindingLeaf.wgsl"
+    CACHE FILEPATH "Shared ProGPU signed-winding leaf shader source")
+set(PROGPU_NATIVE_PATH_SIGNED_WINDING_EVALUATE_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathSignedWindingEvaluate.wgsl"
+    CACHE FILEPATH "Shared ProGPU signed-winding evaluator shader source")
+set(PROGPU_NATIVE_PATH_SIGNED_WINDING_COVERAGE_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathSignedWindingCoverage.wgsl"
+    CACHE FILEPATH "Shared ProGPU signed-winding coverage shader source")
 set(PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRasterizer.wgsl"
     CACHE FILEPATH "Shared ProGPU glyph-rasterizer shader source")
@@ -148,6 +188,22 @@ if(NOT EXISTS "${PROGPU_NATIVE_VECTOR_SHADER}")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_PATH_RASTERIZER_SHADER}")
     message(FATAL_ERROR "The shared ProGPU PathRasterizer.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER}")
+    message(FATAL_ERROR
+        "The shared ProGPU PathRasterizerCommon.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_PATH_SIGNED_WINDING_LEAF_SHADER}")
+    message(FATAL_ERROR
+        "The shared ProGPU PathSignedWindingLeaf.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_PATH_SIGNED_WINDING_EVALUATE_SHADER}")
+    message(FATAL_ERROR
+        "The shared ProGPU PathSignedWindingEvaluate.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_PATH_SIGNED_WINDING_COVERAGE_SHADER}")
+    message(FATAL_ERROR
+        "The shared ProGPU PathSignedWindingCoverage.wgsl source is missing")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER}")
     message(FATAL_ERROR "The shared ProGPU GlyphRasterizer.wgsl source is missing")
@@ -261,11 +317,13 @@ add_custom_command(
     OUTPUT "${generated_texture_shader}"
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_TEXTURE_SHADER}"
+        "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
         "-DOUTPUT=${generated_texture_shader}"
         "-DSYMBOL=texture_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_TEXTURE_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Texture.wgsl shader"
     VERBATIM)
@@ -317,13 +375,59 @@ add_custom_command(
     OUTPUT "${generated_path_rasterizer_shader}"
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_PATH_RASTERIZER_SHADER}"
+        "-DPREFIX_INPUT=${PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER}"
         "-DOUTPUT=${generated_path_rasterizer_shader}"
         "-DSYMBOL=path_rasterizer_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_PATH_RASTERIZER_SHADER}"
+        "${PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU PathRasterizer.wgsl shader"
+    VERBATIM)
+set(generated_path_signed_winding_leaf_shader
+    "${generated_directory}/PathSignedWindingLeafWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_path_signed_winding_leaf_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_PATH_SIGNED_WINDING_LEAF_SHADER}"
+        "-DPREFIX_INPUT=${PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER}"
+        "-DOUTPUT=${generated_path_signed_winding_leaf_shader}"
+        "-DSYMBOL=path_signed_winding_leaf_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_PATH_SIGNED_WINDING_LEAF_SHADER}"
+        "${PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the ProGPU signed-winding leaf shader"
+    VERBATIM)
+set(generated_path_signed_winding_evaluate_shader
+    "${generated_directory}/PathSignedWindingEvaluateWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_path_signed_winding_evaluate_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_PATH_SIGNED_WINDING_EVALUATE_SHADER}"
+        "-DOUTPUT=${generated_path_signed_winding_evaluate_shader}"
+        "-DSYMBOL=path_signed_winding_evaluate_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_PATH_SIGNED_WINDING_EVALUATE_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the ProGPU signed-winding evaluator shader"
+    VERBATIM)
+set(generated_path_signed_winding_coverage_shader
+    "${generated_directory}/PathSignedWindingCoverageWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_path_signed_winding_coverage_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_PATH_SIGNED_WINDING_COVERAGE_SHADER}"
+        "-DOUTPUT=${generated_path_signed_winding_coverage_shader}"
+        "-DSYMBOL=path_signed_winding_coverage_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_PATH_SIGNED_WINDING_COVERAGE_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the ProGPU signed-winding coverage shader"
     VERBATIM)
 set(generated_clip_compose_shader
     "${generated_directory}/ClipComposeWgsl.generated.hpp")
@@ -331,11 +435,13 @@ add_custom_command(
     OUTPUT "${generated_clip_compose_shader}"
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_CLIP_COMPOSE_SHADER}"
+        "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
         "-DOUTPUT=${generated_clip_compose_shader}"
         "-DSYMBOL=clip_compose_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_CLIP_COMPOSE_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU ClipCompose.wgsl shader"
     VERBATIM)
@@ -459,6 +565,9 @@ add_custom_target(progpu_native_generated_shaders
     DEPENDS
         "${generated_vector_shader}"
         "${generated_path_rasterizer_shader}"
+        "${generated_path_signed_winding_leaf_shader}"
+        "${generated_path_signed_winding_evaluate_shader}"
+        "${generated_path_signed_winding_coverage_shader}"
         "${generated_glyph_rasterizer_shader}"
         "${generated_text_shader}"
         "${generated_texture_shader}"
@@ -476,6 +585,7 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_hit_test_readback_shader}")
 
 set(PROGPU_NATIVE_BACKEND_SOURCES
+    src/Backend/progpu_native_geometry_utility.cpp
     src/Backend/progpu_native_advanced_blend_execution.cpp
     src/Backend/progpu_native_backdrop_execution.cpp
     src/Backend/progpu_native.cpp
@@ -567,8 +677,12 @@ set(PROGPU_NATIVE_SCENE_SOURCES
 set(PROGPU_NATIVE_RENDERER_SOURCES
     ${PROGPU_NATIVE_BACKEND_SOURCES}
     ${PROGPU_NATIVE_SCENE_SOURCES}
+    src/Mil/progpu_native_mil_interop.cpp
     src/Text/Interop/progpu_native_text_shaping_interop.cpp
-    include/progpu_native.h)
+    src/Text/Interop/progpu_native_text_interaction_interop.cpp
+    src/Text/Interop/progpu_native_document_flow_interop.cpp
+    include/progpu_native.h
+    include/progpu_native_mil.h)
 
 # Mirror the managed ProGPU project boundaries in the native source tree while
 # keeping internal includes independent of a translation unit's physical folder.
@@ -758,7 +872,6 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_svg_glyph.cpp
     src/Text/progpu_native_svg_glyph_decode.cpp
     src/Text/progpu_native_svg_glyph_layers.cpp
-    src/Text/progpu_native_svg_arc.cpp
     src/Text/progpu_native_svg_document_internal.hpp
     src/Text/progpu_native_svg_number.hpp
     src/Text/progpu_native_svg_path.cpp
@@ -818,6 +931,7 @@ add_library(progpu_native_scene_builder STATIC
     src/Scene/Builder/progpu_native_scene_builder_glyph.cpp
     src/Scene/Builder/progpu_native_scene_builder_image.cpp
     src/Scene/Builder/progpu_native_scene_builder_hit_testing.cpp
+    src/Scene/Builder/progpu_native_scene_builder_hit_test_capture.cpp
     src/Scene/Builder/progpu_native_scene_builder_layer.cpp
     src/Scene/Builder/progpu_native_scene_builder_path.cpp
     src/Scene/Builder/progpu_native_scene_builder_text.cpp
@@ -831,9 +945,14 @@ add_library(progpu_native_scene_builder STATIC
     src/Scene/progpu_native_semantic_validation.hpp
     include/progpu_native_scene_builder.hpp)
 target_compile_features(progpu_native_scene_builder PUBLIC cxx_std_20)
+target_link_libraries(progpu_native_scene_builder PUBLIC progpu_native_hit_testing)
 target_include_directories(progpu_native_scene_builder
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
     PRIVATE ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
+set_target_properties(progpu_native_scene_builder PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
 if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
     target_sources(progpu_native_scene_builder
         PUBLIC
@@ -842,6 +961,85 @@ if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
 endif()
 progpu_native_enable_warnings(progpu_native_scene_builder)
 progpu_native_enable_sanitizers(progpu_native_scene_builder)
+
+add_library(progpu_native_mil STATIC
+    include/progpu_native_mil_commands.generated.hpp
+    include/progpu_native_mil.hpp
+    src/Mil/progpu_native_mil_curve_dash.hpp
+    src/Mil/progpu_native_mil.cpp)
+target_compile_features(progpu_native_mil PUBLIC cxx_std_20)
+target_include_directories(progpu_native_mil PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+target_link_libraries(progpu_native_mil
+    PUBLIC progpu_native_scene_builder
+    PRIVATE progpu_native_text progpu_native_direct2d_core)
+set_target_properties(progpu_native_mil PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
+progpu_native_enable_warnings(progpu_native_mil)
+progpu_native_enable_sanitizers(progpu_native_mil)
+
+add_library(progpu_native_direct2d_core STATIC
+    include/progpu_native_direct2d_compat.hpp
+    include/progpu_native_direct2d_core.hpp
+    src/Direct2D/progpu_native_direct2d_compat.cpp
+    src/Direct2D/progpu_native_direct2d_core.cpp
+    src/Direct2D/progpu_native_direct2d_drawing_state.cpp
+    src/Direct2D/progpu_native_direct2d_drawing_state.hpp
+    src/Direct2D/progpu_native_direct2d_ellipse.cpp
+    src/Direct2D/progpu_native_direct2d_ellipse.hpp
+    src/Direct2D/progpu_native_direct2d_geometry_group.cpp
+    src/Direct2D/progpu_native_direct2d_geometry_group.hpp
+    src/Direct2D/progpu_native_direct2d_path.cpp
+    src/Direct2D/progpu_native_direct2d_path.hpp
+    src/Direct2D/progpu_native_direct2d_render_target.cpp
+    src/Direct2D/progpu_native_direct2d_render_target.hpp
+    src/Direct2D/progpu_native_direct2d_rounded_rectangle.cpp
+    src/Direct2D/progpu_native_direct2d_rounded_rectangle.hpp
+    src/Direct2D/progpu_native_direct2d_stroke_style.cpp
+    src/Direct2D/progpu_native_direct2d_stroke_style.hpp)
+target_compile_features(progpu_native_direct2d_core PUBLIC cxx_std_20)
+target_include_directories(progpu_native_direct2d_core PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+target_link_libraries(progpu_native_direct2d_core PUBLIC
+    progpu_native_scene_builder)
+if(WIN32)
+    target_compile_definitions(progpu_native_direct2d_core PUBLIC
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN)
+endif()
+set_target_properties(progpu_native_direct2d_core PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
+progpu_native_enable_warnings(progpu_native_direct2d_core)
+progpu_native_enable_sanitizers(progpu_native_direct2d_core)
+
+if(WIN32)
+    add_library(progpu_native_direct2d SHARED
+        include/progpu_native_direct2d.h
+        src/Scene/progpu_native_semantic_path_stroke.hpp
+        src/Direct2D/progpu_native_direct2d.cpp)
+    target_compile_features(progpu_native_direct2d PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_direct2d PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+        PROGPU_NATIVE_DIRECT2D_BUILD=1)
+    target_include_directories(progpu_native_direct2d
+        PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_link_libraries(progpu_native_direct2d PRIVATE
+        progpu_native_direct2d_core
+        progpu_native_scene_builder
+        d2d1
+        d3d11
+        dwrite
+        dxgi
+        runtimeobject)
+    progpu_native_enable_warnings(progpu_native_direct2d)
+endif()
 
 if(NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TARGET)
 add_library(progpu_native SHARED
@@ -857,6 +1055,7 @@ target_include_directories(progpu_native
 target_include_directories(progpu_native SYSTEM PRIVATE
     "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}")
 target_link_libraries(progpu_native PRIVATE
+    progpu_native_mil
     progpu_native_text
     "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
 progpu_native_enable_warnings(progpu_native)
@@ -893,7 +1092,9 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             "${generated_directory}")
     target_include_directories(progpu_native_dawn SYSTEM PRIVATE
         "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}")
-    target_link_libraries(progpu_native_dawn PRIVATE progpu_native_text)
+    target_link_libraries(progpu_native_dawn PRIVATE
+        progpu_native_mil
+        progpu_native_text)
     progpu_native_enable_warnings(progpu_native_dawn)
     progpu_native_enable_sanitizers(progpu_native_dawn)
     set_target_properties(progpu_native_dawn PROPERTIES
@@ -924,6 +1125,45 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         set_tests_properties(
             progpu_native_dawn_contract_tests
             PROPERTIES TIMEOUT 60)
+
+        if(WIN32)
+            set(PROGPU_NATIVE_DIRECT2D_DAWN_RUNTIME "" CACHE FILEPATH
+                "Optional webgpu_dawn.dll for the Direct2D D3D12 differential gate")
+            add_executable(progpu_native_direct2d_differential_tests
+                tests/progpu_native_direct2d_differential_tests.cpp)
+            target_compile_features(
+                progpu_native_direct2d_differential_tests PRIVATE cxx_std_20)
+            target_include_directories(
+                progpu_native_direct2d_differential_tests PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/include")
+            target_include_directories(
+                progpu_native_direct2d_differential_tests SYSTEM PRIVATE
+                "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}")
+            target_link_libraries(
+                progpu_native_direct2d_differential_tests PRIVATE
+                progpu_native_dawn
+                progpu_native_direct2d_core
+                d2d1
+                ole32
+                windowscodecs)
+            progpu_native_enable_warnings(
+                progpu_native_direct2d_differential_tests)
+            progpu_native_enable_sanitizers(
+                progpu_native_direct2d_differential_tests)
+            if(PROGPU_NATIVE_DIRECT2D_DAWN_RUNTIME)
+                if(NOT EXISTS "${PROGPU_NATIVE_DIRECT2D_DAWN_RUNTIME}")
+                    message(FATAL_ERROR
+                        "PROGPU_NATIVE_DIRECT2D_DAWN_RUNTIME does not exist")
+                endif()
+                add_test(
+                    NAME progpu_native_direct2d_differential_tests
+                    COMMAND progpu_native_direct2d_differential_tests
+                        "${PROGPU_NATIVE_DIRECT2D_DAWN_RUNTIME}")
+                set_tests_properties(
+                    progpu_native_direct2d_differential_tests
+                    PROPERTIES TIMEOUT 90)
+            endif()
+        endif()
 
         if(APPLE
             AND PROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR
@@ -974,6 +1214,7 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             find_library(PROGPU_NATIVE_IOSURFACE_FRAMEWORK IOSurface REQUIRED)
             target_link_libraries(progpu_native_webscene_provider_tests PRIVATE
                 progpu_native_dawn
+                progpu_native_direct2d_core
                 progpu_native_scene_builder
                 "${PROGPU_NATIVE_IOSURFACE_FRAMEWORK}"
                 "${CMAKE_DL_LIBS}")
@@ -1177,6 +1418,155 @@ endif()
 endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+    add_executable(progpu_native_geometry_utility_tests
+        tests/progpu_native_geometry_utility_tests.cpp
+        src/Backend/progpu_native_geometry_utility.cpp)
+    target_compile_features(progpu_native_geometry_utility_tests PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_geometry_utility_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_geometry_utility_tests PRIVATE progpu_native_direct2d_core)
+    progpu_native_enable_warnings(progpu_native_geometry_utility_tests)
+    progpu_native_enable_sanitizers(progpu_native_geometry_utility_tests)
+    add_test(NAME progpu_native_geometry_utility_tests COMMAND progpu_native_geometry_utility_tests)
+    set_tests_properties(progpu_native_geometry_utility_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_com_tests
+        tests/progpu_native_com_tests.cpp)
+    target_compile_features(progpu_native_com_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_com_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    progpu_native_enable_warnings(progpu_native_com_tests)
+    progpu_native_enable_sanitizers(progpu_native_com_tests)
+    add_test(NAME progpu_native_com_tests COMMAND progpu_native_com_tests)
+    set_tests_properties(progpu_native_com_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_direct2d_header_tests
+        tests/progpu_native_direct2d_header_tests.cpp)
+    target_compile_features(
+        progpu_native_direct2d_header_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_direct2d_header_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    progpu_native_enable_warnings(progpu_native_direct2d_header_tests)
+    progpu_native_enable_sanitizers(progpu_native_direct2d_header_tests)
+    add_test(
+        NAME progpu_native_direct2d_header_tests
+        COMMAND progpu_native_direct2d_header_tests)
+    set_tests_properties(
+        progpu_native_direct2d_header_tests PROPERTIES TIMEOUT 60)
+
+    if(PROGPU_NATIVE_BUILD_WGPU_TARGET)
+        add_executable(progpu_native_direct2d_webgpu_tests
+            tests/progpu_native_direct2d_webgpu_tests.cpp)
+        target_compile_features(
+            progpu_native_direct2d_webgpu_tests PRIVATE cxx_std_20)
+        target_include_directories(
+            progpu_native_direct2d_webgpu_tests PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_include_directories(
+            progpu_native_direct2d_webgpu_tests SYSTEM PRIVATE
+            "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}")
+        target_link_libraries(
+            progpu_native_direct2d_webgpu_tests PRIVATE
+            progpu_native
+            progpu_native_direct2d_core
+            "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
+        progpu_native_enable_warnings(
+            progpu_native_direct2d_webgpu_tests)
+        progpu_native_enable_sanitizers(
+            progpu_native_direct2d_webgpu_tests)
+        get_filename_component(
+            _progpu_native_direct2d_webgpu_library_directory
+            "${PROGPU_NATIVE_WEBGPU_LIBRARY}" DIRECTORY)
+        if(APPLE OR UNIX)
+            set_target_properties(
+                progpu_native_direct2d_webgpu_tests PROPERTIES
+                BUILD_RPATH
+                    "${_progpu_native_direct2d_webgpu_library_directory}")
+        endif()
+        add_test(
+            NAME progpu_native_direct2d_webgpu_tests
+            COMMAND progpu_native_direct2d_webgpu_tests
+                "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-direct2d-webgpu.ppm")
+        set(_progpu_native_direct2d_webgpu_test_timeout 60)
+        if(WIN32)
+            # Cold D3D12 pipeline compilation exceeds five minutes on both
+            # Windows ARM64 WARP CI and the Parallels validation adapter. Keep
+            # the full graphics matrix and its assertions, with a bounded
+            # allowance for compilation rather than skipping slow adapters.
+            set(_progpu_native_direct2d_webgpu_test_timeout 900)
+        endif()
+        set_tests_properties(
+            progpu_native_direct2d_webgpu_tests PROPERTIES
+            TIMEOUT ${_progpu_native_direct2d_webgpu_test_timeout})
+    endif()
+
+    add_executable(progpu_native_direct2d_core_tests
+        tests/progpu_native_direct2d_core_tests.cpp)
+    target_compile_features(
+        progpu_native_direct2d_core_tests PRIVATE cxx_std_20)
+    target_link_libraries(
+        progpu_native_direct2d_core_tests PRIVATE
+        progpu_native_direct2d_core)
+    progpu_native_enable_warnings(progpu_native_direct2d_core_tests)
+    progpu_native_enable_sanitizers(progpu_native_direct2d_core_tests)
+    add_test(
+        NAME progpu_native_direct2d_core_tests
+        COMMAND progpu_native_direct2d_core_tests)
+    set_tests_properties(
+        progpu_native_direct2d_core_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_direct2d_compat_tests
+        tests/progpu_native_direct2d_compat_tests.cpp)
+    target_compile_features(
+        progpu_native_direct2d_compat_tests PRIVATE cxx_std_20)
+    target_link_libraries(
+        progpu_native_direct2d_compat_tests PRIVATE
+        progpu_native_direct2d_core)
+    if(WIN32)
+        target_link_libraries(progpu_native_direct2d_compat_tests PRIVATE d2d1)
+    endif()
+    progpu_native_enable_warnings(progpu_native_direct2d_compat_tests)
+    progpu_native_enable_sanitizers(progpu_native_direct2d_compat_tests)
+    add_test(
+        NAME progpu_native_direct2d_compat_tests
+        COMMAND progpu_native_direct2d_compat_tests)
+    set_tests_properties(
+        progpu_native_direct2d_compat_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_mil_tests
+        tests/progpu_native_mil_tests.cpp
+        src/Scene/progpu_native_semantic_state.cpp
+        src/Mil/progpu_native_mil_interop.cpp)
+    target_compile_features(progpu_native_mil_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_mil_tests PRIVATE
+        ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
+    target_compile_definitions(progpu_native_mil_tests PRIVATE
+        PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_mil_tests PRIVATE progpu_native_mil)
+    progpu_native_enable_warnings(progpu_native_mil_tests)
+    progpu_native_enable_sanitizers(progpu_native_mil_tests)
+    add_test(NAME progpu_native_mil_tests COMMAND progpu_native_mil_tests)
+    set_tests_properties(progpu_native_mil_tests PROPERTIES TIMEOUT 60)
+
+    if(WIN32)
+        add_executable(progpu_native_direct2d_tests
+            tests/progpu_native_direct2d_tests.cpp)
+        target_compile_features(progpu_native_direct2d_tests PRIVATE cxx_std_20)
+        target_compile_definitions(progpu_native_direct2d_tests PRIVATE
+            NOMINMAX
+            WIN32_LEAN_AND_MEAN)
+        target_link_libraries(progpu_native_direct2d_tests PRIVATE
+            progpu_native_direct2d
+            d2d1
+            gdi32
+            ole32
+            runtimeobject)
+        progpu_native_enable_warnings(progpu_native_direct2d_tests)
+        add_test(
+            NAME progpu_native_direct2d_tests
+            COMMAND progpu_native_direct2d_tests)
+        set_tests_properties(progpu_native_direct2d_tests PROPERTIES TIMEOUT 60)
+    endif()
+
     if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
         add_executable(progpu_native_compression_module_tests
             tests/progpu_native_compression_module_tests.cpp)
@@ -1386,6 +1776,33 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(progpu_native_text_shaping_showcase_tests
         tests/progpu_native_text_shaping_showcase_tests.cpp
         src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+
+    add_executable(progpu_native_text_interaction_interop_tests
+        tests/progpu_native_text_interaction_interop_tests.cpp
+        src/Text/Interop/progpu_native_text_interaction_interop.cpp)
+    target_compile_features(progpu_native_text_interaction_interop_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_text_interaction_interop_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_compile_definitions(progpu_native_text_interaction_interop_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_text_interaction_interop_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_text_interaction_interop_tests)
+    progpu_native_enable_sanitizers(progpu_native_text_interaction_interop_tests)
+    add_test(NAME progpu_native_text_interaction_interop_tests COMMAND progpu_native_text_interaction_interop_tests)
+    set_tests_properties(progpu_native_text_interaction_interop_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_document_flow_tests
+        tests/progpu_native_document_flow_tests.cpp
+        src/Text/Interop/progpu_native_document_flow_interop.cpp)
+    target_compile_features(progpu_native_document_flow_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_document_flow_tests PRIVATE progpu_native_text)
+    target_include_directories(progpu_native_document_flow_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_compile_definitions(progpu_native_document_flow_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    progpu_native_enable_warnings(progpu_native_document_flow_tests)
+    progpu_native_enable_sanitizers(progpu_native_document_flow_tests)
+    add_test(NAME progpu_native_document_flow_tests COMMAND progpu_native_document_flow_tests)
+    set_tests_properties(progpu_native_document_flow_tests PROPERTIES TIMEOUT 60)
+
     target_compile_features(
         progpu_native_text_shaping_showcase_tests PRIVATE cxx_std_20)
     target_include_directories(
@@ -1482,20 +1899,42 @@ if(NOT EMSCRIPTEN)
         progpu_native_compression
         progpu_native_hit_testing
         progpu_native_image
+        progpu_native_mil
+        progpu_native_direct2d_core
         progpu_native_text
         progpu_native_scene_builder
         ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
     install(FILES
         include/progpu_native.h
+        include/progpu_native_com.hpp
+        include/progpu_native_direct2d_compat.hpp
+        include/progpu_native_direct2d_core.hpp
+        include/progpu_native_direct2d_scene_submission.hpp
         include/progpu_native_dawn.h
         include/progpu_native_compression.hpp
         include/progpu_native_hit_testing.hpp
         include/progpu_native_image.hpp
+        include/progpu_native_mil.h
+        include/progpu_native_mil_commands.generated.hpp
+        include/progpu_native_mil.hpp
         include/progpu_native_scene_builder.hpp
         include/progpu_native_text.hpp
+        include/progpu_native_text_interaction.h
+        include/progpu_native_text_styles.h
+        include/progpu_native_text_flow.h
+        include/progpu_native_document_flow.h
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     if(TARGET progpu_native_dawn)
         install(TARGETS progpu_native_dawn
+            RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+            LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+            ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+    endif()
+    install(FILES include/progpu_native_direct2d.h
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+    if(TARGET progpu_native_direct2d)
+        install(TARGETS progpu_native_direct2d
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
             LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
             ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")

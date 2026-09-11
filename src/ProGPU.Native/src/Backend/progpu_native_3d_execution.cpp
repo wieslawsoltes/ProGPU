@@ -1,6 +1,7 @@
 #include "progpu_native_3d_execution.hpp"
 #include "Native3DWgsl.generated.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <limits>
@@ -67,6 +68,9 @@ void release_page_buffers(semantic_3d_page& page) noexcept {
     release(page.vertex_buffer);
     release(page.index_buffer);
     release(page.edge_buffer);
+    release(page.light_buffer);
+    release(page.material_buffer);
+    release(page.material_gradient_stop_buffer);
     page.cache_valid = false;
 }
 
@@ -110,6 +114,7 @@ WGPURenderPipeline create_pipeline(
     const char* vertex_entry,
     const char* fragment_entry,
     WGPUPrimitiveTopology topology,
+    WGPUCullMode cull_mode = WGPUCullMode_None,
     bool depth_write = true,
     WGPUCompareFunction depth_compare =
         WGPUCompareFunction_LessEqual) {
@@ -158,7 +163,7 @@ WGPURenderPipeline create_pipeline(
     descriptor.vertex = vertex;
     descriptor.primitive.topology = topology;
     descriptor.primitive.frontFace = WGPUFrontFace_CCW;
-    descriptor.primitive.cullMode = WGPUCullMode_None;
+    descriptor.primitive.cullMode = cull_mode;
     descriptor.depthStencil = &depth;
     descriptor.multisample.count = 1U;
     descriptor.multisample.mask = 0xFFFFFFFFU;
@@ -171,6 +176,10 @@ WGPURenderPipeline create_pipeline(
 bool create_semantic_3d_pipelines(progpu_native_engine& engine) {
     if (engine.semantic_line_3d_pipeline != nullptr &&
         engine.semantic_mesh_3d_pipeline != nullptr &&
+        engine.semantic_mesh_front_3d_pipeline != nullptr &&
+        engine.semantic_mesh_back_3d_pipeline != nullptr &&
+        engine.semantic_mesh_front_strip_3d_pipeline != nullptr &&
+        engine.semantic_mesh_back_strip_3d_pipeline != nullptr &&
         engine.semantic_mesh_strip_3d_pipeline != nullptr &&
         engine.semantic_mesh_edge_3d_pipeline != nullptr &&
         engine.semantic_mesh_occluded_edge_3d_pipeline != nullptr &&
@@ -195,18 +204,25 @@ bool create_semantic_3d_pipelines(progpu_native_engine& engine) {
         }
     }
     if (engine.semantic_3d_layout == nullptr) {
-        std::array<WGPUBindGroupLayoutEntry, 6U> entries{};
-        const std::array<std::uint64_t, 6U> sizes{{
+        std::array<WGPUBindGroupLayoutEntry, 9U> entries{};
+        const std::array<std::uint64_t, 9U> sizes{{
             sizeof(progpu::native::three_d::camera_record),
             sizeof(progpu::native::three_d::line_record),
             sizeof(progpu::native::three_d::mesh_record),
             sizeof(progpu_native_scene_mesh_3d_vertex),
             sizeof(std::uint32_t),
+            sizeof(progpu_native_scene_light_3d),
+            sizeof(progpu_native_scene_brush),
+            sizeof(progpu_native_scene_gradient_stop),
             sizeof(progpu::native::three_d::edge_record)}};
         for (std::uint32_t index = 0U; index < entries.size(); ++index) {
             entries[index].binding = index;
-            entries[index].visibility =
-                WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+            // Keep the combined layout within WebGPU's per-stage storage limits.
+            entries[index].visibility = (index == 0U || index == 2U)
+                ? WGPUShaderStage_Vertex | WGPUShaderStage_Fragment
+                : (index >= 5U && index <= 7U)
+                    ? WGPUShaderStage_Fragment
+                    : WGPUShaderStage_Vertex;
             entries[index].buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
             entries[index].buffer.minBindingSize = sizes[index];
         }
@@ -302,23 +318,52 @@ bool create_semantic_3d_pipelines(progpu_native_engine& engine) {
     if (engine.semantic_line_3d_pipeline == nullptr) {
         engine.semantic_line_3d_pipeline = create_pipeline(
             engine, "ProGPU native retained 3D line pipeline",
-            "vs_line_3d", "fs_line_3d", WGPUPrimitiveTopology_TriangleList);
+            "vs_line_3d", "fs_line_3d", WGPUPrimitiveTopology_TriangleList,
+            WGPUCullMode_None);
     }
     if (engine.semantic_mesh_3d_pipeline == nullptr) {
         engine.semantic_mesh_3d_pipeline = create_pipeline(
             engine, "ProGPU native retained 3D mesh pipeline",
-            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleList);
+            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleList,
+            WGPUCullMode_None);
     }
+    if (engine.semantic_mesh_front_3d_pipeline == nullptr) {
+        engine.semantic_mesh_front_3d_pipeline = create_pipeline(
+            engine, "ProGPU native retained 3D front-face mesh pipeline",
+            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleList,
+            WGPUCullMode_Back);
+    }
+    if (engine.semantic_mesh_back_3d_pipeline == nullptr) {
+        engine.semantic_mesh_back_3d_pipeline = create_pipeline(
+            engine, "ProGPU native retained 3D back-face mesh pipeline",
+            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleList,
+            WGPUCullMode_Front);
+    }
+    // All indexed topologies retain independent front/back material culling.
     if (engine.semantic_mesh_strip_3d_pipeline == nullptr) {
         engine.semantic_mesh_strip_3d_pipeline = create_pipeline(
             engine, "ProGPU native retained 3D mesh strip pipeline",
-            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleStrip);
+            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleStrip,
+            WGPUCullMode_None);
+    }
+    if (engine.semantic_mesh_front_strip_3d_pipeline == nullptr) {
+        engine.semantic_mesh_front_strip_3d_pipeline = create_pipeline(
+            engine, "ProGPU native retained 3D front-face mesh strip pipeline",
+            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleStrip,
+            WGPUCullMode_Back);
+    }
+    if (engine.semantic_mesh_back_strip_3d_pipeline == nullptr) {
+        engine.semantic_mesh_back_strip_3d_pipeline = create_pipeline(
+            engine, "ProGPU native retained 3D back-face mesh strip pipeline",
+            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleStrip,
+            WGPUCullMode_Front);
     }
     if (engine.semantic_mesh_edge_3d_pipeline == nullptr) {
         engine.semantic_mesh_edge_3d_pipeline = create_pipeline(
             engine, "ProGPU native retained visible mesh edge pipeline",
             "vs_mesh_edge_3d", "fs_mesh_edge_visible_3d",
             WGPUPrimitiveTopology_TriangleList,
+            WGPUCullMode_None,
             false,
             WGPUCompareFunction_LessEqual);
     }
@@ -327,11 +372,16 @@ bool create_semantic_3d_pipelines(progpu_native_engine& engine) {
             engine, "ProGPU native retained occluded mesh edge pipeline",
             "vs_mesh_edge_3d", "fs_mesh_edge_occluded_3d",
             WGPUPrimitiveTopology_TriangleList,
+            WGPUCullMode_None,
             false,
             WGPUCompareFunction_Greater);
     }
     return engine.semantic_line_3d_pipeline != nullptr &&
         engine.semantic_mesh_3d_pipeline != nullptr &&
+        engine.semantic_mesh_front_strip_3d_pipeline != nullptr &&
+        engine.semantic_mesh_back_strip_3d_pipeline != nullptr &&
+        engine.semantic_mesh_front_3d_pipeline != nullptr &&
+        engine.semantic_mesh_back_3d_pipeline != nullptr &&
         engine.semantic_mesh_strip_3d_pipeline != nullptr &&
         engine.semantic_mesh_edge_3d_pipeline != nullptr &&
         engine.semantic_mesh_occluded_edge_3d_pipeline != nullptr;
@@ -367,9 +417,13 @@ progpu_native_status compile_semantic_3d_page(
     std::vector<progpu_native_scene_mesh_3d_vertex> vertices;
     std::vector<std::uint32_t> indices;
     std::vector<progpu::native::three_d::edge_record> edges;
+    std::vector<progpu_native_scene_light_3d> lights;
+    std::vector<progpu_native_scene_brush> materials;
+    std::vector<progpu_native_scene_gradient_stop> material_gradient_stops;
     std::vector<semantic_3d_draw> draws;
     std::vector<std::uint32_t> topologies;
     std::vector<std::uint32_t> mesh_flags;
+    std::vector<std::uint32_t> mesh_face_flags;
     std::vector<std::uint32_t> mesh_index_counts;
     std::vector<std::uint32_t> mesh_edge_offsets;
     std::vector<std::uint32_t> mesh_edge_counts;
@@ -377,7 +431,8 @@ progpu_native_status compile_semantic_3d_page(
     std::vector<WGPUTextureView> material_views;
     try {
         draws.reserve(expected_draw_count);
-        semantic_state_cursor state_cursor(bytes, header);
+        semantic_state_cursor state_cursor(
+            bytes, header, frame.dpi_scale);
         semantic_layer_target_cursor target_cursor(
             bytes, frame.width, frame.height, frame.dpi_scale);
         for (std::uint32_t command_index = 0U;
@@ -386,8 +441,9 @@ progpu_native_status compile_semantic_3d_page(
                 bytes, header.command_offset +
                     static_cast<std::size_t>(command_index) * header.command_stride);
             const auto target = target_cursor.advance(command);
-            const auto state = localize_semantic_state(
-                state_cursor.advance(command), target, frame.dpi_scale);
+            // A render-target crop is pixel placement, not a model-space
+            // transform. Camera viewport mapping below owns that translation.
+            const auto state = state_cursor.advance(command);
             if (command.kind !=
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH &&
                 command.kind !=
@@ -410,6 +466,12 @@ progpu_native_status compile_semantic_3d_page(
             gpu_camera.viewport[1] = static_cast<float>(std::max(1U, target.height));
             gpu_camera.viewport[2] = frame.dpi_scale;
             gpu_camera.viewport[3] = 0.0F;
+            // Preserve the full camera viewport even when only its intersection
+            // with this target is visible. Clamping it rescales projected content.
+            gpu_camera.viewport_rect[0] = command.bounds_x * frame.dpi_scale - static_cast<float>(target.x);
+            gpu_camera.viewport_rect[1] = command.bounds_y * frame.dpi_scale - static_cast<float>(target.y);
+            gpu_camera.viewport_rect[2] = command.bounds_width * frame.dpi_scale;
+            gpu_camera.viewport_rect[3] = command.bounds_height * frame.dpi_scale;
             const auto camera_index = static_cast<std::uint32_t>(cameras.size());
             cameras.push_back(gpu_camera);
             const auto state_transform = affine_matrix(state.transform);
@@ -448,6 +510,8 @@ progpu_native_status compile_semantic_3d_page(
             const auto mesh_count = resource.payload_size /
                 sizeof(progpu_native_scene_mesh_3d);
             std::size_t source_vertex_count = 0U;
+            std::size_t source_index_count = 0U;
+            std::size_t source_light_count = 0U;
             for (std::uint32_t index = 0U; index < mesh_count; ++index) {
                 const auto mesh = read_record<progpu_native_scene_mesh_3d>(
                     bytes, resource.payload_offset +
@@ -455,6 +519,10 @@ progpu_native_status compile_semantic_3d_page(
                             sizeof(progpu_native_scene_mesh_3d));
                 source_vertex_count = std::max(source_vertex_count,
                     static_cast<std::size_t>(mesh.vertex_offset) + mesh.vertex_count);
+                source_index_count = std::max(source_index_count,
+                    static_cast<std::size_t>(mesh.index_offset) + mesh.index_count);
+                source_light_count = std::max(source_light_count,
+                    static_cast<std::size_t>(mesh.light_offset) + mesh.light_count);
             }
             const auto vertex_base = static_cast<std::uint32_t>(vertices.size());
             const auto* source_vertices = reinterpret_cast<
@@ -463,8 +531,39 @@ progpu_native_status compile_semantic_3d_page(
             const auto* source_indices = reinterpret_cast<const std::uint32_t*>(
                 bytes + resource.auxiliary_offset +
                     source_vertex_count * sizeof(progpu_native_scene_mesh_3d_vertex));
+            const auto* source_lights = reinterpret_cast<
+                const progpu_native_scene_light_3d*>(
+                    bytes + resource.auxiliary_offset +
+                    source_vertex_count *
+                        sizeof(progpu_native_scene_mesh_3d_vertex) +
+                    source_index_count * sizeof(std::uint32_t));
+            const bool has_materials = command.payload_size >
+                sizeof(progpu_native_scene_camera_3d);
+            progpu_native_scene_resource material_resource{};
+            progpu_native_scene_mesh_3d_materials material_map{};
+            std::uint32_t material_indices_offset = 0U;
+            if (has_materials) {
+                const std::uint32_t material_map_offset =
+                    command.payload_offset +
+                        sizeof(progpu_native_scene_camera_3d);
+                material_map = read_record<
+                    progpu_native_scene_mesh_3d_materials>(
+                        bytes, material_map_offset);
+                material_indices_offset = material_map_offset +
+                    sizeof(material_map);
+                material_resource = read_record<
+                    progpu_native_scene_resource>(
+                        bytes,
+                        header.resource_offset +
+                            static_cast<std::size_t>(
+                                material_map.brush_resource_index) *
+                                header.resource_stride);
+            }
             vertices.insert(vertices.end(), source_vertices,
                 source_vertices + source_vertex_count);
+            const auto light_base = static_cast<std::uint32_t>(lights.size());
+            lights.insert(
+                lights.end(), source_lights, source_lights + source_light_count);
             const auto first = static_cast<std::uint32_t>(meshes.size());
             for (std::uint32_t index = 0U; index < mesh_count; ++index) {
                 const auto source = read_record<progpu_native_scene_mesh_3d>(
@@ -557,6 +656,8 @@ progpu_native_status compile_semantic_3d_page(
                 mesh.material_image_resource_index =
                     source.material_image_resource_index;
                 mesh.material_factors = source.material_factors;
+                mesh.light_offset = light_base + source.light_offset;
+                mesh.light_count = source.light_count;
                 meshes.push_back(mesh);
                 WGPUTextureView material_view =
                     engine.semantic_3d_sentinel_view;
@@ -582,6 +683,45 @@ progpu_native_status compile_semantic_3d_page(
                 material_views.push_back(material_view);
                 topologies.push_back(mesh.topology);
                 mesh_flags.push_back(mesh.flags);
+                progpu_native_scene_brush material{};
+                material.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+                material.opacity = 1.0F;
+                material.colors[0] = {1.0F, 1.0F, 1.0F, 1.0F};
+                material.coordinate_transform0[0] = 1.0F;
+                material.coordinate_transform1[1] = 1.0F;
+                if (has_materials) {
+                    const auto brush_index = read_record<std::uint32_t>(
+                        bytes,
+                        material_indices_offset +
+                            static_cast<std::size_t>(index) *
+                                sizeof(std::uint32_t));
+                    material = read_record<progpu_native_scene_brush>(
+                        bytes,
+                        material_resource.payload_offset +
+                            static_cast<std::size_t>(brush_index) *
+                                sizeof(progpu_native_scene_brush));
+                    const std::uint32_t stop_count =
+                        progpu::native::semantic::
+                            semantic_brush_stored_stop_count(material);
+                    const std::uint32_t source_stop_offset =
+                        material.stop_offset;
+                    material.stop_offset = static_cast<std::uint32_t>(
+                        material_gradient_stops.size());
+                    for (std::uint32_t stop_index = 0U;
+                         stop_index < stop_count;
+                         ++stop_index) {
+                        material_gradient_stops.push_back(read_record<
+                            progpu_native_scene_gradient_stop>(
+                                bytes,
+                                material_resource.auxiliary_offset +
+                                    static_cast<std::size_t>(
+                                        source_stop_offset + stop_index) *
+                                        sizeof(
+                                            progpu_native_scene_gradient_stop)));
+                    }
+                }
+                materials.push_back(material);
+                mesh_face_flags.push_back(source.flags);
                 mesh_index_counts.push_back(mesh.index_count);
                 mesh_edge_offsets.push_back(edge_offset);
                 mesh_edge_counts.push_back(
@@ -615,25 +755,43 @@ progpu_native_status compile_semantic_3d_page(
         vertices.data(), vertices.size() * sizeof(vertices[0]), sizeof(vertices[0]));
     page.index_buffer = create_storage_buffer(engine, "ProGPU 3D indices",
         indices.data(), indices.size() * sizeof(indices[0]), sizeof(indices[0]));
+    page.light_buffer = create_storage_buffer(engine, "ProGPU 3D lights",
+        lights.data(), lights.size() * sizeof(lights[0]), sizeof(lights[0]));
     page.edge_buffer = create_storage_buffer(engine, "ProGPU 3D mesh edges",
         edges.data(), edges.size() * sizeof(edges[0]), sizeof(edges[0]));
+    page.material_buffer = create_storage_buffer(
+        engine, "ProGPU 3D materials",
+        materials.data(), materials.size() * sizeof(materials[0]),
+        sizeof(materials[0]));
+    page.material_gradient_stop_buffer = create_storage_buffer(
+        engine, "ProGPU 3D material gradient stops",
+        material_gradient_stops.data(),
+        material_gradient_stops.size() * sizeof(material_gradient_stops[0]),
+        sizeof(material_gradient_stops[0]));
     if (page.camera_buffer == nullptr || page.line_buffer == nullptr ||
         page.mesh_buffer == nullptr || page.vertex_buffer == nullptr ||
-        page.index_buffer == nullptr || page.edge_buffer == nullptr) {
+        page.index_buffer == nullptr || page.edge_buffer == nullptr || page.light_buffer == nullptr ||
+        page.material_buffer == nullptr ||
+        page.material_gradient_stop_buffer == nullptr) {
         release_page_buffers(page);
         return engine.fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
             "The native retained 3D GPU page could not be allocated.");
     }
-    std::array<WGPUBindGroupEntry, 6U> entries{};
-    const std::array<WGPUBuffer, 6U> buffers{{page.camera_buffer,
+    std::array<WGPUBindGroupEntry, 9U> entries{};
+    const std::array<WGPUBuffer, 9U> buffers{{page.camera_buffer,
         page.line_buffer, page.mesh_buffer, page.vertex_buffer,
-        page.index_buffer, page.edge_buffer}};
-    const std::array<std::uint64_t, 6U> sizes{{
+        page.index_buffer, page.light_buffer, page.material_buffer,
+        page.material_gradient_stop_buffer, page.edge_buffer}};
+    const std::array<std::uint64_t, 9U> sizes{{
         std::max<std::uint64_t>(sizeof(cameras[0]), cameras.size() * sizeof(cameras[0])),
         std::max<std::uint64_t>(sizeof(lines[0]), lines.size() * sizeof(lines[0])),
         std::max<std::uint64_t>(sizeof(meshes[0]), meshes.size() * sizeof(meshes[0])),
         std::max<std::uint64_t>(sizeof(vertices[0]), vertices.size() * sizeof(vertices[0])),
         std::max<std::uint64_t>(sizeof(indices[0]), indices.size() * sizeof(indices[0])),
+        std::max<std::uint64_t>(sizeof(lights[0]), lights.size() * sizeof(lights[0])),
+        std::max<std::uint64_t>(sizeof(materials[0]), materials.size() * sizeof(materials[0])),
+        std::max<std::uint64_t>(sizeof(material_gradient_stops[0]),
+            material_gradient_stops.size() * sizeof(material_gradient_stops[0])),
         std::max<std::uint64_t>(sizeof(edges[0]), edges.size() * sizeof(edges[0]))}};
     for (std::uint32_t index = 0U; index < entries.size(); ++index) {
         entries[index].binding = index;
@@ -671,6 +829,7 @@ progpu_native_status compile_semantic_3d_page(
     page.draws = std::move(draws);
     page.mesh_topologies = std::move(topologies);
     page.mesh_flags = std::move(mesh_flags);
+    page.mesh_face_flags = std::move(mesh_face_flags);
     page.mesh_index_counts = std::move(mesh_index_counts);
     page.mesh_edge_offsets = std::move(mesh_edge_offsets);
     page.mesh_edge_counts = std::move(mesh_edge_counts);
@@ -683,6 +842,9 @@ progpu_native_status compile_semantic_3d_page(
     upload_bytes = cameras.size() * sizeof(cameras[0]) +
         lines.size() * sizeof(lines[0]) + meshes.size() * sizeof(meshes[0]) +
         vertices.size() * sizeof(vertices[0]) + indices.size() * sizeof(indices[0]) +
+        lights.size() * sizeof(lights[0]) +
+        materials.size() * sizeof(materials[0]) +
+        material_gradient_stops.size() * sizeof(material_gradient_stops[0]) +
         edges.size() * sizeof(edges[0]);
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
@@ -706,7 +868,8 @@ progpu_native_status encode_semantic_3d_bundle_draw(
     }
     for (std::uint32_t index = 0U; index < draw.record_count; ++index) {
         const std::uint32_t record = draw.first_record + index;
-        if (record >= engine.semantic_3d_cache.mesh_topologies.size() ||
+        if (record >= engine.semantic_3d_cache.mesh_face_flags.size() ||
+            record >= engine.semantic_3d_cache.mesh_topologies.size() ||
             record >= engine.semantic_3d_cache.mesh_flags.size() ||
             record >= engine.semantic_3d_cache.mesh_index_counts.size() ||
             record >= engine.semantic_3d_cache.mesh_edge_offsets.size() ||
@@ -714,7 +877,7 @@ progpu_native_status encode_semantic_3d_bundle_draw(
             record >= engine.semantic_3d_cache.mesh_edge_vertex_counts.size() ||
             record >= engine.semantic_3d_cache.material_bind_groups.size()) {
             return engine.fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                "The native retained 3D mesh topology index is invalid.");
+                "The native retained 3D mesh face-mode index is invalid.");
         }
         const auto topology = engine.semantic_3d_cache.mesh_topologies[record];
         wgpuRenderBundleEncoderSetBindGroup(
@@ -751,10 +914,18 @@ progpu_native_status encode_semantic_3d_bundle_draw(
             }
             continue;
         }
-        wgpuRenderBundleEncoderSetPipeline(encoder,
-            topology == PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP
-                ? engine.semantic_mesh_strip_3d_pipeline
-                : engine.semantic_mesh_3d_pipeline);
+        const auto face_flags = engine.semantic_3d_cache.mesh_face_flags[record];
+        const bool strip = topology == PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP;
+        const auto pipeline =
+            (face_flags & PROGPU_NATIVE_MESH_3D_FRONT_FACE) != 0U
+                ? (strip ? engine.semantic_mesh_front_strip_3d_pipeline
+                         : engine.semantic_mesh_front_3d_pipeline)
+                : (face_flags & PROGPU_NATIVE_MESH_3D_BACK_FACE) != 0U
+                    ? (strip ? engine.semantic_mesh_back_strip_3d_pipeline
+                             : engine.semantic_mesh_back_3d_pipeline)
+                    : (strip ? engine.semantic_mesh_strip_3d_pipeline
+                             : engine.semantic_mesh_3d_pipeline);
+        wgpuRenderBundleEncoderSetPipeline(encoder, pipeline);
         wgpuRenderBundleEncoderDraw(
             encoder,
             engine.semantic_3d_cache.mesh_index_counts[record],

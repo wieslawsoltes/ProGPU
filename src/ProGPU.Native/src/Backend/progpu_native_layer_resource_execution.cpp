@@ -16,6 +16,7 @@
 #include "progpu_native_replay_execution.hpp"
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_layer_mask_resources.hpp"
+#include "progpu_native_semantic_state.hpp"
 #include "progpu_native_webgpu_resources.hpp"
 #include "GaussianBlurHorizontalWgsl.generated.hpp"
 #include "GaussianBlurVerticalWgsl.generated.hpp"
@@ -36,6 +37,7 @@ namespace progpu::native::execution {
 
 using semantic_scissor = semantic::scissor;
 using semantic_layer_budget = semantic::layer_budget;
+using semantic_cache_budget = semantic::cache_budget;
 using semantic_compilation_budget = semantic::compilation_budget;
 inline constexpr std::uint32_t semantic_effect_uniform_alignment =
     semantic::effect_uniform_alignment;
@@ -418,6 +420,7 @@ bool ensure_semantic_texture_slot(
     std::uint32_t height,
     const char* label) {
     if (slot.texture != nullptr && slot.uniform_buffer != nullptr &&
+        slot.bind_group != nullptr && slot.nearest_bind_group != nullptr &&
         slot.width == width && slot.height == height) {
         return ensure_semantic_layer_slot_bindings(engine, slot);
     }
@@ -456,6 +459,18 @@ bool ensure_semantic_texture_slot(
         wgpuTextureRelease(texture);
         return false;
     }
+    WGPUBindGroup nearest_bind_group = create_image_texture_bind_group(
+        engine,
+        engine.image_nearest_sampler,
+        view,
+        "ProGPU semantic nearest isolated-layer texture binding");
+    if (nearest_bind_group == nullptr) {
+        wgpuBindGroupRelease(bind_group);
+        wgpuTextureViewRelease(view);
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
     WGPUBufferDescriptor uniform_descriptor{};
     uniform_descriptor.label = ::progpu::native::webgpu::string_view(
         "ProGPU semantic bounded-layer target uniforms");
@@ -466,6 +481,7 @@ bool ensure_semantic_texture_slot(
         engine.device,
         &uniform_descriptor);
     if (uniform_buffer == nullptr) {
+        wgpuBindGroupRelease(nearest_bind_group);
         wgpuBindGroupRelease(bind_group);
         wgpuTextureViewRelease(view);
         wgpuTextureDestroy(texture);
@@ -488,6 +504,9 @@ bool ensure_semantic_texture_slot(
     if (slot.bind_group != nullptr) {
         wgpuBindGroupRelease(slot.bind_group);
     }
+    if (slot.nearest_bind_group != nullptr) {
+        wgpuBindGroupRelease(slot.nearest_bind_group);
+    }
     if (slot.view != nullptr) {
         wgpuTextureViewRelease(slot.view);
     }
@@ -502,6 +521,7 @@ bool ensure_semantic_texture_slot(
     slot.texture = texture;
     slot.view = view;
     slot.bind_group = bind_group;
+    slot.nearest_bind_group = nearest_bind_group;
     slot.uniform_buffer = uniform_buffer;
     slot.analytic_uniform_bind_group = nullptr;
     slot.text_uniform_bind_group = nullptr;
@@ -576,6 +596,7 @@ bool ensure_semantic_depth_slot(
 bool prepare_semantic_depth_resources(
     progpu_native_engine& engine,
     const semantic_layer_budget& budget,
+    const semantic::cache_budget& cache_budget,
     std::uint32_t frame_width,
     std::uint32_t frame_height) {
     if (!ensure_semantic_depth_slot(
@@ -595,6 +616,15 @@ bool prepare_semantic_depth_resources(
                 budget.slot_widths[index],
                 budget.slot_heights[index],
                 "ProGPU semantic isolated-layer 3D depth")) {
+            return false;
+        }
+    }
+    for (std::uint32_t index = 0U; index < cache_budget.count; ++index) {
+        const auto slot = cache_budget.slots[index];
+        if (slot >= engine.semantic_layer_slots.size() ||
+            !ensure_semantic_depth_slot(engine, engine.semantic_layer_slots[slot],
+                cache_budget.widths[index], cache_budget.heights[index],
+                "ProGPU semantic retained-cache 3D depth")) {
             return false;
         }
     }
@@ -647,6 +677,7 @@ bool ensure_semantic_effect_textures(
 bool prepare_semantic_layer_resources(
     progpu_native_engine& engine,
     const semantic_layer_budget& budget,
+    const semantic_cache_budget& cache_budget,
     std::uint32_t frame_width,
     std::uint32_t frame_height,
     float dpi_scale,
@@ -673,6 +704,36 @@ bool prepare_semantic_layer_resources(
                 slot,
                 budget.slot_widths[index],
                 budget.slot_heights[index])) {
+            return false;
+        }
+        const gpu_uniforms uniforms = create_uniforms(
+            slot.width,
+            slot.height,
+            dpi_scale);
+        if (engine.upload_uniform_if_changed(
+                slot.uniform_buffer,
+                uniforms,
+                slot.cached_uniforms,
+                slot.uniform_cache_valid)) {
+            uploaded_uniform_bytes += sizeof(gpu_uniforms);
+        }
+    }
+    for (std::uint32_t index = 0U; index < cache_budget.count; ++index) {
+        const std::uint32_t slot_index = cache_budget.slots[index];
+        if (!ensure_semantic_layer_slot(
+                engine,
+                slot_index,
+                cache_budget.widths[index],
+                cache_budget.heights[index])) {
+            return false;
+        }
+        auto& slot = engine.semantic_layer_slots[slot_index];
+        if (cache_budget.effected[index] &&
+            !ensure_semantic_effect_textures(
+                engine,
+                slot,
+                cache_budget.widths[index],
+                cache_budget.heights[index])) {
             return false;
         }
         const gpu_uniforms uniforms = create_uniforms(
@@ -745,14 +806,64 @@ void append_semantic_layer_quad(
     }
 }
 
+void append_semantic_transformed_layer_quad(
+    std::vector<::progpu::native::vector_vertex>& vertices,
+    const semantic_scissor& source,
+    const semantic_scissor& target,
+    std::uint32_t source_texture_width,
+    std::uint32_t source_texture_height,
+    float dpi_scale,
+    float opacity,
+    const progpu_native_affine_2d& transform,
+    float source_dpi_x,
+    float source_dpi_y) {
+    const float source_scale_x = source_dpi_x > 0.0F ? source_dpi_x : dpi_scale;
+    const float source_scale_y = source_dpi_y > 0.0F ? source_dpi_y : dpi_scale;
+    const float source_x0 = static_cast<float>(source.x) / source_scale_x;
+    const float source_y0 = static_cast<float>(source.y) / source_scale_y;
+    const float source_x1 = source_x0 +
+        static_cast<float>(source.width) / source_scale_x;
+    const float source_y1 = source_y0 +
+        static_cast<float>(source.height) / source_scale_y;
+    const float target_x = static_cast<float>(target.x) / dpi_scale;
+    const float target_y = static_cast<float>(target.y) / dpi_scale;
+    const float u1 = static_cast<float>(source.width) /
+        source_texture_width;
+    const float v1 = static_cast<float>(source.height) /
+        source_texture_height;
+    constexpr std::array<std::array<std::uint32_t, 2U>, 4U> corners{{
+        {0U, 0U}, {1U, 0U}, {1U, 1U}, {0U, 1U}
+    }};
+    for (const auto& corner : corners) {
+        const float x = corner[0] == 0U ? source_x0 : source_x1;
+        const float y = corner[1] == 0U ? source_y0 : source_y1;
+        ::progpu::native::vector_vertex vertex{};
+        vertex.position[0] = x * transform.m11 +
+            y * transform.m21 + transform.m31 - target_x;
+        vertex.position[1] = x * transform.m12 +
+            y * transform.m22 + transform.m32 - target_y;
+        vertex.color[0] = opacity;
+        vertex.color[1] = 1.0F;
+        vertex.color[2] = 0.0F;
+        vertex.color[3] = opacity;
+        vertex.texture_coordinate[0] = corner[0] == 0U ? 0.0F : u1;
+        vertex.texture_coordinate[1] = corner[1] == 0U ? 0.0F : v1;
+        vertex.stroke_thickness = 1.0F;
+        vertices.push_back(vertex);
+    }
+}
+
 bool create_semantic_layer_mask_binding(
     progpu_native_engine& engine,
     const std::byte* bytes,
     const progpu_native_scene_resource& resource,
     const semantic_scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation,
-    std::uint64_t& texture_upload_bytes) {
+    std::uint64_t& texture_upload_bytes,
+    const progpu_native_scene_presentation& presentation) {
     texture_upload_bytes = 0U;
     semantic::semantic_layer_mask parsed{};
     std::uint32_t error_offset = resource.payload_offset;
@@ -768,7 +879,8 @@ bool create_semantic_layer_mask_binding(
             target_extent,
             dpi_scale,
             operation,
-            texture_upload_bytes);
+            texture_upload_bytes,
+            presentation);
     }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) {
         return create_semantic_vector_mask_binding(
@@ -777,7 +889,8 @@ bool create_semantic_layer_mask_binding(
             resource,
             target_extent,
             dpi_scale,
-            operation);
+            operation,
+            &presentation);
     }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH) {
         return create_semantic_brush_mask_binding(
@@ -785,7 +898,10 @@ bool create_semantic_layer_mask_binding(
             parsed,
             target_extent,
             dpi_scale,
-            operation);
+            composite_state_cursor,
+            composite_state,
+            operation,
+            &presentation);
     }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY) {
         return create_semantic_geometry_mask_binding(
@@ -793,7 +909,8 @@ bool create_semantic_layer_mask_binding(
             parsed,
             target_extent,
             dpi_scale,
-            operation);
+            operation,
+            &presentation);
     }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) {
         return create_semantic_picture_mask_binding(
@@ -802,7 +919,10 @@ bool create_semantic_layer_mask_binding(
             parsed.composite_picture_streams,
             target_extent,
             dpi_scale,
-            operation);
+            composite_state_cursor,
+            composite_state,
+            operation,
+            &presentation);
     }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
         return create_semantic_composite_mask_binding(
@@ -811,7 +931,10 @@ bool create_semantic_layer_mask_binding(
             resource,
             target_extent,
             dpi_scale,
-            operation);
+            composite_state_cursor,
+            composite_state,
+            operation,
+            &presentation);
     }
     if (!create_layer_mask_resources(engine)) {
         return false;
@@ -823,11 +946,8 @@ bool create_semantic_layer_mask_binding(
         mask.struct_size = sizeof(mask);
         mask.kind = PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
         mask.bounds = source.bounds;
-        mask.transform = source.transform;
-        mask.transform.m31 -=
-            static_cast<float>(target_extent.x) / dpi_scale;
-        mask.transform.m32 -=
-            static_cast<float>(target_extent.y) / dpi_scale;
+        mask.transform = semantic::localize_semantic_transform(
+            source.transform, target_extent, presentation, dpi_scale);
         std::copy_n(source.corner_radii_x, 4U, mask.corner_radii_x);
         std::copy_n(source.corner_radii_y, 4U, mask.corner_radii_y);
         mask.opacity = source.opacity;

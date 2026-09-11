@@ -8172,6 +8172,20 @@ void complex_script_properties_and_syllable_machines_are_bounded() {
         require(!try_get_unicode_syllable_from_state_action(
             expected.machine, expected.state_count, state_action));
         require(state_action == 0U);
+        const auto last_state = static_cast<std::uint16_t>(expected.state_count - 1U);
+        require(try_get_unicode_syllable_to_state_action(
+            expected.machine, last_state, state_action));
+        require(state_action <= 10U);
+        require(try_get_unicode_syllable_from_state_action(
+            expected.machine, last_state, state_action));
+        require(state_action <= 10U);
+        require(!try_get_unicode_syllable_to_state_action(
+            expected.machine, UINT16_MAX, state_action));
+        require(state_action == 0U);
+        state_action = 99U;
+        require(!try_get_unicode_syllable_from_state_action(
+            expected.machine, UINT16_MAX, state_action));
+        require(state_action == 0U);
         unicode_syllable_transition transition{99U, 99U, 99U};
         require(try_get_unicode_syllable_transition(
             expected.machine, expected.start_state, 1U, transition));
@@ -12746,7 +12760,885 @@ void production_inter_shaping_is_stable_and_reusable() {
 
 } // namespace
 
+static void mixed_scales_drive_wrapping_and_visual_positions() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 3> glyphs{};
+    for (std::uint32_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = 10U + i; glyphs[i].cluster = static_cast<std::int32_t>(i); glyphs[i].advance_x = 100;
+    }
+    std::array breaks{text_line_break_kind::opportunity, text_line_break_kind::opportunity, text_line_break_kind::opportunity};
+    std::array<std::int8_t, 3> levels{0, 1, 1};
+    std::array<float, 3> scales{0.1F, 0.25F, 0.1F};
+    text_layout_options options{}; options.scale = 1; options.line_height = 20;
+    std::array<text_visual_cluster_group, 3> groups{};
+    std::array<std::uint32_t, 3> indices{};
+    std::array<positioned_text_glyph, 3> output{};
+    std::array<positioned_text_line, 3> lines{};
+    std::uint32_t glyph_count = 0, line_count = 0;
+    require(try_layout_scaled_logical_shaped_text(glyphs, breaks, levels, scales, 0, options,
+        {groups, indices}, output, lines, glyph_count, line_count));
+    require(glyph_count == 3 && line_count == 1 && lines[0].width == 45);
+    require(output[0].glyph_index == 0 && output[0].advance_x == 10);
+    require(output[1].glyph_index == 2 && output[1].x == 10 && output[1].advance_x == 10);
+    require(output[2].glyph_index == 1 && output[2].x == 20 && output[2].advance_x == 25);
+    options.maximum_width = 40;
+    text_layout_requirements required{};
+    require(try_get_scaled_text_layout_requirements(glyphs, breaks, scales, options, required));
+    require(required.line_capacity == 2);
+    require(try_layout_scaled_logical_shaped_text(glyphs, breaks, levels, scales, 0, options,
+        {groups, indices}, output, lines, glyph_count, line_count));
+    require(line_count == 2 && lines[0].width == 35 && lines[1].width == 10);
+    require(output[2].y == 20);
+    output[0].x = 123;
+    for (float invalid : {0.0F, -1.0F, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::max()}) {
+        scales[2] = invalid;
+        require(!try_layout_scaled_logical_shaped_text(glyphs, breaks, levels, scales, 0, options,
+            {groups, indices}, output, lines, glyph_count, line_count));
+        require(glyph_count == 0 && line_count == 0 && output[0].x == 123);
+    }
+}
+
+static void incremental_tabs_keep_logical_width_after_bidi_and_wrap() {
+    using progpu::native::text::text_tab_glyph_id;
+    using progpu::native::text::text_tab_options;
+    std::array<shaping_glyph, 5> glyphs{};
+    std::array<std::int8_t, 5> levels{};
+    std::array<text_line_break_kind, 5> breaks{};
+    for (std::uint32_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = i; glyphs[i].cluster = static_cast<std::int32_t>(i);
+        glyphs[i].advance_x = i == 2 ? 20 : 10;
+        breaks[i] = text_line_break_kind::opportunity;
+    }
+    for (auto i : {1U, 3U}) { glyphs[i].glyph_id = text_tab_glyph_id; glyphs[i].code_point = 9; glyphs[i].advance_x = 0; }
+    text_layout_options options{}; options.line_height = 20;
+    std::array<positioned_text_glyph, 5> output{};
+    std::array<positioned_text_line, 5> lines{};
+    std::array<text_visual_cluster_group, 5> groups{};
+    std::array<std::uint32_t, 5> indices{};
+    std::array<float, 5> advances{};
+    std::uint32_t count = 0, line_count = 0;
+    auto run = [&](std::int8_t direction, text_tab_options tabs) {
+        return try_layout_tabbed_logical_shaped_text(glyphs, breaks, levels, {}, direction, options, tabs,
+            advances, {groups, indices}, output, lines, count, line_count);
+    };
+    require(run(0, {32, 0}) && count == 5 && line_count == 1 && lines[0].width == 74);
+    require(output[1].advance_x == 22 && output[2].x == 32 && output[3].advance_x == 12 && output[4].x == 64);
+    levels.fill(1);
+    require(run(1, {32, 0}) && output[0].glyph_index == 4 && output[4].glyph_index == 0);
+    require(output[1].advance_x == 12 && output[3].advance_x == 22 && output[4].x == 64);
+    levels.fill(0);
+    require(run(0, {32, 7}) && lines[0].width == 67 && output[2].x == 25);
+    options.maximum_width = 50;
+    require(run(0, {32, 0}) && line_count == 2 && lines[0].width == 32 && lines[1].width == 42);
+    require(output[2].x == 0 && output[3].advance_x == 12 && output[4].x == 32);
+    output[0].x = 123;
+    require(!run(0, {-1, 0}) && count == 0 && line_count == 0 && output[0].x == 123);
+    options.maximum_width = 0;
+    require(!run(0, {std::numeric_limits<float>::max(), 0}) && count == 0 && output[0].x == 123);
+    // One tab at an exact stop advances a full interval, not zero.
+    glyphs[0].advance_x = 32;
+    require(run(0, {32, 0}) && output[1].advance_x == 32 && output[2].x == 64);
+}
+
+static void intrinsic_widths_use_legal_clusters_and_exclude_trailing_space() {
+    using namespace progpu::native::text;
+    std::array<unicode_scalar, 6> text{{{'a', 0, 1}, {'b', 1, 1}, {' ', 2, 1},
+        {'c', 3, 1}, {' ', 4, 1}, {' ', 5, 1}}};
+    std::array<shaping_glyph, 6> glyphs{};
+    constexpr std::array advances{3, 5, 2, 11, 2, 2};
+    for (std::size_t i = 0; i < glyphs.size(); ++i)
+        glyphs[i] = {1, text[i].code_point, static_cast<std::int32_t>(i), shaping_glyph_flags::none, advances[i], 0, 0, 0};
+    std::array<text_line_break_kind, 6> breaks{};
+    breaks[2] = text_line_break_kind::opportunity; breaks[5] = text_line_break_kind::mandatory;
+    text_layout_options options{};
+    text_intrinsic_widths widths{};
+    auto run = [&](std::span<const float> scales = {}) {
+        return try_measure_text_intrinsic_widths(text, glyphs, breaks, scales, options, {}, widths);
+    };
+    require(run() && widths.minimum == 11 && widths.maximum == 21);
+    options.maximum_width = 1; // Intrinsic widths are independent of emergency wrapping.
+    require(run() && widths.minimum == 11 && widths.maximum == 21);
+    text_layout_requirements whole{}, emergency{};
+    require(try_get_tabbed_text_layout_requirements(glyphs, breaks, {}, options, {0, 0, false}, whole));
+    require(try_get_tabbed_text_layout_requirements(glyphs, breaks, {}, options, {0, 0, true}, emergency));
+    require(whole.line_capacity == 2 && emergency.line_capacity > whole.line_capacity);
+    glyphs[3].flags = shaping_glyph_flags::unsafe_to_break;
+    require(run() && widths.minimum == 21 && widths.maximum == 21);
+    glyphs[3].flags = shaping_glyph_flags::none;
+    constexpr std::array<float, 6> scales{2, 2, 1, 1, 1, 1};
+    require(run(scales) && widths.minimum == 16 && widths.maximum == 29);
+    text[2].code_point = '\n'; breaks[2] = text_line_break_kind::mandatory;
+    require(run() && widths.minimum == 11 && widths.maximum == 11);
+    options.scale = std::numeric_limits<float>::max();
+    require(!run() && widths.minimum == 0 && widths.maximum == 0);
+
+    const std::array<unicode_scalar, 3> tabs{{{'a', 0, 1}, {'\t', 1, 1}, {'b', 2, 1}}};
+    const std::array<shaping_glyph, 3> tab_glyphs{{{1, 'a', 0, {}, 4, 0, 0, 0},
+        {text_tab_glyph_id, '\t', 1, {}, 0, 0, 0, 0}, {1, 'b', 2, {}, 6, 0, 0, 0}}};
+    const std::array tab_breaks{text_line_break_kind::prohibited, text_line_break_kind::opportunity,
+        text_line_break_kind::mandatory};
+    require(try_measure_text_intrinsic_widths(tabs, tab_glyphs, tab_breaks, {}, {}, {16, 3}, widths));
+    require(widths.minimum == 6 && widths.maximum == 19);
+    const std::array<unicode_scalar, 2> mixed{{{' ', 0, 1}, {'a', 1, 1}}};
+    const std::array<shaping_glyph, 1> ligature{{{1, ' ', 0, {}, 9, 0, 0, 0}}};
+    const std::array final_break{text_line_break_kind::mandatory};
+    require(try_measure_text_intrinsic_widths(mixed, ligature, final_break, {}, {}, {}, widths));
+    require(widths.minimum == 9 && widths.maximum == 9); // Mixed-source cluster is not trailing space.
+}
+
+static void trimming_preserves_tab_metrics_and_safe_shaping_boundaries() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 5> glyphs{};
+    std::array<text_line_break_kind, 5> breaks{};
+    std::array<std::int8_t, 5> levels{};
+    std::array<float, 5> scales{}; scales.fill(1.0F);
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i] = {static_cast<std::uint32_t>(i + 1), 'a', static_cast<std::int32_t>(i),
+            shaping_glyph_flags::none, 10, 0, 0, 0};
+        breaks[i] = text_line_break_kind::opportunity;
+    }
+    glyphs[1].glyph_id = text_tab_glyph_id; glyphs[1].advance_x = 0;
+    text_layout_options options{};
+    options.maximum_lines = 1; options.maximum_width = 35; options.line_height = 20;
+    options.trimming = text_trimming::character_ellipsis;
+    options.ellipsis_glyph_id = 99; options.ellipsis_advance = 6;
+    std::array<positioned_text_glyph, 6> output{};
+    std::array<positioned_text_line, 5> lines{};
+    std::array<text_visual_cluster_group, 5> groups{};
+    std::array<std::uint32_t, 5> indices{};
+    std::array<float, 5> advances{};
+    std::uint32_t count = 0, line_count = 0;
+    auto run = [&](text_tab_options tabs) {
+        return try_layout_tabbed_logical_shaped_text(glyphs, breaks, levels, scales, 0, options, tabs,
+            advances, {groups, indices}, output, lines, count, line_count);
+    };
+    // The tab reaches 32, leaving no room for the sign. Removing it must
+    // recover the actual prefix width 10, not the tab's zero font advance.
+    output.back().x = 123;
+    require(run({32, 0}) && count == 2 && line_count == 1 && lines[0].width == 16);
+    require(output[0].glyph_id == 1 && output[1].glyph_id == 99 && output[1].x == 10);
+    require(output.back().x == 123 && lines[0].input_end == 1);
+    options.maximum_width = 39;
+    require(run({32, 0}) && count == 3 && lines[0].width == 38);
+    require(output[1].advance_x == 22 && output[2].x == 32);
+    options.maximum_width = 35;
+    require(run({32, 7}) && count == 3 && lines[0].width == 31 && output[2].x == 25);
+    scales[0] = 2;
+    require(run({32, 0}) && count == 2 && lines[0].width == 26 && output[1].x == 20);
+    scales.fill(1);
+    glyphs[1].glyph_id = 2; glyphs[1].advance_x = 10;
+    glyphs[2].flags = shaping_glyph_flags::unsafe_to_break;
+    options.maximum_width = 30;
+    // A prefix ending before glyph 2 would fit, but its shaping boundary is unsafe.
+    for (auto mode : {text_trimming::character_ellipsis, text_trimming::word_ellipsis}) {
+        options.trimming = mode;
+        require(run({}) && count == 2 && lines[0].width == 16 && lines[0].input_end == 1);
+        std::array<positioned_text_glyph, 6> direct{};
+        std::array<positioned_text_line, 5> direct_lines{};
+        std::uint32_t direct_count = 0, direct_line_count = 0;
+        require(try_layout_shaped_text(glyphs, breaks, options, direct, direct_lines,
+            direct_count, direct_line_count));
+        require(direct_count == count && direct_line_count == line_count && direct_lines[0].width == lines[0].width);
+        for (std::size_t i = 0; i < count; ++i)
+            require(direct[i].glyph_id == output[i].glyph_id && direct[i].x == output[i].x &&
+                direct[i].advance_x == output[i].advance_x);
+    }
+    glyphs[1].flags = shaping_glyph_flags::unsafe_to_break;
+    require(run({}) && count == 1 && lines[0].width == 6 && output[0].glyph_id == 99);
+}
+
+static void collapsed_width_preserves_previous_lines_and_rtl_sign_identity() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 5> glyphs{};
+    std::array<text_line_break_kind, 5> breaks{};
+    std::array<std::int8_t, 5> levels{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i] = {1, 'a', static_cast<std::int32_t>(i), {}, 10, 0, 0, 0};
+        breaks[i] = text_line_break_kind::opportunity;
+    }
+    text_layout_options options{}; options.maximum_width = 25; options.line_height = 20;
+    options.maximum_lines = 2; options.collapse_width = 16;
+    options.trimming = text_trimming::character_ellipsis; options.ellipsis_advance = 6;
+    std::array<positioned_text_glyph, 6> output{};
+    std::array<positioned_text_line, 5> lines{};
+    std::array<text_visual_cluster_group, 5> groups{};
+    std::array<std::uint32_t, 5> indices{};
+    std::uint32_t count = 0, line_count = 0;
+    auto run = [&](std::int8_t direction) {
+        levels.fill(direction);
+        return try_layout_logical_shaped_text(glyphs, breaks, levels, direction, options,
+            {groups, indices}, output, lines, count, line_count);
+    };
+    require(run(0) && line_count == 2 && count == 4 && lines[0].width == 20 && lines[0].glyph_count == 2);
+    require(lines[1].input_start == 2 && lines[1].input_end == 3 && lines[1].width == 16 && lines[1].clipped);
+    require(output[3].glyph_index == std::numeric_limits<std::uint32_t>::max() && output[3].cluster == 3 && output[3].x == 10);
+    require(run(1) && output[0].glyph_index == 1 && output[1].glyph_index == 0);
+    require(output[2].glyph_index == std::numeric_limits<std::uint32_t>::max() && output[2].cluster == 3 && output[2].x == 0);
+    require(output[3].glyph_index == 2 && output[3].x == 6 && lines[1].width == 16);
+    options.collapse_width = 0;
+    require(run(1) && count == 3 && output[2].cluster == 2 && lines[1].width == 6);
+    options.maximum_width = 0; options.maximum_lines = 1; options.collapse_width = 5;
+    for (auto& glyph : glyphs) glyph.cluster = 0;
+    require(run(0) && count == 1 && output[0].cluster == 0 && lines[0].clipped);
+    output[0].x = 123; options.collapse_width = -2;
+    require(!run(0) && count == 0 && line_count == 0 && output[0].x == 123);
+}
+
+static void measured_items_share_wrapping_and_line_metrics() {
+    using progpu::native::text::text_item_metrics;
+    using progpu::native::text::try_layout_measured_logical_shaped_text;
+    std::array<shaping_glyph, 6> glyphs{};
+    std::array<text_line_break_kind, 6> breaks{};
+    std::array<std::int8_t, 6> levels{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = static_cast<std::uint32_t>(i);
+        glyphs[i].cluster = static_cast<std::int32_t>(i);
+        glyphs[i].advance_x = 10;
+        breaks[i] = text_line_break_kind::opportunity;
+    }
+    std::array<text_item_metrics, 6> metrics{{{8, 2}, {30, 4}, {5, 2}, {6, 3}, {9, 5}, {4, 2}}};
+    std::array<positioned_text_glyph, 6> output{};
+    std::array<positioned_text_line, 6> lines{};
+    std::array<text_visual_cluster_group, 6> groups{};
+    std::array<std::uint32_t, 6> indices{};
+    std::uint32_t glyph_count = 0, line_count = 0;
+    text_layout_options options{};
+    options.maximum_width = 20; options.line_height = 10;
+    auto run = [&](std::span<const text_item_metrics> values) {
+        return try_layout_measured_logical_shaped_text(glyphs, breaks, levels, {},
+            levels[0], options, {}, {}, {groups, indices}, output, lines,
+            glyph_count, line_count, {}, values);
+    };
+    require(run(metrics) && glyph_count == 6 && line_count == 3);
+    require(lines[0].height == 34 && lines[0].baseline_y == 30);
+    require(lines[1].height == 10 && lines[1].baseline_y == 40);
+    require(lines[2].height == 14 && lines[2].baseline_y == 53);
+    require(output[0].y == 30 && output[2].y == 40 && output[4].y == 53);
+    levels.fill(1);
+    require(run(metrics) && output[0].glyph_index == 1 && output[1].glyph_index == 0);
+    require(lines[0].baseline_y == 30 && lines[2].baseline_y == 53);
+    levels.fill(0);
+    require(run({}) && lines[0].baseline_y == 0 && lines[1].baseline_y == 10 &&
+        lines[2].baseline_y == 20 && lines[0].height == 10);
+    output[0].x = 123; lines[0].height = 456;
+    require(!run(std::span<const text_item_metrics>{metrics}.first(5)));
+    require(glyph_count == 0 && line_count == 0 && output[0].x == 123 && lines[0].height == 456);
+    for (float invalid : {-1.0F, std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::infinity(), std::numeric_limits<float>::max()}) {
+        metrics[5].descent = invalid;
+        require(!run(metrics) && glyph_count == 0 && line_count == 0);
+        require(output[0].x == 123 && lines[0].height == 456);
+    }
+    metrics[5].descent = 2;
+    options.trimming = text_trimming::character_ellipsis;
+    require(!run(metrics) && output[0].x == 123 && lines[0].height == 456);
+    options.trimming = text_trimming::none;
+    // Independent scalar oracle for paired SIMD reductions; hard boundaries
+    // retain the same source pairs while random metrics vary every line.
+    for (std::uint32_t seed = 0; seed < 32; ++seed) {
+        for (std::size_t i = 0; i < metrics.size(); ++i) {
+            metrics[i] = {static_cast<float>((seed * 13U + i * 7U) % 41U),
+                static_cast<float>((seed * 3U + i * 11U) % 17U)};
+            if ((i & 1U) != 0U) breaks[i] = text_line_break_kind::mandatory;
+        }
+        require(run(metrics) && line_count == 3);
+        float top = 0;
+        for (std::size_t i = 0; i < 3; ++i) {
+            const float ascent = std::max(metrics[2 * i].ascent, metrics[2 * i + 1].ascent);
+            const float descent = std::max(metrics[2 * i].descent, metrics[2 * i + 1].descent);
+            const float height = std::max(10.0F, ascent + descent);
+            require(lines[i].baseline_y == top + ascent && lines[i].height == height);
+            top += height;
+        }
+    }
+}
+
+static void anchored_exclusions_preserve_free_line_intervals() {
+    using namespace progpu::native::text;
+    std::array<text_exclusion_rectangle, 4> exclusions{{
+        {-10, 0, 20, 30}, {70, 0, 110, 20}, {40, 5, 60, 15}, {20, 0, 40, 0}}};
+    std::array<text_line_interval, 4> scratch{};
+    std::array<text_line_interval, 6> output{};
+    output.back() = {301, 302};
+    std::uint32_t count = 99;
+    float next = -1;
+    font_error error{};
+    const auto run = [&](text_exclusion_rectangle band) {
+        return try_resolve_text_line_intervals(band, exclusions, scratch, output, count, next, &error);
+    };
+    require(run({0, 0, 100, 10}) && count == 2 && next == 15);
+    require(output[0].left == 20 && output[0].right == 40 &&
+        output[1].left == 60 && output[1].right == 70);
+    require(run({0, 20, 100, 30}) && count == 1 && next == 30 &&
+        output[0].left == 20 && output[0].right == 100);
+    require(run({0, 30, 100, 40}) && count == 1 && next == 30 && output[0].left == 0);
+    require(run({50, 6, 50, 8}) && count == 0 && next == 6);
+    exclusions[2] = {20, 0, 70, 30};
+    require(run({0, 0, 100, 10}) && count == 0 && next == 20);
+    require(run({0, 20, 100, 30}) && count == 1 && output[0].left == 70);
+    output[0] = {201, 202}; next = 203;
+    exclusions[3].right = std::numeric_limits<float>::quiet_NaN();
+    require(!run({0, 0, 100, 10}) && error == font_error::invalid_argument && count == 0 &&
+        output[0].left == 201 && next == 203);
+    exclusions[3] = {0, 0, 0, 0};
+    require(!try_resolve_text_line_intervals({0, 0, 100, 10}, exclusions, scratch,
+        std::span(output).first(4), count, next, &error) && error == font_error::insufficient_buffer);
+    require(!try_resolve_text_line_intervals({0, 0, 100, 10}, exclusions,
+        std::span(output).first(4), output, count, next, &error) && error == font_error::invalid_argument);
+    require(!run({0, 2, 100, 2}) && error == font_error::invalid_argument);
+    require(output.back().left == 301 && output.back().right == 302);
+
+    // Independent scalar point oracle: union membership, not a second merge.
+    std::array<text_exclusion_rectangle, 16> random{};
+    std::array<text_line_interval, 16> random_scratch{};
+    std::array<text_line_interval, 17> random_output{};
+    std::uint32_t seed = 1;
+    auto value = [&]() { seed = seed * 1664525U + 1013904223U; return seed; };
+    for (int trial = 0; trial < 128; ++trial) {
+        for (auto& r : random) {
+            r.left = static_cast<float>(value() % 120U) - 10;
+            r.right = r.left + static_cast<float>(value() % 30U);
+            r.top = static_cast<float>(value() % 40U);
+            r.bottom = r.top + static_cast<float>(value() % 20U);
+        }
+        const float top = static_cast<float>(trial % 40);
+        require(try_resolve_text_line_intervals({0, top, 100, top + 8},
+            random, random_scratch, random_output, count, next));
+        for (std::uint32_t i = 0; i < count; ++i) {
+            require(random_output[i].left < random_output[i].right);
+            if (i != 0) require(random_output[i - 1].right < random_output[i].left);
+        }
+        for (int x = 0; x < 100; ++x) {
+            const float point = static_cast<float>(x) + 0.5F;
+            bool excluded = false, available = false;
+            for (const auto r : random)
+                excluded |= r.top < r.bottom && r.top < top + 8 && r.bottom > top &&
+                    point >= r.left && point < r.right;
+            for (std::uint32_t i = 0; i < count; ++i)
+                available |= point >= random_output[i].left && point < random_output[i].right;
+            require(available != excluded);
+        }
+    }
+}
+
+static void exclusion_bands_fit_original_shaped_ranges() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 8> glyphs{};
+    std::array<text_line_break_kind, 8> breaks{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].cluster = static_cast<std::int32_t>(i);
+        glyphs[i].advance_x = 10;
+        breaks[i] = text_line_break_kind::opportunity;
+    }
+    std::array<text_exclusion_rectangle, 1> exclusions{{{20, 0, 60, 30}}};
+    std::array<text_line_interval, 1> scratch{};
+    std::array<text_line_interval, 2> intervals{};
+    std::array<text_line_fragment, 2> fragments{};
+    text_layout_options options{}; options.maximum_width = 100; options.line_height = 10;
+    text_tab_options tabs{};
+    std::uint32_t count{}, next{};
+    float next_y{};
+    font_error error{};
+    const auto fit = [&](float top = 0.0F, std::uint32_t start = 0U) {
+        return try_fit_text_exclusion_band(glyphs, breaks, {}, start, options, tabs,
+            {0, top, 100, top + 10}, exclusions, scratch, intervals, fragments, count, next, next_y, &error);
+    };
+    require(fit() && count == 2 && next == 6 && next_y == 30);
+    require(fragments[0].glyph_start == 0 && fragments[0].glyph_count == 2 && fragments[0].left == 0);
+    require(fragments[1].glyph_start == 2 && fragments[1].glyph_count == 4 && fragments[1].left == 60);
+    options.direction = shaping_direction::right_to_left;
+    require(fit() && count == 2 && next == 6 && fragments[0].left == 60 &&
+        fragments[0].glyph_count == 4 && fragments[1].glyph_start == 4 && fragments[1].left == 0);
+    options.direction = shaping_direction::left_to_right;
+    breaks[0] = text_line_break_kind::mandatory;
+    require(fit() && count == 1 && next == 1 && fragments[0].content_width == 10);
+    breaks[0] = text_line_break_kind::opportunity;
+    glyphs[0].advance_x = 50;
+    require(fit() && count == 0 && next == 0 && next_y == 30);
+    require(fit(30) && count == 1 && next == 6); // Full width below the anchor.
+    glyphs[0].advance_x = 150;
+    require(fit(30) && count == 1 && next == 1 && fragments[0].content_width == 150);
+    glyphs[0].advance_x = 10;
+    glyphs[1].cluster = 0; glyphs[2].cluster = 0;
+    require(fit() && count == 1 && fragments[0].left == 60 && fragments[0].glyph_count == 4);
+    require(!fit(0, 1) && error == font_error::invalid_argument && count == 0);
+    glyphs[1].cluster = 1; glyphs[2].cluster = 2;
+    exclusions[0] = {0, 0, 60, 30};
+    tabs.interval = 25;
+    glyphs[0].glyph_id = text_tab_glyph_id;
+    require(fit() && count == 1 && fragments[0].content_width == 35 && next == 3);
+    // Absolute paragraph X=60 reaches the next grid at 75, not X=85.
+    exclusions[0] = {0, 0, 100, 30};
+    require(fit() && count == 0 && next == 0 && next_y == 30);
+    options.trimming = text_trimming::character_ellipsis;
+    require(!fit() && error == font_error::invalid_argument);
+}
+
+static void measured_exclusion_fragments_share_one_baseline() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 8> glyphs{};
+    std::array<text_line_break_kind, 8> breaks{};
+    std::array<std::int8_t, 8> levels{};
+    std::array<text_item_metrics, 8> metrics{};
+    std::array<text_justification_class, 8> classes{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = static_cast<std::uint32_t>(i);
+        glyphs[i].cluster = static_cast<std::int32_t>(i * 2);
+        glyphs[i].advance_x = 10;
+        breaks[i] = text_line_break_kind::opportunity;
+        metrics[i] = {8, 2};
+        classes[i] = i % 3 == 1 ? text_justification_class::word_space : text_justification_class::content;
+    }
+    metrics[3] = {20, 5};
+    glyphs[0].offset_x = -2; glyphs[0].offset_y = 3;
+    std::array<text_exclusion_rectangle, 1> exclusions{{{35, 0, 65, 40}}};
+    std::array<text_line_interval, 1> exclusion_scratch{};
+    std::array<text_line_interval, 2> intervals{};
+    std::array<text_line_fragment, 2> fragments{};
+    std::array<text_visual_cluster_group, 8> groups{};
+    std::array<std::uint32_t, 8> indices{};
+    std::array<float, 8> advances{};
+    std::array<positioned_text_glyph, 8> output{};
+    std::array<positioned_text_line, 2> lines{};
+    text_layout_options options{}; options.maximum_width = 100; options.line_height = 10;
+    options.alignment = text_alignment::justify;
+    text_exclusion_band_result result{};
+    std::int8_t direction = 0;
+    const auto place = [&](float bottom) {
+        return try_layout_text_exclusion_band(glyphs, breaks, levels, {}, classes, metrics, 0,
+            direction, options, {}, {0, 5, 100, bottom}, exclusions, exclusion_scratch,
+            intervals, fragments, advances, {groups, indices}, output, lines, result);
+    };
+    output[0].x = 301; lines[0].height = 302;
+    require(place(15) && result.status == text_exclusion_band_status::refit_height &&
+        result.height == 25 && result.next_glyph == 0 && result.glyph_count == 0 &&
+        output[0].x == 301 && lines[0].height == 302);
+    require(place(30) && result.status == text_exclusion_band_status::placed &&
+        result.next_glyph == 6 && result.glyph_count == 6 && result.fragment_count == 2 &&
+        result.baseline == 25 && result.top == 5);
+    require(lines[0].baseline_y == 25 && lines[1].baseline_y == 25 &&
+        lines[0].height == 25 && lines[1].height == 25 && lines[1].glyph_start == 3);
+    require(lines[0].width == 35 && lines[1].width == 35 && lines[0].input_end == 6 &&
+        lines[1].input_start == 6 && lines[1].input_end == 12);
+    require(output[1].advance_x == 15 && output[4].advance_x == 15 &&
+        output[3].glyph_index == 3 && output[3].x == 65);
+    const auto check_positions = [&] {
+        for (std::uint32_t line_index = 0; line_index < result.fragment_count; ++line_index) {
+            const auto line = lines[line_index];
+            float cursor = fragments[line_index].left;
+            for (std::uint32_t i = line.glyph_start; i < line.glyph_start + line.glyph_count; ++i) {
+                const auto original = glyphs[output[i].glyph_index];
+                require(output[i].x == cursor + static_cast<float>(original.offset_x));
+                require(output[i].y == result.baseline + static_cast<float>(original.offset_y));
+                cursor += output[i].advance_x;
+            }
+        }
+    };
+    check_positions();
+    direction = 1; levels.fill(1);
+    require(place(30) && result.status == text_exclusion_band_status::placed &&
+        output[0].glyph_index == 2 && output[0].x == 65 && output[3].glyph_index == 5 &&
+        output[3].x == 0 && lines[0].baseline_y == lines[1].baseline_y);
+    check_positions();
+    require(place(35) && result.status == text_exclusion_band_status::refit_height && result.height == 25);
+    exclusions[0] = {0, 0, 100, 40};
+    require(place(30) && result.status == text_exclusion_band_status::blocked &&
+        result.next_y == 40 && result.next_glyph == 0 && result.glyph_count == 0);
+    metrics[0].ascent = std::numeric_limits<float>::infinity();
+    require(!place(30) && result.glyph_count == 0 && result.fragment_count == 0);
+}
+
+static void excluded_paragraphs_retain_rows_and_bounded_progress() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 12> glyphs{};
+    std::array<text_line_break_kind, 12> breaks{};
+    std::array<std::int8_t, 12> levels{};
+    std::array<text_item_metrics, 12> metrics{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = static_cast<std::uint32_t>(i);
+        glyphs[i].cluster = static_cast<std::int32_t>(i * 2);
+        glyphs[i].advance_x = 10; breaks[i] = text_line_break_kind::opportunity;
+        metrics[i] = {8, 2};
+    }
+    std::array<text_exclusion_rectangle, 2> exclusions{{{0, 0, 100, 20}, {35, 20, 65, 40}}};
+    std::array<text_line_interval, 2> exclusion_scratch{};
+    std::array<text_line_interval, 3> intervals{};
+    std::array<text_line_fragment, 3> fragments{};
+    std::array<text_visual_cluster_group, 12> groups{};
+    std::array<std::uint32_t, 12> indices{};
+    std::array<float, 12> advances{};
+    std::array<positioned_text_glyph, 12> output{}, ordinary_output{};
+    std::array<positioned_text_line, 12> lines{}, ordinary_lines{};
+    std::array<text_fragment_placement, 12> placements{};
+    text_layout_options options{}; options.maximum_width = 100; options.line_height = 10;
+    text_exclusion_flow_result result{};
+    font_error error{};
+    std::int8_t paragraph_level = 0;
+    const auto run = [&](std::span<const text_exclusion_rectangle> values, std::uint32_t budget = 100U) {
+        return try_layout_excluded_logical_shaped_text(glyphs, breaks, levels, {}, {}, metrics,
+            paragraph_level, options, {}, values, exclusion_scratch, intervals, fragments, advances,
+            {groups, indices}, output, lines, placements, result, budget, &error);
+    };
+    require(run(exclusions) && result.row_count == 2 && result.fragment_count == 4 &&
+        result.glyph_count == 12 && result.next_glyph == 12 && result.attempts == 3 && result.height == 40);
+    require(placements[0].row_index == 0 && placements[1].row_index == 0 && placements[0].top == 20 &&
+        placements[2].row_index == 1 && placements[3].row_index == 1 && placements[2].top == 30);
+    require(lines[0].baseline_y == 28 && lines[1].baseline_y == 28 && lines[2].baseline_y == 38);
+    require(lines[2].glyph_start == 6 && lines[3].glyph_start == 9 && output[9].glyph_index == 9);
+    const auto run_at = [&](double origin) {
+        return try_layout_excluded_logical_shaped_text_at(glyphs, breaks, levels, {}, {}, metrics,
+            paragraph_level, options, {}, origin, exclusions, exclusion_scratch, intervals, fragments,
+            advances, {groups, indices}, output, lines, placements, result, 100, &error);
+    };
+    require(run_at(25.25) && result.row_count == 2 && result.fragment_count == 4 && result.height == 45.25);
+    require(placements[0].top == 25.25 && placements[2].top == 35.25 && lines[0].baseline_y == 33.25F);
+    require(run_at(40) && result.row_count == 2 && result.fragment_count == 2 && result.height == 60);
+    require(placements[0].top == 40 && placements[0].left == 0 && placements[0].width == 100);
+    const auto saved_top = placements[0].top;
+    require(!run_at(-1) && error == font_error::invalid_argument && result.fragment_count == 0 && placements[0].top == saved_top);
+    require(!run_at(std::numeric_limits<double>::infinity()) && result.height == 0);
+    require(!run_at(std::numeric_limits<double>::quiet_NaN()) && result.height == 0);
+    require(!run_at(std::numeric_limits<float>::max()) && result.fragment_count == 0);
+    require(run(exclusions));
+    text_layout_metrics extent{};
+    require(try_measure_fragment_text_lines(std::span(lines).first(4), std::span(placements).first(4),
+        100, extent) && extent.content_width == 95 && extent.content_height == 40 &&
+        extent.measured_width == 100 && extent.measured_height == 40 && result.content_width == 95);
+    require(try_measure_fragment_text_lines(std::span(lines).first(4), std::span(placements).first(4),
+        0, extent) && extent.measured_width == 95);
+    const float original_width = lines[1].width;
+    lines[1].width = 150;
+    require(try_measure_fragment_text_lines(std::span(lines).first(4), std::span(placements).first(4),
+        100, extent) && extent.content_width == 215 && extent.measured_width == 100);
+    lines[1].width = original_width;
+    placements[1].top = 21;
+    require(!try_measure_fragment_text_lines(std::span(lines).first(4), std::span(placements).first(4),
+        100, extent) && extent.content_width == 0 && extent.content_height == 0);
+    placements[1].top = 20;
+    std::array<std::int32_t, 12> ends{};
+    for (std::size_t i = 0; i < ends.size(); ++i) ends[i] = output[i].cluster + 2;
+    std::array<text_cluster_box, 12> boxes{};
+    std::array<text_caret_stop, 24> carets{};
+    std::uint32_t box_count{}, caret_count{};
+    const auto interaction = [&] {
+        return try_build_fragment_text_interaction(output, std::span(lines).first(4),
+            std::span(placements).first(4), ends, levels, boxes, carets, box_count, caret_count, &error);
+    };
+    require(interaction() && box_count == 12);
+    require(boxes[0].y == 20 && boxes[3].y == 20 && boxes[6].y == 30 &&
+        boxes[9].y == 30 && boxes[3].line_index == 1 && boxes[3].height == 10);
+    text_hit_test_result hit{};
+    require(try_hit_test_text(std::span(boxes).first(box_count), 66, 25, hit) &&
+        hit.inside && hit.input_position == 6 && hit.line_index == 1);
+    require(try_hit_test_text(std::span(boxes).first(box_count), 50, 25, hit) && !hit.inside);
+    require(try_hit_test_text(std::span(boxes).first(box_count), 1, 5, hit) && !hit.inside);
+    require(try_hit_test_text(std::span(boxes).first(box_count), 1, 35, hit) &&
+        hit.inside && hit.input_position == 12);
+    text_caret_stop caret{};
+    require(try_get_text_caret_stop(std::span(carets).first(caret_count), 6, false, caret) &&
+        caret.x == 65 && caret.y == 20 && caret.line_index == 1);
+    std::array<text_rectangle, 12> rectangles{};
+    std::uint32_t rectangle_count{};
+    require(try_get_text_selection_rectangles(std::span(boxes).first(box_count), 0, 24,
+        rectangles, rectangle_count) && rectangle_count == 4 &&
+        rectangles[0].y == 20 && rectangles[1].y == 20 && rectangles[2].y == 30);
+    boxes[0].y = 301;
+    placements[1].top = 21;
+    require(!interaction() && error == font_error::invalid_argument && box_count == 0 && caret_count == 0 && boxes[0].y == 301);
+    placements[1].top = 20;
+    placements[1].left = 20;
+    require(!interaction() && error == font_error::invalid_argument && boxes[0].y == 301);
+    placements[1].left = 65;
+    placements[2].row_index = 2;
+    require(!interaction() && error == font_error::invalid_argument);
+    placements[2].row_index = 1;
+    require(interaction());
+    const auto caret_index = [&](std::uint32_t fragment, float x, bool last = false) {
+        std::uint32_t found = UINT32_MAX;
+        for (std::uint32_t i = 0; i < caret_count; ++i)
+            if (carets[i].line_index == fragment && carets[i].x == x &&
+                (found == UINT32_MAX || last)) found = i;
+        require(found != UINT32_MAX); return found;
+    };
+    std::uint32_t moved{};
+    const auto move = [&](std::uint32_t current, text_caret_direction direction, float x) {
+        return try_move_fragment_text_caret(std::span(carets).first(caret_count),
+            std::span(placements).first(4), current, direction, paragraph_level, x, moved, &error);
+    };
+    require(move(caret_index(0, 30, true), text_caret_direction::right, 30) &&
+        carets[moved].line_index == 1 && carets[moved].x == 65 && carets[moved].y == 20);
+    require(move(caret_index(1, 65), text_caret_direction::left, 65) &&
+        carets[moved].line_index == 0 && carets[moved].x == 30);
+    require(move(caret_index(1, 65), text_caret_direction::down, 85) &&
+        carets[moved].line_index == 3 && carets[moved].x == 85 && carets[moved].y == 30);
+    require(move(caret_index(1, 95, true), text_caret_direction::right, 95) &&
+        carets[moved].line_index == 2 && carets[moved].x == 0);
+    const auto final_caret = caret_index(3, 95, true);
+    require(move(final_caret, text_caret_direction::right, 95) && moved == final_caret);
+    require(!move(caret_count, text_caret_direction::down, 0) && error == font_error::invalid_argument);
+    require(!move(0, text_caret_direction::down, std::numeric_limits<float>::quiet_NaN()));
+    paragraph_level = 1; levels.fill(1);
+    require(run(exclusions));
+    for (std::size_t i = 0; i < ends.size(); ++i) ends[i] = output[i].cluster + 2;
+    require(interaction() && boxes[0].x == 65 && boxes[0].y == 20 && boxes[0].bidi_level == 1);
+    require(try_get_text_caret_stop(std::span(carets).first(caret_count), 0, false, caret) &&
+        caret.x == 95 && caret.y == 20 && caret.line_index == 0);
+    require(try_hit_test_text(std::span(boxes).first(box_count), 66, 25, hit) &&
+        hit.inside && hit.input_position == 6 && hit.line_index == 0);
+    require(move(caret_index(1, 30, true), text_caret_direction::right, 30) &&
+        carets[moved].line_index == 0 && carets[moved].x == 65 && carets[moved].y == 20);
+    require(move(caret_index(1, 0), text_caret_direction::left, 0) &&
+        carets[moved].line_index == 2 && carets[moved].x == 95 && carets[moved].y == 30);
+    require(move(caret_index(0, 65), text_caret_direction::down, 25) &&
+        carets[moved].line_index == 3 && carets[moved].x == 20);
+    require(move(caret_index(3, 20), text_caret_direction::up, 85) &&
+        carets[moved].line_index == 0 && carets[moved].x == 85);
+    paragraph_level = 0; levels.fill(0);
+    options.maximum_lines = 1;
+    require(run(exclusions) && result.row_count == 1 && result.fragment_count == 2 &&
+        result.next_glyph == 6 && lines[1].clipped);
+    options.maximum_lines = 0;
+    metrics[3] = {20, 5};
+    require(run(exclusions) && result.row_count == 2 && result.fragment_count == 3 &&
+        result.attempts == 4 && result.height == 55 && placements[2].top == 45 &&
+        lines[0].baseline_y == 40 && lines[1].baseline_y == 40);
+    require(!run(exclusions, 1) && error == font_error::verification_failed &&
+        result.glyph_count == 0 && result.fragment_count == 0);
+    // Height 10 fits the tall item, height 25 excludes it: a real refit cycle.
+    // Reject at the caller's budget instead of accepting either wrong band.
+    std::array<text_exclusion_rectangle, 1> cycle{{{20, 10, 100, 40}}};
+    output[0].x = 301;
+    require(!run(cycle, 6) && error == font_error::verification_failed &&
+        result.glyph_count == 0 && result.fragment_count == 0 && output[0].x == 301);
+    metrics[3] = {8, 2};
+    require(run({}) && result.row_count == 2 && result.fragment_count == 2 && result.height == 20);
+    std::uint32_t ordinary_count{}, ordinary_line_count{};
+    require(try_layout_measured_logical_shaped_text(glyphs, breaks, levels, {}, 0, options, {},
+        advances, {groups, indices}, ordinary_output, ordinary_lines, ordinary_count, ordinary_line_count, {}, metrics));
+    require(ordinary_count == result.glyph_count && ordinary_line_count == result.fragment_count);
+    for (std::uint32_t i = 0; i < ordinary_count; ++i)
+        require(output[i].x == ordinary_output[i].x && output[i].y == ordinary_output[i].y &&
+            output[i].glyph_index == ordinary_output[i].glyph_index &&
+            output[i].advance_x == ordinary_output[i].advance_x);
+    for (std::uint32_t i = 0; i < ordinary_line_count; ++i)
+        require(lines[i].baseline_y == ordinary_lines[i].baseline_y &&
+            lines[i].height == ordinary_lines[i].height && lines[i].width == ordinary_lines[i].width);
+    // Row topology retains the double prefix, not rounded float adjacency.
+    options.maximum_width = 10; options.line_height = 0.1F;
+    metrics.fill({0.05F, 0.05F});
+    require(run({}) && result.row_count == 12);
+    double expected_top = 0;
+    for (std::uint32_t i = 0; i < result.fragment_count; ++i) {
+        require(placements[i].top == expected_top);
+        expected_top += lines[i].height;
+    }
+    require(result.height == expected_top);
+    require(try_measure_fragment_text_lines(std::span(lines).first(result.fragment_count),
+        std::span(placements).first(result.fragment_count), 10, extent) &&
+        extent.content_height == static_cast<float>(expected_top));
+    // A baseline on the top edge uses the same float publication as carets.
+    metrics.fill({0, 0.1F});
+    require(run({}) && result.row_count == 12);
+    for (std::size_t i = 0; i < ends.size(); ++i) ends[i] = output[i].cluster + 2;
+    require(try_build_fragment_text_interaction(
+        std::span(output).first(result.glyph_count), std::span(lines).first(result.fragment_count),
+        std::span(placements).first(result.fragment_count), ends, levels, boxes, carets,
+        box_count, caret_count));
+}
+
+void floating_paragraphs_activate_after_source_rows() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 12> glyphs{};
+    std::array<text_line_break_kind, 12> breaks{};
+    std::array<std::int8_t, 12> levels{};
+    std::array<text_item_metrics, 12> metrics{};
+    std::array<text_visual_cluster_group, 12> groups{};
+    std::array<std::uint32_t, 12> indices{};
+    std::array<positioned_text_glyph, 12> positioned{};
+    std::array<positioned_text_line, 12> lines{};
+    std::array<text_fragment_placement, 12> frames{};
+    std::array<text_floating_item, 2> floats{{{1, 10, 20, text_anchor_alignment::left},
+        {1, 10, 20, text_anchor_alignment::left}}};
+    std::array<text_exclusion_rectangle, 3> collisions{};
+    std::array<text_line_interval, 3> exclusion_scratch{};
+    std::array<text_line_interval, 4> intervals{};
+    std::array<text_line_fragment, 4> fragments{};
+    std::array<text_floating_placement, 2> placed{};
+    text_floating_flow_result result{};
+    text_layout_options options{}; options.maximum_width = 40; options.line_height = 10;
+    font_error error{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = static_cast<std::uint32_t>(i);
+        glyphs[i].cluster = static_cast<std::int32_t>(i * 2);
+        glyphs[i].advance_x = 10;
+        breaks[i] = text_line_break_kind::opportunity;
+        metrics[i] = {8, 2};
+    }
+    const auto run = [&](std::size_t count = 2, std::uint32_t budget = 100, bool empty = false,
+        std::span<const text_exclusion_rectangle> initial = {}) {
+        const auto length = empty ? 0U : glyphs.size();
+        return try_layout_floating_logical_shaped_text_at(std::span(glyphs).first(length),
+            std::span(breaks).first(length), std::span(levels).first(length), {}, {},
+            std::span(metrics).first(length), 0, options, {}, 0, {8, 2}, std::span(floats).first(count),
+            initial, collisions, exclusion_scratch, intervals, fragments, {}, {groups, indices},
+            positioned, lines, frames, placed, result, budget, &error);
+    };
+    require(run() && result.float_count == 2 && result.text.row_count == 4 && result.height == 40);
+    require(lines[0].glyph_count == 4 && frames[0].top == 0 && frames[0].left == 0);
+    require(placed[0].source_row == 0 && placed[0].bounds.top == 10 && placed[0].bounds.left == 0);
+    require(placed[1].bounds.left == 10 && placed[1].bounds.top == 10);
+    require(frames[1].left == 20 && frames[1].top == 10 && frames[2].left == 20 && frames[2].top == 20);
+    require(frames[3].left == 0 && frames[3].top == 30 && result.text.glyph_count == 12);
+    for (std::size_t i = 0; i < glyphs.size(); ++i)
+        require(positioned[i].glyph_index == i && positioned[i].cluster == glyphs[i].cluster);
+    floats[0].width = 40;
+    require(run(1) && placed[0].bounds.top == 10 && frames[1].top == 30 && result.height == 50);
+    require(!run(1, 2) && error == font_error::verification_failed && result.float_count == 0 && result.text.row_count == 0);
+    floats[0] = {4, 10, 20, text_anchor_alignment::left};
+    require(run(1) && placed[0].source_row == 1 && placed[0].bounds.top == 20);
+    options.maximum_lines = 1;
+    require(run(1) && result.float_count == 0 && result.text.next_glyph == 4 && lines[0].clipped);
+    floats[0].glyph_index = 1;
+    require(run(1) && result.float_count == 1 && result.text.height == 10 && result.height == 30);
+    options.maximum_lines = 0;
+    floats[0].glyph_index = 12;
+    require(run(1) && placed[0].source_row == 2 && placed[0].bounds.top == 30 && result.height == 50);
+    floats[0].glyph_index = 13;
+    require(!run(1) && error == font_error::invalid_argument && result.float_count == 0);
+    floats[0].glyph_index = 1;
+    glyphs[1].cluster = glyphs[0].cluster;
+    require(!run(1) && error == font_error::invalid_argument);
+    glyphs[1].cluster = 2;
+    floats[0].glyph_index = 2; floats[1].glyph_index = 1;
+    require(!run() && error == font_error::invalid_argument);
+    floats[0].glyph_index = 0;
+    require(run(1, 100, true) && result.text.row_count == 1 && result.text.glyph_count == 0 &&
+        result.text.height == 10 && lines[0].height == 10 && lines[0].baseline_y == 8 &&
+        placed[0].bounds.top == 10 && result.height == 30);
+    const text_exclusion_rectangle blocked[]{ {0, 0, 40, 50} };
+    require(run(1, 100, true, blocked) && frames[0].top == 50 && placed[0].bounds.top == 60 && result.height == 80);
+    require(run(0, 100, true) && result.text.row_count == 0 && result.height == 0);
+    require(!run(1, 100, false, std::span(collisions).first(1)) && error == font_error::invalid_argument);
+    metrics[2] = {18, 2};
+    require(run(1) && lines[0].height == 20 && placed[0].bounds.top == 20 && placed[0].source_row == 0);
+    metrics[2] = {8, 2};
+    breaks[1] = text_line_break_kind::mandatory;
+    require(run(1) && lines[0].glyph_count == 2 && placed[0].bounds.top == 10);
+}
+
+void measured_floaters_pack_free_intervals() {
+    using namespace progpu::native::text;
+    std::array<text_exclusion_rectangle, 3> siblings{};
+    std::array<text_line_interval, 3> scratch{};
+    std::array<text_line_interval, 4> intervals{};
+    text_exclusion_rectangle placed{};
+    font_error error{};
+    const auto place = [&](text_anchor_alignment alignment, std::size_t count, bool delay, std::uint32_t budget) {
+        return try_place_text_floater({0, 10, 320, 100}, 100, 10, alignment, delay,
+            std::span(siblings).first(count), scratch, intervals, placed, budget, &error);
+    };
+    for (auto alignment : {text_anchor_alignment::left, text_anchor_alignment::center, text_anchor_alignment::right}) {
+        require(place(alignment, 0, false, 1));
+        require(placed.top == 10 && placed.left == (alignment == text_anchor_alignment::left ? 0 :
+            alignment == text_anchor_alignment::center ? 110 : 220));
+        siblings[0] = placed;
+        require(place(alignment, 1, false, 1));
+        require(placed.top == 10 && placed.left == (alignment == text_anchor_alignment::left ? 100 :
+            alignment == text_anchor_alignment::center ? 5 : 120));
+    }
+    for (std::size_t i = 0; i < siblings.size(); ++i) {
+        require(place(text_anchor_alignment::left, i, false, 1));
+        siblings[i] = placed;
+    }
+    require(!place(text_anchor_alignment::left, 3, false, 2) && error == font_error::verification_failed);
+    require(placed.left == 200 && placed.top == 10); // Failed fit does not publish.
+    require(!place(text_anchor_alignment::left, 3, true, 1));
+    require(place(text_anchor_alignment::left, 3, true, 2) && placed.left == 0 && placed.top == 20);
+    siblings[0].left = std::numeric_limits<float>::quiet_NaN();
+    require(!place(text_anchor_alignment::left, 1, true, 2) && error == font_error::invalid_argument);
+    require(placed.left == 0 && placed.top == 20);
+}
+
+void measured_anchors_retain_horizontal_reference() {
+    using namespace progpu::native::text;
+    std::array<text_exclusion_rectangle, 2> obstacles{{{70, 0, 100, 20}, {70, 20, 100, 35}}};
+    std::array<text_line_interval, 2> scratch{};
+    std::array<text_line_interval, 3> intervals{};
+    text_exclusion_rectangle placed{1, 2, 3, 4};
+    font_error error{};
+    const auto place = [&](text_anchor_alignment alignment, bool delay, std::uint32_t budget) {
+        return try_place_text_anchor({0, 0, 100, 60}, 30, 10, alignment, delay,
+            obstacles, scratch, intervals, placed, budget, &error);
+    };
+    require(place(text_anchor_alignment::right, true, 3));
+    require(placed.left == 70 && placed.right == 100 && placed.top == 35 && placed.bottom == 45);
+    require(!place(text_anchor_alignment::right, true, 2) && error == font_error::verification_failed);
+    require(placed.left == 70 && placed.top == 35); // Failure is atomic.
+    require(!place(text_anchor_alignment::right, false, 3));
+    require(place(text_anchor_alignment::left, false, 1) && placed.left == 0 && placed.top == 0);
+    require(place(text_anchor_alignment::center, false, 1) && placed.left == 35 && placed.top == 0);
+    obstacles[0] = {65, 0, 100, 20}; // Exact edge contact remains free.
+    require(place(text_anchor_alignment::center, false, 1));
+    obstacles[0].left = 64;
+    require(!place(text_anchor_alignment::center, false, 1));
+    obstacles[0].left = std::numeric_limits<float>::quiet_NaN();
+    require(!place(text_anchor_alignment::left, true, 3) && error == font_error::invalid_argument);
+    require(!place(static_cast<text_anchor_alignment>(255), true, 3));
+    require(!place(text_anchor_alignment::left, true, 0));
+    obstacles[0] = {0, 0, 100, 60};
+    require(!place(text_anchor_alignment::left, true, 3) && error == font_error::verification_failed);
+    require(!try_place_text_anchor({0, 0, 100, 60}, 101, 10, text_anchor_alignment::left,
+        true, obstacles, scratch, intervals, placed, 3, &error));
+    require(!try_place_text_anchor({0, 0, 100, 60}, 0, 10, text_anchor_alignment::left,
+        true, obstacles, scratch, intervals, placed, 3, &error) && error == font_error::invalid_argument);
+}
+
+void anchor_width_policy_requires_real_remeasurement() {
+    using namespace progpu::native::text;
+    text_anchor_width_result result{};
+    font_error error{};
+    require(try_resolve_text_anchor_width(100, 12, text_anchor_width_mode::fit_content,
+        0, false, 0, result, &error));
+    require(result.content_width == 88 && result.outer_width == 100 && !result.requires_remeasure);
+    require(try_resolve_text_anchor_width(100, 12, text_anchor_width_mode::fit_content,
+        0, true, 37, result, &error));
+    require(result.content_width == 37 && result.outer_width == 49 && result.requires_remeasure);
+    require(try_resolve_text_anchor_width(100, 12, text_anchor_width_mode::fill,
+        0, true, 37, result, &error));
+    require(result.content_width == 88 && result.outer_width == 100 && !result.requires_remeasure);
+    require(try_resolve_text_anchor_width(100, 12, text_anchor_width_mode::fixed,
+        60, true, 37, result, &error));
+    require(result.content_width == 48 && result.outer_width == 60 && !result.requires_remeasure);
+    require(try_resolve_text_anchor_width(100, 12, text_anchor_width_mode::fit_content,
+        0, true, 200, result, &error));
+    require(result.content_width == 88 && !result.requires_remeasure);
+    require(try_resolve_text_anchor_width(0, 12, text_anchor_width_mode::fill,
+        0, false, 0, result, &error));
+    require(result.content_width == 0 && result.outer_width == 12);
+    require(!try_resolve_text_anchor_width(100, -1, text_anchor_width_mode::fill,
+        0, false, 0, result, &error) && error == font_error::invalid_argument);
+    require(result.content_width == 0 && result.outer_width == 12);
+    require(!try_resolve_text_anchor_width(100, 0, text_anchor_width_mode::fill,
+        0, true, std::numeric_limits<float>::quiet_NaN(), result, &error));
+    require(!try_resolve_text_anchor_width(100, 0, static_cast<text_anchor_width_mode>(255),
+        0, false, 0, result, &error));
+}
+
 int main() {
+    anchor_width_policy_requires_real_remeasurement();
+    measured_floaters_pack_free_intervals();
+    floating_paragraphs_activate_after_source_rows();
+    measured_anchors_retain_horizontal_reference();
+    excluded_paragraphs_retain_rows_and_bounded_progress();
+    measured_exclusion_fragments_share_one_baseline();
+    exclusion_bands_fit_original_shaped_ranges();
+    anchored_exclusions_preserve_free_line_intervals();
+    measured_items_share_wrapping_and_line_metrics();
+    collapsed_width_preserves_previous_lines_and_rtl_sign_identity();
+    trimming_preserves_tab_metrics_and_safe_shaping_boundaries();
+    intrinsic_widths_use_legal_clusters_and_exclude_trailing_space();
+    incremental_tabs_keep_logical_width_after_bidi_and_wrap();
+    mixed_scales_drive_wrapping_and_visual_positions();
     unicode_contract_and_strict_decoders_are_transactional();
     unicode_bidi_resolution_is_bounded_and_source_preserving();
     unicode_grapheme_segmentation_covers_extended_rules();

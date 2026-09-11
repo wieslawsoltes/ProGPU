@@ -1,5 +1,6 @@
 #include <progpu_native_scene_builder.hpp>
 #include <progpu_native_hit_testing.hpp>
+#include <progpu_native_mil.hpp>
 #include <progpu_native_dawn.h>
 
 #include <cstddef>
@@ -14,6 +15,10 @@ int main() {
     progpu::native::hit_testing::hit_test_index hit_test_index;
     if (!hit_test_index.nodes().empty()) {
         return 1;
+    }
+    progpu::native::mil::channel mil_channel;
+    if (mil_channel.resource_count() != 0U) {
+        return 6;
     }
     progpu::native::semantic_scene_builder builder(42U, 1U);
     if (!builder.reserve(1U, 1U, 256U)) {

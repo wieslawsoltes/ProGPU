@@ -47,7 +47,8 @@ WGPURenderPipeline create_chain_pipeline(
     std::uint64_t stride,
     WGPUVertexStepMode step_mode,
     const char* fragment_entry,
-    const char* label) {
+    const char* label,
+    bool premultiplied_output = false) {
     WGPUPipelineLayoutDescriptor layout_descriptor{};
     layout_descriptor.label = progpu::native::webgpu::string_view(label);
     layout_descriptor.bindGroupLayoutCount = layout_count;
@@ -72,7 +73,7 @@ WGPURenderPipeline create_chain_pipeline(
     vertex_state.buffers = &vertex_layout;
 
     WGPUBlendState blend{};
-    blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+    blend.color.srcFactor = premultiplied_output ? WGPUBlendFactor_One : WGPUBlendFactor_SrcAlpha;
     blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
     blend.color.operation = WGPUBlendOperation_Add;
     blend.alpha.srcFactor = WGPUBlendFactor_One;
@@ -219,8 +220,8 @@ bool create_image_chain_pipelines(progpu_native_engine& engine) {
         attributes.size(),
         sizeof(progpu::native::vector_vertex),
         WGPUVertexStepMode_Vertex,
-        "fs_main_chain",
-        "ProGPU native bounded analytic mask-chain image pipeline");
+        "fs_retained_image_chain",
+        "ProGPU native bounded analytic mask-chain image pipeline", true);
     const std::array<WGPUBindGroupLayout, 4U> matrix_layouts{{
         engine.image_uniform_layout,
         engine.image_texture_layout,

@@ -1,6 +1,6 @@
-// Algorithm: Transform retained 3D lines, indexed meshes, and unique adjacency edges on the GPU; expand lines and classified boundary/crease/silhouette edges in physical screen space with optional bounded endpoint extension and deterministic three-stroke jitter, address and sample one optional diffuse material image, evaluate the canonical bounded three-light CAD visual-style model, and apply derivative wire coverage.
-// Time complexity: O(L + I + E) shader invocations for L expanded line vertices, I referenced mesh indices, and E retained unique edges with one ordinary or three jitter strokes; every mesh fragment performs at most one filtered texture sample, three fixed lights, and one derivative wire test, while every edge performs bounded adjacency classification.
-// Space complexity: O(C + L + M + V + I + E) read-only storage for cameras, lines, meshes, vertices, indices, and edges; O(1) private storage and no auxiliary output storage per invocation.
+// Algorithm: Transform retained lines, indexed meshes and adjacency edges; shade with canonical CAD materials or an explicit bounded WPF light range.
+// Time complexity: O(L + I + E) vertex work and O(K + S) per mesh fragment for K<=16 explicit lights (three fixed CAD lights otherwise), S gradient stops and one optional material image sample.
+// Space complexity: O(C + L + M + V + I + E + K + B + S) read-only storage; O(1) private storage per invocation.
 // Lines use six vertices per retained edge. Meshes fetch uint32 indices from
 // storage so one pointer-free scene ABI works in native WebGPU and wasm32.
 // Exact ProGPU-owned edge-algorithm provenance: Mesh3DEdges.wgsl. This native
@@ -12,7 +12,24 @@ struct Camera3D {
     view: mat4x4<f32>,
     camera_position: vec4<f32>,
     viewport: vec4<f32>,
+    viewport_rect: vec4<f32>,
 };
+
+fn map_clip_to_viewport(clip: vec4<f32>, camera: Camera3D) -> vec4<f32> {
+    let target_size = max(camera.viewport.xy, vec2<f32>(1.0));
+    let viewport_size = max(camera.viewport_rect.zw, vec2<f32>(1.0));
+    let scale = viewport_size / target_size;
+    let center = vec2<f32>(
+        ((camera.viewport_rect.x + viewport_size.x * 0.5) /
+            target_size.x) * 2.0 - 1.0,
+        1.0 - ((camera.viewport_rect.y + viewport_size.y * 0.5) /
+            target_size.y) * 2.0);
+    return vec4<f32>(
+        clip.x * scale.x + clip.w * center.x,
+        clip.y * scale.y + clip.w * center.y,
+        clip.z,
+        clip.w);
+}
 
 struct Line3D {
     start: vec4<f32>,
@@ -45,6 +62,20 @@ struct Mesh3D {
     shading_mode: u32,
     material_image_resource_index: u32,
     material_factors: u32,
+    light_offset: u32,
+    light_count: u32,
+    reserved: vec2<u32>,
+};
+
+struct Light3D {
+    struct_size: u32,
+    kind: u32,
+    flags: u32,
+    reserved: u32,
+    color: vec4<f32>,
+    position_range: vec4<f32>,
+    direction_inner_cos: vec4<f32>,
+    attenuation_outer_cos: vec4<f32>,
 };
 
 struct MeshVertex3D {
@@ -64,14 +95,50 @@ struct MeshEdge3D {
     reserved: vec2<u32>,
 };
 
+struct MaterialBrush3D {
+    brush_type: u32,
+    opacity: f32,
+    gradient_start: vec2<f32>,
+    gradient_end: vec2<f32>,
+    gradient_center: vec2<f32>,
+    gradient_radius: f32,
+    stop_count: u32,
+    gradient_radius_y: f32,
+    spread_method: u32,
+    color_interpolation_mode: u32,
+    stop_offset: u32,
+    stop_colors0: vec4<f32>,
+    stop_colors1: vec4<f32>,
+    stop_colors2: vec4<f32>,
+    stop_colors3: vec4<f32>,
+    stop_colors4: vec4<f32>,
+    stop_colors5: vec4<f32>,
+    stop_colors6: vec4<f32>,
+    stop_colors7: vec4<f32>,
+    stop_offsets0: vec4<f32>,
+    stop_offsets1: vec4<f32>,
+    coordinate_transform0: vec4<f32>,
+    coordinate_transform1: vec4<f32>,
+};
+
+struct MaterialGradientStop3D {
+    color: vec4<f32>,
+    offset: f32,
+};
+
 @group(0) @binding(0) var<storage, read> cameras: array<Camera3D>;
 @group(0) @binding(1) var<storage, read> lines: array<Line3D>;
 @group(0) @binding(2) var<storage, read> meshes: array<Mesh3D>;
 @group(0) @binding(3) var<storage, read> vertices: array<MeshVertex3D>;
 @group(0) @binding(4) var<storage, read> indices: array<u32>;
-@group(0) @binding(5) var<storage, read> edges: array<MeshEdge3D>;
+@group(0) @binding(5) var<storage, read> lights: array<Light3D>;
+@group(0) @binding(8) var<storage, read> edges: array<MeshEdge3D>;
 @group(1) @binding(0) var material_sampler: sampler;
 @group(1) @binding(1) var material_texture: texture_2d<f32>;
+@group(0) @binding(6) var<storage, read> materials: array<MaterialBrush3D>;
+@group(0) @binding(7) var<storage, read> material_gradient_stops: array<MaterialGradientStop3D>;
+
+const MESH_FLAG_SPECULAR_MATERIAL: u32 = 32u;
 
 struct LineOutput {
     @builtin(position) position: vec4<f32>,
@@ -102,17 +169,18 @@ fn vs_line_3d(
     var end_clip = camera.projection * camera.view * line.transform * line.end;
     let safe_start_w = select(start_clip.w, 0.000001, abs(start_clip.w) < 0.000001);
     let safe_end_w = select(end_clip.w, 0.000001, abs(end_clip.w) < 0.000001);
-    let start_screen = (start_clip.xy / safe_start_w) * camera.viewport.xy;
-    let end_screen = (end_clip.xy / safe_end_w) * camera.viewport.xy;
+    let viewport_size = max(camera.viewport_rect.zw, vec2<f32>(1.0));
+    let start_screen = (start_clip.xy / safe_start_w) * viewport_size;
+    let end_screen = (end_clip.xy / safe_end_w) * viewport_size;
     let delta = end_screen - start_screen;
     let length = max(length(delta), 0.000001);
     let normal = vec2<f32>(-delta.y, delta.x) / length;
     var clip = camera.projection * camera.view * line.transform * local;
     let expanded_xy = clip.xy +
-        normal * corner.y * line.thickness * clip.w / camera.viewport.xy;
+        normal * corner.y * line.thickness * clip.w / viewport_size;
     clip = vec4<f32>(expanded_xy, clip.zw);
     var output: LineOutput;
-    output.position = clip;
+    output.position = map_clip_to_viewport(clip, camera);
     output.color = vec4<f32>(line.color.rgb, line.color.a * line.opacity);
     output.edge_coordinate = corner.y;
     return output;
@@ -320,16 +388,19 @@ fn vs_mesh_3d(
     let camera = cameras[mesh.camera_index];
     let source_index = indices[mesh.index_offset + vertex_index];
     let vertex = vertices[mesh.vertex_offset + source_index];
-    let world = mesh.model_transform * vertex.position;
+    let world = mesh.model_transform *
+        vec4<f32>(vertex.position.xyz, 1.0);
     var output: MeshOutput;
-    output.position = camera.projection * camera.view * world;
+    output.position = map_clip_to_viewport(
+        camera.projection * camera.view * world,
+        camera);
     output.color = vec4<f32>(mesh.color.rgb, mesh.color.a * mesh.opacity);
     output.normal = normalize((mesh.normal_transform * vec4<f32>(vertex.normal.xyz, 0.0)).xyz);
     output.world_position = world.xyz;
     output.material = instance_index;
-    output.texture_coordinate = vertex.texture_coordinate;
     let corner = vertex_index % 3u;
     output.barycentric = vec3<f32>(select(0.0, 1.0, corner == 0u), select(0.0, 1.0, corner == 1u), select(0.0, 1.0, corner == 2u));
+    output.texture_coordinate = vertex.texture_coordinate;
     return output;
 }
 
@@ -586,18 +657,169 @@ fn address_material_coordinate(
         1.0);
 }
 
+fn transform_material_coordinate(
+    brush: MaterialBrush3D,
+    coordinate: vec2<f32>
+) -> vec2<f32> {
+    let point = vec3<f32>(coordinate, 1.0);
+    return vec2<f32>(
+        dot(point, brush.coordinate_transform0.xyz),
+        dot(point, brush.coordinate_transform1.xyz));
+}
+
+fn apply_material_spread(value: f32, method: u32) -> f32 {
+    if (method == 1u) {
+        let period = fract(value * 0.5) * 2.0;
+        return select(period, 2.0 - period, period > 1.0);
+    }
+    if (method == 2u) {
+        return fract(value);
+    }
+    return value;
+}
+
+fn material_srgb_to_linear_component(value: f32) -> f32 {
+    if (value <= 0.04045) {
+        return value / 12.92;
+    }
+    return pow((value + 0.055) / 1.055, 2.4);
+}
+
+fn material_linear_to_srgb_component(value: f32) -> f32 {
+    let clamped = max(value, 0.0);
+    if (clamped <= 0.0031308) {
+        return clamped * 12.92;
+    }
+    return 1.055 * pow(clamped, 1.0 / 2.4) - 0.055;
+}
+
+fn interpolate_material_gradient(
+    brush: MaterialBrush3D,
+    first: vec4<f32>,
+    second: vec4<f32>,
+    factor: f32
+) -> vec4<f32> {
+    if (brush.color_interpolation_mode == 1u) {
+        let linear = mix(
+            vec3<f32>(
+                material_srgb_to_linear_component(first.r),
+                material_srgb_to_linear_component(first.g),
+                material_srgb_to_linear_component(first.b)),
+            vec3<f32>(
+                material_srgb_to_linear_component(second.r),
+                material_srgb_to_linear_component(second.g),
+                material_srgb_to_linear_component(second.b)),
+            factor);
+        return vec4<f32>(
+            material_linear_to_srgb_component(linear.r),
+            material_linear_to_srgb_component(linear.g),
+            material_linear_to_srgb_component(linear.b),
+            mix(first.a, second.a, factor));
+    }
+    return mix(first, second, factor);
+}
+
+fn sample_material_stops(
+    brush: MaterialBrush3D,
+    value: f32
+) -> vec4<f32> {
+    if ((brush.spread_method & 0x40000000u) != 0u) {
+        if (value < 0.0) {
+            return brush.stop_colors0;
+        }
+        if (value > 1.0) {
+            return brush.stop_colors1;
+        }
+    }
+    var previous = material_gradient_stops[brush.stop_offset];
+    if (value < previous.offset) {
+        return previous.color;
+    }
+    for (var index = 1u; index < brush.stop_count; index++) {
+        let current = material_gradient_stops[brush.stop_offset + index];
+        if (value < current.offset) {
+            let factor = clamp(
+                (value - previous.offset) /
+                    max(current.offset - previous.offset, 0.0001),
+                0.0,
+                1.0);
+            return interpolate_material_gradient(
+                brush, previous.color, current.color, factor);
+        }
+        previous = current;
+    }
+    return previous.color;
+}
+
+fn sample_mesh_material(
+    brush: MaterialBrush3D,
+    texture_coordinate: vec2<f32>
+) -> vec4<f32> {
+    if (brush.brush_type == 0u) {
+        return vec4<f32>(
+            brush.stop_colors0.rgb,
+            brush.stop_colors0.a * brush.opacity);
+    }
+    let coordinate = transform_material_coordinate(
+        brush, texture_coordinate);
+    var value = 0.0;
+    if (brush.brush_type == 1u) {
+        let direction = brush.gradient_end - brush.gradient_start;
+        let length_squared = dot(direction, direction);
+        if (length_squared > 0.0001) {
+            value = dot(
+                coordinate - brush.gradient_start,
+                direction) / length_squared;
+        }
+    } else {
+        let radii = max(
+            vec2<f32>(brush.gradient_radius, brush.gradient_radius_y),
+            vec2<f32>(0.0001));
+        let point = (coordinate - brush.gradient_center) / radii;
+        let origin =
+            (brush.gradient_start - brush.gradient_center) / radii;
+        let direction = point - origin;
+        let a = dot(direction, direction);
+        if (a > 0.0001) {
+            let b = 2.0 * dot(origin, direction);
+            let c = dot(origin, origin) - 1.0;
+            let discriminant = max(b * b - 4.0 * a * c, 0.0);
+            let boundary = (-b + sqrt(discriminant)) / (2.0 * a);
+            if (boundary > 0.0001) {
+                value = 1.0 / boundary;
+            }
+        }
+    }
+    let spread = brush.spread_method & 0x3fffffffu;
+    if (spread == 3u &&
+        (value < 0.0 || value > 1.0)) {
+        return vec4<f32>(0.0);
+    }
+    let color = sample_material_stops(
+        brush,
+        apply_material_spread(value, spread));
+    return vec4<f32>(color.rgb, color.a * brush.opacity);
+}
+
 @fragment
 fn fs_mesh_3d(
     input: MeshOutput,
     @builtin(front_facing) is_front: bool
 ) -> @location(0) vec4<f32> {
     let mesh = meshes[input.material];
+    let material_sample = sample_mesh_material(
+        materials[input.material], input.texture_coordinate);
+    let material_color = input.color * material_sample;
+    let material_specular = select(
+        mesh.specular_color.rgb,
+        mesh.specular_color.rgb * material_sample.rgb,
+        (mesh.flags & MESH_FLAG_SPECULAR_MATERIAL) != 0u);
     let camera = cameras[mesh.camera_index];
     var normal = input.normal;
     if (!is_front) {
         normal = -normal;
     }
-    var diffuse_color = mesh.color.rgb;
+    var diffuse_color = material_color.rgb;
     var texture_alpha = 1.0;
     if ((mesh.flags & 1u) != 0u) {
         let tiling = (mesh.flags >> 1u) & 3u;
@@ -616,13 +838,88 @@ fn fs_mesh_3d(
         diffuse_color *= mix(vec3<f32>(1.0), sampled.rgb, blend);
         texture_alpha = mix(1.0, sampled.a, blend);
     }
-    var solid = compute_mesh_lighting(
-        mesh,
-        camera,
-        input.world_position,
-        normal,
-        diffuse_color);
-    solid.a *= texture_alpha;
+    var solid = vec4<f32>(0.0);
+    if (mesh.shading_mode == 7u || mesh.light_count != 0u ||
+        (mesh.flags & MESH_FLAG_SPECULAR_MATERIAL) != 0u) {
+        let n = normalize(normal);
+        let view = normalize(camera.camera_position.xyz - input.world_position);
+        let shininess = max(mesh.specular_color.w, 0.001);
+        var diffuse = vec3<f32>(0.0);
+        var ambient = vec3<f32>(0.0);
+        var specular = vec3<f32>(0.0);
+        if (mesh.light_count == 0u) {
+            let light = normalize(-mesh.light_direction.xyz);
+            let light_intensity = max(mesh.light_direction.w, 0.0);
+            let ambient_intensity = max(mesh.ambient_color.w, 0.0);
+            let amount = max(dot(n, light), 0.0) * light_intensity;
+            let reflected = reflect(-light, n);
+            diffuse = vec3<f32>(amount);
+            specular = vec3<f32>(pow(
+                max(dot(view, reflected), 0.0),
+                shininess) * light_intensity);
+            ambient = mesh.ambient_color.rgb * ambient_intensity;
+        } else {
+            for (var light_index = 0u; light_index < 16u; light_index++) {
+                if (light_index >= mesh.light_count) {
+                    break;
+                }
+                let source = lights[mesh.light_offset + light_index];
+                if (source.kind == 0u) {
+                    ambient += source.color.rgb;
+                    continue;
+                }
+                var light = normalize(-source.direction_inner_cos.xyz);
+                var attenuation = 1.0;
+                if (source.kind >= 2u) {
+                    let to_light = source.position_range.xyz - input.world_position;
+                    let distance = length(to_light);
+                    light = to_light / max(distance, 0.000001);
+                    let terms = source.attenuation_outer_cos.xyz;
+                    attenuation = 1.0 / max(
+                        terms.x + terms.y * distance +
+                            terms.z * distance * distance,
+                        1.0);
+                    attenuation *= select(
+                        0.0, 1.0, distance <= source.position_range.w);
+                    attenuation *= select(
+                        0.0, 1.0, distance > 0.000001);
+                    if (source.kind == 3u) {
+                        let rho = max(dot(
+                            normalize(-source.direction_inner_cos.xyz),
+                            light), 0.0);
+                        let outer_cos = source.attenuation_outer_cos.w;
+                        let cone_width = max(
+                            source.direction_inner_cos.w - outer_cos,
+                            0.000001);
+                        attenuation *= clamp(
+                            (rho - outer_cos) / cone_width,
+                            0.0,
+                            1.0);
+                    }
+                }
+                let amount = max(dot(n, light), 0.0) * attenuation;
+                let half_vector = normalize(view + light);
+                diffuse += source.color.rgb * amount;
+                specular += source.color.rgb * pow(
+                    max(dot(n, half_vector), 0.0), shininess) * attenuation;
+            }
+        }
+        ambient *= mesh.material_ambient.rgb;
+        var rgb = diffuse_color * (ambient + diffuse) +
+            material_specular * specular;
+        if (mesh.shading_mode == 2u) {
+            rgb = diffuse_color;
+        }
+        solid = vec4<f32>(rgb, mesh.color.a * mesh.opacity);
+    } else {
+        solid = compute_mesh_lighting(
+            mesh,
+            camera,
+            input.world_position,
+            normal,
+            diffuse_color);
+    }
+    solid.a *= texture_alpha * material_sample.a;
     let derivative_x = dpdx(input.barycentric);
     let derivative_y = dpdy(input.barycentric);
     let gradient = max(

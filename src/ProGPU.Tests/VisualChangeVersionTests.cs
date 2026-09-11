@@ -152,6 +152,13 @@ public sealed class VisualChangeVersionTests
         blur.BlurRadius = 4f;
         Assert.True(blur.ChangeVersion > blurVersion);
 
+        blurVersion = blur.ChangeVersion;
+        blur.KernelType = BlurKernelType.Box;
+        Assert.True(blur.ChangeVersion > blurVersion);
+        Assert.Equal(BlurKernelType.Box, blur.KernelType);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => blur.KernelType = (BlurKernelType)2);
+
         var shadow = new DropShadowEffect(2f);
         var shadowVersion = shadow.ChangeVersion;
         shadow.Offset = new Vector2(3f, 4f);

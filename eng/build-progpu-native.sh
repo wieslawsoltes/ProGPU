@@ -1,12 +1,51 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Deliberately CLI-only: an inherited environment variable must not bypass CI.
+build_only=0
+requested_rid=
+if [[ ( "$#" == 1 || "$#" == 3 ) && "$1" == --build-only ]]; then
+  build_only=1
+  if [[ "$#" == 3 ]]; then
+    if [[ "$2" != --rid || ( "$3" != linux-x64 && "$3" != linux-arm64 && "$3" != osx-x64 && "$3" != osx-arm64 ) ]]; then
+      echo "Usage: $0 [--build-only [--rid linux-x64|linux-arm64|osx-x64|osx-arm64]]" >&2
+      exit 2
+    fi
+    requested_rid="$3"
+  fi
+elif [[ "$#" != 0 ]]; then
+  echo "Usage: $0 [--build-only [--rid linux-x64|linux-arm64|osx-x64|osx-arm64]]" >&2
+  exit 2
+fi
+if [[ "${build_only}" == 1 && "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" == 1 ]]; then
+  echo "--build-only cannot use a reduced compiler-qualification profile." >&2
+  exit 2
+fi
+if [[ -n "${requested_rid}" ]]; then
+  case "$(uname -s):${requested_rid}" in
+    Linux:linux-x64|Linux:linux-arm64|Darwin:osx-x64|Darwin:osx-arm64) ;;
+    *)
+      echo "Explicit RID builds require a matching Linux or macOS build host and target toolchain." >&2
+      exit 2
+      ;;
+  esac
+fi
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="${PROGPU_NATIVE_WGPU_SOURCE:-${repo_root}/artifacts/wgpu-native-src}"
-build_dir="${PROGPU_NATIVE_BUILD_DIR:-${repo_root}/artifacts/progpu-native/build}"
+default_build_dir="${repo_root}/artifacts/progpu-native/build"
+if [[ -n "${requested_rid}" ]]; then
+  default_build_dir="${default_build_dir}-${requested_rid}"
+fi
+build_dir="${PROGPU_NATIVE_BUILD_DIR:-${default_build_dir}}"
+export PROGPU_NATIVE_BUILD_DIR="${build_dir}"
 sample_dir="${PROGPU_NATIVE_SAMPLE_DIR:-${repo_root}/artifacts/progpu-native/sample}"
 include_dir="${PROGPU_NATIVE_INCLUDE_DIR:-${repo_root}/artifacts/progpu-native/include}"
-runtime_dir="${PROGPU_NATIVE_RUNTIME_DIR:-${repo_root}/artifacts/progpu-native/runtime}"
+default_runtime_dir="${repo_root}/artifacts/progpu-native/runtime"
+if [[ -n "${requested_rid}" ]]; then
+  default_runtime_dir="${default_runtime_dir}-${requested_rid}"
+fi
+runtime_dir="${PROGPU_NATIVE_RUNTIME_DIR:-${default_runtime_dir}}"
 dawn_header_source="${PROGPU_NATIVE_DAWN_HEADER_SOURCE:-${repo_root}/artifacts/webgpu-headers-dawn}"
 expected_commit="33133da4ec5a0174cb21539ef2d3346f75200411"
 expected_headers_commit="aef5e428a1fdab2ea770581ae7c95d8779984e0a"
@@ -23,10 +62,45 @@ command -v "${cxx_compiler}" >/dev/null 2>&1 || {
   echo "${cxx_compiler} is required for the ProGPU native C++20 build." >&2
   exit 1
 }
+target_options=()
+if [[ -n "${requested_rid}" ]]; then
+  if [[ "$("${cxx_compiler}" --version)" != *clang* ]]; then
+    echo "Explicit RID builds require Clang with the target platform C++ toolchain installed." >&2
+    exit 2
+  fi
+  case "${requested_rid}" in
+    linux-x64) target_processor=x86_64; target_triple=x86_64-linux-gnu ;;
+    linux-arm64) target_processor=aarch64; target_triple=aarch64-linux-gnu ;;
+    osx-x64) target_architecture=x86_64 ;;
+    osx-arm64) target_architecture=arm64 ;;
+  esac
+  if [[ "${requested_rid}" == linux-* ]]; then
+    target_options=(
+      -DCMAKE_SYSTEM_NAME=Linux
+      "-DCMAKE_SYSTEM_PROCESSOR=${target_processor}"
+      "-DCMAKE_CXX_COMPILER_TARGET=${target_triple}")
+  else
+    # Set before project()/compiler detection; do not infer a package RID from
+    # uname when the Apple toolchain is compiling the other architecture.
+    target_options=("-DCMAKE_OSX_ARCHITECTURES=${target_architecture}")
+  fi
+fi
 if [[ "${cmake_generator}" == Ninja* ]] &&
     ! command -v ninja >/dev/null 2>&1; then
   echo "Ninja is required for the selected ProGPU native generator." >&2
   exit 1
+fi
+
+command -v python3 >/dev/null 2>&1 || {
+  echo "python3 is required to verify generated MIL protocol artifacts." >&2
+  exit 1
+}
+if [[ "${build_only}" == 0 ]]; then
+  python3 "${repo_root}/eng/progpu-generate-mil-protocol.py" --check
+  python3 "${repo_root}/eng/progpu-generate-mil-coverage.py" --check
+  if [[ "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" != "1" ]]; then
+    python3 "${repo_root}/eng/progpu-prepare-win2d-source.py"
+  fi
 fi
 
 dotnet restore \
@@ -55,15 +129,19 @@ global_packages="$(dotnet nuget locals global-packages --list | sed -E 's/^[^:]+
 package_root="${global_packages%/}/silk.net.webgpu.native.wgpu/${package_version}"
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64)
+    package_rid=osx-arm64
     package_library="${package_root}/runtimes/osx-arm64/native/libwgpu_native.dylib"
     ;;
   Darwin-x86_64)
+    package_rid=osx-x64
     package_library="${package_root}/runtimes/osx-x64/native/libwgpu_native.dylib"
     ;;
   Linux-x86_64)
+    package_rid=linux-x64
     package_library="${package_root}/runtimes/linux-x64/native/libwgpu_native.so"
     ;;
   Linux-aarch64|Linux-arm64)
+    package_rid=linux-arm64
     package_library="${package_root}/runtimes/linux-arm64/native/libwgpu_native.so"
     ;;
   *)
@@ -72,6 +150,14 @@ case "$(uname -s)-$(uname -m)" in
     exit 1
     ;;
 esac
+if [[ -n "${requested_rid}" ]]; then
+  # The linker input and package label follow the compiler target, not uname.
+  package_rid="${requested_rid}"
+  case "${package_rid}" in
+    linux-*) package_library="${package_root}/runtimes/${package_rid}/native/libwgpu_native.so" ;;
+    osx-*) package_library="${package_root}/runtimes/${package_rid}/native/libwgpu_native.dylib" ;;
+  esac
+fi
 if [[ ! -f "${package_library}" ]]; then
   echo "Missing ${package_library}; restore ProGPU.Backend first." >&2
   exit 1
@@ -104,12 +190,62 @@ cmake_options=(
   -DPROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY=
   -DPROGPU_NATIVE_BUILD_SAMPLE=ON
   -DBUILD_TESTING=ON)
+if [[ "${build_only}" == 1 ]]; then
+  source "${repo_root}/eng/progpu-native-dawn-headers.sh"
+  progpu_prepare_native_dawn_headers "${dawn_header_source}" "${repo_root}/eng/progpu-native-dawn.version.json"
+  cmake_options+=("-DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR=${dawn_header_source}")
+fi
 if ((${#module_options[@]})); then
   cmake_options+=("${module_options[@]}")
 fi
+if ((${#target_options[@]})); then
+  cmake_options+=("${target_options[@]}")
+fi
 cmake "${cmake_options[@]}"
+if [[ "${build_only}" == 1 ]]; then
+  cmake --build "${build_dir}" --config Release --parallel "${PROGPU_NATIVE_BUILD_JOBS:-4}"
+  # Require all renderer/SDK outputs before touching the package staging set.
+  if [[ "$(uname -s)" == Darwin ]]; then native_extension=dylib; else native_extension=so; fi
+  payload_files=("libprogpu_native.${native_extension}" "libprogpu_native_dawn.${native_extension}")
+  sdk_files=(libprogpu_native_compression.a libprogpu_native_hit_testing.a
+    libprogpu_native_image.a libprogpu_native_mil.a libprogpu_native_text.a
+    libprogpu_native_scene_builder.a libprogpu_native_direct2d_core.a)
+  for payload_file in "${payload_files[@]}" "${sdk_files[@]}"; do
+    if [[ ! -s "${build_dir}/${payload_file}" ]]; then
+      echo "Missing native package payload: ${build_dir}/${payload_file}" >&2
+      exit 1
+    fi
+  done
+  package_stage="${repo_root}/artifacts/progpu-native/package/runtimes/${package_rid}/native"
+  mkdir -p "${package_stage}/sdk"
+  for payload_file in "${payload_files[@]}"; do cp "${build_dir}/${payload_file}" "${package_stage}/"; done
+  for payload_file in "${sdk_files[@]}"; do cp "${build_dir}/${payload_file}" "${package_stage}/sdk/"; done
+  echo "Built unqualified native package payload for ${package_rid}: ${package_stage}"
+  echo "No tests, samples, export/protocol verification, benchmarks or release qualification executed."
+  exit 0
+fi
 cmake --build "${build_dir}" --config Release --parallel
 ctest --test-dir "${build_dir}" -C Release --output-on-failure
+direct2d_oracle_dir="${repo_root}/artifacts/progpu-native/direct2d-oracle"
+mkdir -p "${direct2d_oracle_dir}"
+case "$(uname -s)" in
+  Darwin)
+    direct2d_oracle_name="progpu-direct2d-metal.ppm"
+    ;;
+  Linux)
+    direct2d_oracle_name="progpu-direct2d-vulkan.ppm"
+    ;;
+  *)
+    echo "Unsupported portable Direct2D oracle host." >&2
+    exit 1
+    ;;
+esac
+direct2d_capture="${build_dir}/progpu-native-direct2d-webgpu.ppm"
+if [[ ! -s "${direct2d_capture}" ]]; then
+  echo "Portable Direct2D WebGPU CTest did not produce ${direct2d_capture}." >&2
+  exit 1
+fi
+cp "${direct2d_capture}" "${direct2d_oracle_dir}/${direct2d_oracle_name}"
 PROGPU_NATIVE_BUILD_DIR="${build_dir}" \
   "${repo_root}/eng/progpu-verify-native-exports.sh"
 
@@ -147,6 +283,7 @@ if [[ "${PROGPU_NATIVE_RUN_SANITIZERS:-0}" == "1" ]]; then
   cmake "${sanitizer_options[@]}"
   cmake --build "${sanitizer_build_dir}" --config RelWithDebInfo --parallel
   ASAN_OPTIONS="detect_leaks=${sanitizer_detect_leaks}:halt_on_error=1" \
+  LSAN_OPTIONS="suppressions=${repo_root}/eng/progpu-native-lsan.supp:print_suppressions=1" \
   UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
     ctest --test-dir "${sanitizer_build_dir}" \
       -C RelWithDebInfo --output-on-failure
@@ -253,6 +390,15 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
       --paths --atlas-growth --rectangles 1024 --warmup 1 --iterations 2
+  for signed_winding_execution in inline staged; do
+    DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+      dotnet run \
+        --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+        -c Release -- \
+        --paths --signed-winding-paths --rerasterize-paths \
+        --signed-winding-execution "${signed_winding_execution}" \
+        --rectangles 4 --warmup 1 --iterations 2 --sync
+  done
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -386,6 +532,15 @@ else
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
       --paths --atlas-growth --rectangles 1024 --warmup 1 --iterations 2
+  for signed_winding_execution in inline staged; do
+    LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+      dotnet run \
+        --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+        -c Release -- \
+        --paths --signed-winding-paths --rerasterize-paths \
+        --signed-winding-execution "${signed_winding_execution}" \
+        --rectangles 4 --warmup 1 --iterations 2 --sync
+  done
   LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -457,11 +612,34 @@ run_common_mask_benchmark() {
   fi
 }
 
+# Qualify every exact glyph-coverage execution route against the managed
+# renderer. Fastest verifies adapter policy; the forced modes keep native
+# compute, the render-stage substitute, SIMD CPU, and scalar-oracle behavior
+# independently reachable. Raster mode additionally asserts its zero-staging
+# contract inside the benchmark.
+for compute_mode in fastest compute raster simd scalar; do
+  PROGPU_COMPUTE_EXECUTION="${compute_mode}" \
+  PROGPU_BACKEND_DIAGNOSTICS=1 \
+    run_common_mask_benchmark \
+      --glyphs --warmup 0 --iterations 1 --sync
+done
+
 # One batched C ABI call must match the authoritative managed ProGPU shaping
 # result. This also catches stale generated wire layouts and missing packaged
 # text symbols on both macOS and Linux Release integration lanes.
 run_common_mask_benchmark \
   --text-shaping --text-repeats 2 --warmup 8 --iterations 16
+
+# WPF static multi-guidelines deform every eligible path point in absolute
+# target space. Exercise the same two-path differential and fail-closed shared
+# segment contract on both Metal and Vulkan, matching the Windows D3D12 lane.
+run_common_mask_benchmark \
+  --semantic-per-point-path-guideline
+
+# Canonical retained Viewport3D must compile through the pointer-free MIL
+# sideband and remain confined to its typed sub-viewport on every live backend.
+run_common_mask_benchmark \
+  --semantic-viewport3d
 
 for mask_mode in \
   --group-texture-mask \
@@ -484,6 +662,8 @@ done
 # Retained effects share one layer/effect-cache contract across every native
 # frame family. Stable replay must skip family uploads and effect dispatches
 # while preserving managed-renderer image parity.
+run_common_mask_benchmark \
+  --group-box-blur --rectangles 96 --warmup 2 --iterations 4
 for effect_mode in \
   --group-gaussian-blur \
   --group-drop-shadow \
@@ -524,6 +704,27 @@ for blend_mode in ColorDodge Saturation; do
   run_common_mask_benchmark \
     --group-blend-mode "${blend_mode}" --rectangles 96 --warmup 2 --iterations 4
 done
+
+# Reproduce the pinned Microsoft D3D12HelloTriangle draw contract through the
+# shared renderer. CI compares the resulting Metal and Vulkan/WebGPU frames
+# with the independently captured native Windows/D3D12 oracle.
+directx_oracle_dir="${repo_root}/artifacts/progpu-native/directx-oracle"
+run_common_mask_benchmark \
+  --directx-hello-triangle-oracle \
+  --directx-oracle-output "${directx_oracle_dir}"
+run_common_mask_benchmark \
+  --directx-hello-texture-oracle \
+  --directx-oracle-output "${directx_oracle_dir}"
+
+# Compile the pinned SimpleSample drawing body against ProGPU.Win2D, then
+# render the portable Canvas contract through the retained native C++ engine.
+dotnet test \
+  "${repo_root}/tests/ProGPU.Win2D.Tests/ProGPU.Win2D.Tests.csproj" \
+  -c Release --filter FullyQualifiedName~Win2DCanvasCompatibilityTests
+win2d_oracle_dir="${repo_root}/artifacts/progpu-native/win2d-oracle"
+run_common_mask_benchmark \
+  --win2d-canvas \
+  --win2d-output "${win2d_oracle_dir}"
 
 echo "ProGPU native renderer built from ${actual_commit}."
 echo "Sample: ${sample_dir}/progpu-native-sample.ppm"

@@ -1,0 +1,9 @@
+# The Vulkan loader used by the pinned Linux wgpu-native runtime retains one
+# process-global physical-device enumeration allocation plus two 56-byte
+# worker/TLS records after a child engine renders a nested picture mask.
+# ProGPU releases both engines and all WebGPU handles. The pinned ash helper is
+# symbolized; the stripped Mesa/Vulkan worker frames are reported only as
+# `<unknown module>`. ProGPU/ASan frames remain symbolized, so this second rule
+# does not suppress leaks rooted entirely in ProGPU code.
+leak:ash::prelude::read_into_uninitialized_vector
+leak:<unknown module>

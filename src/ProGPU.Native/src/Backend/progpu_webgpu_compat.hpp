@@ -108,6 +108,7 @@ using proc_resolver = void* (*)(void* context, const char* name);
     X(RenderPassEncoderSetIndexBuffer) \
     X(RenderPassEncoderSetPipeline) \
     X(RenderPassEncoderSetScissorRect) \
+    X(RenderPassEncoderSetViewport) \
     X(RenderPassEncoderSetVertexBuffer) \
     X(RenderBundleEncoderDraw) \
     X(RenderBundleEncoderDrawIndexed) \
@@ -224,6 +225,7 @@ using image_copy_texture = WGPUTexelCopyTextureInfo;
 using texture_data_layout = WGPUTexelCopyBufferLayout;
 using image_copy_buffer = WGPUTexelCopyBufferInfo;
 using buffer_usage_flags = WGPUBufferUsage;
+using texture_usage_flags = WGPUTextureUsage;
 
 inline void instance_add_ref(WGPUInstance instance) noexcept {
     active_dispatch().wgpuInstanceAddRef(instance);
@@ -298,7 +300,8 @@ inline WGPUBufferMapState poll_buffer_map(
     WGPUDevice,
     WGPUBuffer buffer,
     const buffer_map_read_state& state) noexcept {
-#if defined(PROGPU_NATIVE_BROWSER)
+    // Buffer state alone does not prove that the callback has published its
+    // completion. Do not recycle callback storage while it can still write it.
     (void)buffer;
     const auto completion = state.completion.load(std::memory_order_acquire);
     if (completion == buffer_map_pending) {
@@ -307,13 +310,9 @@ inline WGPUBufferMapState poll_buffer_map(
     return completion == buffer_map_succeeded
         ? WGPUBufferMapState_Mapped
         : WGPUBufferMapState_Unmapped;
-#else
-    (void)state;
-    return active_dispatch().wgpuBufferGetMapState(buffer);
-#endif
 }
 
-inline void buffer_map_async(
+inline std::uint64_t buffer_map_async(
     WGPUBuffer buffer,
     WGPUMapMode mode,
     std::uint64_t offset,
@@ -321,13 +320,14 @@ inline void buffer_map_async(
     WGPUBufferMapCallbackInfo callback) noexcept {
 #if defined(PROGPU_NATIVE_BROWSER)
     ::wgpuBufferMapAsync(buffer, mode, offset, size, callback);
+    return 0U;
 #else
-    active_dispatch().wgpuBufferMapAsync(
+    return active_dispatch().wgpuBufferMapAsync(
         buffer,
         mode,
         offset,
         size,
-        callback);
+        callback).id;
 #endif
 }
 
@@ -396,6 +396,7 @@ using image_copy_texture = WGPUImageCopyTexture;
 using texture_data_layout = WGPUTextureDataLayout;
 using image_copy_buffer = WGPUImageCopyBuffer;
 using buffer_usage_flags = WGPUBufferUsageFlags;
+using texture_usage_flags = WGPUTextureUsageFlags;
 
 inline void instance_add_ref(WGPUInstance instance) noexcept {
     wgpuInstanceReference(instance);
@@ -573,6 +574,8 @@ inline WGPUVertexAttribute vertex_attribute(
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetPipeline)
 #define wgpuRenderPassEncoderSetScissorRect \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetScissorRect)
+#define wgpuRenderPassEncoderSetViewport \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetViewport)
 #define wgpuRenderPassEncoderSetVertexBuffer \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetVertexBuffer)
 #define wgpuRenderBundleEncoderDraw \

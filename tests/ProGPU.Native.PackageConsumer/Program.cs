@@ -1,18 +1,291 @@
+using System.Buffers.Binary;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using Silk.NET.WebGPU;
 
+if (args.Contains("--webgpu-init-only", StringComparer.Ordinal))
+{
+    Console.WriteLine(
+        $"package-consumer: WebGPU init " +
+        $"arch={RuntimeInformation.ProcessArchitecture}, " +
+        $"temp={Path.GetTempPath()}");
+    using var probeContext = new WgpuContext();
+    Console.WriteLine("package-consumer: WebGPU context constructed");
+    probeContext.Initialize(window: null);
+    Console.WriteLine("ProGPU.Backend WebGPU initialization smoke passed.");
+    return;
+}
+
+Console.WriteLine("package-consumer: native ABI");
 NativeRendererInfo info = NativeCompositor.GetInfo();
-if (info.AbiVersion != 3 ||
+if (info.AbiVersion != 4 ||
     !info.Capabilities.HasFlag(NativeRendererCapabilities.ExternalImageMask) ||
-    !info.Capabilities.HasFlag(NativeRendererCapabilities.ExplicitQueueTimeline))
+    !info.Capabilities.HasFlag(NativeRendererCapabilities.ExplicitQueueTimeline) ||
+    !info.Capabilities.HasFlag(NativeRendererCapabilities.WpfMilChannel))
 {
     throw new InvalidOperationException("The packaged native ABI is incomplete.");
 }
+ValidateNativeMilSceneBuildTiming();
+ValidateNativeMilCompactGuidelineBuilder();
+ValidateNativeDocumentRows();
+ValidateNativePositionedParagraphs();
+ValidateNativeInlineParagraph();
+
+bool milOnly = args.Contains("--mil-only", StringComparer.Ordinal);
+bool renderOnly = args.Contains("--render-only", StringComparer.Ordinal);
+bool gradientOnly = args.Contains("--mil-gradient-only", StringComparer.Ordinal);
+bool geometryDrawingOnly = args.Contains(
+    "--mil-geometry-drawing-only", StringComparer.Ordinal);
+bool drawingGroupOnly = args.Contains(
+    "--mil-drawing-group-only", StringComparer.Ordinal);
+bool imageDrawingOnly = args.Contains(
+    "--mil-image-drawing-only", StringComparer.Ordinal);
+bool glyphRunDrawingOnly = args.Contains(
+    "--mil-glyph-run-drawing-only", StringComparer.Ordinal);
+bool textRenderOptionsOnly = args.Contains(
+    "--mil-text-render-options-only", StringComparer.Ordinal);
+bool visualClipOnly = args.Contains(
+    "--mil-visual-clip-only", StringComparer.Ordinal);
+bool visualOpacityMaskOnly = args.Contains(
+    "--mil-visual-opacity-mask-only", StringComparer.Ordinal);
+bool visualEffectOnly = args.Contains(
+    "--mil-visual-effect-only", StringComparer.Ordinal);
+bool visualGuidelineOnly = args.Contains(
+    "--mil-visual-guideline-only", StringComparer.Ordinal);
+bool drawingImageOnly = args.Contains(
+    "--mil-drawing-image-only", StringComparer.Ordinal);
+bool guidelineOnly = args.Contains(
+    "--mil-guideline-only", StringComparer.Ordinal);
+byte[]? compiledMilStream = null;
+if (!renderOnly)
+{
+    bool arcGroupOnly =
+        args.Contains("--mil-arc-group-only", StringComparer.Ordinal);
+    bool arcBooleanOnly =
+        args.Contains("--mil-arc-boolean-only", StringComparer.Ordinal);
+    bool minimalArcGroup =
+        args.Contains("--mil-arc-group-minimal", StringComparer.Ordinal);
+    bool duplicateArcGroup =
+        args.Contains("--mil-arc-group-duplicate", StringComparer.Ordinal);
+    bool mixedArcGroup =
+        args.Contains("--mil-arc-group-mixed", StringComparer.Ordinal);
+    bool affineRecursiveOnly =
+        args.Contains("--mil-affine-recursive-only", StringComparer.Ordinal);
+    bool includeRecursiveGroupArc =
+        !affineRecursiveOnly && !arcBooleanOnly;
+    bool includeRecursiveBooleanArc =
+        !affineRecursiveOnly && !arcGroupOnly;
+    byte[] milBatch = guidelineOnly
+        ? CreateMilGuidelineBatch()
+        : drawingImageOnly
+        ? CreateMilDrawingImageBatch()
+        : textRenderOptionsOnly
+        ? CreateMilGlyphRunDrawingBatch(includeTextRenderOptions: true)
+        : visualClipOnly
+        ? CreateMilVisualClipBatch()
+        : visualOpacityMaskOnly
+        ? CreateMilVisualOpacityMaskBatch()
+        : visualEffectOnly
+        ? CreateMilVisualEffectBatch()
+        : visualGuidelineOnly
+        ? CreateMilVisualGuidelineBatch()
+        : glyphRunDrawingOnly
+        ? CreateMilGlyphRunDrawingBatch()
+        : imageDrawingOnly
+        ? CreateMilImageDrawingBatch()
+        : drawingGroupOnly
+        ? CreateMilDrawingGroupBatch()
+        : geometryDrawingOnly
+            ? CreateMilGeometryDrawingBatch()
+            : gradientOnly
+            ? CreateMilGradientBatch()
+            : CreateMilSeedBatch(
+            includeRecursiveGroupArc,
+            includeRecursiveBooleanArc,
+            minimalArcGroup,
+            duplicateArcGroup,
+            mixedArcGroup);
+    bool focusedMil = gradientOnly || geometryDrawingOnly ||
+        drawingGroupOnly || imageDrawingOnly || glyphRunDrawingOnly ||
+        textRenderOptionsOnly || visualClipOnly || visualOpacityMaskOnly ||
+        visualEffectOnly || visualGuidelineOnly || drawingImageOnly ||
+        guidelineOnly;
+    uint targetHandle = focusedMil ? 2U : 42U;
+    uint visualHandle = focusedMil ? 1U : 41U;
+    uint expectedCommandCount = guidelineOnly
+        ? 19U
+        : visualGuidelineOnly
+        ? 13U
+        : drawingImageOnly
+        ? 19U
+        : textRenderOptionsOnly
+        ? 16U
+        : visualClipOnly
+        ? 16U
+        : visualEffectOnly
+        ? 14U
+        : glyphRunDrawingOnly
+        ? 14U
+        : imageDrawingOnly
+        ? 12U
+        : drawingGroupOnly ? 26U : focusedMil ? 15U : 78U;
+    uint expectedResourceCount = guidelineOnly
+        ? 8U
+        : drawingImageOnly
+        ? 8U
+        : glyphRunDrawingOnly
+        ? 6U
+        : visualClipOnly
+        ? 5U
+        : visualOpacityMaskOnly
+        ? 5U
+        : visualEffectOnly
+        ? 5U
+        : visualGuidelineOnly
+        ? 4U
+        : imageDrawingOnly
+        ? 5U
+        : drawingGroupOnly ? 11U : focusedMil ? 6U : 36U;
+    uint expectedRectangleCount = geometryDrawingOnly || drawingGroupOnly ||
+        drawingImageOnly || guidelineOnly || visualClipOnly ||
+        visualOpacityMaskOnly || visualEffectOnly || visualGuidelineOnly
+        ? 1U
+        : gradientOnly ? 2U : focusedMil ? 0U : 3U;
+    uint expectedEllipseCount = gradientOnly ? 1U : focusedMil ? 0U : 4U;
+    uint expectedRoundedRectangleCount = focusedMil ? 0U : 6U;
+    uint expectedLineCount = focusedMil ? 0U : 3U;
+    uint expectedBrushCount = imageDrawingOnly || glyphRunDrawingOnly ||
+        textRenderOptionsOnly
+        ? 0U
+        : gradientOnly ? 3U : 1U;
+    using (var mil = new NativeMilChannel())
+    {
+        NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
+        if (imageDrawingOnly)
+        {
+            BindFocusedBitmapSource(mil);
+        }
+        if (glyphRunDrawingOnly || textRenderOptionsOnly)
+        {
+            BindFocusedGlyphRunFont(mil);
+        }
+        if (drawingImageOnly)
+        {
+            BindFocusedDrawingImageBounds(mil);
+        }
+        if (drawingGroupOnly)
+        {
+            BindFocusedDrawingGroupBounds(mil);
+        }
+        NativeMilCompiledScene scene = mil.CompileScene(targetHandle, 701, 1);
+        NativeMilStatefulCompiledScene statefulScene = mil.CompileScene(
+            new NativeMilSceneBuildRequest(
+                targetHandle,
+                701,
+                1,
+                MonotonicTimeNanoseconds: 1_000_000,
+                RequestSerial: 1));
+        if (milMetrics.CommandCount != expectedCommandCount ||
+            mil.ResourceCount != expectedResourceCount ||
+            !mil.TryGetVisual(visualHandle, out NativeMilVisualSnapshot visual) ||
+            visual.Handle != visualHandle || scene.Stream.Length == 0 ||
+            scene.Metrics.VisualCount != 1 ||
+            scene.Metrics.RectangleCount != expectedRectangleCount ||
+            scene.Metrics.EllipseCount != expectedEllipseCount ||
+            scene.Metrics.RoundedRectangleCount !=
+                expectedRoundedRectangleCount ||
+            scene.Metrics.LineCount != expectedLineCount ||
+            scene.Metrics.BrushCount != expectedBrushCount ||
+            !statefulScene.Stream.AsSpan().SequenceEqual(scene.Stream) ||
+            statefulScene.BuildResult.RequestSerial != 1 ||
+            statefulScene.BuildResult.StreamBytes !=
+                (ulong)statefulScene.Stream.Length ||
+            statefulScene.BuildResult.Flags !=
+                NativeMilSceneBuildResultFlags.None)
+        {
+            throw new InvalidOperationException(
+                "The packaged wgpu-native MIL channel is incomplete: " +
+                $"commands={milMetrics.CommandCount}/{expectedCommandCount}, " +
+                $"resources={mil.ResourceCount}/{expectedResourceCount}, " +
+                $"visuals={scene.Metrics.VisualCount}/1, " +
+                $"rectangles={scene.Metrics.RectangleCount}/" +
+                    $"{expectedRectangleCount}, " +
+                $"ellipses={scene.Metrics.EllipseCount}/" +
+                    $"{expectedEllipseCount}, " +
+                $"rounded={scene.Metrics.RoundedRectangleCount}/" +
+                    $"{expectedRoundedRectangleCount}, " +
+                $"lines={scene.Metrics.LineCount}/{expectedLineCount}, " +
+                $"brushes={scene.Metrics.BrushCount}/{expectedBrushCount}.");
+        }
+        compiledMilStream = scene.Stream;
+    }
+    Console.WriteLine("package-consumer: wgpu-native MIL");
+    using (var dawnMil = new NativeMilChannel(NativeMilBackend.Dawn))
+    {
+        NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
+        if (imageDrawingOnly)
+        {
+            BindFocusedBitmapSource(dawnMil);
+        }
+        if (glyphRunDrawingOnly || textRenderOptionsOnly)
+        {
+            BindFocusedGlyphRunFont(dawnMil);
+        }
+        if (drawingImageOnly)
+        {
+            BindFocusedDrawingImageBounds(dawnMil);
+        }
+        if (drawingGroupOnly)
+        {
+            BindFocusedDrawingGroupBounds(dawnMil);
+        }
+        NativeMilCompiledScene scene = dawnMil.CompileScene(
+            targetHandle, 702, 1);
+        NativeMilStatefulCompiledScene statefulScene = dawnMil.CompileScene(
+            new NativeMilSceneBuildRequest(
+                targetHandle,
+                702,
+                1,
+                MonotonicTimeNanoseconds: 1_000_000,
+                RequestSerial: 1));
+        if (milMetrics.CommandCount != expectedCommandCount ||
+            dawnMil.ResourceCount != expectedResourceCount ||
+            scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
+            scene.Metrics.RectangleCount != expectedRectangleCount ||
+            scene.Metrics.EllipseCount != expectedEllipseCount ||
+            scene.Metrics.RoundedRectangleCount !=
+                expectedRoundedRectangleCount ||
+            scene.Metrics.LineCount != expectedLineCount ||
+            scene.Metrics.BrushCount != expectedBrushCount ||
+            !statefulScene.Stream.AsSpan().SequenceEqual(scene.Stream) ||
+            statefulScene.BuildResult.RequestSerial != 1 ||
+            statefulScene.BuildResult.StreamBytes !=
+                (ulong)statefulScene.Stream.Length ||
+            statefulScene.BuildResult.Flags !=
+                NativeMilSceneBuildResultFlags.None)
+        {
+            throw new InvalidOperationException(
+                "The packaged Dawn MIL channel is incomplete: " +
+                $"commands={milMetrics.CommandCount}/{expectedCommandCount}, " +
+                $"resources={dawnMil.ResourceCount}/{expectedResourceCount}, " +
+                $"visuals={scene.Metrics.VisualCount}/1, " +
+                $"rectangles={scene.Metrics.RectangleCount}/" +
+                    $"{expectedRectangleCount}, " +
+                $"ellipses={scene.Metrics.EllipseCount}/" +
+                    $"{expectedEllipseCount}, " +
+                $"rounded={scene.Metrics.RoundedRectangleCount}/" +
+                    $"{expectedRoundedRectangleCount}, " +
+                $"lines={scene.Metrics.LineCount}/{expectedLineCount}, " +
+                $"brushes={scene.Metrics.BrushCount}/{expectedBrushCount}.");
+        }
+    }
+    Console.WriteLine("package-consumer: Dawn MIL");
+}
 
 NativeRendererInfo dawnInfo = NativeDawnAdapter.GetInfo();
-if (dawnInfo.AbiVersion != 3 ||
+if (dawnInfo.AbiVersion != 4 ||
     dawnInfo.BackendAbi != NativeDawnAdapter.BackendAbi ||
     NativeDawnAdapter.AdapterAbiVersion != 1 ||
     NativeDawnAdapter.RequiredProviderAbiVersion != 2 ||
@@ -21,9 +294,17 @@ if (dawnInfo.AbiVersion != 3 ||
     throw new InvalidOperationException(
         "The packaged provider-resolved Dawn adapter is incomplete.");
 }
+Console.WriteLine("package-consumer: Dawn ABI");
+if (milOnly)
+{
+    Console.WriteLine("ProGPU.Backend.Native MIL-only package smoke passed.");
+    return;
+}
 
 using var context = new WgpuContext();
 context.Initialize(window: null);
+Console.WriteLine("package-consumer: WebGPU context");
+ValidateNativeCubicControlHull(context);
 using var target = new GpuTexture(
     context,
     64,
@@ -33,11 +314,60 @@ using var target = new GpuTexture(
     "Native package consumer target",
     alphaMode: GpuTextureAlphaMode.Premultiplied);
 using var compositor = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
+if (compiledMilStream is not null)
+{
+    Console.WriteLine("package-consumer: retained MIL update begin");
+    NativeSceneUpdateMetrics update = compositor.UpdateScene(compiledMilStream);
+    Console.WriteLine("package-consumer: retained MIL render begin");
+    NativeSceneFrameMetrics retainedMetrics = compositor.RenderScene(
+        target,
+        1f,
+        701,
+        1,
+        new Vector4(0f, 0f, 0f, 1f));
+    NativeSubmissionToken retainedSubmission =
+        compositor.GetLastSubmissionToken();
+    Console.WriteLine("package-consumer: retained MIL wait begin");
+    if (!retainedSubmission.IsValid)
+    {
+        throw new InvalidOperationException(
+            "The retained MIL renderer did not publish a submission token.");
+    }
+    compositor.WaitForSubmission(retainedSubmission);
+    byte[] retainedPixels = target.ReadPixels();
+    if (update.ResourceCount == 0 || update.DrawCount == 0 ||
+        retainedMetrics.DrawCallCount == 0 ||
+        !ContainsNonBlackPixel(retainedPixels))
+    {
+        throw new InvalidOperationException(
+            "The packaged native renderer did not render the compiled retained MIL path scene.");
+    }
+    NativeSceneFrameMetrics externalTargetMetrics = compositor.RenderScene(
+        CreateExternalTarget(target),
+        1f,
+        701,
+        1,
+        new Vector4(0f, 0f, 0f, 1f));
+    NativeSubmissionToken externalTargetSubmission =
+        compositor.GetLastSubmissionToken();
+    if (!externalTargetSubmission.IsValid ||
+        externalTargetMetrics.DrawCallCount == 0)
+    {
+        throw new InvalidOperationException(
+            "The packaged native renderer did not render to a host-owned texture view.");
+    }
+    compositor.WaitForSubmission(externalTargetSubmission);
+    Console.WriteLine(
+        $"package-consumer: retained MIL render " +
+        $"resources={update.ResourceCount}, draws={retainedMetrics.DrawCallCount}, " +
+        $"coverage={retainedMetrics.CoverageStagingBytes}");
+}
 NativeFrameMetrics metrics = compositor.Render(
     target,
     1f,
     [new NativeSolidRectangle(8, 8, 48, 48, new Vector4(1f, 0.25f, 0.1f, 1f))],
     new Vector4(0f, 0f, 0f, 1f));
+Console.WriteLine("package-consumer: native render");
 NativeSubmissionToken submission = compositor.GetLastSubmissionToken();
 if (!submission.IsValid)
 {
@@ -66,7 +396,1457 @@ if (metrics.DrawCallCount != 1 || pixels.All(static value => value == 0))
     throw new InvalidOperationException("The packaged native renderer did not draw.");
 }
 
+ValidateNativeHitTestOwnerSnapshots(context, compositor);
+
 Console.WriteLine(
     $"ProGPU.Backend.Native package smoke passed: ABI {info.AbiVersion}, " +
     $"Dawn ABI {NativeDawnAdapter.AdapterAbiVersion}, " +
     $"draws={metrics.DrawCallCount}, pixels={pixels.Length}.");
+
+static void ValidateNativeInlineParagraph()
+{
+    if (Marshal.SizeOf<NativeTextFloatingItem>() != 16 || Marshal.SizeOf<NativeTextFloatingOptions>() != 32 ||
+        Marshal.SizeOf<NativeTextFloatingPlacement>() != 24 || Marshal.SizeOf<NativeTextFloatingResult>() != 32)
+        throw new InvalidOperationException("Native floating wire record sizes changed.");
+    using var context = new NativeTextShapingContext(File.ReadAllBytes(
+        Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf")));
+    NativeTextScalar[] scalars =
+    [
+        new() { CodePoint = 'A', InputIndex = 0, InputLength = 1 },
+        new() { CodePoint = 0xFFFC, InputIndex = 1, InputLength = 1 },
+        new() { CodePoint = 'B', InputIndex = 2, InputLength = 1 },
+    ];
+    var input = new NativeTextShapeInput(default, scalars, direction: NativeTextDirection.LeftToRight);
+    var options = new NativeTextParagraphOptions(16f / 2048, MaximumWidth: 31, LineHeight: 20);
+    NativeTextStyleRun[] styles = [new() { ScalarCount = 3, Scale = options.Scale }];
+    NativeTextStyleMetrics[] metrics = [new() { Ascent = 12, Descent = 4 }];
+    NativeTextInlineObject[] objects = [new() { ScalarIndex = 1, Width = 30.25f, Ascent = 35, Descent = 7 }];
+    NativeTextFlowOptions flow = default;
+    if (context.GetInlineFlowParagraphRequirements(input, options, styles, flow, metrics, objects,
+        out var needed) != NativeRendererStatus.Success)
+        throw new InvalidOperationException("Packaged native inline requirements failed.");
+    var glyphs = new NativePositionedTextGlyph[checked((int)needed.GlyphCapacity)];
+    var lines = new NativePositionedTextLine[checked((int)needed.LineCapacity)];
+    var scratch = new byte[checked((int)needed.ScratchBytes)];
+    if (context.LayoutInlineFlowParagraph(input, options, styles, flow, metrics, objects, glyphs, lines,
+        scratch, NativeTextWrapping.Emergency, true, out var result, out var widths) != NativeRendererStatus.Success ||
+        result.GlyphCount != 3 || result.LineCount != 3 || result.ContentHeight != 82 ||
+        glyphs[1].GlyphId != uint.MaxValue - 1 || glyphs[1].FontIndex != uint.MaxValue ||
+        glyphs[1].Cluster != 1 || glyphs[1].AdvanceX != 30.25f ||
+        lines[1].Height != 42 || lines[2].BaselineY != 74 || widths.Minimum < 30.25f)
+        throw new InvalidOperationException("Packaged native inline geometry/identity failed.");
+    var exclusionOptions = new NativeTextExclusionOptions { MaximumAttempts = 128 };
+    NativeTextExclusionRectangle[] exclusions = [new() { Right = 31, Bottom = 20 }];
+    if (context.GetExcludedFlowParagraphRequirements(input, options, styles, flow, metrics, objects,
+        exclusionOptions, exclusions, out var excludedNeeded) != NativeRendererStatus.Success)
+        throw new InvalidOperationException("Packaged exclusion requirements failed.");
+    var excludedGlyphs = new NativePositionedTextGlyph[checked((int)excludedNeeded.GlyphCapacity)];
+    var excludedLines = new NativePositionedTextLine[checked((int)excludedNeeded.LineCapacity)];
+    var excludedFragments = new NativeTextFragmentPlacement[excludedLines.Length];
+    var excludedScratch = new byte[checked((int)excludedNeeded.ScratchBytes)];
+    if (context.LayoutExcludedFlowParagraph(input, options, styles, flow, metrics, objects,
+        exclusionOptions, exclusions, excludedGlyphs, excludedLines, excludedFragments, excludedScratch,
+        NativeTextWrapping.Emergency, true, out var excludedResult, out var excludedWidths) != NativeRendererStatus.Success ||
+        excludedResult.GlyphCount != 3 || excludedResult.LineCount != 3 || excludedResult.ContentHeight != 102 ||
+        excludedFragments[0].Top != 20 || excludedFragments[1].Top != 40 || excludedFragments[2].Top != 82 ||
+        excludedFragments[2].RowIndex != 2 || excludedFragments[1].Width != 31 ||
+        excludedGlyphs[1].GlyphId != uint.MaxValue - 1 || excludedGlyphs[1].Cluster != 1 ||
+        excludedLines[2].BaselineY != 94 || excludedWidths.Minimum != widths.Minimum)
+        throw new InvalidOperationException("Packaged exclusion spans lost native placement or source identity.");
+    exclusionOptions.Reserved0 = 1;
+    excludedGlyphs[0].X = 123;
+    excludedFragments[0].Top = 456;
+    if (context.LayoutExcludedFlowParagraph(input, options, styles, flow, metrics, objects,
+        exclusionOptions, exclusions, excludedGlyphs, excludedLines, excludedFragments, excludedScratch,
+        NativeTextWrapping.Emergency, false, out excludedResult, out _) != NativeRendererStatus.InvalidArgument ||
+        excludedResult.GlyphCount != 0 || excludedGlyphs[0].X != 123 || excludedFragments[0].Top != 456)
+        throw new InvalidOperationException("Packaged exclusion rejection changed output buffers.");
+    bool rejectedExcludedMetrics = false;
+    try { context.GetExcludedFlowParagraphRequirements(input, options, styles, flow, [], objects,
+        exclusionOptions, exclusions, out _); }
+    catch (ArgumentException) { rejectedExcludedMetrics = true; }
+    if (!rejectedExcludedMetrics)
+        throw new InvalidOperationException("Excluded metric span capacity was not checked before native access.");
+    var floatingOptions = new NativeTextFloatingOptions
+        { MaximumAttempts = 64, OriginY = 25, EmptyAscent = 12, EmptyDescent = 4 };
+    var floatingParagraph = options with { MaximumWidth = 1000 };
+    NativeTextFloatingItem[] floatingItems =
+        [new() { ScalarIndex = 1, Width = 100, Height = 20 }, new() { ScalarIndex = 1, Width = 100, Height = 20 }];
+    if (context.GetFloatingFlowParagraphRequirements(input, floatingParagraph, styles, flow, metrics, objects,
+        floatingOptions, floatingItems, [], out var floatingNeeded) != NativeRendererStatus.Success)
+        throw new InvalidOperationException("Native floating paragraph requirements failed.");
+    var floatingGlyphs = new NativePositionedTextGlyph[checked((int)floatingNeeded.GlyphCapacity)];
+    var floatingLines = new NativePositionedTextLine[checked((int)floatingNeeded.LineCapacity)];
+    var floatingFrames = new NativeTextFragmentPlacement[floatingLines.Length];
+    var floatingBoxes = new NativeTextFloatingPlacement[floatingItems.Length];
+    var floatingScratch = new byte[checked((int)floatingNeeded.ScratchBytes)];
+    if (context.LayoutFloatingFlowParagraph(input, floatingParagraph, styles, flow, metrics, objects,
+        floatingOptions, floatingItems, [], floatingGlyphs, floatingLines, floatingFrames, floatingBoxes,
+        floatingScratch, NativeTextWrapping.Emergency, out var floatingParent, out var floatingResult)
+        != NativeRendererStatus.Success || floatingParent.GlyphCount != 3 || floatingParent.ContentHeight != 67 ||
+        floatingResult.ContentHeight != 87 || floatingResult.FloatCount != 2 || floatingBoxes[0].Top != 67 ||
+        floatingBoxes[1].Left != 100 || floatingFrames[0].Top != 25 || floatingGlyphs[1].GlyphId != uint.MaxValue - 1)
+        throw new InvalidOperationException("Native floating paragraph lost source rows, sibling placement or inline identity.");
+    floatingItems[1].Alignment = 256;
+    floatingBoxes[0].Top = 123;
+    if (context.LayoutFloatingFlowParagraph(input, floatingParagraph, styles, flow, metrics, objects,
+        floatingOptions, floatingItems, [], floatingGlyphs, floatingLines, floatingFrames, floatingBoxes,
+        floatingScratch, NativeTextWrapping.Emergency, out floatingParent, out floatingResult)
+        != NativeRendererStatus.InvalidArgument || floatingParent.GlyphCount != 0 || floatingResult.FloatCount != 0 ||
+        floatingBoxes[0].Top != 123)
+        throw new InvalidOperationException("Native floating rejection published a partial batch.");
+    bool rejectedFloatingMetrics = false;
+    try { context.GetFloatingFlowParagraphRequirements(input, floatingParagraph, styles, flow, [], objects,
+        floatingOptions, floatingItems, [], out _); }
+    catch (ArgumentException) { rejectedFloatingMetrics = true; }
+    if (!rejectedFloatingMetrics) throw new InvalidOperationException("Floating metric span was not checked before pinning.");
+    floatingItems[0].ScalarIndex = floatingItems[1].ScalarIndex = 0;
+    floatingItems[1].Alignment = 0;
+    var emptyFloatingInput = new NativeTextShapeInput(default, [], direction: NativeTextDirection.LeftToRight);
+    if (context.GetFloatingFlowParagraphRequirements(emptyFloatingInput, floatingParagraph, [], flow, [], [],
+        floatingOptions, floatingItems, [], out floatingNeeded) != NativeRendererStatus.Success ||
+        floatingNeeded.GlyphCapacity != 0 || floatingNeeded.LineCapacity != 1)
+        throw new InvalidOperationException("Native anchor-only paragraph did not require a source row.");
+    floatingScratch = new byte[checked((int)floatingNeeded.ScratchBytes)];
+    if (context.LayoutFloatingFlowParagraph(emptyFloatingInput, floatingParagraph, [], flow, [], [],
+        floatingOptions, floatingItems, [], [], floatingLines, floatingFrames, floatingBoxes,
+        floatingScratch, NativeTextWrapping.Emergency, out floatingParent, out floatingResult)
+        != NativeRendererStatus.Success || floatingParent.GlyphCount != 0 || floatingParent.LineCount != 1 ||
+        floatingParent.ContentHeight != 45 || floatingResult.ContentHeight != 65 || floatingBoxes[0].Top != 45)
+        throw new InvalidOperationException("Native anchor-only flow lost supplied metrics or float extent.");
+    var interaction = new NativeTextInteractionInput(
+        glyphs.AsSpan(0, checked((int)result.GlyphCount)),
+        lines.AsSpan(0, checked((int)result.LineCount)), [1, 2, 3], [0, 0, 0]);
+    if (NativeTextInteractionInterop.GetMeasuredRequirements(interaction, out var interactionNeeded) != NativeRendererStatus.Success ||
+        interactionNeeded.ClusterBoxCapacity != 3 || interactionNeeded.CaretStopCapacity != 6)
+        throw new InvalidOperationException("Packaged measured interaction requirements failed.");
+    NativeTextClusterBox[] boxes = new NativeTextClusterBox[3];
+    NativeTextCaretStop[] carets = new NativeTextCaretStop[6];
+    if (NativeTextInteractionInterop.BuildMeasured(interaction, boxes, carets, out var interactionResult) != NativeRendererStatus.Success ||
+        interactionResult.ClusterBoxCount != 3 || boxes[0].Y != 0 || boxes[1].Y != 20 || boxes[2].Y != 62 ||
+        boxes[1].Height != 42 || boxes[1].Width != 30.25f || carets[2].Y != 20 || carets[2].Height != 42)
+        throw new InvalidOperationException("Packaged measured interaction lost actual line tops.");
+    if (NativeTextInteractionInterop.HitTest(boxes, 10, 21, out var objectHit) != NativeRendererStatus.Success ||
+        objectHit.Inside != 1 || objectHit.LineIndex != 1 || objectHit.InputPosition != 1)
+        throw new InvalidOperationException("Packaged inline object hit ownership failed.");
+    var fragmentGlyphs = glyphs.AsSpan(0, 3).ToArray();
+    var fragmentLines = lines.AsSpan(0, 3).ToArray();
+    for (int i = 0; i < 3; ++i) { fragmentGlyphs[i].Y += 20; fragmentLines[i].BaselineY += 20; }
+    NativeTextFragmentPlacement[] fragments =
+    [
+        new() { Top = 20, RowIndex = 0, Width = 31 },
+        new() { Top = 40, RowIndex = 1, Width = 31 },
+        new() { Top = 82, RowIndex = 2, Width = 31 },
+    ];
+    var fragmentInput = new NativeTextInteractionInput(fragmentGlyphs, fragmentLines, [1, 2, 3], [0, 0, 0]);
+    if (Marshal.SizeOf<NativeTextFragmentPlacement>() != 24 ||
+        NativeTextInteractionInterop.BuildFragments(fragmentInput, fragments, boxes, carets, out var fragmentResult) != NativeRendererStatus.Success ||
+        fragmentResult.ClusterBoxCount != 3 || boxes[0].Y != 20 || boxes[1].Y != 40 || boxes[2].Y != 82)
+        throw new InvalidOperationException("Packaged fragment interaction lost explicit placement.");
+    fragments[0].Reserved = 1;
+    boxes[0].X = 123;
+    if (NativeTextInteractionInterop.BuildFragments(fragmentInput, fragments, boxes, carets, out fragmentResult) != NativeRendererStatus.InvalidArgument ||
+        fragmentResult.ClusterBoxCount != 0 || boxes[0].X != 123)
+        throw new InvalidOperationException("Packaged fragment interaction published rejected metadata.");
+    bool rejected = false;
+    try { context.GetInlineFlowParagraphRequirements(input, options, styles, flow, [], objects, out _); }
+    catch (ArgumentException) { rejected = true; }
+    if (!rejected) throw new InvalidOperationException("Inline metric span capacity was not checked before native access.");
+    var snapshot = NativeTextParagraphSnapshot.CreateWithInlineObjects(context, "A\ufffcB",
+        NativeTextDirection.LeftToRight, options, [new(0, 3, 0, options.Scale)], metrics,
+        [new(1, 30.25f, 35, 7)], measureIntrinsicWidths: true);
+    if (!snapshot.HasMeasuredLines || snapshot.InlineObjects.Length != 1 ||
+        snapshot.InlineObjects.Span[0] != new NativeTextInlineObjectPlacement(1, 1, 1, 0, 20, 30.25f, 42) ||
+        snapshot.Boxes.Span[1].Y != 20 || snapshot.ClusterEnds.Span[1] != 2 || snapshot.IntrinsicWidths == null)
+        throw new InvalidOperationException("Retained native inline placement or measured interaction failed.");
+    exclusionOptions = new() { MaximumAttempts = 128 };
+    NativeTextParagraphFloat[] sourceFloats = [new(1, 100, 20, 0), new(3, 100, 20, 0)];
+    var floatingSnapshot = NativeTextParagraphSnapshot.CreateWithFloats(context, "A\ufffcB",
+        NativeTextDirection.LeftToRight, floatingParagraph, [new(0, 3, 0, options.Scale)], metrics,
+        [new(1, 30.25f, 35, 7)], floatingOptions, sourceFloats);
+    sourceFloats[0] = new(0, 1, 1, 2);
+    if (floatingSnapshot.FloatingLayout?.FloatCount != 2 || floatingSnapshot.FloatingLayout?.ContentHeight != 87 ||
+        floatingSnapshot.FloatingItems.Span[0] != new NativeTextParagraphFloat(1, 100, 20, 0) ||
+        floatingSnapshot.FragmentLayout?.ContentHeight != 67 || floatingSnapshot.FloatingPlacements.Span[0].Top != 67 ||
+        floatingSnapshot.FloatingPlacements.Span[1].Left != 100 || floatingSnapshot.Fragments.Span[0].Top != 25 ||
+        floatingSnapshot.ClusterEnds.Span[1] != 2 || floatingSnapshot.InlineObjects.Span[0].Y != 25 ||
+        floatingSnapshot.Boxes.Span[1].Y != 25 || floatingSnapshot.Carets.IsEmpty)
+        throw new InvalidOperationException("Floating snapshot lost native extents, ownership or source interaction.");
+    var emptyFloatingSnapshot = NativeTextParagraphSnapshot.CreateWithFloats(context, "",
+        NativeTextDirection.LeftToRight, floatingParagraph, [], [], [], floatingOptions, [new(0, 100, 20, 0)]);
+    if (!emptyFloatingSnapshot.Glyphs.IsEmpty || emptyFloatingSnapshot.Lines.Length != 1 ||
+        emptyFloatingSnapshot.FragmentLayout?.ContentHeight != 45 || emptyFloatingSnapshot.FloatingLayout?.ContentHeight != 65 ||
+        emptyFloatingSnapshot.FloatingPlacements.Span[0].Top != 45 || !emptyFloatingSnapshot.Carets.IsEmpty)
+        throw new InvalidOperationException("Floating empty snapshot lost its native source-metric row.");
+    var excludedSnapshot = NativeTextParagraphSnapshot.CreateWithExclusions(context, "A\ufffcB",
+        NativeTextDirection.LeftToRight, options, [new(0, 3, 0, options.Scale)], metrics,
+        [new(1, 30.25f, 35, 7)], exclusionOptions, exclusions, measureIntrinsicWidths: true);
+    if (excludedSnapshot.FragmentLayout?.ContentHeight != 102 || excludedSnapshot.Fragments.Length != 3 ||
+        excludedSnapshot.Fragments.Span[2].Top != 82 || excludedSnapshot.Boxes.Span[1].Y != 40 ||
+        excludedSnapshot.InlineObjects.Span[0].Y != 40 || excludedSnapshot.Carets.Span[2].Y != 40 ||
+        excludedSnapshot.ClusterEnds.Span[1] != 2 || excludedSnapshot.IntrinsicWidths == null)
+        throw new InvalidOperationException("Retained excluded paragraph lost native clearance or source interaction.");
+    if (excludedSnapshot.MoveFragmentCaret(0, NativeTextCaretMovement.Down, 0, 0, out var below) != NativeRendererStatus.Success ||
+        excludedSnapshot.Carets.Span[checked((int)below)].Y != 40)
+        throw new InvalidOperationException("Native fragment navigation lost vertical clearance.");
+    var shifted = NativeTextParagraphSnapshot.CreateWithExclusionsAt(context, "A\ufffcB",
+        NativeTextDirection.LeftToRight, options, [new(0, 3, 0, options.Scale)], metrics,
+        [new(1, 30.25f, 35, 7)], exclusionOptions, exclusions, 30.25, measureIntrinsicWidths: true);
+    if (shifted.FragmentLayout?.ContentHeight != 112.25 || shifted.Fragments.Span[0].Top != 30.25 ||
+        shifted.Fragments.Span[2].Top != 92.25 || shifted.Boxes.Span[1].Y != 50.25 ||
+        shifted.InlineObjects.Span[0].Y != 50.25 || shifted.Carets.Span[2].Y != 50.25 ||
+        shifted.ClusterEnds.Span[1] != 2 || shifted.IntrinsicWidths?.Minimum != excludedSnapshot.IntrinsicWidths?.Minimum)
+        throw new InvalidOperationException("Explicit native segment origin was lost by retained snapshot interaction.");
+    bool rejectedOrigin = false;
+    try { NativeTextParagraphSnapshot.CreateWithExclusionsAt(context, "A", NativeTextDirection.LeftToRight,
+        options, [new(0, 1, 0, options.Scale)], metrics, [], exclusionOptions, exclusions, double.NaN); }
+    catch (ArgumentOutOfRangeException) { rejectedOrigin = true; }
+    if (!rejectedOrigin) throw new InvalidOperationException("Snapshot accepted a nonfinite segment origin.");
+    var wholeWord = NativeTextParagraphSnapshot.CreateWithExclusions(context, "AA",
+        NativeTextDirection.LeftToRight, options, [new(0, 2, 0, options.Scale)], metrics, [],
+        exclusionOptions, [new() { Left = 12, Right = 19, Bottom = 20 }]);
+    if (wholeWord.Fragments.Length != 1 || wholeWord.Fragments.Span[0].Top != 20 ||
+        wholeWord.FragmentLayout?.ContentHeight != 40 || wholeWord.Glyphs.Length != 2)
+        throw new InvalidOperationException("Excluded snapshot split or lost an indivisible native word.");
+    bool rejectedEmptyExclusion = false;
+    try { NativeTextParagraphSnapshot.CreateWithExclusions(context, "", NativeTextDirection.LeftToRight,
+        options, [], [], [], exclusionOptions, exclusions); }
+    catch (NotSupportedException) { rejectedEmptyExclusion = true; }
+    if (!rejectedEmptyExclusion)
+        throw new InvalidOperationException("Empty excluded snapshot fabricated an unpositioned row.");
+    foreach (var direction in new[] { NativeTextDirection.LeftToRight, NativeTextDirection.RightToLeft })
+    {
+        NativeTextExclusionRectangle[] middle = [new() { Left = 16, Right = 24, Bottom = 20 }];
+        var split = NativeTextParagraphSnapshot.CreateWithExclusions(context, "A A", direction,
+            options with { MaximumWidth = 40 },
+            [new(0, 3, 0, options.Scale)], metrics, [], exclusionOptions, middle);
+        if (split.Fragments.Length != 2 || split.FragmentLayout?.ContentHeight != 20 ||
+            split.Fragments.Span[0].Top != 0 || split.Fragments.Span[1].Top != 0 ||
+            split.Fragments.Span[0].RowIndex != 0 || split.Fragments.Span[1].RowIndex != 0 ||
+            split.Fragments.Span[0].Left != (direction == NativeTextDirection.LeftToRight ? 0 : 24) ||
+            split.Boxes.Span[0].Y != 0 || split.Boxes.Span[1].Y != 0)
+            throw new InvalidOperationException($"Retained same-row fragments were stacked or reordered: {direction}, " +
+                $"count={split.Fragments.Length}, height={split.FragmentLayout?.ContentHeight}, " +
+                $"frames={string.Join(';', split.Fragments.ToArray().Select(f => $"{f.RowIndex}:{f.Left},{f.Top},{f.Width}"))}, " +
+                $"boxes={string.Join(';', split.Boxes.ToArray().Select(b => $"{b.X},{b.Y},{b.Width}"))}.");
+        middle[0].Right = 40;
+        if (split.Fragments.Span[1].Width != 16 ||
+            NativeTextInteractionInterop.HitTest(split.Boxes.Span, 25, 5, out var splitHit) != NativeRendererStatus.Success ||
+            splitHit.Inside != 1 || splitHit.LineIndex != (direction == NativeTextDirection.LeftToRight ? 1U : 0U))
+            throw new InvalidOperationException("Retained fragment hit testing borrowed mutable exclusions or lost its frame.");
+        uint leftFragment = direction == NativeTextDirection.LeftToRight ? 0U : 1U;
+        uint current = uint.MaxValue;
+        var stops = split.Carets.Span;
+        for (int i = 0; i < stops.Length; ++i)
+            if (stops[i].LineIndex == leftFragment &&
+                (current == uint.MaxValue || stops[i].X >= stops[checked((int)current)].X)) current = (uint)i;
+        if (split.MoveFragmentCaret(current,
+            NativeTextCaretMovement.Right, (sbyte)(direction == NativeTextDirection.LeftToRight ? 0 : 1),
+            24, out var next) != NativeRendererStatus.Success || stops[checked((int)next)].LineIndex == leftFragment ||
+            stops[checked((int)next)].Y != 0)
+            throw new InvalidOperationException("Native caret failed to cross the same-row exclusion.");
+        if (NativeTextInteractionInterop.MoveFragmentCaret(stops, split.Fragments.Span, uint.MaxValue,
+            NativeTextCaretMovement.Left, 0, 0, out next) != NativeRendererStatus.InvalidArgument || next != 0)
+            throw new InvalidOperationException("Native fragment navigation accepted an invalid generation index.");
+    }
+    rejected = false;
+    try { NativeTextParagraphSnapshot.CreateCollapsed(context, "A\ufffcB", NativeTextDirection.LeftToRight,
+        options, snapshot, new(0, 10, 2, NativeTextTrimming.CharacterEllipsis)); }
+    catch (NotSupportedException) { rejected = true; }
+    if (!rejected) throw new InvalidOperationException("Measured collapse lost its required sign-metric admission.");
+    const string mixedText = "\U0001f642A\ufffc\tB\ufffc";
+    NativeTextParagraphInlineObject[] sourceObjects = [new(3, 30.25f, 35, 7), new(6, 0, 5, 2)];
+    NativeTextParagraphSnapshot? lastMixed = null;
+    foreach (var direction in new[] { NativeTextDirection.LeftToRight, NativeTextDirection.RightToLeft })
+    {
+        var mixed = NativeTextParagraphSnapshot.CreateWithInlineObjects(context, mixedText, direction,
+            options, [new(0, mixedText.Length, 0, options.Scale)], metrics, sourceObjects, incrementalTab: 24);
+        lastMixed = mixed;
+        if (mixed.InlineObjects.Length != 2 || mixed.Glyphs.IsEmpty)
+            throw new InvalidOperationException("Mixed native object snapshot is incomplete.");
+        for (int index = 0; index < sourceObjects.Length; ++index)
+        {
+            var placement = mixed.InlineObjects.Span[index];
+            var source = sourceObjects[index];
+            var line = mixed.Lines.Span[placement.LineIndex];
+            var glyph = mixed.Glyphs.Span[placement.GlyphIndex];
+            if (placement.InputPosition != source.Position || glyph.Cluster != source.Position ||
+                glyph.GlyphId != NativeTextParagraphSnapshot.InlineObjectGlyphId || glyph.FontIndex != uint.MaxValue ||
+                placement.Y != line.BaselineY - source.Ascent || placement.Height != source.Ascent + source.Descent ||
+                placement.Width != source.Width || mixed.ClusterEnds.Span[placement.GlyphIndex] != source.Position + 1)
+                throw new InvalidOperationException("Mixed native inline source identity/placement changed.");
+        }
+    }
+    sourceObjects[0] = new(3, 999, 999, 999);
+    if (lastMixed!.InlineObjects.Span[0].Width != 30.25f)
+        throw new InvalidOperationException("Snapshot borrowed caller object storage.");
+    foreach (string hardText in new[] { "A\ufffc\nB", "A\ufffc\r\nB" })
+    {
+        var hard = NativeTextParagraphSnapshot.CreateWithInlineObjects(context, hardText,
+            NativeTextDirection.LeftToRight, options with { MaximumWidth = 1000 },
+            [new(0, hardText.Length, 0, options.Scale)], metrics, [new(1, 30.25f, 35, 7)]);
+        int objectGlyph = hard.InlineObjects.Span[0].GlyphIndex;
+        if (hard.ClusterEnds.Span[objectGlyph] != 2 || hard.Lines.Span[0].InputEnd != hardText.Length - 1)
+            throw new InvalidOperationException($"Inline hard-break ownership failed: object end {hard.ClusterEnds.Span[objectGlyph]}, line end {hard.Lines.Span[0].InputEnd}.");
+    }
+    Console.WriteLine("package-consumer: native inline paragraph metrics, identity, wrapping and span validation passed");
+}
+
+static void ValidateNativePositionedParagraphs()
+{
+    foreach (var backend in new[] { NativeMilBackend.WgpuNative, NativeMilBackend.Dawn })
+    {
+        NativeDocumentBlock[] blocks = [
+            new() { ParentIndex = uint.MaxValue, SubtreeEnd = 3 },
+            new() { ParentIndex = 0, SubtreeEnd = 2, LineCount = 3, InsetLeft = 4, InsetTop = 3, InsetBottom = 5 },
+            new() { ParentIndex = 0, SubtreeEnd = 3, LineStart = 3, LineCount = 1 }];
+        NativeDocumentLine[] lines = [new() { Width = 50, Height = 10 }, new() { Width = 30, Height = 10 },
+            new() { Width = 60, Height = 12 }, new() { Width = 20, Height = 7 }];
+        NativeDocumentPositionedParagraph[] paragraphs = [new() { BlockIndex = 1, Width = 90, Height = 52 }];
+        NativeDocumentLinePosition[] local = [new() { X = 40, Y = 20 }, new() { Y = 20 }, new() { Y = 40 }, new()];
+        NativeDocumentBox[] boxes = new NativeDocumentBox[3];
+        NativeDocumentLinePosition[] positions = new NativeDocumentLinePosition[4];
+        var result = NativeDocumentFlow.ArrangeWithPositionedParagraphs(blocks, 100, lines, [], [], [], [],
+            paragraphs, local, boxes, positions, backend);
+        if (result.Height != 67 || boxes[1].Height != 52 || positions[0].X != 44 || positions[0].Y != 23 ||
+            positions[1].X != 4 || positions[1].Y != 23 || positions[2].Y != 43 || positions[3].Y != 60)
+            throw new InvalidOperationException($"Packaged {backend} lost fragment frames or following block placement.");
+        var measured = NativeDocumentFlow.ArrangeWithContentMeasurement(blocks, 100, lines, [], [], [], [],
+            paragraphs, local, boxes, positions, out double contentWidth, backend);
+        if (contentWidth != 94 || measured.Width != 100 || measured.Height != 67 || positions[3].Y != 60)
+            throw new InvalidOperationException($"{backend} confused native content width with its constraint.");
+        paragraphs[0].Height = 51;
+        bool rejected = false;
+        try { NativeDocumentFlow.ArrangeWithPositionedParagraphs(blocks, 100, lines, [], [], [], [],
+            paragraphs, local, boxes, positions, backend); }
+        catch (NativeRendererException) { rejected = true; }
+        if (!rejected || boxes[1].Height != 52 || positions[3].Y != 60)
+            throw new InvalidOperationException($"Packaged {backend} published a partial positioned paragraph.");
+        rejected = false;
+        try { NativeDocumentFlow.ArrangeWithContentMeasurement(blocks, 100, lines, [], [], [], [],
+            paragraphs, local, boxes, positions, out contentWidth, backend); }
+        catch (NativeRendererException) { rejected = true; }
+        if (!rejected || contentWidth != 94 || positions[3].Y != 60)
+            throw new InvalidOperationException($"{backend} published partial content measurement.");
+        rejected = false;
+        try { NativeDocumentFlow.ArrangeWithPositionedParagraphs(blocks, 100, lines, [], [], [], [],
+            paragraphs, local.AsSpan(0, 3), boxes, positions, backend); }
+        catch (ArgumentException) { rejected = true; }
+        if (!rejected) throw new InvalidOperationException("Short local-position span reached native code.");
+    }
+    Console.WriteLine("package-consumer: positioned paragraphs retain shared frames on both providers");
+}
+
+static void ValidateNativeDocumentRows()
+{
+    // Device-independent, matched on both packaged providers. A real object and
+    // a formatted text cell share a row without manufacturing an object TextLine.
+    NativeDocumentBlock[] blocks = [
+        new() { ParentIndex = uint.MaxValue, SubtreeEnd = 3 },
+        new() { ParentIndex = 0, SubtreeEnd = 2, LineCount = 1 },
+        new() { ParentIndex = 0, SubtreeEnd = 3, LineStart = 1 }];
+    NativeDocumentRow[] rows = [new() { BlockIndex = 0, ColumnCount = 2, CellSpacing = 2 }];
+    NativeDocumentCell[] cells = [
+        new() { BlockIndex = 1, RowIndex = 0, ColumnCount = 1 },
+        new() { BlockIndex = 2, RowIndex = 0, ColumnStart = 1, ColumnCount = 1 }];
+    double[] columns = [40, 60];
+    NativeDocumentLine[] lines = [new() { Width = 30, Height = 10 }];
+    NativeDocumentObject[] objects = [new() { BlockIndex = 2, Width = 50, Height = 20 }];
+    NativeDocumentBox[] boxes = new NativeDocumentBox[3];
+    NativeDocumentLinePosition[] positions = new NativeDocumentLinePosition[1];
+    foreach (var backend in new[] { NativeMilBackend.WgpuNative, NativeMilBackend.Dawn })
+    {
+        NativeDocumentAnchorWidthRequest[] anchors = [
+            new() { AvailableWidth = 100, HorizontalInsets = 12, MeasuredWidth = 37, Mode = 2, HasMeasurement = 1 },
+            new() { AvailableWidth = 100, HorizontalInsets = 12, Mode = 1 }];
+        NativeDocumentAnchorWidthResult[] widths = new NativeDocumentAnchorWidthResult[2];
+        NativeDocumentFlow.ResolveAnchorWidths(anchors, widths, backend);
+        if (widths[0].ContentWidth != 37 || widths[0].OuterWidth != 49 || widths[0].RequiresRemeasure != 1 ||
+            widths[1].ContentWidth != 88 || widths[1].RequiresRemeasure != 0 || widths[1].Reserved != 0)
+            throw new InvalidOperationException($"Packaged {backend} lost anchor width policy.");
+        anchors[0].MeasuredWidth = 20;
+        anchors[1].Mode = 256;
+        bool rejected = false;
+        try { NativeDocumentFlow.ResolveAnchorWidths(anchors, widths, backend); }
+        catch (NativeRendererException) { rejected = true; }
+        if (!rejected || widths[0].ContentWidth != 37 || widths[1].ContentWidth != 88)
+            throw new InvalidOperationException($"Packaged {backend} published a partial anchor batch.");
+        NativeDocumentFlow.ResolveWidthsWithRows(blocks, 80, rows, columns, cells, boxes, backend);
+        NativeDocumentAnchorRequest[] placementRequests = [
+            new() { Right = 100, Bottom = 100, Width = 30, Height = 10, Alignment = 2, AllowDelay = 1, MaximumAttempts = 8 },
+            new() { Right = 100, Bottom = 100, Width = 30, Height = 15, Alignment = 2, AllowDelay = 1, MaximumAttempts = 8 }];
+        NativeDocumentAnchorRectangle[] obstacles = [new() { Left = 70, Right = 100, Bottom = 20 }];
+        NativeDocumentAnchorRectangle[] anchorPositions = new NativeDocumentAnchorRectangle[2];
+        NativeDocumentFlow.PlaceAnchors(placementRequests, obstacles, anchorPositions, backend);
+        if (anchorPositions[0].Left != 70 || anchorPositions[0].Top != 20 || anchorPositions[1].Top != 30 || anchorPositions[1].Bottom != 45)
+            throw new InvalidOperationException($"Packaged {backend} lost source-ordered anchor collision placement.");
+        placementRequests[0].Alignment = 0;
+        placementRequests[1].Reserved = 1;
+        rejected = false;
+        try { NativeDocumentFlow.PlaceAnchors(placementRequests, obstacles, anchorPositions, backend); }
+        catch (NativeRendererException) { rejected = true; }
+        if (!rejected || anchorPositions[0].Left != 70 || anchorPositions[1].Top != 30)
+            throw new InvalidOperationException($"Packaged {backend} published partial anchor placement.");
+        if (boxes[1].X != 1 || boxes[1].Width != 40 || boxes[2].X != 43 || boxes[2].Width != 60)
+            throw new InvalidOperationException($"Packaged {backend} lost native cell width constraints.");
+        var placed = NativeDocumentFlow.ArrangeWithRows(blocks, 80, lines, objects, rows, columns, cells, boxes, positions, backend);
+        if (placed.Width != 104 || placed.Height != 22 || placed.LineCount != 1 ||
+            boxes[1].Y != 1 || boxes[2].Y != 1 || boxes[1].Height != 20 || boxes[2].Height != 20 ||
+            positions[0].X != 1 || positions[0].Y != 1)
+            throw new InvalidOperationException($"Packaged {backend} lost shared row placement or source line order.");
+    }
+    Console.WriteLine("package-consumer: native document rows, cells and measured objects (both providers)");
+}
+
+static void ValidateNativeHitTestOwnerSnapshots(WgpuContext context, NativeCompositor compositor)
+{
+    const ulong sceneId = 817;
+    var firstOwner = new object();
+    var secondOwner = new object();
+    InstallIndex(compositor, sceneId, 1);
+    var before = compositor.BindGpuHitTestOwners(
+        new NativeGpuHitTestOwnerMap<object>([new(42, firstOwner)]), sceneId, 1);
+    var query = NativeGpuHitTestQuery.PointQuery(new Vector2(5, 5), 1);
+    var indexInfo = before.GetIndexInfo();
+    if (!indexInfo.HasIndex || indexInfo.IsUploaded || indexInfo.PrimitiveCount != 1 ||
+        indexInfo.NodeCount != 1 || indexInfo.PrimitiveIndexCount != 1 || indexInfo.PathSegmentCount != 0)
+        throw new InvalidOperationException("Native metadata did not describe the unuploaded installed index.");
+    NativeGpuHitTestRequestToken firstToken = before.BeginQuery(query);
+    Span<NativeGpuHitTestResult> results = stackalloc NativeGpuHitTestResult[1];
+    var deadline = System.Diagnostics.Stopwatch.StartNew();
+    int count;
+    NativeGpuHitTestResult summary;
+    while (!before.TryPoll(firstToken, results, out count, out summary))
+    {
+        if (deadline.Elapsed > TimeSpan.FromSeconds(10))
+            throw new TimeoutException("Native owner-query GPU readback did not complete.");
+        Thread.Yield();
+    }
+    NativeGpuHitTestResult firstResult = results[0];
+    if (!before.GetIndexInfo().IsUploaded)
+        throw new InvalidOperationException("Native metadata did not report the queried index's GPU residency.");
+    if (count != 1 || summary.Hit != 1 || firstToken.SceneId != sceneId ||
+        firstToken.Generation != 1 || !before.TryGetOwner(firstToken, firstResult, out object? owner) ||
+        !ReferenceEquals(owner, firstOwner))
+        throw new InvalidOperationException("The native query did not resolve its submitted source owner.");
+
+    // The desktop completion path must return the same records/counters as
+    // polling, and repeated maps must not observe an earlier callback's state.
+    NativeGpuHitTestResult firstSummary = summary;
+    for (int repetition = 0; repetition < 16; repetition++)
+    {
+        var waitToken = before.BeginQuery(query);
+        count = before.Wait(waitToken, results, out summary);
+        if (count != 1 || !summary.Equals(firstSummary) || !results[0].Equals(firstResult) ||
+            !before.TryGetOwner(waitToken, results[0], out owner) || !ReferenceEquals(owner, firstOwner))
+            throw new InvalidOperationException("Waiting changed native query order, diagnostics or source ownership.");
+        ExpectFailure<NativeRendererException>(() => before.Wait(waitToken, [], out _));
+    }
+    // Capacity rejection must preserve the request for completion, while an
+    // explicit empty result span retires it and keeps the total-hit summary.
+    var twoSlots = before.BeginQuery(NativeGpuHitTestQuery.PointQuery(new Vector2(5, 5), 2));
+    try
+    {
+        before.Wait(twoSlots, results, out _);
+        throw new InvalidOperationException("A too-small native result buffer was accepted.");
+    }
+    catch (NativeRendererException error) when (error.Status == NativeRendererStatus.InvalidArgument)
+    {
+    }
+    count = before.Wait(twoSlots, [], out summary);
+    if (count != 0 || summary.Hit != 1)
+        throw new InvalidOperationException("Native query discard lost its summary or copied list records.");
+
+    InstallIndex(compositor, sceneId, 2);
+    var after = compositor.BindGpuHitTestOwners(
+        new NativeGpuHitTestOwnerMap<object>([new(42, secondOwner)]), sceneId, 2);
+    NativeGpuHitTestRequestToken secondToken = after.BeginQuery(query);
+    ExpectFailure<ArgumentException>(() => before.Wait(secondToken, [], out _));
+    count = after.Wait(secondToken, results, out summary);
+    if (count != 1 || summary.Hit != 1 ||
+        !after.TryGetOwner(secondToken, results[0], out owner) || !ReferenceEquals(owner, secondOwner))
+        throw new InvalidOperationException("The replacement scene did not publish its new source owner.");
+    ExpectFailure<ArgumentException>(() => after.TryGetOwner(firstToken, firstResult, out _));
+    ExpectFailure<InvalidOperationException>(() => before.BeginQuery(query));
+    ExpectFailure<InvalidOperationException>(() => before.GetIndexInfo());
+    ExpectFailure<InvalidOperationException>(() => compositor.BindGpuHitTestOwners(
+        NativeGpuHitTestOwnerMap<object>.Empty, sceneId, 1));
+    // Completed old results still resolve through their original immutable map.
+    if (!before.TryGetOwner(firstToken, firstResult, out owner) || !ReferenceEquals(owner, firstOwner))
+        throw new InvalidOperationException("Replacing native scene handles changed an earlier source owner.");
+    using var other = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
+    InstallIndex(other, sceneId, 1);
+    var foreign = other.BindGpuHitTestOwners(
+        new NativeGpuHitTestOwnerMap<object>([new(42, secondOwner)]), sceneId, 1);
+    ExpectFailure<ArgumentException>(() => foreign.TryGetOwner(firstToken, firstResult, out _));
+    ExpectFailure<ArgumentException>(() => foreign.Wait(firstToken, [], out _));
+    var noList = after.BeginQuery(NativeGpuHitTestQuery.PointQuery(new Vector2(5, 5), 0));
+    if (after.Wait(noList, [], out summary) != 0 || summary.Hit != 1 || summary.Id != 42)
+        throw new InvalidOperationException("Native zero-list wait did not retain the topmost hit.");
+    // Same geometry and query cases as GpuHitTestingTests; no CPU hit oracle.
+    foreach (var participation in new[] { NativeGpuHitTestPrimitiveFlags.None,
+        NativeGpuHitTestPrimitiveFlags.PointOnly, NativeGpuHitTestPrimitiveFlags.RegionOnly })
+    {
+        ulong generation = 10U + (uint)participation;
+        InstallIndex(compositor, sceneId, generation, participation);
+        var selected = compositor.BindGpuHitTestOwners(
+            new NativeGpuHitTestOwnerMap<object>([new(42, firstOwner)]), sceneId, generation);
+        foreach (var selectedQuery in new[] {
+            NativeGpuHitTestQuery.PointQuery(new Vector2(5), 0),
+            NativeGpuHitTestQuery.PointQuery(new Vector2(5), 1),
+            NativeGpuHitTestQuery.BoundsQuery(new Vector2(4), new Vector2(6), 1),
+            NativeGpuHitTestQuery.EllipseQuery(new Vector2(4), new Vector2(6), 1) })
+        {
+            bool region = (selectedQuery.Flags & (uint)NativeGpuHitTestQueryFlags.BoundsRegion) != 0;
+            bool expected = region ? participation != NativeGpuHitTestPrimitiveFlags.PointOnly
+                : participation != NativeGpuHitTestPrimitiveFlags.RegionOnly;
+            var token = selected.BeginQuery(selectedQuery);
+            count = selected.Wait(token, results, out summary);
+            // Zero-list queries keep their topmost record in the summary.
+            // List queries keep counters there and owners in ordered records.
+            NativeGpuHitTestResult hit = selectedQuery.RequestedResultCapacity == 0 ? summary : results[0];
+            if (summary.Hit != (expected ? 1U : 0U) ||
+                count != (expected && selectedQuery.RequestedResultCapacity != 0 ? 1 : 0) ||
+                (expected && (hit.Id != 42 || hit.PrimitiveIndex != 0 ||
+                    !selected.TryGetOwner(token, hit, out owner) || !ReferenceEquals(owner, firstOwner))))
+                throw new InvalidOperationException(
+                    $"Native participation {participation}, query flags {selectedQuery.Flags:X8}: " +
+                    $"expected hit {expected}, got summary hits {summary.Hit}, count {count}, " +
+                    $"owner {hit.Id}, primitive {hit.PrimitiveIndex}.");
+        }
+    }
+    Console.WriteLine("package-consumer: native GPU owner snapshot/generation isolation");
+
+    static void ExpectFailure<TException>(Action action) where TException : Exception
+    {
+        try { action(); }
+        catch (TException) { return; }
+        throw new InvalidOperationException($"Native owner snapshot did not reject with {typeof(TException).Name}.");
+    }
+
+    static void InstallIndex(NativeCompositor compositor, ulong sceneId, ulong generation,
+        NativeGpuHitTestPrimitiveFlags participation = NativeGpuHitTestPrimitiveFlags.None)
+    {
+        Span<byte> bytes = stackalloc byte[2048];
+        var builder = new NativeSceneStreamBuilder(bytes, sceneId, generation, 0, 1);
+        NativeGpuHitTestPrimitive primitive = new()
+        {
+            BoundsMin = Vector2.Zero, BoundsMax = new(20, 10),
+            Data0 = new NativeFloat4 { Z = 20, W = 10 },
+            InverseTransform0 = new NativeFloat4 { X = 1 },
+            InverseTransform1 = new NativeFloat4 { Y = 1 },
+            Kind = (uint)NativeGpuHitTestPrimitiveKind.RectangleFill,
+            Flags = (uint)(NativeGpuHitTestPrimitiveFlags.Visible | NativeGpuHitTestPrimitiveFlags.HitTestVisible | participation),
+            Id = 42
+        };
+        NativeGpuHitTestNode node = new()
+        {
+            BoundsMin = Vector2.Zero, BoundsMax = new(20, 10), PrimitiveCount = 1
+        };
+        if (!builder.TryAddHitTestIndexResource(1, generation, [primitive], [node], [0U], [], out _) ||
+            !builder.TryBuild(out ReadOnlySpan<byte> stream))
+            throw new InvalidOperationException("Could not build the native owner-query fixture.");
+        compositor.UpdateScene(stream);
+    }
+}
+
+static void ValidateNativeMilSceneBuildTiming()
+{
+    var request = new NativeMilSceneBuildRequest(
+        TargetHandle: 1,
+        SceneId: 2,
+        Generation: 3,
+        MonotonicTimeNanoseconds: 1_000,
+        RequestSerial: 4);
+    var continuation = new NativeMilSceneBuildResult(
+        NativeMilSceneBuildResultFlags.NeedsMoreCycles,
+        RequestSerial: 4,
+        NextDueTimeNanoseconds: 1_101,
+        StreamBytes: 5);
+    if (!NativeMilSceneBuildTiming.TryGetContinuationDelay(
+            request, continuation, out TimeSpan delay) ||
+        delay != TimeSpan.FromTicks(2))
+    {
+        throw new InvalidOperationException(
+            "The packaged native MIL continuation timing is incomplete.");
+    }
+
+    var complete = continuation with
+    {
+        Flags = NativeMilSceneBuildResultFlags.None,
+        NextDueTimeNanoseconds = 0
+    };
+    if (NativeMilSceneBuildTiming.TryGetContinuationDelay(
+            request, complete, out delay) || delay != TimeSpan.Zero)
+    {
+        throw new InvalidOperationException(
+            "The packaged native MIL completion timing is incomplete.");
+    }
+
+    var overdue = continuation with { NextDueTimeNanoseconds = 999 };
+    if (!NativeMilSceneBuildTiming.TryGetContinuationDelay(
+            request, overdue, out delay) || delay != TimeSpan.Zero)
+    {
+        throw new InvalidOperationException(
+            "The packaged native MIL overdue timing is incomplete.");
+    }
+}
+
+static unsafe NativeSceneExternalTarget CreateExternalTarget(
+    GpuTexture target) => new(
+        (nuint)target.ViewPtr,
+        target.Width,
+        target.Height);
+
+static void ValidateNativeMilCompactGuidelineBuilder()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.PushGuidelineY1(1.25);
+    renderData.Pop();
+    renderData.PushGuidelineY2(2.5, -0.75);
+    renderData.Pop();
+    ReadOnlySpan<byte> bytes = renderData.WrittenSpan;
+    if (bytes.Length != 56 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes) != 16 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[4..]) != 0x53 ||
+        BitConverter.Int64BitsToDouble(
+            BinaryPrimitives.ReadInt64LittleEndian(bytes[8..])) != 1.25 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[16..]) != 8 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[20..]) != 0x56 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[24..]) != 24 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[28..]) != 0x54 ||
+        BitConverter.Int64BitsToDouble(
+            BinaryPrimitives.ReadInt64LittleEndian(bytes[32..])) != 2.5 ||
+        BitConverter.Int64BitsToDouble(
+            BinaryPrimitives.ReadInt64LittleEndian(bytes[40..])) != -0.75 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[48..]) != 8 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[52..]) != 0x56)
+    {
+        throw new InvalidOperationException(
+            "The packaged compact native MIL guideline builder is incomplete.");
+    }
+}
+
+static byte[] CreateMilGradientBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawRectangle(4, 4, 56, 20, 4);
+    renderData.DrawEllipse(32, 42, 24, 14, 5);
+    renderData.DrawRectangle(8, 28, 12, 28, 6);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.LinearGradientBrush);
+    batch.CreateResource(5, NativeMilResourceType.RadialGradientBrush);
+    batch.CreateResource(6, NativeMilResourceType.SolidColorBrush);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    ReadOnlySpan<NativeMilGradientStop> stops =
+    [
+        new(0, new NativeMilColor(1, 0, 0, 1)),
+        new(0.5, new NativeMilColor(0, 1, 0, 0.8f)),
+        new(1, new NativeMilColor(0, 0, 1, 1))
+    ];
+    batch.SetLinearGradientBrush(
+        4,
+        new NativeMilLinearGradientBrush(
+            new NativeMilPoint(0, 0),
+            new NativeMilPoint(1, 0)),
+        stops);
+    batch.SetRadialGradientBrush(
+        5,
+        new NativeMilRadialGradientBrush(
+            new NativeMilPoint(0.5, 0.5),
+            new NativeMilPoint(0.4, 0.45),
+            0.5,
+            0.5),
+        stops);
+    batch.SetSolidColorBrush(6, new NativeMilColor(1, 1, 1, 1));
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilGeometryDrawingBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawDrawing(6);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(6, NativeMilResourceType.GeometryDrawing);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.1f, 0.6f, 1, 1));
+    batch.SetRectangleGeometry(5, 8, 12, 48, 40);
+    batch.SetGeometryDrawing(6, 4, 0, 5);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilDrawingGroupBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawDrawing(10);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(6, NativeMilResourceType.GeometryDrawing);
+    batch.CreateResource(7, NativeMilResourceType.MatrixTransform);
+    batch.CreateResource(8, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(9, NativeMilResourceType.DoubleResource);
+    batch.CreateResource(10, NativeMilResourceType.DrawingGroup);
+    batch.CreateResource(11, NativeMilResourceType.LinearGradientBrush);
+    batch.CreateVisual(1);
+    batch.SetVisualRenderOptions(
+        1,
+        new NativeMilRenderOptions(
+            NativeMilRenderOptionFlags.EdgeMode |
+            NativeMilRenderOptionFlags.ClearTypeHint,
+            EdgeMode: NativeMilEdgeMode.Aliased,
+            ClearTypeHint: NativeMilClearTypeHint.Enabled));
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.85f, 0.25f, 0.1f, 1));
+    batch.SetRectangleGeometry(5, 8, 12, 48, 40);
+    batch.SetGeometryDrawing(6, 4, 0, 5);
+    batch.SetMatrixTransform(7, new NativeMilMatrix3x2(1, 0, 0, 1, 2, 4));
+    batch.SetRectangleGeometry(8, 16, 16, 32, 32);
+    batch.SetDoubleResource(9, 0.75);
+    ReadOnlySpan<NativeMilGradientStop> maskStops =
+    [
+        new(0, new NativeMilColor(1, 1, 1, 0)),
+        new(1, new NativeMilColor(1, 1, 1, 1))
+    ];
+    batch.SetLinearGradientBrush(
+        11,
+        new NativeMilLinearGradientBrush(
+            new NativeMilPoint(0, 0),
+            new NativeMilPoint(1, 0)),
+        maskStops);
+    batch.SetDrawingGroup(
+        10,
+        new NativeMilDrawingGroup(
+            Opacity: 1,
+            ClipGeometryHandle: 8,
+            OpacityAnimationHandle: 9,
+            OpacityMaskHandle: 11,
+            TransformHandle: 7),
+        [6]);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static void ValidateNativeCubicControlHull(WgpuContext context)
+{
+    // Same captured SVG curve and sample frame as the managed GPU regression.
+    // The separate rectangle keeps the empty samples inside the path bounds.
+    var path = new NativeMilPathGeometry(NativeMilPathFillRule.Nonzero,
+        70, 30, 22, 10,
+        [
+            new NativeMilPathFigure(new NativeMilPoint(90.447998046875, 37.676002502441406),
+                IsFilled: true, IsClosed: true,
+                [NativeMilPathSegment.CubicBezier(
+                    new NativeMilPoint(90.85600280761719, 37.676002502441406),
+                    new NativeMilPoint(91.12999725341797, 37.465999603271484),
+                    new NativeMilPoint(91.2699966430664, 37.04600143432617))]),
+            new NativeMilPathFigure(new NativeMilPoint(70, 30),
+                IsFilled: true, IsClosed: true,
+                [NativeMilPathSegment.Line(new NativeMilPoint(75, 30)),
+                 NativeMilPathSegment.Line(new NativeMilPoint(75, 40)),
+                 NativeMilPathSegment.Line(new NativeMilPoint(70, 40))])
+        ]);
+    var drawing = new NativeMilRenderDataBuilder();
+    drawing.DrawGeometry(4, 0, 5);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(6, NativeMilResourceType.MatrixTransform);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(1, 1, 1, 1));
+    batch.SetPathGeometry(5, path);
+    batch.SetMatrixTransform(6, new NativeMilMatrix3x2(3, 0, 0, 3, 0, 0));
+    batch.SetVisualTransform(1, 6);
+    batch.SetRenderData(3, drawing);
+    batch.CreateGenericTarget(2, 300, 150);
+    batch.SetTargetRoot(2, 1);
+    using var mil = new NativeMilChannel();
+    mil.Apply(batch.ToArray());
+    NativeMilCompiledScene scene = mil.CompileScene(2, 702, 1);
+    using var renderer = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
+    using var target = new GpuTexture(context, 300, 150, TextureFormat.Rgba8Unorm,
+        TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Cubic control hull",
+        alphaMode: GpuTextureAlphaMode.Premultiplied);
+    renderer.UpdateScene(scene.Stream);
+    renderer.RenderScene(target, 1, 702, 1, new Vector4(0, 0, 0, 1));
+    renderer.WaitForSubmission(renderer.GetLastSubmissionToken());
+    byte[] pixels = target.ReadPixels();
+    for (int x = 237; x <= 243; ++x)
+    {
+        int offset = (114 * 300 + x) * 4;
+        if (pixels[offset] != 0 || pixels[offset + 1] != 0 ||
+            pixels[offset + 2] != 0 || pixels[offset + 3] != 255)
+            throw new InvalidOperationException("Native cubic produced coverage outside its control hull.");
+    }
+    if (pixels[(105 * 300 + 216) * 4] != 255)
+        throw new InvalidOperationException("Native cubic fixture lost its independent rectangle ink.");
+    Console.WriteLine("package-consumer: native cubic control hull passed");
+}
+
+static byte[] CreateMilGuidelineBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawDrawing(7);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(6, NativeMilResourceType.GeometryDrawing);
+    batch.CreateResource(7, NativeMilResourceType.DrawingGroup);
+    batch.CreateResource(8, NativeMilResourceType.GuidelineSet);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.2f, 0.7f, 1, 1));
+    batch.SetRectangleGeometry(5, 8.25, 12.5, 32, 24);
+    batch.SetGeometryDrawing(6, 4, 0, 5);
+    batch.SetGuidelineSet(8, false, [8.25], [12.5]);
+    batch.SetDrawingGroup(
+        7,
+        new NativeMilDrawingGroup(GuidelineSetHandle: 8),
+        [6]);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilVisualClipBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawRectangle(-10, -10, 100, 100, 4, 0);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.RectangleGeometry);
+    batch.CreateVisual(1);
+    batch.SetVisualOffset(1, 3.4, 4.7);
+    batch.SetVisualScrollableAreaClip(
+        1, new NativeMilRect(2.2, 3.2, 30.8, 24.8));
+    batch.SetVisualClip(1, 5);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.2f, 0.7f, 1, 1));
+    batch.SetRectangleGeometry(5, 0, 0, 40, 40);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilVisualOpacityMaskBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawRectangle(4, 6, 48, 40, 4, 0);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.SolidColorBrush);
+    batch.CreateVisual(1);
+    batch.SetVisualOpacity(1, 0.5);
+    batch.SetVisualOpacityMask(1, 5);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.2f, 0.7f, 1, 1));
+    batch.SetSolidColorBrush(
+        5,
+        new NativeMilColor(1, 1, 1, 0.5f),
+        opacity: 0.5);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilVisualEffectBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawRectangle(12, 14, 32, 24, 4, 0);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.DropShadowEffect);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.2f, 0.7f, 1, 1));
+    batch.SetDropShadowEffect(
+        5,
+        shadowDepth: 5,
+        color: new NativeMilColor(0.1f, 0.2f, 0.4f, 1),
+        direction: 315,
+        opacity: 0.6,
+        blurRadius: 6);
+    batch.SetVisualEffect(1, 5);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilVisualGuidelineBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawRectangle(2.25, 3.5, 40, 32, 4, 0);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateVisual(1);
+    batch.SetVisualOffset(1, 10, 20);
+    batch.SetVisualGuidelines(1, [2.25], [3.5]);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.2f, 0.7f, 1, 1));
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilImageDrawingBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawDrawing(5);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.BitmapSource);
+    batch.CreateResource(5, NativeMilResourceType.ImageDrawing);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    batch.SetImageDrawing(5, 8, 12, 48, 40, 4);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilGlyphRunDrawingBatch(
+    bool includeTextRenderOptions = false)
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawDrawing(6);
+    renderData.DrawGlyphRun(4, 5);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(6, NativeMilResourceType.GlyphRunDrawing);
+    batch.CreateVisual(1);
+    if (includeTextRenderOptions)
+    {
+        batch.SetVisualOffset(1, 0.375, 0.4);
+        batch.SetVisualRenderOptions(
+            1,
+            new NativeMilRenderOptions(
+                NativeMilRenderOptionFlags.TextRenderingMode |
+                NativeMilRenderOptionFlags.TextHintingMode,
+                TextRenderingMode: NativeMilTextRenderingMode.ClearType,
+                TextHintingMode: NativeMilTextHintingMode.Fixed));
+    }
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.2f, 0.6f, 1, 1));
+    batch.SetGlyphRun(
+        5,
+        new NativeMilGlyphRun(
+            new NativeMilPoint(8, 40),
+            24,
+            new NativeMilRect(8, 10, 48, 36)),
+        [36, 37],
+        ReadOnlySpan<float>.Empty,
+        [new Vector2(0, 0), new Vector2(24, 0)]);
+    batch.SetGlyphRunDrawing(6, 5, 4);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilDrawingImageBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawDrawing(8);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(6, NativeMilResourceType.GeometryDrawing);
+    batch.CreateResource(7, NativeMilResourceType.DrawingImage);
+    batch.CreateResource(8, NativeMilResourceType.ImageDrawing);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.15f, 0.5f, 0.95f, 1));
+    batch.SetRectangleGeometry(5, 10, 20, 20, 10);
+    batch.SetGeometryDrawing(6, 4, 0, 5);
+    batch.SetDrawingImage(7, 6);
+    batch.SetImageDrawing(8, 2, 4, 40, 20, 7);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static void BindFocusedDrawingImageBounds(NativeMilChannel channel)
+{
+    channel.SetDrawingImageBounds(7, new NativeMilRect(10, 20, 20, 10));
+}
+
+static void BindFocusedDrawingGroupBounds(NativeMilChannel channel)
+{
+    channel.SetDrawingGroupBounds(10, new NativeMilRect(8, 12, 48, 40));
+}
+
+static void BindFocusedBitmapSource(NativeMilChannel channel)
+{
+    const uint width = 4;
+    const uint height = 4;
+    const uint rowBytes = width * 4;
+    byte[] pixels = new byte[rowBytes * height];
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            int offset = checked((int)(y * rowBytes + x * 4));
+            pixels[offset] = checked((byte)(48 + x * 48));
+            pixels[offset + 1] = checked((byte)(32 + y * 56));
+            pixels[offset + 2] = checked((byte)(224 - x * 32));
+            pixels[offset + 3] = 255;
+        }
+    }
+    channel.SetBitmapSourceRgba8(4, width, height, rowBytes, pixels);
+}
+
+static void BindFocusedGlyphRunFont(NativeMilChannel channel)
+{
+    byte[] fontBytes = File.ReadAllBytes(Path.Combine(
+        AppContext.BaseDirectory, "Inter-Regular.ttf"));
+    channel.SetGlyphRunFontSfnt(
+        5,
+        fontBytes,
+        faceIndex: 0,
+        styleSimulations:
+            NativeMilGlyphStyleSimulations.Bold |
+            NativeMilGlyphStyleSimulations.Italic);
+}
+
+static byte[] CreateMilSeedBatch(
+    bool includeRecursiveGroupArc,
+    bool includeRecursiveBooleanArc,
+    bool minimalArcGroup,
+    bool duplicateArcGroup,
+    bool mixedArcGroup)
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.PushTransform(45);
+    renderData.PushClip(61);
+    renderData.PushClip(52);
+    renderData.DrawRectangle(8, 8, 48, 48, 44, 46);
+    renderData.DrawLine(8, 8, 56, 56, 46);
+    renderData.DrawLine(24, 24, 24, 24, 48);
+    renderData.DrawEllipse(32, 32, 16, 12, 44, 48);
+    renderData.DrawEllipse(32, 20, 10, 0, 44, 48);
+    renderData.DrawRoundedRectangle(12, 16, 40, 32, 8, 8, 0, 48);
+    renderData.DrawRoundedRectangle(20, 12, 24, 20, 6, 3, 44, 48);
+    renderData.DrawRoundedRectangle(44, 8, 12, 16, 0, 4, 44, 48);
+    renderData.DrawRectangle(16, 20, 0, 16, 0, 67);
+    renderData.DrawRoundedRectangle(24, 20, 0, 16, 6, 6, 0, 48);
+    renderData.DrawGeometry(0, 48, 49);
+    renderData.DrawGeometry(44, 48, 50);
+    renderData.DrawGeometry(44, 48, 51);
+    renderData.DrawGeometry(44, 0, 52);
+    renderData.DrawGeometry(44, 0, 54);
+    renderData.DrawGeometry(44, 0, 55);
+    renderData.DrawGeometry(0, 46, 56);
+    renderData.DrawGeometry(0, 48, 59);
+    renderData.DrawGeometry(0, 48, 60);
+    renderData.DrawGeometry(0, 65, 63);
+    renderData.DrawGeometry(44, 48, 66);
+    renderData.DrawGeometry(0, 48, 68);
+    renderData.DrawGeometry(44, 48, 69);
+    renderData.Pop();
+    renderData.Pop();
+    renderData.Pop();
+    renderData.PushTransform(62);
+    renderData.DrawLine(4, 4, 60, 60, 46);
+    renderData.DrawGeometry(44, 48, 54);
+    renderData.DrawGeometry(44, 48, 55);
+    renderData.DrawGeometry(44, 48, 52);
+    renderData.DrawGeometry(44, 48, 50);
+    renderData.Pop();
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(41, NativeMilResourceType.Visual);
+    batch.CreateResource(42, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(43, NativeMilResourceType.RenderData);
+    batch.CreateResource(44, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(45, NativeMilResourceType.MatrixTransform);
+    batch.CreateResource(46, NativeMilResourceType.Pen);
+    batch.CreateResource(47, NativeMilResourceType.DashStyle);
+    batch.CreateResource(48, NativeMilResourceType.Pen);
+    batch.CreateResource(49, NativeMilResourceType.LineGeometry);
+    batch.CreateResource(50, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(51, NativeMilResourceType.EllipseGeometry);
+    batch.CreateResource(52, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(53, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(54, NativeMilResourceType.GeometryGroup);
+    batch.CreateResource(55, NativeMilResourceType.CombinedGeometry);
+    batch.CreateResource(56, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(57, NativeMilResourceType.GeometryGroup);
+    batch.CreateResource(58, NativeMilResourceType.CombinedGeometry);
+    batch.CreateResource(59, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(60, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(61, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(62, NativeMilResourceType.MatrixTransform);
+    batch.CreateResource(63, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(64, NativeMilResourceType.DashStyle);
+    batch.CreateResource(65, NativeMilResourceType.Pen);
+    batch.CreateResource(66, NativeMilResourceType.EllipseGeometry);
+    batch.CreateResource(67, NativeMilResourceType.Pen);
+    batch.CreateResource(68, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(69, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(70, NativeMilResourceType.TransformGroup);
+    batch.CreateResource(71, NativeMilResourceType.TranslateTransform);
+    batch.CreateResource(72, NativeMilResourceType.ScaleTransform);
+    batch.CreateResource(73, NativeMilResourceType.SkewTransform);
+    batch.CreateResource(74, NativeMilResourceType.RotateTransform);
+    batch.CreateResource(75, NativeMilResourceType.DoubleResource);
+    batch.CreateResource(76, NativeMilResourceType.MatrixResource);
+    batch.CreateVisual(41);
+    batch.SetVisualOffset(41, 1, 2);
+    batch.SetMatrixTransform(
+        45,
+        new NativeMilMatrix3x2(1, 0, 0, 1, 99, 99),
+        76);
+    batch.SetMatrixTransform(
+        62,
+        new NativeMilMatrix3x2(1, 0, 0, 0, 0, 0));
+    batch.SetDoubleResource(75, 0);
+    batch.SetMatrixResource(
+        76,
+        new NativeMilMatrix3x2(1, 0, 0, 1, 1, 1));
+    batch.SetTranslateTransform(71, 99, 0, 75);
+    batch.SetScaleTransform(72, 1, 1, 8, 12);
+    batch.SetSkewTransform(73, 0, 0, 8, 12);
+    batch.SetRotateTransform(74, 0, 8, 12);
+    batch.SetTransformGroup(70, [45, 71, 72, 73, 74]);
+    batch.SetVisualTransform(41, 70);
+    batch.SetVisualOpacity(41, 0.9);
+    batch.SetVisualContent(41, 43);
+    batch.SetSolidColorBrush(44, new NativeMilColor(1, 0.25f, 0.1f, 1));
+    batch.SetDashStyle(47, 0.5, [2.0, 1.0]);
+    batch.SetPen(
+        46,
+        new NativeMilPen(
+            44,
+            2,
+            NativeMilPenLineCap.Square,
+            NativeMilPenLineCap.Round,
+            DashStyleHandle: 47));
+    batch.SetPen(
+        48,
+        new NativeMilPen(
+            44,
+            2,
+            NativeMilPenLineCap.Round,
+            NativeMilPenLineCap.Triangle));
+    batch.SetDashStyle(64, 3, [3.0, 1.0]);
+    batch.SetPen(
+        65,
+        new NativeMilPen(
+            44,
+            2,
+            NativeMilPenLineCap.Round,
+            NativeMilPenLineCap.Triangle,
+            DashStyleHandle: 64));
+    batch.SetPen(
+        67,
+        new NativeMilPen(
+            44,
+            2,
+            LineJoin: NativeMilPenLineJoin.Round));
+    batch.SetLineGeometry(49, 8, 56, 56, 8, 45);
+    batch.SetRectangleGeometry(50, 12, 16, 40, 32, 8, 4, 45);
+    batch.SetEllipseGeometry(51, 32, 32, 16, 12, 45);
+    batch.SetEllipseGeometry(66, 20, 40, 0, 8, 45);
+    batch.SetRectangleGeometry(68, 40, 20, 0, 16, transformHandle: 45);
+    batch.SetRectangleGeometry(69, 44, 30, 12, 16, 0, 4, 45);
+    batch.SetPathGeometry(
+        52,
+        CreateMilPath(0));
+    batch.SetPathGeometry(
+        53,
+        CreateMilAffinePath(8),
+        45);
+    batch.SetGeometryGroup(
+        57,
+        NativeMilPathFillRule.EvenOdd,
+        includeRecursiveGroupArc || includeRecursiveBooleanArc
+            ? [52]
+            : [53],
+        45);
+    batch.SetGeometryGroup(
+        54,
+        NativeMilPathFillRule.EvenOdd,
+        minimalArcGroup
+            ? [57]
+            : mixedArcGroup
+                ? [53, 57]
+            : duplicateArcGroup
+                ? [52, 57]
+            : includeRecursiveGroupArc
+                ? [53, 50, 51, 57]
+            : [52, 53, 50, 51],
+        45);
+    batch.SetCombinedGeometry(
+        58,
+        NativeMilGeometryCombineMode.Intersect,
+        includeRecursiveBooleanArc ? 57U : 53U,
+        50,
+        45);
+    batch.SetCombinedGeometry(
+        55,
+        NativeMilGeometryCombineMode.Exclude,
+        58,
+        51,
+        45);
+    batch.SetPathGeometry(
+        56,
+        CreateMilLineStrokePath(),
+        45);
+    batch.SetPathGeometry(
+        59,
+        CreateMilArcStrokePath(),
+        45);
+    batch.SetPathGeometry(
+        60,
+        CreateMilJoinedCurveStrokePath(),
+        45);
+    batch.SetPathGeometry(
+        63,
+        CreateMilDegenerateStrokePath(),
+        45);
+    batch.SetRectangleGeometry(61, -1000, -1000, 2000, 2000);
+    batch.SetRenderData(43, renderData);
+    batch.CreateGenericTarget(42, 64, 64);
+    batch.SetTargetClearColor(42, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(42, 41);
+    return batch.ToArray();
+}
+
+static NativeMilPathGeometry CreateMilLineStrokePath()
+{
+    return new NativeMilPathGeometry(
+        NativeMilPathFillRule.EvenOdd,
+        4,
+        4,
+        60,
+        60,
+        [
+            new NativeMilPathFigure(
+                new NativeMilPoint(4, 4),
+                IsFilled: false,
+                IsClosed: true,
+                [
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(60, 4)),
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(60, 60),
+                        isStroked: false),
+                    NativeMilPathSegment.Line(new NativeMilPoint(4, 60))
+                ])
+        ]);
+}
+
+static NativeMilPathGeometry CreateMilArcStrokePath()
+{
+    return new NativeMilPathGeometry(
+        NativeMilPathFillRule.Nonzero,
+        8,
+        8,
+        48,
+        40,
+        [
+            new NativeMilPathFigure(
+                new NativeMilPoint(12, 32),
+                IsFilled: false,
+                IsClosed: false,
+                [
+                    NativeMilPathSegment.Arc(
+                        new NativeMilPoint(52, 32),
+                        20,
+                        12,
+                        20,
+                        isLargeArc: false,
+                        isClockwise: true)
+                ])
+        ]);
+}
+
+static NativeMilPathGeometry CreateMilJoinedCurveStrokePath()
+{
+    return new NativeMilPathGeometry(
+        NativeMilPathFillRule.Nonzero,
+        8,
+        6,
+        48,
+        46,
+        [
+            new NativeMilPathFigure(
+                new NativeMilPoint(10, 44),
+                IsFilled: false,
+                IsClosed: true,
+                [
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(10, 18),
+                        isSmoothJoin: true),
+                    NativeMilPathSegment.QuadraticBezier(
+                        new NativeMilPoint(30, 6),
+                        new NativeMilPoint(48, 18)),
+                    NativeMilPathSegment.CubicBezier(
+                        new NativeMilPoint(54, 28),
+                        new NativeMilPoint(38, 48),
+                        new NativeMilPoint(10, 44))
+                ])
+        ]);
+}
+
+static NativeMilPathGeometry CreateMilDegenerateStrokePath()
+{
+    return new NativeMilPathGeometry(
+        NativeMilPathFillRule.Nonzero,
+        30,
+        30,
+        10,
+        10,
+        [
+            new NativeMilPathFigure(
+                new NativeMilPoint(30, 30),
+                IsFilled: false,
+                IsClosed: false,
+                [
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(30, 30))
+                ]),
+            new NativeMilPathFigure(
+                new NativeMilPoint(40, 40),
+                IsFilled: false,
+                IsClosed: true,
+                [
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(40, 40))
+                ])
+        ]);
+}
+
+static NativeMilPathGeometry CreateMilAffinePath(double offsetX)
+{
+    return new NativeMilPathGeometry(
+        NativeMilPathFillRule.Nonzero,
+        8 + offsetX,
+        4,
+        42,
+        44,
+        [
+            new NativeMilPathFigure(
+                new NativeMilPoint(10 + offsetX, 44),
+                IsFilled: true,
+                IsClosed: true,
+                [
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(10 + offsetX, 16)),
+                    NativeMilPathSegment.QuadraticBezier(
+                        new NativeMilPoint(32 + offsetX, 4),
+                        new NativeMilPoint(48 + offsetX, 16)),
+                    NativeMilPathSegment.CubicBezier(
+                        new NativeMilPoint(52 + offsetX, 24),
+                        new NativeMilPoint(40 + offsetX, 40),
+                        new NativeMilPoint(10 + offsetX, 44))
+                ])
+        ]);
+}
+
+static NativeMilPathGeometry CreateMilPath(double offsetX)
+{
+    return new NativeMilPathGeometry(
+        NativeMilPathFillRule.Nonzero,
+        8 + offsetX,
+        4,
+        42,
+        46,
+        [
+            new NativeMilPathFigure(
+                new NativeMilPoint(10 + offsetX, 48),
+                IsFilled: true,
+                IsClosed: true,
+                [
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(10 + offsetX, 16)),
+                    NativeMilPathSegment.QuadraticBezier(
+                        new NativeMilPoint(32 + offsetX, 4),
+                        new NativeMilPoint(48 + offsetX, 16)),
+                    NativeMilPathSegment.Arc(
+                        new NativeMilPoint(10 + offsetX, 48),
+                        24,
+                        20,
+                        15,
+                        isLargeArc: false,
+                        isClockwise: true)
+                ])
+        ]);
+}
+
+static bool ContainsNonBlackPixel(ReadOnlySpan<byte> pixels)
+{
+    for (int index = 0; index + 3 < pixels.Length; index += 4)
+    {
+        if (pixels[index] != 0 || pixels[index + 1] != 0 || pixels[index + 2] != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}

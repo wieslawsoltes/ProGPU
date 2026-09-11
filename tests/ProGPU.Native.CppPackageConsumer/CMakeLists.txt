@@ -8,5 +8,6 @@ target_compile_features(progpu_native_cpp_package_consumer PRIVATE cxx_std_20)
 target_link_libraries(progpu_native_cpp_package_consumer
     PRIVATE
         ProGPU::native_dawn
-        ProGPU::native_hit_testing
-        ProGPU::native_scene_builder)
+        ProGPU::native_mil)
+# main.cpp still exercises scene/text/hit interfaces. Their dependencies must
+# arrive transitively from the exported MIL target, not this consumer's list.

@@ -1,0 +1,226 @@
+using System.Numerics;
+using ProGPU.Scene;
+using ProGPU.Vector;
+using Xunit;
+
+namespace ProGPU.Tests;
+
+public sealed class StrokeCoverageGeometryTests
+{
+    [Theory]
+    [InlineData(0f, 3f)]
+    [InlineData(3f, 0f)]
+    public void ZeroCornerAxisKeepsSharpTransformedSpineAndUnscaledPen(float radiusX, float radiusY)
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 2, lineJoin: PenLineJoin.Miter);
+        Assert.True(StrokeCoverageGeometry.TryPrepareRoundedRectangle(new(4, 4, 12, 8), radiusX, radiusY,
+            Matrix3x2.CreateScale(2), pen, out var path, out var preparedPen, out var bounds));
+        var figure = Assert.Single(path.Figures);
+        Assert.True(figure.IsClosed);
+        Assert.Equal(new Vector2(8, 8), figure.StartPoint);
+        Assert.Equal(3, figure.Segments.Count);
+        Vector2[] ends = [new(32, 8), new(32, 24), new(8, 24)];
+        for (int i = 0; i < ends.Length; i++)
+            Assert.Equal(ends[i], Assert.IsType<LineSegment>(figure.Segments[i]).Point);
+        Assert.Same(pen, preparedPen);
+        Assert.Equal(2, preparedPen.Thickness);
+        Assert.Equal(new Rect(7, 7, 26, 18), bounds);
+    }
+
+    [Theory]
+    [InlineData(PenLineJoin.Miter)]
+    [InlineData(PenLineJoin.Bevel)]
+    [InlineData(PenLineJoin.Round)]
+    public void SolidRectangleKeepsClosedJoinsAndStrokeMaterialBounds(PenLineJoin join)
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4, lineJoin: join,
+            startLineCap: PenLineCap.Triangle, endLineCap: PenLineCap.Square);
+        Assert.True(StrokeCoverageGeometry.TryPrepareRectangle(new(8, 8, 48, 48), Matrix3x2.Identity,
+            pen, out var path, out var preparedPen, out var bounds));
+        Assert.Same(pen, preparedPen);
+        var figure = Assert.Single(path.Figures);
+        Assert.True(figure.IsClosed);
+        Assert.Equal(3, figure.Segments.Count);
+        Assert.Equal(new Rect(6, 6, 52, 52), bounds);
+        Assert.Equal(join, preparedPen.LineJoin);
+    }
+
+    [Fact]
+    public void RotatedMiterRectangleMatchesIndependentOffsetPolygonOracle()
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4, lineJoin: PenLineJoin.Miter);
+        var transform = new Matrix3x2(0.8f, 0.6f, -0.6f, 0.8f, 3, -2);
+        Assert.True(StrokeCoverageGeometry.TryPrepareRectangle(new(8, 8, 24, 12), transform,
+            pen, out var path, out _, out var bounds));
+        // A rigidly rotated rectangle with an unlimited miter has the four
+        // transformed offset corners. Scalar test arithmetic is the oracle,
+        // not the product's per-edge/cubic intrinsic implementation.
+        double left = double.PositiveInfinity, top = double.PositiveInfinity;
+        double right = double.NegativeInfinity, bottom = double.NegativeInfinity;
+        foreach (double x in new double[] { 6, 34 })
+        foreach (double y in new double[] { 6, 22 })
+        {
+            double px = x * 0.8 - y * 0.6 + 3, py = x * 0.6 + y * 0.8 - 2;
+            left = System.Math.Min(left, px); top = System.Math.Min(top, py);
+            right = System.Math.Max(right, px); bottom = System.Math.Max(bottom, py);
+        }
+        Assert.InRange(System.Math.Abs(bounds.X - left), 0, 0.0001);
+        Assert.InRange(System.Math.Abs(bounds.Y - top), 0, 0.0001);
+        Assert.InRange(System.Math.Abs(bounds.Right - right), 0, 0.0001);
+        Assert.InRange(System.Math.Abs(bounds.Bottom - bottom), 0, 0.0001);
+        Assert.True(Assert.Single(path.Figures).IsClosed);
+    }
+
+    [Theory]
+    [InlineData(PenLineJoin.Miter)]
+    [InlineData(PenLineJoin.Round)]
+    [InlineData(PenLineJoin.Bevel)]
+    public void ReflectedSkewedRectangleRetainsGeometryBeforeStroke(PenLineJoin join)
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4, lineJoin: join, miterLimit: 1);
+        var transform = new Matrix3x2(-2, 0.25f, 0.5f, 1, 3, 4);
+        Assert.True(StrokeCoverageGeometry.TryPrepareRectangle(new(8, 8, 48, 48), transform,
+            pen, out var path, out var preparedPen, out var bounds));
+        Assert.Equal(Vector2.Transform(new(8, 8), transform), path.Figures[0].StartPoint);
+        Assert.Equal(4, preparedPen.Thickness);
+        Assert.True(bounds.Width > 0 && bounds.Height > 0);
+        Assert.Equal(join, preparedPen.LineJoin);
+    }
+
+    [Fact]
+    public void RectanglePreparationPublishesNothingForUnsupportedState()
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4);
+        void Reject(Rect rectangle, Matrix3x2 matrix)
+        {
+            Assert.False(StrokeCoverageGeometry.TryPrepareRectangle(rectangle, matrix, pen,
+                out var path, out var resultPen, out var bounds));
+            Assert.Null(path); Assert.Null(resultPen); Assert.Equal(default, bounds);
+        }
+        Reject(new(8, 8, 48, 48), Matrix3x2.CreateScale(0, 1));
+        Reject(new(8, 8, float.PositiveInfinity, 48), Matrix3x2.Identity);
+        Reject(new(8, 8, 0, 48), Matrix3x2.Identity);
+        pen.SetDashPattern([2, 1]);
+        Reject(new(8, 8, 48, 48), Matrix3x2.Identity);
+        pen.SetDashPattern([]);
+        pen.StrokeTransformMode = PenStrokeTransformMode.Fixed;
+        Reject(new(8, 8, 48, 48), Matrix3x2.Identity);
+        pen.StrokeTransformMode = PenStrokeTransformMode.Normal;
+        pen.Thickness = 0;
+        Assert.True(StrokeCoverageGeometry.TryPrepareRectangle(new(8, 8, 48, 48), Matrix3x2.Identity, pen,
+            out _, out _, out var empty));
+        Assert.Equal(default, empty);
+    }
+
+    [Theory]
+    [InlineData(PenLineCap.Flat, 10f, 30f)]
+    [InlineData(PenLineCap.Square, 8f, 32f)]
+    [InlineData(PenLineCap.Round, 8f, 32f)]
+    [InlineData(PenLineCap.Triangle, 8f, 32f)]
+    public void HorizontalLineBoundsIncludeCapSupport(PenLineCap cap, float left, float right)
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4, startLineCap: cap, endLineCap: cap);
+        Assert.True(StrokeCoverageGeometry.TryPrepareLine(new(10, 20), new(30, 20), pen,
+            out var path, out var resultPen, out var bounds));
+        Assert.Same(pen, resultPen);
+        Assert.Single(path.Figures);
+        Assert.Equal(new Rect(left, 18, right - left, 4), bounds);
+    }
+
+    [Fact]
+    public void ShortRoundCapIsAHalfDiscNotAFullEndpointCircle()
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4,
+            startLineCap: PenLineCap.Round, endLineCap: PenLineCap.Flat);
+        Assert.True(StrokeCoverageGeometry.TryPrepareLine(new(10, 20), new(10.25f, 20), pen,
+            out _, out _, out var bounds));
+        Assert.Equal(new Rect(8, 18, 2.25f, 4), bounds);
+    }
+
+    [Theory]
+    [InlineData(10f, 20f, 30f, 50f)]
+    [InlineData(-13f, 6f, -13.25f, 6.125f)]
+    [InlineData(30f, 40f, -20f, -60f)]
+    public void IntrinsicRoundCapBoundsMatchScalarCubicOracle(float x0, float y0, float x1, float y1)
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4,
+            startLineCap: PenLineCap.Round, endLineCap: PenLineCap.Round);
+        Assert.True(StrokeCoverageGeometry.TryPrepareLine(new(x0, y0), new(x1, y1), pen,
+            out _, out _, out var bounds));
+        // Independent dense scalar oracle for the same public two-quarter cap
+        // contract. It is intentionally not used by production bound queries.
+        double dx = (double)x1 - x0, dy = (double)y1 - y0;
+        double length = System.Math.Sqrt(dx * dx + dy * dy);
+        double ux = dx / length * 2, uy = dy / length * 2;
+        double nx = -uy, ny = ux;
+        double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
+        void Include(double x, double y)
+        {
+            minX = System.Math.Min(minX, x); minY = System.Math.Min(minY, y);
+            maxX = System.Math.Max(maxX, x); maxY = System.Math.Max(maxY, y);
+        }
+        void Cubic(double ax, double ay, double bx, double by, double cx, double cy, double ex, double ey)
+        {
+            ax = (float)ax; ay = (float)ay; bx = (float)bx; by = (float)by;
+            cx = (float)cx; cy = (float)cy; ex = (float)ex; ey = (float)ey;
+            for (int i = 0; i <= 4096; i++)
+            {
+                double t = i / 4096.0, s = 1 - t;
+                Include(s * s * s * ax + 3 * s * s * t * bx + 3 * s * t * t * cx + t * t * t * ex,
+                    s * s * s * ay + 3 * s * s * t * by + 3 * s * t * t * cy + t * t * t * ey);
+            }
+        }
+        for (int cap = 0; cap < 2; cap++)
+        {
+            double x = cap == 0 ? x0 : x1, y = cap == 0 ? y0 : y1, sign = cap == 0 ? -1 : 1;
+            double ox = ux * sign, oy = uy * sign;
+            const double k = 0.5522847498307933984;
+            Cubic(x - nx, y - ny, x - nx + ox * k, y - ny + oy * k,
+                x + ox - nx * k, y + oy - ny * k, x + ox, y + oy);
+            Cubic(x + ox, y + oy, x + ox + nx * k, y + oy + ny * k,
+                x + nx + ox * k, y + ny + oy * k, x + nx, y + ny);
+        }
+        Assert.InRange(System.Math.Abs(bounds.X - minX), 0, 0.0001);
+        Assert.InRange(System.Math.Abs(bounds.Y - minY), 0, 0.0001);
+        Assert.InRange(System.Math.Abs(bounds.Right - maxX), 0, 0.0001);
+        Assert.InRange(System.Math.Abs(bounds.Bottom - maxY), 0, 0.0001);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void DashedLineUsesPreparedFiguresAndEffectiveCaps(int count)
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 4,
+            startLineCap: PenLineCap.Triangle, endLineCap: PenLineCap.Square, dashCap: PenLineCap.Round,
+            dashArray: count == 2 ? [2, 1] : [2, 1, 3], dashOffset: 0.25);
+        Assert.True(StrokeCoverageGeometry.TryPrepareLine(new(8, 16), new(56, 48), pen,
+            out var path, out var resultPen, out var bounds));
+        Assert.True(path.Figures.Count > 1);
+        Assert.False(resultPen.HasDashPattern);
+        Assert.All(path.Figures, figure => Assert.Single(figure.Segments));
+        Assert.True(bounds.Width > 0 && bounds.Height > 0);
+    }
+
+    [Fact]
+    public void EmptyAndUnsupportedPatternsAreExplicit()
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 0);
+        Assert.True(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, Vector2.One, pen, out _, out _, out var bounds));
+        Assert.Equal(default, bounds);
+        pen.Thickness = 4;
+        pen.SetDashPattern([0, 1]);
+        Assert.True(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, Vector2.One, pen, out _, out _, out _));
+        pen.SetDashPattern([0, 0]);
+        Assert.False(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, Vector2.One, pen, out _, out _, out _));
+        pen.SetDashPattern([-1, 1]);
+        Assert.False(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, Vector2.One, pen, out _, out _, out _));
+        pen.SetDashPattern([double.PositiveInfinity, 1]);
+        Assert.False(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, Vector2.One, pen, out _, out _, out _));
+        pen.SetDashPattern([1, 1]);
+        Assert.False(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, new(1e9f, 0), pen, out _, out _, out _));
+        pen.StrokeTransformMode = PenStrokeTransformMode.Fixed;
+        Assert.False(StrokeCoverageGeometry.TryPrepareLine(Vector2.Zero, Vector2.One, pen, out _, out _, out _));
+    }
+}

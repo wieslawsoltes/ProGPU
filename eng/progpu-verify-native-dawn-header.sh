@@ -17,30 +17,8 @@ if [[ ! -f "${build_dir}/CMakeCache.txt" ]]; then
   exit 1
 fi
 
-if [[ -e "${source_dir}" && ! -d "${source_dir}/.git" ]]; then
-  echo "Dawn WebGPU header source is not a Git checkout: ${source_dir}" >&2
-  exit 1
-fi
-new_checkout=0
-if [[ ! -d "${source_dir}/.git" ]]; then
-  git clone --filter=blob:none --no-checkout "${upstream_url}" "${source_dir}"
-  new_checkout=1
-fi
-if [[ "${new_checkout}" == "0" &&
-      -n "$(git -C "${source_dir}" status --porcelain --untracked-files=no)" ]]; then
-  echo "Refusing to change a modified Dawn WebGPU header checkout." >&2
-  exit 1
-fi
-if ! git -C "${source_dir}" cat-file -e \
-    "${expected_commit}^{commit}" 2>/dev/null; then
-  git -C "${source_dir}" fetch --depth 1 origin "${expected_commit}"
-fi
-git -C "${source_dir}" checkout --detach "${expected_commit}"
-actual_commit="$(git -C "${source_dir}" rev-parse HEAD)"
-if [[ "${actual_commit}" != "${expected_commit}" ]]; then
-  echo "Expected WebGPU headers ${expected_commit}, found ${actual_commit}." >&2
-  exit 1
-fi
+source "${repo_root}/eng/progpu-native-dawn-headers.sh"
+progpu_prepare_native_dawn_headers "${source_dir}" "${version_manifest}"
 
 cmake -S "${repo_root}/src/ProGPU.Native" -B "${build_dir}" \
   -DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR="${source_dir}"

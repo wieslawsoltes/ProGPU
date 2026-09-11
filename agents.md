@@ -1,10 +1,296 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Use purpose-based final names for APIs, applications, tests, scripts and artifacts,
+not delivery-stage labels. LibreWPF acceptance references use ShowcaseApp and
+SciChartApp; shared fixtures use the corresponding Showcase identifiers. Renaming
+does not qualify rendering, package integration or outstanding release gates.
+
 Welcome, agent! This document serves as a specialized developer guide and architectural handbook for AI coding agents pair-programming on the **ProGPU** codebase. Read this document carefully to align with our established design patterns, mathematical conventions, and diagnostic tools.
 
 ---
 
 ## 1. Core Architectural Rules & Conventions
+
+Bottomless float placement is distinct from fixed horizontal anchors. Use native
+free-interval packing for measured floaters: left/center select the first fit,
+right the last, center within the selected interval. Keep fixed-anchor placement
+unchanged. Windows source reference places floats below their anchor-bearing row;
+do not implement iterative source-local Y repair or feed the source row its own
+float exclusion. Native row events and empty parent-row metrics must connect
+before source admission; a box-placement primitive alone is not document parity.
+
+Native floating paragraph events activate only after their owning row commits.
+Retain original glyph-boundary order, shaped clusters and separate parent/float
+extents; one attempt budget covers both row and float retries. Anchor-only content
+uses explicit source empty-row metrics, not an invented glyph or the legacy empty
+paragraph result. Translate source/segment affinity through the batched shaping
+transport before source admission; no per-line managed callback or local Y repair.
+
+Floating text transport maps ordered scalar boundaries to original logical
+clusters in the shared styled/inline shaping pipeline. Never round an anchor out
+of a shaped cluster or substitute a non-ink glyph. Retain parent extents separately
+from float-inclusive extents, generated wire layouts and one pinned context lease.
+Zero-glyph anchored content requires its explicit source-metric row. Retained
+UTF-16/hidden-edge mapping, source continuations and child ownership remain required
+before ordinary source admission; C/managed span success is not package parity.
+
+Anchor fit-content measurement must distinguish native constrained extent from
+actual content right extent. Use the shared native arrangement measurement,
+retaining source insets/margins, objects and fixed table tracks/spacing. Never
+shrink explicit fixed tracks or derive child width from character counts. This
+measurement is not ink bounds, hit geometry or source anchor admission.
+
+Excluded hard-segment origins belong in native fitting against unchanged
+paragraph-local exclusions. Preserve double placement tops and absolute bottom,
+zero-origin compatibility and representable float bands. Empty native input still
+emits no row. Do not implement source-side Y repair or infer source line-break
+admission before C transport, snapshots and cumulative document extents connect.
+
+Measured anchor placement preserves its resolved horizontal reference while
+clearing exclusions downward only with explicit delay permission. Keep bounded
+attempts, half-open contact and atomic placement publication. Automatic sizing,
+empty anchors and source subtree ownership are separate required contracts;
+never infer their admission from a positive-size native placement fixture.
+Anchor width policy separates fill from measured fit-content. Format the actual
+source subtree at the initial constraint, then honor explicit remeasurement at
+the resolved width; never rescale retained lines or manufacture intrinsic width
+from character counts. Exhausted content width is zero and real insets remain
+outer overflow. Width policy alone does not connect source Figure/Floater layout.
+Anchor width batches validate modes/flags before narrowing and preserve every
+output on a later invalid request. Borrow disjoint spans for one synchronous
+call; retain the shared native policy rather than duplicating it in managed code.
+Anchor placement batches retain source order and earlier collision boxes, with
+whole-batch publication only after all fits succeed. Keep collision exclusions
+distinct from source wrap-side policy; a successful box batch is not text flow
+or Figure/Floater source ownership. No per-anchor managed/native crossing.
+Neutral anchored document support is an explicit optional capability over the
+existing document service. Match sequential native layouts and typed enum values;
+do not add ignored anchor fields or fall back to ordinary blocks when absent.
+Explicit fragment paragraphs use their native content extent and local positions
+inside shared document arrangement, never a fragment-height prefix or source-side
+Y repair. Preserve ordinary lines, row stretching, original order and atomic
+outputs. Validate line partitions before scanning local offsets; source TextLine
+and anchor admission remain separate until drawing and interaction consume them.
+Positioned paragraph span transport must retain exact local-position coverage,
+one native crossing and explicit optional source capability. Do not implement a
+managed prefix/offset correction when the selected document provider lacks it.
+
+Anchored text exclusion uses resolved half-open layout rectangles, not paint or
+hit-test envelopes. Preserve every free interval across the whole candidate line
+height, real exhausted width, edge contact and next-Y progress. The shared native
+interval primitive uses caller-owned scratch and must stay inside native fitting,
+not per-line managed/native callbacks. It does not admit Figure/Floater until
+anchor placement, exclusion-dependent fitting and source subtree ownership connect.
+Native exclusion-band fitting reuses the shaping-safe logical scanner, retains
+original glyph ranges and paragraph tab origins, and orders intervals by actual
+paragraph direction. Oversized indivisible content may not overlap an exclusion.
+The caller must validate actual measured height before accepting a candidate band;
+fragment fitting alone does not publish final positioned glyphs or document layout.
+Measured exclusion-band placement uses the common logical writer, with real
+paragraph continuation for justification and source glyph indices restored after
+fragment emission. Every fragment in one row shares a measured baseline/height.
+Do not prefix-sum fragment heights as if they were independent rows. Height refits
+consume no text and publish no positioned output; bounded convergence, retained
+fragment interaction and actual anchor/source ownership are still required.
+Native excluded-paragraph flow retains explicit row indices and fragment tops,
+including cleared vertical gaps. MaximumLines counts rows, not fragments.
+Whole-paragraph scale/bidi/metric validation must not repeat on each retry.
+Nonconvergent height fits fail at the explicit attempt budget; this is an open
+compatibility case, not permission to accept an oversized row or claim parity.
+Fragment text interaction uses the retained explicit top for each fragment,
+preserving same-row baselines and cleared vertical gaps. Validate contiguous row
+identity, nonoverlapping ordered intervals and shared row metrics before output.
+Keep fragment indices on boxes/carets and map them through retained placements;
+legacy line-index navigation is not automatically cross-fragment navigation.
+Native fragment caret navigation consumes an index in the same retained caret
+generation. Physical X and fragment position, not fragment-array order, own
+left/right movement; paragraph direction owns row wrapping. Up/down select the
+nearest populated row and an existing stop at preferred X, preserving affinity
+when distances tie. Never synthesize a caret inside a glyph or excluded gap.
+Fragment paragraph measurement uses retained nonnegative paragraph-local frames,
+not a sum of fragment heights. Preserve interval offsets, content overflow and
+clearance gaps while keeping the requested measured width separate. Row tops
+retain the double layout prefix; baseline/caret comparisons use its published
+float frame. Do not widen tolerances to hide rounded adjacency failures. This
+native metadata is not C ABI or source Figure/Floater admission by itself.
+Fragment interaction transport uses the generated 24-byte C placement record,
+not a cast to the C++ layout. Borrow one placement per line in a single native
+build, validate reserved fields and original request ABI before output, and keep
+row/top metadata in the owning snapshot generation. Legacy measured interaction
+continues using ordinary line prefixes. This interaction seam alone does not
+publish excluded-paragraph shaping output or admit source anchors.
+Excluded paragraph C transport shares the inline shaping pipeline and one caller
+scratch arena. Preserve original source glyph/font identity, explicit fragment
+tops/rows and separate content/measured extents. Validate metrics before publishing
+any output; retry exhaustion is an error with zero counts, not a partial success.
+Native transport alone does not admit anchors or replace retained source ownership.
+Managed exclusion spans borrow the same native arena contract under one context
+lease. Validate metric span lengths before pointer access and retain explicit
+fragment output capacity; do not replace native row placement with managed offsets.
+Excluded snapshots retain native fragment frames and metrics beside original
+glyph/cluster arrays, and build interaction from those same frames. Lines are
+fragments, not rows; never prefix-sum their heights or use ordinary row navigation.
+Empty excluded rows remain rejected until their actual native placement connects.
+Fragment navigation transports existing generation-local caret indices through
+the shared C++ algorithm. Keep C byte-affinity validation, physical direction
+mapping and failure-cleared output; bind snapshot-owned carets and placements
+together rather than mixing generations or falling back to ordinary row movement.
+Neutral exclusion formatting is an explicit optional capability. Preserve native
+fragment/row distinction, extents and generation-local carets; never add ignored
+exclusion fields to ordinary formatting or admit source anchors from ABI support alone.
+
+Neutral inline text uses the explicit IPortableInlineTextFormatting capability,
+not optional fields that a text-only provider can silently ignore. Source metrics
+and U+FFFC objects are borrowed only during formatting; outputs retain original
+source ordering, non-ink glyph identity, line tops and separate baseline offsets.
+Preserve ordinary request constructors and glyph deconstruction. This capability
+does not admit source InlineUIContainer or anchored Figure/Floater layout.
+
+Retained native inline snapshots map source UTF-16 U+FFFC positions to scalar
+indices once and retain source-ordered placements with glyph/line identity.
+Keep native measured interaction and real cluster ends, including tabs, surrogate
+pairs and hard breaks. Do not borrow mutable caller object arrays or expose
+object sentinels as drawable font glyphs. Measured collapse requires sign metrics
+and remains rejected; neutral/source adapters are still separate admission work.
+
+Measured inline paragraph interaction uses the explicit measured C API over the
+original positioned output. Derive tops from the same double line-height prefix,
+including empty lines; keep baseline validation and zero heights authoritative.
+Do not repack glyph Y values in managed code, treat baselines as line tops or
+send non-ink object identities to font atlases. Legacy interaction keeps its
+existing coordinate convention. Snapshot/source admission remains separate.
+
+Native inline paragraph calls require explicit styled physical faces, matching
+source-owned style metrics and ordered objects covering actual U+FFFC scalars.
+Keep objects non-ink with reserved object glyph/font identity, real source
+clusters, fractional advances and measured line extents. Old flow APIs retain
+their scratch and baseline convention. Span bindings must validate metric count
+before native pointer access. Snapshot interaction and source control admission
+remain separate required connections; never pass object sentinels to glyph atlases.
+
+Measured native text items use the shared logical paragraph writer. Resolve
+per-line ascent/descent before positioning and advance the same retained line
+prefix; do not grow every line to one paragraph-wide maximum. Empty metrics
+preserve legacy baseline-zero positioning. Keep metric trimming rejected until
+the sign has a metric contract. This C++ prerequisite does not itself admit
+inline objects, anchored blocks or WPF source consumers.
+
+Native document rows and cells extend the shared block-flow passes. Resolve fixed
+shared column tracks before formatting; use the tallest cell for row height and
+retain real line/source order, even when Y is nonmonotonic. Prefix each distinct
+column slice once, keep nested slices independent, and reject overlapping tracks,
+spans or undeclared row children before publishing outputs. Cell boundaries stop
+margin collapse. Do not enable a source table consumer with global Y-ordered text
+lookup, flatten cells into vertical paragraphs, infer automatic widths or hide
+row spans/pagination. Borrow all metrics in one width/arrange crossing per batch.
+
+Source-measured document block objects use the shared native ArrangeWithObjects
+contract, not fake paragraph lines or a WPF-local placement loop. Preserve real
+leaf identity, source-owned measure/visual/editing lifetime, insets, adjoining
+margins, zero-size object semantics and overflow. Reject duplicate/unsorted,
+container or text-leaf targets; publish no outputs after a failed validation.
+The additive object metrics do not qualify inline/anchored/table layout or source
+UI interaction. Keep old object-free entry points and both providers compatible.
+
+Prepared stroke centerlines may have finite zero extent before widening. Use the
+explicit stroke-spine bounds policy without changing positive-area fill admission.
+Preserve split runs, local-before-widen transforms, cap ownership and real pen
+width; never inflate a centerline into a fake rectangle or discard it as empty.
+
+Retained rectangle stroke preparation selects a sharp four-line source spine
+when either corner radius is zero. Clearing smooth-join flags on collapsed cubic
+corners is not equivalent. Preserve geometry-local mapping before widening and
+the original pen width; collapsed shapes may retain only a rigid pen frame.
+Keep paired zero-X/zero-Y managed/native coordinate and material-bounds fixtures.
+
+Grouped fixed strokes must use the same source-radius normalization and canonical
+full-ellipse representation as direct fixed draws. Compare complete prepared child
+records, not stale transform values used as labels. Cached-source alpha tests must
+compare once-composited opaque coverage against an independent ordinary-stroke
+layer; per-piece PushOpacity is a different contract, not its pixel oracle.
+
+Native retained 3D depth-initialization state must cover semantic::layer_slot_count,
+including cache slots after the transient range. Reset the actual slot before
+each cold content pass and retain depth across same-target 2D/3D continuations.
+Never index a transient-only array with a retained cache slot or treat a lucky
+platform pass as proof of initialized depth. Keep cold/warm, nested, scaled and
+mixed-content Viewport3D pixel checks in the full gate.
+
+Direct native image frames admit straight-alpha textures only. Preserve their
+fixed-function SrcAlpha blending independently of mixed retained scene images,
+which normalize straight and premultiplied samples once and blend with One.
+Do not share those mask pipelines merely because the layouts match: D3D12 UNORM
+rounding changes with the multiplication stage. Keep both pipelines engine-owned
+and preserve the strict masked-image differential without widening tolerances.
+
+Built-in source identity effects preserve input around an admitted local cache.
+The inner cache owns original-content frame conversion; the outer effect owns
+its final source clip, not effect padding. Keep spatial visual masks rejected
+at both boundaries and zero-scale caches input-only. Do not restore blanket
+cache exclusion or treat these composed fixtures as full application qualification.
+
+X11 native popup setup belongs to NativePopupWindow and requires the complete
+hidden top-level, same-display/root, transient-owner, override-redirect and menu
+type contract. Confirm server state; never combine independent setup results
+with OR or report property submission as complete configuration. Borrow live
+host windows on their serialized display thread; do not install a global Xlib
+error handler or repurpose opaque XIDs as ownership. Rejected setup requires
+hidden surface destruction. This is popup placement/ownership, not Linux native
+modal-input suppression or Cocoa NSPanel admission.
+
+Successful source point-region Empty means no own point hits, not unavailable
+metadata or a zero-sized rectangle. Preserve source region drawing, descendants,
+clips and owners through the paired native/managed point scopes. Caret/selection
+rejection must not become subtree invisibility or a raster-alpha hit rule. Keep
+the native is_empty discriminator validated and source snapshot updates batched.
+
+Source rectangular image/drawing/visual-brush fills own their actual geometry,
+not brush pixels, viewport or inner visuals. Reuse the logical rectangle scope
+before brush mapping/isolation and close it before separate pen replay. Preserve
+inherited source clips and unsupported outcomes; never use nonrectangular fill
+bounds as source rectangles or silently admit required cached-picture sources.
+
+Canonical MIL EllipseGeometry strokes use full elliptical arc records. Keep their
+native input encoding shared with analytic ellipse draws and managed ellipse
+queries, preserving actual radii, pen width, affine placement and source clips.
+Do not reject the ordinary full ellipse as an unknown line, approximate it by a
+rectangle, or silently promote partial/skew-basis/device-width arcs to ellipses.
+
+Source drawing PushOpacityMask is input-neutral, not a geometry clip. Native MIL
+uses the explicit source_opacity_mask layer annotation; managed typed source
+capture consumes balanced mask scopes. Keep raster masks and real source clips
+intact, never use mask bounds/pixels as selection geometry, and never tag a
+geometric clipping layer as an alpha-only layer. Visual mask/cache/effect boundary
+admission remains separate until its source-state ownership is implemented.
+
+Source-specific point regions must remain distinct from geometry selection.
+Use shared PointOnly/RegionOnly hit-primitive flags, preserving actual transforms,
+clips and owner order. Neither flag keeps all-query behavior; both/unknown bits
+are invalid. A source TextBlock rectangle requires a typed source descriptor and
+region-only drawing coverage, not generic arranged-bounds input or type probing.
+The query flags alone do not connect or qualify the source control. Keep managed
+and both native providers on the same canonical query shader.
+The typed point descriptor now travels through a complete, sorted native MIL
+sideband snapshot and paired retained point scopes. Close each own-content scope
+before descendants; retain empty rectangles without painting them. Source-command
+visuals must not also publish generic Size coverage. Preserve owner IDs on actual
+commands and fail on unsupported outer cache/mask input instead of fabricating it.
+
+Native caret mirrors belong to the real native window, not a portable source
+handle. Keep typed source owner identity and client coordinates, one hidden
+bitmap-free Win32 queue caret, thread-bound mutation and stale-release protection.
+Never draw a second OS caret or overwrite source shaping/blink/bidi semantics.
+Release before native window disposal; failed release retains explicit ownership.
+Unavailable mirrors do not authorize source-local HWND calls or accessibility
+parity claims. Same-HWND external caret replacement needs host coordination.
+
+Portable application lifetime belongs to the source shutdown policy, not the first
+native host loop. Shared PortableApplicationRunLoop callbacks borrow live source
+identities and must return only on retirement or actual shutdown; hostless waits
+must block on source work, never spin or manufacture a window. Handoff preserves
+the existing host's visibility and must not reuse modal pumping, activate it again,
+mutate MainWindow or select another renderer. Callback errors propagate explicitly.
+Both renderers share this host contract; Windows SDK admission stays independent.
 
 ### A-1. Mandatory Clean-Room Implementation
 
@@ -28,6 +314,41 @@ layout and ownership may be optimized when behavior, quality, complexity, and pe
 contracts remain equivalent and the difference is documented and measured.
 The existing ProGPU implementation is authoritative for behavioral compatibility;
 third-party engines remain research and conformance references only.
+
+### A-1.1. Mandatory GPU-First Compute and SIMD Fallback Policy
+
+Compute-heavy work must use a typed, configurable execution policy whose default
+selects the fastest qualified implementation. The required preference order is native
+compute, then a compatible same-device render/fragment or other GPU shader-stage path,
+then intrinsic-SIMD CPU, with scalar CPU retained only as an explicit reference or last
+resort. Do not move a data-parallel workload to the CPU merely because one adapter or
+driver profile cannot safely run its compute pipeline.
+
+A different shader stage is eligible only when it can preserve the same observable
+algorithm without compute-only workgroup memory, barriers, atomics, indirect-dispatch
+semantics, or unavailable storage writes. Such fallbacks must share typed resources,
+quality constants, cache ownership, and differential tests with the compute path and must
+not add CPU readback, CPU repacking, per-item queue submission, or backend-specific managed
+workarounds. Kernels with compute-only semantics must use another exact GPU algorithm or
+continue to a CPU path explicitly; never silently approximate them.
+
+Expose fastest/automatic, forced native-compute, forced compatible GPU-shader, forced
+intrinsic-SIMD CPU, and forced scalar-reference preferences through typed configuration and
+diagnostics. Fastest/automatic is the product default and must use qualified adapter
+capabilities. Forced incompatible modes fail closed instead of silently selecting another
+path. Every implementation must report its resolved execution path so integration and
+performance gates can prove which path ran.
+
+Every CPU fallback and every other compute-heavy CPU hot path must use hardware intrinsics
+or runtime-intrinsic SIMD whenever its lanes are independent. Managed code should prefer
+`Vector128<T>`/`Vector256<T>`/`Vector512<T>`, `Vector<T>`, or platform intrinsics with a
+bounded scalar tail. Native code should use a shared SIMD abstraction or explicit
+architecture intrinsics with compile-time/runtime feature selection and a bounded scalar
+tail. Whole-buffer scalar loops are allowed only for genuine data dependencies or the
+explicit scalar reference mode; document why SIMD is inapplicable and differentially test
+SIMD results against that scalar oracle. SIMD paths must remain allocation-free,
+alignment-safe, span-based, and quality/bit compatible, and measured performance claims
+require representative benchmarks.
 
 When an equivalent feature exists elsewhere, implement it clean-room:
 
@@ -96,6 +417,27 @@ contract suitable for desktop, mobile, NativeAOT, and browser/Wasm hosts.
 
 ### A-2.1. Mandatory Managed and Native Rendering Parity
 
+Before implementation freeze, native payload production may use only the explicit
+--build-only / -BuildOnly entry modes when qualification must be deferred. Keep
+both native providers, required SDK/Direct2D payloads and test/sample compilation;
+never enable this mode through environment state or normal release/CI workflows.
+Staged output remains unqualified. Pinned dependency preparation is a build step,
+not permission to execute renderer/verifier workloads or weaken final gates.
+Explicit Linux build-only RIDs must keep Clang's target triple, CMake processor,
+the pinned wgpu linker input and staging RID aligned. Use target-specific build
+directories and real target GNU link/standard-library dependencies; never relabel
+host binaries, emulate uname, bypass compiler link probes or treat cross-compilation
+as target runtime qualification. Normal CI/release lanes remain native and gated.
+Explicit macOS build-only RIDs similarly bind CMAKE_OSX_ARCHITECTURES, the pinned
+wgpu dylib and staging RID. Keep build and mutable runtime-input directories
+architecture-specific, reject host/target OS mismatches before restore, and never
+use uname emulation or relabel host binaries. Complete package gates stay intact.
+
+Retained picture seed copies must submit through `progpu_native_engine::submit`,
+just like other native render/mask work. Never call raw `wgpuQueueSubmit` or
+increment submission metrics locally: the engine owns provider dispatch, latest
+completion identity and bounded retirement for wgpu-native and Dawn alike.
+
 Treat the managed C# renderer and the native C++ renderer as two implementations of one
 ProGPU rendering contract. Every rendering, scene-compilation, resource-lifetime, cache,
 text, glyph, path, image, effect, invalidation, device-loss, or performance change must
@@ -115,6 +457,11 @@ include an explicit applicability audit for both implementations.
   use equivalent workloads and report comparable Release counters and p50/p95/p99 evidence,
   including stable replay, retained uploads, allocations, and GPU resource residency where
   applicable.
+* Every edit to `src/ProGPU.Native/src/Mil/progpu_native_mil.cpp`, including
+  implementation-only optimizations, changes the coverage ledger's source digest.
+  Run `python3 eng/progpu-generate-mil-coverage.py`, review the generated diff, and
+  run `eng/progpu-verify-native-contract.sh` before committing. Do not hand-edit
+  ledger hashes or disable freshness checks to make CI pass.
 * Keep shared public C records, generated C# wire declarations, canonical shaders, fixtures,
   and expected results synchronized. A wire or shader change is incomplete while generated
   output is stale or only one implementation consumes the new contract.
@@ -156,11 +503,519 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+`IPortableDrawingBoundsSource` distinguishes authoritative empty content from
+unavailable metadata. Successful PortableRect.Empty can select the existing
+null-drawing MIL image contract; false cannot. Preserve source dependencies across
+clear/refill, keep zero-sized rectangles distinct, and never perform image mapping
+with empty bounds. Both renderer consumers must preserve this contract.
+
+Native Cocoa popup parent setup uses `NativePopupWindow` checked main-thread
+identity and hidden-state admission, retains host objects across callbacks and
+verifies the resulting parent/flag state. Failed setup requires disposal, not
+Show or a different popup surface. Do not overwrite reentrant host ownership.
+This does not admit GLFW NSWindows to AppKit modal sessions or replace them with
+NSPanels. See docs/native-mil-cocoa-popup-ownership.md; final native gates remain.
+
+Portable default access-key scopes use `IPortableAccessKeyScopeSource` actual
+activation/visibility/input admission, never the first live root or a guessed
+HWND. Source WPF owns scope lookup; both renderer modes share it. Keep missing or
+conflicting eligibility closed, native Windows routing separate, and custom host
+activation explicit. See docs/native-mil-access-key-scope.md; compilation does not
+qualify menu interaction or Windows SDK startup.
+
+Source text collapse must keep an immutable original paragraph and actual hidden
+source ranges. Reuse the native forward tab/scale and safe-shaping boundary policy;
+never infer a cut from codepoint counts or subtract a tab's nominal font advance.
+Use the explicit collapsed-flow snapshot with original glyph identities/cluster
+ends, a separate final-line width and a synthetic hidden-range interaction item.
+Keep the ordinary editor factory untruncated. The sign owns separate source styling;
+it must not enter a font atlas as the last visible source cluster. Preserve RTL
+placement, preceding wrapped lines and one-entry immutable cache publication.
+See docs/native-mil-text-collapse.md; Toolkit output/performance remains unqualified.
+
+NativeWindowModalSession owns AppKit modal event dispatch and scoped native host
+identity. Every participating poll must consult it before GLFW/default polling;
+do not free a retained host while a session begin/end or event callback is active.
+Release nested/native callbacks before ending their sessions and native windows.
+Window release completion must follow native End and identity cleanup, outside
+native transitions. Failed End retains the host/session and faults further polling
+and release: never retry a possibly consumed native token. Never
+notify successful release on cleanup failure. Drain other ready callbacks despite
+callback exceptions. Hosts must recheck current visibility/disposal and any newly
+entered native lease before acting on deferred Hide completion.
+WPF automatic Cocoa session admission remains pending actual native popup and
+source release/focus ordering contracts. NSWindow mouse transparency or a local
+event monitor is not full modality; monitors miss native tracking loops. Do not
+fake NSPanel admission for GLFW windows. See docs/native-mil-cocoa-modal-session.md.
+Native top-level ownership uses live SilkWindowController instances on their
+creating thread and actual platform handles. TrySetOwner must reject self/cyclic,
+foreign-platform/display, disposed and closing relations before native mutation;
+retain accepted ownership only, never install popup/nonactivation styles for an
+ordinary dialog. Win32 uses local top-level owner chains and checked attribute
+writes, not SetParent child reparenting. Cocoa validates before removing its old
+owner; X11 transient hints are submission, not WM/display qualification. Keep
+Wayland capability gaps and modality/activation restoration separate.
+PortableModalInputScope is the shared thread-bound source dialog input policy.
+Its native-surface registrations must be weakly indexed and host-owned, immediately
+publish current permission for new windows, and release references on disposal.
+Source dialog release must transfer input-scope cleanup through ReleaseAfterNative.
+Native completion precedes source LIFO release and gate publication; actual source
+focus restoration comes last and checks policy synchronization. A finally/using
+must not bypass a pending native completion. Failed native requests stay explicit;
+duplicate completion and repeated release must not restore twice. Keep ordinary
+Dispose strict about source LIFO order. Source ShowDialog requires both RunDialog
+and ReleaseDialog before Show; a host without native modality explicitly completes
+ReleaseDialog synchronously, not through an absent-capability fallback.
+Snapshot only at scope transitions; callback removal/creation cannot corrupt the
+publication traversal. Roll back failed entry and publish exit to every surviving
+gate even after a failure. Reject recursive scope mutation during publication;
+surface registration/removal remains allowed. Report failed synchronization so
+source focus restoration cannot activate a still-blocked predecessor.
+SilkWindowController input admission is separate from application enabled intent.
+Only supported Win32 gates may report acceptance; Cocoa button changes are not
+native input suppression. Reapply and SetEnabled must preserve the input gate and
+reconcile callback-updated intent before returning, with bounded explicit failure
+for oscillation. Source hosts create registered surfaces hidden until admission,
+including popups using actual owner identities. Keep other OS/thread gaps explicit.
+X11 NativeWindowModalHint is advisory state, never an enabled-input gate or native
+event session. Preserve preexisting modal bits, current unrelated atoms, actual
+window roots and queued-removal/reopen ownership. Release the borrowed window hint
+before source focus cleanup, hide or destruction; retain failed cleanup ownership.
+Do not promote EWMH submission into qualified native input suppression or silently
+truncate property data. Keep explicit native X11 and visible application gates.
+Enter before Show, preserve nested identity and LIFO/owning-thread release, and
+clear scope references on disposal. Host ingress and queued delivery must both
+check it; source adapters resolve actual popup ownership and check capture/focus
+redirection before emitting input reports. Do not mutate application IsEnabled
+values or claim native nonclient suppression/activation restoration from this
+source-level policy. Geometry/render/lifecycle work must remain live while input
+is blocked. Missing or cyclic modal source ownership fails closed.
+Native enabled-state admission must not combine unrelated shadow/chrome success
+with input-state success. Win32 EnableWindow returns prior disabled state, not
+success; keep local host-thread ownership and actual post-callback state checks.
+Controller desired state is distinct from accepted native state. Cocoa button
+enabling is not full keyboard/pointer suppression or modal-window parity.
+Portable dialog pumping uses the optional typed RunDialog callback, separate from
+application Run. Borrow its source-owned continuation only during the synchronous
+host-thread call; hiding ends that dialog invocation without destroying the host.
+Do not retain the predicate, route it through HWND dispatcher frames, or swallow
+its failures in device/close recovery. This loop contract does not implement native
+owner configuration, application input modality or activation restoration; keep
+those requirements explicit. See `docs/native-mil-dialog-lifetime.md`.
+Source-built WPF media transport selection belongs in `PortableWpfRuntime`,
+and native host/SDK startup must install lazy source text/geometry defaults before
+application constructors can measure content. `PortableDefaultServiceSlot<T>` keeps
+the process default separate from explicit overrides; disposing an override must
+not erase the default or resurrect an older override. Registration owns no service
+resources and must not initialize a GPU device or native font context. See
+`docs/native-mil-startup-services.md`; readiness is not Windows SDK admission.
+Source text routing must honor that frozen media choice before simple-line or
+LineServices dispatch. A captured text service owns a request; retained paragraph
+continuations survive explicit-provider removal without reshaping or empty fallback.
+Intrinsic widths use the shared native logical paragraph scan, not a host-local
+full-line-width approximation. Preserve whole-cluster trailing-space semantics,
+safe break opportunities, per-style scales and tab grids. Whole-word wrapping
+must not revert to emergency cluster splitting. See `docs/native-mil-intrinsic-text.md`.
+Optimal breaking and other remaining source contracts remain explicit gaps.
+Media transport must be selected
+before media objects or composition locks are acquired. Keep first-use selection
+immutable, reject late backend switches, and share the interop assembly between
+host and source-built WPF. Device recovery must not reset that choice. Host
+callback registration and renderer mode alone are not proof that legacy Windows
+MIL utility, channel or popup paths have been bypassed.
+Portable window hidden-source creation is a separate `CreateHidden` capability,
+not a Show/Hide sequence. Preserve detached visual roots until Show, stable
+source identity and factory-failure cleanup. Missing capability must fail closed;
+portable source handles must not be advertised as arbitrary native HWNDs.
+Popup placement queries must route only to the registrar owning the source and
+distinguish owner-surface from native-screen bounds before Show. Keep monitor
+selection/validation in the neutral interop contract, preserve desktop origins,
+and reject missing/invalid native monitor data rather than fabricate owner bounds.
+See `docs/native-mil-popup-placement.md` for coordinates and qualification limits.
+Client-to-desktop placement uses `PortableDesktopTransform`, separate from
+framebuffer DPI. Translate after scaling client-local offsets; never scale raw
+desktop/monitor origins. Source geometry updates use `IPortableDesktopGeometryHost`
+as one validated snapshot, while legacy origin-only updates preserve its scale.
+Do not enable a new automatic host mapping until popup anchors, child extents,
+limits, overlay placement and input consume the same coordinate frame.
+Popup offsets/extents use the transform's vector operations without origin
+translation. Inverse vector mapping divides by scale directly; do not introduce
+reciprocal overflow or route popup screen nudging through framebuffer DPI.
+`PortableDesktopTransform.FromWindowCoordinates` consumes the host's explicit
+client-size policy; never infer that choice from OS names or framebuffer ratios.
+Legacy popup device transport must be decoded to desktop units before applying
+the inverse owner-client mapping. Native input uses desktop vectors without
+subtracting monitor origins; native surfaces retain their independent client scale.
+Native-popup position-transport scale and framebuffer scale have separate owners.
+Owner-DPI notifications may update legacy coordinate decoding, not a separately
+surfaced popup's raster DPI. Only its own host geometry callbacks replace that
+initial source seed; composited owner-surface popups continue inheriting owner DPI.
+Source memory bitmaps select storage by the frozen media backend, not the OS.
+Retained native text contexts must hold a same-thread use scope for every complete
+native operation, serializing mutable plans/fallback fonts and excluding disposal.
+Do not restore raw pointer reads followed by unleased native calls. Reuse the
+existing C++ paragraph pipeline for WPF text integration; never count an empty
+portable paragraph as shaped content. See `docs/native-mil-text-source-integration.md`.
+Native text interaction adapters must use the shared C++ algorithms with borrowed
+typed buffers, actual positioned-glyph cluster ends and resolved bidi levels.
+Do not repack glyphs into a second implementation, alias incompatible C/C++ record
+layouts, invent cluster boundaries, or publish capacities as output counts.
+Managed by-reference outputs must remain pinned across the complete native call.
+`NativeTextParagraphSnapshot` maps source/editor style ranges into the shared
+native paragraph; it is not a replacement composer. Keep real UTF offsets, logical cluster successors,
+native bidi metadata and successful output counts. Do not guess cluster end as
+start plus one or drive logical WPF navigation with visual caret order. Source
+fallback-font/document/trimming gaps remain explicit until connected
+to the shared native pipeline. UTF expansion uses intrinsic BMP/surrogate blocks;
+its mixed-sequence decoder and topology-dependent metadata are not GPU fallbacks.
+Styled native layout selects explicit context-owned faces, per-run feature/language
+ranges and floating-point design-unit scales before wrapping and visual ordering.
+Do not rescale font-unit integers or duplicate the paragraph composer. Empty styles
+preserve the uniform API. UTF-16 style ranges must cover input exactly at scalar
+boundaries; positioned glyphs retain their actual face index. Scalar topology and
+prefix scans are dependency-bound; four independent metric lanes use NEON/SSE2.
+Source run metrics and drawing brushes remain source-owned. Explicit faces are
+not a completed composite-font/fallback policy, and compiled styled fixtures are
+not application qualification. Single-face styled paragraphs reuse leased plans;
+multi-face contexts are isolated until a bounded palette cache is implemented.
+Incremental tabs belong in native paragraph measurement, before wrapping and bidi
+visual ordering. Use `NativeTextFlowOptions` and preserve the resolved advance in
+caller scratch. Its `UINT32_MAX` glyph-id sentinel is a non-ink source tab, never a
+font atlas entry. Source adapters must retain tab caret/selection/background bounds
+without manufacturing space glyphs or missing-glyph boxes. Custom stops/leaders,
+disabled-grid substitution remain explicit unsupported contracts. Incremental-tab
+trimming uses the shared forward resolved-advance scan and explicit collapsed view;
+its compiled fixtures are not runtime parity evidence.
+Tab-grid and wrapping scans are prefix-dependent; independent metric lanes retain
+NEON/SSE2. Do not move tab expansion into a WPF-local paragraph composer.
+Word-space justification belongs in the shared Unicode-aware native paragraph,
+before interaction construction. Classify whole source clusters, not glyph ids or
+line-break opportunities; expand interior U+0020 only on soft-wrapped lines and
+after the final tab. Preserve shaped ownership, final/hard/collapsed lines, source
+whitespace and tab grids. Keep the legacy shaped-only API explicit and retain
+SIMD metric lanes. Script-specific insertion/inter-character policies remain
+separate missing contracts, never inferred complete from word-space coverage.
+LibreWPF source composite/fallback linking now feeds explicit physical style ranges
+through `GlyphingCache.GetPortableFontRuns`. WPF owns its family map/culture/cache
+policy and source line metrics; ProGPU owns the shared native shaping/paragraph.
+Keep mapped font scale in the actual em size, not just the paint or family label.
+Do not import the WPF family-linking implementation into ProGPU or reconstruct it
+through reflection. Null-shape, device-font and synthetic-style cases are not
+qualified by resolving an ordinary physical face.
+Document block placement uses the shared native `NativeDocumentFlow` contract,
+not a WPF-local block composer. Source hosts resolve property policy and retain
+their original document positions, formatted lines and interaction ownership.
+Keep width resolution before formatting, line placement after formatting, and
+zero-width exhaustion distinct from an unbounded constraint. Positive margin
+collapse, nested insets and actual overflow share one native layout; pagination,
+lists/markers and source viewer activation are not implied by a utility fixture.
+See `docs/native-mil-document-flow.md`; do not flatten missing document semantics.
+Source document positions must use `PortableTextSourceMap` to distinguish hidden
+edges from contiguous shaping text. Preserve both boundary affinities and immutable
+range ownership; never insert fake glyphs or spaces for hidden source positions.
+The map is source topology metadata shared by renderer consumers, not a replacement
+composer. WPF owns its property-modifier evaluation and scope lifetime; directional
+embedding, decorations and embedded-object metrics remain explicit until connected.
+Source custom chrome must recognize ProGPU window ownership before HWND access,
+including registered/pre-source activation. A host HWND is not a WPF HwndSource;
+portable border updates and restoration stay on typed source/host contracts.
+See `docs/native-mil-window-chrome.md` for the SDK consumer and qualification gaps.
+Source decoder/cache integration follows that same policy; unsupported portable
+formats or missing pixel ownership must fail before Windows WIC handle access.
+Both renderer modes consume typed pixel snapshots and native MIL sidebands with
+their format/stride/DPI preserved; never pass Windows double-buffer pointers as
+ProGPU resources. Source-owned locked pointers must have GC-owned or explicit
+lease lifetime, not orphanable GCHandle pins. See `docs/native-mil-memory-bitmaps.md`.
+Windows native popups use the shared `NativePopupWindow` contract. Configure only
+same-thread, same-process top-level owners and hidden popup HWNDs; preserve
+unrelated styles, establish ownership without reparenting as a child, and keep
+nonactivation separate from topmost state. The static subclass must return
+MA_NOACTIVATE without eating clicks, forward other messages, and remove itself
+at native destruction. Roll back failed configuration and require callers to
+destroy rejected hidden windows. Do not replace this with WPF-local Win32 shims.
+System-menu presentation uses `NativeWindowSystemMenu` and an optional typed host
+callback, never an opaque WPF source handle. Admit only local same-thread Win32
+top-level owners, preserve the existing native menu, and recheck owner/menu after
+modal tracking before posting a command. Keep desktop coordinates independent of
+framebuffer DPI. X11 menu requests require the owner's actual root and advertised
+WM support, use native-long property/event layouts and the actual owner-client
+pointer, and negotiate XI2 on a temporary connection rather than the host input
+display. Keep borrowed handles live on their owning thread, release all temporary
+connections/property buffers, and never equate asynchronous submission with menu
+display. Cocoa menus retain the real window/view/delegate only for synchronous
+tracking; reverse callbacks record known item identity without native/managed
+dispatch. Revalidate owner identity and enabled actions after tracking, then use
+performClose/performMiniaturize/performZoom rather than bypassing native delegate
+cancellation. Use the actual primary screen, AppKit point/view conversion and
+architecture-correct struct returns, not mainScreen or framebuffer pixels.
+Keep temporary menu targets/leases scoped, reject collectible callback providers,
+and leave Wayland/unsupported X11 environments explicit. See
+`docs/native-mil-system-menu.md`; this capability does not admit Windows SDK mode.
+Synchronous WPF geometry utilities must use ProGPU-owned actual topology, not
+bounding-box substitutes. `NativeGeometryUtilities` exposes the shared C++
+Direct2D boundary algorithm without a device or native COM activation; preserve
+single-call owned results and bulk span transfers. Connecting WPF requires full
+fill/figure/transform/tolerance semantics in a typed seam for both renderer modes.
+See `docs/native-mil-geometry-utilities.md`; this prerequisite is not Windows SDK
+admission or permission to silently approximate unsupported geometry.
+Geometry operation operands are separate bounds-free Path/Group/Combined DTOs;
+do not reuse retained bounds queries during synchronous operation export or
+silently change retained renderer DTO kinds. Default geometry provider registration
+must not replace explicit host configuration or load a device at registration.
+Filled point queries reuse the native Direct2D core through the synchronous
+geometry C ABI, with canonical spans and a caller-owned boolean result. Preserve
+double intrinsic edge metrics, ordered winding and half-open crossings; no GPU
+readback, bounds-only containment or implicit switch of the renderer is allowed.
+Unstroked bounds must preserve tight curve extrema, hollow-figure filtering and
+empty/zero-size distinction. Missing optional provider operations fail explicitly.
+Filled-area relation queries share the original Direct2D normalized-boundary
+comparison; never substitute envelopes or per-point sampling. Keep the single
+caller-owned result, generated relation constants and explicit operand direction.
+Empty filled coverage is disjoint in the utility; do not silently alter the COM
+entry's distinct empty policy. Unsupported finite input remains an error.
+Stroke queries must retain complete figure ranges, explicit closing edges, source
+gaps and incoming smooth-join flags. Reuse the canonical native segment emitter,
+stroke coverage and generated query records; never duplicate a WPF-local stroker.
+Constant-edge compaction must retain source endpoint eligibility, incoming joins
+and zero-distance gaps. All-constant runs retain one anchor and the existing MIL
+X-axis cap-pair/dash-phase policy; never emit a tiny artificial spine or broaden a
+single round cap into a full circle. Source-WPF pen queries use the shared
+complete-figure encoder and typed provider; Unsupported is never an empty hit.
+`PathAtlas.CompileStrokeQuery` must reject deferred boolean operands before any
+GPU solver, preserve hollow/empty figures and zero-distance gaps, and reuse the
+canonical segment/arc encoder. Keep native wire layouts generated; Vector query
+topology is a separate value contract, not a duplicate blittable native record.
+
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 
 Cross-assembly WPF bridge contracts must not expose shim-owned WPF structs or classes when package-mode apps load the real WPF transport assemblies. Prefer primitive values, package-neutral DTOs, typed registrars, and source-integrated WPF interfaces such as the portable geometry, brush, pen, effect, bitmap-effect input, shader-effect sampler kind/image-source metadata, drawing-content, render-data, invalidation, visual-state, visual-bounds, visual-layout, and bitmap-source pixel seams.
 
+Native GPU hit-test results must resolve through the submitted scene's immutable
+typed owner snapshot, including compositor identity and scene generation. MIL
+handle reuse or identical drawing bytes do not prove source-object identity.
+Publish source owner snapshots only after native presentation, clear them on
+teardown, and never use a managed compositor index as proof of native MIL input
+parity. A bound owner map is not evidence that MIL emits a native hit-test index.
+See `docs/native-mil-hit-test-ownership.md` for the remaining producer/host work.
+
+Desktop native query completion waits for the actual map operation, not merely
+queue submission or BufferGetMapState. Keep callback publication/lifetime safe
+across repeated maps, caller-owned result spans and scene-qualified owner tokens.
+Browser callers remain asynchronous. A failed wait retains explicit request
+ownership until completion or compositor disposal; never hide it as a miss,
+spin in managed code or consult the managed index. Host admission remains separate
+from this shared completion primitive; see docs/native-mil-hit-test-completion.md.
+
+Native hit-index diagnostics read the installed scene through its qualified
+owner snapshot and native resource metadata. Report residency only for the
+matching retained index hash/bind group, without uploading during inspection.
+Owner copies keep native order, repeated IDs, unknown-owner filtering and caller
+capacity; they are identity transport, not a new host geometry algorithm.
+
+Source image hit coverage is its declared destination rectangle, not flattened
+render contents. Native logical save scopes and managed IsImageHitTestScope clip
+metadata must retain balanced nesting, source ownership and outer transforms/
+clips while ignoring only internal render coverage. Preserve annotations in
+compact/general retained snapshots and empty drawing images. Never apply this
+rectangle override to arbitrary geometry or use it to bypass missing outer masks.
+
+Source drawing opacity is input-neutral, including zero alpha. Keep native
+source_opacity layer annotations and source_geometry state policy separate from
+render alpha; managed IsSourceOpacityScope must survive scalar/general snapshots.
+Do not apply this policy to arbitrary effects, blend layers or geometric masks,
+and do not equate command capture with opacity-zero retained visual qualification.
+Opacity-culled source visuals publish ISourceGeometryHitTestCommands and use the
+shared hit-only traversal, not OnRender or size/bounds substitution. Borrow their
+stable commands and retain real visibility, source IDs, picture transforms and
+local/outer clip stacks. Unsupported nodes/scopes fault index publication until
+Clear; effects, caches and spatial masks remain separate contracts. Generic
+ProGPU opacity culling and disabled-hit-testing paths must remain unchanged.
+
+Native MIL ordinary geometry-line input uses canonical LineStroke payloads with
+real endpoints, source caps, outer transform/clip and owner identity. Square-cap
+broad-phase envelopes must include diagonal corners in both implementations;
+conservative pruning bounds are not hit geometry. Keep directed point caps and
+lines at the query shader's degenerate threshold unsupported until their exact
+contract exists; never replace them with its generic disk branch. Other geometry
+and stroke-batch families remain explicit until connected, not successful omissions.
+
+Closed solid polyline input reuses the renderer's actual join triangles and
+canonical flat line bodies, with one source owner and exact per-record clips.
+Preserve the closing seam, WPF miter semantics and local-affine/world-conformal
+join domains. Index decomposition is not permission to split raster coverage
+draws, use antialias padding as hit geometry, or silently omit open/dashed/device
+stroke batches. Keep paired Showcase join fixtures and reject partial index publication.
+
+Source built-in blur/shadow layers preserve identity-mapped geometry input only
+through the explicit source_identity_effect annotation. Carry actual final
+composite clips through nested input scopes; key clip reuse by state and scope.
+Never hit effect padding or layer storage bounds, discard final clipping, or
+generalize this declaration to caches, masks or custom mappings. Managed source
+capture consumes EffectBase.PreservesSourceHitGeometry with a false default.
+Keep zero-alpha source input, renderer alpha and non-source behavior separate.
+Ordinary managed source effect composition must capture the complete typed input
+tree before raster admission, then suspend hit writes through effect preparation
+and final composite scopes. Restore that flag on failure; never index padded blur,
+shadow or source textures as source input, nor add descendants a second time.
+Empty ink may still own source point coverage. Cached/unmapped/spatial-mask
+contracts remain explicit; do not broaden this identity-effect declaration.
+Optional source CacheAsLayer input uses the shared pre-composite source capture,
+before raster scaling/snapping, with hit writes suspended only during rendering.
+Preserve source input at zero raster scale and keep required cached-picture
+refresh sources explicit. Native positive-scale cache input uses copied unsnapped
+frame metadata; never use a texture rectangle or snapped composite matrix. Restore
+frame/clip identity on save/layer exit and qualify clip reuse by its source frame.
+Zero-scale native caches use balanced input-only builder scopes: keep source
+commands for index capture, exclude the entire scope (effects/descendants included)
+from raster serialization, and retain shared resource indices. Sizing and writing
+must use identical range filtering; unbalanced scopes cannot publish. No tiny
+cache texture, second source composer or CPU pixel fallback is permitted.
+Keep native boundary-mask and non-axis rectangle-clip gaps explicit.
+See docs/native-mil-cache-input.md; this staged connection is not full cache parity.
+
 ### A. Rendering Quality & DPI-Aware Text Snapping
+
+Native source vector clips require explicit source_geometry_clip builder
+metadata, not inference from a generic mask resource. Retain actual polynomial
+segments/fill rules in world coordinates through their clip-owned transform and
+cache one segment range per mask/index build. A containing rectangle may be
+redundant; a nonredundant intersection requires actual composed topology, never
+overwritten path data or winding-unioned contours. Keep unsupported multi-path,
+boolean, arc, material/opacity-mask and layer combinations explicit. See
+docs/native-mil-vector-clip-input.md; source utility success is not native host
+query qualification.
+
+Source hit geometry remains independent of raster guideline snapping. Native
+source_geometry capture may ignore guideline displacement, not clip/mask/cache
+contracts. Managed primitive recorders publish SourceHitTestGeometry before
+snapping; retained snapshots preserve it and input reuses the original pen/spine.
+Auxiliary raster caps may be excluded only when primary source coverage owns them.
+Never suppress state scopes with metadata or publish a partially failed index.
+Raster bounds must ignore input overrides; archives must preserve or reject them.
+See docs/native-mil-guideline-input.md; native host admission remains separate.
+
+Styled Direct2D primitive callbacks must route through genuine factory-owned
+geometry and the common semantic stroke compiler. Preserve closed rectangle
+joins, open line caps, dash/transform policy and primitive alias state; do not
+add a second stroker or independently blended cap draws. Normal zero-width
+primitives emit no coverage but explicit hairline styles retain device-width
+semantics. Keep null-style positive-width primitives on their direct fast paths.
+
+Full-target Direct2D brush domains must use the shared four-corner inverse-viewport
+envelope with outward float origin/extent rounding. Keep independent x/y work on
+intrinsic SIMD where available. This envelope is material domain metadata, never
+an exact geometric clip. Surface-backed translation must report target size/DPI
+dependencies and require a new stream generation after changes; targetless
+recorders must reject missing dimensions instead of guessing or using FLT_MAX.
+Target-aware recorder descriptors must be immutable, generated native/managed
+value contracts with physical dimensions and independent DPI. Copy metadata
+during creation; never retain caller pointers or create a GPU surface for bounds.
+Acquired command sinks own independent COM references. Keep recorder writes on
+caller spans and require a new recorder/generation after target changes.
+Finite affine Direct2D layers must keep target-aligned content bounds separate
+from exact geometric masks. For rotated/sheared opacity brushes, derive the local
+material domain from the inverse target rectangle, not just the source quad.
+Capture bounds and mask transforms at PushLayer; later SetTransform calls must
+not remap them. Preserve the ordinary axis-preserving and zero-origin fast paths.
+
+Direct2D antialiased axis-aligned clips must capture the transformed AABB at
+push time and apply fractional coverage once when their group is popped, not
+per contained draw. Keep clip and opacity-layer scope kinds distinct. Geometric
+layer-mask antialiasing is independent of primitive antialiasing, including
+geometry-plus-opacity-brush masks. Native scene writers must agree on the declared
+1/4/8 path and mask sample grids; do not silently promote aliased coverage to AA.
+
+Source dash caps and closed-seam joins require visible endpoint traversal as
+well as position agreement. A hidden interval returning to the source coordinate
+must not acquire source caps or close an earlier run. A newly visible terminal
+point owns its separate directed caps; do not also apply the source-end cap to
+an earlier coincident run. Explicit unstroked leading/trailing segments must not
+restore endpoint eligibility through a phase reset.
+
+Curved dash continuation must follow the visible interval state, not coincident
+endpoints. Separate emitted intervals stay separate runs; only a first span at
+the source segment start inherits its smooth-join flag. Do not discard analytic
+returning curves by applying a line endpoint-distance degeneracy test. Propagate
+curve metric/subsegment failures instead of publishing partial successful paths,
+and reject nonfinite accumulated length before walking dash intervals.
+
+Ordinary linear dash rendering, hit testing and native picture compilation must
+share complete retained coverage, including directed terminal caps. Keep paint
+out of the outline key, refresh derived paint without rebuilding geometry, cache
+unsupported style failures without reusing stale output, and retain deferred
+polyline source graphs. Compose outer transforms once and preserve original fill
+and alias state. Solid/device-width pens must not allocate the linear dash cache.
+
+Dash preparation must honor source-figure endpoint cap overrides only at reached
+endpoints and preserve source smooth joins, including the closed seam after run
+merging. A cap must not become a join until topology proves continuity. Borrow
+immutable pen dash storage internally rather than cloning the public array.
+Keep matched native end-join and managed start-join fixtures. Cached dashed
+material bounds must measure emitted cubic caps/joins rather than ideal solid
+support or fill-bound inflation. Preflight density/finite metrics before splitting.
+Visible terminal point caps must retain endpoint/tangent and independent cap
+directions. Their cached coverage must be one positive-winding compound filled
+outline, including the ordinary stroke pieces, rather than tiny fake segments or
+separately alpha-blended masks. Legacy spine-only APIs must reject an unconsumed
+filled-coverage payload. Hidden intervals must end an active dash even if they return to the same
+position; positional equality alone does not prove continuity.
+
+Cached linear path preparation must keep the original fill geometry separate
+from owned gap-split stroke runs. Preserve cyclic closed seams, effective dash
+caps at gaps, explicit endpoint overrides, smooth flags through constant-edge
+compaction, and non-contributing flat point runs. Stream intrinsic support bounds
+with native float-narrowing order; do not flatten unsupported curves, join across
+gaps, replace sector bounds with whole circles, or silently solidify dashes.
+
+Smooth cached ellipse/rounded pens must preserve analytic spines and share the
+original native adaptive cubic support algorithm for material bounds. Keep x/y
+work intrinsic, fixed source storage bounded, geometry-local transforms before
+widening and outer transforms on completed coverage. Exact zero-length straight
+connectors caused by half-extent radius clamping do not break adjacent arcs;
+nonzero degeneracy must not be silently discarded. Keep matched native/managed
+fixtures and never substitute fill-bound inflation or sampled retained polylines.
+
+Affine rectangle descriptors must publish all four double-coordinate corners
+transactionally into caller-owned spans, with no partial output or tail writes.
+Shared convex-quadrilateral stroke preparation must validate every corner even
+for zero width and retain an owned closed path. Keep fill and pen on that same
+immutable path, with separate material bounds and outer transforms after stroke
+preparation; never broaden a rotated native-path fill clip to its bounds.
+
+Cached rectangle pens must preserve a closed spine and derive material bounds
+from edge/join support, including clipped miters and round joins. Keep the
+intrinsic fixed-corner preparer paired with native MIL mapping fixtures. Do not
+split a closed stroke into separately capped lines, substitute solid coverage
+for unsupported dashes, or report a successful fill as a successful whole draw
+when its pen was rejected. Geometry-local transforms precede widening.
+
+Portable primitive line mapping must retain paired double-coordinate arithmetic
+until the drawing boundary, validate both endpoints before publishing either, and
+stay allocation-free. Strict open-line classification must not discard topology
+or cap overrides. Geometry-local transforms precede stroke preparation; do not
+scale pen width or capture a zero-area line fill while adapting that descriptor.
+
+Line material bounds must use prepared line/dash spines and effective endpoint
+caps. Preserve intrinsic paired-coordinate bounds, finite/budget preflight and
+explicit rejection of unsupported zero/tiny dash semantics. Do not replace
+semicircular caps with full endpoint circles or drop edge-alias metadata from
+stroke opacity masks. Keep scalar-oracle and native mapping fixtures paired.
+
+Cached-source strokes must reuse the ordinary retained pen/path mask compiler.
+Separate opaque coverage from source material alpha, snapshot all pen scalars,
+and share only immutable dash storage; public dash assignments must detach.
+Never infer authoritative WPF relative brush bounds by inflating fill bounds.
+Callers must provide stroke ink bounds including caps, joins, dashes, and any
+target/DPI-dependent fixed or hairline width. Keep source leases alive through
+recording clones without CPU readback, picture-wrapper or per-dash submissions.
+
+Cached-picture material coverage must retain its coverage picture and source lease
+through parent recording clones. Glyph coverage should remain one retained glyph
+command over caller-owned initialized arrays, not per-glyph path expansion or CPU
+pixels. WPF glyph-mask bounds and relative brush mapping require authoritative
+portable InkBounds (baseline included, before the glyph transform); missing ink
+metadata is an explicit typed-contract gap, not permission to use font-size boxes.
+
 ProGPU achieves high-performance vector graphics and text rendering matching macOS Retina quality. When modifying or extending text visuals (`TextVisual.cs`, `Compositor.cs`, `GlyphAtlas.cs`):
 * **Framebacks**: Always back the swapchain with physical framebuffer pixels (`FramebufferSize`) rather than logical window coordinates to prevent OS-level linear stretching.
 * **Glyph Atlas scale**: Rasterize glyphs into the atlas at their actual physical dimensions by applying the current `DpiScale`.
@@ -461,3 +1316,18 @@ Figures count: 1
 ```
 
 Use this tool immediately whenever user reports "jagged glyph edges", "horizontal/vertical line artifacts crossing characters", or "weird transformations".
+
+## Retained mask ownership during nested rendering
+
+Offscreen/cached child compilation borrows the outer frame's retained mask-pass
+lists. Detach the outer list collection without clearing or returning its owned
+draw-call lists; return only child-owned lists before restoring the snapshot.
+Keep pixel-oracle and first-frame tests: a non-null cached texture or a compiled
+mask is not proof that pending outer coverage survived. Do not widen pixel
+tolerances to hide differences in overlap, alpha or antialias coverage.
+
+Native hit-query fixtures must honor the shared poll/wait result contract.
+Zero-list queries return their topmost owner in summary; list queries return
+owners in ordered records and counters in summary. Assert participation, counts,
+owner identity and primitive index in the correct location. Do not change shader
+semantics or weaken queries to satisfy a fixture that confuses those modes.

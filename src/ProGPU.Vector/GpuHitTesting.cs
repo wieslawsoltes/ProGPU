@@ -35,7 +35,11 @@ public enum GpuHitTestPrimitiveFlags : uint
 {
     None = 0,
     Visible = 1 << 0,
-    HitTestVisible = 1 << 1
+    HitTestVisible = 1 << 1,
+    /// <summary>Participates in point queries only; incompatible with RegionOnly.</summary>
+    PointOnly = 1 << 2,
+    /// <summary>Participates in rectangle/ellipse region queries only; incompatible with PointOnly.</summary>
+    RegionOnly = 1 << 3
 }
 
 [StructLayout(LayoutKind.Sequential, Size = 128)]
@@ -74,6 +78,10 @@ public readonly struct GpuHitTestPrimitive
         FillRule clipFillRule = FillRule.Nonzero,
         uint clipFlags = 0)
     {
+        const GpuHitTestPrimitiveFlags queryKinds = GpuHitTestPrimitiveFlags.PointOnly | GpuHitTestPrimitiveFlags.RegionOnly;
+        const GpuHitTestPrimitiveFlags knownFlags = queryKinds | GpuHitTestPrimitiveFlags.Visible | GpuHitTestPrimitiveFlags.HitTestVisible;
+        if ((flags & ~knownFlags) != 0 || (flags & queryKinds) == queryKinds)
+            throw new ArgumentOutOfRangeException(nameof(flags));
         Kind = kind;
         Id = id;
         BoundsMin = boundsMin;
@@ -90,6 +98,12 @@ public readonly struct GpuHitTestPrimitive
         ClipFillRule = (uint)clipFillRule;
         ClipFlags = clipFlags;
     }
+
+    /// <summary>Returns the same immutable geometry with explicit input participation.</summary>
+    public GpuHitTestPrimitive WithFlags(GpuHitTestPrimitiveFlags flags) => new(
+        Kind, Id, BoundsMin, BoundsMax, Data0, Data1, Data2,
+        InverseTransform0, InverseTransform1, ZIndex, flags,
+        ClipStartSegment, ClipSegmentCount, (FillRule)ClipFillRule, ClipFlags);
 
     public GpuHitTestPrimitive WithWorldBounds(Vector2 boundsMin, Vector2 boundsMax)
     {
@@ -290,6 +304,10 @@ public readonly struct GpuHitTestPrimitive
         float zIndex = 0f)
     {
         float padding = MathF.Max(0f, (MathF.Abs(strokeThickness) * 0.5f) + MathF.Max(0f, tolerance));
+        // A square cap's diagonal corners extend beyond a radius-padded endpoint
+        // envelope. Only broad-phase bounds grow; the exact cap query is unchanged.
+        if (startCap == LineGeometryCap.Square || endCap == LineGeometryCap.Square)
+            padding *= MathF.Sqrt(2f);
         Vector2 min = Vector2.Min(start, end) - new Vector2(padding);
         Vector2 max = Vector2.Max(start, end) + new Vector2(padding);
         return new GpuHitTestPrimitive(

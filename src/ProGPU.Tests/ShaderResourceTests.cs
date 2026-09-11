@@ -14,6 +14,45 @@ namespace ProGPU.Tests;
 
 public class ShaderResourceTests
 {
+    [Fact]
+    public void TextureAndNativeMaskCompositionShareSampledMaskContract()
+    {
+        string common = ShaderResource.Load(typeof(Shaders), "SampledMaskCommon.wgsl");
+        string compose = ShaderResource.Load(typeof(Shaders), "ClipCompose.wgsl");
+        Assert.StartsWith(common, Shaders.TextureShader);
+        Assert.Single(Regex.Matches(Shaders.TextureShader, "struct MaskSamplingUniforms"));
+        Assert.Contains("sample_texture_mask_alpha(targetPosition, maskSampling, maskTexture, maskSampler)",
+            Shaders.TextureShader, StringComparison.Ordinal);
+        Assert.Contains("sample_texture_mask_alpha(position.xy, childSampling, childTexture, childSampler)",
+            compose, StringComparison.Ordinal);
+        Assert.Contains("fn fs_compose_sampled", compose, StringComparison.Ordinal);
+        Assert.Contains("sampling.options.w > 1.5", common, StringComparison.Ordinal);
+        Assert.Contains("sampled * textureOpacity", common, StringComparison.Ordinal);
+        Assert.Contains("dot(vec3<f32>(position, 1.0), sampling.coordinate0.xyz)", common, StringComparison.Ordinal);
+
+        string cmake = File.ReadAllText(Path.Combine(FindRepositoryRoot().FullName,
+            "src", "ProGPU.Native", "CMakeLists.txt"));
+        Assert.Equal(2, Regex.Matches(cmake,
+            "-DPREFIX_INPUT=\\$\\{CMAKE_CURRENT_SOURCE_DIR\\}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl").Count);
+    }
+
+    [Fact]
+    public void TextureShaderKeepsAddressFallbackOnGpu()
+    {
+        Assert.Contains(
+            "fn address_texture_coordinate(value: f32, mode: f32)",
+            Shaders.TextureShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn address_texture_index(coordinate: i32, size: i32, mode: f32)",
+            Shaders.TextureShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let addressedTexCoord = address_texture_coordinates(",
+            Shaders.TextureShader,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(0.02f)]
     [InlineData(0.25f)]
@@ -101,6 +140,49 @@ public class ShaderResourceTests
         Assert.Contains("dashIndex >= 6u", Shaders.VectorShader, StringComparison.Ordinal);
         Assert.Contains("brush.brushType == 8u", Shaders.VectorShader, StringComparison.Ordinal);
         Assert.Contains("row * record1.color.x", Shaders.VectorShader, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PathRasterizerKeepsManagedCompatibilityAndNativeStagesEmbedded()
+    {
+        string common = ShaderResource.Load(
+            typeof(Shaders),
+            "PathRasterizerCommon.wgsl");
+
+        Assert.StartsWith(common, Shaders.PathRasterizerShader);
+        Assert.Contains(
+            "fn signed_winding_program_row_coverage_mask(",
+            Shaders.PathRasterizerShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn cs_main(@builtin(global_invocation_id)",
+            Shaders.PathRasterizerShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn cs_main_ordinary(@builtin(global_invocation_id)",
+            Shaders.PathRasterizerShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn ordinary_path_coverage_byte(",
+            Shaders.PathRasterizerShader,
+            StringComparison.Ordinal);
+
+        Assert.Contains(
+            "fn cs_main(",
+            ShaderResource.Load(typeof(Shaders), "PathSignedWindingLeaf.wgsl"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn split_signed_program_row_winding(",
+            ShaderResource.Load(
+                typeof(Shaders),
+                "PathSignedWindingEvaluate.wgsl"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn split_signed_program_coverage(",
+            ShaderResource.Load(
+                typeof(Shaders),
+                "PathSignedWindingCoverage.wgsl"),
+            StringComparison.Ordinal);
     }
 
     [Fact]

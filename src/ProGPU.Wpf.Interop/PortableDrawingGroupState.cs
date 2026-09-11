@@ -20,6 +20,20 @@ public sealed class PortableDrawingGroupState
 
     public PortableRect Bounds { get; set; } = PortableRect.Empty;
 
+    /// <summary>
+    /// Gets or sets the exact content bounds in the DrawingGroup's local
+    /// coordinate space, before the group's own transform is applied.
+    /// </summary>
+    /// <remarks>
+    /// Native retained compositors use this value to size bounded group
+    /// isolation and to map spatial opacity masks without applying the group
+    /// transform twice. <see cref="Bounds"/> remains the externally visible,
+    /// post-transform drawing bounds.
+    /// </remarks>
+    public bool HasLocalBounds { get; set; }
+
+    public PortableRect LocalBounds { get; set; } = PortableRect.Empty;
+
     public bool HasTransform { get; set; }
 
     public object? Transform { get; set; }
@@ -60,13 +74,25 @@ public sealed class PortableDrawingGroupState
 
     public object? BitmapScalingMode { get; set; }
 
+    public bool HasPortableBitmapScalingMode { get; set; }
+
+    public PortableBitmapScalingMode PortableBitmapScalingMode { get; set; }
+
     public bool HasEdgeMode { get; set; }
 
     public object? EdgeMode { get; set; }
 
+    public bool HasPortableEdgeMode { get; set; }
+
+    public PortableEdgeMode PortableEdgeMode { get; set; }
+
     public bool HasClearTypeHint { get; set; }
 
     public object? ClearTypeHint { get; set; }
+
+    public bool HasPortableClearTypeHint { get; set; }
+
+    public PortableClearTypeHint PortableClearTypeHint { get; set; }
 
     public bool HasTextRenderingMode { get; set; }
 

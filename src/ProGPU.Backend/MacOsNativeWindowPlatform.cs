@@ -145,6 +145,14 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
 
     public override bool SetParent(NativeWindowHandle parent)
     {
+        if (parent.IsValid && (parent.Kind != NativeWindowKind.Cocoa || parent.Handle == _nsWindow))
+            return false;
+        // Validate before detaching the previous owner. AppKit forbids cycles.
+        nint ancestor = parent.Handle;
+        for (int depth = 0; ancestor != 0; depth++, ancestor = SendObject(ancestor, "parentWindow"))
+            if (depth == 1024 || ancestor == _nsWindow) return false;
+        _parentWindow = SendObject(_nsWindow, "parentWindow");
+        if (_parentWindow == parent.Handle) return true;
         if (_parentWindow != 0)
         {
             SendVoidObject(_parentWindow, "removeChildWindow:", _nsWindow);
@@ -155,11 +163,6 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
         {
             return true;
         }
-        if (parent.Kind != NativeWindowKind.Cocoa)
-        {
-            return false;
-        }
-
         _parentWindow = parent.Handle;
         SendVoidObjectInt64(parent.Handle, "addChildWindow:ordered:", _nsWindow, 1);
         return true;

@@ -32,6 +32,11 @@ void on_readback_mapped(
     WGPUStringView,
     void* userdata,
     void*) {
+    if (status == WGPUMapAsyncStatus_Success) {
+        EM_ASM({ document.body.dataset.progpuNativeReadback = "map-completed"; });
+    } else {
+        EM_ASM({ document.body.dataset.progpuNativeReadback = "map-failed"; });
+    }
     auto& mapped = *static_cast<evidence_state*>(userdata);
     const auto* pixels = status == WGPUMapAsyncStatus_Success
         ? static_cast<const std::uint8_t*>(wgpuBufferGetConstMappedRange(
@@ -188,6 +193,7 @@ bool begin_evidence_readback(
     wgpuCommandBufferRelease(commands);
 
     state = {buffer, readback_size, width, height, row_bytes, completion};
+    EM_ASM({ document.body.dataset.progpuNativeReadback = "map-requested"; });
     WGPUBufferMapCallbackInfo callback = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
     callback.mode = WGPUCallbackMode_AllowSpontaneous;
     callback.callback = on_readback_mapped;

@@ -132,6 +132,21 @@ internal static unsafe partial class NativeDawnMethods
         NativeGpuHitTestResult* summary,
         byte* complete);
 
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_wait_hit_test")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus WaitHitTest(
+        nint engine,
+        ulong requestToken,
+        NativeGpuHitTestResult* results,
+        uint resultCapacity,
+        uint* resultCount,
+        NativeGpuHitTestResult* summary);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_get_hit_test_index")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetHitTestIndex(
+        nint engine, NativeSceneHitTestIndex* index, byte* hasIndex, byte* uploaded);
+
     [LibraryImport(
         LibraryName,
         EntryPoint = "progpu_native_engine_render")]

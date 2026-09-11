@@ -23,7 +23,7 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
         bool min_linear;
         bool mip_linear;
     };
-    constexpr std::array<sampler_case, 10U> sampler_cases{{
+    constexpr std::array<sampler_case, 11U> sampler_cases{{
         {PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST, false, false, false},
         {PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR, true, true, false},
         {PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC, true, true, false},
@@ -39,7 +39,8 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
         {PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_NEAREST,
             false, true, false},
         {PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_NEAREST_MIP_LINEAR,
-            false, false, true}
+            false, false, true},
+        {PROGPU_NATIVE_IMAGE_SAMPLING_FANT, true, true, false}
     }};
     for (const auto& expected : sampler_cases) {
         semantic::semantic_image_sampler_options actual{};
@@ -72,7 +73,7 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
             17U,
             anisotropic) ||
         semantic::resolve_semantic_image_sampler_options(
-            10U,
+            11U,
             1U,
             anisotropic)) {
         return false;
@@ -129,6 +130,46 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
             bytes.data(), command, image, 16U, parsed)) {
         return false;
     }
+
+    image.flags =
+        static_cast<std::uint32_t>(PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT) <<
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT;
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    image.flags =
+        (static_cast<std::uint32_t>(PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT) <<
+            PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT) |
+        (static_cast<std::uint32_t>(
+            PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT) <<
+            PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT) |
+        PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
+    image.source_rect = {-2.0F, -1.0F, 8.0F, 6.0F};
+    if (!semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK |
+        PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH |
+        PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    image.flags = 0U;
+    image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE;
+    if (!semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    image.flags = 0U;
 
     image.flags = PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
     progpu_native_scene_image_color_matrix matrix{};
@@ -243,6 +284,13 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
     image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
     semantic::resolve_image_vertex_color(image, false, color);
     if (color[0] != 0.25F || color[1] != 1.0F || color[2] != 0.25F ||
+        color[3] != 0.25F) {
+        return false;
+    }
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+        PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE;
+    semantic::resolve_image_vertex_color(image, false, color);
+    if (color[0] != 0.25F || color[1] != 1.0F || color[2] != -1.0F ||
         color[3] != 0.25F) {
         return false;
     }

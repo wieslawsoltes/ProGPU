@@ -1,0 +1,276 @@
+#ifndef PROGPU_NATIVE_TEXT_FLOW_H
+#define PROGPU_NATIVE_TEXT_FLOW_H
+#include "progpu_native_text_styles.h"
+#include "progpu_native_text_interaction.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextExclusionRectangle */
+typedef struct progpu_native_text_exclusion_rectangle {
+    float left;
+    float top;
+    float right;
+    float bottom;
+} progpu_native_text_exclusion_rectangle;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextExclusionOptions */
+typedef struct progpu_native_text_exclusion_options {
+    uint32_t struct_size;
+    uint32_t maximum_attempts;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_text_exclusion_options;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextFlowOptions */
+typedef struct progpu_native_text_flow_options {
+    uint32_t struct_size;
+    float incremental_tab;
+    float tab_origin;
+    uint32_t reserved;
+} progpu_native_text_flow_options;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextIntrinsicWidths */
+typedef struct progpu_native_text_intrinsic_widths {
+    uint32_t struct_size;
+    float minimum;
+    float maximum;
+    uint32_t reserved;
+} progpu_native_text_intrinsic_widths;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextStyleMetrics */
+typedef struct progpu_native_text_style_metrics {
+    float ascent;
+    float descent;
+} progpu_native_text_style_metrics;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextInlineObject */
+typedef struct progpu_native_text_inline_object {
+    uint32_t scalar_index;
+    float width;
+    float ascent;
+    float descent;
+} progpu_native_text_inline_object;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextFloatingItem */
+typedef struct progpu_native_text_floating_item {
+    uint32_t scalar_index;
+    float width;
+    float height;
+    uint32_t alignment;
+} progpu_native_text_floating_item;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextFloatingOptions */
+typedef struct progpu_native_text_floating_options {
+    uint32_t struct_size;
+    uint32_t maximum_attempts;
+    double origin_y;
+    float empty_ascent;
+    float empty_descent;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_text_floating_options;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextFloatingPlacement */
+typedef struct progpu_native_text_floating_placement {
+    uint32_t source_row;
+    uint32_t reserved;
+    float left;
+    float top;
+    float right;
+    float bottom;
+} progpu_native_text_floating_placement;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextFloatingResult */
+typedef struct progpu_native_text_floating_result {
+    uint32_t struct_size;
+    uint32_t float_count;
+    double content_height;
+    float content_width;
+    uint32_t row_count;
+    uint32_t next_glyph;
+    uint32_t attempts;
+} progpu_native_text_floating_result;
+
+/* Bottomless floating flow shares inline shaping and native row fitting.
+ * Events are nondecreasing scalar-array boundaries, including input_count;
+ * equal boundaries preserve siblings. They may not split a shaped cluster.
+ * Alignment: 0 left, 1 center, 2 right. Sizes are positive measured outer DIPs.
+ * Initial exclusions, event boxes, output frames and source metrics are borrowed
+ * in one call; all buffers must be disjoint. Outputs are valid only on success.
+ * line_capacity also covers fragment output; float capacity is event_count.
+ * Empty input with events emits one source-metric row (line_capacity >= 1), not
+ * a glyph. The ordinary paragraph result describes parent text; floating_result
+ * describes combined extents and consumed events. No source admission is implied. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_get_floating_flow_paragraph_requirements(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_floating_options* options,
+    const progpu_native_text_floating_item* events, uint32_t event_count,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count,
+    progpu_native_text_paragraph_requirements* requirements);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_floating_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_floating_options* options,
+    const progpu_native_text_floating_item* events, uint32_t event_count,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count,
+    progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    progpu_native_text_fragment_placement* fragments, uint32_t fragment_capacity,
+    progpu_native_text_floating_placement* floats, uint32_t float_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
+    progpu_native_text_floating_result* floating_result, uint32_t wrapping);
+
+/* Measured inline flow requires explicit style runs and one DIP metric pair
+ * per style. Objects are strictly ordered scalar indices covering every U+FFFC
+ * exactly once. Inputs are borrowed; no application object pointer is retained.
+ * Positioned objects have glyph_id UINT32_MAX-1 and font_index UINT32_MAX;
+ * cluster retains the source input_index. They are never font/atlas glyphs.
+ * Their y is the line baseline; top is y minus the declared object ascent.
+ * Line baselines are top-relative measured baselines, unlike legacy flow.
+ * line_height is a minimum. Trimming requires sign metrics and is rejected.
+ * Object-free existing APIs retain their layout and scratch requirements. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_get_inline_flow_paragraph_requirements(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    progpu_native_text_paragraph_requirements* requirements);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_inline_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
+    uint32_t wrapping, progpu_native_text_intrinsic_widths* widths);
+
+/* Excluded flow uses the inline metric contract and resolved half-open paragraph
+ * rectangles. maximum_width must be positive, maximum_attempts in [1, 1048576].
+ * Requirements include all scratch; glyph/line/fragment capacities are identical.
+ * line_count is the fragment count; maximum_lines counts rows. Fragment tops
+ * retain the double layout prefix and reserved fields are zero. All buffers
+ * are synchronously borrowed and must not overlap. Outputs are valid only on
+ * success. This does not size or position application-owned anchor subtrees. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_get_excluded_flow_paragraph_requirements(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_exclusion_options* exclusion_options,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count,
+    progpu_native_text_paragraph_requirements* requirements);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_excluded_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_exclusion_options* exclusion_options,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count,
+    progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    progpu_native_text_fragment_placement* fragments, uint32_t fragment_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
+    uint32_t wrapping, progpu_native_text_intrinsic_widths* widths);
+
+/* Explicit finite nonnegative paragraph Y origin. Old entry points retain zero.
+ * Tops, baselines and content height are absolute in that paragraph frame. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_get_excluded_flow_paragraph_requirements_at(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_exclusion_options* exclusion_options,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count, double origin_y,
+    progpu_native_text_paragraph_requirements* requirements);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_excluded_flow_paragraph_at(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_exclusion_options* exclusion_options,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count, double origin_y,
+    progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    progpu_native_text_fragment_placement* fragments, uint32_t fragment_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
+    uint32_t wrapping, progpu_native_text_intrinsic_widths* widths);
+
+/* Mirrors NativeTextWrapping in the managed public enum contract. */
+typedef enum progpu_native_text_wrapping {
+    PROGPU_NATIVE_TEXT_WRAPPING_EMERGENCY = 0,
+    PROGPU_NATIVE_TEXT_WRAPPING_WHOLE_WORD = 1
+} progpu_native_text_wrapping;
+
+/* Positive incremental_tab enables fixed leading-edge tab stops in DIPs.
+ * tab_origin is text-start indentation relative to that grid. U+0009 remains
+ * one non-ink positioned item with glyph_id == UINT32_MAX, its original cluster,
+ * actual resolved advance and source face index. Never submit it to a glyph atlas.
+ * Zero keeps the previous layout behavior. Custom stops/leaders are not part of
+ * this contract. Trimming uses resolved tab advances. Inputs are synchronously borrowed. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_get_flow_paragraph_requirements(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    progpu_native_text_paragraph_requirements* requirements);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result);
+
+/* Same capacities and output as layout_flow_paragraph, with optional intrinsic widths
+ * measured from the very same logical shaped glyphs before visual reordering.
+ * Caller initializes non-null widths.struct_size. Widths are published only on success.
+ * Intrinsic measurement rejects truncated layouts. No additional shaping or scratch
+ * is needed. WHOLE_WORD permits overflow until a legal shaping-safe break rather
+ * than emergency cluster splitting; zero width remains unbounded in either mode. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_configured_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
+    uint32_t wrapping, progpu_native_text_intrinsic_widths* widths);
+
+/* Same capacities as flow layout. Preserve maximum_width for original line breaks;
+ * collapse_width constrains only the final maximum_lines line, and may be zero.
+ * Requires positive maximum_lines and non-NONE trimming. A synthetic sign has
+ * glyph_index UINT32_MAX, cluster at the first hidden source boundary and, for
+ * RTL paragraphs, lies to the left of retained content. Its caller-owned actual
+ * glyph/font/style may be drawn separately using the returned sign geometry.
+ * This does not replace the original paragraph's source/interaction metadata. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_collapsed_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
+    uint32_t wrapping, float collapse_width);
+#ifdef __cplusplus
+}
+#endif
+#endif

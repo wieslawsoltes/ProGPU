@@ -42,12 +42,12 @@ void release_child_mask(
         child.mask_chain_bind_group = nullptr;
     }
     if (child.mask_uniform_buffer != nullptr) {
-        wgpuBufferDestroy(child.mask_uniform_buffer);
+        if (!submitted) wgpuBufferDestroy(child.mask_uniform_buffer);
         wgpuBufferRelease(child.mask_uniform_buffer);
         child.mask_uniform_buffer = nullptr;
     }
     if (child.mask_chain_uniform_buffer != nullptr) {
-        wgpuBufferDestroy(child.mask_chain_uniform_buffer);
+        if (!submitted) wgpuBufferDestroy(child.mask_chain_uniform_buffer);
         wgpuBufferRelease(child.mask_chain_uniform_buffer);
         child.mask_chain_uniform_buffer = nullptr;
     }
@@ -89,13 +89,16 @@ bool create_semantic_composite_mask_binding(
     const progpu_native_scene_resource& resource,
     const semantic::scissor& target_extent,
     float dpi_scale,
-    semantic_render_bundle_span& operation) {
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
+    semantic_render_bundle_span& operation,
+    const progpu_native_scene_presentation* presentation) {
     const auto& source = parsed.composite;
     if (source.component_count < 2U ||
         source.component_count > 64U || target_extent.width == 0U ||
         target_extent.height == 0U || !std::isfinite(dpi_scale) ||
         dpi_scale <= 0.0F || !create_layer_mask_resources(engine) ||
-        !create_clip_chain_resources(engine)) {
+        !create_sampled_mask_composition_resources(engine)) {
         return false;
     }
 
@@ -194,7 +197,8 @@ bool create_semantic_composite_mask_binding(
                 resource,
                 target_extent,
                 dpi_scale,
-                child_operation)) {
+                child_operation,
+                presentation)) {
             cleanup();
             return false;
         }
@@ -211,7 +215,10 @@ bool create_semantic_composite_mask_binding(
                 parsed.composite_picture_streams + picture.stream_offset,
                 target_extent,
                 dpi_scale,
-                child_operation)) {
+                composite_state_cursor,
+                composite_state,
+                child_operation,
+                presentation)) {
             cleanup();
             return false;
         }
@@ -240,7 +247,8 @@ bool create_semantic_composite_mask_binding(
                 child,
                 target_extent,
                 dpi_scale,
-                child_operation)) {
+                child_operation,
+                presentation)) {
             cleanup();
             return false;
         }
@@ -265,7 +273,10 @@ bool create_semantic_composite_mask_binding(
                 child,
                 target_extent,
                 dpi_scale,
-                child_operation)) {
+                composite_state_cursor,
+                composite_state,
+                child_operation,
+                presentation)) {
             cleanup();
             return false;
         }
@@ -307,10 +318,8 @@ bool create_semantic_composite_mask_binding(
     }
     for (std::uint32_t index = 0U; index < source.component_count; ++index) {
         const gpu_clip_compose_uniforms uniforms{
-            (children[index].mask_source_x << 16U) |
-                (children[index].mask_uses_alpha_channel ? 2U : 0U),
-            (children[index].mask_source_y << 16U) |
-                (index == 0U ? 1U : 0U),
+            0U,
+            index == 0U ? 1U : 0U,
             target_extent.width,
             target_extent.height};
         std::memcpy(
@@ -354,7 +363,10 @@ bool create_semantic_composite_mask_binding(
     WGPUCommandEncoderDescriptor encoder_descriptor{};
     encoder_descriptor.label = webgpu::string_view(
         "ProGPU retained composite-mask encoder");
-    encoder = wgpuDeviceCreateCommandEncoder(engine.device, &encoder_descriptor);
+    const bool owns_encoder = engine.semantic_encoder == nullptr;
+    encoder = owns_encoder
+        ? wgpuDeviceCreateCommandEncoder(engine.device, &encoder_descriptor)
+        : engine.semantic_encoder;
     if (encoder == nullptr) {
         cleanup();
         return false;
@@ -378,30 +390,40 @@ bool create_semantic_composite_mask_binding(
             return false;
         }
         const std::uint32_t dynamic_offset = index * 256U;
-        wgpuRenderPassEncoderSetPipeline(pass, engine.clip_compose_pipeline);
+        wgpuRenderPassEncoderSetPipeline(pass, engine.sampled_mask_compose_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass,
             0U,
             compose_bind_groups[index],
             1U,
             &dynamic_offset);
+        wgpuRenderPassEncoderSetBindGroup(pass, 1U, children[index].mask_bind_group, 0U, nullptr);
         wgpuRenderPassEncoderDraw(pass, 3U, 1U, 0U, 0U);
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
     }
-    WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = webgpu::string_view(
-        "ProGPU retained composite-mask commands");
-    command = wgpuCommandEncoderFinish(encoder, &command_descriptor);
-    wgpuCommandEncoderRelease(encoder);
-    encoder = nullptr;
-    if (command == nullptr) {
-        cleanup();
-        return false;
+    if (owns_encoder) {
+        WGPUCommandBufferDescriptor command_descriptor{};
+        command_descriptor.label = webgpu::string_view(
+            "ProGPU retained composite-mask commands");
+        command = wgpuCommandEncoderFinish(encoder, &command_descriptor);
+        wgpuCommandEncoderRelease(encoder);
+        encoder = nullptr;
+        if (command == nullptr) {
+            cleanup();
+            return false;
+        }
+        engine.submit(command);
+        wgpuCommandBufferRelease(command);
+        command = nullptr;
+    } else {
+        // Child masks are encoded on the semantic encoder. Keep composition
+        // on that encoder as well so the GPU observes child production before
+        // sampling without forcing an otherwise unnecessary queue submit.
+        encoder = nullptr;
     }
-    engine.submit(command);
-    wgpuCommandBufferRelease(command);
-    command = nullptr;
+    // The owning command buffer or shared encoder retains all transient child
+    // resources referenced above; release handles without destroying storage.
     submitted = true;
 
     const std::uint32_t final_index = (source.component_count - 1U) & 1U;

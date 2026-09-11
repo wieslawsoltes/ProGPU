@@ -15,6 +15,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ProGPU.Avalonia.SilkNet.ContractTests, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
   </ItemGroup>
   <ItemGroup>
     <None Update="buildTransitive/ProGPU.Backend.targets"

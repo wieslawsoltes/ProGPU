@@ -296,6 +296,9 @@ bool encode_semantic_layer_composite(
     progpu_native_engine& engine,
     WGPURenderPassEncoder pass,
     const semantic_render_bundle_span& operation) {
+    if (!operation.composite_drawable) {
+        return true;
+    }
     const bool masked = operation.mask_bind_group != nullptr;
     bool blend_pipeline_cache_hit = false;
     WGPURenderPipeline pipeline = get_or_create_fixed_group_blend_pipeline(
@@ -321,7 +324,9 @@ bool encode_semantic_layer_composite(
     const auto& slot = engine.semantic_layer_slots[
         operation.source_layer];
     WGPUBindGroup source_bind_group = operation.effect_count == 0U
-        ? slot.bind_group
+        ? (operation.composite_nearest
+            ? slot.nearest_bind_group
+            : slot.bind_group)
         : operation.final_effect_texture <
                 slot.effect_output_bind_groups.size()
             ? slot.effect_output_bind_groups[
@@ -329,6 +334,14 @@ bool encode_semantic_layer_composite(
             : nullptr;
     if (source_bind_group == nullptr) {
         return false;
+    }
+    if (operation.has_composite_scissor) {
+        wgpuRenderPassEncoderSetScissorRect(
+            pass,
+            operation.clip_x,
+            operation.clip_y,
+            operation.clip_width,
+            operation.clip_height);
     }
     const std::uint64_t vertex_offset =
         static_cast<std::uint64_t>(operation.first_composite_vertex) *

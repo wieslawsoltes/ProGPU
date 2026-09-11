@@ -9,6 +9,17 @@ using ProGPU.Vector;
 namespace ProGPU.Scene;
 
 /// <summary>
+/// Publishes already recorded source geometry whose input visibility is independent
+/// of visual opacity. The context is borrowed synchronously; producers must keep
+/// commands/resources stable during capture and invalidate the visual on changes.
+/// This contract does not authorize replacing geometry with visual bounds.
+/// </summary>
+public interface ISourceGeometryHitTestCommands
+{
+    DrawingContext SourceHitTestCommands { get; }
+}
+
+/// <summary>
 /// Marks a visual whose <see cref="Visual.OnRender"/> implementation already owns
 /// an immutable-until-invalidated command cache. The compositor must not retain a
 /// second copy of that command stream.
@@ -362,6 +373,12 @@ public class Visual
         }
     }
 
+    // Required cached sources must not become direct vector replay when the
+    // optional visual-layer optimization is disabled by the host.
+    internal virtual bool RequiresLayerCache => false;
+    internal virtual bool? LayerCacheClearTypePolicy => null;
+    internal virtual void PrepareLayerCache() { }
+
     /// <summary>
     /// Gets or sets the raster-resolution multiplier for a cached layer.
     /// A non-positive value suppresses layer rendering.
@@ -471,6 +488,12 @@ public class Visual
     }
 
     // Composition layer texture view
+    internal bool LayerTextureSuppressesClearType
+    {
+        get => _coldState?.LayerTextureSuppressesClearType ?? false;
+        set => GetOrCreateColdState().LayerTextureSuppressesClearType = value;
+    }
+
     public GpuTexture? LayerTexture
     {
         get => _coldState?.LayerTexture;
@@ -1005,6 +1028,7 @@ public class Visual
         public bool CacheAsLayer;
         public float LayerCacheRenderScale = 1f;
         public bool LayerCacheSnapsToDevicePixels;
+        public bool LayerTextureSuppressesClearType;
         public GpuTexture? LayerTexture;
     }
 
@@ -1229,6 +1253,13 @@ public class DrawingVisual : Visual
 
 public abstract class EffectBase
 {
+    /// <summary>
+    /// Whether this effect preserves source geometry coordinates for input.
+    /// This does not make its expanded raster bounds hittable or bypass clips.
+    /// Custom effects must explicitly implement their input contract.
+    /// </summary>
+    public virtual bool PreservesSourceHitGeometry => false;
+
     private readonly object _ownersLock = new();
     private readonly List<WeakReference<Visual>> _owners = new();
     private long _changeVersion;
@@ -1501,9 +1532,20 @@ public sealed class WpfShaderEffect : EffectBase
     }
 }
 
+/// <summary>
+/// Selects the separable GPU kernel used by <see cref="BlurEffect"/>.
+/// </summary>
+public enum BlurKernelType
+{
+    Gaussian = 0,
+    Box = 1
+}
+
 public class BlurEffect : EffectBase
 {
+    public override bool PreservesSourceHitGeometry => true;
     private float _blurRadius;
+    private BlurKernelType _kernelType;
 
     public float BlurRadius
     {
@@ -1518,6 +1560,27 @@ public class BlurEffect : EffectBase
         }
     }
 
+    /// <summary>
+    /// Gets or sets the GPU blur kernel. Gaussian remains the default.
+    /// </summary>
+    public BlurKernelType KernelType
+    {
+        get => _kernelType;
+        set
+        {
+            if (value is not BlurKernelType.Gaussian and
+                not BlurKernelType.Box)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            if (_kernelType != value)
+            {
+                _kernelType = value;
+                Invalidate();
+            }
+        }
+    }
+
     public BlurEffect(float blurRadius = 5f)
     {
         BlurRadius = blurRadius;
@@ -1526,6 +1589,7 @@ public class BlurEffect : EffectBase
 
 public class DropShadowEffect : EffectBase
 {
+    public override bool PreservesSourceHitGeometry => true;
     private float _blurRadiusX;
     private float _blurRadiusY;
     private Vector2 _offset;

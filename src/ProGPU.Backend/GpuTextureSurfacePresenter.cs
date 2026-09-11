@@ -42,25 +42,12 @@ public static unsafe class GpuTextureSurfacePresenter
             {
                 if (surfaceTexture.Status != SurfaceGetCurrentTextureStatus.Success)
                 {
-                    if (surfaceTexture.Status ==
-                        SurfaceGetCurrentTextureStatus.DeviceLost)
+                    if (surfaceTexture.Texture != null)
                     {
-                        context.ReportDeviceLost(
-                            DeviceLostReason.Unknown,
-                            "The presentation surface reported device loss.");
+                        context.Wgpu.TextureRelease(surfaceTexture.Texture);
+                        surfaceTexture.Texture = null;
                     }
-                    else if (surfaceTexture.Status ==
-                        SurfaceGetCurrentTextureStatus.OutOfMemory)
-                    {
-                        throw new OutOfMemoryException(
-                            "The WebGPU presentation surface ran out of memory.");
-                    }
-                    else if (surfaceTexture.Status is
-                        SurfaceGetCurrentTextureStatus.Outdated or
-                        SurfaceGetCurrentTextureStatus.Lost)
-                    {
-                        context.InvalidateSurfaceConfiguration();
-                    }
+                    _ = context.HandleSurfaceAcquisitionFailure(surfaceTexture.Status);
                     return;
                 }
 

@@ -1,10 +1,155 @@
 using System;
+using System.Runtime.Intrinsics;
 
 namespace ProGPU.Wpf.Interop;
 
 public interface IPortableGeometryPathSource
 {
     bool TryGetPortableGeometryPath(out PortableGeometryPath path);
+}
+
+public interface IPortablePrimitiveGeometrySource
+{
+    bool TryGetPortablePrimitiveGeometry(out PortablePrimitiveGeometry geometry);
+}
+
+public enum PortablePrimitiveGeometryKind
+{
+    Line = 0,
+    Rectangle = 1,
+    Ellipse = 2
+}
+
+public readonly struct PortablePrimitiveGeometry
+{
+    private PortablePrimitiveGeometry(
+        PortablePrimitiveGeometryKind kind,
+        PortablePoint point1,
+        PortablePoint point2,
+        PortableRect rect,
+        double radiusX,
+        double radiusY,
+        PortableMatrix3x2 transform)
+    {
+        Kind = kind;
+        Point1 = point1;
+        Point2 = point2;
+        Rect = rect;
+        RadiusX = radiusX;
+        RadiusY = radiusY;
+        Transform = transform;
+    }
+
+    public PortablePrimitiveGeometryKind Kind { get; }
+
+    public PortablePoint Point1 { get; }
+
+    public PortablePoint Point2 { get; }
+
+    public PortableRect Rect { get; }
+
+    public double RadiusX { get; }
+
+    public double RadiusY { get; }
+
+    public PortableMatrix3x2 Transform { get; }
+
+    /// <summary>
+    /// Writes four sharp-rectangle corners after the geometry-local affine map.
+    /// Keeps double precision, clockwise source order and caller-owned storage.
+    /// Failure leaves the destination unchanged; extra destination entries are
+    /// untouched. Rounded, empty, nonfinite and overflowing descriptors fail.
+    /// </summary>
+    public bool TryWriteTransformedRectangleCorners(Span<PortablePoint> destination)
+    {
+        if (destination.Length < 4 || Kind != PortablePrimitiveGeometryKind.Rectangle
+            || RadiusX != 0 || RadiusY != 0 || Rect.Width <= 0 || Rect.Height <= 0
+            || !double.IsFinite(Rect.X) || !double.IsFinite(Rect.Y)
+            || !double.IsFinite(Rect.Width) || !double.IsFinite(Rect.Height)
+            || !double.IsFinite(Transform.M11) || !double.IsFinite(Transform.M12)
+            || !double.IsFinite(Transform.M21) || !double.IsFinite(Transform.M22)
+            || !double.IsFinite(Transform.OffsetX) || !double.IsFinite(Transform.OffsetY)) return false;
+        double right = Rect.X + Rect.Width, bottom = Rect.Y + Rect.Height;
+        if (!double.IsFinite(right) || !double.IsFinite(bottom)) return false;
+        var x = Vector128.Create(Transform.M11, Transform.M12);
+        var y = Vector128.Create(Transform.M21, Transform.M22);
+        var translation = Vector128.Create(Transform.OffsetX, Transform.OffsetY);
+        Span<PortablePoint> corners = stackalloc PortablePoint[4];
+        for (int i = 0; i < 4; i++)
+        {
+            var mapped = Vector128.Create(i is 1 or 2 ? right : Rect.X) * x
+                + Vector128.Create(i >= 2 ? bottom : Rect.Y) * y + translation;
+            if (!double.IsFinite(mapped[0]) || !double.IsFinite(mapped[1])) return false;
+            corners[i] = new(mapped[0], mapped[1]);
+        }
+        corners.CopyTo(destination);
+        return true;
+    }
+
+    /// <summary>
+    /// Reads a line's endpoints after its geometry-local affine transform.
+    /// The pen width is deliberately not transformed. This is fixed-work,
+    /// allocation-free metadata arithmetic over paired double coordinates.
+    /// Non-line, nonfinite and overflowing descriptors are unavailable.
+    /// </summary>
+    public bool TryGetTransformedLinePoints(out PortablePoint start, out PortablePoint end)
+    {
+        start = end = default;
+        if (Kind != PortablePrimitiveGeometryKind.Line
+            || !double.IsFinite(Point1.X) || !double.IsFinite(Point1.Y)
+            || !double.IsFinite(Point2.X) || !double.IsFinite(Point2.Y)
+            || !double.IsFinite(Transform.M11) || !double.IsFinite(Transform.M12)
+            || !double.IsFinite(Transform.M21) || !double.IsFinite(Transform.M22)
+            || !double.IsFinite(Transform.OffsetX) || !double.IsFinite(Transform.OffsetY)) return false;
+        var x = Vector128.Create(Transform.M11, Transform.M12);
+        var y = Vector128.Create(Transform.M21, Transform.M22);
+        var translation = Vector128.Create(Transform.OffsetX, Transform.OffsetY);
+        var first = Vector128.Create(Point1.X) * x + Vector128.Create(Point1.Y) * y + translation;
+        var last = Vector128.Create(Point2.X) * x + Vector128.Create(Point2.Y) * y + translation;
+        if (!double.IsFinite(first[0]) || !double.IsFinite(first[1])
+            || !double.IsFinite(last[0]) || !double.IsFinite(last[1])) return false;
+        start = new PortablePoint(first[0], first[1]);
+        end = new PortablePoint(last[0], last[1]);
+        return true;
+    }
+
+    public static PortablePrimitiveGeometry Line(
+        PortablePoint startPoint,
+        PortablePoint endPoint,
+        PortableMatrix3x2 transform) => new(
+            PortablePrimitiveGeometryKind.Line,
+            startPoint,
+            endPoint,
+            PortableRect.Empty,
+            0.0,
+            0.0,
+            transform);
+
+    public static PortablePrimitiveGeometry Rectangle(
+        PortableRect rect,
+        double radiusX,
+        double radiusY,
+        PortableMatrix3x2 transform) => new(
+            PortablePrimitiveGeometryKind.Rectangle,
+            default,
+            default,
+            rect,
+            radiusX,
+            radiusY,
+            transform);
+
+    public static PortablePrimitiveGeometry Ellipse(
+        PortablePoint center,
+        double radiusX,
+        double radiusY,
+        PortableMatrix3x2 transform) => new(
+            PortablePrimitiveGeometryKind.Ellipse,
+            center,
+            default,
+            PortableRect.Empty,
+            radiusX,
+            radiusY,
+            transform);
 }
 
 public enum PortableGeometryPathKind

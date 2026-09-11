@@ -251,7 +251,12 @@ fn sample_mask_alpha(position: vec2<f32>) -> f32 {
         return analytic_rounded_mask_alpha(targetPosition) *
             maskSampling.options.y;
     }
-    let uv = (targetPosition - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
+    var uv = (targetPosition - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
+    if (maskSampling.options.z > 0.5) {
+        uv = vec2<f32>(
+            dot(vec3<f32>(targetPosition, 1.0), maskSampling.coordinate0.xyz),
+            dot(vec3<f32>(targetPosition, 1.0), maskSampling.coordinate1.xyz));
+    }
     let sample = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)));
     let sampled = select(sample.r, sample.a, maskSampling.options.w > 1.5);
     let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
@@ -394,11 +399,13 @@ fn fs_main_premultiplied_unmasked(input: VertexOutput) -> @location(0) vec4<f32>
 @fragment
 fn fs_mask(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = text_fs_main(input);
-    return vec4<f32>(color.a, 0.0, 0.0, 1.0);
+    // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
 
 @fragment
 fn fs_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = text_fs_main_with_mask_alpha(input, 1.0);
-    return vec4<f32>(color.a, 0.0, 0.0, 1.0);
+    // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }

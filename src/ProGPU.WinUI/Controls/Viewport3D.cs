@@ -121,6 +121,8 @@ namespace Microsoft.UI.Xaml.Media.Media3D
     public class DiffuseMaterial : Material
     {
         public Brush Brush { get; set; } = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f));
+        public MaterialBrushTarget3D BrushTarget { get; set; } =
+            MaterialBrushTarget3D.Color;
         public Vector4 Color { get; set; } = Vector4.One;
         public Vector3 SpecularColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
         public float Shininess { get; set; } = 32.0f;
@@ -1011,6 +1013,7 @@ namespace Microsoft.UI.Xaml.Controls
                 InvalidateRecords();
             }
         }
+        public List<Light3DCompilationEntry> Lights { get; } = new();
 
         public RenderMode3D RenderMode
         {
@@ -1291,6 +1294,9 @@ namespace Microsoft.UI.Xaml.Controls
             payload.ModelVisualVisitCount = 0;
             payload.MetricsTarget = _metricsTarget;
 
+            payload.Lights.Clear();
+            payload.Lights.AddRange(Lights);
+
             if (compileScene)
             {
                 payload.Meshes.Clear();
@@ -1421,6 +1427,10 @@ namespace Microsoft.UI.Xaml.Controls
                                 float opacity = 1.0f;
                                 IProGpuTextureLeaseSource?
                                     textureSource = null;
+                                Brush? materialBrush = null;
+                                MaterialBrushTarget3D
+                                    materialBrushTarget =
+                                        MaterialBrushTarget3D.Color;
                                 MeshTextureEffect textureEffect =
                                     MeshTextureEffect.Identity;
                                 TextureSamplingMode textureSamplingMode =
@@ -1441,6 +1451,8 @@ namespace Microsoft.UI.Xaml.Controls
                                     shininess = diffuse.Shininess;
                                     ambientColor = diffuse.AmbientColor;
                                     selfIllumination = diffuse.SelfIllumination;
+                                    materialBrushTarget =
+                                        diffuse.BrushTarget;
 
                                     // If the brush is a dynamic theme resource brush, resolve it against the active theme family
                                     Brush? activeBrush = diffuse.Brush;
@@ -1454,14 +1466,16 @@ namespace Microsoft.UI.Xaml.Controls
                                     {
                                         diffuseColor = solid.Color;
                                     }
-                                    else if (activeBrush is LinearGradientBrush gradient && gradient.Stops.Length > 0)
+                                    else if (activeBrush is LinearGradientBrush or RadialGradientBrush)
                                     {
-                                        diffuseColor = gradient.Stops[0].Color; // Fallback to first stop for mesh base color
+                                        materialBrush = activeBrush;
+                                        opacity = 1.0f;
                                     }
 
                                     // Blend with DiffuseMaterial.Color if it is set
                                     diffuseColor *= diffuse.Color;
                                     opacity *= diffuseColor.W;
+                                    diffuseColor.W = 1.0f;
 
                                     if (diffuse is
                                         IProGpuMeshTextureMaterial
@@ -1500,6 +1514,9 @@ namespace Microsoft.UI.Xaml.Controls
                                             mesh.TextureCoordinates,
                                         Edges = mesh.Edges,
                                         TextureSource = textureSource,
+                                        MaterialBrush = materialBrush,
+                                        MaterialBrushTarget =
+                                            materialBrushTarget,
                                         TextureEffect = textureEffect,
                                         TextureSamplingMode =
                                             textureSamplingMode,
@@ -1529,6 +1546,7 @@ namespace Microsoft.UI.Xaml.Controls
                                     float backOpacity = backDiffuse.Brush.Opacity;
                                     IProGpuTextureLeaseSource?
                                         backTextureSource = null;
+                                    Brush? backMaterialBrush = null;
                                     MeshTextureEffect backTextureEffect =
                                         MeshTextureEffect.Identity;
                                     TextureSamplingMode
@@ -1556,13 +1574,15 @@ namespace Microsoft.UI.Xaml.Controls
                                     {
                                         backDiffuseColor = solidBack.Color;
                                     }
-                                    else if (activeBackBrush is LinearGradientBrush gradientBack && gradientBack.Stops.Length > 0)
+                                    else if (activeBackBrush is LinearGradientBrush or RadialGradientBrush)
                                     {
-                                        backDiffuseColor = gradientBack.Stops[0].Color;
+                                        backMaterialBrush = activeBackBrush;
+                                        backOpacity = 1.0f;
                                     }
 
                                     backDiffuseColor *= backDiffuse.Color;
                                     backOpacity *= backDiffuseColor.W;
+                                    backDiffuseColor.W = 1.0f;
 
                                     if (backDiffuse is
                                         IProGpuMeshTextureMaterial
@@ -1604,6 +1624,10 @@ namespace Microsoft.UI.Xaml.Controls
                                         Edges = Array.Empty<MeshEdge3D>(),
                                         TextureSource =
                                             backTextureSource,
+                                        MaterialBrush =
+                                            backMaterialBrush,
+                                        MaterialBrushTarget =
+                                            backDiffuse.BrushTarget,
                                         TextureEffect =
                                             backTextureEffect,
                                         TextureSamplingMode =

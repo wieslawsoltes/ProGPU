@@ -48,7 +48,7 @@ bool semantic_scene_builder::try_measure_stream(
     }
 
     const std::uint64_t command_bytes =
-        implementation_->commands.size() *
+        implementation_->render_command_count() *
         sizeof(progpu_native_scene_command);
     const std::uint64_t resource_bytes =
         implementation_->resources.size() *
@@ -88,13 +88,14 @@ bool semantic_scene_builder::try_measure_stream(
             return implementation_->fail(scene_build_error::capacity_exceeded);
         }
     }
-    for (const auto& command : implementation_->commands) {
+    if (!implementation_->visit_render_commands([&](const auto& command) {
         if (command.payload.size() >
                 std::numeric_limits<std::uint32_t>::max() ||
             !append_size(command.payload.size())) {
             return implementation_->fail(scene_build_error::capacity_exceeded);
         }
-    }
+        return true;
+    })) return false;
     if (measured_command_offset > std::numeric_limits<std::uint32_t>::max() ||
         measured_resource_offset > std::numeric_limits<std::uint32_t>::max() ||
         measured_arena_offset > std::numeric_limits<std::uint32_t>::max() ||
@@ -207,9 +208,10 @@ bool semantic_scene_builder::build_into(
     }
 
     const std::uint32_t command_count = static_cast<std::uint32_t>(
-        implementation_->commands.size());
-    for (std::uint32_t index = 0U; index < command_count; ++index) {
-        const auto& source = implementation_->commands[index];
+        implementation_->render_command_count());
+    std::uint32_t command_index = 0U;
+    std::uint32_t render_depth = 0U, maximum_render_depth = 0U;
+    if (!implementation_->visit_render_commands([&](const auto& source) {
         auto command = source.record;
         const std::span<const std::byte> payload{
             source.payload.data(), source.payload.size()};
@@ -217,12 +219,20 @@ bool semantic_scene_builder::build_into(
             return implementation_->fail(scene_build_error::invalid_state);
         }
         command.payload_size = static_cast<std::uint32_t>(payload.size());
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE || command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
+            maximum_render_depth = std::max(maximum_render_depth, ++render_depth);
+        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE || command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+            if (render_depth == 0U) return implementation_->fail(scene_build_error::unbalanced_stack);
+            --render_depth;
+        }
         std::memcpy(
             destination.data() + command_offset +
-                index * sizeof(command),
+                command_index * sizeof(command),
             &command,
             sizeof(command));
-    }
+        ++command_index;
+        return true;
+    })) return false;
     if (cursor != total_size) {
         return implementation_->fail(scene_build_error::invalid_state);
     }
@@ -252,7 +262,7 @@ bool semantic_scene_builder::build_into(
             implementation_->brushes.size());
         metrics->text_style_count = static_cast<std::uint32_t>(
             implementation_->text_styles.size());
-        metrics->maximum_stack_depth = implementation_->maximum_stack_depth;
+        metrics->maximum_stack_depth = maximum_render_depth;
         metrics->arena_bytes = header.arena_size;
         metrics->stream_bytes = header.total_size;
     }

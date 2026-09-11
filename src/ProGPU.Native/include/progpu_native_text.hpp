@@ -1896,6 +1896,9 @@ struct text_layout_options final {
     std::uint8_t reserved = 0U;
     std::uint32_t ellipsis_glyph_id = 0U;
     float ellipsis_advance = 0.0F;
+    // Optional width for the final allowed line only; -1 preserves legacy layout.
+    // Zero is a real collapsed width, unlike maximum_width's unbounded sentinel.
+    float collapse_width = -1.0F;
 };
 
 struct positioned_text_glyph final {
@@ -1964,6 +1967,12 @@ bool try_measure_positioned_text_lines(
     std::span<const positioned_text_line> lines,
     float maximum_width,
     text_layout_metrics& result,
+    font_error* error = nullptr) noexcept;
+
+// Measured line boxes start at a cumulative top, not at baseline_y.
+bool try_measure_measured_text_lines(
+    std::span<const positioned_text_line> lines,
+    float maximum_width, text_layout_metrics& result,
     font_error* error = nullptr) noexcept;
 
 bool try_measure_positioned_text_columns(
@@ -2090,12 +2099,344 @@ struct text_logical_layout_scratch final {
     std::span<std::uint32_t> visual_indices{};
 };
 
+// Caller-resolved DIP distances from the baseline, one per logical item.
+// Font glyphs and measured non-ink objects share these line-height inputs.
+struct text_item_metrics final {
+    float ascent = 0.0F;
+    float descent = 0.0F;
+};
+
+// Resolved half-open exclusion bounds in paragraph DIPs, not paint bounds.
+// Negative origins and zero-area exclusions are valid; all edges are finite.
+struct text_exclusion_rectangle final {
+    float left{}, top{}, right{}, bottom{};
+};
+struct text_line_interval final { float left{}, right{}; };
+
+enum class text_anchor_alignment : std::uint8_t { left, center, right };
+enum class text_anchor_width_mode : std::uint8_t { fixed, fill, fit_content };
+struct text_anchor_width_result final {
+    float content_width{}, outer_width{};
+    bool requires_remeasure{};
+};
+// Two-pass width policy for source-owned anchor subtrees. Available/specified
+// widths include resolved horizontal insets. The first call has no measurement;
+// a second call receives actual child width measured at that first constraint.
+// fit_content may shrink and explicitly requires remeasurement at its new width.
+// fill never shrinks; fixed is constrained to available width. Insets can exhaust
+// content width to zero, never unbounded. All supplied metrics are finite >= 0.
+// O(1), allocation/device-free; result remains unchanged on invalid input.
+bool try_resolve_text_anchor_width(float available_width, float horizontal_insets,
+    text_anchor_width_mode mode, float specified_width, bool has_measurement,
+    float measured_width, text_anchor_width_result& result, font_error* error = nullptr) noexcept;
+// Place an already measured positive-size outer box in a source-resolved frame.
+// Margins/insets are included in width/height by the caller. Horizontal position
+// stays anchored; collisions may move it down only when allow_delay is true.
+// Half-open edge contact is allowed. Reference bottom is an actual fit limit.
+// Reuses native exclusion intervals (scratch E, intervals E+1), no allocation.
+// O(A * E log E), bounded by maximum_attempts; failure leaves placement untouched.
+// Does not resolve automatic dimensions, page references or source child ownership.
+bool try_place_text_anchor(text_exclusion_rectangle reference, float width, float height,
+    text_anchor_alignment alignment, bool allow_delay,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
+    text_exclusion_rectangle& placement, std::uint32_t maximum_attempts,
+    font_error* error = nullptr) noexcept;
+
+// Place a measured floater in a free interval rather than a fixed horizontal
+// anchor. Left/center select the first fitting interval, right the last; center
+// aligns inside that interval. Earlier siblings are ordinary collision boxes.
+// Other validation, workspace, delay and atomic-output contracts match anchors.
+// The caller supplies the completed anchor-bearing row bottom as reference.top;
+// this primitive does not discover source events or create an empty text row.
+bool try_place_text_floater(text_exclusion_rectangle reference, float width, float height,
+    text_anchor_alignment alignment, bool allow_delay,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
+    text_exclusion_rectangle& placement, std::uint32_t maximum_attempts,
+    font_error* error = nullptr) noexcept;
+
+// Complement of all exclusions intersecting the entire candidate line band.
+// Returns increasing, nonempty intervals; touching intervals are coalesced.
+// No free interval is a real exhausted width, not an unbounded paragraph.
+// next_y is the earliest bottom of a contributing exclusion, or band.top when
+// none contributes. Requery there to make progress; this is not a fitted line.
+// Scratch needs E intervals, output E+1 (E <= 1,048,576). Buffers must be disjoint.
+// No allocation or GPU/device initialization; O(E log E) time, O(E) caller
+// workspace. Intended for native paragraph fitting, never per-line P/Invoke.
+// It does not yet resolve anchors, shape text or admit source documents.
+// Counts reset on failure; output intervals and next_y remain untouched.
+bool try_resolve_text_line_intervals(text_exclusion_rectangle band,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> output,
+    std::uint32_t& count, float& next_y, font_error* error = nullptr) noexcept;
+
+// Non-ink layout item, never a font glyph. Its cluster and resolved advance
+// remain available to caret/selection consumers. Enabled only by tab options.
+inline constexpr std::uint32_t text_tab_glyph_id = 0xFFFFFFFFU;
+struct text_tab_options final {
+    float interval = 0.0F;
+    float origin = 0.0F; // text start relative to the paragraph's leading tab grid
+    bool allow_emergency_break = true;
+};
+
+// A fitted logical slice within one free interval of a resolved-height band.
+// Indices refer to the original shaped paragraph, not a copied text buffer.
+struct text_line_fragment final {
+    std::uint32_t glyph_start{}, glyph_count{};
+    float left{}, width{}, content_width{};
+};
+
+// Fit a candidate band using the ordinary shaping-safe line scanner. Fragments
+// follow paragraph reading order (right-to-left reverses interval order).
+// Tabs retain the paragraph grid. A mandatory break ends the band. Indivisible
+// content may overflow only when no exclusion constrains the full-width band;
+// it never overlaps an exclusion merely to make progress.
+// Caller owns resolved band height and must check measured fragment metrics
+// before accepting it. next_y is the interval resolver's downward retry hint,
+// not a substitute for that height check. No fragments leaves next_glyph=start.
+// scratch: E, intervals/fragments: E+1; borrowed buffers must be disjoint.
+// No allocations or per-fragment P/Invoke. O(G + E log E) plus rescanning an
+// indivisible non-fitting prefix for each interval. Trimming is not admitted.
+bool try_fit_text_exclusion_band(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after, std::span<const float> scales,
+    std::uint32_t start, const text_layout_options& options, text_tab_options tabs,
+    text_exclusion_rectangle band, std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::uint32_t& fragment_count,
+    std::uint32_t& next_glyph, float& next_y, font_error* error = nullptr) noexcept;
+
+struct text_intrinsic_widths final {
+    float minimum = 0.0F;
+    float maximum = 0.0F;
+};
+
+enum class text_exclusion_band_status : std::uint8_t { placed, refit_height, blocked, complete };
+struct text_exclusion_band_result final {
+    text_exclusion_band_status status = text_exclusion_band_status::blocked;
+    std::uint32_t next_glyph{}, glyph_count{}, fragment_count{};
+    float top{}, baseline{}, height{}, next_y{};
+};
+
+// One record per positioned fragment, paired by index with positioned_text_line.
+// Multiple fragments may share a row. Explicit tops preserve exclusion gaps.
+struct text_fragment_placement final {
+    std::uint32_t row_index{};
+    float left{};
+    double top{}; // Retain the layout prefix before float glyph publication.
+    float width{};
+};
+struct text_exclusion_flow_result final {
+    std::uint32_t glyph_count{}, fragment_count{}, row_count{}, next_glyph{}, attempts{};
+    double height{};
+    float content_width{};
+};
+
+// Source event between logical glyphs, never an invented font glyph. Equal
+// indices retain source sibling order; an interior shaped cluster is invalid.
+struct text_floating_item final {
+    std::uint32_t glyph_index{};
+    float width{}, height{};
+    text_anchor_alignment alignment = text_anchor_alignment::left;
+};
+struct text_floating_placement final {
+    std::uint32_t source_row{};
+    text_exclusion_rectangle bounds{};
+};
+struct text_floating_flow_result final {
+    text_exclusion_flow_result text{};
+    std::uint32_t float_count{};
+    double height{}; // Includes floats that extend below the final parent row.
+    float content_width{};
+};
+
+// Measure retained fragment frames rather than stacking fragment heights.
+// Content width includes the interval offset and actual line width; measured
+// width retains the caller's positive constraint, matching ordinary text.
+// Nonnegative paragraph-local tops include clearance gaps. These are layout
+// extents, not ink bounds. Baselines use the published float coordinate frame.
+bool try_measure_fragment_text_lines(std::span<const positioned_text_line> lines,
+    std::span<const text_fragment_placement> placements, float maximum_width,
+    text_layout_metrics& result, font_error* error = nullptr) noexcept;
+
+// Source-cluster metadata, never inferred from glyph ids or line-break flags.
+enum class text_justification_class : std::uint8_t { content, whitespace, word_space };
+bool try_classify_text_justification(std::span<const unicode_scalar> input,
+    std::span<const shaping_glyph> glyphs, std::span<text_justification_class> classes,
+    font_error* error = nullptr) noexcept;
+
+// Unicode-aware paragraph positioning. Empty classes preserves the legacy
+// shaped-only contract. Only interior word spaces on soft-wrapped lines expand;
+// tab-grid prefixes, final/hard lines and collapsed lines retain their advances.
+bool try_layout_justified_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    std::span<float> advance_scratch, text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count, std::uint32_t& line_count,
+    std::span<const text_justification_class> classes, font_error* error = nullptr) noexcept;
+
+// Same wrap/order/justification writer, with per-line measured baselines.
+// Nonempty metrics must cover every logical item. line_height is a minimum;
+// extra leading follows the baseline/descent. First baseline is first-line
+// ascent, subsequent lines start after the preceding measured height.
+// Empty metrics preserves legacy baseline-zero, fixed-height positioning.
+// Trimming with metrics requires separate sign metrics and is rejected here.
+// O(G) time, caller-owned scratch/output, no allocation. Inputs are borrowed.
+bool try_layout_measured_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    std::span<float> advance_scratch, text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count, std::uint32_t& line_count,
+    std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> item_metrics, font_error* error = nullptr) noexcept;
+
+// Measured candidate-band placement over original paragraph glyphs. Each output
+// line is a fragment of ONE row, sharing its top/baseline/height; do not infer
+// row tops from a prefix of fragment heights. Actual source metrics are required.
+// refit_height consumes nothing and writes no positioned output: resolve a band
+// ending at top+height and retry. The caller owns a bounded convergence policy;
+// never accept a mismatched height or turn blocked width into an unbounded line.
+// Uses the common measured writer, including bidi, tabs and justification.
+// Glyph output capacity: remaining input count; line capacity: E+1. Other
+// scratch follows the existing paragraph and exclusion contracts. No allocation,
+// pointers retained or per-fragment C ABI calls. All buffers must be disjoint.
+// A false return invalidates all output; result counters reset.
+bool try_layout_text_exclusion_band(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::uint32_t start,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    text_exclusion_rectangle band, std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, text_exclusion_band_result& result,
+    font_error* error = nullptr) noexcept;
+
+// Whole paragraph over already resolved exclusions. Original shaping is reused;
+// no text is reshaped or cloned during retries. Metrics must cover all glyphs.
+// Each placed row consumes at least one glyph; blocked bands advance to next_y,
+// refits consume nothing. A bounded attempt limit rejects nonconvergence with
+// verification_failed. No oversized-height acceptance, clipping or CPU fallback.
+// maximum_lines counts rows (zero means unlimited); next_glyph reports truncation.
+// Output capacities: G glyphs, G lines and G placement records. Interval/fragment
+// scratch follows the band contract. Empty text emits no row. Nonempty zero-height
+// flow is rejected, not enlarged by an invented epsilon. result resets on failure;
+// output arrays then have no valid prefix. Inputs and buffers must be disjoint.
+bool try_layout_excluded_logical_shaped_text(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::int8_t paragraph_level,
+    const text_layout_options& options, text_tab_options tabs,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, std::span<text_fragment_placement> placements,
+    text_exclusion_flow_result& result, std::uint32_t maximum_attempts = 1048576U,
+    font_error* error = nullptr) noexcept;
+
+// Same fitting contract in an existing paragraph coordinate frame. origin_y is
+// finite/nonnegative; placements and result.height retain absolute paragraph Y.
+// Empty input emits no row and returns origin_y as its unchanged bottom.
+bool try_layout_excluded_logical_shaped_text_at(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::int8_t paragraph_level,
+    const text_layout_options& options, text_tab_options tabs, double origin_y,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, std::span<text_fragment_placement> placements,
+    text_exclusion_flow_result& result, std::uint32_t maximum_attempts = 1048576U,
+    font_error* error = nullptr) noexcept;
+
+// Bottomless source-ordered floats over the same measured paragraph loop.
+// A row owns events in [row start, next glyph); terminal events belong to the
+// final row. Commit that row before placing its floats, then expose their boxes
+// to later rows. All floats allow downward delay; fixed anchors use another API.
+// Empty input with floats requires explicit positive empty-row source metrics
+// and emits one non-ink parent row; ordinary empty input still emits no row.
+// E initial exclusions + A floats require E+A collision/scratch intervals and
+// E+A+1 interval/fragment slots. Outputs need G glyphs, max(G,1) lines/frames and
+// A float placements. All spans are disjoint; no allocations or per-row ABI calls.
+// maximum_attempts bounds row fitting AND floater placement together. Row limits
+// leave later events unconsumed. Failure resets result; no output prefix is valid.
+bool try_layout_floating_logical_shaped_text_at(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::int8_t paragraph_level,
+    const text_layout_options& options, text_tab_options tabs, double origin_y,
+    text_item_metrics empty_row_metrics, std::span<const text_floating_item> floats,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_exclusion_rectangle> collision_scratch,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, std::span<text_fragment_placement> placements,
+    std::span<text_floating_placement> float_placements, text_floating_flow_result& result,
+    std::uint32_t maximum_attempts = 1048576U, font_error* error = nullptr) noexcept;
+
+/* O(S + G), O(1) workspace over logical source scalars and shaped clusters.
+ * Minimum uses legal, shaping-safe breaks, never emergency cluster splitting.
+ * Maximum uses mandatory breaks only. Both exclude trailing Unicode whitespace;
+ * mixed visible/whitespace ligatures remain indivisible. Tab grids restart at
+ * each candidate line. Prefix/grid dependencies require ordered accumulation. */
+bool try_measure_text_intrinsic_widths(std::span<const unicode_scalar> input,
+    std::span<const shaping_glyph> glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const float> glyph_scales, const text_layout_options& options,
+    text_tab_options tabs, text_intrinsic_widths& result, font_error* error = nullptr) noexcept;
+
+bool try_get_tabbed_text_layout_requirements(
+    std::span<const shaping_glyph> glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const float> glyph_scales, const text_layout_options& options,
+    text_tab_options tabs, text_layout_requirements& result, font_error* error = nullptr) noexcept;
+
+bool try_layout_tabbed_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    std::span<float> advance_scratch, text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count, std::uint32_t& line_count, font_error* error = nullptr) noexcept;
+
 /* Wraps logical shaped glyphs, applies per-line UAX #9 L1/L2 ordering, and
  * publishes positioned glyphs with their original logical input indices. */
 bool try_layout_logical_shaped_text(
     std::span<const shaping_glyph> logical_glyphs,
     std::span<const text_line_break_kind> breaks_after,
     std::span<const std::int8_t> bidi_levels,
+    std::int8_t paragraph_level,
+    const text_layout_options& options,
+    text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs,
+    std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count,
+    std::uint32_t& line_count,
+    font_error* error = nullptr) noexcept;
+
+/* Per-logical-glyph DIP/design-unit scales keep mixed-font/em-size metrics in
+ * floating point through wrapping and visual positioning. Empty scales selects
+ * options.scale. Synthetic ellipsis still uses options.scale and its caller font.
+ * Existing unscaled entry points retain their source and binary signatures. */
+bool try_get_scaled_text_layout_requirements(
+    std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    std::span<const float> glyph_scales,
+    const text_layout_options& options,
+    text_layout_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_layout_scaled_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels,
+    std::span<const float> glyph_scales,
     std::int8_t paragraph_level,
     const text_layout_options& options,
     text_logical_layout_scratch scratch,
@@ -2216,6 +2557,32 @@ bool try_hit_test_text(
     float y,
     text_hit_test_result& result,
     font_error* error = nullptr) noexcept;
+
+// Fragment-aware geometry over the same retained output as exclusion flow.
+// line_index remains the fragment index; placements maps it to its actual row.
+// Cluster ends/levels follow positioned glyph order. Explicit tops, including
+// clearance gaps, replace the ordinary line-height prefix. Row/interval topology
+// is validated before output. This does not make legacy line-index-based
+// vertical/visual navigation row-aware; consumers must use placement metadata.
+bool try_build_fragment_text_interaction(
+    std::span<const positioned_text_glyph> glyphs, std::span<const positioned_text_line> lines,
+    std::span<const text_fragment_placement> placements,
+    std::span<const std::int32_t> cluster_ends, std::span<const std::int8_t> bidi_levels,
+    std::span<text_cluster_box> cluster_boxes, std::span<text_caret_stop> caret_stops,
+    std::uint32_t& cluster_box_count, std::uint32_t& caret_stop_count,
+    font_error* error = nullptr) noexcept;
+
+enum class text_caret_direction : std::uint8_t { left, right, up, down };
+// Navigate one retained generation by caret index, avoiding ambiguous source
+// affinities at fragment/row boundaries. Horizontal order is physical X, then
+// fragment X and retained affinity order. At an outer edge, paragraph direction
+// selects the previous/next populated row. Up/down retain caller preferred_x.
+// The result is an existing index, never a synthesized stop. At the document
+// boundary it equals current_index. O(C+F), no allocations or retained pointers.
+bool try_move_fragment_text_caret(std::span<const text_caret_stop> carets,
+    std::span<const text_fragment_placement> placements, std::uint32_t current_index,
+    text_caret_direction direction, std::int8_t paragraph_level, float preferred_x,
+    std::uint32_t& next_index, font_error* error = nullptr) noexcept;
 
 bool try_get_text_caret_stop(
     std::span<const text_caret_stop> caret_stops,

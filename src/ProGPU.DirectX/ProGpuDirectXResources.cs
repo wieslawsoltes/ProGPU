@@ -596,9 +596,12 @@ public sealed class ProGpuDirectXMappedSubresource : IDisposable
     }
 }
 
-public sealed class ProGpuDirectXTexture2D : ProGpuDirectXResource
+public sealed class ProGpuDirectXTexture2D :
+    ProGpuDirectXResource,
+    IProGpuInvalidatingTextureSource
 {
     private GpuTexture? _backendTexture;
+    private SharedGpuTextureSource? _backendTextureSource;
     private GpuTexture[]? _backendArraySliceTextures;
     private byte[]? _cpuShadow;
     private byte[] _writeShadow = [];
@@ -630,6 +633,49 @@ public sealed class ProGpuDirectXTexture2D : ProGpuDirectXResource
 
     public bool IsMapped => _activeMapping is not null;
 
+    /// <summary>
+    /// Raised after GPU-visible texture contents or dimensions change. Native
+    /// retained compositors use this signal to rebuild only commands that
+    /// reference this texture.
+    /// </summary>
+    public event EventHandler? TextureChanged;
+
+    /// <summary>
+    /// Returns the bindable, single-layer WebGPU texture backing this DirectX
+    /// resource. Unsupported resource shapes fail closed instead of copying
+    /// pixels through the CPU.
+    /// </summary>
+    public bool TryGetGpuTexture(out GpuTexture texture)
+    {
+        if (!IsDisposed &&
+            _backendTextureSource is { } source &&
+            source.TryGetGpuTexture(out texture))
+        {
+            return true;
+        }
+
+        texture = null!;
+        return false;
+    }
+
+    /// <summary>
+    /// Acquires a typed lifetime lease for deferred same-device rendering.
+    /// The lease keeps the backend texture alive if the DirectX resource is
+    /// disposed before a retained picture has finished using it.
+    /// </summary>
+    public bool TryAcquireGpuTextureLease(out IProGpuTextureLease lease)
+    {
+        if (!IsDisposed &&
+            _backendTextureSource is { } source &&
+            source.TryAcquireGpuTextureLease(out lease))
+        {
+            return true;
+        }
+
+        lease = null!;
+        return false;
+    }
+
     internal void MarkBackendContentsChanged()
     {
         if (_writeShadowSubresourcesCurrent.Length > 0)
@@ -637,7 +683,7 @@ public sealed class ProGpuDirectXTexture2D : ProGpuDirectXResource
             Array.Fill(_writeShadowSubresourcesCurrent, false);
         }
 
-        Generation++;
+        AdvanceGeneration();
     }
 
     internal GpuTexture? GetBackendTexture(uint arraySlice)
@@ -696,7 +742,7 @@ public sealed class ProGpuDirectXTexture2D : ProGpuDirectXResource
         }
 
         LastWriteSizeInBytes = expectedSize;
-        Generation++;
+        AdvanceGeneration();
     }
 
     public byte[] ReadPixels()
@@ -805,7 +851,7 @@ public sealed class ProGpuDirectXTexture2D : ProGpuDirectXResource
         }
 
         LastWriteSizeInBytes = generatedBytes;
-        Generation++;
+        AdvanceGeneration();
     }
 
     private void UploadAllSubresourcesToBackend(ReadOnlySpan<byte> bytes)
@@ -992,7 +1038,7 @@ public sealed class ProGpuDirectXTexture2D : ProGpuDirectXResource
             }
         }
 
-        Generation++;
+        AdvanceGeneration();
     }
 
     internal void CompleteMappedSubresource(ProGpuDirectXMappedSubresource mapping)
@@ -1030,7 +1076,7 @@ public sealed class ProGpuDirectXTexture2D : ProGpuDirectXResource
 
             LastWriteSizeInBytes = mapping.SizeInBytes;
             MarkShadowSubresourceCurrent(mapping.Subresource);
-            Generation++;
+            AdvanceGeneration();
         }
 
         _activeMapping = null;
@@ -1099,6 +1145,25 @@ public sealed class ProGpuDirectXTexture2D : ProGpuDirectXResource
             ProGpuDirectXFormatConverter.ToTextureAlphaMode(Descriptor.Format),
             depthOrArrayLayers: Descriptor.ArraySize,
             mipLevelCount: Descriptor.MipLevels);
+
+        if (CanShareBackendTexture(Descriptor))
+        {
+            _backendTextureSource = new SharedGpuTextureSource(_backendTexture);
+        }
+    }
+
+    private static bool CanShareBackendTexture(DxTexture2DDescriptor descriptor)
+    {
+        return descriptor.ArraySize == 1 &&
+            descriptor.SampleCount == 1 &&
+            (descriptor.Usage & DxTextureUsage.ShaderResource) != 0 &&
+            !IsDepthStencilFormat(descriptor.Format);
+    }
+
+    private void AdvanceGeneration()
+    {
+        Generation++;
+        TextureChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void EnsureShadowSubresourceCurrent(uint subresource)
@@ -1425,7 +1490,16 @@ public sealed class ProGpuDirectXTexture2D : ProGpuDirectXResource
     {
         _activeMapping?.Dispose();
         _activeMapping = null;
-        _backendTexture?.Dispose();
+        if (_backendTextureSource is { } source)
+        {
+            _backendTextureSource = null;
+            source.Dispose();
+        }
+        else
+        {
+            _backendTexture?.Dispose();
+        }
+
         _backendTexture = null;
         if (_backendArraySliceTextures is not null)
         {

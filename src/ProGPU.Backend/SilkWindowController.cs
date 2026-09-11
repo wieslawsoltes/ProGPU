@@ -11,6 +11,10 @@ public sealed class SilkWindowController : IDisposable
     private DragState? _drag;
     private bool _isApplying;
     private bool _disposed;
+    private readonly int _threadId = Environment.CurrentManagedThreadId;
+    private SilkWindowController? _ownerController;
+    private bool _inputAllowed = true;
+    private NativeWindowModalHint? _modalHint;
 
     public SilkWindowController(IWindow window)
     {
@@ -118,17 +122,23 @@ public sealed class SilkWindowController : IDisposable
         return Apply((platform, _) => platform.SetTopMost(value));
     }
 
+    /// <summary>
+    /// Records the requested enabled state and reports whether the attached
+    /// platform accepted it. Decoration refresh cannot make a rejected request
+    /// succeed. Platform acceptance alone is not cross-platform modal input
+    /// suppression: some platforms implement enabled window chrome only.
+    /// </summary>
     public bool SetEnabled(bool value)
     {
         _state = _state with { Enabled = value };
         return Apply((platform, state) =>
         {
-            bool enabled =
-                platform.SetEnabled(value);
-            bool shadow =
-                platform.SetWindowShadow(
-                    state.AddShadow);
-            return enabled || shadow;
+            bool enabled = ApplyInputState(platform);
+            // Chrome refresh is independent of input-state admission. It must
+            // not turn an unsupported/rejected enabled-state request into success.
+            if (enabled)
+                platform.SetWindowShadow(state.AddShadow);
+            return enabled;
         });
     }
 
@@ -159,10 +169,89 @@ public sealed class SilkWindowController : IDisposable
         return Apply((platform, _) => platform.SetShowInTaskbar(value));
     }
 
+    /// <summary>
+    /// Applies native input admission independently of application enabled intent.
+    /// SetEnabled continues updating that intent while blocked; releasing the gate
+    /// restores its latest value. Only Win32 currently provides full native blocking.
+    /// </summary>
+    public bool SetInputAllowed(bool allowed)
+    {
+        ThrowIfDisposed();
+        if (_threadId != Environment.CurrentManagedThreadId || !EnsureAttached() ||
+            _platform!.Handle.Kind != NativeWindowKind.Win32) return false;
+        _inputAllowed = allowed;
+        return Apply((platform, _) => ApplyInputState(platform));
+    }
+
+    private bool ApplyInputState(INativeWindowPlatform platform)
+    {
+        // Native enable callbacks can update application intent while Apply is
+        // guarded. Reconcile that new intent before reporting admission.
+        for (int attempt = 0; attempt < 8; attempt++)
+        {
+            bool enabled = _state.Enabled && _inputAllowed;
+            if (!platform.SetEnabled(enabled)) return false;
+            if (enabled == (_state.Enabled && _inputAllowed)) return true;
+        }
+        return false; // An oscillating callback did not reach a stable policy.
+    }
+
     public bool SetParent(NativeWindowHandle parent)
     {
+        _ownerController = null;
         _state = _state with { Parent = parent };
         return Apply((platform, _) => platform.SetParent(parent));
+    }
+
+    /// <summary>
+    /// Borrows this live X11 window for an advisory EWMH modal hint. Does not
+    /// alter ownership, application enabled intent, source input policy or event
+    /// polling. Unsupported hosts, duplicate live leases and foreign threads
+    /// reject explicitly. Release before hiding; controller disposal also releases.
+    /// If entry rollback throws, the out lease and controller retain cleanup
+    /// ownership; do not destroy the native window before releasing it.
+    /// </summary>
+    public bool TryBeginModalHint(out NativeWindowModalHint? hint)
+    {
+        ThrowIfDisposed();
+        hint = null;
+        if (_threadId != Environment.CurrentManagedThreadId || _platform == null ||
+            !_window.IsInitialized || _window.IsClosing || !Handle.IsValid ||
+            _modalHint is { IsReleased: false } ||
+            _platform is not X11NativeWindowPlatform x11) return false;
+        try { return NativeWindowModalHint.TryAcquire(x11, out _modalHint); }
+        finally { hint = _modalHint; } // Keep ownership even after failed rollback.
+    }
+
+    /// <summary>
+    /// Establishes top-level ownership between live attached controllers on their
+    /// creating thread. Does not change activation, popup style or enabled intent.
+    /// Null clears ownership. Rejected requests do not replace retained owner state.
+    /// </summary>
+    public bool TrySetOwner(SilkWindowController? owner)
+    {
+        ThrowIfDisposed();
+        if (_threadId != Environment.CurrentManagedThreadId || _platform == null ||
+            !_window.IsInitialized || _window.IsClosing || !Handle.IsValid)
+            return false;
+
+        NativeWindowHandle parent = NativeWindowHandle.Empty;
+        if (owner != null)
+        {
+            if (ReferenceEquals(this, owner) || owner._disposed || owner._threadId != _threadId ||
+                owner._platform == null || !owner._window.IsInitialized || owner._window.IsClosing)
+                return false;
+            parent = owner.Handle;
+            if (!parent.IsValid || parent.Kind != Handle.Kind || parent.Display != Handle.Display)
+                return false;
+            for (SilkWindowController? ancestor = owner; ancestor != null; ancestor = ancestor._ownerController)
+                if (ReferenceEquals(ancestor, this)) return false;
+        }
+
+        if (!_platform.SetParent(parent)) return false;
+        _ownerController = owner;
+        _state = _state with { Parent = parent };
+        return true;
     }
 
     public bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum)
@@ -410,7 +499,7 @@ public sealed class SilkWindowController : IDisposable
         platform.ApplyChrome(_state);
         platform.SetSizeConstraints(_state.MinimumSize, _state.MaximumSize);
         platform.SetTopMost(_state.TopMost);
-        platform.SetEnabled(_state.Enabled);
+        ApplyInputState(platform);
         platform.SetOpacity(_state.Opacity);
         platform.SetShowInTaskbar(_state.ShowInTaskbar);
         if (_state.Parent.IsValid)
@@ -482,8 +571,11 @@ public sealed class SilkWindowController : IDisposable
         {
             return;
         }
+        _modalHint?.Dispose();
+        _modalHint = null;
         _disposed = true;
         _drag = null;
+        _ownerController = null;
         _platform?.Dispose();
         _platform = null;
     }

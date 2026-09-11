@@ -131,8 +131,12 @@ bool valid_hatch_pattern_set(
 bool valid_brush_input(
     const progpu_native_scene_brush& brush,
     std::span<const progpu_native_scene_gradient_stop> stops) noexcept {
-    const std::uint32_t spread = brush.spread_method & 0x7fffffffU;
-    const bool outside = (brush.spread_method & 0x80000000U) != 0U;
+    const std::uint32_t spread = brush.spread_method &
+        PROGPU_NATIVE_SCENE_GRADIENT_SPREAD_MASK;
+    const bool pad_outside_colors = (brush.spread_method &
+        PROGPU_NATIVE_SCENE_GRADIENT_PAD_OUTSIDE_COLORS) != 0U;
+    const bool conical_outside_color = (brush.spread_method &
+        PROGPU_NATIVE_SCENE_GRADIENT_CONICAL_OUTSIDE_COLOR) != 0U;
     if (brush.type > PROGPU_NATIVE_SCENE_BRUSH_PATH_GRADIENT ||
         !std::isfinite(brush.opacity) || brush.opacity < 0.0F ||
         brush.opacity > 1.0F || !finite_point(brush.start_point) ||
@@ -142,8 +146,11 @@ bool valid_brush_input(
             spread > PROGPU_NATIVE_SCENE_GRADIENT_DECAL) ||
         brush.color_interpolation_mode >
             PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SCRGB ||
-        (outside && brush.type !=
+        (conical_outside_color && brush.type !=
             PROGPU_NATIVE_SCENE_BRUSH_TWO_POINT_CONICAL_GRADIENT) ||
+        (pad_outside_colors &&
+            (!gradient_kind(brush.type) ||
+                spread != PROGPU_NATIVE_SCENE_GRADIENT_PAD)) ||
         brush.reserved0 != 0U || brush.reserved1 != 0U ||
         !finite_values(brush.offsets0) || !finite_values(brush.offsets1) ||
         !finite_values(brush.coordinate_transform0) ||
@@ -165,7 +172,7 @@ bool valid_brush_input(
             ? std::size_t{0U}
             : static_cast<std::size_t>(
                 PROGPU_NATIVE_SCENE_PERLIN_TABLE_RECORDS);
-        if (outside || spread > 1U ||
+        if (pad_outside_colors || conical_outside_color || spread > 1U ||
             brush.stop_count > PROGPU_NATIVE_SCENE_MAX_PERLIN_OCTAVES ||
             stops.size() != expected) {
             return false;
@@ -173,7 +180,8 @@ bool valid_brush_input(
         return std::all_of(stops.begin(), stops.end(), valid_gradient_stop);
     }
     if (brush.type == PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN_SET) {
-        return !outside && valid_hatch_pattern_set(brush, stops);
+        return !pad_outside_colors && !conical_outside_color &&
+            valid_hatch_pattern_set(brush, stops);
     }
     if ((brush.type == PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN ||
             brush.type == PROGPU_NATIVE_SCENE_BRUSH_CROSS_HATCH) &&

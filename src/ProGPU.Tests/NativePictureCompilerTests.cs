@@ -16,6 +16,66 @@ namespace ProGPU.Tests;
 
 public class NativePictureCompilerTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompilerAcceptsEntirelyHiddenDashWithoutEmittingStrokeGeometry(bool curved)
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(Vector2.Zero);
+        figure.Segments.Add(curved
+            ? new QuadraticBezierSegment(new(0.5f, 1), new(1, 0))
+            : new LineSegment(new(1, 0)));
+        path.Figures.Add(figure);
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 1,
+            dashArray: [1, 10], dashOffset: 2);
+        var recorder = new GpuPictureRecorder();
+        recorder.BeginRecording(new Rect(-1, -1, 4, 4)).DrawPath(null, pen, path);
+        using var picture = recorder.EndRecording();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(picture, 918U, 1U,
+            out var compiled, out var failure), failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(0, compiled.PathCount);
+        Assert.Equal(0, compiled.GeometryPrimitiveCount);
+        Assert.Equal(0, compiled.StrokeCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompilerRetainsOrdinaryTerminalDashAsOneFilledCoveragePath(bool aliased)
+    {
+        var path = LinearDashCoverageCacheTests.CreatePath();
+        var pen = LinearDashCoverageCacheTests.CreatePen(true);
+        var recorder = new GpuPictureRecorder();
+        var drawing = recorder.BeginRecording(new Rect(-2, -2, 40, 20));
+        drawing.DrawPath(null, pen, path, Matrix4x4.CreateScale(2, 3, 1));
+        drawing.DrawPath(null, pen, path, Matrix4x4.CreateTranslation(12, 4, 0));
+        var first = drawing.Commands[0];
+        first.IsEdgeAliased = aliased;
+        drawing.Commands[0] = first;
+        using var picture = recorder.EndRecording();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(picture, 917U, 1U,
+            out var compiled, out var failure), failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(2, compiled.PathCount);
+        Assert.Equal(0, compiled.GeometryPrimitiveCount);
+        Assert.Equal(0, compiled.StrokeCount);
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        Assert.Equal(NativeSceneResourceKind.PathBatch, resource.Kind);
+        var paths = MemoryMarshal.Cast<byte, NativeScenePathFill>(compiled.Stream.Slice(
+            checked((int)resource.PayloadOffset), checked((int)resource.PayloadSize)));
+        Assert.Equal(2, paths.Length);
+        Assert.Equal(NativeFillRule.NonZero, paths[0].FillRule);
+        Assert.Equal(aliased ? 1U : 4U, paths[0].SampleGrid);
+        Assert.Equal(new Matrix3x2(2, 0, 0, 3, 0, 0), paths[0].Transform);
+        Assert.Equal(Matrix3x2.CreateTranslation(12, 4), paths[1].Transform);
+        Assert.Equal(paths[0].SegmentCount, paths[1].SegmentCount);
+        Assert.True(paths[0].SegmentCount > 2);
+    }
+
     [Fact]
     public void CompilerTransfersRetainedHitTestIndexInSemanticSceneUpdate()
     {
@@ -993,6 +1053,59 @@ public class NativePictureCompilerTests
         Assert.Equal(-2.49f, command.Bounds.Y, 3);
         Assert.Equal(4.5f, command.Bounds.Width, 3);
         Assert.Equal(3.5f, command.Bounds.Height, 3);
+    }
+
+    [Fact]
+    public void CompilerLowersAddressedTextureBrushToOneExternalImageDraw()
+    {
+        using GpuTexture texture = CreateUnbackedTexture(2U, 2U);
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 64f, 32f));
+        drawing.DrawRectangle(
+            new GpuTextureBrush
+            {
+                Texture = texture,
+                SourceRect = new Rect(0f, 0f, 2f, 2f),
+                DestinationRect = new Rect(0f, 0f, 2f, 2f),
+                Transform = Matrix4x4.CreateScale(8f, 8f, 1f),
+                SamplingMode = TextureSamplingMode.Nearest,
+                AddressModeU = TextureAddressMode.Repeat,
+                AddressModeV = TextureAddressMode.MirrorRepeat,
+                Opacity = 0.5f
+            },
+            null,
+            new Rect(0f, 0f, 64f, 32f));
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1240U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(1, compiled.ExternalImages.Length);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        NativeSceneImageDraw draw =
+            MemoryMarshal.Read<NativeSceneImageDraw>(
+                compiled.Stream.Slice(checked((int)command.PayloadOffset)));
+        Assert.Equal(
+            NativeSceneImageFlags.AddressURepeat |
+                NativeSceneImageFlags.AddressVMirrorRepeat |
+                NativeSceneImageFlags.ExtendedSourceRect,
+            draw.Flags);
+        Assert.Equal(NativeImageSampling.Nearest, draw.Sampling);
+        Assert.Equal(new NativeImageRect(0f, 0f, 8f, 4f), draw.SourceRect);
+        Assert.Equal(new NativeImageRect(0f, 0f, 64f, 32f), draw.DestinationRect);
+        Assert.Equal(0.5f, draw.Opacity);
     }
 
     [Fact]

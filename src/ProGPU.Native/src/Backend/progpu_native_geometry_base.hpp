@@ -9,9 +9,25 @@
 #include <cstdint>
 #include <limits>
 #include <numbers>
+#include <span>
 #include <vector>
 
 namespace progpu::native {
+
+// Algorithm: Encode base-level image reconstruction for canonical Texture.wgsl;
+// explicit Fant replaces bilinear taps without changing its bounded footprint.
+// Time complexity: O(1). Space complexity: O(1); no resources or allocations.
+inline constexpr float base_image_sampling_coefficient(
+    std::uint64_t engine_flags, std::uint32_t sampling) noexcept {
+    const bool explicit_sampling =
+        (engine_flags & PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING) != 0U;
+    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT)
+        return explicit_sampling ? -256.0F : -32.0F;
+    if (!explicit_sampling) return 0.0F;
+    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) return -128.0F;
+    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR) return -64.0F;
+    return 0.0F;
+}
 
 struct vector_vertex {
     float position[2];
@@ -136,6 +152,80 @@ inline void transform_point(
     float& result_y) noexcept {
     result_x = x * transform.m11 + y * transform.m21 + transform.m31;
     result_y = x * transform.m12 + y * transform.m22 + transform.m32;
+}
+
+// Canonical Texture.wgsl occupied-tile-page encoding. O(1), four vertices,
+// no GPU ownership transfer or allocation. The caller leases the premultiplied
+// page through submission and explicitly selects this shader-sampling path.
+inline bool try_write_tile_page_quad(
+    std::span<vector_vertex> destination,
+    const progpu_native_image_rect& output,
+    const progpu_native_affine_2d& output_to_tile,
+    std::uint32_t tile_width, std::uint32_t tile_height,
+    std::uint32_t texture_width, std::uint32_t texture_height,
+    std::uint32_t address_u, std::uint32_t address_v,
+    std::uint32_t sampling, float opacity) noexcept {
+    constexpr std::uint32_t maximum_exact_extent = 1U << 24U;
+    if (destination.size() < 4U || tile_width == 0U || tile_height == 0U ||
+        tile_width > texture_width || tile_height > texture_height ||
+        tile_width > maximum_exact_extent || tile_height > maximum_exact_extent ||
+        address_u > PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT ||
+        address_v > PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT ||
+        (sampling > PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR && sampling != PROGPU_NATIVE_IMAGE_SAMPLING_FANT) ||
+        !std::isfinite(opacity) || opacity < 0.0F || opacity > 1.0F ||
+        !is_finite(output_to_tile) || !std::isfinite(output.x) ||
+        !std::isfinite(output.y) || !std::isfinite(output.width) ||
+        !std::isfinite(output.height) || output.width <= 0.0F || output.height <= 0.0F) {
+        return false;
+    }
+    std::array<vector_vertex, 4U> vertices{};
+    constexpr std::array<std::array<float, 2U>, 4U> corners{{
+        {0.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 1.0F}, {0.0F, 1.0F}}};
+    for (std::size_t index = 0U; index < vertices.size(); ++index) {
+        auto& vertex = vertices[index];
+        vertex.position[0] = output.x + corners[index][0] * output.width;
+        vertex.position[1] = output.y + corners[index][1] * output.height;
+        transform_point(output_to_tile, vertex.position[0], vertex.position[1],
+            vertex.texture_coordinate[0], vertex.texture_coordinate[1]);
+        if (!std::isfinite(vertex.position[0]) || !std::isfinite(vertex.position[1]) ||
+            !std::isfinite(vertex.texture_coordinate[0]) || !std::isfinite(vertex.texture_coordinate[1])) {
+            return false;
+        }
+        vertex.color[0] = static_cast<float>(tile_width);
+        vertex.color[1] = static_cast<float>(tile_height);
+        vertex.color[3] = opacity;
+        vertex.brush_index = -2.0F;
+        vertex.shape_size[0] = sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST ? -128.0F :
+            sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT ? -32.0F : -64.0F;
+        vertex.corner_radius = static_cast<float>(address_u);
+        vertex.stroke_thickness = static_cast<float>(address_v);
+    }
+    std::copy(vertices.begin(), vertices.end(), destination.begin());
+    return true;
+}
+
+// Algorithm: Re-encode a full captured-page quad using occupied-page clamp
+// sampling while preserving its already transformed/snapped four positions.
+// Time complexity: O(1). Space complexity: O(1), transactional stack storage.
+inline bool try_encode_captured_page_quad(
+    std::span<vector_vertex> destination,
+    std::uint32_t page_width, std::uint32_t page_height,
+    std::uint32_t texture_width, std::uint32_t texture_height,
+    std::uint32_t sampling, float opacity) noexcept {
+    if (destination.size() < 4U) return false;
+    std::array<vector_vertex, 4U> quad{};
+    if (!try_write_tile_page_quad(quad, {0.0F, 0.0F, 1.0F, 1.0F},
+            {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}, page_width, page_height,
+            texture_width, texture_height, PROGPU_NATIVE_IMAGE_ADDRESS_CLAMP,
+            PROGPU_NATIVE_IMAGE_ADDRESS_CLAMP, sampling, opacity)) return false;
+    for (std::size_t index = 0U; index < quad.size(); ++index) {
+        const auto& source = destination[index];
+        if (!std::isfinite(source.position[0]) || !std::isfinite(source.position[1])) return false;
+        quad[index].position[0] = source.position[0];
+        quad[index].position[1] = source.position[1];
+    }
+    std::copy(quad.begin(), quad.end(), destination.begin());
+    return true;
 }
 
 inline void transform_vector(

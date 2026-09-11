@@ -8,11 +8,17 @@ public static class Shaders
 
     public static readonly string TextShader = ShaderResource.Load(typeof(Shaders), "Text.wgsl");
 
-    public static readonly string TextureShader = ShaderResource.Load(typeof(Shaders), "Texture.wgsl");
+    public static readonly string TextureShader = string.Concat(
+        ShaderResource.Load(typeof(Shaders), "SampledMaskCommon.wgsl"),
+        "\n",
+        ShaderResource.Load(typeof(Shaders), "Texture.wgsl"));
 
     public static readonly string GlyphRasterizerShader = ShaderResource.Load(typeof(Shaders), "GlyphRasterizer.wgsl");
 
-    public static readonly string PathRasterizerShader = ShaderResource.Load(typeof(Shaders), "PathRasterizer.wgsl");
+    public static readonly string PathRasterizerShader = string.Concat(
+        ShaderResource.Load(typeof(Shaders), "PathRasterizerCommon.wgsl"),
+        "\n",
+        ShaderResource.Load(typeof(Shaders), "PathRasterizer.wgsl"));
 
     public static readonly string ChartLineShader = ShaderResource.Load(typeof(Shaders), "ChartLine.wgsl");
 

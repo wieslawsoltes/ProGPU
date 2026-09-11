@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <Platforms>x64;ARM64</Platforms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SignAssembly>false</SignAssembly>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Graphics.Win2D" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" />
+    <ProjectReference Include="..\..\src\ProGPU.Direct2D\ProGPU.Direct2D.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+    <Content Include="..\..\eng\Assets\ProGpuIcon.png"
+             Link="Assets\ProGpuIcon.png" />
+    <Content Include="$(ProGpuDirect2DNativeBinary)"
+             Link="progpu_native_direct2d.dll"
+             CopyToOutputDirectory="PreserveNewest"
+             Condition="'$(ProGpuDirect2DNativeBinary)' != '' And Exists('$(ProGpuDirect2DNativeBinary)')" />
+  </ItemGroup>
+
+  <Target Name="RequireProGpuDirect2DNativeBinary" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(ProGpuDirect2DNativeBinary)' == '' Or !Exists('$(ProGpuDirect2DNativeBinary)')"
+           Text="Set ProGpuDirect2DNativeBinary to the qualified progpu_native_direct2d.dll." />
+  </Target>
+</Project>

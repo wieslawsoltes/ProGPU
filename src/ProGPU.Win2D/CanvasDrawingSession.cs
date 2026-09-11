@@ -1,0 +1,1625 @@
+using System.Numerics;
+using Microsoft.Graphics.Canvas.Brushes;
+using Microsoft.Graphics.Canvas.Geometry;
+using ProGPU.Fonts.Inter;
+using ProGPU.Scene;
+using ProGPU.Vector;
+using Windows.Foundation;
+using Windows.UI;
+using Color = Windows.UI.Color;
+using Rect = ProGPU.Scene.Rect;
+using NativeBrush = ProGPU.Vector.Brush;
+
+namespace Microsoft.Graphics.Canvas;
+
+/// <summary>
+/// Allocation-conscious Canvas command recorder for the portable Win2D core.
+/// </summary>
+public sealed class CanvasDrawingSession :
+    ICanvasResourceCreatorWithDpi,
+    IDisposable
+{
+    private readonly ICanvasDrawingSessionTarget _target;
+    private readonly GpuPictureRecorder _recorder = new();
+    private readonly Rect _bounds;
+    private readonly Dictionary<uint, SolidColorBrush> _brushes = new();
+    private readonly Dictionary<PenKey, Pen> _pens = new();
+    private readonly Dictionary<BrushPenKey, Pen> _brushPens = new();
+    private DrawingContext _context;
+    private Matrix3x2 _transform = Matrix3x2.Identity;
+    private Vector4 _clearColor;
+    private bool _hasClear;
+    private bool _hasCommands;
+    private bool _isDisposed;
+    private List<LayerState>? _layers;
+    private int _nextLayerToken;
+
+    private readonly record struct PenKey(uint Color, int WidthBits);
+    private readonly record struct BrushPenKey(
+        NativeBrush Brush,
+        int WidthBits);
+    private readonly record struct LayerState(
+        int Token,
+        bool HasRectangleClip,
+        bool HasGeometryClip);
+
+    internal CanvasDrawingSession(
+        ICanvasDrawingSessionTarget target)
+    {
+        _target = target;
+        Windows.Foundation.Rect bounds = target.DrawingBounds;
+        _bounds = new Rect(
+            (float)bounds.X,
+            (float)bounds.Y,
+            (float)bounds.Width,
+            (float)bounds.Height);
+        Dpi = target.Dpi;
+        _context = _recorder.BeginRecording(_bounds);
+    }
+
+    public CanvasDevice Device => _target.Device;
+
+    public float Dpi { get; }
+
+    public Matrix3x2 Transform
+    {
+        get => _transform;
+        set
+        {
+            ThrowIfDisposed();
+            if (!IsFinite(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            _transform = value;
+        }
+    }
+
+    public float ConvertPixelsToDips(int pixels)
+    {
+        ThrowIfDisposed();
+        return pixels * CanvasContract.DefaultDpi / Dpi;
+    }
+
+    public int ConvertDipsToPixels(
+        float dips,
+        CanvasDpiRounding dpiRounding)
+    {
+        ThrowIfDisposed();
+        return CanvasContract.DipsToPixels(dips, Dpi, dpiRounding);
+    }
+
+    public void Clear(Color color)
+    {
+        ThrowIfDisposed();
+        _target.ValidateClear();
+        _context.Clear();
+        _clearColor = ToPremultipliedVector(color);
+        _hasClear = true;
+        _hasCommands = false;
+    }
+
+    public void DrawImage(ICanvasImage image) =>
+        DrawImage(image, Vector2.Zero);
+
+    public void DrawImage(ICanvasImage image, Vector2 offset) =>
+        DrawImage(image, offset.X, offset.Y);
+
+    public void DrawImage(ICanvasImage image, float x, float y)
+    {
+        if (image is CanvasCommandList commandList)
+        {
+            DrawCommandList(commandList, x, y);
+            return;
+        }
+
+        CanvasBitmap bitmap = GetBitmap(image);
+        DrawBitmap(
+            bitmap,
+            new Rect(
+                x,
+                y,
+                (float)bitmap.Size.Width,
+                (float)bitmap.Size.Height),
+            new Rect(0f, 0f, bitmap.Texture.Width, bitmap.Texture.Height),
+            1f,
+            CanvasImageInterpolation.Linear);
+    }
+
+    public void DrawImage(
+        CanvasBitmap bitmap,
+        Windows.Foundation.Rect destinationRectangle) =>
+        DrawBitmap(
+            GetBitmap(bitmap),
+            ValidateRect(
+                (float)destinationRectangle.X,
+                (float)destinationRectangle.Y,
+                (float)destinationRectangle.Width,
+                (float)destinationRectangle.Height),
+            new Rect(0f, 0f, bitmap.Texture.Width, bitmap.Texture.Height),
+            1f,
+            CanvasImageInterpolation.Linear);
+
+    public void DrawImage(
+        ICanvasImage image,
+        Vector2 offset,
+        Windows.Foundation.Rect sourceRectangle) =>
+        DrawImage(image, offset.X, offset.Y, sourceRectangle);
+
+    public void DrawImage(
+        ICanvasImage image,
+        float x,
+        float y,
+        Windows.Foundation.Rect sourceRectangle)
+    {
+        if (image is CanvasCommandList commandList)
+        {
+            DrawCommandList(
+                commandList,
+                new Rect(
+                    x,
+                    y,
+                    (float)sourceRectangle.Width,
+                    (float)sourceRectangle.Height),
+                ValidateCommandListSourceRect(sourceRectangle),
+                1f,
+                CanvasImageInterpolation.Linear);
+            return;
+        }
+
+        CanvasBitmap bitmap = GetBitmap(image);
+        Rect source = ValidateSourceRect(bitmap, sourceRectangle);
+        DrawBitmap(
+            bitmap,
+            new Rect(
+                x,
+                y,
+                (float)sourceRectangle.Width,
+                (float)sourceRectangle.Height),
+            source,
+            1f,
+            CanvasImageInterpolation.Linear);
+    }
+
+    public void DrawImage(
+        ICanvasImage image,
+        Windows.Foundation.Rect destinationRectangle,
+        Windows.Foundation.Rect sourceRectangle) =>
+        DrawImage(
+            image,
+            destinationRectangle,
+            sourceRectangle,
+            1f,
+            CanvasImageInterpolation.Linear);
+
+    public void DrawImage(
+        ICanvasImage image,
+        Vector2 offset,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity) =>
+        DrawImage(
+            image,
+            new Windows.Foundation.Rect(
+                offset.X,
+                offset.Y,
+                sourceRectangle.Width,
+                sourceRectangle.Height),
+            sourceRectangle,
+            opacity,
+            CanvasImageInterpolation.Linear);
+
+    public void DrawImage(
+        ICanvasImage image,
+        float x,
+        float y,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity) =>
+        DrawImage(
+            image,
+            new Windows.Foundation.Rect(
+                x,
+                y,
+                sourceRectangle.Width,
+                sourceRectangle.Height),
+            sourceRectangle,
+            opacity,
+            CanvasImageInterpolation.Linear);
+
+    public void DrawImage(
+        ICanvasImage image,
+        Windows.Foundation.Rect destinationRectangle,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity) =>
+        DrawImage(
+            image,
+            destinationRectangle,
+            sourceRectangle,
+            opacity,
+            CanvasImageInterpolation.Linear);
+
+    public void DrawImage(
+        ICanvasImage image,
+        Vector2 offset,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity,
+        CanvasImageInterpolation interpolation) =>
+        DrawImage(
+            image,
+            new Windows.Foundation.Rect(
+                offset.X,
+                offset.Y,
+                sourceRectangle.Width,
+                sourceRectangle.Height),
+            sourceRectangle,
+            opacity,
+            interpolation);
+
+    public void DrawImage(
+        ICanvasImage image,
+        float x,
+        float y,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity,
+        CanvasImageInterpolation interpolation) =>
+        DrawImage(
+            image,
+            new Windows.Foundation.Rect(
+                x,
+                y,
+                sourceRectangle.Width,
+                sourceRectangle.Height),
+            sourceRectangle,
+            opacity,
+            interpolation);
+
+    public void DrawImage(
+        ICanvasImage image,
+        Windows.Foundation.Rect destinationRectangle,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity,
+        CanvasImageInterpolation interpolation)
+    {
+        if (image is CanvasCommandList commandList)
+        {
+            DrawCommandList(
+                commandList,
+                ValidateRect(
+                    (float)destinationRectangle.X,
+                    (float)destinationRectangle.Y,
+                    (float)destinationRectangle.Width,
+                    (float)destinationRectangle.Height),
+                ValidateCommandListSourceRect(sourceRectangle),
+                opacity,
+                interpolation);
+            return;
+        }
+
+        CanvasBitmap bitmap = GetBitmap(image);
+        DrawBitmap(
+            bitmap,
+            ValidateRect(
+                (float)destinationRectangle.X,
+                (float)destinationRectangle.Y,
+                (float)destinationRectangle.Width,
+                (float)destinationRectangle.Height),
+            ValidateSourceRect(bitmap, sourceRectangle),
+            opacity,
+            interpolation);
+    }
+
+    public void DrawLine(
+        Vector2 point0,
+        Vector2 point1,
+        Color color,
+        float strokeWidth = 1f) =>
+        DrawLine(point0.X, point0.Y, point1.X, point1.Y, color, strokeWidth);
+
+    public void DrawLine(
+        Vector2 point0,
+        Vector2 point1,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawLine(
+            point0.X,
+            point0.Y,
+            point1.X,
+            point1.Y,
+            brush,
+            strokeWidth);
+
+    public void DrawLine(
+        float x0,
+        float y0,
+        float x1,
+        float y1,
+        Color color,
+        float strokeWidth = 1f)
+    {
+        ValidateFinite(x0, y0, x1, y1);
+        Pen pen = GetPen(color, strokeWidth);
+        _context.DrawLine(
+            pen,
+            new Vector2(x0, y0),
+            new Vector2(x1, y1),
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawLine(
+        float x0,
+        float y0,
+        float x1,
+        float y1,
+        ICanvasBrush brush,
+        float strokeWidth = 1f)
+    {
+        ValidateFinite(x0, y0, x1, y1);
+        Pen pen = GetPen(GetBrush(brush), strokeWidth);
+        _context.DrawLine(
+            pen,
+            new Vector2(x0, y0),
+            new Vector2(x1, y1),
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawRectangle(
+        Windows.Foundation.Rect rectangle,
+        Color color,
+        float strokeWidth = 1f) =>
+        DrawRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            color,
+            strokeWidth);
+
+    public void DrawRectangle(
+        Windows.Foundation.Rect rectangle,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            brush,
+            strokeWidth);
+
+    public void DrawRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        Color color,
+        float strokeWidth = 1f)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        _context.DrawRectangle(
+            null,
+            GetPen(color, strokeWidth),
+            rect,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        ICanvasBrush brush,
+        float strokeWidth = 1f)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        _context.DrawRectangle(
+            null,
+            GetPen(GetBrush(brush), strokeWidth),
+            rect,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void FillRectangle(
+        Windows.Foundation.Rect rectangle,
+        Color color) =>
+        FillRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            color);
+
+    public void FillRectangle(
+        Windows.Foundation.Rect rectangle,
+        ICanvasBrush brush) =>
+        FillRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            brush);
+
+    public void FillRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        Color color)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        _context.DrawRectangle(
+            GetBrush(color),
+            null,
+            rect,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void FillRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        ICanvasBrush brush)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        _context.DrawRectangle(
+            GetBrush(brush),
+            null,
+            rect,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawRoundedRectangle(
+        Windows.Foundation.Rect rectangle,
+        float radiusX,
+        float radiusY,
+        Color color,
+        float strokeWidth = 1f) =>
+        DrawRoundedRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            radiusX,
+            radiusY,
+            color,
+            strokeWidth);
+
+    public void DrawRoundedRectangle(
+        Windows.Foundation.Rect rectangle,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawRoundedRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            radiusX,
+            radiusY,
+            brush,
+            strokeWidth);
+
+    public void DrawRoundedRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        float radiusX,
+        float radiusY,
+        Color color,
+        float strokeWidth = 1f)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawRoundedRectangle(
+            null,
+            GetPen(color, strokeWidth),
+            rect,
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawRoundedRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush,
+        float strokeWidth = 1f)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawRoundedRectangle(
+            null,
+            GetPen(GetBrush(brush), strokeWidth),
+            rect,
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void FillRoundedRectangle(
+        Windows.Foundation.Rect rectangle,
+        float radiusX,
+        float radiusY,
+        Color color) =>
+        FillRoundedRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            radiusX,
+            radiusY,
+            color);
+
+    public void FillRoundedRectangle(
+        Windows.Foundation.Rect rectangle,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush) =>
+        FillRoundedRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            radiusX,
+            radiusY,
+            brush);
+
+    public void FillRoundedRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        float radiusX,
+        float radiusY,
+        Color color)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawRoundedRectangle(
+            GetBrush(color),
+            null,
+            rect,
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void FillRoundedRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawRoundedRectangle(
+            GetBrush(brush),
+            null,
+            rect,
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawEllipse(
+        Vector2 centerPoint,
+        float radiusX,
+        float radiusY,
+        Color color,
+        float strokeWidth = 1f) =>
+        DrawEllipse(
+            centerPoint.X,
+            centerPoint.Y,
+            radiusX,
+            radiusY,
+            color,
+            strokeWidth);
+
+    public void DrawEllipse(
+        Vector2 centerPoint,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawEllipse(
+            centerPoint.X,
+            centerPoint.Y,
+            radiusX,
+            radiusY,
+            brush,
+            strokeWidth);
+
+    public void DrawEllipse(
+        float x,
+        float y,
+        float radiusX,
+        float radiusY,
+        Color color,
+        float strokeWidth = 1f)
+    {
+        ValidateFinite(x, y);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawEllipse(
+            null,
+            GetPen(color, strokeWidth),
+            new Vector2(x, y),
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawEllipse(
+        float x,
+        float y,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush,
+        float strokeWidth = 1f)
+    {
+        ValidateFinite(x, y);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawEllipse(
+            null,
+            GetPen(GetBrush(brush), strokeWidth),
+            new Vector2(x, y),
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void FillEllipse(
+        Vector2 centerPoint,
+        float radiusX,
+        float radiusY,
+        Color color) =>
+        FillEllipse(centerPoint.X, centerPoint.Y, radiusX, radiusY, color);
+
+    public void FillEllipse(
+        Vector2 centerPoint,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush) =>
+        FillEllipse(
+            centerPoint.X,
+            centerPoint.Y,
+            radiusX,
+            radiusY,
+            brush);
+
+    public void FillEllipse(
+        float x,
+        float y,
+        float radiusX,
+        float radiusY,
+        Color color)
+    {
+        ValidateFinite(x, y);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawEllipse(
+            GetBrush(color),
+            null,
+            new Vector2(x, y),
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void FillEllipse(
+        float x,
+        float y,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush)
+    {
+        ValidateFinite(x, y);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawEllipse(
+            GetBrush(brush),
+            null,
+            new Vector2(x, y),
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawCircle(
+        Vector2 centerPoint,
+        float radius,
+        Color color,
+        float strokeWidth = 1f) =>
+        DrawCircle(centerPoint.X, centerPoint.Y, radius, color, strokeWidth);
+
+    public void DrawCircle(
+        Vector2 centerPoint,
+        float radius,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawCircle(centerPoint.X, centerPoint.Y, radius, brush, strokeWidth);
+
+    public void DrawCircle(
+        float x,
+        float y,
+        float radius,
+        Color color,
+        float strokeWidth = 1f) =>
+        DrawEllipse(x, y, radius, radius, color, strokeWidth);
+
+    public void DrawCircle(
+        float x,
+        float y,
+        float radius,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawEllipse(x, y, radius, radius, brush, strokeWidth);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        Color color,
+        float strokeWidth = 1f) =>
+        DrawGeometry(geometry, 0f, 0f, color, strokeWidth);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawGeometry(geometry, 0f, 0f, brush, strokeWidth);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        Color color,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle) =>
+        DrawGeometry(
+            geometry,
+            0f,
+            0f,
+            color,
+            strokeWidth,
+            strokeStyle);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        ICanvasBrush brush,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle) =>
+        DrawGeometry(
+            geometry,
+            0f,
+            0f,
+            brush,
+            strokeWidth,
+            strokeStyle);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
+        Color color,
+        float strokeWidth = 1f) =>
+        DrawGeometry(
+            geometry,
+            offset.X,
+            offset.Y,
+            color,
+            strokeWidth);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawGeometry(
+            geometry,
+            offset.X,
+            offset.Y,
+            brush,
+            strokeWidth);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
+        Color color,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle) =>
+        DrawGeometry(
+            geometry,
+            offset.X,
+            offset.Y,
+            color,
+            strokeWidth,
+            strokeStyle);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
+        ICanvasBrush brush,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle) =>
+        DrawGeometry(
+            geometry,
+            offset.X,
+            offset.Y,
+            brush,
+            strokeWidth,
+            strokeStyle);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        Color color,
+        float strokeWidth = 1f)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            null,
+            GetPen(color, strokeWidth),
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        ICanvasBrush brush,
+        float strokeWidth = 1f)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            null,
+            GetPen(GetBrush(brush), strokeWidth),
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        Color color,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        ArgumentNullException.ThrowIfNull(strokeStyle);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            null,
+            strokeStyle.GetOrCreatePen(GetBrush(color), strokeWidth),
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        ICanvasBrush brush,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        ArgumentNullException.ThrowIfNull(strokeStyle);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            null,
+            strokeStyle.GetOrCreatePen(GetBrush(brush), strokeWidth),
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
+    public void FillGeometry(CanvasGeometry geometry, Color color) =>
+        FillGeometry(geometry, 0f, 0f, color);
+
+    public void FillGeometry(
+        CanvasGeometry geometry,
+        ICanvasBrush brush) =>
+        FillGeometry(geometry, 0f, 0f, brush);
+
+    public void FillGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
+        Color color) =>
+        FillGeometry(geometry, offset.X, offset.Y, color);
+
+    public void FillGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
+        ICanvasBrush brush) =>
+        FillGeometry(geometry, offset.X, offset.Y, brush);
+
+    public void FillGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        Color color)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            GetBrush(color),
+            null,
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
+    public void FillGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        ICanvasBrush brush)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            GetBrush(brush),
+            null,
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
+    public CanvasActiveLayer CreateLayer(float opacity) =>
+        BeginLayer(opacity, null, null, Matrix3x2.Identity);
+
+    public CanvasActiveLayer CreateLayer(
+        float opacity,
+        Windows.Foundation.Rect clipRectangle) =>
+        BeginLayer(
+            opacity,
+            ValidateRect(
+                (float)clipRectangle.X,
+                (float)clipRectangle.Y,
+                (float)clipRectangle.Width,
+                (float)clipRectangle.Height),
+            null,
+            Matrix3x2.Identity);
+
+    public CanvasActiveLayer CreateLayer(
+        float opacity,
+        CanvasGeometry clipGeometry) =>
+        BeginLayer(opacity, null, clipGeometry, Matrix3x2.Identity);
+
+    public CanvasActiveLayer CreateLayer(
+        float opacity,
+        CanvasGeometry clipGeometry,
+        Matrix3x2 geometryTransform) =>
+        BeginLayer(opacity, null, clipGeometry, geometryTransform);
+
+    public void FillCircle(
+        Vector2 centerPoint,
+        float radius,
+        Color color) =>
+        FillCircle(centerPoint.X, centerPoint.Y, radius, color);
+
+    public void FillCircle(
+        Vector2 centerPoint,
+        float radius,
+        ICanvasBrush brush) =>
+        FillCircle(centerPoint.X, centerPoint.Y, radius, brush);
+
+    public void FillCircle(
+        float x,
+        float y,
+        float radius,
+        Color color) =>
+        FillEllipse(x, y, radius, radius, color);
+
+    public void FillCircle(
+        float x,
+        float y,
+        float radius,
+        ICanvasBrush brush) =>
+        FillEllipse(x, y, radius, radius, brush);
+
+    public void DrawText(
+        string text,
+        Vector2 point,
+        Color color) =>
+        DrawText(text, point.X, point.Y, color);
+
+    public void DrawText(
+        string text,
+        Vector2 point,
+        ICanvasBrush brush) =>
+        DrawText(text, point.X, point.Y, brush);
+
+    public void DrawText(
+        string text,
+        float x,
+        float y,
+        Color color)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(text);
+        ValidateFinite(x, y);
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        _context.DrawText(
+            text,
+            InterFontFamily.Regular,
+            20f,
+            GetBrush(color),
+            new Vector2(x, y),
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawText(
+        string text,
+        float x,
+        float y,
+        ICanvasBrush brush)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(text);
+        ValidateFinite(x, y);
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        _context.DrawText(
+            text,
+            InterFontFamily.Regular,
+            20f,
+            GetBrush(brush),
+            new Vector2(x, y),
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void Flush()
+    {
+        ThrowIfDisposed();
+        ThrowIfLayerActive();
+        CommitPending();
+    }
+
+    internal void CloseLayer(int token)
+    {
+        ThrowIfDisposed();
+        if (_layers is not { Count: > 0 } layers ||
+            layers[^1].Token != token)
+        {
+            throw new InvalidOperationException(
+                "Canvas layers must be disposed in reverse creation order.");
+        }
+
+        LayerState layer = layers[^1];
+        layers.RemoveAt(layers.Count - 1);
+        if (layer.HasGeometryClip)
+        {
+            _context.PopGeometryClip();
+        }
+        if (layer.HasRectangleClip)
+        {
+            _context.PopClip();
+        }
+        _context.PopOpacity();
+        _hasCommands = true;
+    }
+
+    private void CommitPending()
+    {
+        if (!_hasCommands && !_hasClear)
+        {
+            return;
+        }
+
+        GpuPicture picture = _recorder.EndRecording();
+        _target.Commit(picture, _hasClear, _clearColor);
+        _context = _recorder.BeginRecording(_bounds);
+        _hasClear = false;
+        _hasCommands = false;
+    }
+
+    private SolidColorBrush GetBrush(Color color)
+    {
+        ThrowIfDisposed();
+        uint key = Pack(color);
+        if (!_brushes.TryGetValue(key, out SolidColorBrush? brush))
+        {
+            brush = new SolidColorBrush(ToStraightVector(color));
+            _brushes.Add(key, brush);
+        }
+
+        return brush;
+    }
+
+    private NativeBrush GetBrush(ICanvasBrush brush)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(brush);
+        if (brush is not ICanvasBrushInternal source)
+        {
+            throw new ArgumentException(
+                "The Canvas brush does not publish the typed ProGPU resource contract.",
+                nameof(brush));
+        }
+
+        return source.GetNativeBrush(Device, _context);
+    }
+
+    private Pen GetPen(Color color, float width)
+    {
+        ThrowIfDisposed();
+        if (!float.IsFinite(width) || width <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+
+        var key = new PenKey(Pack(color), BitConverter.SingleToInt32Bits(width));
+        if (!_pens.TryGetValue(key, out Pen? pen))
+        {
+            pen = new Pen(GetBrush(color), width);
+            _pens.Add(key, pen);
+        }
+
+        return pen;
+    }
+
+    private Pen GetPen(NativeBrush brush, float width)
+    {
+        ThrowIfDisposed();
+        if (!float.IsFinite(width) || width <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+
+        var key = new BrushPenKey(
+            brush,
+            BitConverter.SingleToInt32Bits(width));
+        if (!_brushPens.TryGetValue(key, out Pen? pen))
+        {
+            pen = new Pen(brush, width);
+            _brushPens.Add(key, pen);
+        }
+
+        return pen;
+    }
+
+    private CanvasBitmap GetBitmap(ICanvasImage image)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(image);
+        if (image is not CanvasBitmap bitmap)
+        {
+            throw new NotSupportedException(
+                "The first portable DrawImage lane accepts CanvasBitmap resources only.");
+        }
+        if (bitmap.IsDisposed)
+        {
+            throw new ObjectDisposedException(nameof(image));
+        }
+        if (!ReferenceEquals(bitmap.Device, Device))
+        {
+            throw new ArgumentException(
+                "Canvas image resources must belong to the drawing-session device.",
+                nameof(image));
+        }
+        if (ReferenceEquals(bitmap, _target))
+        {
+            throw new NotSupportedException(
+                "Drawing a CanvasRenderTarget into itself would create an unsupported texture feedback loop.");
+        }
+
+        return bitmap;
+    }
+
+    private PathGeometry GetGeometryPath(CanvasGeometry geometry)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(geometry);
+        geometry.ValidateDevice(Device);
+        return geometry.Path;
+    }
+
+    private CanvasActiveLayer BeginLayer(
+        float opacity,
+        Rect? rectangleClip,
+        CanvasGeometry? geometryClip,
+        Matrix3x2 geometryTransform)
+    {
+        ThrowIfDisposed();
+        if (!float.IsFinite(opacity) || opacity < 0f || opacity > 1f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+        if (!IsFinite(geometryTransform))
+        {
+            throw new ArgumentOutOfRangeException(nameof(geometryTransform));
+        }
+
+        PathGeometry? path = geometryClip is null
+            ? null
+            : GetGeometryPath(geometryClip);
+        _context.PushOpacity(opacity);
+        if (rectangleClip is Rect clip)
+        {
+            _context.PushClip(clip, ToMatrix4x4(_transform));
+        }
+        if (path is not null)
+        {
+            _context.PushGeometryClip(
+                path,
+                ToMatrix4x4(geometryTransform * _transform));
+        }
+
+        int token = ++_nextLayerToken;
+        (_layers ??= new List<LayerState>()).Add(new LayerState(
+            token,
+            rectangleClip.HasValue,
+            path is not null));
+        _hasCommands = true;
+        return new CanvasActiveLayer(this, token);
+    }
+
+    private void DrawCommandList(
+        CanvasCommandList commandList,
+        float x,
+        float y)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(commandList);
+        ValidateFinite(x, y);
+        if (!ReferenceEquals(commandList.Device, Device))
+        {
+            throw new ArgumentException(
+                "Canvas command lists must belong to the drawing-session device.",
+                nameof(commandList));
+        }
+
+        GpuPicture[] pictures = commandList.ClonePicturesForDrawing();
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        for (int index = 0; index < pictures.Length; index++)
+        {
+            GpuPicture picture = pictures[index];
+            _context.RetainResource(picture);
+            _context.DrawPictureTransformed(picture, transform);
+        }
+        _hasCommands |= pictures.Length > 0;
+    }
+
+    private void DrawCommandList(
+        CanvasCommandList commandList,
+        Rect destination,
+        Rect source,
+        float opacity,
+        CanvasImageInterpolation interpolation)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(commandList);
+        if (!ReferenceEquals(commandList.Device, Device))
+        {
+            throw new ArgumentException(
+                "Canvas command lists must belong to the drawing-session device.",
+                nameof(commandList));
+        }
+        if (!float.IsFinite(opacity) || opacity < 0f || opacity > 1f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+        ValidateCommandListInterpolation(interpolation);
+
+        GpuPicture[] pictures = commandList.ClonePicturesForDrawing();
+        float scaleX = destination.Width / source.Width;
+        float scaleY = destination.Height / source.Height;
+        Matrix3x2 imageTransform =
+            Matrix3x2.CreateTranslation(-source.X, -source.Y) *
+            Matrix3x2.CreateScale(scaleX, scaleY) *
+            Matrix3x2.CreateTranslation(destination.X, destination.Y) *
+            _transform;
+
+        _context.PushClip(destination, ToMatrix4x4(_transform));
+        if (opacity < 1f)
+        {
+            _context.PushOpacity(opacity);
+        }
+        try
+        {
+            Matrix4x4 transform = ToMatrix4x4(imageTransform);
+            for (int index = 0; index < pictures.Length; index++)
+            {
+                GpuPicture picture = pictures[index];
+                _context.RetainResource(picture);
+                _context.DrawPictureTransformed(picture, transform);
+            }
+        }
+        finally
+        {
+            if (opacity < 1f)
+            {
+                _context.PopOpacity();
+            }
+            _context.PopClip();
+        }
+        _hasCommands |= pictures.Length > 0;
+    }
+
+    private void DrawBitmap(
+        CanvasBitmap bitmap,
+        Rect destination,
+        Rect sourcePixels,
+        float opacity,
+        CanvasImageInterpolation interpolation)
+    {
+        if (!float.IsFinite(opacity) || opacity < 0f || opacity > 1f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+
+        TextureSamplingMode sampling = interpolation switch
+        {
+            CanvasImageInterpolation.NearestNeighbor =>
+                TextureSamplingMode.Nearest,
+            CanvasImageInterpolation.Linear or
+            CanvasImageInterpolation.MultiSampleLinear =>
+                TextureSamplingMode.Linear,
+            CanvasImageInterpolation.Cubic =>
+                TextureSamplingMode.Cubic,
+            CanvasImageInterpolation.Anisotropic or
+            CanvasImageInterpolation.HighQualityCubic =>
+                throw new NotSupportedException(
+                    $"Canvas image interpolation {interpolation} is not qualified by the portable texture lane."),
+            _ => throw new ArgumentOutOfRangeException(nameof(interpolation))
+        };
+
+        if (!_context.TryRetainTexture(
+                bitmap,
+                Device.Context,
+                out var texture))
+        {
+            throw new ObjectDisposedException(nameof(bitmap));
+        }
+
+        Matrix4x4 transform = ToMatrix4x4(_transform);
+        if (opacity == 1f)
+        {
+            _context.DrawTexture(
+                texture,
+                destination,
+                sourcePixels,
+                transform,
+                sampling);
+        }
+        else
+        {
+            var opacityMatrix = new ImageEffectColorMatrix(
+                Vector4.UnitX,
+                Vector4.UnitY,
+                Vector4.UnitZ,
+                new Vector4(0f, 0f, 0f, opacity),
+                Vector4.Zero);
+            _context.DrawImageWithEffect(
+                texture,
+                destination,
+                sourceRect: sourcePixels,
+                samplingMode: sampling,
+                colorMatrix: opacityMatrix,
+                transform: transform);
+        }
+        _hasCommands = true;
+    }
+
+    private Rect ValidateSourceRect(
+        CanvasBitmap bitmap,
+        Windows.Foundation.Rect sourceRectangle)
+    {
+        ThrowIfDisposed();
+        float x = (float)sourceRectangle.X;
+        float y = (float)sourceRectangle.Y;
+        float width = (float)sourceRectangle.Width;
+        float height = (float)sourceRectangle.Height;
+        ValidateFinite(x, y, width, height);
+        if (x < 0f || y < 0f || width <= 0f || height <= 0f ||
+            x + width > bitmap.Size.Width ||
+            y + height > bitmap.Size.Height)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceRectangle));
+        }
+
+        float scale = bitmap.Dpi / CanvasContract.DefaultDpi;
+        return new Rect(
+            x * scale,
+            y * scale,
+            width * scale,
+            height * scale);
+    }
+
+    private static Rect ValidateCommandListSourceRect(
+        Windows.Foundation.Rect sourceRectangle)
+    {
+        float x = (float)sourceRectangle.X;
+        float y = (float)sourceRectangle.Y;
+        float width = (float)sourceRectangle.Width;
+        float height = (float)sourceRectangle.Height;
+        ValidateFinite(x, y, width, height);
+        if (width <= 0f || height <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceRectangle));
+        }
+        return new Rect(x, y, width, height);
+    }
+
+    private static void ValidateCommandListInterpolation(
+        CanvasImageInterpolation interpolation)
+    {
+        if (interpolation is CanvasImageInterpolation.Anisotropic or
+            CanvasImageInterpolation.HighQualityCubic)
+        {
+            throw new NotSupportedException(
+                $"Canvas command-list interpolation {interpolation} is not qualified by the portable retained-picture lane.");
+        }
+        if ((uint)interpolation >
+            (uint)CanvasImageInterpolation.HighQualityCubic)
+        {
+            throw new ArgumentOutOfRangeException(nameof(interpolation));
+        }
+    }
+
+    private Rect ValidateRect(
+        float x,
+        float y,
+        float width,
+        float height)
+    {
+        ThrowIfDisposed();
+        ValidateFinite(x, y, width, height);
+        if (width < 0f || height < 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+
+        return new Rect(x, y, width, height);
+    }
+
+    private void ValidateRadii(float radiusX, float radiusY)
+    {
+        ThrowIfDisposed();
+        if (!float.IsFinite(radiusX) || !float.IsFinite(radiusY) ||
+            radiusX < 0f || radiusY < 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radiusX));
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_isDisposed)
+        {
+            throw new ObjectDisposedException(nameof(CanvasDrawingSession));
+        }
+    }
+
+    private void ThrowIfLayerActive()
+    {
+        if (_layers is { Count: > 0 })
+        {
+            throw new InvalidOperationException(
+                "All CanvasActiveLayer scopes must be disposed before flushing or closing the drawing session.");
+        }
+    }
+
+    private static uint Pack(Color color) =>
+        (uint)color.A << 24 |
+        (uint)color.R << 16 |
+        (uint)color.G << 8 |
+        color.B;
+
+    private static Vector4 ToStraightVector(Color color) =>
+        new(
+            color.R / 255f,
+            color.G / 255f,
+            color.B / 255f,
+            color.A / 255f);
+
+    private static Vector4 ToPremultipliedVector(Color color)
+    {
+        float alpha = color.A / 255f;
+        return new Vector4(
+            color.R / 255f * alpha,
+            color.G / 255f * alpha,
+            color.B / 255f * alpha,
+            alpha);
+    }
+
+    private static void ValidateFinite(float first, float second)
+    {
+        if (!float.IsFinite(first) || !float.IsFinite(second))
+        {
+            throw new ArgumentOutOfRangeException(nameof(first));
+        }
+    }
+
+    private static void ValidateFinite(
+        float first,
+        float second,
+        float third,
+        float fourth)
+    {
+        if (!float.IsFinite(first) || !float.IsFinite(second) ||
+            !float.IsFinite(third) || !float.IsFinite(fourth))
+        {
+            throw new ArgumentOutOfRangeException(nameof(first));
+        }
+    }
+
+    private static bool IsFinite(in Matrix3x2 value) =>
+        float.IsFinite(value.M11) && float.IsFinite(value.M12) &&
+        float.IsFinite(value.M21) && float.IsFinite(value.M22) &&
+        float.IsFinite(value.M31) && float.IsFinite(value.M32);
+
+    private static Matrix4x4 ToMatrix4x4(in Matrix3x2 value) =>
+        new(
+            value.M11, value.M12, 0f, 0f,
+            value.M21, value.M22, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            value.M31, value.M32, 0f, 1f);
+
+    public void Dispose()
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        ThrowIfLayerActive();
+
+        try
+        {
+            CommitPending();
+        }
+        finally
+        {
+            _isDisposed = true;
+            _target.EndSession();
+        }
+        GC.SuppressFinalize(this);
+    }
+}
