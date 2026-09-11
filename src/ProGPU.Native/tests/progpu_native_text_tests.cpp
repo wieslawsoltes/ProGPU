@@ -13446,6 +13446,86 @@ static void excluded_paragraphs_retain_rows_and_bounded_progress() {
         box_count, caret_count));
 }
 
+void floating_paragraphs_activate_after_source_rows() {
+    using namespace progpu::native::text;
+    std::array<shaping_glyph, 12> glyphs{};
+    std::array<text_line_break_kind, 12> breaks{};
+    std::array<std::int8_t, 12> levels{};
+    std::array<text_item_metrics, 12> metrics{};
+    std::array<text_visual_cluster_group, 12> groups{};
+    std::array<std::uint32_t, 12> indices{};
+    std::array<positioned_text_glyph, 12> positioned{};
+    std::array<positioned_text_line, 12> lines{};
+    std::array<text_fragment_placement, 12> frames{};
+    std::array<text_floating_item, 2> floats{{{1, 10, 20, text_anchor_alignment::left},
+        {1, 10, 20, text_anchor_alignment::left}}};
+    std::array<text_exclusion_rectangle, 3> collisions{};
+    std::array<text_line_interval, 3> exclusion_scratch{};
+    std::array<text_line_interval, 4> intervals{};
+    std::array<text_line_fragment, 4> fragments{};
+    std::array<text_floating_placement, 2> placed{};
+    text_floating_flow_result result{};
+    text_layout_options options{}; options.maximum_width = 40; options.line_height = 10;
+    font_error error{};
+    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = static_cast<std::uint32_t>(i);
+        glyphs[i].cluster = static_cast<std::int32_t>(i * 2);
+        glyphs[i].advance_x = 10;
+        breaks[i] = text_line_break_kind::opportunity;
+        metrics[i] = {8, 2};
+    }
+    const auto run = [&](std::size_t count = 2, std::uint32_t budget = 100, bool empty = false,
+        std::span<const text_exclusion_rectangle> initial = {}) {
+        const auto length = empty ? 0U : glyphs.size();
+        return try_layout_floating_logical_shaped_text_at(std::span(glyphs).first(length),
+            std::span(breaks).first(length), std::span(levels).first(length), {}, {},
+            std::span(metrics).first(length), 0, options, {}, 0, {8, 2}, std::span(floats).first(count),
+            initial, collisions, exclusion_scratch, intervals, fragments, {}, {groups, indices},
+            positioned, lines, frames, placed, result, budget, &error);
+    };
+    require(run() && result.float_count == 2 && result.text.row_count == 4 && result.height == 40);
+    require(lines[0].glyph_count == 4 && frames[0].top == 0 && frames[0].left == 0);
+    require(placed[0].source_row == 0 && placed[0].bounds.top == 10 && placed[0].bounds.left == 0);
+    require(placed[1].bounds.left == 10 && placed[1].bounds.top == 10);
+    require(frames[1].left == 20 && frames[1].top == 10 && frames[2].left == 20 && frames[2].top == 20);
+    require(frames[3].left == 0 && frames[3].top == 30 && result.text.glyph_count == 12);
+    for (std::size_t i = 0; i < glyphs.size(); ++i)
+        require(positioned[i].glyph_index == i && positioned[i].cluster == glyphs[i].cluster);
+    floats[0].width = 40;
+    require(run(1) && placed[0].bounds.top == 10 && frames[1].top == 30 && result.height == 50);
+    require(!run(1, 2) && error == font_error::verification_failed && result.float_count == 0 && result.text.row_count == 0);
+    floats[0] = {4, 10, 20, text_anchor_alignment::left};
+    require(run(1) && placed[0].source_row == 1 && placed[0].bounds.top == 20);
+    options.maximum_lines = 1;
+    require(run(1) && result.float_count == 0 && result.text.next_glyph == 4 && lines[0].clipped);
+    floats[0].glyph_index = 1;
+    require(run(1) && result.float_count == 1 && result.text.height == 10 && result.height == 30);
+    options.maximum_lines = 0;
+    floats[0].glyph_index = 12;
+    require(run(1) && placed[0].source_row == 2 && placed[0].bounds.top == 30 && result.height == 50);
+    floats[0].glyph_index = 13;
+    require(!run(1) && error == font_error::invalid_argument && result.float_count == 0);
+    floats[0].glyph_index = 1;
+    glyphs[1].cluster = glyphs[0].cluster;
+    require(!run(1) && error == font_error::invalid_argument);
+    glyphs[1].cluster = 2;
+    floats[0].glyph_index = 2; floats[1].glyph_index = 1;
+    require(!run() && error == font_error::invalid_argument);
+    floats[0].glyph_index = 0;
+    require(run(1, 100, true) && result.text.row_count == 1 && result.text.glyph_count == 0 &&
+        result.text.height == 10 && lines[0].height == 10 && lines[0].baseline_y == 8 &&
+        placed[0].bounds.top == 10 && result.height == 30);
+    const text_exclusion_rectangle blocked[]{ {0, 0, 40, 50} };
+    require(run(1, 100, true, blocked) && frames[0].top == 50 && placed[0].bounds.top == 60 && result.height == 80);
+    require(run(0, 100, true) && result.text.row_count == 0 && result.height == 0);
+    require(!run(1, 100, false, std::span(collisions).first(1)) && error == font_error::invalid_argument);
+    metrics[2] = {18, 2};
+    require(run(1) && lines[0].height == 20 && placed[0].bounds.top == 20 && placed[0].source_row == 0);
+    metrics[2] = {8, 2};
+    breaks[1] = text_line_break_kind::mandatory;
+    require(run(1) && lines[0].glyph_count == 2 && placed[0].bounds.top == 10);
+}
+
 void measured_floaters_pack_free_intervals() {
     using namespace progpu::native::text;
     std::array<text_exclusion_rectangle, 3> siblings{};
@@ -13547,6 +13627,7 @@ void anchor_width_policy_requires_real_remeasurement() {
 int main() {
     anchor_width_policy_requires_real_remeasurement();
     measured_floaters_pack_free_intervals();
+    floating_paragraphs_activate_after_source_rows();
     measured_anchors_retain_horizontal_reference();
     excluded_paragraphs_retain_rows_and_bounded_progress();
     measured_exclusion_fragments_share_one_baseline();

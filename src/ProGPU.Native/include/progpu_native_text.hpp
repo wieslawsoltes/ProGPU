@@ -2232,6 +2232,24 @@ struct text_exclusion_flow_result final {
     float content_width{};
 };
 
+// Source event between logical glyphs, never an invented font glyph. Equal
+// indices retain source sibling order; an interior shaped cluster is invalid.
+struct text_floating_item final {
+    std::uint32_t glyph_index{};
+    float width{}, height{};
+    text_anchor_alignment alignment = text_anchor_alignment::left;
+};
+struct text_floating_placement final {
+    std::uint32_t source_row{};
+    text_exclusion_rectangle bounds{};
+};
+struct text_floating_flow_result final {
+    text_exclusion_flow_result text{};
+    std::uint32_t float_count{};
+    double height{}; // Includes floats that extend below the final parent row.
+    float content_width{};
+};
+
 // Measure retained fragment frames rather than stacking fragment heights.
 // Content width includes the interval offset and actual line width; measured
 // width retains the caller's positive constraint, matching ordinary text.
@@ -2337,6 +2355,32 @@ bool try_layout_excluded_logical_shaped_text_at(std::span<const shaping_glyph> g
     std::span<positioned_text_line> lines, std::span<text_fragment_placement> placements,
     text_exclusion_flow_result& result, std::uint32_t maximum_attempts = 1048576U,
     font_error* error = nullptr) noexcept;
+
+// Bottomless source-ordered floats over the same measured paragraph loop.
+// A row owns events in [row start, next glyph); terminal events belong to the
+// final row. Commit that row before placing its floats, then expose their boxes
+// to later rows. All floats allow downward delay; fixed anchors use another API.
+// Empty input with floats requires explicit positive empty-row source metrics
+// and emits one non-ink parent row; ordinary empty input still emits no row.
+// E initial exclusions + A floats require E+A collision/scratch intervals and
+// E+A+1 interval/fragment slots. Outputs need G glyphs, max(G,1) lines/frames and
+// A float placements. All spans are disjoint; no allocations or per-row ABI calls.
+// maximum_attempts bounds row fitting AND floater placement together. Row limits
+// leave later events unconsumed. Failure resets result; no output prefix is valid.
+bool try_layout_floating_logical_shaped_text_at(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const std::int8_t> levels,
+    std::span<const float> scales, std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, std::int8_t paragraph_level,
+    const text_layout_options& options, text_tab_options tabs, double origin_y,
+    text_item_metrics empty_row_metrics, std::span<const text_floating_item> floats,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_exclusion_rectangle> collision_scratch,
+    std::span<text_line_interval> exclusion_scratch, std::span<text_line_interval> intervals,
+    std::span<text_line_fragment> fragments, std::span<float> advance_scratch,
+    text_logical_layout_scratch scratch, std::span<positioned_text_glyph> positioned,
+    std::span<positioned_text_line> lines, std::span<text_fragment_placement> placements,
+    std::span<text_floating_placement> float_placements, text_floating_flow_result& result,
+    std::uint32_t maximum_attempts = 1048576U, font_error* error = nullptr) noexcept;
 
 /* O(S + G), O(1) workspace over logical source scalars and shaped clusters.
  * Minimum uses legal, shaping-safe breaks, never emergency cluster splitting.

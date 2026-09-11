@@ -19,6 +19,13 @@ do not implement iterative source-local Y repair or feed the source row its own
 float exclusion. Native row events and empty parent-row metrics must connect
 before source admission; a box-placement primitive alone is not document parity.
 
+Native floating paragraph events activate only after their owning row commits.
+Retain original glyph-boundary order, shaped clusters and separate parent/float
+extents; one attempt budget covers both row and float retries. Anchor-only content
+uses explicit source empty-row metrics, not an invented glyph or the legacy empty
+paragraph result. Translate source/segment affinity through the batched shaping
+transport before source admission; no per-line managed callback or local Y repair.
+
 Anchor fit-content measurement must distinguish native constrained extent from
 actual content right extent. Use the shared native arrangement measurement,
 retaining source insets/margins, objects and fixed table tracks/spacing. Never

@@ -35,6 +35,18 @@ int main() {
         empty_count != 0 || empty_next != 0 || empty_y != 0) return 1;
     progpu::native::text::text_exclusion_rectangle exclusion[]{ {0, 0, 20, 30} };
     progpu::native::text::text_line_interval scratch[1]{}, intervals[2]{};
+    const progpu::native::text::text_floating_item floating_items[]{ {0, 20, 10,
+        progpu::native::text::text_anchor_alignment::left} };
+    progpu::native::text::text_exclusion_rectangle floating_collisions[1]{};
+    progpu::native::text::text_line_fragment floating_fragments[2]{};
+    progpu::native::text::text_fragment_placement floating_frames[1]{};
+    progpu::native::text::text_floating_placement floating_placements[1]{};
+    progpu::native::text::text_floating_flow_result floating_result{};
+    if (!progpu::native::text::try_layout_floating_logical_shaped_text_at({}, {}, {}, {}, {}, {}, 0,
+        flow_options, {}, 0, {8, 2}, floating_items, {}, floating_collisions, scratch, intervals,
+        floating_fragments, {}, {}, {}, empty_band_line, floating_frames, floating_placements, floating_result) ||
+        floating_result.text.row_count != 1 || floating_result.float_count != 1 ||
+        floating_placements[0].bounds.top != 10 || floating_result.height != 20) return 1;
     progpu::native::text::text_exclusion_rectangle floater{};
     if (!progpu::native::text::try_place_text_floater({0, 0, 100, 40}, 20, 10,
         progpu::native::text::text_anchor_alignment::left, false,
