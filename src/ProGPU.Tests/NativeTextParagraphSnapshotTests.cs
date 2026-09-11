@@ -7,6 +7,27 @@ namespace Avalonia.ProGpu.UnitTests;
 public sealed class NativeTextParagraphSnapshotTests
 {
     [Fact]
+    public void FloatingEventsMapOrderedUtf16BoundariesIncludingTerminalAndSiblings()
+    {
+        const string text = "A\U0001f642B";
+        var scalars = new NativeTextScalar[text.Length];
+        int count = NativeTextParagraphSnapshot.DecodeUtf16(text, scalars);
+        var mapped = NativeTextParagraphSnapshot.MapFloats(
+            [new(0, 10, 20, 0), new(3, 30, 40, 1), new(3, 50, 60, 2), new(4, 70, 80, 0)],
+            scalars.AsSpan(0, count), text.Length);
+        Assert.Equal(new uint[] { 0, 2, 2, 3 }, mapped.Select(static item => item.ScalarIndex));
+        Assert.Equal(50, mapped[2].Width);
+        Assert.Equal(2U, mapped[2].Alignment);
+        foreach (var positions in new int[][] { [-1], [2], [5], [3, 1] })
+        {
+            var items = positions.Select(static p => new NativeTextParagraphFloat(p, 10, 20, 0)).ToArray();
+            Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapFloats(items,
+                scalars.AsSpan(0, count), text.Length));
+        }
+        Assert.Equal(0U, NativeTextParagraphSnapshot.MapFloats([new(0, 10, 20, 0)], [], 0)[0].ScalarIndex);
+    }
+
+    [Fact]
     public void InlineObjectsMapUtf16PositionsToActualScalarIndices()
     {
         const string text = "\U0001f642\ufffcA\ufffc";

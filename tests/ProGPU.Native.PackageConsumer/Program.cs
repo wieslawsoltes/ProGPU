@@ -560,6 +560,24 @@ static void ValidateNativeInlineParagraph()
         snapshot.Boxes.Span[1].Y != 20 || snapshot.ClusterEnds.Span[1] != 2 || snapshot.IntrinsicWidths == null)
         throw new InvalidOperationException("Retained native inline placement or measured interaction failed.");
     exclusionOptions = new() { MaximumAttempts = 128 };
+    NativeTextParagraphFloat[] sourceFloats = [new(1, 100, 20, 0), new(3, 100, 20, 0)];
+    var floatingSnapshot = NativeTextParagraphSnapshot.CreateWithFloats(context, "A\ufffcB",
+        NativeTextDirection.LeftToRight, floatingParagraph, [new(0, 3, 0, options.Scale)], metrics,
+        [new(1, 30.25f, 35, 7)], floatingOptions, sourceFloats);
+    sourceFloats[0] = new(0, 1, 1, 2);
+    if (floatingSnapshot.FloatingLayout?.FloatCount != 2 || floatingSnapshot.FloatingLayout?.ContentHeight != 87 ||
+        floatingSnapshot.FloatingItems.Span[0] != new NativeTextParagraphFloat(1, 100, 20, 0) ||
+        floatingSnapshot.FragmentLayout?.ContentHeight != 67 || floatingSnapshot.FloatingPlacements.Span[0].Top != 67 ||
+        floatingSnapshot.FloatingPlacements.Span[1].Left != 100 || floatingSnapshot.Fragments.Span[0].Top != 25 ||
+        floatingSnapshot.ClusterEnds.Span[1] != 2 || floatingSnapshot.InlineObjects.Span[0].Y != 25 ||
+        floatingSnapshot.Boxes.Span[1].Y != 25 || floatingSnapshot.Carets.IsEmpty)
+        throw new InvalidOperationException("Floating snapshot lost native extents, ownership or source interaction.");
+    var emptyFloatingSnapshot = NativeTextParagraphSnapshot.CreateWithFloats(context, "",
+        NativeTextDirection.LeftToRight, floatingParagraph, [], [], [], floatingOptions, [new(0, 100, 20, 0)]);
+    if (!emptyFloatingSnapshot.Glyphs.IsEmpty || emptyFloatingSnapshot.Lines.Length != 1 ||
+        emptyFloatingSnapshot.FragmentLayout?.ContentHeight != 45 || emptyFloatingSnapshot.FloatingLayout?.ContentHeight != 65 ||
+        emptyFloatingSnapshot.FloatingPlacements.Span[0].Top != 45 || !emptyFloatingSnapshot.Carets.IsEmpty)
+        throw new InvalidOperationException("Floating empty snapshot lost its native source-metric row.");
     var excludedSnapshot = NativeTextParagraphSnapshot.CreateWithExclusions(context, "A\ufffcB",
         NativeTextDirection.LeftToRight, options, [new(0, 3, 0, options.Scale)], metrics,
         [new(1, 30.25f, 35, 7)], exclusionOptions, exclusions, measureIntrinsicWidths: true);
