@@ -444,12 +444,12 @@ void bulk_shape_is_deterministic_and_caller_owned() {
             progpu_native_text_floating_item events[]{ {1, 100, 20, 0}, {1, 100, 20, 0} };
             progpu_native_text_paragraph_requirements floating_needed{};
             floating_needed.struct_size = sizeof(floating_needed);
-            const auto requirements = [&] {
+            const auto get_floating_requirements = [&] {
                 return progpu_native_text_context_get_floating_flow_paragraph_requirements(context,
                     &inline_request, &options, &style, 1, nullptr, &metric, &object, 1,
                     &floating_options, events, 2, nullptr, 0, &floating_needed);
             };
-            require(requirements() == PROGPU_NATIVE_STATUS_SUCCESS && floating_needed.scratch_bytes > needed.scratch_bytes);
+            require(get_floating_requirements() == PROGPU_NATIVE_STATUS_SUCCESS && floating_needed.scratch_bytes > needed.scratch_bytes);
             std::vector<std::uint8_t> floating_scratch(static_cast<std::size_t>(floating_needed.scratch_bytes));
             std::vector<progpu_native_positioned_text_glyph> floating_glyphs(floating_needed.glyph_capacity);
             std::vector<progpu_native_positioned_text_line> floating_lines(floating_needed.line_capacity);
@@ -494,17 +494,17 @@ void bulk_shape_is_deterministic_and_caller_owned() {
                 parent.glyph_count == 0 && floating_result.float_count == 0 && floating_glyphs[0].glyph_id == 9876);
             floating_options.maximum_attempts = 64;
             events[1].alignment = 256;
-            require(requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && floating_needed.glyph_capacity == 0);
+            require(get_floating_requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && floating_needed.glyph_capacity == 0);
             events[1].alignment = 0;
             events[1].scalar_index = 4;
-            require(requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+            require(get_floating_requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
             events[1].scalar_index = 2;
             inline_input[2].input_index = UINT32_MAX;
-            require(requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+            require(get_floating_requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
             inline_input[2].input_index = 2;
             events[1].scalar_index = 1;
             floating_options.reserved0 = 1;
-            require(requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+            require(get_floating_requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
             floating_options.reserved0 = 0;
 
             auto empty = inline_request; empty.input = nullptr; empty.input_count = 0;
