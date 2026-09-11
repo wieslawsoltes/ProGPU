@@ -35,16 +35,29 @@ Both providers compile on macOS ARM64; the native MIL regression passes for an
 actual triangular source path, nested isolated material, following source owner,
 raster serialization and reset. The full native contract verifier passes.
 
-## Required next connection
+## Sampled path connection
 
-This prerequisite alone does not admit the failing DrawingBrush. Connect original
-path input, canonical snapped path coverage and the existing tile material under
-separate scopes. Preserve original brush-relative mapping while providing enough
-paint support for displaced edges; do not change mapping bounds to allocation
-bounds. Inherited clips, nested brush ownership and source pen replay remain
-independent. Keep boolean/path families outside existing executor support
-explicitly rejected. Reuse the image coverage machinery rather than add a second
-deformation implementation. Then rerun the unchanged external application.
+The sampled-path producer now records original path input in the input-only
+scope, reuses the image helper's canonical snapped path coverage, and paints the
+existing tile material in the render-only scope. Paint support expands by two
+physical pixels projected back through the inverse transform; the original use
+bounds still own viewport, viewbox and relative brush mapping. Inherited clips,
+nested brush ownership and source pen replay remain independent. Per-point
+boolean programs outside existing executor support remain explicitly rejected.
+There is no second deformation algorithm or new CPU pixel kernel.
+
+Both native providers compile. Native MIL regressions pass for bitmap,
+DrawingBrush, DrawingImage and VisualBrush path fills at fractional DPI, with
+and without inherited clipping: only the actual unsnapped source path belongs
+to the native input owner, while rendering retains picture coverage.
+
+The diagnostic external application gets beyond its previous unsupported
+DrawingBrush exception. It remains live without a success marker. A two-second
+process sample shows native rendering, Metal command-buffer semaphore waits
+and picture-mask preparation; this is not evidence of completed presentation,
+input validation or acceptable performance. Keep that same run alive while
+investigating completion. Its locally substituted binaries are diagnostic, not
+exact-package qualification.
 
 Final exact-package, platform/VM, pixel/performance and CI qualification remain
-required. The application is still blocked at the identified DrawingBrush path.
+required. Live application completion remains the immediate merge blocker.

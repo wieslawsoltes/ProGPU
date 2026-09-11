@@ -12328,7 +12328,8 @@ struct channel::implementation {
             drawing_image_bounds_segments;
         const auto save_state = [&builder](
             const render_scope_state& source,
-            const progpu_native_image_rect* local_hit_rectangle = nullptr) noexcept {
+            const progpu_native_image_rect* local_hit_rectangle = nullptr,
+            bool input_only = false, bool render_only = false) noexcept {
             auto state = native::semantic_scene_builder::identity_state();
             if (!try_to_native_affine(source.transform, state.transform)) {
                 return false;
@@ -12351,7 +12352,7 @@ struct channel::implementation {
             }
             std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             return builder.add_state(state, state_index) &&
-                builder.save(state_index, local_hit_rectangle);
+                builder.save(state_index, local_hit_rectangle, false, input_only, false, render_only);
         };
         const auto append_vector_clip = [
             this,
@@ -14977,7 +14978,28 @@ struct channel::implementation {
             }
             return restored ? status::success : status::invalid_graph;
         };
-        const auto append_guideline_image = [&builder, &save_state, compile_context](
+        const auto add_guideline_coverage_mask = [&builder](
+            std::span<const progpu_native_scene_path_fill> paths,
+            std::span<const progpu_native_path_segment> segments,
+            const render_scope_state& source, progpu_native_image_rect bounds,
+            progpu_native_image_rect storage, std::uint32_t& mask_index) -> status {
+            native::semantic_scene_builder coverage(builder.scene_id(), builder.generation());
+            auto coverage_state = native::semantic_scene_builder::identity_state();
+            coverage_state.flags = PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+            if (!coverage.copy_guideline_set_from(builder, source.guideline_resource_index,
+                    coverage_state.guideline_resource_index)) return status::invalid_graph;
+            std::uint32_t coverage_state_index{};
+            if (!coverage.add_state(coverage_state, coverage_state_index) ||
+                !coverage.save(coverage_state_index) ||
+                !coverage.draw_paths(paths, segments, {}, bounds) || !coverage.restore()) return status::invalid_graph;
+            std::vector<std::byte> coverage_bytes;
+            if (!coverage.build(coverage_bytes)) return status::invalid_graph;
+            progpu_native_scene_layer_picture_mask mask{};
+            mask.bounds = storage; mask.transform = native::semantic_scene_builder::identity_transform();
+            mask.opacity = 1.0F;
+            return builder.add_picture_mask(mask, coverage_bytes, mask_index) ? status::success : status::invalid_graph;
+        };
+        const auto append_guideline_image = [&builder, &save_state, &add_guideline_coverage_mask, compile_context](
             std::uint32_t image_index, const progpu_native_scene_image_draw& image,
             progpu_native_image_rect bounds, const render_scope_state& source,
             const progpu_native_scene_image_sampling_options* sampling) -> status {
@@ -15010,14 +15032,6 @@ struct channel::implementation {
             for (double value : values) if (!finite_double_as_float(value)) return status::unsupported_command;
             const progpu_native_image_rect storage{static_cast<float>(values[0]), static_cast<float>(values[1]),
                 static_cast<float>(values[2]), static_cast<float>(values[3])};
-            native::semantic_scene_builder coverage(builder.scene_id(), builder.generation());
-            auto coverage_state = native::semantic_scene_builder::identity_state();
-            coverage_state.flags = PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
-            if (!coverage.copy_guideline_set_from(builder, source.guideline_resource_index,
-                    coverage_state.guideline_resource_index)) return status::invalid_graph;
-            std::uint32_t coverage_state_index{};
-            if (!coverage.add_state(coverage_state, coverage_state_index) ||
-                !coverage.save(coverage_state_index)) return status::invalid_graph;
             const float right = destination.x + destination.width, bottom = destination.y + destination.height;
             const std::array points{progpu_native_point{destination.x, destination.y},
                 progpu_native_point{right, destination.y}, progpu_native_point{right, bottom},
@@ -15030,19 +15044,15 @@ struct channel::implementation {
             const std::array paths{progpu_native_scene_path_fill{0U, segments.size(), 0U, 0U,
                 destination.x, destination.y, right, bottom, {1, 1, 1, 1}, image.transform,
                 PROGPU_NATIVE_FILL_RULE_NON_ZERO, source.edge_aliased ? 1U : 8U}};
-            if (!coverage.draw_paths(paths, segments, {}, bounds) || !coverage.restore()) return status::invalid_graph;
-            std::vector<std::byte> coverage_bytes;
-            if (!coverage.build(coverage_bytes)) return status::invalid_graph;
-            progpu_native_scene_layer_picture_mask mask{};
-            mask.bounds = storage; mask.transform = native::semantic_scene_builder::identity_transform();
-            mask.opacity = 1.0F;
             progpu_native_scene_layer layer{};
             layer.struct_size = sizeof(layer);
             layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION | PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
             layer.bounds = storage; layer.opacity = 1.0F;
             layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
             layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder.add_picture_mask(mask, coverage_bytes, layer.mask_resource_index)) return status::invalid_graph;
+            const status coverage_status = add_guideline_coverage_mask(paths, segments, source, bounds,
+                storage, layer.mask_resource_index);
+            if (coverage_status != status::success) return coverage_status;
             auto sampled = image;
             sampled.flags |= PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
             sampled.destination_rect = {static_cast<float>(values[4]), static_cast<float>(values[5]),
@@ -15239,11 +15249,16 @@ struct channel::implementation {
             &metrics](
             std::uint32_t brush_handle,
             const brush_use_state& use,
-            const render_scope_state& state) -> status {
+            const render_scope_state& state,
+            const progpu_native_image_rect* paint_support = nullptr) -> status {
+            const double paint_x = paint_support == nullptr ? use.x : paint_support->x;
+            const double paint_y = paint_support == nullptr ? use.y : paint_support->y;
+            const double paint_width = paint_support == nullptr ? use.width : paint_support->width;
+            const double paint_height = paint_support == nullptr ? use.height : paint_support->height;
             if (bitmap_cache_brushes.contains(brush_handle)) {
                 render_scope_state paint = state, clipped = state;
                 paint.transform = use.effective_transform;
-                const status clip = apply_rectangle_clip(use.x, use.y, use.width, use.height, paint, clipped);
+                const status clip = apply_rectangle_clip(paint_x, paint_y, paint_width, paint_height, paint, clipped);
                 if (clip != status::success) return clip;
                 return append_bitmap_cache_brush(brush_handle, use, clipped, builder,
                     brush_indices, image_indices, glyph_resources, compile_context,
@@ -15400,7 +15415,7 @@ struct channel::implementation {
             paint.transform = use.effective_transform;
             render_scope_state clipped = paint;
             const status paint_clip = apply_rectangle_clip(
-                use.x, use.y, use.width, use.height, paint, clipped);
+                paint_x, paint_y, paint_width, paint_height, paint, clipped);
             if (paint_clip != status::success) return paint_clip;
             if (!repeated) {
                 render_scope_state tile = clipped;
@@ -15470,7 +15485,7 @@ struct channel::implementation {
                     progpu_native_affine_2d inverse_tile{};
                     progpu_native_image_rect output{};
                     if (!try_to_native_affine(compose_affine(inverse, normalize), inverse_tile) ||
-                        !try_transform_bounds(use.x, use.y, use.width, use.height, use.effective_transform, output)) {
+                        !try_transform_bounds(paint_x, paint_y, paint_width, paint_height, use.effective_transform, output)) {
                         active_drawings.erase(brush_handle);
                         return status::invalid_graph;
                     }
@@ -15644,7 +15659,8 @@ struct channel::implementation {
         };
         const auto append_path_tile_brush = [
             &builder, &clip_paths, &clip_segments, &clip_boolean_nodes,
-            &append_single_tile_brush, &resolve_uniform_tile_guidelines, &save_state](
+            &append_single_tile_brush, &resolve_uniform_tile_guidelines, &save_state,
+            &add_guideline_coverage_mask, compile_context](
             std::uint32_t brush_handle,
             const brush_use_state& source_use,
             const render_scope_state& source_state,
@@ -15653,6 +15669,65 @@ struct channel::implementation {
             std::uint32_t fill_rule) -> status {
             auto use = source_use;
             auto state = source_state;
+            if (state.per_point_guidelines) {
+                // The canonical executor still rejects per-point boolean programs.
+                if (!nodes.empty()) return status::unsupported_command;
+                if (segments.empty() || use.width <= 0.0 || use.height <= 0.0) return status::success;
+                const double dpi_x = compile_context == nullptr ? 1.0 : compile_context->request.dpi_scale_x;
+                const double dpi_y = compile_context == nullptr ? 1.0 : compile_context->request.dpi_scale_y;
+                if (!std::isfinite(dpi_x) || !std::isfinite(dpi_y) || dpi_x <= 0.0 || dpi_y <= 0.0)
+                    return status::invalid_graph;
+                affine_2d_double inverse{};
+                progpu_native_affine_2d transform{};
+                progpu_native_image_rect bounds{};
+                if (!try_invert_affine(use.effective_transform, inverse) ||
+                    !try_to_native_affine(use.effective_transform, transform) ||
+                    !try_transform_bounds(use.x, use.y, use.width, use.height, use.effective_transform, bounds))
+                    return status::unsupported_command;
+                const double margin_x = 2.0 / dpi_x, margin_y = 2.0 / dpi_y;
+                const double local_x = std::abs(inverse.m11) * margin_x + std::abs(inverse.m21) * margin_y;
+                const double local_y = std::abs(inverse.m12) * margin_x + std::abs(inverse.m22) * margin_y;
+                const std::array values{bounds.x - margin_x, bounds.y - margin_y,
+                    bounds.width + 2.0 * margin_x, bounds.height + 2.0 * margin_y,
+                    use.x - local_x, use.y - local_y, use.width + 2.0 * local_x, use.height + 2.0 * local_y,
+                    use.x, use.y, use.x + use.width, use.y + use.height};
+                for (double value : values) if (!finite_double_as_float(value)) return status::unsupported_command;
+                const progpu_native_image_rect storage{static_cast<float>(values[0]), static_cast<float>(values[1]),
+                    static_cast<float>(values[2]), static_cast<float>(values[3])};
+                const progpu_native_image_rect support{static_cast<float>(values[4]), static_cast<float>(values[5]),
+                    static_cast<float>(values[6]), static_cast<float>(values[7])};
+                const std::array paths{progpu_native_scene_path_fill{0U, segments.size(), 0U, 0U,
+                    static_cast<float>(values[8]), static_cast<float>(values[9]),
+                    static_cast<float>(values[10]), static_cast<float>(values[11]),
+                    {1, 1, 1, 1}, transform, fill_rule, state.edge_aliased ? 1U : 8U}};
+                progpu_native_scene_layer layer{};
+                layer.struct_size = sizeof(layer);
+                layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION | PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+                layer.bounds = storage; layer.opacity = 1.0F; layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+                layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                const status coverage = add_guideline_coverage_mask(paths, segments, state, bounds,
+                    storage, layer.mask_resource_index);
+                if (coverage != status::success) return coverage;
+                // Retain actual source geometry, not the mask allocation or
+                // brush-internal draws. The full path transform is already local
+                // to this identity scope; inherited source clips remain real.
+                auto input = state;
+                input.transform = {};
+                if (!save_state(input, nullptr, true)) return status::invalid_graph;
+                const bool recorded = builder.draw_paths(paths, segments, {}, bounds);
+                const bool input_restored = builder.restore();
+                if (!recorded || !input_restored) return status::invalid_graph;
+                auto paint = input;
+                paint.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                paint.per_point_guidelines = false;
+                if (!save_state(paint, nullptr, false, true)) return status::invalid_graph;
+                if (!builder.push_layer(layer)) { (void)builder.restore(); return status::invalid_graph; }
+                // Support expands only coverage clipping and repeated output.
+                // Original use bounds continue to own relative brush mapping.
+                const status drawn = append_single_tile_brush(brush_handle, use, paint, &support);
+                const bool popped = builder.pop_layer(), restored = builder.restore();
+                return drawn != status::success ? drawn : popped && restored ? status::success : status::invalid_graph;
+            }
             const status snapped = resolve_uniform_tile_guidelines(use, state);
             if (snapped != status::success) return snapped;
             if (segments.empty() || use.width <= 0.0 || use.height <= 0.0) {

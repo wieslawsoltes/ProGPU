@@ -15235,6 +15235,45 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
     return true;
 }
 
+bool retained_sampled_path_guidelines_preserve_source_input() {
+    const auto figures = make_rectangle_path_figures(0.0, 0.0, 11.0, 11.0);
+    for (const auto source : {mil_brush_fixture_source::bitmap, mil_brush_fixture_source::drawing,
+            mil_brush_fixture_source::drawing_image, mil_brush_fixture_source::visual}) {
+        for (const bool clipped : {false, true}) {
+            mil_image_brush_fixture_options options{};
+            options.source = source; options.shape = mil_brush_fixture_shape::path;
+            options.path_figures = figures; options.path_matrix = {1, 0, 0, 1, 3, 5};
+            options.guidelines = options.multiple_guidelines = options.hit_test_index = true;
+            options.inherited_clip = clipped;
+            options.target_dpi_scale_x = options.target_dpi_scale_y = 1.5;
+            std::vector<std::byte> stream;
+            PROGPU_REQUIRE(build_mil_image_brush_fixture(stream, options, 9847U));
+            const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+            bool input = false, coverage = false;
+            for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+                const auto resource = read_value<progpu_native_scene_resource>(stream,
+                    header.resource_offset + i * sizeof(progpu_native_scene_resource));
+                if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) {
+                    const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+                    PROGPU_REQUIRE(page.primitive_count == 1U);
+                    const auto hit = read_value<progpu_native_hit_test_primitive>(stream,
+                        resource.auxiliary_offset + page.primitive_offset);
+                    PROGPU_REQUIRE(hit.id == 1 && hit.kind == PROGPU_NATIVE_HIT_TEST_PATH_FILL);
+                    PROGPU_REQUIRE(hit.bounds_min.x == 3.0F && hit.bounds_min.y == 5.0F);
+                    PROGPU_REQUIRE(hit.bounds_max.x == 14.0F && hit.bounds_max.y == 16.0F);
+                    input = true;
+                } else if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+                    resource.payload_size == sizeof(progpu_native_scene_layer_picture_mask)) {
+                    const auto mask = read_value<progpu_native_scene_layer_picture_mask>(stream, resource.payload_offset);
+                    if (mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) coverage = true;
+                }
+            }
+            PROGPU_REQUIRE(input && coverage);
+        }
+    }
+    return true;
+}
+
 bool retained_image_guidelines_separate_coverage_and_sampling() {
     for (const bool external : {false, true}) for (const double dpi : {1.0, 1.5, 2.0}) {
         channel state;
@@ -24662,6 +24701,7 @@ int main() {
         retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband());
     PROGPU_REQUIRE(retained_glyph_guidelines_translate_baseline_without_deformation());
     PROGPU_REQUIRE(retained_image_guidelines_separate_coverage_and_sampling());
+    PROGPU_REQUIRE(retained_sampled_path_guidelines_preserve_source_input());
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(
         retained_geometry_group_accepts_combined_fill_and_clip_children());
