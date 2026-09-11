@@ -593,6 +593,64 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     }
                     constexpr std::uint32_t allowed = PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED |
                         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK | PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
+                    if (source.kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN) {
+                        if ((source.flags & ~(PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED |
+                            PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK)) != 0U) return unsupported();
+                        const auto transform = compose_affine(source.transform, state.transform);
+                        float maximum_scale{}, minimum_scale{};
+                        if (!try_get_stroke_scales(transform, maximum_scale, minimum_scale)) return unsupported();
+                        const bool affine_outline = requires_affine_stroke_geometry(transform);
+                        std::array<stroke_triangle, 8U> joins{};
+                        // Use the renderer's connected-path join construction,
+                        // including its conformal versus local-affine domain.
+                        const auto count = create_join_triangles(joins,
+                            (source.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >> PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT,
+                            affine_outline ? source.stroke_thickness : source.stroke_thickness * maximum_scale,
+                            source.p3.x, affine_outline ? source.p0 : transformed_point(transform, source.p0),
+                            affine_outline ? source.p1 : transformed_direction(transform, source.p1),
+                            affine_outline ? source.p2 : transformed_direction(transform, source.p2));
+                        for (std::size_t k = 0U; k < count; ++k)
+                            if (!append_join_triangle(joins[k], affine_outline ? transform : identity_transform(),
+                                state, state_index)) return unsupported();
+                        continue;
+                    }
+                    if (source.kind == PROGPU_NATIVE_GEOMETRY_QUADRATIC_BEZIER ||
+                        source.kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER) {
+                        if ((source.flags & ~allowed) != 0U) return unsupported();
+                        if (source.stroke_thickness <= 0.0F) continue;
+                        if (segments.size() >= exact_float_integer_limit) return unsupported();
+                        const bool cubic = source.kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER;
+                        progpu_native_path_segment segment{};
+                        segment.kind = cubic ? PROGPU_NATIVE_PATH_SEGMENT_CUBIC : PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC;
+                        segment.p0 = source.p0; segment.p1 = source.p1;
+                        segment.p2 = source.p2; segment.p3 = cubic ? source.p3 : progpu_native_point{};
+                        // Control-hull bounds are conservative pruning only. The
+                        // shared PathStroke shader queries the retained curve.
+                        progpu_native_point minimum{std::min({source.p0.x, source.p1.x, source.p2.x}),
+                            std::min({source.p0.y, source.p1.y, source.p2.y})};
+                        progpu_native_point maximum{std::max({source.p0.x, source.p1.x, source.p2.x}),
+                            std::max({source.p0.y, source.p1.y, source.p2.y})};
+                        if (cubic) {
+                            minimum.x = std::min(minimum.x, source.p3.x); minimum.y = std::min(minimum.y, source.p3.y);
+                            maximum.x = std::max(maximum.x, source.p3.x); maximum.y = std::max(maximum.y, source.p3.y);
+                        }
+                        progpu_native_hit_test_primitive hit{};
+                        hit.kind = PROGPU_NATIVE_HIT_TEST_PATH_STROKE;
+                        hit.data0 = {minimum.x, minimum.y, maximum.x, maximum.y};
+                        hit.data1 = {static_cast<float>(segments.size()), 1.0F, source.stroke_thickness, 0.0F};
+                        hit.data2 = {static_cast<float>((source.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >> PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT),
+                            static_cast<float>((source.flags & PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK) >> PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT), 0.0F, 0.0F};
+                        // A diagonal square-cap corner can extend sqrt(2) radii
+                        // along an axis; the curve body still uses exact segments.
+                        const bool square_cap = hit.data2.x == static_cast<float>(PROGPU_NATIVE_STROKE_CAP_SQUARE) ||
+                            hit.data2.y == static_cast<float>(PROGPU_NATIVE_STROKE_CAP_SQUARE);
+                        const float padding = source.stroke_thickness * 0.5F * (square_cap ? std::numbers::sqrt2_v<float> : 1.0F);
+                        if (!place_primitive(hit, {minimum.x - padding, minimum.y - padding},
+                            {maximum.x + padding, maximum.y + padding}, compose_affine(source.transform, state.transform))) return unsupported();
+                        segments.push_back(segment);
+                        if (!append(hit, state, state_index)) return unsupported();
+                        continue;
+                    }
                     if (source.kind != PROGPU_NATIVE_GEOMETRY_LINE || (source.flags & ~allowed) != 0U)
                         return unsupported();
                     if (source.stroke_thickness <= 0.0F) continue;
@@ -609,9 +667,10 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     const auto source = read_record<progpu_native_scene_stroke>(resource.payload, j);
                     constexpr std::uint32_t allowed = PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED |
                         PROGPU_NATIVE_POLYLINE_FLAG_CLOSED | PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS;
+                    const bool closed = (source.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U;
                     if (source.kind != PROGPU_NATIVE_SCENE_STROKE_POLYLINE || source.dash_interval_count != 0U ||
-                        (source.flags & ~allowed) != 0U || (source.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) == 0U ||
-                        source.point_count < 3U || source.stroke_thickness <= 0.0001F) return unsupported();
+                        (source.flags & ~allowed) != 0U || source.point_count < (closed ? 3U : 2U) ||
+                        source.stroke_thickness <= 0.0001F) return unsupported();
                     const auto transform = compose_affine(source.transform, state.transform);
                     float maximum_scale{}, minimum_scale{};
                     if (!try_get_stroke_scales(transform, maximum_scale, minimum_scale)) return unsupported();
@@ -621,14 +680,20 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                         return read_record<progpu_native_point>(resource.auxiliary, source.point_offset + index);
                     };
                     const bool wpf_joins = (source.flags & PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS) != 0U;
-                    // Same closed traversal and join construction as append_polyline.
-                    // Flat line bodies plus real join triangles form a union under
+                    // Same traversal and join construction as append_polyline.
+                    // Line bodies with endpoint caps plus real join triangles form a union under
                     // one owner; canonical query output deduplicates that owner.
-                    for (std::size_t edge = 0U; edge < source.point_count; ++edge) {
+                    const auto edge_count = closed ? source.point_count : source.point_count - 1U;
+                    for (std::size_t edge = 0U; edge < edge_count; ++edge) {
                         const auto first = point(edge), corner = point((edge + 1U) % source.point_count);
+                        const auto start_cap = !closed && edge == 0U ? source.start_cap :
+                            static_cast<std::uint32_t>(PROGPU_NATIVE_STROKE_CAP_FLAT);
+                        const auto end_cap = !closed && edge + 1U == edge_count ? source.end_cap :
+                            static_cast<std::uint32_t>(PROGPU_NATIVE_STROKE_CAP_FLAT);
+                        if (!append_line(first, corner, source.stroke_thickness, start_cap,
+                            end_cap, transform, state, state_index)) return unsupported();
+                        if (!closed && edge + 1U == edge_count) continue;
                         const auto last = point((edge + 2U) % source.point_count);
-                        if (!append_line(first, corner, source.stroke_thickness, PROGPU_NATIVE_STROKE_CAP_FLAT,
-                            PROGPU_NATIVE_STROKE_CAP_FLAT, transform, state, state_index)) return unsupported();
                         std::array<stroke_triangle, 8U> joins{};
                         const progpu_native_point incoming{corner.x - first.x, corner.y - first.y};
                         const progpu_native_point outgoing{last.x - corner.x, last.y - corner.y};

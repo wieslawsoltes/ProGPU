@@ -901,7 +901,7 @@ public sealed unsafe class NativeMilChannel : IDisposable
         {
             throw new NativeMilException(
                 status,
-                $"The retained MIL target {targetHandle} could not be compiled to a semantic scene.");
+                $"The retained MIL target {targetHandle} could not be compiled to a semantic scene: {status} ({(uint)status}).");
         }
     }
 }

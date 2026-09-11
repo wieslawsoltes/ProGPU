@@ -21341,6 +21341,71 @@ int main() {
             PROGPU_REQUIRE(builder.last_error() == progpu::native::scene_build_error::unsupported_hit_test);
         }
     }
+    {
+        // Keep the real curve controls in the canonical PathStroke payload;
+        // its control hull is pruning metadata, never replacement hit geometry.
+        for (const auto kind : {PROGPU_NATIVE_GEOMETRY_QUADRATIC_BEZIER, PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER}) {
+            progpu::native::semantic_scene_builder builder(9840U, 1U);
+            PROGPU_REQUIRE(builder.set_hit_test_owner(702));
+            progpu_native_geometry_primitive curve{};
+            curve.kind = kind;
+            curve.p0 = {0, 0}; curve.p1 = {4, 12}; curve.p2 = {16, 12}; curve.p3 = {20, 0};
+            curve.stroke_thickness = 2; curve.color = {1, 1, 1, 1};
+            curve.transform = builder.identity_transform(); curve.transform.m31 = 7;
+            PROGPU_REQUIRE(builder.draw_geometry(std::span(&curve, 1U), {}, {-1, -1, 22, 14}));
+            std::uint32_t index{};
+            PROGPU_REQUIRE(builder.add_recorded_hit_test_index(index));
+            std::vector<std::byte> stream;
+            PROGPU_REQUIRE(builder.build(stream));
+            const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + index * sizeof(progpu_native_scene_resource));
+            const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+            PROGPU_REQUIRE(page.primitive_count == 1U && page.path_segment_count == 1U);
+            const auto hit = read_value<progpu_native_hit_test_primitive>(stream,
+                resource.auxiliary_offset + page.primitive_offset);
+            const auto segment = read_value<progpu_native_path_segment>(stream,
+                resource.auxiliary_offset + page.path_segment_offset);
+            PROGPU_REQUIRE(hit.id == 702 && hit.kind == PROGPU_NATIVE_HIT_TEST_PATH_STROKE);
+            PROGPU_REQUIRE(hit.data1.x == 0 && hit.data1.y == 1 && hit.data1.z == 2 && hit.data1.w == 0);
+            PROGPU_REQUIRE(hit.data2.x == 0 && hit.data2.y == 0);
+            PROGPU_REQUIRE(hit.bounds_min.x == 6 && hit.bounds_min.y == -1 && hit.bounds_max.y == 13);
+            PROGPU_REQUIRE(hit.bounds_max.x == (kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER ? 28 : 24));
+            PROGPU_REQUIRE(segment.kind == (kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER ?
+                PROGPU_NATIVE_PATH_SEGMENT_CUBIC : PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC));
+            PROGPU_REQUIRE(std::memcmp(&segment.p0, &curve.p0, sizeof(curve.p0) * 3U) == 0);
+            PROGPU_REQUIRE(segment.p3.x == (kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER ? 20 : 0));
+        }
+    }
+    for (const auto transform : {progpu_native_affine_2d{2, 0, 0, 2, 7, 9},
+        progpu_native_affine_2d{2, 0.25F, 0.5F, 3, 7, 9}}) {
+        for (std::uint32_t join = 0; join <= PROGPU_NATIVE_STROKE_JOIN_ROUND; ++join) {
+            progpu::native::semantic_scene_builder builder(9841U, 1U);
+            PROGPU_REQUIRE(builder.set_hit_test_owner(703));
+            progpu_native_geometry_primitive source{};
+            source.kind = PROGPU_NATIVE_GEOMETRY_PATH_JOIN;
+            source.flags = join << PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+            source.p0 = {10, 10}; source.p1 = {1, 0}; source.p2 = {0, 1}; source.p3 = {10, 0};
+            source.stroke_thickness = 2; source.color = {1, 1, 1, 1}; source.transform = transform;
+            PROGPU_REQUIRE(builder.draw_geometry(std::span(&source, 1U), {}, {0, 0, 40, 40}));
+            const auto hits = capture_hits(builder);
+            // Compare capture with the same renderer-generated join triangles.
+            float maximum_scale{}, minimum_scale{};
+            PROGPU_REQUIRE(progpu::native::try_get_stroke_scales(transform, maximum_scale, minimum_scale));
+            const bool affine = progpu::native::requires_affine_stroke_geometry(transform);
+            std::array<progpu::native::stroke_triangle, 8U> triangles{};
+            const auto count = progpu::native::create_join_triangles(triangles, join,
+                affine ? 2 : 2 * maximum_scale, 10,
+                affine ? source.p0 : progpu::native::transformed_point(transform, source.p0),
+                affine ? source.p1 : progpu::native::transformed_direction(transform, source.p1),
+                affine ? source.p2 : progpu::native::transformed_direction(transform, source.p2));
+            PROGPU_REQUIRE(!hits.empty() && hits.size() == count);
+            for (const auto& hit : hits) {
+                PROGPU_REQUIRE(hit.id == 703 && hit.kind == PROGPU_NATIVE_HIT_TEST_PATH_FILL);
+                PROGPU_REQUIRE(hit.data1.y == 3 && hit.data1.z == 1);
+            }
+        }
+    }
     for (bool explicit_solid_dash : {false, true}) {
         // Actual ShowcaseShapeEllipse: WPF's 54x54 layout produces a 51x51 spine
         // inset by half the 3-DIP pen. Preserve both fill and full-arc stroke.
@@ -22441,11 +22506,31 @@ int main() {
             }
             PROGPU_REQUIRE(builder.reset(9814U, 2U));
             PROGPU_REQUIRE(builder.set_hit_test_owner(-74));
-            // Keep ordinary open stroke batches explicit, without publishing
-            // the earlier successful closed stroke as a partial whole index.
-            PROGPU_REQUIRE(builder.draw_strokes(std::span(&stroke, 1U), points, {}, {}, {0, 0, 48, 40}));
+            // Open strokes keep endpoint caps, with no closing edge or seam join.
             stroke.flags &= ~PROGPU_NATIVE_POLYLINE_FLAG_CLOSED;
             PROGPU_REQUIRE(builder.draw_strokes(std::span(&stroke, 1U), points, {}, {}, {0, 0, 48, 40}));
+            const auto open_hits = capture_hits(builder);
+            std::size_t lines = 0U;
+            for (const auto& hit : open_hits) {
+                if (hit.kind != PROGPU_NATIVE_HIT_TEST_LINE_STROKE) continue;
+                PROGPU_REQUIRE(lines < 2U);
+                PROGPU_REQUIRE(hit.data0.x == points[lines].x && hit.data0.y == points[lines].y);
+                PROGPU_REQUIRE(hit.data0.z == points[lines + 1U].x && hit.data0.w == points[lines + 1U].y);
+                PROGPU_REQUIRE(hit.data1.z == static_cast<float>(lines == 0U ? PROGPU_NATIVE_STROKE_CAP_ROUND : PROGPU_NATIVE_STROKE_CAP_FLAT));
+                PROGPU_REQUIRE(hit.data1.w == static_cast<float>(lines == 1U ? PROGPU_NATIVE_STROKE_CAP_TRIANGLE : PROGPU_NATIVE_STROKE_CAP_FLAT));
+                ++lines;
+            }
+            PROGPU_REQUIRE(lines == 2U);
+            PROGPU_REQUIRE(builder.reset(9814U, 3U));
+            PROGPU_REQUIRE(builder.set_hit_test_owner(-74));
+            PROGPU_REQUIRE(builder.draw_strokes(std::span(&stroke, 1U), points, {}, {}, {0, 0, 48, 40}));
+            // A later unsupported partial arc still rejects the whole index.
+            progpu_native_geometry_primitive partial_arc{};
+            partial_arc.kind = PROGPU_NATIVE_GEOMETRY_ARC;
+            partial_arc.p1 = {10, 0}; partial_arc.p2 = {0, 10};
+            partial_arc.p3 = {0, std::numbers::pi_v<float>}; partial_arc.stroke_thickness = 2;
+            partial_arc.transform = builder.identity_transform(); partial_arc.color = {1, 1, 1, 1};
+            PROGPU_REQUIRE(builder.draw_geometry(std::span(&partial_arc, 1U), {}, {-11, -11, 22, 22}));
             std::uint32_t rejected{};
             PROGPU_REQUIRE(!builder.add_recorded_hit_test_index(rejected));
             PROGPU_REQUIRE(rejected == PROGPU_NATIVE_SCENE_NO_INDEX);

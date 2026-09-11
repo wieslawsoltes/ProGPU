@@ -268,6 +268,23 @@ public sealed class GpuHitTestingTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NativeCurveCaptureUsesCanonicalPathStrokePayload(bool cubic)
+    {
+        // Paired with native scene 9840: retain curve segments, not hull fills.
+        var maximum = new Vector2(cubic ? 20 : 16, 12);
+        var hit = GpuHitTestPrimitive.PathStroke(702, Vector2.Zero, maximum, 0, 1, 2, 0,
+            LineGeometryCap.Flat, LineGeometryCap.Flat, Matrix4x4.CreateTranslation(7, 0, 0));
+        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, hit.Kind);
+        Assert.Equal(new Vector4(0, 0, maximum.X, maximum.Y), hit.Data0);
+        Assert.Equal(new Vector4(0, 1, 2, 0), hit.Data1);
+        Assert.Equal(Vector4.Zero, hit.Data2);
+        Assert.Equal(new Vector2(6, -1), hit.BoundsMin);
+        Assert.Equal(new Vector2(cubic ? 28 : 24, 13), hit.BoundsMax);
+    }
+
+    [Theory]
     [InlineData(PenLineJoin.Miter, 2)]
     [InlineData(PenLineJoin.Bevel, 1)]
     [InlineData(PenLineJoin.Round, 6)]
