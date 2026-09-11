@@ -405,6 +405,9 @@ Console.WriteLine(
 
 static void ValidateNativeInlineParagraph()
 {
+    if (Marshal.SizeOf<NativeTextFloatingItem>() != 16 || Marshal.SizeOf<NativeTextFloatingOptions>() != 32 ||
+        Marshal.SizeOf<NativeTextFloatingPlacement>() != 24 || Marshal.SizeOf<NativeTextFloatingResult>() != 32)
+        throw new InvalidOperationException("Native floating wire record sizes changed.");
     using var context = new NativeTextShapingContext(File.ReadAllBytes(
         Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf")));
     NativeTextScalar[] scalars =
@@ -464,6 +467,53 @@ static void ValidateNativeInlineParagraph()
     catch (ArgumentException) { rejectedExcludedMetrics = true; }
     if (!rejectedExcludedMetrics)
         throw new InvalidOperationException("Excluded metric span capacity was not checked before native access.");
+    var floatingOptions = new NativeTextFloatingOptions
+        { MaximumAttempts = 64, OriginY = 25, EmptyAscent = 12, EmptyDescent = 4 };
+    var floatingParagraph = options with { MaximumWidth = 1000 };
+    NativeTextFloatingItem[] floatingItems =
+        [new() { ScalarIndex = 1, Width = 100, Height = 20 }, new() { ScalarIndex = 1, Width = 100, Height = 20 }];
+    if (context.GetFloatingFlowParagraphRequirements(input, floatingParagraph, styles, flow, metrics, objects,
+        floatingOptions, floatingItems, [], out var floatingNeeded) != NativeRendererStatus.Success)
+        throw new InvalidOperationException("Native floating paragraph requirements failed.");
+    var floatingGlyphs = new NativePositionedTextGlyph[checked((int)floatingNeeded.GlyphCapacity)];
+    var floatingLines = new NativePositionedTextLine[checked((int)floatingNeeded.LineCapacity)];
+    var floatingFrames = new NativeTextFragmentPlacement[floatingLines.Length];
+    var floatingBoxes = new NativeTextFloatingPlacement[floatingItems.Length];
+    var floatingScratch = new byte[checked((int)floatingNeeded.ScratchBytes)];
+    if (context.LayoutFloatingFlowParagraph(input, floatingParagraph, styles, flow, metrics, objects,
+        floatingOptions, floatingItems, [], floatingGlyphs, floatingLines, floatingFrames, floatingBoxes,
+        floatingScratch, NativeTextWrapping.Emergency, out var floatingParent, out var floatingResult)
+        != NativeRendererStatus.Success || floatingParent.GlyphCount != 3 || floatingParent.ContentHeight != 67 ||
+        floatingResult.ContentHeight != 87 || floatingResult.FloatCount != 2 || floatingBoxes[0].Top != 67 ||
+        floatingBoxes[1].Left != 100 || floatingFrames[0].Top != 25 || floatingGlyphs[1].GlyphId != uint.MaxValue - 1)
+        throw new InvalidOperationException("Native floating paragraph lost source rows, sibling placement or inline identity.");
+    floatingItems[1].Alignment = 256;
+    floatingBoxes[0].Top = 123;
+    if (context.LayoutFloatingFlowParagraph(input, floatingParagraph, styles, flow, metrics, objects,
+        floatingOptions, floatingItems, [], floatingGlyphs, floatingLines, floatingFrames, floatingBoxes,
+        floatingScratch, NativeTextWrapping.Emergency, out floatingParent, out floatingResult)
+        != NativeRendererStatus.InvalidArgument || floatingParent.GlyphCount != 0 || floatingResult.FloatCount != 0 ||
+        floatingBoxes[0].Top != 123)
+        throw new InvalidOperationException("Native floating rejection published a partial batch.");
+    bool rejectedFloatingMetrics = false;
+    try { context.GetFloatingFlowParagraphRequirements(input, floatingParagraph, styles, flow, [], objects,
+        floatingOptions, floatingItems, [], out _); }
+    catch (ArgumentException) { rejectedFloatingMetrics = true; }
+    if (!rejectedFloatingMetrics) throw new InvalidOperationException("Floating metric span was not checked before pinning.");
+    floatingItems[0].ScalarIndex = floatingItems[1].ScalarIndex = 0;
+    floatingItems[1].Alignment = 0;
+    var emptyFloatingInput = new NativeTextShapeInput(default, [], direction: NativeTextDirection.LeftToRight);
+    if (context.GetFloatingFlowParagraphRequirements(emptyFloatingInput, floatingParagraph, [], flow, [], [],
+        floatingOptions, floatingItems, [], out floatingNeeded) != NativeRendererStatus.Success ||
+        floatingNeeded.GlyphCapacity != 0 || floatingNeeded.LineCapacity != 1)
+        throw new InvalidOperationException("Native anchor-only paragraph did not require a source row.");
+    floatingScratch = new byte[checked((int)floatingNeeded.ScratchBytes)];
+    if (context.LayoutFloatingFlowParagraph(emptyFloatingInput, floatingParagraph, [], flow, [], [],
+        floatingOptions, floatingItems, [], [], floatingLines, floatingFrames, floatingBoxes,
+        floatingScratch, NativeTextWrapping.Emergency, out floatingParent, out floatingResult)
+        != NativeRendererStatus.Success || floatingParent.GlyphCount != 0 || floatingParent.LineCount != 1 ||
+        floatingParent.ContentHeight != 45 || floatingResult.ContentHeight != 65 || floatingBoxes[0].Top != 45)
+        throw new InvalidOperationException("Native anchor-only flow lost supplied metrics or float extent.");
     var interaction = new NativeTextInteractionInput(
         glyphs.AsSpan(0, checked((int)result.GlyphCount)),
         lines.AsSpan(0, checked((int)result.LineCount)), [1, 2, 3], [0, 0, 0]);

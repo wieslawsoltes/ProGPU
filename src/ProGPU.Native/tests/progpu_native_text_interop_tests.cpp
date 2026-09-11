@@ -436,6 +436,94 @@ void bulk_shape_is_deterministic_and_caller_owned() {
         require(measure() == PROGPU_NATIVE_STATUS_SUCCESS);
         require(measured.glyph_count == 3 && measured.line_count == 1 && measured.content_height == 42);
         {
+            static_assert(sizeof(progpu_native_text_floating_item) == 16);
+            static_assert(sizeof(progpu_native_text_floating_options) == 32);
+            static_assert(sizeof(progpu_native_text_floating_placement) == 24);
+            static_assert(sizeof(progpu_native_text_floating_result) == 32);
+            progpu_native_text_floating_options floating_options{sizeof(floating_options), 64, 25, 12, 4, 0, 0};
+            progpu_native_text_floating_item events[]{ {1, 100, 20, 0}, {1, 100, 20, 0} };
+            progpu_native_text_paragraph_requirements floating_needed{};
+            floating_needed.struct_size = sizeof(floating_needed);
+            const auto requirements = [&] {
+                return progpu_native_text_context_get_floating_flow_paragraph_requirements(context,
+                    &inline_request, &options, &style, 1, nullptr, &metric, &object, 1,
+                    &floating_options, events, 2, nullptr, 0, &floating_needed);
+            };
+            require(requirements() == PROGPU_NATIVE_STATUS_SUCCESS && floating_needed.scratch_bytes > needed.scratch_bytes);
+            std::vector<std::uint8_t> floating_scratch(static_cast<std::size_t>(floating_needed.scratch_bytes));
+            std::vector<progpu_native_positioned_text_glyph> floating_glyphs(floating_needed.glyph_capacity);
+            std::vector<progpu_native_positioned_text_line> floating_lines(floating_needed.line_capacity);
+            std::vector<progpu_native_text_fragment_placement> floating_frames(floating_needed.line_capacity);
+            progpu_native_text_floating_placement placed[2]{};
+            progpu_native_text_floating_result floating_result{};
+            progpu_native_text_paragraph_result parent{};
+            const auto layout_floats = [&](std::size_t bytes, progpu_native_text_floating_placement* output,
+                std::uint32_t capacity) {
+                parent.struct_size = sizeof(parent);
+                floating_result.struct_size = sizeof(floating_result);
+                return progpu_native_text_context_layout_floating_flow_paragraph(context,
+                    &inline_request, &options, &style, 1, nullptr, &metric, &object, 1,
+                    &floating_options, events, 2, nullptr, 0, floating_glyphs.data(), floating_needed.glyph_capacity,
+                    floating_lines.data(), floating_needed.line_capacity, floating_frames.data(), floating_needed.line_capacity,
+                    output, capacity, floating_scratch.data(), bytes, &parent, &floating_result, 0);
+            };
+            require(layout_floats(floating_scratch.size(), placed, 2) == PROGPU_NATIVE_STATUS_SUCCESS);
+            require(parent.glyph_count == 3 && parent.line_count == 1 && parent.content_height == 67 &&
+                floating_result.float_count == 2 && floating_result.row_count == 1 && floating_result.content_height == 87);
+            require(placed[0].source_row == 0 && placed[0].top == 67 && placed[0].left == 0 &&
+                placed[1].top == 67 && placed[1].left == 100 && floating_frames[0].top == 25);
+            require(floating_glyphs[1].glyph_id == UINT32_MAX - 1U && floating_glyphs[1].font_index == UINT32_MAX);
+            require(parent.scratch_bytes_used <= floating_needed.scratch_bytes);
+            inline_input[2].input_index = 7;
+            events[1].scalar_index = 2;
+            require(layout_floats(floating_scratch.size(), placed, 2) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                floating_glyphs[2].cluster == 7 && placed[1].source_row == 0 && placed[1].left == 100);
+            inline_input[2].input_index = 2;
+            events[1].scalar_index = 3;
+            require(layout_floats(floating_scratch.size(), placed, 2) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                placed[1].source_row == 0 && placed[1].left == 100);
+            events[1].scalar_index = 1;
+            require(layout_floats(floating_scratch.size() - 1, placed, 2) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                parent.glyph_count == 0 && floating_result.float_count == 0);
+            require(layout_floats(floating_scratch.size(), placed, 1) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+            require(layout_floats(floating_scratch.size(), reinterpret_cast<progpu_native_text_floating_placement*>(events), 2)
+                == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && events[0].width == 100);
+            floating_options.maximum_attempts = 1;
+            floating_glyphs[0].glyph_id = 9876;
+            require(layout_floats(floating_scratch.size(), placed, 2) != PROGPU_NATIVE_STATUS_SUCCESS &&
+                parent.glyph_count == 0 && floating_result.float_count == 0 && floating_glyphs[0].glyph_id == 9876);
+            floating_options.maximum_attempts = 64;
+            events[1].alignment = 256;
+            require(requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && floating_needed.glyph_capacity == 0);
+            events[1].alignment = 0;
+            events[1].scalar_index = 4;
+            require(requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+            events[1].scalar_index = 2;
+            inline_input[2].input_index = UINT32_MAX;
+            require(requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+            inline_input[2].input_index = 2;
+            events[1].scalar_index = 1;
+            floating_options.reserved0 = 1;
+            require(requirements() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+            floating_options.reserved0 = 0;
+
+            auto empty = inline_request; empty.input = nullptr; empty.input_count = 0;
+            events[0].scalar_index = events[1].scalar_index = 0;
+            require(progpu_native_text_context_get_floating_flow_paragraph_requirements(context,
+                &empty, &options, nullptr, 0, nullptr, nullptr, nullptr, 0, &floating_options,
+                events, 2, nullptr, 0, &floating_needed) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                floating_needed.glyph_capacity == 0 && floating_needed.line_capacity == 1);
+            floating_scratch.resize(static_cast<std::size_t>(floating_needed.scratch_bytes));
+            parent.struct_size = sizeof(parent); floating_result.struct_size = sizeof(floating_result);
+            require(progpu_native_text_context_layout_floating_flow_paragraph(context,
+                &empty, &options, nullptr, 0, nullptr, nullptr, nullptr, 0, &floating_options,
+                events, 2, nullptr, 0, nullptr, 0, floating_lines.data(), 1, floating_frames.data(), 1,
+                placed, 2, floating_scratch.data(), floating_scratch.size(), &parent, &floating_result, 0)
+                == PROGPU_NATIVE_STATUS_SUCCESS);
+            require(parent.glyph_count == 0 && parent.line_count == 1 && parent.content_height == 45 &&
+                floating_result.float_count == 2 && placed[0].top == 45 && floating_result.content_height == 65);
+        }
+        {
             progpu_native_text_exclusion_options exclusion_options{sizeof(exclusion_options), 64, 0, 0};
             progpu_native_text_exclusion_rectangle rectangle{0, 0, 1000, 20};
             progpu_native_text_paragraph_requirements excluded_needed{};

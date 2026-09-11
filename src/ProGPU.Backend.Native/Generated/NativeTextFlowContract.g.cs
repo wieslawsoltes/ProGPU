@@ -64,3 +64,51 @@ public partial struct NativeTextInlineObject
     public float Ascent;
     public float Descent;
 }
+
+// Native source: progpu_native_text_floating_item.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextFloatingItem
+{
+    public uint ScalarIndex;
+    public float Width;
+    public float Height;
+    public uint Alignment;
+}
+
+// Native source: progpu_native_text_floating_options.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextFloatingOptions
+{
+    public uint StructSize;
+    public uint MaximumAttempts;
+    public double OriginY;
+    public float EmptyAscent;
+    public float EmptyDescent;
+    public uint Reserved0;
+    public uint Reserved1;
+}
+
+// Native source: progpu_native_text_floating_placement.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextFloatingPlacement
+{
+    public uint SourceRow;
+    public uint Reserved;
+    public float Left;
+    public float Top;
+    public float Right;
+    public float Bottom;
+}
+
+// Native source: progpu_native_text_floating_result.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextFloatingResult
+{
+    public uint StructSize;
+    public uint FloatCount;
+    public double ContentHeight;
+    public float ContentWidth;
+    public uint RowCount;
+    public uint NextGlyph;
+    public uint Attempts;
+}

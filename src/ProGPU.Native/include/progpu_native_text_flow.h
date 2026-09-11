@@ -52,6 +52,83 @@ typedef struct progpu_native_text_inline_object {
     float descent;
 } progpu_native_text_inline_object;
 
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextFloatingItem */
+typedef struct progpu_native_text_floating_item {
+    uint32_t scalar_index;
+    float width;
+    float height;
+    uint32_t alignment;
+} progpu_native_text_floating_item;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextFloatingOptions */
+typedef struct progpu_native_text_floating_options {
+    uint32_t struct_size;
+    uint32_t maximum_attempts;
+    double origin_y;
+    float empty_ascent;
+    float empty_descent;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_text_floating_options;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextFloatingPlacement */
+typedef struct progpu_native_text_floating_placement {
+    uint32_t source_row;
+    uint32_t reserved;
+    float left;
+    float top;
+    float right;
+    float bottom;
+} progpu_native_text_floating_placement;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextFloatingResult */
+typedef struct progpu_native_text_floating_result {
+    uint32_t struct_size;
+    uint32_t float_count;
+    double content_height;
+    float content_width;
+    uint32_t row_count;
+    uint32_t next_glyph;
+    uint32_t attempts;
+} progpu_native_text_floating_result;
+
+/* Bottomless floating flow shares inline shaping and native row fitting.
+ * Events are nondecreasing scalar-array boundaries, including input_count;
+ * equal boundaries preserve siblings. They may not split a shaped cluster.
+ * Alignment: 0 left, 1 center, 2 right. Sizes are positive measured outer DIPs.
+ * Initial exclusions, event boxes, output frames and source metrics are borrowed
+ * in one call; all buffers must be disjoint. Outputs are valid only on success.
+ * line_capacity also covers fragment output; float capacity is event_count.
+ * Empty input with events emits one source-metric row (line_capacity >= 1), not
+ * a glyph. The ordinary paragraph result describes parent text; floating_result
+ * describes combined extents and consumed events. No source admission is implied. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_get_floating_flow_paragraph_requirements(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_floating_options* options,
+    const progpu_native_text_floating_item* events, uint32_t event_count,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count,
+    progpu_native_text_paragraph_requirements* requirements);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_floating_flow_paragraph(
+    progpu_native_text_context* context, const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout, const progpu_native_text_style_run* styles,
+    uint32_t style_count, const progpu_native_text_flow_options* flow,
+    const progpu_native_text_style_metrics* style_metrics,
+    const progpu_native_text_inline_object* objects, uint32_t object_count,
+    const progpu_native_text_floating_options* options,
+    const progpu_native_text_floating_item* events, uint32_t event_count,
+    const progpu_native_text_exclusion_rectangle* exclusions, uint32_t exclusion_count,
+    progpu_native_positioned_text_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines, uint32_t line_capacity,
+    progpu_native_text_fragment_placement* fragments, uint32_t fragment_capacity,
+    progpu_native_text_floating_placement* floats, uint32_t float_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_paragraph_result* result,
+    progpu_native_text_floating_result* floating_result, uint32_t wrapping);
+
 /* Measured inline flow requires explicit style runs and one DIP metric pair
  * per style. Objects are strictly ordered scalar indices covering every U+FFFC
  * exactly once. Inputs are borrowed; no application object pointer is retained.

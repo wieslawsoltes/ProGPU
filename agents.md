@@ -26,6 +26,14 @@ uses explicit source empty-row metrics, not an invented glyph or the legacy empt
 paragraph result. Translate source/segment affinity through the batched shaping
 transport before source admission; no per-line managed callback or local Y repair.
 
+Floating text transport maps ordered scalar boundaries to original logical
+clusters in the shared styled/inline shaping pipeline. Never round an anchor out
+of a shaped cluster or substitute a non-ink glyph. Retain parent extents separately
+from float-inclusive extents, generated wire layouts and one pinned context lease.
+Zero-glyph anchored content requires its explicit source-metric row. Retained
+UTF-16/hidden-edge mapping, source continuations and child ownership remain required
+before ordinary source admission; C/managed span success is not package parity.
+
 Anchor fit-content measurement must distinguish native constrained extent from
 actual content right extent. Use the shared native arrangement measurement,
 retaining source insets/margins, objects and fixed table tracks/spacing. Never
