@@ -23062,6 +23062,59 @@ int main() {
         }
     }
     {
+        progpu::native::semantic_scene_builder paired(9846U, 1U);
+        const std::array points{progpu_native_point{1, 2}, progpu_native_point{9, 2}, progpu_native_point{1, 8}};
+        std::array<progpu_native_path_segment, 3U> segments{};
+        for (std::size_t i = 0U; i < segments.size(); ++i) {
+            segments[i].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+            segments[i].p0 = points[i]; segments[i].p1 = points[(i + 1U) % points.size()];
+        }
+        const std::array paths{progpu_native_scene_path_fill{0U, 3U, 0U, 0U, 1, 2, 9, 8,
+            {1, 1, 1, 1}, paired.identity_transform(), PROGPU_NATIVE_FILL_RULE_NON_ZERO, 8U}};
+        PROGPU_REQUIRE(!paired.save(PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, false, true, false, true));
+        PROGPU_REQUIRE(paired.set_hit_test_owner(77));
+        PROGPU_REQUIRE(paired.save(PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, false, true));
+        PROGPU_REQUIRE(paired.draw_paths(paths, segments, {}, {1, 2, 8, 6}));
+        PROGPU_REQUIRE(paired.restore());
+        PROGPU_REQUIRE(paired.save(PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, false, false, false, true));
+        progpu_native_scene_layer material{};
+        material.struct_size = sizeof(material); material.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+        material.opacity = 1.0F; material.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+        material.mask_resource_index = material.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        PROGPU_REQUIRE(paired.push_layer(material));
+        PROGPU_REQUIRE(paired.save(PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, false, false, false, true));
+        const std::array paint{progpu_native_analytic_primitive{PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
+            100, 200, 300, 400, 0, 0, {1, 1, 1, 1}, paired.identity_transform()}};
+        PROGPU_REQUIRE(paired.draw_analytic(paint, {}, {100, 200, 300, 400}));
+        PROGPU_REQUIRE(paired.restore());
+        PROGPU_REQUIRE(paired.pop_layer());
+        PROGPU_REQUIRE(paired.restore());
+        PROGPU_REQUIRE(paired.set_hit_test_owner(88));
+        PROGPU_REQUIRE(paired.draw_paths(paths, segments, {}, {1, 2, 8, 6}));
+        const auto hits = capture_hits(paired);
+        PROGPU_REQUIRE(hits.size() == 2U && hits[0].id == 77 && hits[1].id == 88);
+        PROGPU_REQUIRE(hits[0].kind == PROGPU_NATIVE_HIT_TEST_PATH_FILL);
+        PROGPU_REQUIRE(hits[0].bounds_min.x == 1 && hits[0].bounds_max.x == 9);
+        std::vector<std::byte> scene;
+        PROGPU_REQUIRE(paired.build(scene));
+        const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+        std::uint32_t path_draws = 0U, material_draws = 0U;
+        for (std::uint32_t i = 0U; i < header.command_count; ++i) {
+            const auto command = read_value<progpu_native_scene_command>(scene,
+                header.command_offset + i * sizeof(progpu_native_scene_command));
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) ++path_draws;
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) ++material_draws;
+        }
+        PROGPU_REQUIRE(path_draws == 1U && material_draws == 1U);
+        PROGPU_REQUIRE(paired.reset(9846U, 2U));
+        PROGPU_REQUIRE(paired.set_hit_test_owner(99));
+        PROGPU_REQUIRE(paired.save());
+        PROGPU_REQUIRE(paired.draw_paths(paths, segments, {}, {1, 2, 8, 6}));
+        PROGPU_REQUIRE(paired.restore());
+        const auto reset_hits = capture_hits(paired);
+        PROGPU_REQUIRE(reset_hits.size() == 1U && reset_hits[0].id == 99);
+    }
+    {
         progpu::native::semantic_scene_builder builder(9800U, 1U);
         std::uint32_t image_index{};
         PROGPU_REQUIRE(builder.add_external_image(16U, 16U, image_index));

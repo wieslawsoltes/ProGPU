@@ -71,6 +71,8 @@ bool semantic_scene_builder::reset(
     implementation_->source_geometry_hit_layers.clear();
     implementation_->input_only_ranges.clear();
     implementation_->input_only_stack.fill(0U);
+    implementation_->render_only_ranges.clear();
+    implementation_->render_only_stack.fill(0U);
     implementation_->hit_rectangle_stack.fill(0U);
     implementation_->brushes.clear();
     implementation_->gradient_stops.clear();
@@ -408,9 +410,11 @@ bool semantic_scene_builder::save(
     const progpu_native_image_rect* local_hit_rectangle,
     bool point_only_rectangle,
     bool input_only,
-    bool empty_point_region) noexcept {
+    bool empty_point_region,
+    bool render_only) noexcept {
     if ((point_only_rectangle && local_hit_rectangle == nullptr) ||
-        (empty_point_region && !point_only_rectangle))
+        (empty_point_region && !point_only_rectangle) ||
+        (render_only && (input_only || local_hit_rectangle != nullptr)))
         return implementation_->fail(scene_build_error::invalid_argument);
     const bool record_hit = local_hit_rectangle != nullptr &&
         !implementation_->hit_test_owners.empty() &&
@@ -445,6 +449,9 @@ bool semantic_scene_builder::save(
         auto& input_ranges = implementation_->input_only_ranges;
         if (input_only && input_ranges.size() == input_ranges.capacity())
             input_ranges.reserve(std::max<std::size_t>(8U, input_ranges.size() * 2U));
+        auto& render_ranges = implementation_->render_only_ranges;
+        if (render_only && render_ranges.size() == render_ranges.capacity())
+            render_ranges.reserve(std::max<std::size_t>(8U, render_ranges.size() * 2U));
         if (record_hit) {
             scopes.push_back({implementation_->commands.size(),
                 implementation_->commands.size(), *local_hit_rectangle, point_only_rectangle, empty_point_region});
@@ -453,6 +460,8 @@ bool semantic_scene_builder::save(
             record_hit ? scopes.size() : 0U;
         if (input_only) input_ranges.push_back({implementation_->commands.size(), implementation_->commands.size()});
         implementation_->input_only_stack[implementation_->stack_depth] = input_only ? input_ranges.size() : 0U;
+        if (render_only) render_ranges.push_back({implementation_->commands.size(), implementation_->commands.size()});
+        implementation_->render_only_stack[implementation_->stack_depth] = render_only ? render_ranges.size() : 0U;
         implementation_->commands.push_back(std::move(command));
         implementation_->stack_kinds[implementation_->stack_depth] = 1U;
         ++implementation_->stack_depth;
@@ -500,6 +509,10 @@ bool semantic_scene_builder::restore() noexcept {
         if (input_scope != 0U)
             implementation_->input_only_ranges[input_scope - 1U].last_command = implementation_->commands.size() - 1U;
         implementation_->input_only_stack[implementation_->stack_depth] = 0U;
+        const auto render_scope = implementation_->render_only_stack[implementation_->stack_depth];
+        if (render_scope != 0U)
+            implementation_->render_only_ranges[render_scope - 1U].last_command = implementation_->commands.size() - 1U;
+        implementation_->render_only_stack[implementation_->stack_depth] = 0U;
         implementation_->stack_kinds[implementation_->stack_depth] = 0U;
         implementation_->error = scene_build_error::none;
         return true;

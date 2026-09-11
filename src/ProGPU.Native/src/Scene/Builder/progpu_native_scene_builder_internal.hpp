@@ -66,6 +66,8 @@ struct semantic_scene_builder::implementation final {
     // serialized as raster commands. Nested ranges are covered by their parent.
     std::vector<input_only_range> input_only_ranges{};
     std::array<std::size_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> input_only_stack{};
+    std::vector<input_only_range> render_only_ranges{};
+    std::array<std::size_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> render_only_stack{};
 
     std::size_t render_command_count() const noexcept {
         std::size_t count = commands.size(), covered_end = 0U;

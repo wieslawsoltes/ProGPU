@@ -228,6 +228,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U || map_rectangle(state.clip_rect));
         };
         std::size_t depth = 0U, boundary = 0U, glyph_bounds_index = 0U, rectangle_scope_index = 0U;
+        std::size_t render_scope_index = 0U;
         std::size_t source_layer_index = 0U;
         std::uint32_t current_state = PROGPU_NATIVE_SCENE_NO_INDEX;
         std::uint32_t query_participation = 0U;
@@ -435,6 +436,20 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             const auto& command = implementation_->commands[i];
             const auto kind = command.record.kind;
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE) {
+                const auto& render_scopes = implementation_->render_only_ranges;
+                while (render_scope_index < render_scopes.size() && render_scopes[render_scope_index].first_command < i)
+                    ++render_scope_index;
+                if (render_scope_index < render_scopes.size() && render_scopes[render_scope_index].first_command == i) {
+                    const auto& scope = render_scopes[render_scope_index++];
+                    if (scope.last_command <= i || scope.last_command >= implementation_->commands.size() ||
+                        implementation_->commands[scope.last_command].record.kind != PROGPU_NATIVE_SCENE_COMMAND_RESTORE)
+                        return unsupported();
+                    // The complete balanced material scope is raster-only.
+                    // Do not alter inherited source clip/query state; explicit
+                    // source owner boundaries remain independently authoritative.
+                    i = scope.last_command;
+                    continue;
+                }
                 if (depth == stack.size()) return unsupported();
                 clip_scope_stack[depth] = layer_clip_scope;
                 frame_stack[depth] = input_frame;
