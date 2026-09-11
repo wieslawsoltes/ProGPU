@@ -2204,7 +2204,8 @@ static progpu_native_status paragraph_layout_core(
         ? 1
         : 0;
     if (shaping->input_count == 0U) {
-        if (excluded_flow != nullptr) result->content_height = excluded_flow->origin_y;
+        if (excluded_flow != nullptr)
+            result->content_height = static_cast<float>(excluded_flow->origin_y);
         return PROGPU_NATIVE_STATUS_SUCCESS;
     }
     paragraph_capacities capacities{};

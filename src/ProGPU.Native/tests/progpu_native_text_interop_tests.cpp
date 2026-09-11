@@ -485,6 +485,19 @@ void bulk_shape_is_deterministic_and_caller_owned() {
             require(at(-1) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && excluded_result.glyph_count == 0 &&
                 excluded_glyphs[0].x == 123 && placements[0].top == 456);
             require(at(std::numeric_limits<double>::infinity()) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+            auto empty_request = inline_request;
+            empty_request.input_count = 0;
+            const auto empty_at = [&](double origin) {
+                excluded_result.struct_size = sizeof(excluded_result);
+                return progpu_native_text_context_layout_excluded_flow_paragraph_at(context, &empty_request,
+                    &options, nullptr, 0, nullptr, nullptr, nullptr, 0, &exclusion_options, nullptr, 0, origin,
+                    nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, &excluded_result, 0, nullptr);
+            };
+            require(empty_at(30.1) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                excluded_result.content_height == static_cast<float>(30.1) &&
+                excluded_result.line_count == 0 && excluded_result.glyph_count == 0);
+            require(empty_at(std::numeric_limits<double>::max()) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                excluded_result.content_height == 0);
             require(excluded_layout(1, 0, excluded_scratch.size()) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
                 excluded_result.glyph_count == 0 && excluded_glyphs[0].x == 123 && placements[0].top == 456);
             require(excluded_layout(1, excluded_needed.line_capacity, excluded_scratch.size() - 1) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
