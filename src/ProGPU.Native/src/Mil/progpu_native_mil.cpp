@@ -12656,7 +12656,11 @@ struct channel::implementation {
             const progpu_native_affine_2d& local_transform,
             std::uint32_t start_cap,
             std::uint32_t end_cap,
-            bool use_wpf_join_semantics = false) noexcept {
+            bool use_wpf_join_semantics = false,
+            std::span<const progpu_native_path_segment> outline_spine = {},
+            std::span<const std::uint8_t> outline_joins = {}) noexcept {
+            if (!outline_spine.empty() && (!current.per_point_guidelines ||
+                outline_spine.size() != outline_joins.size())) return status::invalid_graph;
             std::span<const double> intervals;
             double dash_offset = 0.0;
             if (pen.dash_style_handle != 0U) {
@@ -12709,8 +12713,8 @@ struct channel::implementation {
                         result == com::out_of_memory ? status::capacity_exceeded : status::unsupported_command;
                 };
                 try {
-                    if (points.size() < 2U) return status::invalid_graph;
-                    const auto count = closed ? points.size() : points.size() - 1U;
+                    if (outline_spine.empty() && points.size() < 2U) return status::invalid_graph;
+                    const auto count = !outline_spine.empty() ? 0U : closed ? points.size() : points.size() - 1U;
                     std::vector<progpu_native_path_segment> spine(count);
                     std::vector<std::uint8_t> joins(count, 0U);
                     for (std::size_t i = 0U; i < count; ++i) {
@@ -12733,7 +12737,9 @@ struct channel::implementation {
                     auto result = d2d::create_factory(factory.put());
                     if (com::failed(result)) return convert(result);
                     com::pointer<d2d::path_geometry> source;
-                    result = d2d::detail::create_native_stroke_geometry(factory.get(), spine, joins, closed, source.put());
+                    result = d2d::detail::create_native_stroke_geometry(factory.get(),
+                        outline_spine.empty() ? std::span<const progpu_native_path_segment>(spine) : outline_spine,
+                        outline_spine.empty() ? std::span<const std::uint8_t>(joins) : outline_joins, closed, source.put());
                     if (com::failed(result)) return convert(result);
                     const d2d::stroke_style_properties properties{
                         static_cast<d2d::cap_style>(start_cap), static_cast<d2d::cap_style>(end_cap),
@@ -12758,7 +12764,8 @@ struct channel::implementation {
                         0U, outline.size(), 0U, 0U, outline_bounds.x, outline_bounds.y,
                         outline_bounds.x + outline_bounds.width, outline_bounds.y + outline_bounds.height,
                         {1, 1, 1, 1}, native::semantic_scene_builder::identity_transform(),
-                        fill == d2d::fill_mode::winding ? PROGPU_NATIVE_FILL_RULE_NON_ZERO : PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+                        static_cast<std::uint32_t>(fill == d2d::fill_mode::winding
+                            ? PROGPU_NATIVE_FILL_RULE_NON_ZERO : PROGPU_NATIVE_FILL_RULE_EVEN_ODD),
                         current.edge_aliased ? 1U : 8U}};
                     return builder.draw_paths(paths, outline, brushes, bounds) ? status::success : status::invalid_graph;
                 } catch (const std::bad_alloc&) {
@@ -13023,7 +13030,7 @@ struct channel::implementation {
                     PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) |
                 (pen.end_line_cap <<
                     PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT);
-            if (pen.dash_style_handle == 0U) {
+            if (pen.dash_style_handle == 0U && !current.per_point_guidelines) {
                 const std::array primitives{
                     progpu_native_geometry_primitive{
                         PROGPU_NATIVE_GEOMETRY_LINE,
@@ -13436,6 +13443,15 @@ struct channel::implementation {
                         stroke_bounds)) {
                     return status::invalid_graph;
                 }
+                if (current.per_point_guidelines) {
+                    const status outlined = append_polyline_stroke(pen, contour.points, contour.closed,
+                        brush_index, stroke_bounds, native_local_transform,
+                        contour.start_uses_dash_cap ? pen.dash_cap : pen.start_line_cap,
+                        contour.end_uses_dash_cap ? pen.dash_cap : pen.end_line_cap, true,
+                        contour.segments, contour.smooth_joins);
+                    if (outlined != status::success) return outlined;
+                    continue;
+                }
                 if (has_curves || has_smooth_joins ||
                     native::semantic_path_stroke::has_mixed_constant_segments(contour.segments)) {
                     std::span<const double> intervals;
@@ -13768,6 +13784,7 @@ struct channel::implementation {
             &append_polyline_stroke,
             &append_path_strokes,
             &make_rounded_rectangle_geometry,
+            &make_wpf_rounded_rectangle_geometry,
             &make_ellipse_path_geometry,
             &current](
             const fixed_geometry_state& geometry,
@@ -13837,6 +13854,23 @@ struct channel::implementation {
                     return status::invalid_handle;
                 }
                 has_nonempty_dash = !dash->second.intervals.empty();
+            }
+            if (current.per_point_guidelines && (is_ellipse ||
+                (geometry.radius_x > 0.0 && geometry.radius_y > 0.0))) {
+                try {
+                    // Maximal corner radii share the same four cubic quarters
+                    // as the source ellipse; intervening zero-length edges do
+                    // not invent a rectangular fill or a new approximation.
+                    const auto shape = make_wpf_rounded_rectangle_geometry(x, y, width, height,
+                        is_ellipse ? width * 0.5 : geometry.radius_x,
+                        is_ellipse ? height * 0.5 : geometry.radius_y);
+                    const auto& contour = shape.stroke_contours.front();
+                    return append_polyline_stroke(pen, contour.points, true, brush_index, stroke_bounds,
+                        native_local_transform, pen.start_line_cap, pen.end_line_cap, true,
+                        contour.segments, contour.smooth_joins);
+                } catch (const std::bad_alloc&) {
+                    return status::capacity_exceeded;
+                }
             }
             if (is_ellipse) {
                 if (has_nonempty_dash) {
@@ -18207,15 +18241,16 @@ struct channel::implementation {
                     return brush_status;
                 }
                 const std::array brushes{brush_index};
-                if (has_rounded_corners && radius_x != radius_y) {
+                if (current.per_point_guidelines ||
+                    (has_rounded_corners && radius_x != radius_y)) {
+                    // Static guidelines deform actual rectangle/rounded-corner
+                    // controls through the canonical path executor. Keep source
+                    // input unsnapped; the ordinary analytic fast path is below.
                     const auto rounded_geometry =
-                        make_rounded_rectangle_geometry(
-                            x,
-                            y,
-                            width,
-                            height,
-                            radius_x,
-                            radius_y);
+                        current.per_point_guidelines
+                            ? make_wpf_rounded_rectangle_geometry(x, y, width, height,
+                                is_ellipse ? width * 0.5 : radius_x, is_ellipse ? height * 0.5 : radius_y)
+                            : make_rounded_rectangle_geometry(x, y, width, height, radius_x, radius_y);
                     const std::array paths{
                         progpu_native_scene_path_fill{
                             0U,

@@ -20871,6 +20871,14 @@ bool bitmap_cache_brush_preserves_root_raster_policy() {
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const auto record = read_value<progpu_native_scene_resource>(scene,
             header.resource_offset + index * sizeof(progpu_native_scene_resource));
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            // Per-point rectangle guidelines lower to the existing path
+            // pipeline, whose one-sample grid is the same aliased policy.
+            for (std::size_t offset = 0U; offset < record.payload_size; offset += sizeof(progpu_native_scene_path_fill)) {
+                const auto path = read_value<progpu_native_scene_path_fill>(scene, record.payload_offset + offset);
+                aliased |= path.sample_grid == 1U;
+            }
+        }
         if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) continue;
         for (std::size_t offset = 0U; offset < record.payload_size; offset += sizeof(progpu_native_analytic_primitive)) {
             const auto primitive = read_value<progpu_native_analytic_primitive>(scene, record.payload_offset + offset);
@@ -22728,9 +22736,9 @@ int main() {
         }
         PROGPU_REQUIRE(found);
     }
-    {
-        // A guideline-bearing stroked rectangle must lower its widened boundary
-        // to a path, retaining the source index before device snapping.
+    for (const double radius : {0.0, 5.5, 9.25}) {
+        // Guideline-bearing rectangle fill and stroke retain separate paths,
+        // preserving source extents before device snapping.
         channel state;
         std::vector<std::byte> batch, content;
         append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
@@ -22741,7 +22749,13 @@ int main() {
         append_command(batch, command::solid_color_brush, 4U, 1.0,
             progpu_native_color{1, 1, 1, 1}, 0U, 0U, 0U, 0U);
         append_command(batch, command::pen, 5U, 2.0, 10.0, 4U, 0U, 0U, 0U, 0U, 0U, 0U);
-        append_command(content, command::draw_rectangle, 2.25, 2.25, 18.5, 18.5, 0U, 5U);
+        if (radius == 0.0)
+            append_command(content, command::draw_rectangle, 2.25, 2.25, 18.5, 18.5, 4U, 5U);
+        else if (radius == 9.25)
+            append_command(content, command::draw_ellipse, 11.5, 11.5, 9.25, 9.25, 4U, 5U);
+        else
+            append_command(content, command::draw_rounded_rectangle, 2.25, 2.25, 18.5, 18.5, radius, radius, 4U, 5U);
+        append_command(content, command::draw_line, 3.25, 5.25, 15.75, 5.25, 5U, 0U);
         append_render_data(batch, 2U, content);
         append_command(batch, command::visual_set_content, 1U, 2U);
         append_command(batch, command::generic_target_create, 3U,
@@ -22762,20 +22776,34 @@ int main() {
             const auto command = read_value<progpu_native_scene_command>(stream,
                 header.command_offset + i * sizeof(progpu_native_scene_command));
             PROGPU_REQUIRE(command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH);
+            PROGPU_REQUIRE(command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC);
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) ++paths;
         }
-        PROGPU_REQUIRE(paths == 1U);
+        PROGPU_REQUIRE(paths == 3U);
         bool found = false;
         for (std::uint32_t i = 0; i < header.resource_count; ++i) {
             const auto resource = read_value<progpu_native_scene_resource>(stream,
                 header.resource_offset + i * sizeof(progpu_native_scene_resource));
             if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
             const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
-            PROGPU_REQUIRE(page.primitive_count == 1U);
-            const auto hit = read_value<progpu_native_hit_test_primitive>(stream, resource.auxiliary_offset + page.primitive_offset);
+            PROGPU_REQUIRE(page.primitive_count == 3U);
+            const auto fill = read_value<progpu_native_hit_test_primitive>(stream, resource.auxiliary_offset + page.primitive_offset);
+            PROGPU_REQUIRE(fill.id == 1 && fill.kind == PROGPU_NATIVE_HIT_TEST_PATH_FILL);
+            PROGPU_REQUIRE(fill.bounds_min.x == 2.25F && fill.bounds_min.y == 2.25F);
+            PROGPU_REQUIRE(fill.bounds_max.x == 20.75F && fill.bounds_max.y == 20.75F);
+            const auto hit = read_value<progpu_native_hit_test_primitive>(stream,
+                resource.auxiliary_offset + page.primitive_offset + sizeof(progpu_native_hit_test_primitive));
             PROGPU_REQUIRE(hit.id == 1 && hit.kind == PROGPU_NATIVE_HIT_TEST_PATH_FILL);
             PROGPU_REQUIRE(hit.bounds_min.x == 1.25F && hit.bounds_min.y == 1.25F);
-            PROGPU_REQUIRE(hit.bounds_max.x == 21.75F && hit.bounds_max.y == 21.75F);
+            // Cubic ellipse widening can round an extremum by one float ULP;
+            // use the same geometry tolerance as the shared outline export test.
+            PROGPU_REQUIRE(std::abs(hit.bounds_max.x - 21.75F) < 0.00001F &&
+                std::abs(hit.bounds_max.y - 21.75F) < 0.00001F);
+            const auto line = read_value<progpu_native_hit_test_primitive>(stream,
+                resource.auxiliary_offset + page.primitive_offset + 2U * sizeof(progpu_native_hit_test_primitive));
+            PROGPU_REQUIRE(line.id == 1 && line.kind == PROGPU_NATIVE_HIT_TEST_PATH_FILL);
+            PROGPU_REQUIRE(line.bounds_min.x == 3.25F && line.bounds_max.x == 15.75F);
+            PROGPU_REQUIRE(line.bounds_min.y == 4.25F && line.bounds_max.y == 6.25F);
             found = true;
         }
         PROGPU_REQUIRE(found);
