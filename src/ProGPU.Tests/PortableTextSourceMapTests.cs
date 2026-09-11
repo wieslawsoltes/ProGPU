@@ -6,6 +6,36 @@ namespace ProGPU.Tests;
 public class PortableTextSourceMapTests
 {
     [Fact]
+    public void FloatingChildrenRetainSiblingOrderAtHiddenAndTerminalBoundaries()
+    {
+        var map = new PortableTextSourceMap(14, 4, [new(1, 0, 2), new(9, 2, 2)]);
+        PortableTextSourceFloat[] children = [new(3, 3, 100, 20, PortableTextFloatAlignment.Left),
+            new(6, 3, 80, 30, PortableTextFloatAlignment.Right), new(11, 2, 40, 50, PortableTextFloatAlignment.Center)];
+        var events = map.MapFloatingRanges(children);
+        children[0] = default;
+        Assert.Equal(new PortableTextFloat(2, 100, 20, PortableTextFloatAlignment.Left), events[0]);
+        Assert.Equal(new PortableTextFloat(2, 80, 30, PortableTextFloatAlignment.Right), events[1]);
+        Assert.Equal(new PortableTextFloat(4, 40, 50, PortableTextFloatAlignment.Center), events[2]);
+        var empty = new PortableTextSourceMap(8, 0, []);
+        Assert.Equal(0, empty.MapFloatingRanges([new(1, 6, 50, 60, PortableTextFloatAlignment.Left)])[0].Position);
+        Assert.Empty(map.MapFloatingRanges([]));
+    }
+
+    [Fact]
+    public void FloatingChildrenRejectVisibleTextOverlapAndInvalidSourceRanges()
+    {
+        var map = new PortableTextSourceMap(12, 4, [new(2, 0, 2), new(8, 2, 2)]);
+        foreach (var range in new (int Start, int Length)[] { (-1, 1), (4, 0), (4, -1),
+            (2, 1), (1, 4), (6, 3), (12, 1), (4, int.MaxValue) })
+            Assert.Throws<ArgumentException>(() => map.MapFloatingRanges(
+                [new(range.Start, range.Length, 10, 20, PortableTextFloatAlignment.Left)]));
+        Assert.Throws<ArgumentException>(() => map.MapFloatingRanges(
+            [new(4, 3, 10, 20, PortableTextFloatAlignment.Left), new(6, 1, 10, 20, PortableTextFloatAlignment.Left)]));
+        Assert.Throws<ArgumentException>(() => map.MapFloatingRanges(
+            [new(6, 1, 10, 20, PortableTextFloatAlignment.Left), new(4, 1, 10, 20, PortableTextFloatAlignment.Left)]));
+    }
+
+    [Fact]
     public void HiddenBoundariesKeepBothAffinitiesAndRoundTripVisiblePositions()
     {
         PortableTextSourceRange[] ranges = [new(2, 0, 3), new(8, 3, 2)];

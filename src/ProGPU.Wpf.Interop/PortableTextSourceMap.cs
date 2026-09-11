@@ -3,6 +3,10 @@ namespace ProGPU.Wpf.Interop;
 /// <summary>A real text range in a source that can also contain non-text positions.</summary>
 public readonly record struct PortableTextSourceRange(int SourceStart, int TextStart, int Length);
 
+/// <summary>Measured child occupying an actual non-text source range, relative to this source map.</summary>
+public readonly record struct PortableTextSourceFloat(int SourceStart, int SourceLength,
+    float Width, float Height, PortableTextFloatAlignment Alignment);
+
 /// <summary>
 /// Immutable boundary map between source positions and contiguous shaping text.
 /// Source gaps have no text, glyph, width or independent caret. Queries are O(log R)
@@ -50,6 +54,33 @@ public sealed class PortableTextSourceMap
         if (lo == _ranges.Length) return TextLength;
         var found = _ranges[lo];
         return found.TextStart + Math.Max(0, sourcePosition - found.SourceStart);
+    }
+
+    /// <summary>
+    /// Maps ordered, disjoint hidden child ranges to shaping boundaries. The result
+    /// owns its records; retain the original child list for source identity on return.
+    /// Visible text cannot be suppressed by declaring it a floating child.
+    /// </summary>
+    public PortableTextFloat[] MapFloatingRanges(ReadOnlySpan<PortableTextSourceFloat> children)
+    {
+        if (children.Length > 1 << 20)
+            throw new ArgumentException("Floating source range budget exceeded.", nameof(children));
+        var result = children.IsEmpty ? [] : new PortableTextFloat[children.Length];
+        int previousEnd = 0;
+        for (int i = 0; i < children.Length; ++i)
+        {
+            var child = children[i];
+            if (child.SourceLength <= 0 || child.SourceStart < previousEnd ||
+                child.SourceLength > SourceLength || child.SourceStart > SourceLength - child.SourceLength)
+                throw new ArgumentException("Floating children require ordered disjoint source ranges.", nameof(children));
+            int end = child.SourceStart + child.SourceLength;
+            int position = ToText(child.SourceStart);
+            if (ToText(end) != position)
+                throw new ArgumentException("A floating child must occupy a wholly hidden source range.", nameof(children));
+            result[i] = new(position, child.Width, child.Height, child.Alignment);
+            previousEnd = end;
+        }
+        return result;
     }
 
     /// <summary>
