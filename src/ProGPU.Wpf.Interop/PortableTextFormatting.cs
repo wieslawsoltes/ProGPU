@@ -144,6 +144,41 @@ public interface IPortableSegmentedTextFormatting : IPortableExcludedTextFormatt
         in PortableTextExclusionOptions options, ReadOnlySpan<PortableTextExclusion> exclusions, double originY);
 }
 
+public enum PortableTextFloatAlignment { Left, Center, Right }
+
+/// <summary>Measured outer box at a UTF-16 boundary in the actual shaping text, not a document symbol offset.</summary>
+public readonly record struct PortableTextFloat(int Position, float Width, float Height, PortableTextFloatAlignment Alignment);
+
+/// <summary>Explicit paragraph-local origin, native retry budget and source metrics for anchor-only rows.</summary>
+public readonly record struct PortableTextFloatingOptions(uint MaximumAttempts, double OriginY,
+    float EmptyAscent, float EmptyDescent);
+
+/// <summary>Owned source event and its native outer placement; SourceRow indexes physical rows, not fragments.</summary>
+public readonly record struct PortableTextFloatPlacement(int Position, int SourceRow,
+    float Left, float Top, float Right, float Bottom);
+
+/// <summary>
+/// Optional source-ordered floating layout. The source owns child content and measures
+/// its outer sizes; the shared native paragraph places floats after their source rows.
+/// Inputs are borrowed only during formatting. Missing capabilities must not discard events.
+/// </summary>
+public interface IPortableFloatingTextFormatting : IPortableSegmentedTextFormatting
+{
+    IPortableFloatingTextParagraph FormatFloating(in PortableTextParagraphRequest request,
+        ReadOnlySpan<PortableTextStyleMetrics> styleMetrics,
+        ReadOnlySpan<PortableTextInlineObject> inlineObjects,
+        in PortableTextFloatingOptions options, ReadOnlySpan<PortableTextFloat> floats,
+        ReadOnlySpan<PortableTextExclusion> exclusions);
+}
+
+/// <summary>Parent fragment metrics retain their existing meaning; occupied extents additionally include floats.</summary>
+public interface IPortableFloatingTextParagraph : IPortableExcludedTextParagraph
+{
+    ReadOnlyMemory<PortableTextFloatPlacement> Floats { get; }
+    double OccupiedWidth { get; }
+    double OccupiedHeight { get; }
+}
+
 /// <summary>
 /// Retained excluded layout. Lines and Fragments have identical indexing; line indices
 /// are not row indices. Native metrics include cleared gaps and must not be recreated
