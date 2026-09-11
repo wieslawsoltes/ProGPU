@@ -15236,6 +15236,10 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
 }
 
 bool retained_sampled_path_guidelines_preserve_source_input() {
+    using progpu::native::tests::build_mil_image_brush_fixture;
+    using progpu::native::tests::mil_brush_fixture_shape;
+    using progpu::native::tests::mil_brush_fixture_source;
+    using progpu::native::tests::mil_image_brush_fixture_options;
     const auto figures = make_rectangle_path_figures(0.0, 0.0, 11.0, 11.0);
     for (const auto source : {mil_brush_fixture_source::bitmap, mil_brush_fixture_source::drawing,
             mil_brush_fixture_source::drawing_image, mil_brush_fixture_source::visual}) {
@@ -15244,10 +15248,23 @@ bool retained_sampled_path_guidelines_preserve_source_input() {
             options.source = source; options.shape = mil_brush_fixture_shape::path;
             options.path_figures = figures; options.path_matrix = {1, 0, 0, 1, 3, 5};
             options.guidelines = options.multiple_guidelines = options.hit_test_index = true;
-            options.inherited_clip = clipped;
+            // A source visual rectangle clips the path before drawing
+            // guidelines; it must survive material/input separation.
+            std::vector<std::byte> source_clip;
+            if (clipped) {
+                append_create(source_clip, 60U, 69U);
+                progpu::native::tests::mil_clip_fixture_detail::packet(source_clip,
+                    command::rectangle_geometry, 60U, 0.0, 0.0, 0.0, 0.0, 10.0, 20.0, 0U, 0U, 0U, 0U);
+                progpu::native::tests::mil_clip_fixture_detail::packet(source_clip,
+                    command::visual_set_clip, 1U, 60U);
+                options.source_visual_commands = source_clip;
+            }
             options.target_dpi_scale_x = options.target_dpi_scale_y = 1.5;
             std::vector<std::byte> stream;
-            PROGPU_REQUIRE(build_mil_image_brush_fixture(stream, options, 9847U));
+            const bool built = build_mil_image_brush_fixture(stream, options, 9847U);
+            if (!built) std::fprintf(stderr, "sampled guideline source=%u clipped=%u\n",
+                static_cast<unsigned>(source), static_cast<unsigned>(clipped));
+            PROGPU_REQUIRE(built);
             const auto header = read_value<progpu_native_scene_header>(stream, 0U);
             bool input = false, coverage = false;
             for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
@@ -15260,7 +15277,8 @@ bool retained_sampled_path_guidelines_preserve_source_input() {
                         resource.auxiliary_offset + page.primitive_offset);
                     PROGPU_REQUIRE(hit.id == 1 && hit.kind == PROGPU_NATIVE_HIT_TEST_PATH_FILL);
                     PROGPU_REQUIRE(hit.bounds_min.x == 3.0F && hit.bounds_min.y == 5.0F);
-                    PROGPU_REQUIRE(hit.bounds_max.x == 14.0F && hit.bounds_max.y == 16.0F);
+                    PROGPU_REQUIRE(hit.bounds_max.x == (clipped ? 10.0F : 14.0F) && hit.bounds_max.y == 16.0F);
+                    if (clipped) PROGPU_REQUIRE(hit.clip_segment_count == 4U);
                     input = true;
                 } else if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
                     resource.payload_size == sizeof(progpu_native_scene_layer_picture_mask)) {

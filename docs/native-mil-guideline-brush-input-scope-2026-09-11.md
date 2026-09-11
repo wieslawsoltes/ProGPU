@@ -48,8 +48,19 @@ There is no second deformation algorithm or new CPU pixel kernel.
 
 Both native providers compile. Native MIL regressions pass for bitmap,
 DrawingBrush, DrawingImage and VisualBrush path fills at fractional DPI, with
-and without inherited clipping: only the actual unsnapped source path belongs
+and without an inherited source rectangle: only the actual unsnapped source path belongs
 to the native input owner, while rendering retains picture coverage.
+
+Correction to the initial checkpoint: CI exposed missing namespace qualifications
+in the new test. Its initial local CTest invocation had run an older executable
+after an unconfirmed rebuild, so that result did not cover this regression.
+After explicit qualifications and a successful rebuild, the native MIL suite
+passes in 0.64 seconds. The clipped fixture now asserts a genuinely intersecting
+source rectangle (right edge 10 rather than the path's original 14) and four
+retained clip segments. The attempted ellipse clip remains unsupported by native
+input-index compilation even though rendering without an index succeeds; it is
+an explicit remaining curved-clip contract, not qualified by the rectangle test.
+GCC and Linux ARM64 CI must rerun on this correction.
 
 The diagnostic external application gets beyond its previous unsupported
 DrawingBrush exception. It remains live without a success marker. A two-second
