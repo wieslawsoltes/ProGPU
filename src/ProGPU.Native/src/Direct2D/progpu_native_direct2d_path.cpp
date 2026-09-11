@@ -8005,6 +8005,63 @@ com::result create_native_stroke_geometry(factory* owner,
         smooth_joins, false, closed, value);
 }
 
+com::result get_widened_outline_segments(geometry* source,
+    float width, stroke_style* style, const matrix_3x2_f* transform,
+    float tolerance, std::vector<progpu_native_path_segment>& segments,
+    fill_mode& mode) noexcept
+{
+    if (source == nullptr || !valid_tolerance(tolerance)) return com::invalid_argument;
+    try {
+        // Borrow the production recording sink and widening implementation.
+        // Export is sequential contour topology; shared widening retains its
+        // SIMD geometry kernels. No new stroke composer or CPU raster path.
+        auto data = std::make_shared<path_data>();
+        data->state.store(path_state::open, std::memory_order_relaxed);
+        com::pointer<portable_geometry_sink> sink;
+        sink.attach(new portable_geometry_sink(data));
+        auto result = source->Widen(width, style, transform, tolerance, sink.get());
+        if (com::failed(result)) return result;
+        result = sink->Close();
+        if (com::failed(result)) return result;
+        std::vector<progpu_native_path_segment> output;
+        output.reserve(data->segments.size() + data->figures.size());
+        const auto line = [&](point_2f start, point_2f end) {
+            progpu_native_path_segment segment{};
+            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+            segment.p0 = {start.x, start.y}; segment.p1 = {end.x, end.y};
+            output.push_back(segment);
+            return true;
+        };
+        const bool visited = visit_path(*data, nullptr, false, tolerance,
+            [](point_2f, std::uint32_t, const stored_figure& figure) {
+                return figure.begin == figure_begin::filled && figure.end == figure_end::closed;
+            },
+            [&](point_2f start, point_2f end, std::uint32_t, std::uint32_t, path_segment) {
+                return line(start, end);
+            },
+            [&](point_2f start, point_2f first, point_2f second, point_2f end,
+                std::uint32_t, std::uint32_t, path_segment) {
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+                segment.p0 = {start.x, start.y}; segment.p1 = {first.x, first.y};
+                segment.p2 = {second.x, second.y}; segment.p3 = {end.x, end.y};
+                output.push_back(segment);
+                return true;
+            },
+            [&](point_2f current, point_2f start, std::uint32_t, const stored_figure&) {
+                return same_point(current, start) || line(current, start);
+            });
+        if (!visited) return com::invalid_argument;
+        segments = std::move(output);
+        mode = data->mode;
+        return com::ok;
+    } catch (const std::bad_alloc&) {
+        return com::out_of_memory;
+    } catch (...) {
+        return failure;
+    }
+}
+
 // Algorithm: Reuse production Outline and its bounded polygon collector.
 // Time/space: existing curve flattening/arrangement cost plus O(B) output for
 // B boundary points. All intersection/SIMD kernels stay in the shared core.

@@ -12635,9 +12635,18 @@ struct channel::implementation {
                 ? status::success
                 : status::invalid_graph;
         };
+        const auto combined_stroke_tolerance = [compile_context](affine_2d_double transform) {
+            // Quarter-physical-pixel target using the affine Frobenius norm.
+            const double dpi = compile_context == nullptr ? 1.0 : std::max(
+                compile_context->request.dpi_scale_x, compile_context->request.dpi_scale_y);
+            const double scale = std::hypot(std::hypot(transform.m11, transform.m12),
+                std::hypot(transform.m21, transform.m22));
+            return static_cast<float>(0.25 / (dpi * std::max(1.0, scale)));
+        };
         const auto append_polyline_stroke = [
             this,
             &builder,
+            &combined_stroke_tolerance,
             &current](
             const pen_state& pen,
             std::span<const progpu_native_point> points,
@@ -12690,6 +12699,74 @@ struct channel::implementation {
             stroke.line_join = pen.line_join;
             stroke.dash_cap = pen.dash_cap;
             const std::array brushes{brush_index};
+            if (current.per_point_guidelines) {
+                // Widen before snapping: the canonical path executor deforms
+                // actual outline controls, never the stroke spine or its bounds.
+                namespace d2d = native::direct2d::compat;
+                namespace com = native::com;
+                const auto convert = [](com::result result) {
+                    return com::succeeded(result) ? status::success :
+                        result == com::out_of_memory ? status::capacity_exceeded : status::unsupported_command;
+                };
+                try {
+                    if (points.size() < 2U) return status::invalid_graph;
+                    const auto count = closed ? points.size() : points.size() - 1U;
+                    std::vector<progpu_native_path_segment> spine(count);
+                    std::vector<std::uint8_t> joins(count, 0U);
+                    for (std::size_t i = 0U; i < count; ++i) {
+                        spine[i].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                        spine[i].p0 = points[i]; spine[i].p1 = points[(i + 1U) % points.size()];
+                    }
+                    std::vector<float> dashes(intervals.size());
+                    std::size_t i = 0U;
+#if defined(PROGPU_NATIVE_MIL_INTRINSICS_NEON)
+                    for (; i + 2U <= intervals.size(); i += 2U)
+                        vst1_f32(dashes.data() + i, vcvt_f32_f64(vld1q_f64(intervals.data() + i)));
+#elif defined(PROGPU_NATIVE_MIL_INTRINSICS_SSE2)
+                    for (; i + 2U <= intervals.size(); i += 2U) {
+                        const __m128 values = _mm_cvtpd_ps(_mm_loadu_pd(intervals.data() + i));
+                        _mm_storel_pi(reinterpret_cast<__m64*>(dashes.data() + i), values);
+                    }
+#endif
+                    for (; i < intervals.size(); ++i) dashes[i] = static_cast<float>(intervals[i]);
+                    com::pointer<d2d::factory> factory;
+                    auto result = d2d::create_factory(factory.put());
+                    if (com::failed(result)) return convert(result);
+                    com::pointer<d2d::path_geometry> source;
+                    result = d2d::detail::create_native_stroke_geometry(factory.get(), spine, joins, closed, source.put());
+                    if (com::failed(result)) return convert(result);
+                    const d2d::stroke_style_properties properties{
+                        static_cast<d2d::cap_style>(start_cap), static_cast<d2d::cap_style>(end_cap),
+                        static_cast<d2d::cap_style>(pen.dash_cap), static_cast<d2d::line_join>(pen.line_join),
+                        stroke.miter_limit, dashes.empty() ? d2d::dash_style::solid : d2d::dash_style::custom,
+                        static_cast<float>(dash_offset)};
+                    com::pointer<d2d::stroke_style> style;
+                    result = factory->CreateStrokeStyle(&properties, dashes.data(),
+                        static_cast<std::uint32_t>(dashes.size()), style.put());
+                    if (com::failed(result)) return convert(result);
+                    const d2d::matrix_3x2_f transform{local_transform.m11, local_transform.m12,
+                        local_transform.m21, local_transform.m22, local_transform.m31, local_transform.m32};
+                    std::vector<progpu_native_path_segment> outline;
+                    auto fill = d2d::fill_mode::winding;
+                    result = d2d::detail::get_widened_outline_segments(source.get(), stroke.stroke_thickness,
+                        style.get(), &transform, combined_stroke_tolerance(current.transform), outline, fill);
+                    if (com::failed(result)) return convert(result);
+                    if (outline.empty()) return status::success;
+                    progpu_native_image_rect outline_bounds{};
+                    if (!try_get_path_segment_bounds(outline, outline_bounds)) return status::unsupported_command;
+                    const std::array paths{progpu_native_scene_path_fill{
+                        0U, outline.size(), 0U, 0U, outline_bounds.x, outline_bounds.y,
+                        outline_bounds.x + outline_bounds.width, outline_bounds.y + outline_bounds.height,
+                        {1, 1, 1, 1}, native::semantic_scene_builder::identity_transform(),
+                        fill == d2d::fill_mode::winding ? PROGPU_NATIVE_FILL_RULE_NON_ZERO : PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+                        current.edge_aliased ? 1U : 8U}};
+                    return builder.draw_paths(paths, outline, brushes, bounds) ? status::success : status::invalid_graph;
+                } catch (const std::bad_alloc&) {
+                    return status::capacity_exceeded;
+                } catch (...) {
+                    return status::invalid_graph;
+                }
+            }
             return builder.draw_strokes(
                     std::span<const progpu_native_scene_stroke>(&stroke, 1U),
                     points,
@@ -17035,15 +17112,6 @@ struct channel::implementation {
                 effective_transform = compose_affine(
                     local_transform,
                     current.transform);
-                const auto combined_stroke_tolerance = [compile_context](affine_2d_double transform) {
-                    // Algorithm: convert a quarter-physical-pixel target using
-                    // the affine Frobenius norm. Time/space complexity: O(1).
-                    const double dpi = compile_context == nullptr ? 1.0 : std::max(
-                        compile_context->request.dpi_scale_x, compile_context->request.dpi_scale_y);
-                    const double scale = std::hypot(std::hypot(transform.m11, transform.m12),
-                        std::hypot(transform.m21, transform.m22));
-                    return static_cast<float>(0.25 / (dpi * std::max(1.0, scale)));
-                };
                 if (geometry_group != geometry_groups.end()) {
                     const bool has_zero_area =
                         affine_has_zero_area(effective_transform);

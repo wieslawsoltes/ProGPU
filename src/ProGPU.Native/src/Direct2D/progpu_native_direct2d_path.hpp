@@ -34,6 +34,14 @@ namespace progpu::native::direct2d::compat::detail {
     float width, stroke_style* style, const matrix_3x2_f* transform,
     float tolerance, rectangle_f& bounds, bool& has_outline) noexcept;
 
+// Retained filled stroke outline for downstream deformation. Preserve curves
+// and closed contours; output changes only on success. No pixel work or a
+// second flattening pass is performed by this exporter.
+[[nodiscard]] com::result get_widened_outline_segments(geometry* source,
+    float width, stroke_style* style, const matrix_3x2_f* transform,
+    float tolerance, std::vector<progpu_native_path_segment>& segments,
+    fill_mode& mode) noexcept;
+
 // Returns the actual filled boundary, not the original operand stroke paths.
 // Output changes only on success; tolerance is in the geometry's coordinates.
 [[nodiscard]] com::result extract_outline_contours(geometry* source, float tolerance,

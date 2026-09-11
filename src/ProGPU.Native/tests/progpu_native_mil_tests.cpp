@@ -21197,6 +21197,51 @@ int main() {
         return hits;
     };
     {
+        // Stroke guideline lowering needs the widened outline, not a snapped
+        // centerline. Preserve native cubic caps and output transactionality.
+        namespace d2d = progpu::native::direct2d::compat;
+        namespace com = progpu::native::com;
+        com::pointer<d2d::factory> factory;
+        PROGPU_REQUIRE(com::succeeded(d2d::create_factory(factory.put())));
+        progpu_native_path_segment line{};
+        line.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        line.p0 = {1.25F, 2.25F}; line.p1 = {11.75F, 2.25F};
+        com::pointer<d2d::path_geometry> source;
+        const std::array<std::uint8_t, 1U> joins{};
+        PROGPU_REQUIRE(com::succeeded(d2d::detail::create_native_stroke_geometry(factory.get(),
+            std::span(&line, 1U), joins, false, source.put())));
+        d2d::stroke_style_properties properties{d2d::cap_style::round, d2d::cap_style::round,
+            d2d::cap_style::flat, d2d::line_join::miter, 10, d2d::dash_style::solid, 0};
+        com::pointer<d2d::stroke_style> style;
+        PROGPU_REQUIRE(com::succeeded(factory->CreateStrokeStyle(&properties, nullptr, 0, style.put())));
+        const d2d::matrix_3x2_f transform{2, 0, 0, 3, 5, 7};
+        std::vector<progpu_native_path_segment> outline;
+        auto mode = d2d::fill_mode::alternate;
+        PROGPU_REQUIRE(com::succeeded(d2d::detail::get_widened_outline_segments(source.get(),
+            2, style.get(), &transform, 0.25F, outline, mode)));
+        PROGPU_REQUIRE(!outline.empty() && mode == d2d::fill_mode::winding);
+        PROGPU_REQUIRE(std::any_of(outline.begin(), outline.end(), [](const auto& segment) {
+            return segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+        }));
+        com::pointer<d2d::path_geometry> fill;
+        PROGPU_REQUIRE(com::succeeded(d2d::detail::create_native_fill_geometry(factory.get(), outline, mode, fill.put())));
+        d2d::rectangle_f actual{}, expected{};
+        bool has_outline{};
+        PROGPU_REQUIRE(com::succeeded(fill->GetBounds(nullptr, &actual)));
+        PROGPU_REQUIRE(com::succeeded(d2d::detail::get_widened_outline_bounds(source.get(),
+            2, style.get(), &transform, 0.25F, expected, has_outline)) && has_outline);
+        PROGPU_REQUIRE(std::abs(actual.left - expected.left) < 0.00001F &&
+            std::abs(actual.top - expected.top) < 0.00001F &&
+            std::abs(actual.right - expected.right) < 0.00001F &&
+            std::abs(actual.bottom - expected.bottom) < 0.00001F);
+        const auto saved = outline;
+        PROGPU_REQUIRE(com::failed(d2d::detail::get_widened_outline_segments(source.get(),
+            2, style.get(), nullptr, 0, outline, mode)));
+        PROGPU_REQUIRE(outline.size() == saved.size() && std::memcmp(outline.data(), saved.data(),
+            outline.size() * sizeof(progpu_native_path_segment)) == 0);
+        PROGPU_REQUIRE(mode == d2d::fill_mode::winding);
+    }
+    {
         // The Showcase's DrawingImage-backed Border owns the painted rectangle,
         // not its brush source or viewport. Extend the same typed contract to
         // the existing bitmap/drawing/visual brush fixture, including pen scope.
@@ -22679,6 +22724,58 @@ int main() {
                 }
             }
             PROGPU_REQUIRE(line_count == 3U);
+            found = true;
+        }
+        PROGPU_REQUIRE(found);
+    }
+    {
+        // A guideline-bearing stroked rectangle must lower its widened boundary
+        // to a path, retaining the source index before device snapping.
+        channel state;
+        std::vector<std::byte> batch, content;
+        append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
+        append_create(batch, 3U, 47U); append_create(batch, 4U, 75U); append_create(batch, 5U, 85U);
+        append_command(batch, command::visual_create, 1U);
+        append_command(batch, command::visual_set_guideline_collection, 1U,
+            std::uint16_t{0}, std::uint16_t{0}, std::uint16_t{2}, std::uint16_t{0}, 2.25F, 20.75F);
+        append_command(batch, command::solid_color_brush, 4U, 1.0,
+            progpu_native_color{1, 1, 1, 1}, 0U, 0U, 0U, 0U);
+        append_command(batch, command::pen, 5U, 2.0, 10.0, 4U, 0U, 0U, 0U, 0U, 0U, 0U);
+        append_command(content, command::draw_rectangle, 2.25, 2.25, 18.5, 18.5, 0U, 5U);
+        append_render_data(batch, 2U, content);
+        append_command(batch, command::visual_set_content, 1U, 2U);
+        append_command(batch, command::generic_target_create, 3U,
+            std::uint64_t{0}, std::uint64_t{0}, 64U, 64U, 0U);
+        append_command(batch, command::target_set_root, 3U, 1U);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        scene_build_request request{};
+        request.flags = scene_build_request_flags::hit_test_index;
+        request.target_handle = 3U; request.scene_id = 9843U;
+        request.generation = request.request_serial = 1U;
+        request.dpi_scale_x = request.dpi_scale_y = 1.0;
+        std::span<const std::byte> compiled;
+        PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+        const std::vector<std::byte> stream(compiled.begin(), compiled.end());
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        std::uint32_t paths = 0U;
+        for (std::uint32_t i = 0; i < header.command_count; ++i) {
+            const auto command = read_value<progpu_native_scene_command>(stream,
+                header.command_offset + i * sizeof(progpu_native_scene_command));
+            PROGPU_REQUIRE(command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH);
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) ++paths;
+        }
+        PROGPU_REQUIRE(paths == 1U);
+        bool found = false;
+        for (std::uint32_t i = 0; i < header.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + i * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+            const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+            PROGPU_REQUIRE(page.primitive_count == 1U);
+            const auto hit = read_value<progpu_native_hit_test_primitive>(stream, resource.auxiliary_offset + page.primitive_offset);
+            PROGPU_REQUIRE(hit.id == 1 && hit.kind == PROGPU_NATIVE_HIT_TEST_PATH_FILL);
+            PROGPU_REQUIRE(hit.bounds_min.x == 1.25F && hit.bounds_min.y == 1.25F);
+            PROGPU_REQUIRE(hit.bounds_max.x == 21.75F && hit.bounds_max.y == 21.75F);
             found = true;
         }
         PROGPU_REQUIRE(found);
