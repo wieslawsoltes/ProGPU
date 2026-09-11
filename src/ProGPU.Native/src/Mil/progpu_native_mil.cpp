@@ -14977,11 +14977,102 @@ struct channel::implementation {
             }
             return restored ? status::success : status::invalid_graph;
         };
+        const auto append_guideline_image = [&builder, &save_state, compile_context](
+            std::uint32_t image_index, const progpu_native_scene_image_draw& image,
+            progpu_native_image_rect bounds, const render_scope_state& source,
+            const progpu_native_scene_image_sampling_options* sampling) -> status {
+            if (!source.per_point_guidelines)
+                return builder.draw_image(image_index, image, bounds,
+                    PROGPU_NATIVE_SCENE_NO_INDEX, sampling) ? status::success : status::invalid_graph;
+            const double dpi_x = compile_context == nullptr ? 1.0 : compile_context->request.dpi_scale_x;
+            const double dpi_y = compile_context == nullptr ? 1.0 : compile_context->request.dpi_scale_y;
+            if (!std::isfinite(dpi_x) || !std::isfinite(dpi_y) || dpi_x <= 0.0 || dpi_y <= 0.0)
+                return status::invalid_graph;
+            affine_2d_double inverse{};
+            if (!try_invert_affine(source.transform, inverse)) return status::unsupported_command;
+            // Coverage may move half a physical pixel; explicit offsets permit
+            // one pixel. Reserve another pixel for edge coverage. This is only
+            // raster storage, never source input or a replacement shape.
+            const double margin_x = 2.0 / dpi_x, margin_y = 2.0 / dpi_y;
+            const double local_x = std::abs(inverse.m11) * margin_x + std::abs(inverse.m21) * margin_y;
+            const double local_y = std::abs(inverse.m12) * margin_x + std::abs(inverse.m22) * margin_y;
+            const auto& destination = image.destination_rect;
+            const double scale_x = image.source_rect.width / static_cast<double>(destination.width);
+            const double scale_y = image.source_rect.height / static_cast<double>(destination.height);
+            const std::array values{
+                bounds.x - margin_x, bounds.y - margin_y,
+                bounds.width + 2.0 * margin_x, bounds.height + 2.0 * margin_y,
+                destination.x - local_x, destination.y - local_y,
+                destination.width + 2.0 * local_x, destination.height + 2.0 * local_y,
+                image.source_rect.x - local_x * scale_x, image.source_rect.y - local_y * scale_y,
+                image.source_rect.width + 2.0 * local_x * scale_x,
+                image.source_rect.height + 2.0 * local_y * scale_y};
+            for (double value : values) if (!finite_double_as_float(value)) return status::unsupported_command;
+            const progpu_native_image_rect storage{static_cast<float>(values[0]), static_cast<float>(values[1]),
+                static_cast<float>(values[2]), static_cast<float>(values[3])};
+            native::semantic_scene_builder coverage(builder.scene_id(), builder.generation());
+            auto coverage_state = native::semantic_scene_builder::identity_state();
+            coverage_state.flags = PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+            if (!coverage.copy_guideline_set_from(builder, source.guideline_resource_index,
+                    coverage_state.guideline_resource_index)) return status::invalid_graph;
+            std::uint32_t coverage_state_index{};
+            if (!coverage.add_state(coverage_state, coverage_state_index) ||
+                !coverage.save(coverage_state_index)) return status::invalid_graph;
+            const float right = destination.x + destination.width, bottom = destination.y + destination.height;
+            const std::array points{progpu_native_point{destination.x, destination.y},
+                progpu_native_point{right, destination.y}, progpu_native_point{right, bottom},
+                progpu_native_point{destination.x, bottom}};
+            std::array<progpu_native_path_segment, 4U> segments{};
+            for (std::size_t i = 0U; i < segments.size(); ++i) {
+                segments[i].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segments[i].p0 = points[i]; segments[i].p1 = points[(i + 1U) % points.size()];
+            }
+            const std::array paths{progpu_native_scene_path_fill{0U, segments.size(), 0U, 0U,
+                destination.x, destination.y, right, bottom, {1, 1, 1, 1}, image.transform,
+                PROGPU_NATIVE_FILL_RULE_NON_ZERO, source.edge_aliased ? 1U : 8U}};
+            if (!coverage.draw_paths(paths, segments, {}, bounds) || !coverage.restore()) return status::invalid_graph;
+            std::vector<std::byte> coverage_bytes;
+            if (!coverage.build(coverage_bytes)) return status::invalid_graph;
+            progpu_native_scene_layer_picture_mask mask{};
+            mask.bounds = storage; mask.transform = native::semantic_scene_builder::identity_transform();
+            mask.opacity = 1.0F;
+            progpu_native_scene_layer layer{};
+            layer.struct_size = sizeof(layer);
+            layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION | PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+            layer.bounds = storage; layer.opacity = 1.0F;
+            layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_picture_mask(mask, coverage_bytes, layer.mask_resource_index)) return status::invalid_graph;
+            auto sampled = image;
+            sampled.flags |= PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
+            sampled.destination_rect = {static_cast<float>(values[4]), static_cast<float>(values[5]),
+                static_cast<float>(values[6]), static_cast<float>(values[7])};
+            sampled.source_rect = {static_cast<float>(values[8]), static_cast<float>(values[9]),
+                static_cast<float>(values[10]), static_cast<float>(values[11])};
+            // Expand coverage support without scaling the bitmap: source and
+            // destination grow by the same original affine ratio. The existing
+            // extended-source sampler owns edge addressing. No CPU pixels.
+            auto paint = source;
+            paint.transform = {}; // image already owns the complete transform
+            paint.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            paint.per_point_guidelines = false;
+            if (!save_state(source, &destination)) return status::invalid_graph;
+            if (!save_state(paint)) { (void)builder.restore(); return status::invalid_graph; }
+            if (!builder.push_layer(layer)) {
+                (void)builder.restore(); (void)builder.restore(); return status::invalid_graph;
+            }
+            const bool drawn = builder.draw_image(image_index, sampled, storage,
+                PROGPU_NATIVE_SCENE_NO_INDEX, sampling);
+            const bool popped = builder.pop_layer();
+            const bool restored_paint = builder.restore(), restored_source = builder.restore();
+            return drawn && popped && restored_paint && restored_source ? status::success : status::invalid_graph;
+        };
         const auto append_bitmap_source = [
             this,
             &builder,
             &image_indices,
             &save_state,
+            &append_guideline_image,
             compile_context,
             &append_drawing_image](
             std::uint32_t image_source_handle,
@@ -15047,14 +15138,7 @@ struct channel::implementation {
                         PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
                         ? &cubic_options
                         : nullptr;
-                    return builder.draw_image(
-                            image->second,
-                            image_draw,
-                            bounds,
-                            PROGPU_NATIVE_SCENE_NO_INDEX,
-                            sampling_options)
-                        ? status::success
-                        : status::invalid_graph;
+                    return append_guideline_image(image->second, image_draw, bounds, state, sampling_options);
                 }
                 const auto source = resources.find(image_source_handle);
                 if (source == resources.end() || source->second.type != type_drawing_image) {
@@ -15141,14 +15225,7 @@ struct channel::implementation {
                 PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
                 ? &cubic_options
                 : nullptr;
-            return builder.draw_image(
-                    image_index,
-                    image_draw,
-                    bounds,
-                    PROGPU_NATIVE_SCENE_NO_INDEX,
-                    sampling_options)
-                ? status::success
-                : status::invalid_graph;
+            return append_guideline_image(image_index, image_draw, bounds, state, sampling_options);
         };
         // A single tile is source content mapped into its viewport,
         // then clipped to the independently transformed paint geometry. This
@@ -16009,7 +16086,7 @@ struct channel::implementation {
         };
         const auto append_media_player = [
             this,
-            &builder,
+            &append_guideline_image,
             &image_indices](
             std::uint32_t media_player_handle,
             double x,
@@ -16068,14 +16145,7 @@ struct channel::implementation {
                 PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
                 ? &cubic_options
                 : nullptr;
-            return builder.draw_image(
-                    image->second,
-                    image_draw,
-                    bounds,
-                    PROGPU_NATIVE_SCENE_NO_INDEX,
-                    sampling_options)
-                ? status::success
-                : status::invalid_graph;
+            return append_guideline_image(image->second, image_draw, bounds, state, sampling_options);
         };
         for (;;) {
             const status read_status = reader.next(view);

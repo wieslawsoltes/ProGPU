@@ -4464,7 +4464,11 @@ progpu_native_status render_scene(
                         push_operation.effect_cache_operation_id =
                             layer.composite_revision;
                     }
-                    if (layer.mask_resource_index !=
+                    // Replay does not composite a non-drawable parent target.
+                    // In particular its zero extent cannot host a picture mask.
+                    // Retain the layer operation and source input; only omit
+                    // the unused GPU mask binding, not resource validation.
+                    if (composite_drawable && layer.mask_resource_index !=
                             PROGPU_NATIVE_SCENE_NO_INDEX) {
                         const auto resource = read_resource(
                             layer.mask_resource_index);

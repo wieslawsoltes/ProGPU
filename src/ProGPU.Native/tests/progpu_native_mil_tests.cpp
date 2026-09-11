@@ -15235,6 +15235,87 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
     return true;
 }
 
+bool retained_image_guidelines_separate_coverage_and_sampling() {
+    for (const bool external : {false, true}) for (const double dpi : {1.0, 1.5, 2.0}) {
+        channel state;
+        std::vector<std::byte> batch, content;
+        append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
+        append_create(batch, 3U, 47U); append_create(batch, 4U, 95U);
+        append_command(batch, command::visual_create, 1U);
+        append_command(batch, command::visual_set_offset, 1U, 5.0, 7.0);
+        append_command(batch, command::visual_set_guideline_collection, 1U,
+            std::uint16_t{2}, std::uint16_t{0}, std::uint16_t{2}, std::uint16_t{0},
+            2.25F, 20.75F, 2.25F, 20.75F);
+        append_command(content, command::draw_image, 2.25, 2.25, 18.5, 18.5, 4U, 0U);
+        append_render_data(batch, 2U, content);
+        append_command(batch, command::visual_set_content, 1U, 2U);
+        append_command(batch, command::generic_target_create, 3U,
+            std::uint64_t{0}, std::uint64_t{0}, 64U, 64U, 0U);
+        append_command(batch, command::target_set_root, 3U, 1U);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        const std::array<std::byte, 16U> pixels{};
+        PROGPU_REQUIRE((external ? state.set_bitmap_source_external_image(4U, 2U, 2U) :
+            state.set_bitmap_source_rgba8(4U, 2U, 2U, 8U, pixels)) == status::success);
+        scene_build_request request{};
+        request.flags = scene_build_request_flags::hit_test_index;
+        request.target_handle = 3U; request.scene_id = 9845U;
+        request.generation = request.request_serial = 1U;
+        request.dpi_scale_x = request.dpi_scale_y = dpi;
+        std::span<const std::byte> compiled;
+        PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+        const std::vector<std::byte> stream(compiled.begin(), compiled.end());
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        progpu::native::semantic::semantic_state_cursor cursor(stream.data(), header, static_cast<float>(dpi));
+        bool found_image = false, found_coverage = false, found_input = false;
+        for (std::uint32_t i = 0U; i < header.command_count; ++i) {
+            const auto record = read_value<progpu_native_scene_command>(stream,
+                header.command_offset + i * sizeof(progpu_native_scene_command));
+            const auto resolved = cursor.advance(record);
+            if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) continue;
+            PROGPU_REQUIRE(!cursor.has_per_point_guidelines(resolved));
+            PROGPU_REQUIRE(resolved.transform.m31 == 0.0F && resolved.transform.m32 == 0.0F);
+            const auto image = read_value<progpu_native_scene_image_draw>(stream, record.payload_offset);
+            PROGPU_REQUIRE((image.flags & PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT) != 0U);
+            PROGPU_REQUIRE(image.transform.m31 == 5.0F && image.transform.m32 == 7.0F);
+            const float sx = image.source_rect.width / image.destination_rect.width;
+            const float sy = image.source_rect.height / image.destination_rect.height;
+            PROGPU_REQUIRE(std::abs(sx - 2.0F / 18.5F) < 0.00001F && std::abs(sy - sx) < 0.00001F);
+            PROGPU_REQUIRE(std::abs(image.source_rect.x + (2.25F - image.destination_rect.x) * sx) < 0.00001F);
+            PROGPU_REQUIRE(std::abs(image.source_rect.y + (2.25F - image.destination_rect.y) * sy) < 0.00001F);
+            found_image = true;
+        }
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + i * sizeof(progpu_native_scene_resource));
+            if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+                const auto mask = read_value<progpu_native_scene_layer_picture_mask>(stream, resource.payload_offset);
+                PROGPU_REQUIRE(mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE);
+                const auto nested = read_value<progpu_native_scene_header>(stream, resource.auxiliary_offset);
+                progpu::native::semantic::semantic_state_cursor nested_cursor(
+                    stream.data() + resource.auxiliary_offset, nested, static_cast<float>(dpi));
+                for (std::uint32_t j = 0U; j < nested.command_count; ++j) {
+                    const auto record = read_value<progpu_native_scene_command>(stream,
+                        resource.auxiliary_offset + nested.command_offset + j * sizeof(progpu_native_scene_command));
+                    const auto resolved = nested_cursor.advance(record);
+                    if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) continue;
+                    PROGPU_REQUIRE(nested_cursor.has_per_point_guidelines(resolved));
+                    found_coverage = true;
+                }
+            } else if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) {
+                const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+                PROGPU_REQUIRE(page.primitive_count == 1U);
+                const auto hit = read_value<progpu_native_hit_test_primitive>(stream,
+                    resource.auxiliary_offset + page.primitive_offset);
+                PROGPU_REQUIRE(hit.id == 1 && hit.bounds_min.x == 7.25F && hit.bounds_min.y == 9.25F);
+                PROGPU_REQUIRE(hit.bounds_max.x == 25.75F && hit.bounds_max.y == 27.75F);
+                found_input = true;
+            }
+        }
+        PROGPU_REQUIRE(found_image && found_coverage && found_input);
+    }
+    return true;
+}
+
 bool retained_glyph_guidelines_translate_baseline_without_deformation() {
     const auto font_bytes = load_inter_test_font();
     progpu::native::text::sfnt_font_view font{};
@@ -24527,6 +24608,7 @@ int main() {
     PROGPU_REQUIRE(
         retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband());
     PROGPU_REQUIRE(retained_glyph_guidelines_translate_baseline_without_deformation());
+    PROGPU_REQUIRE(retained_image_guidelines_separate_coverage_and_sampling());
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(
         retained_geometry_group_accepts_combined_fill_and_clip_children());
