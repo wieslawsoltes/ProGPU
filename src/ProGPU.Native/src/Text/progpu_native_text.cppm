@@ -14,6 +14,7 @@ using ::progpu::native::text::text_anchor_width_mode;
 using ::progpu::native::text::text_anchor_width_result;
 using ::progpu::native::text::try_resolve_text_anchor_width;
 using ::progpu::native::text::try_place_text_anchor;
+using ::progpu::native::text::try_place_text_floater;
 using ::progpu::native::text::try_resolve_text_line_intervals;
 using ::progpu::native::text::text_line_fragment;
 using ::progpu::native::text::try_fit_text_exclusion_band;

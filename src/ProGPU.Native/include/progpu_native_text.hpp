@@ -2143,6 +2143,19 @@ bool try_place_text_anchor(text_exclusion_rectangle reference, float width, floa
     text_exclusion_rectangle& placement, std::uint32_t maximum_attempts,
     font_error* error = nullptr) noexcept;
 
+// Place a measured floater in a free interval rather than a fixed horizontal
+// anchor. Left/center select the first fitting interval, right the last; center
+// aligns inside that interval. Earlier siblings are ordinary collision boxes.
+// Other validation, workspace, delay and atomic-output contracts match anchors.
+// The caller supplies the completed anchor-bearing row bottom as reference.top;
+// this primitive does not discover source events or create an empty text row.
+bool try_place_text_floater(text_exclusion_rectangle reference, float width, float height,
+    text_anchor_alignment alignment, bool allow_delay,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
+    text_exclusion_rectangle& placement, std::uint32_t maximum_attempts,
+    font_error* error = nullptr) noexcept;
+
 // Complement of all exclusions intersecting the entire candidate line band.
 // Returns increasing, nonempty intervals; touching intervals are coalesced.
 // No free interval is a real exhausted width, not an unbounded paragraph.

@@ -11,6 +11,14 @@ Welcome, agent! This document serves as a specialized developer guide and archit
 
 ## 1. Core Architectural Rules & Conventions
 
+Bottomless float placement is distinct from fixed horizontal anchors. Use native
+free-interval packing for measured floaters: left/center select the first fit,
+right the last, center within the selected interval. Keep fixed-anchor placement
+unchanged. Windows source reference places floats below their anchor-bearing row;
+do not implement iterative source-local Y repair or feed the source row its own
+float exclusion. Native row events and empty parent-row metrics must connect
+before source admission; a box-placement primitive alone is not document parity.
+
 Anchor fit-content measurement must distinguish native constrained extent from
 actual content right extent. Use the shared native arrangement measurement,
 retaining source insets/margins, objects and fixed table tracks/spacing. Never

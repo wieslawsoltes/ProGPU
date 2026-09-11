@@ -670,8 +670,8 @@ bool try_resolve_text_anchor_width(float available_width, float horizontal_inset
     set_error(error, font_error::none); return true;
 }
 
-bool try_place_text_anchor(text_exclusion_rectangle reference, float width, float height,
-    text_anchor_alignment alignment, bool allow_delay,
+static bool place_text_box(text_exclusion_rectangle reference, float width, float height,
+    text_anchor_alignment alignment, bool allow_delay, bool floating,
     std::span<const text_exclusion_rectangle> exclusions,
     std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
     text_exclusion_rectangle& placement, std::uint32_t maximum_attempts,
@@ -707,17 +707,49 @@ bool try_place_text_anchor(text_exclusion_rectangle reference, float width, floa
         if (!try_resolve_text_line_intervals({reference.left, top, reference.right, bottom},
                 exclusions, scratch, intervals, count, next, error)) return false;
         for (std::uint32_t i = 0U; i < count; ++i) {
-            if (left >= intervals[i].left && right <= intervals[i].right) {
-                placement = {left, top, right, bottom};
+            // Floats pack into free intervals in alignment order; fixed anchors
+            // retain their reference X. Center floats center in the first fit.
+            const auto& interval = intervals[floating && alignment == text_anchor_alignment::right
+                ? count - 1U - i : i];
+            float candidate_left = left, candidate_right = right;
+            if (floating) {
+                const double interval_spare = static_cast<double>(interval.right) - interval.left - width;
+                if (interval_spare < 0) continue;
+                candidate_left = static_cast<float>(interval.left + interval_spare *
+                    (alignment == text_anchor_alignment::left ? 0.0 : alignment == text_anchor_alignment::right ? 1.0 : 0.5));
+                candidate_right = static_cast<float>(static_cast<double>(candidate_left) + width);
+            }
+            if (candidate_right > candidate_left && candidate_left >= interval.left && candidate_right <= interval.right) {
+                placement = {candidate_left, top, candidate_right, bottom};
                 set_error(error, font_error::none); return true;
             }
         }
-        // Ordered retry dependency: keep the same X anchor, never slide content
-        // sideways or overlap an obstacle to manufacture progress.
+        // Ordered retry dependency: advance to an actual obstacle bottom only
+        // after all admitted horizontal positions in this band are exhausted.
         if (!allow_delay || next <= top) break;
         top = next;
     }
     set_error(error, font_error::verification_failed); return false;
+}
+
+bool try_place_text_anchor(text_exclusion_rectangle reference, float width, float height,
+    text_anchor_alignment alignment, bool allow_delay,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
+    text_exclusion_rectangle& placement, std::uint32_t maximum_attempts,
+    font_error* error) noexcept {
+    return place_text_box(reference, width, height, alignment, allow_delay, false,
+        exclusions, scratch, intervals, placement, maximum_attempts, error);
+}
+
+bool try_place_text_floater(text_exclusion_rectangle reference, float width, float height,
+    text_anchor_alignment alignment, bool allow_delay,
+    std::span<const text_exclusion_rectangle> exclusions,
+    std::span<text_line_interval> scratch, std::span<text_line_interval> intervals,
+    text_exclusion_rectangle& placement, std::uint32_t maximum_attempts,
+    font_error* error) noexcept {
+    return place_text_box(reference, width, height, alignment, allow_delay, true,
+        exclusions, scratch, intervals, placement, maximum_attempts, error);
 }
 
 bool try_resolve_text_line_intervals(text_exclusion_rectangle band,

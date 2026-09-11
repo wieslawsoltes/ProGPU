@@ -13446,6 +13446,39 @@ static void excluded_paragraphs_retain_rows_and_bounded_progress() {
         box_count, caret_count));
 }
 
+void measured_floaters_pack_free_intervals() {
+    using namespace progpu::native::text;
+    std::array<text_exclusion_rectangle, 3> siblings{};
+    std::array<text_line_interval, 3> scratch{};
+    std::array<text_line_interval, 4> intervals{};
+    text_exclusion_rectangle placed{};
+    font_error error{};
+    const auto place = [&](text_anchor_alignment alignment, std::size_t count, bool delay, std::uint32_t budget) {
+        return try_place_text_floater({0, 10, 320, 100}, 100, 10, alignment, delay,
+            std::span(siblings).first(count), scratch, intervals, placed, budget, &error);
+    };
+    for (auto alignment : {text_anchor_alignment::left, text_anchor_alignment::center, text_anchor_alignment::right}) {
+        require(place(alignment, 0, false, 1));
+        require(placed.top == 10 && placed.left == (alignment == text_anchor_alignment::left ? 0 :
+            alignment == text_anchor_alignment::center ? 110 : 220));
+        siblings[0] = placed;
+        require(place(alignment, 1, false, 1));
+        require(placed.top == 10 && placed.left == (alignment == text_anchor_alignment::left ? 100 :
+            alignment == text_anchor_alignment::center ? 5 : 120));
+    }
+    for (std::size_t i = 0; i < siblings.size(); ++i) {
+        require(place(text_anchor_alignment::left, i, false, 1));
+        siblings[i] = placed;
+    }
+    require(!place(text_anchor_alignment::left, 3, false, 2) && error == font_error::verification_failed);
+    require(placed.left == 200 && placed.top == 10); // Failed fit does not publish.
+    require(!place(text_anchor_alignment::left, 3, true, 1));
+    require(place(text_anchor_alignment::left, 3, true, 2) && placed.left == 0 && placed.top == 20);
+    siblings[0].left = std::numeric_limits<float>::quiet_NaN();
+    require(!place(text_anchor_alignment::left, 1, true, 2) && error == font_error::invalid_argument);
+    require(placed.left == 0 && placed.top == 20);
+}
+
 void measured_anchors_retain_horizontal_reference() {
     using namespace progpu::native::text;
     std::array<text_exclusion_rectangle, 2> obstacles{{{70, 0, 100, 20}, {70, 20, 100, 35}}};
@@ -13513,6 +13546,7 @@ void anchor_width_policy_requires_real_remeasurement() {
 
 int main() {
     anchor_width_policy_requires_real_remeasurement();
+    measured_floaters_pack_free_intervals();
     measured_anchors_retain_horizontal_reference();
     excluded_paragraphs_retain_rows_and_bounded_progress();
     measured_exclusion_fragments_share_one_baseline();
