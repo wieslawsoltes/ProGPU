@@ -21111,8 +21111,10 @@ struct channel::implementation {
                     current.transform,
                     composite_layer.bounds) ||
                 !builder.push_layer(composite_layer,
-                    record_hit_owner && !has_spatial_visual_opacity_mask
-                        ? native::scene_layer_hit_test_mode::source_opacity
+                    record_hit_owner
+                        ? has_spatial_visual_opacity_mask
+                            ? native::scene_layer_hit_test_mode::source_opacity_mask
+                            : native::scene_layer_hit_test_mode::source_opacity
                         : native::scene_layer_hit_test_mode::unspecified)) {
                 builder.restore();
                 active_visuals.erase(handle);

@@ -21571,6 +21571,87 @@ int main() {
         }
     }
     {
+        // Uncached visual masks preserve own/descendant source input and real
+        // clips. A sibling outside the visual's mask/clip retains its own scope.
+        channel state;
+        std::vector<std::byte> batch, content;
+        for (auto visual : {1U, 7U, 9U, 10U}) {
+            append_create(batch, visual, 39U);
+            append_command(batch, command::visual_create, visual);
+        }
+        append_create(batch, 2U, 43U); append_create(batch, 8U, 43U);
+        append_create(batch, 3U, 47U); append_create(batch, 4U, 75U);
+        append_create(batch, 5U, 69U); append_create(batch, 6U, 77U);
+        append_command(batch, command::solid_color_brush, 4U, 1.0,
+            progpu_native_color{1, 1, 1, 1}, 0U, 0U, 0U, 0U);
+        const std::array stops{mil_gradient_stop{0.0, {1, 1, 1, 0}}, mil_gradient_stop{1.0, {1, 1, 1, 0}}};
+        append_linear_gradient_brush(batch, 6U, 1.0, 0.0, 0.0, 1.0, 0.0,
+            0U, 0U, 0U, 1U, 1U, 0U, 0U, 0U, stops);
+        append_command(batch, command::rectangle_geometry, 5U,
+            0.0, 0.0, 10.0, 12.0, 20.0, 18.0, 0U, 0U, 0U, 0U);
+        append_command(batch, command::visual_set_clip, 1U, 5U);
+        append_command(batch, command::visual_set_alpha_mask, 1U, 6U);
+        append_command(content, command::draw_rectangle, 8.0, 10.0, 32.0, 24.0, 4U, 0U);
+        append_render_data(batch, 2U, content);
+        content.clear();
+        append_command(content, command::draw_rectangle, 20.0, 20.0, 16.0, 16.0, 4U, 0U);
+        append_render_data(batch, 8U, content);
+        append_command(batch, command::visual_set_content, 1U, 2U);
+        append_command(batch, command::visual_set_content, 7U, 8U);
+        append_command(batch, command::visual_set_content, 9U, 2U);
+        append_command(batch, command::visual_insert_child_at, 10U, 1U, 0U);
+        append_command(batch, command::visual_insert_child_at, 10U, 9U, 1U);
+        append_command(batch, command::visual_insert_child_at, 1U, 7U, 0U);
+        append_command(batch, command::generic_target_create, 3U,
+            std::uint64_t{0}, std::uint64_t{0}, 64U, 64U, 0U);
+        append_command(batch, command::target_set_root, 3U, 10U);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        PROGPU_REQUIRE(state.set_visual_cache_bounds(1U, 8, 10, 32, 26) == status::success);
+        scene_build_request request{};
+        request.flags = scene_build_request_flags::hit_test_index;
+        request.target_handle = 3U; request.scene_id = 9842U;
+        request.dpi_scale_x = request.dpi_scale_y = 1.0;
+        for (std::uint32_t phase = 0; phase < 2U; ++phase) {
+            if (phase != 0U) {
+                batch.clear(); append_command(batch, command::visual_set_alpha_mask, 1U, 0U);
+                PROGPU_REQUIRE(state.apply(batch) == status::success);
+            }
+            request.generation = request.request_serial = phase + 1U;
+            std::span<const std::byte> compiled;
+            PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+            const std::vector<std::byte> stream(compiled.begin(), compiled.end());
+            const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+            bool found = false;
+            for (std::uint32_t i = 0; i < header.resource_count; ++i) {
+                const auto resource = read_value<progpu_native_scene_resource>(stream,
+                    header.resource_offset + i * sizeof(progpu_native_scene_resource));
+                if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) continue;
+                const auto page = read_value<progpu_native_scene_hit_test_index>(stream, resource.payload_offset);
+                PROGPU_REQUIRE(page.primitive_count == 3U);
+                const auto hit = [&](std::size_t index) { return read_value<progpu_native_hit_test_primitive>(stream,
+                    resource.auxiliary_offset + page.primitive_offset + index * sizeof(progpu_native_hit_test_primitive)); };
+                const auto own = hit(0), child = hit(1), sibling = hit(2);
+                PROGPU_REQUIRE(own.id == 1 && child.id == 7 && sibling.id == 9);
+                PROGPU_REQUIRE(own.bounds_min.x == 10 && own.bounds_min.y == 12 && own.bounds_max.x == 30 && own.bounds_max.y == 30);
+                PROGPU_REQUIRE(child.bounds_min.x == 20 && child.bounds_min.y == 20 && child.bounds_max.x == 30 && child.bounds_max.y == 30);
+                PROGPU_REQUIRE(own.clip_segment_count == 4U && child.clip_segment_count == 4U);
+                PROGPU_REQUIRE(sibling.bounds_min.x == 8 && sibling.bounds_min.y == 10 && sibling.bounds_max.x == 40 && sibling.bounds_max.y == 34);
+                PROGPU_REQUIRE(sibling.clip_segment_count == 0U);
+                found = true;
+            }
+            PROGPU_REQUIRE(found);
+            std::uint32_t masked_layers = 0;
+            for (std::uint32_t i = 0; i < header.command_count; ++i) {
+                const auto record = read_value<progpu_native_scene_command>(stream,
+                    header.command_offset + i * sizeof(progpu_native_scene_command));
+                if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) continue;
+                const auto layer = read_value<progpu_native_scene_layer>(stream, record.payload_offset);
+                if (layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) ++masked_layers;
+            }
+            PROGPU_REQUIRE(masked_layers == (phase == 0U ? 1U : 0U));
+        }
+    }
+    {
         // Input-only ownership stays in this builder; only balanced draw scopes
         // are removed from the raster stream, including nested input-only saves.
         progpu::native::semantic_scene_builder builder(9835U, 1U);
