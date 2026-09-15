@@ -23,7 +23,15 @@ public static class NativePopupWindow
     public static bool TryConfigureOwner(NativeWindowHandle owner, NativeWindowHandle popup)
     {
         if (owner.Kind != popup.Kind || !owner.IsValid || !popup.IsValid ||
-            owner.Handle == popup.Handle) return false;
+            owner.Handle == popup.Handle)
+        {
+            if (OperatingSystem.IsWindows() &&
+                (owner.Kind == NativeWindowKind.Win32 || popup.Kind == NativeWindowKind.Win32))
+                Win32NativeWindowPlatform.TracePopupOwnerRejection(
+                    owner.Handle, popup.Handle,
+                    Win32PopupConfigurationFailure.InvalidIdentity);
+            return false;
+        }
         if (OperatingSystem.IsWindows() && owner.Kind == NativeWindowKind.Win32)
             return Win32NativeWindowPlatform.TryConfigurePopupOwner(owner.Handle, popup.Handle);
         if (OperatingSystem.IsMacOS() && owner.Kind == NativeWindowKind.Cocoa)

@@ -15,22 +15,72 @@ internal static class Win32PopupConfiguration
     private const uint ToolWindow = 0x00000080;
     private const uint AppWindow = 0x00040000;
 
-    internal static bool Apply<T>(nint owner, nint popup, ref T api) where T : IWin32PopupOperations
+    internal static bool Apply<T>(nint owner, nint popup, ref T api) where T : IWin32PopupOperations =>
+        Apply(owner, popup, ref api, out _);
+
+    internal static bool Apply<T>(nint owner, nint popup, ref T api,
+        out Win32PopupConfigurationFailure failure) where T : IWin32PopupOperations
     {
-        if (owner == 0 || popup == 0 || owner == popup || !api.AreLocalWindows(owner, popup) ||
-            !api.TryRead(owner, Style, out nint ownerStyle) ||
-            !api.TryRead(popup, Style, out nint style) ||
-            !api.TryRead(popup, ExtendedStyle, out nint extended) ||
-            !api.TryRead(popup, Owner, out nint previousOwner) ||
-            (unchecked((uint)ownerStyle) & Child) != 0 || (unchecked((uint)style) & (Child | Visible)) != 0) return false;
+        failure = Win32PopupConfigurationFailure.None;
+        if (owner == 0 || popup == 0 || owner == popup)
+        {
+            failure = Win32PopupConfigurationFailure.InvalidIdentity;
+            return false;
+        }
+        if (!api.AreLocalWindows(owner, popup))
+        {
+            failure = Win32PopupConfigurationFailure.NonlocalWindows;
+            return false;
+        }
+        if (!api.TryRead(owner, Style, out nint ownerStyle))
+        {
+            failure = Win32PopupConfigurationFailure.OwnerStyleRead;
+            return false;
+        }
+        if (!api.TryRead(popup, Style, out nint style))
+        {
+            failure = Win32PopupConfigurationFailure.PopupStyleRead;
+            return false;
+        }
+        if (!api.TryRead(popup, ExtendedStyle, out nint extended))
+        {
+            failure = Win32PopupConfigurationFailure.PopupExtendedStyleRead;
+            return false;
+        }
+        if (!api.TryRead(popup, Owner, out nint previousOwner))
+        {
+            failure = Win32PopupConfigurationFailure.PreviousOwnerRead;
+            return false;
+        }
+        if ((unchecked((uint)ownerStyle) & Child) != 0)
+        {
+            failure = Win32PopupConfigurationFailure.ChildOwner;
+            return false;
+        }
+        if ((unchecked((uint)style) & Child) != 0)
+        {
+            failure = Win32PopupConfigurationFailure.ChildPopup;
+            return false;
+        }
+        if ((unchecked((uint)style) & Visible) != 0)
+        {
+            failure = Win32PopupConfigurationFailure.VisiblePopup;
+            return false;
+        }
 
         uint popupStyle = (unchecked((uint)style) | Popup) & ~OverlappedChrome;
         uint popupExtended = (unchecked((uint)extended) | NoActivate | ToolWindow) & ~AppWindow;
-        if (api.TryWrite(popup, Owner, owner) &&
-            api.TryWrite(popup, Style, unchecked((nint)(int)popupStyle)) &&
-            api.TryWrite(popup, ExtendedStyle, unchecked((nint)(int)popupExtended)) &&
-            api.InstallNonActivationHook(popup) &&
-            api.RefreshFrame(popup)) return true;
+        if (!api.TryWrite(popup, Owner, owner))
+            failure = Win32PopupConfigurationFailure.OwnerWrite;
+        else if (!api.TryWrite(popup, Style, unchecked((nint)(int)popupStyle)))
+            failure = Win32PopupConfigurationFailure.PopupStyleWrite;
+        else if (!api.TryWrite(popup, ExtendedStyle, unchecked((nint)(int)popupExtended)))
+            failure = Win32PopupConfigurationFailure.PopupExtendedStyleWrite;
+        else if (!api.InstallNonActivationHook(popup))
+            failure = Win32PopupConfigurationFailure.NonActivationHook;
+        else if (!api.RefreshFrame(popup))
+            failure = Win32PopupConfigurationFailure.FrameRefresh;
+        else return true;
 
         // Restore all original attributes on any failure. Restoration itself may
         // fail (for example if the HWND was destroyed); callers must discard it.
@@ -41,6 +91,25 @@ internal static class Win32PopupConfiguration
         _ = api.RefreshFrame(popup);
         return false;
     }
+}
+
+internal enum Win32PopupConfigurationFailure
+{
+    None,
+    InvalidIdentity,
+    NonlocalWindows,
+    OwnerStyleRead,
+    PopupStyleRead,
+    PopupExtendedStyleRead,
+    PreviousOwnerRead,
+    ChildOwner,
+    ChildPopup,
+    VisiblePopup,
+    OwnerWrite,
+    PopupStyleWrite,
+    PopupExtendedStyleWrite,
+    NonActivationHook,
+    FrameRefresh
 }
 
 internal interface IWin32PopupOperations
