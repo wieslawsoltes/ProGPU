@@ -3162,11 +3162,15 @@ exited zero. A first run with the same optimized native binary reached the live
 input success marker but later exited 134 after a managed
 `PropertyPathWorker.ReplaceItem` null-reference exception. That exception is
 not attributed to native pipeline ownership without further evidence; the
-successful rerun does not erase it. Later optimized frames also included mask
-CPU spikes above one second, so pipeline borrowing is not presented as full
-picture-mask performance closure. The local C++ build passed all 19 native
-CTest executables after correcting a local wgpu-native install-name path in
-build outputs; no source or package install path was changed for that repair.
+successful rerun does not erase it. Later optimized frames included mask CPU
+spikes above one second, but the kind trace attributed 1,301.016 ms in
+generation 20 and 1,475.500 ms in generation 29 to the two **vector clips**;
+their picture-mask portions were 55.266 and 27.899 ms respectively. This
+separate vector-clip problem remains open, so pipeline borrowing is not
+presented as full mask-phase performance closure. The local C++ build passed
+all 19 native CTest executables after correcting a local wgpu-native
+install-name path in build outputs; no source or package install path was
+changed for that repair.
 An exact Windows optimized-binary capture, differential pixels, and final
 package/application gates remain required before making a Windows speedup or
 runtime-parity claim.
