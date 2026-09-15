@@ -18,6 +18,7 @@ progpu::native::gpu_uniforms create_uniforms(
     float dpi_scale) noexcept;
 
 bool create_pipeline(progpu_native_engine& engine);
+bool create_frame_uniform_binding(progpu_native_engine& engine);
 
 WGPUBindGroup create_analytic_uniform_bind_group_for_buffer(
     progpu_native_engine& engine,

@@ -20,10 +20,13 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <new>
@@ -90,6 +93,27 @@ static bool create_semantic_picture_binding(
     const progpu_native_color* source_clear,
     WGPUTexture seed_texture = nullptr, std::uint32_t first_command = 0U,
     const progpu_native_scene_presentation* presentation = nullptr) {
+    static const bool trace_picture_masks = [] {
+#if defined(_WIN32)
+        char* value = nullptr;
+        std::size_t length = 0U;
+        if (_dupenv_s(&value, &length,
+                "PROGPU_NATIVE_TRACE_PICTURE_MASK") != 0) {
+            return false;
+        }
+        const bool enabled = value != nullptr &&
+            std::strcmp(value, "1") == 0;
+        std::free(value);
+        return enabled;
+#else
+        const char* value = std::getenv("PROGPU_NATIVE_TRACE_PICTURE_MASK");
+        return value != nullptr && std::strcmp(value, "1") == 0;
+#endif
+    }();
+    const bool trace_picture = trace_picture_masks && image_output == nullptr;
+    using cpu_clock = std::chrono::steady_clock;
+    const auto picture_begin = trace_picture
+        ? cpu_clock::now() : cpu_clock::time_point{};
     progpu_native_scene_frame child_frame{};
     if (nested_scene == nullptr || picture.stream_size == 0U ||
         !semantic::try_resolve_semantic_picture_frame(picture, target_extent,
@@ -144,6 +168,8 @@ static bool create_semantic_picture_binding(
     }
 
     progpu_native_engine* child_raw = nullptr;
+    const auto child_create_begin = trace_picture
+        ? cpu_clock::now() : cpu_clock::time_point{};
     if (create_child_engine(engine, engine.target_format, &child_raw) !=
             PROGPU_NATIVE_STATUS_SUCCESS ||
         child_raw == nullptr) {
@@ -151,6 +177,8 @@ static bool create_semantic_picture_binding(
         return false;
     }
     child.reset(child_raw);
+    const auto child_create_end = trace_picture
+        ? cpu_clock::now() : cpu_clock::time_point{};
     std::vector<progpu_native_scene_external_image_binding> bindings;
     try {
         bindings.reserve(engine.semantic_external_image_bindings.size());
@@ -202,6 +230,8 @@ static bool create_semantic_picture_binding(
         engine.submit(copy_commands);
         wgpuCommandBufferRelease(copy_commands);
     }
+    const auto child_update_begin = trace_picture
+        ? cpu_clock::now() : cpu_clock::time_point{};
     if (progpu_native_engine_bind_scene_external_images(
             child.get(),
             bindings.data(),
@@ -214,6 +244,8 @@ static bool create_semantic_picture_binding(
         cleanup();
         return false;
     }
+    const auto child_update_end = trace_picture
+        ? cpu_clock::now() : cpu_clock::time_point{};
     progpu_native_scene_header nested_header{};
     std::memcpy(&nested_header, nested_scene, sizeof(nested_header));
     if (seed_texture != nullptr) child_frame.flags |= PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET;
@@ -226,6 +258,8 @@ static bool create_semantic_picture_binding(
     child_frame.generation = nested_header.generation;
     progpu_native_scene_frame_metrics child_metrics{};
     child_metrics.struct_size = sizeof(child_metrics);
+    const auto child_render_begin = trace_picture
+        ? cpu_clock::now() : cpu_clock::time_point{};
     if (progpu_native_engine_render_scene(
             child.get(),
             &child_frame,
@@ -233,8 +267,32 @@ static bool create_semantic_picture_binding(
         cleanup();
         return false;
     }
+    const auto child_render_end = trace_picture
+        ? cpu_clock::now() : cpu_clock::time_point{};
     engine.submission_count += child->submission_count;
     child.reset();
+    if (trace_picture) {
+        const auto to_ms = [](cpu_clock::duration duration) noexcept {
+            return std::chrono::duration<double, std::milli>(duration).count();
+        };
+        std::fprintf(stderr,
+            "ProGPU native picture mask child: scene=%llu, generation=%llu, "
+            "streamBytes=%u, source=%ux%u, target=%u,%u/%ux%u, flags=%u, "
+            "createMs=%.3f, bindUpdateMs=%.3f, otherPrepareMs=%.3f, renderMs=%.3f\n",
+            static_cast<unsigned long long>(nested_header.scene_id),
+            static_cast<unsigned long long>(nested_header.generation),
+            picture.stream_size, source_width, source_height,
+            target_extent.x, target_extent.y,
+            target_extent.width, target_extent.height,
+            picture.flags,
+            to_ms(child_create_end - child_create_begin),
+            to_ms(child_update_end - child_update_begin),
+            to_ms((child_create_begin - picture_begin) +
+                (child_update_begin - child_create_end) +
+                (child_render_begin - child_update_end)),
+            to_ms(child_render_end - child_render_begin));
+        std::fflush(stderr);
+    }
 
     if (image_output != nullptr) {
         // Shared source rasterization; ordinary picture images retain full RGBA

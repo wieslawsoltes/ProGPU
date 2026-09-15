@@ -158,6 +158,11 @@ bool create_pipeline(progpu_native_engine& engine) {
     if (engine.uniform_layout == nullptr) {
         return false;
     }
+    return create_frame_uniform_binding(engine);
+}
+
+bool create_frame_uniform_binding(progpu_native_engine& engine) {
+    if (engine.uniform_layout == nullptr) return false;
 
     WGPUBufferDescriptor uniform_descriptor{};
     uniform_descriptor.label = progpu::native::webgpu::string_view("ProGPU native frame uniforms");
