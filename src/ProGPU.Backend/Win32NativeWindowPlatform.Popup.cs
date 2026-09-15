@@ -10,7 +10,34 @@ internal sealed partial class Win32NativeWindowPlatform
     internal static bool TryConfigurePopupOwner(nint owner, nint popup)
     {
         var api = new PopupOperations();
-        return Win32PopupConfiguration.Apply(owner, popup, ref api);
+        if (Win32PopupConfiguration.Apply(owner, popup, ref api,
+                out Win32PopupConfigurationFailure failure)) return true;
+        TracePopupOwnerRejection(owner, popup, failure);
+        return false;
+    }
+
+    internal static void TracePopupOwnerRejection(nint owner, nint popup,
+        Win32PopupConfigurationFailure failure)
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable(
+                "PROGPU_NATIVE_TRACE_POPUP_OWNER"), "1", StringComparison.Ordinal)) return;
+
+        uint ownerProcess = 0;
+        uint popupProcess = 0;
+        uint ownerThread = owner != 0
+            ? GetWindowThreadProcessId(owner, out ownerProcess)
+            : 0;
+        uint popupThread = popup != 0
+            ? GetWindowThreadProcessId(popup, out popupProcess)
+            : 0;
+        // Include the actual native thread/process pairing only on rejected,
+        // explicitly traced attempts. The ordinary popup path retains its
+        // existing hidden-owner admission and never performs diagnostic reads.
+        Console.Error.WriteLine(
+            $"[ProGPU NativePopup Win32] rejected reason={failure} " +
+            $"owner=0x{unchecked((nuint)owner):X} popup=0x{unchecked((nuint)popup):X} " +
+            $"currentThread={GetCurrentThreadId()} ownerThread={ownerThread} popupThread={popupThread} " +
+            $"currentProcess={Environment.ProcessId} ownerProcess={ownerProcess} popupProcess={popupProcess}");
     }
 
     private readonly unsafe struct PopupOperations : IWin32PopupOperations
