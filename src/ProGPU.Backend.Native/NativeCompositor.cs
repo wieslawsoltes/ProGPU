@@ -822,6 +822,30 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     /// <summary>
+    /// Renders a host-owned target and captures native owner-thread CPU stages.
+    /// This opt-in measurement includes its own cost; it does not measure GPU
+    /// execution, queue completion, or physical residency.
+    /// </summary>
+    public NativeSceneFrameMetrics RenderSceneWithCpuStages(
+        NativeSceneExternalTarget target,
+        float dpiScale,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor)
+    {
+        ValidateExternalTarget(target);
+        return RenderSceneCore(
+            target,
+            dpiScale,
+            sceneId,
+            generation,
+            clearColor,
+            preserveTarget: false,
+            damage: null,
+            captureCpuStages: true);
+    }
+
+    /// <summary>
     /// Renders the installed immutable semantic scene generation directly to
     /// a host-owned WebGPU texture view while preserving contents outside an
     /// optional logical damage rectangle.
@@ -879,7 +903,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         Vector4 clearColor,
         bool preserveTarget,
         NativeSceneDamageRect? damage,
-        NativeScenePresentation? presentation = null)
+        NativeScenePresentation? presentation = null,
+        bool captureCpuStages = false)
     {
         if (damage is { } value &&
             (!float.IsFinite(value.X) || !float.IsFinite(value.Y) ||
@@ -907,7 +932,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             Generation = generation,
             Flags = (preserveTarget ? SceneFramePreserveTargetFlag : 0U) |
                 (damage.HasValue ? SceneFrameDamageRectFlag : 0U) |
-                (presentation.HasValue ? (uint)NativeMethods.SceneFramePresentationFlag : 0U),
+                (presentation.HasValue ? (uint)NativeMethods.SceneFramePresentationFlag : 0U) |
+                (captureCpuStages ? (uint)NativeMethods.SceneFrameCpuStagesFlag : 0U),
             DamageX = damage?.X ?? 0f,
             DamageY = damage?.Y ?? 0f,
             DamageWidth = damage?.Width ?? 0f,
@@ -942,7 +968,15 @@ public sealed unsafe class NativeCompositor : IDisposable
             metrics.BrushUploadBytes,
             metrics.GradientStopUploadBytes,
             metrics.TextStyleUploadBytes,
-            metrics.ColorGlyphUploadBytes);
+            metrics.ColorGlyphUploadBytes)
+        {
+            CpuPreflightNanoseconds = metrics.CpuPreflightNanoseconds,
+            CpuResourceNanoseconds = metrics.CpuResourceNanoseconds,
+            CpuEncodeNanoseconds = metrics.CpuEncodeNanoseconds,
+            CpuFlushNanoseconds = metrics.CpuFlushNanoseconds,
+            CpuFinalizeNanoseconds = metrics.CpuFinalizeNanoseconds,
+            CpuTotalNanoseconds = metrics.CpuTotalNanoseconds,
+        };
     }
 
     /// <summary>

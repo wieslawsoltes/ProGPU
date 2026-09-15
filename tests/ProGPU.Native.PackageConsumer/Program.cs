@@ -440,6 +440,28 @@ if (compiledMilStream is not null)
             "The packaged native renderer did not render to a host-owned texture view.");
     }
     compositor.WaitForSubmission(externalTargetSubmission);
+    if (externalTargetMetrics.CpuTotalNanoseconds != 0)
+    {
+        throw new InvalidOperationException(
+            "The ordinary native scene render unexpectedly measured CPU stages.");
+    }
+    NativeSceneFrameMetrics capturedCpuMetrics =
+        compositor.RenderSceneWithCpuStages(
+            CreateExternalTarget(target),
+            1f,
+            701,
+            1,
+            new Vector4(0f, 0f, 0f, 1f));
+    NativeSubmissionToken capturedCpuSubmission =
+        compositor.GetLastSubmissionToken();
+    if (!capturedCpuSubmission.IsValid ||
+        capturedCpuMetrics.DrawCallCount == 0 ||
+        capturedCpuMetrics.CpuTotalNanoseconds == 0)
+    {
+        throw new InvalidOperationException(
+            "Opt-in native owner-thread CPU scene-stage capture failed.");
+    }
+    compositor.WaitForSubmission(capturedCpuSubmission);
     Console.WriteLine(
         $"package-consumer: retained MIL render " +
         $"resources={update.ResourceCount}, draws={retainedMetrics.DrawCallCount}, " +

@@ -3470,6 +3470,39 @@ int main(int argc, char** argv) {
         semantic_metrics.text_style_upload_bytes == 0U &&
         semantic_metrics.payload_hash == semantic_payload_hash,
         "stable mixed semantic scene replay rebuilt retained resources");
+    require(semantic_metrics.cpu_total_nanoseconds == 0U &&
+        semantic_metrics.cpu_preflight_nanoseconds == 0U &&
+        semantic_metrics.cpu_resource_nanoseconds == 0U &&
+        semantic_metrics.cpu_encode_nanoseconds == 0U &&
+        semantic_metrics.cpu_flush_nanoseconds == 0U &&
+        semantic_metrics.cpu_finalize_nanoseconds == 0U,
+        "default semantic scene replay unexpectedly captured CPU stages");
+
+    auto measured_frame = semantic_frame;
+    measured_frame.flags = PROGPU_NATIVE_SCENE_FRAME_CAPTURE_CPU_STAGES;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = 104U; // Last published pre-stage ABI.
+    semantic_metrics.cpu_preflight_nanoseconds = 0xA5A5A5A5U;
+    require(progpu_native_engine_render_scene(engine, &measured_frame,
+            &semantic_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        semantic_metrics.cpu_preflight_nanoseconds == 0xA5A5A5A5U,
+        "CPU stage capture accepted or overwrote incomplete frame metrics");
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(engine, &measured_frame,
+            &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.payload_hash == semantic_payload_hash &&
+        semantic_metrics.cpu_total_nanoseconds != 0U,
+        "opt-in owner-thread semantic CPU stage capture failed");
+    const std::uint64_t measured_stage_sum =
+        semantic_metrics.cpu_preflight_nanoseconds +
+        semantic_metrics.cpu_resource_nanoseconds +
+        semantic_metrics.cpu_encode_nanoseconds +
+        semantic_metrics.cpu_flush_nanoseconds +
+        semantic_metrics.cpu_finalize_nanoseconds;
+    require(semantic_metrics.cpu_total_nanoseconds >= measured_stage_sum &&
+        semantic_metrics.cpu_total_nanoseconds - measured_stage_sum <= 5U,
+        "semantic CPU stage intervals did not cover the measured render call");
 
     auto mapped_frame = semantic_frame;
     mapped_frame.flags = PROGPU_NATIVE_SCENE_FRAME_PRESENTATION;

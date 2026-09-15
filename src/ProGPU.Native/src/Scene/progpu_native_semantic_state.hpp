@@ -23,7 +23,8 @@ inline bool try_resolve_scene_presentation(const progpu_native_scene_frame& fram
     const auto flags = frame.struct_size >= damage_end ? frame.flags : 0U;
     if ((flags & ~(PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET |
             PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT |
-            PROGPU_NATIVE_SCENE_FRAME_PRESENTATION)) != 0U) return false;
+            PROGPU_NATIVE_SCENE_FRAME_PRESENTATION |
+            PROGPU_NATIVE_SCENE_FRAME_CAPTURE_CPU_STAGES)) != 0U) return false;
     progpu_native_scene_presentation value{sizeof(value), 0U, 0U,
         frame.width, frame.height, frame.dpi_scale, frame.dpi_scale, 0U};
     if ((flags & PROGPU_NATIVE_SCENE_FRAME_PRESENTATION) != 0U) {
