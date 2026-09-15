@@ -120,11 +120,27 @@ progpu_native_status render_scene(
     using cpu_clock = std::chrono::steady_clock;
     const auto cpu_start = capture_cpu_stages
         ? cpu_clock::now() : cpu_clock::time_point{};
-    const char* trace_encode_value = capture_cpu_stages
-        ? std::getenv("PROGPU_NATIVE_TRACE_SCENE_ENCODE") : nullptr;
+    const auto trace_encode_requested = []() noexcept {
+#if defined(_WIN32)
+        char* value = nullptr;
+        std::size_t length = 0U;
+        if (_dupenv_s(
+                &value, &length,
+                "PROGPU_NATIVE_TRACE_SCENE_ENCODE") != 0) {
+            return false;
+        }
+        const bool enabled = value != nullptr &&
+            std::strcmp(value, "1") == 0;
+        std::free(value);
+        return enabled;
+#else
+        const char* value =
+            std::getenv("PROGPU_NATIVE_TRACE_SCENE_ENCODE");
+        return value != nullptr && std::strcmp(value, "1") == 0;
+#endif
+    };
     const bool trace_encode_checkpoints =
-        trace_encode_value != nullptr &&
-        std::strcmp(trace_encode_value, "1") == 0;
+        capture_cpu_stages && trace_encode_requested();
     cpu_clock::time_point cpu_preflight_end{};
     cpu_clock::time_point cpu_resource_end{};
     cpu_clock::time_point cpu_prepare_end{};
