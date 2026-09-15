@@ -39,3 +39,32 @@ later ProGPU C++ scene render call. The retained log has no native subphase
 timestamps. This API makes the next exact-device/package rerun attributable
 without managed-renderer fallback or altered scene content. It is a
 measurement contract, not itself a fix or Toolkit/runtime qualification.
+
+An exact corrected-head Windows ARM64 runtime trace subsequently measured
+`23.815 s` native encoding plus `4.553 s` resources for the first scene
+(`287` commands), and `255.427 s` encoding plus `7.754 s` resources for the
+second scene (`6,842` commands). Flush was below `2 ms` in each. This
+identifies a CPU-side encode bottleneck but does not distinguish the work
+within that interval or qualify the full Toolkit application.
+
+## Live encode checkpoints
+
+Set `PROGPU_NATIVE_TRACE_SCENE_ENCODE=1` in addition to using
+`RenderSceneWithCpuStages` to print owner-thread checkpoints to standard
+error as each expensive phase finishes. `resources` covers the established
+resource stage; `prepare` covers subsequent encoder and layer resource
+preparation; `bundles` covers retained render-bundle compilation or cache
+reuse; `replay` covers pass/span/effect command encoding; `flush` covers
+command-buffer finish and queue submission. Each line identifies the source
+scene and generation, command count, bundle cache-hit state, retained span
+count, phase duration and total elapsed CPU time. The stream is flushed after
+each line so a test process stuck in a later phase still leaves its earlier
+checkpoints readable.
+
+The environment variable by itself does nothing: the capture flag and full
+metrics structure must already be admitted. The ordinary fastest render path
+does not read the variable or clock, allocate diagnostic state, or print.
+Capture without this additional variable keeps the original phase metrics
+without standard-error output. These checkpoints diagnose where encoding is
+slow; they do not change bundle ownership, rendering semantics, or make an
+unqualified application gate pass.
