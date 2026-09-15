@@ -68,3 +68,30 @@ Capture without this additional variable keeps the original phase metrics
 without standard-error output. These checkpoints diagnose where encoding is
 slow; they do not change bundle ownership, rendering semantics, or make an
 unqualified application gate pass.
+
+## Retained-bundle operation profile
+
+The corrected-head Windows ARM64 native runtime for ProGPU #168 established
+the coarse cause on the same Toolkit scene: after `80.817 ms` preparation,
+the `6,842`-command generation spent `257,745.961 ms` building `327` retained
+spans, then only `5.711 ms` replaying and `0.573 ms` flushing. The next
+`6,862`-command generation spent `267,411.853 ms` building `340` spans.
+Those are source-overlay VM measurements, not package or full application
+qualification. The run exited later on a separate Win32 native-popup owner
+admission failure. A bundle cache miss is observed; these values do not prove
+which internal operation is expensive or that changed spans can be reused.
+
+With the same opt-in environment variable and CPU-stage frame flag, the
+renderer additionally publishes one `native semantic bundle operations` line
+after the `bundles` checkpoint. It reports calls and cumulative CPU time for
+render-bundle encoder creation, draw encoding, encoder finishing and release,
+semantic mask binding and advanced-blend binding. `otherMs` is the remainder
+of the whole bundle phase after these nonoverlapping measured operations; it
+includes scene traversal, span assembly, layer/effect planning and any
+unmeasured helper. A cache hit reports zero operation counts. The counts do
+not equal retained spans because materialized layer/composite operations also
+occupy the span table. This profile retains the source
+engine/scene/generation and does not sample GPU completion or change replay.
+The ordinary default path skips all per-operation clocks and diagnostic
+output. Follow-up performance changes must be selected from exact Windows
+operation evidence, then pass native MIL input, application and package gates.

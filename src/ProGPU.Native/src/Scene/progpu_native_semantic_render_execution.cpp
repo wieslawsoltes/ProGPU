@@ -3424,6 +3424,18 @@ progpu_native_status render_scene(
         engine->semantic_glyph_instance_count = 0U;
     };
 
+    std::uint32_t profile_bundle_create_count = 0U;
+    std::uint32_t profile_bundle_finish_count = 0U;
+    std::uint32_t profile_bundle_release_count = 0U;
+    std::uint32_t profile_bundle_draw_count = 0U;
+    std::uint32_t profile_bundle_mask_count = 0U;
+    std::uint32_t profile_bundle_advanced_blend_count = 0U;
+    std::uint64_t profile_bundle_create_ns = 0U;
+    std::uint64_t profile_bundle_finish_ns = 0U;
+    std::uint64_t profile_bundle_release_ns = 0U;
+    std::uint64_t profile_bundle_draw_ns = 0U;
+    std::uint64_t profile_bundle_mask_ns = 0U;
+    std::uint64_t profile_bundle_advanced_blend_ns = 0U;
     if ((semantic_draw_count != 0U ||
             semantic_has_materialized_layers) &&
         !begin_encoder()) {
@@ -3943,6 +3955,11 @@ progpu_native_status render_scene(
         };
         const auto flush_pending_draw = [&]() {
             progpu_native_status status = PROGPU_NATIVE_STATUS_SUCCESS;
+            if (pending_kind == pending_draw_kind::none) {
+                return PROGPU_NATIVE_STATUS_SUCCESS;
+            }
+            const auto draw_begin = trace_encode_checkpoints
+                ? cpu_clock::now() : cpu_clock::time_point{};
             switch (pending_kind) {
                 case pending_draw_kind::analytic:
                     status = encode_semantic_analytic_bundle_draw(
@@ -3974,6 +3991,11 @@ progpu_native_status render_scene(
                 case pending_draw_kind::none:
                     return PROGPU_NATIVE_STATUS_SUCCESS;
             }
+            if (trace_encode_checkpoints) {
+                ++profile_bundle_draw_count;
+                profile_bundle_draw_ns += stage_nanoseconds(
+                    draw_begin, cpu_clock::now());
+            }
             if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
                 ++draw_calls;
                 ++active_bundle_draw_count;
@@ -3992,10 +4014,24 @@ progpu_native_status render_scene(
             WGPURenderBundleDescriptor finish_descriptor{};
             finish_descriptor.label = progpu::native::webgpu::string_view(
                 "ProGPU retained semantic clip-span bundle");
+            const auto finish_begin = trace_encode_checkpoints
+                ? cpu_clock::now() : cpu_clock::time_point{};
             WGPURenderBundle bundle = wgpuRenderBundleEncoderFinish(
                 bundle_encoder,
                 &finish_descriptor);
+            if (trace_encode_checkpoints) {
+                ++profile_bundle_finish_count;
+                profile_bundle_finish_ns += stage_nanoseconds(
+                    finish_begin, cpu_clock::now());
+            }
+            const auto release_begin = trace_encode_checkpoints
+                ? cpu_clock::now() : cpu_clock::time_point{};
             wgpuRenderBundleEncoderRelease(bundle_encoder);
+            if (trace_encode_checkpoints) {
+                ++profile_bundle_release_count;
+                profile_bundle_release_ns += stage_nanoseconds(
+                    release_begin, cpu_clock::now());
+            }
             bundle_encoder = nullptr;
             if (bundle == nullptr) {
                 return engine->fail(
@@ -4054,9 +4090,16 @@ progpu_native_status render_scene(
                 ? WGPUTextureFormat_Depth24Plus
                 : WGPUTextureFormat_Undefined;
             bundle_descriptor.sampleCount = 1U;
+            const auto create_begin = trace_encode_checkpoints
+                ? cpu_clock::now() : cpu_clock::time_point{};
             bundle_encoder = wgpuDeviceCreateRenderBundleEncoder(
                 engine->device,
                 &bundle_descriptor);
+            if (trace_encode_checkpoints) {
+                ++profile_bundle_create_count;
+                profile_bundle_create_ns += stage_nanoseconds(
+                    create_begin, cpu_clock::now());
+            }
             if (bundle_encoder == nullptr) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -4072,7 +4115,9 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_SCENE_NO_INDEX) {
                 const auto resource = read_resource(mask_resource_index);
                 std::uint64_t mask_texture_upload_bytes = 0U;
-                if (!create_semantic_layer_mask_binding(
+                const auto mask_begin = trace_encode_checkpoints
+                    ? cpu_clock::now() : cpu_clock::time_point{};
+                const bool mask_created = create_semantic_layer_mask_binding(
                         *engine,
                         bytes,
                         resource,
@@ -4082,7 +4127,13 @@ progpu_native_status render_scene(
                         nullptr,
                         active_mask,
                         mask_texture_upload_bytes,
-                        target_presentation)) {
+                        target_presentation);
+                if (trace_encode_checkpoints) {
+                    ++profile_bundle_mask_count;
+                    profile_bundle_mask_ns += stage_nanoseconds(
+                        mask_begin, cpu_clock::now());
+                }
+                if (!mask_created) {
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                         "A retained per-draw semantic mask binding could not be prepared.");
@@ -4592,7 +4643,9 @@ progpu_native_status render_scene(
                             local_cache &&
                             (composite_state.flags &
                                 PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U;
-                        if (!create_semantic_layer_mask_binding(
+                        const auto mask_begin = trace_encode_checkpoints
+                            ? cpu_clock::now() : cpu_clock::time_point{};
+                        const bool mask_created = create_semantic_layer_mask_binding(
                                 *engine,
                                 bytes,
                                 resource,
@@ -4606,7 +4659,13 @@ progpu_native_status render_scene(
                                     : nullptr,
                                 operation,
                                 mask_texture_upload_bytes,
-                                target_cursor.current_presentation())) {
+                                target_cursor.current_presentation());
+                        if (trace_encode_checkpoints) {
+                            ++profile_bundle_mask_count;
+                            profile_bundle_mask_ns += stage_nanoseconds(
+                                mask_begin, cpu_clock::now());
+                        }
+                        if (!mask_created) {
                             return fail_bundle(engine->fail(
                                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                                 "A retained semantic layer-mask binding could not be prepared."));
@@ -4686,11 +4745,19 @@ progpu_native_status render_scene(
                                 ? engine->semantic_root_slot.view
                                 : engine->semantic_layer_slots[
                                     operation.target_layer].view;
-                        if (!create_semantic_advanced_blend_binding(
+                        const auto advanced_begin = trace_encode_checkpoints
+                            ? cpu_clock::now() : cpu_clock::time_point{};
+                        const bool advanced_created = create_semantic_advanced_blend_binding(
                                 *engine,
                                 destination_view,
                                 sampling,
-                                operation)) {
+                                operation);
+                        if (trace_encode_checkpoints) {
+                            ++profile_bundle_advanced_blend_count;
+                            profile_bundle_advanced_blend_ns += stage_nanoseconds(
+                                advanced_begin, cpu_clock::now());
+                        }
+                        if (!advanced_created) {
                             return fail_bundle(engine->fail(
                                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                                 "A retained semantic destination-aware blend binding could not be prepared."));
@@ -4957,6 +5024,8 @@ progpu_native_status render_scene(
                     if (scissor.drawable) {
                         status = flush_pending_draw();
                         if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                            const auto draw_begin = trace_encode_checkpoints
+                                ? cpu_clock::now() : cpu_clock::time_point{};
                             status = encode_semantic_image_bundle_draw(
                                     *engine,
                                     bundle_encoder,
@@ -4964,6 +5033,11 @@ progpu_native_status render_scene(
                                     current_target_layer,
                                     active_mask.mask_bind_group,
                                     active_mask.mask_chain_bind_group);
+                            if (trace_encode_checkpoints) {
+                                ++profile_bundle_draw_count;
+                                profile_bundle_draw_ns += stage_nanoseconds(
+                                    draw_begin, cpu_clock::now());
+                            }
                             if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
                                 ++draw_calls;
                                 ++active_bundle_draw_count;
@@ -4984,10 +5058,17 @@ progpu_native_status render_scene(
                     if (scissor.drawable) {
                         status = flush_pending_draw();
                         if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                            const auto draw_begin = trace_encode_checkpoints
+                                ? cpu_clock::now() : cpu_clock::time_point{};
                             status = encode_semantic_3d_bundle_draw(
                                 *engine,
                                 bundle_encoder,
                                 engine->semantic_3d_cache.draws[draw_index]);
+                            if (trace_encode_checkpoints) {
+                                ++profile_bundle_draw_count;
+                                profile_bundle_draw_ns += stage_nanoseconds(
+                                    draw_begin, cpu_clock::now());
+                            }
                             if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
                                 ++draw_calls;
                                 ++active_bundle_draw_count;
@@ -5122,6 +5203,35 @@ progpu_native_status render_scene(
             "bundles", cpu_prepare_end, cpu_bundle_end,
             header.command_count, semantic_render_bundle_hit,
             engine->semantic_render_bundle_spans.size());
+        const auto to_ms = [](std::uint64_t nanoseconds) noexcept {
+            return static_cast<double>(nanoseconds) / 1'000'000.0;
+        };
+        const auto measured_ns = profile_bundle_create_ns +
+            profile_bundle_finish_ns + profile_bundle_release_ns +
+            profile_bundle_draw_ns + profile_bundle_mask_ns +
+            profile_bundle_advanced_blend_ns;
+        const auto total_ns = stage_nanoseconds(cpu_prepare_end, cpu_bundle_end);
+        const auto other_ns = total_ns > measured_ns
+            ? total_ns - measured_ns : 0U;
+        std::fprintf(stderr,
+            "ProGPU native semantic bundle operations: scene=%llu, "
+            "generation=%llu, commands=%u, spans=%zu, "
+            "create=%u/%.3fms, draw=%u/%.3fms, finish=%u/%.3fms, "
+            "release=%u/%.3fms, mask=%u/%.3fms, "
+            "advancedBlend=%u/%.3fms, otherMs=%.3f\n",
+            static_cast<unsigned long long>(frame->scene_id),
+            static_cast<unsigned long long>(frame->generation),
+            header.command_count,
+            engine->semantic_render_bundle_spans.size(),
+            profile_bundle_create_count, to_ms(profile_bundle_create_ns),
+            profile_bundle_draw_count, to_ms(profile_bundle_draw_ns),
+            profile_bundle_finish_count, to_ms(profile_bundle_finish_ns),
+            profile_bundle_release_count, to_ms(profile_bundle_release_ns),
+            profile_bundle_mask_count, to_ms(profile_bundle_mask_ns),
+            profile_bundle_advanced_blend_count,
+            to_ms(profile_bundle_advanced_blend_ns),
+            to_ms(other_ns));
+        std::fflush(stderr);
     }
 
     WGPURenderPassEncoder pass = nullptr;
