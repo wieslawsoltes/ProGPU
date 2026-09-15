@@ -3174,3 +3174,32 @@ changed for that repair.
 An exact Windows optimized-binary capture, differential pixels, and final
 package/application gates remain required before making a Windows speedup or
 runtime-parity claim.
+
+## Native vector-clip stage trace
+
+`PROGPU_NATIVE_TRACE_VECTOR_CLIP=1` opt-in now separates a successful vector
+clip rebuild into resource creation, retained geometry preparation, buffer/
+binding and required-pipeline preparation, and command encoding. It reports
+the folded revision, extent, DPI, original path/segment counts, atlas size,
+and staging bytes. Ordinary clip execution and existing resource retirement
+are unchanged; these are CPU wall times, never GPU completion checkpoints.
+
+The Toolkit/AvalonDock source-overlay run using the unshared picture baseline
+reported a 46.547 ms first vector-clip rebuild, including 46.257 ms creating
+the cold shared clip resources. Subsequent successful rebuilds in that run
+were below the cold result. A second exact-binary run peaked at 1.127 ms.
+With the picture-child pipeline reuse stacked, a separate exact-binary run
+reached the live input success marker but hit the already-documented managed
+worker-thread shutdown race and exited 134; its peak vector rebuild was
+45.925 ms, again mostly cold shared-resource creation. Two later native-MIL
+Toolkit runs with dispatcher-owned validation shutdown exited zero and their
+peak vector rebuild was 2.034 ms. All runs used one-path, four-segment vector
+clips at the 1960-by-1224 DPI-2 target in the sampled scene.
+
+None of these stage runs reproduced the separate 1,301.016/1,475.500 ms
+vector-clip kind outliers observed earlier in optimized generations 20/29.
+That earlier kind attribution remains valid, but the responsible internal
+stage is still unknown. Do not infer a deterministic resource-creation fix,
+drop the original outlier, or present the opt-in profiler as vector-clip
+performance closure. Exact Windows and repeated stressed captures remain
+required before changing the retained clip cache or submission lifetimes.
