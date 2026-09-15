@@ -19,7 +19,10 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -88,6 +91,26 @@ bool rebuild_vector_clip_chain(
     std::uint32_t width,
     std::uint32_t height,
     float dpi_scale) {
+    static const bool trace_vector_clip = [] {
+#if defined(_WIN32)
+        char* value = nullptr;
+        std::size_t length = 0U;
+        if (_dupenv_s(&value, &length,
+                "PROGPU_NATIVE_TRACE_VECTOR_CLIP") != 0) {
+            return false;
+        }
+        const bool enabled = value != nullptr &&
+            std::strcmp(value, "1") == 0;
+        std::free(value);
+        return enabled;
+#else
+        const char* value = std::getenv("PROGPU_NATIVE_TRACE_VECTOR_CLIP");
+        return value != nullptr && std::strcmp(value, "1") == 0;
+#endif
+    }();
+    using cpu_clock = std::chrono::steady_clock;
+    const auto begin = trace_vector_clip
+        ? cpu_clock::now() : cpu_clock::time_point{};
     const auto& chain = *mask.clip_chain;
     if (chain.struct_size < sizeof(chain) ||
         (chain.flags &
@@ -117,6 +140,8 @@ bool rebuild_vector_clip_chain(
     if (!create_clip_chain_resources(engine)) {
         return false;
     }
+    const auto resources_end = trace_vector_clip
+        ? cpu_clock::now() : cpu_clock::time_point{};
 
     try {
         for (std::size_t index = 0U; index < chain.segment_count; ++index) {
@@ -519,6 +544,8 @@ bool rebuild_vector_clip_chain(
             vertex.atlas_uv[1] *= inverse_atlas_size;
         }
 
+        const auto geometry_end = trace_vector_clip
+            ? cpu_clock::now() : cpu_clock::time_point{};
         const std::uint64_t vertex_bytes =
             vertices.size() * sizeof(gpu_clip_vertex);
         const std::uint64_t index_bytes =
@@ -874,6 +901,8 @@ bool rebuild_vector_clip_chain(
         if (!ensure_path_raster_pipelines(engine, required)) {
             return false;
         }
+        const auto bindings_end = trace_vector_clip
+            ? cpu_clock::now() : cpu_clock::time_point{};
 
         const bool split_raster_submissions =
             !coverage_combine_uniforms.empty() ||
@@ -1334,6 +1363,27 @@ bool rebuild_vector_clip_chain(
             static_cast<std::uint64_t>(required_atlas_size) *
                 required_atlas_size +
             static_cast<std::uint64_t>(width) * height * 3U;
+        if (trace_vector_clip) {
+            const auto encode_end = cpu_clock::now();
+            const auto to_ms = [](cpu_clock::duration duration) noexcept {
+                return std::chrono::duration<double, std::milli>(duration).count();
+            };
+            std::fprintf(stderr,
+                "ProGPU native vector clip rebuild: revision=%u, "
+                "extent=%ux%u, dpi=%.3f, paths=%zu, segments=%zu, "
+                "atlas=%u, stagingBytes=%u, resourcesMs=%.3f, "
+                "geometryMs=%.3f, bindingsMs=%.3f, encodeMs=%.3f, "
+                "totalMs=%.3f\n",
+                mask.revision, width, height, dpi_scale,
+                chain.path_count, chain.segment_count,
+                required_atlas_size, output_offset,
+                to_ms(resources_end - begin),
+                to_ms(geometry_end - resources_end),
+                to_ms(bindings_end - geometry_end),
+                to_ms(encode_end - bindings_end),
+                to_ms(encode_end - begin));
+            std::fflush(stderr);
+        }
         return true;
     } catch (const std::bad_alloc&) {
         return false;
