@@ -94,8 +94,21 @@ static bool create_semantic_picture_binding(
     WGPUTexture seed_texture = nullptr, std::uint32_t first_command = 0U,
     const progpu_native_scene_presentation* presentation = nullptr) {
     static const bool trace_picture_masks = [] {
+#if defined(_WIN32)
+        char* value = nullptr;
+        std::size_t length = 0U;
+        if (_dupenv_s(&value, &length,
+                "PROGPU_NATIVE_TRACE_PICTURE_MASK") != 0) {
+            return false;
+        }
+        const bool enabled = value != nullptr &&
+            std::strcmp(value, "1") == 0;
+        std::free(value);
+        return enabled;
+#else
         const char* value = std::getenv("PROGPU_NATIVE_TRACE_PICTURE_MASK");
         return value != nullptr && std::strcmp(value, "1") == 0;
+#endif
     }();
     const bool trace_picture = trace_picture_masks && image_output == nullptr;
     using cpu_clock = std::chrono::steady_clock;
