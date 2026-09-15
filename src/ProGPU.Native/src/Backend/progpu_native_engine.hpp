@@ -56,6 +56,10 @@ struct progpu_native_engine {
     WGPUTextureFormat target_format = WGPUTextureFormat_Undefined;
     WGPUShaderModule shader = nullptr;
     WGPURenderPipeline pipeline = nullptr;
+    // Picture child engines borrow the immutable vector shader/pipeline/layout
+    // from their live parent. Their frame uniforms and every mutable scene
+    // resource remain independently owned.
+    bool borrows_shared_vector_pipeline = false;
     WGPURenderPipeline analytic_pipeline = nullptr;
     WGPURenderPipeline analytic_masked_pipeline = nullptr;
     WGPURenderPipeline analytic_mask_chain_pipeline = nullptr;
@@ -1984,7 +1988,7 @@ struct progpu_native_engine {
             wgpuBufferDestroy(uniform_buffer);
             wgpuBufferRelease(uniform_buffer);
         }
-        if (uniform_layout != nullptr) {
+        if (uniform_layout != nullptr && !borrows_shared_vector_pipeline) {
             wgpuBindGroupLayoutRelease(uniform_layout);
         }
         if (analytic_uniform_layout != nullptr) {
@@ -2008,10 +2012,10 @@ struct progpu_native_engine {
         if (semantic_mask_chain_layout != nullptr) {
             wgpuBindGroupLayoutRelease(semantic_mask_chain_layout);
         }
-        if (pipeline != nullptr) {
+        if (pipeline != nullptr && !borrows_shared_vector_pipeline) {
             wgpuRenderPipelineRelease(pipeline);
         }
-        if (shader != nullptr) {
+        if (shader != nullptr && !borrows_shared_vector_pipeline) {
             wgpuShaderModuleRelease(shader);
         }
         if (queue != nullptr) {

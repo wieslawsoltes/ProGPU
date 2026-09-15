@@ -57,7 +57,8 @@ progpu_native_status create_engine(
     WGPUTextureFormat target_format,
     std::uint64_t engine_flags,
     const progpu::native::webgpu::dispatch& webgpu_dispatch,
-    progpu_native_engine** engine) {
+    progpu_native_engine** engine,
+    const progpu_native_engine* shared_vector_pipeline = nullptr) {
     try {
         auto result = std::make_unique<progpu_native_engine>();
         result->owner_thread = std::this_thread::get_id();
@@ -74,7 +75,28 @@ progpu_native_status create_engine(
         }
         progpu::native::webgpu::device_add_ref(result->device);
         progpu::native::webgpu::queue_add_ref(result->queue);
-        if (!create_pipeline(*result) ||
+        if (shared_vector_pipeline != nullptr) {
+            if (shared_vector_pipeline->device != device ||
+                shared_vector_pipeline->target_format != target_format ||
+                shared_vector_pipeline->owner_thread != result->owner_thread ||
+                shared_vector_pipeline->device_lost ||
+                shared_vector_pipeline->shader == nullptr ||
+                shared_vector_pipeline->pipeline == nullptr ||
+                shared_vector_pipeline->uniform_layout == nullptr) {
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            }
+            // The picture child is destroyed before this live parent returns
+            // from mask construction. Borrow only immutable shader/pipeline/
+            // layout; the child owns a fresh frame buffer, bind group and all
+            // scene-specific buffers/textures. No second shader compilation.
+            result->shader = shared_vector_pipeline->shader;
+            result->pipeline = shared_vector_pipeline->pipeline;
+            result->uniform_layout = shared_vector_pipeline->uniform_layout;
+            result->borrows_shared_vector_pipeline = true;
+        }
+        if (!(shared_vector_pipeline != nullptr
+                ? create_frame_uniform_binding(*result)
+                : create_pipeline(*result)) ||
             !result->ensure_vertex_buffer(initial_vertex_buffer_size)) {
             result->last_error =
                 "The shared vector shader or native WebGPU pipeline could not be created.";
@@ -151,7 +173,8 @@ progpu_native_status create_child_engine(
         target_format,
         parent.engine_flags,
         parent.webgpu_dispatch,
-        child);
+        child,
+        &parent);
 }
 
 } // namespace progpu::native::execution

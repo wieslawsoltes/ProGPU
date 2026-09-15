@@ -3122,3 +3122,51 @@ content/effect passes, zero stable upload/allocation, and invalidation on any
 scene/effect/extent/texture-generation change. Because native scenes never
 create the managed frame lease that caused this defect, adding a second C++
 lifetime layer would duplicate ownership rather than apply an optimization.
+
+## Native picture-mask child pipeline ownership
+
+The Windows 11 ARM64 Toolkit/AvalonDock source-overlay capture of the retained
+native bundle profiler identified 11 mask bindings consuming 261,167.772 ms of
+the 261,171.423 ms bundle phase for a 6,842-command scene. Encoder creation,
+draw, finish, release, replay, and flush together consumed less than 5 ms. This
+is a CPU wall-time observation of the source-overlaid native DLL, not a GPU
+completion measurement or final Windows package qualification. The original
+Windows profile did not distinguish mask kinds, so its picture-mask attribution
+must be checked on an exact Windows binary with the kind trace enabled.
+
+`PROGPU_NATIVE_TRACE_ENCODE_CHECKPOINTS=1` now attributes successful mask
+construction to the retained resource kind while preserving the existing total
+mask count and duration. `PROGPU_NATIVE_TRACE_PICTURE_MASK=1` separately
+reports each picture child's immutable scene/generation, stream length, source
+and target extents, engine creation, external-image binding update, other
+preparation, and render CPU stages. Both switches are opt-in; ordinary snapshot
+reads stay read-only and neither duration is treated as GPU completion.
+
+A controlled Apple M3 Pro/Metal Toolkit source-overlay pair kept the same
+6,842 commands, 330 spans, two vector clips, and nine 816-byte picture child
+scenes in generation 2. The unshared picture children spent 6.662–7.030 ms
+each creating their own shader/pipeline, and the bundle reported 11 masks at
+122.487 ms, including nine pictures at 119.595 ms. With immutable shader,
+render pipeline, and uniform layout borrowed from the live parent engine,
+child creation dropped to 0.011–0.015 ms each; the same bundle reported 11
+masks at 69.495 ms, including nine pictures at 66.852 ms. Children still own
+their frame uniform buffer/bind group, scene buffers, external-image bindings,
+targets, and submissions. The borrowed handles are not released by a child;
+picture-mask construction destroys each child before returning to its parent.
+The borrow is admitted only on the same device, target format, owner thread,
+and live parent pipeline. No cache or timestamp substitutes for scene identity
+or observed GPU completion.
+
+The second exact-binary macOS Toolkit/AvalonDock live input run completed and
+exited zero. A first run with the same optimized native binary reached the live
+input success marker but later exited 134 after a managed
+`PropertyPathWorker.ReplaceItem` null-reference exception. That exception is
+not attributed to native pipeline ownership without further evidence; the
+successful rerun does not erase it. Later optimized frames also included mask
+CPU spikes above one second, so pipeline borrowing is not presented as full
+picture-mask performance closure. The local C++ build passed all 19 native
+CTest executables after correcting a local wgpu-native install-name path in
+build outputs; no source or package install path was changed for that repair.
+An exact Windows optimized-binary capture, differential pixels, and final
+package/application gates remain required before making a Windows speedup or
+runtime-parity claim.

@@ -3,6 +3,7 @@
 #include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_3d_execution.hpp"
 #include <unordered_map>
+#include <array>
 #include <cstdio>
 #include <chrono>
 #include <cstdlib>
@@ -3429,13 +3430,32 @@ progpu_native_status render_scene(
     std::uint32_t profile_bundle_release_count = 0U;
     std::uint32_t profile_bundle_draw_count = 0U;
     std::uint32_t profile_bundle_mask_count = 0U;
+    std::array<std::uint32_t, 9U> profile_bundle_mask_kind_count{};
     std::uint32_t profile_bundle_advanced_blend_count = 0U;
     std::uint64_t profile_bundle_create_ns = 0U;
     std::uint64_t profile_bundle_finish_ns = 0U;
     std::uint64_t profile_bundle_release_ns = 0U;
     std::uint64_t profile_bundle_draw_ns = 0U;
     std::uint64_t profile_bundle_mask_ns = 0U;
+    std::array<std::uint64_t, 9U> profile_bundle_mask_kind_ns{};
     std::uint64_t profile_bundle_advanced_blend_ns = 0U;
+    const auto record_mask_profile = [&](
+        const progpu_native_scene_resource& resource,
+        const cpu_clock::time_point begin,
+        bool created) {
+        const auto elapsed_ns = stage_nanoseconds(begin, cpu_clock::now());
+        ++profile_bundle_mask_count;
+        profile_bundle_mask_ns += elapsed_ns;
+        // Successful mask construction already validated the resource span.
+        // Do not inspect malformed payloads merely for diagnostic attribution.
+        if (!created) return;
+        std::uint32_t kind = 0U;
+        std::memcpy(&kind, bytes + resource.payload_offset +
+            sizeof(std::uint32_t), sizeof(kind));
+        if (kind >= profile_bundle_mask_kind_count.size()) return;
+        ++profile_bundle_mask_kind_count[kind];
+        profile_bundle_mask_kind_ns[kind] += elapsed_ns;
+    };
     if ((semantic_draw_count != 0U ||
             semantic_has_materialized_layers) &&
         !begin_encoder()) {
@@ -4129,9 +4149,7 @@ progpu_native_status render_scene(
                         mask_texture_upload_bytes,
                         target_presentation);
                 if (trace_encode_checkpoints) {
-                    ++profile_bundle_mask_count;
-                    profile_bundle_mask_ns += stage_nanoseconds(
-                        mask_begin, cpu_clock::now());
+                    record_mask_profile(resource, mask_begin, mask_created);
                 }
                 if (!mask_created) {
                     return engine->fail(
@@ -4661,9 +4679,7 @@ progpu_native_status render_scene(
                                 mask_texture_upload_bytes,
                                 target_cursor.current_presentation());
                         if (trace_encode_checkpoints) {
-                            ++profile_bundle_mask_count;
-                            profile_bundle_mask_ns += stage_nanoseconds(
-                                mask_begin, cpu_clock::now());
+                            record_mask_profile(resource, mask_begin, mask_created);
                         }
                         if (!mask_created) {
                             return fail_bundle(engine->fail(
@@ -5231,6 +5247,20 @@ progpu_native_status render_scene(
             profile_bundle_advanced_blend_count,
             to_ms(profile_bundle_advanced_blend_ns),
             to_ms(other_ns));
+        static constexpr std::array<const char*, 9U> mask_kind_names{
+            "invalid", "rounded", "coverage", "analyticChain",
+            "vectorClip", "brush", "composite", "geometry", "picture"};
+        for (std::size_t kind = 1U; kind < mask_kind_names.size(); ++kind) {
+            if (profile_bundle_mask_kind_count[kind] == 0U) continue;
+            std::fprintf(stderr,
+                "ProGPU native semantic mask kind: scene=%llu, generation=%llu, "
+                "kind=%zu/%s, count=%u, cpuMs=%.3f\n",
+                static_cast<unsigned long long>(frame->scene_id),
+                static_cast<unsigned long long>(frame->generation),
+                kind, mask_kind_names[kind],
+                profile_bundle_mask_kind_count[kind],
+                to_ms(profile_bundle_mask_kind_ns[kind]));
+        }
         std::fflush(stderr);
     }
 
