@@ -80,6 +80,12 @@ Those are source-overlay VM measurements, not package or full application
 qualification. The run exited later on a separate Win32 native-popup owner
 admission failure. A bundle cache miss is observed; these values do not prove
 which internal operation is expensive or that changed spans can be reused.
+The runtime was the `progpu-native-runtime-win-arm64` artifact from Build run
+`34991253884` at head `1dfda315e4b82c889de1b0a14eee90a2001204fa`;
+the installed `progpu_native.dll` SHA-256 was
+`f9d913ea13cf6f81d5b9382b23fc75066a398359533d9087754b4326432e41ca`.
+Managed WPF host assemblies remained source overlays, so this evidence
+isolates the C++ native runtime but not an assembled package closure.
 
 With the same opt-in environment variable and CPU-stage frame flag, the
 renderer additionally publishes one `native semantic bundle operations` line
