@@ -4192,7 +4192,15 @@ public readonly record struct NativeSceneFrameMetrics(
     ulong BrushUploadBytes,
     ulong GradientStopUploadBytes,
     ulong TextStyleUploadBytes,
-    ulong ColorGlyphUploadBytes);
+    ulong ColorGlyphUploadBytes)
+{
+    public ulong CpuPreflightNanoseconds { get; init; }
+    public ulong CpuResourceNanoseconds { get; init; }
+    public ulong CpuEncodeNanoseconds { get; init; }
+    public ulong CpuFlushNanoseconds { get; init; }
+    public ulong CpuFinalizeNanoseconds { get; init; }
+    public ulong CpuTotalNanoseconds { get; init; }
+}
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,

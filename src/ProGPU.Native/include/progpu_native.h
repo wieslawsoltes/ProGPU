@@ -1695,7 +1695,12 @@ typedef enum progpu_native_scene_frame_flags {
     /* Explicit presentation suffix. Unsupported mappings must fail closed;
      * the legacy dpi_scale field never substitutes for either axis. */
     /* PROGPU_CSHARP_ULONG: SceneFramePresentationFlag */
-    PROGPU_NATIVE_SCENE_FRAME_PRESENTATION = 4ULL
+    PROGPU_NATIVE_SCENE_FRAME_PRESENTATION = 4ULL,
+    /* Measure owner-thread CPU work inside native scene rendering. This is
+     * opt-in, requires the complete extended metrics structure, and does not
+     * claim GPU completion or device residency. */
+    /* PROGPU_CSHARP_ULONG: SceneFrameCpuStagesFlag */
+    PROGPU_NATIVE_SCENE_FRAME_CAPTURE_CPU_STAGES = 8ULL
 } progpu_native_scene_frame_flags;
 
 #define PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT_AVAILABLE 1
@@ -1738,6 +1743,9 @@ typedef struct progpu_native_scene_frame {
     progpu_native_scene_presentation presentation;
 } progpu_native_scene_frame;
 
+/* The CPU stage suffix is populated only with CAPTURE_CPU_STAGES. Its total
+ * begins after frame identity admission and includes metrics publication.
+ * Values are owner-thread CPU durations, never GPU execution or residency. */
 /* PROGPU_CSHARP_STRUCT: NativeMethods.SceneFrameMetrics */
 typedef struct progpu_native_scene_frame_metrics {
     uint32_t struct_size;
@@ -1755,6 +1763,12 @@ typedef struct progpu_native_scene_frame_metrics {
     uint64_t gradient_stop_upload_bytes;
     uint64_t text_style_upload_bytes;
     uint64_t color_glyph_upload_bytes;
+    uint64_t cpu_preflight_nanoseconds;
+    uint64_t cpu_resource_nanoseconds;
+    uint64_t cpu_encode_nanoseconds;
+    uint64_t cpu_flush_nanoseconds;
+    uint64_t cpu_finalize_nanoseconds;
+    uint64_t cpu_total_nanoseconds;
 } progpu_native_scene_frame_metrics;
 
 /*

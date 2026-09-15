@@ -23,6 +23,8 @@ internal static unsafe partial class NativeMethods
     internal const ulong EngineOrderedHitQueries = 32UL;
     // Native source: PROGPU_NATIVE_SCENE_FRAME_PRESENTATION.
     internal const ulong SceneFramePresentationFlag = 4UL;
+    // Native source: PROGPU_NATIVE_SCENE_FRAME_CAPTURE_CPU_STAGES.
+    internal const ulong SceneFrameCpuStagesFlag = 8UL;
     // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_UNKNOWN.
     internal const ulong GeometryRelationUnknown = 0UL;
     // Native source: PROGPU_NATIVE_GEOMETRY_RELATION_DISJOINT.
@@ -817,5 +819,11 @@ internal static unsafe partial class NativeMethods
         internal ulong GradientStopUploadBytes;
         internal ulong TextStyleUploadBytes;
         internal ulong ColorGlyphUploadBytes;
+        internal ulong CpuPreflightNanoseconds;
+        internal ulong CpuResourceNanoseconds;
+        internal ulong CpuEncodeNanoseconds;
+        internal ulong CpuFlushNanoseconds;
+        internal ulong CpuFinalizeNanoseconds;
+        internal ulong CpuTotalNanoseconds;
     }
 }

@@ -2302,6 +2302,7 @@ public class NativeRendererInteropTests
         Assert.Equal(32, Unsafe.SizeOf<NativeMethods.ScenePresentation>());
         Assert.Equal(76, OffsetOf<NativeMethods.SceneFrame>(nameof(NativeMethods.SceneFrame.Presentation)));
         Assert.Equal(4UL, NativeMethods.SceneFramePresentationFlag);
+        Assert.Equal(8UL, NativeMethods.SceneFrameCpuStagesFlag);
         Assert.Equal(256, Unsafe.SizeOf<NativeSceneBrush>());
         Assert.Equal(264, Unsafe.SizeOf<NativeSceneMesh3D>());
         Assert.Equal(248, OffsetOf<NativeSceneMesh3D>(
@@ -2321,7 +2322,7 @@ public class NativeRendererInteropTests
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneTextStyle>());
         Assert.Equal(48, Unsafe.SizeOf<NativeSceneColorGlyphBitmap>());
         Assert.Equal(24, Unsafe.SizeOf<NativeSceneGlyphDraw>());
-        Assert.Equal(104, Unsafe.SizeOf<NativeMethods.SceneFrameMetrics>());
+        Assert.Equal(152, Unsafe.SizeOf<NativeMethods.SceneFrameMetrics>());
         Assert.Equal(
             72,
             OffsetOf<NativeMethods.SceneFrameMetrics>(
@@ -2338,6 +2339,14 @@ public class NativeRendererInteropTests
             96,
             OffsetOf<NativeMethods.SceneFrameMetrics>(
                 nameof(NativeMethods.SceneFrameMetrics.ColorGlyphUploadBytes)));
+        Assert.Equal(
+            104,
+            OffsetOf<NativeMethods.SceneFrameMetrics>(
+                nameof(NativeMethods.SceneFrameMetrics.CpuPreflightNanoseconds)));
+        Assert.Equal(
+            144,
+            OffsetOf<NativeMethods.SceneFrameMetrics>(
+                nameof(NativeMethods.SceneFrameMetrics.CpuTotalNanoseconds)));
         Assert.Equal(
             24,
             OffsetOf<NativeSceneImageDraw>(

@@ -4,6 +4,7 @@
 #include "progpu_native_3d_execution.hpp"
 #include <unordered_map>
 #include <cstdio>
+#include <chrono>
 
 namespace progpu::native::execution {
 
@@ -55,10 +56,20 @@ progpu_native_status render_scene(
     constexpr std::uint32_t allowed_frame_flags =
         PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET |
         PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT |
-        PROGPU_NATIVE_SCENE_FRAME_PRESENTATION;
+        PROGPU_NATIVE_SCENE_FRAME_PRESENTATION |
+        PROGPU_NATIVE_SCENE_FRAME_CAPTURE_CPU_STAGES;
     const bool has_extended_frame =
         frame->struct_size >= offsetof(progpu_native_scene_frame, damage_height) + sizeof(float);
     const auto frame_flags = has_extended_frame ? frame->flags : 0U;
+    const bool capture_cpu_stages =
+        (frame_flags & PROGPU_NATIVE_SCENE_FRAME_CAPTURE_CPU_STAGES) != 0U;
+    if (capture_cpu_stages &&
+        (metrics == nullptr ||
+         metrics->struct_size < sizeof(progpu_native_scene_frame_metrics))) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "Native scene CPU stage capture requires complete frame metrics.");
+    }
     progpu_native_scene_presentation presentation{};
     if (!semantic::try_resolve_scene_presentation(*frame, presentation)) {
         return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
@@ -103,6 +114,20 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The requested immutable semantic scene generation is not installed.");
     }
+
+    using cpu_clock = std::chrono::steady_clock;
+    const auto cpu_start = capture_cpu_stages
+        ? cpu_clock::now() : cpu_clock::time_point{};
+    cpu_clock::time_point cpu_preflight_end{};
+    cpu_clock::time_point cpu_resource_end{};
+    cpu_clock::time_point cpu_encode_end{};
+    cpu_clock::time_point cpu_flush_end{};
+    const auto stage_nanoseconds = [](cpu_clock::time_point begin,
+                                      cpu_clock::time_point end) noexcept {
+        return static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                end - begin).count());
+    };
 
     const auto* bytes = engine->semantic_scene_snapshot.data();
     const auto& header = engine->semantic_scene_header;
@@ -1664,6 +1689,8 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
             "The aggregate semantic color-glyph page exceeds the native safety bound.");
     }
+
+    if (capture_cpu_stages) cpu_preflight_end = cpu_clock::now();
 
     std::uint64_t semantic_brush_upload_bytes = 0U;
     std::uint64_t semantic_gradient_stop_upload_bytes = 0U;
@@ -3229,6 +3256,8 @@ progpu_native_status render_scene(
             ? 6U * sizeof(std::uint32_t)
             : 0U;
     }
+
+    if (capture_cpu_stages) cpu_resource_end = cpu_clock::now();
 
     std::uint32_t draw_calls = 0U;
     std::uint32_t family_switches = 0U;
@@ -5461,11 +5490,13 @@ progpu_native_status render_scene(
 
     draw_calls = executed_draw_calls;
 
+    if (capture_cpu_stages) cpu_encode_end = cpu_clock::now();
     const auto flush_status = flush_encoder();
     if (flush_status != PROGPU_NATIVE_STATUS_SUCCESS) {
         engine->semantic_load_target = false;
         return flush_status;
     }
+    if (capture_cpu_stages) cpu_flush_end = cpu_clock::now();
     for (std::size_t index = 0U;
          index < semantic_effect_cache_updates.size();
          ++index) {
@@ -5629,6 +5660,21 @@ progpu_native_status render_scene(
             metrics->color_glyph_upload_bytes =
                 semantic_color_glyph_upload_bytes;
         }
+    }
+    if (capture_cpu_stages) {
+        const auto cpu_end = cpu_clock::now();
+        metrics->cpu_preflight_nanoseconds =
+            stage_nanoseconds(cpu_start, cpu_preflight_end);
+        metrics->cpu_resource_nanoseconds =
+            stage_nanoseconds(cpu_preflight_end, cpu_resource_end);
+        metrics->cpu_encode_nanoseconds =
+            stage_nanoseconds(cpu_resource_end, cpu_encode_end);
+        metrics->cpu_flush_nanoseconds =
+            stage_nanoseconds(cpu_encode_end, cpu_flush_end);
+        metrics->cpu_finalize_nanoseconds =
+            stage_nanoseconds(cpu_flush_end, cpu_end);
+        metrics->cpu_total_nanoseconds =
+            stage_nanoseconds(cpu_start, cpu_end);
     }
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
