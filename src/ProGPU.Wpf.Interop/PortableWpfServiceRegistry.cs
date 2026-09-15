@@ -556,6 +556,15 @@ public sealed class PortableWindowActivationCallbacks
 
     public Action<object, double, double>? SetClientSize { get; }
 
+    /// <summary>
+    /// Resolves the live native frame around the source Window's client in
+    /// desktop logical units. Null means the host is not yet initialized or
+    /// cannot report authoritative frame metrics; zero is a known borderless
+    /// frame. Consumers must not use framebuffer scale or invent title-bar
+    /// dimensions when this capability is unavailable.
+    /// </summary>
+    public Func<object, PortableWindowFrameInsets?>? GetFrameInsets { get; init; }
+
     public Action<object, double, double>? SetPosition { get; }
 
     public Action<object, bool>? SetTopmost { get; }
