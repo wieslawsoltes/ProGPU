@@ -5,6 +5,8 @@
 #include <unordered_map>
 #include <cstdio>
 #include <chrono>
+#include <cstdlib>
+#include <cstring>
 
 namespace progpu::native::execution {
 
@@ -118,8 +120,31 @@ progpu_native_status render_scene(
     using cpu_clock = std::chrono::steady_clock;
     const auto cpu_start = capture_cpu_stages
         ? cpu_clock::now() : cpu_clock::time_point{};
+    const auto trace_encode_requested = []() noexcept {
+#if defined(_WIN32)
+        char* value = nullptr;
+        std::size_t length = 0U;
+        if (_dupenv_s(
+                &value, &length,
+                "PROGPU_NATIVE_TRACE_SCENE_ENCODE") != 0) {
+            return false;
+        }
+        const bool enabled = value != nullptr &&
+            std::strcmp(value, "1") == 0;
+        std::free(value);
+        return enabled;
+#else
+        const char* value =
+            std::getenv("PROGPU_NATIVE_TRACE_SCENE_ENCODE");
+        return value != nullptr && std::strcmp(value, "1") == 0;
+#endif
+    };
+    const bool trace_encode_checkpoints =
+        capture_cpu_stages && trace_encode_requested();
     cpu_clock::time_point cpu_preflight_end{};
     cpu_clock::time_point cpu_resource_end{};
+    cpu_clock::time_point cpu_prepare_end{};
+    cpu_clock::time_point cpu_bundle_end{};
     cpu_clock::time_point cpu_encode_end{};
     cpu_clock::time_point cpu_flush_end{};
     const auto stage_nanoseconds = [](cpu_clock::time_point begin,
@@ -127,6 +152,34 @@ progpu_native_status render_scene(
         return static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
                 end - begin).count());
+    };
+    const auto trace_encode_checkpoint = [&](const char* phase,
+                                             cpu_clock::time_point begin,
+                                             cpu_clock::time_point end,
+                                             std::uint32_t command_count,
+                                             bool bundle_hit,
+                                             std::size_t span_count) noexcept {
+        if (!trace_encode_checkpoints) {
+            return;
+        }
+        const double phase_ms =
+            std::chrono::duration<double, std::milli>(end - begin).count();
+        const double elapsed_ms =
+            std::chrono::duration<double, std::milli>(end - cpu_start).count();
+        std::fprintf(
+            stderr,
+            "ProGPU native semantic encode checkpoint: scene=%llu, "
+            "generation=%llu, phase=%s, commands=%u, bundleHit=%u, "
+            "spans=%zu, phaseMs=%.3f, elapsedMs=%.3f\n",
+            static_cast<unsigned long long>(frame->scene_id),
+            static_cast<unsigned long long>(frame->generation),
+            phase,
+            command_count,
+            bundle_hit ? 1U : 0U,
+            span_count,
+            phase_ms,
+            elapsed_ms);
+        std::fflush(stderr);
     };
 
     const auto* bytes = engine->semantic_scene_snapshot.data();
@@ -3258,6 +3311,12 @@ progpu_native_status render_scene(
     }
 
     if (capture_cpu_stages) cpu_resource_end = cpu_clock::now();
+    if (trace_encode_checkpoints) {
+        trace_encode_checkpoint(
+            "resources", cpu_preflight_end, cpu_resource_end,
+            header.command_count, semantic_render_bundle_hit,
+            engine->semantic_render_bundle_spans.size());
+    }
 
     std::uint32_t draw_calls = 0U;
     std::uint32_t family_switches = 0U;
@@ -3774,6 +3833,13 @@ progpu_native_status render_scene(
     }
     engine->semantic_destination_sampling_active =
         semantic_destination_sampling_active;
+    if (trace_encode_checkpoints) {
+        cpu_prepare_end = cpu_clock::now();
+        trace_encode_checkpoint(
+            "prepare", cpu_resource_end, cpu_prepare_end,
+            header.command_count, semantic_render_bundle_hit,
+            engine->semantic_render_bundle_spans.size());
+    }
 
     if ((semantic_draw_count != 0U ||
             semantic_has_materialized_layers) &&
@@ -5050,6 +5116,13 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "Semantic destination sampling changed during bundle compilation.");
     }
+    if (trace_encode_checkpoints) {
+        cpu_bundle_end = cpu_clock::now();
+        trace_encode_checkpoint(
+            "bundles", cpu_prepare_end, cpu_bundle_end,
+            header.command_count, semantic_render_bundle_hit,
+            engine->semantic_render_bundle_spans.size());
+    }
 
     WGPURenderPassEncoder pass = nullptr;
     std::uint32_t executed_draw_calls = 0U;
@@ -5491,12 +5564,24 @@ progpu_native_status render_scene(
     draw_calls = executed_draw_calls;
 
     if (capture_cpu_stages) cpu_encode_end = cpu_clock::now();
+    if (trace_encode_checkpoints) {
+        trace_encode_checkpoint(
+            "replay", cpu_bundle_end, cpu_encode_end,
+            header.command_count, semantic_render_bundle_hit,
+            engine->semantic_render_bundle_spans.size());
+    }
     const auto flush_status = flush_encoder();
     if (flush_status != PROGPU_NATIVE_STATUS_SUCCESS) {
         engine->semantic_load_target = false;
         return flush_status;
     }
     if (capture_cpu_stages) cpu_flush_end = cpu_clock::now();
+    if (trace_encode_checkpoints) {
+        trace_encode_checkpoint(
+            "flush", cpu_encode_end, cpu_flush_end,
+            header.command_count, semantic_render_bundle_hit,
+            engine->semantic_render_bundle_spans.size());
+    }
     for (std::size_t index = 0U;
          index < semantic_effect_cache_updates.size();
          ++index) {
