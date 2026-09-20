@@ -3225,9 +3225,13 @@ with external image bindings and seeded incremental image captures remain
 ineligible. Sampling transforms, opacity, guidelines, and per-span uniforms
 remain parent operations and therefore do not weaken the raster identity.
 Each span owns an added texture-view reference while sharing the backing; span
-release drops that view before its shared backing. The existing picture cache
-is bounded to eight entries and 64 MiB, accounts the shared texture once in the
-native inventory, and may evict an entry without invalidating an older span.
+release drops that view before its shared backing. The picture cache is bounded
+to 64 entries and 64 MiB, accounts the shared texture once in the native
+inventory, and may evict an entry without invalidating an older span. The entry
+ceiling was raised from eight after the exact Windows ARM64 Toolkit run showed
+nine distinct descriptors for the same nested scene. All nine fit the byte
+budget, but the smaller FIFO ceiling evicted the next descriptor in the
+sequential generation-3 traversal and caused every entry to miss again.
 Mask-only backings are not eligible as incremental picture-image copy sources;
 only image backings created with `CopySrc` usage may seed an appended image
 capture. An exact image capture replaces a same-scene mask-only entry before a
@@ -3240,9 +3244,11 @@ state is used as a completion signal.
 The provider regression advances only the outer scene generation and layer
 composite revision while leaving the nested picture-mask stream unchanged. It
 requires the next render to submit the parent once, with no texture upload,
-instead of submitting another child raster. The clean AppleClang Release build
-completed and all 19 locally configured native CTest executables passed after
-correcting only the downloaded wgpu-native dylib install name in local build
-outputs. The provider-specific regression, exact Windows cache artifact,
-pixels, and final packaged Toolkit run remain required before claiming the
-Windows performance issue closed.
+instead of submitting another child raster. The Direct2D/WebGPU regression also
+fills nine distinct source-extent descriptors, then revisits the first after an
+outer-generation change and requires a one-submission cache hit. The clean
+AppleClang Release build completed and all 19 locally configured native CTest
+executables passed after correcting only the downloaded wgpu-native dylib
+install name in local build outputs. The provider-specific regression, exact
+Windows cache artifact, pixels, and final packaged Toolkit run remain required
+before claiming the Windows performance issue closed.

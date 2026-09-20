@@ -907,6 +907,59 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
         require(parent.build(result), "picture parent capture");
         return result;
     };
+    const auto make_mask_parent = [&](std::uint64_t scene_id,
+                                      std::uint64_t generation,
+                                      float extent) {
+        semantic_scene_builder parent(scene_id, generation);
+        progpu_native_scene_layer_picture_mask picture_mask{};
+        picture_mask.struct_size = sizeof(picture_mask);
+        picture_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+        picture_mask.flags = PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT;
+        picture_mask.stream_size = static_cast<std::uint32_t>(first.size());
+        picture_mask.bounds = {0.0F, 0.0F, extent, extent};
+        picture_mask.transform = semantic_scene_builder::identity_transform();
+        picture_mask.opacity = 1.0F;
+        picture_mask.reserved0 = static_cast<std::uint32_t>(extent);
+        picture_mask.reserved1 = static_cast<std::uint32_t>(extent);
+        std::uint32_t mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        auto content = rectangle;
+        content.color = {0.0F, 0.0F, 1.0F, 1.0F};
+        progpu_native_scene_layer picture_layer{};
+        picture_layer.struct_size = sizeof(picture_layer);
+        picture_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+        picture_layer.bounds = picture_mask.bounds;
+        picture_layer.opacity = 1.0F;
+        picture_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+        picture_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        picture_layer.content_revision = 1U;
+        picture_layer.composite_revision = 1U;
+        require(parent.add_picture_mask(picture_mask, first, mask_index) &&
+            parent.add_solid_brush(
+                {0.0F, 0.0F, 1.0F, 1.0F}, 1.0F, brush_index),
+            "picture-mask working-set resources");
+        picture_layer.mask_resource_index = mask_index;
+        require(parent.push_layer(picture_layer) &&
+            parent.draw_analytic({&content, 1U}, {&brush_index, 1U},
+                picture_layer.bounds) &&
+            parent.pop_layer(),
+            "picture-mask working-set commands");
+        std::vector<std::byte> result;
+        require(parent.build(result), "picture-mask working-set capture");
+        return result;
+    };
+    auto* working_set_engine = create_engine(gpu);
+    for (std::uint64_t index = 0U; index < 9U; ++index) {
+        const auto parent = make_mask_parent(
+            0x91D0U + index, 1U, 8.0F + static_cast<float>(index));
+        (void)render_scene(gpu, working_set_engine, nullptr, 1U, 3U, 2U,
+            parent, 0x91D0U + index, 1U);
+    }
+    const auto revisited = make_mask_parent(0x91D0U, 2U, 8.0F);
+    (void)render_scene(gpu, working_set_engine, nullptr, 1U, 3U, 1U,
+        revisited, 0x91D0U, 2U);
+    progpu_native_engine_destroy(working_set_engine);
     semantic_scene_builder mask_parent(0x91F2U, 1U);
     progpu_native_scene_layer_picture_mask mask{};
     mask.struct_size = sizeof(mask);

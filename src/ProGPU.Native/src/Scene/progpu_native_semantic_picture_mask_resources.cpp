@@ -79,7 +79,11 @@ void release_texture(WGPUTexture& texture, WGPUTextureView& view) noexcept {
 
 constexpr std::uint64_t retained_picture_cache_budget =
     64ULL * 1024U * 1024U;
-constexpr std::size_t retained_picture_cache_entries = 8U;
+// Real WPF surfaces commonly retain more than eight picture-mask descriptors
+// for one nested scene (the Toolkit/AvalonDock gate uses nine). Keep a bounded
+// lookup ceiling for tiny rasters, but let the byte budget govern ordinary
+// desktop working sets so a sequential rebuild cannot evict every next entry.
+constexpr std::size_t retained_picture_cache_entries = 64U;
 
 std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
     progpu_native_engine& engine,
@@ -597,7 +601,6 @@ bool create_semantic_picture_image(
     semantic_image_draw& draw,
     progpu_native_scene_frame_metrics& child_metrics) {
     constexpr std::uint64_t cache_budget = 64ULL * 1024U * 1024U;
-    constexpr std::size_t maximum_entries = 8U;
     progpu_native_scene_header header{};
     std::memcpy(&header, nested_scene, sizeof(header));
     auto& cache = engine.semantic_picture_cache;
@@ -664,7 +667,9 @@ bool create_semantic_picture_image(
             if (prior.scene_id == header.scene_id) it = cache.erase(it);
             else { retained_bytes += (*it)->byte_cost(); ++it; }
         }
-        while (!cache.empty() && (cache.size() >= maximum_entries || retained_bytes > cache_budget - cost)) {
+        while (!cache.empty() &&
+            (cache.size() >= retained_picture_cache_entries ||
+                retained_bytes > cache_budget - cost)) {
             retained_bytes -= cache.front()->byte_cost();
             cache.erase(cache.begin());
         }
