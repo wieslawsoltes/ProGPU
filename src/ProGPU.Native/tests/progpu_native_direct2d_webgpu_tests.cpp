@@ -990,7 +990,7 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
         : wgpuTextureCreateView(external_texture, nullptr);
     require(external_view != nullptr,
         "picture-mask unrelated external binding texture");
-    const progpu_native_scene_external_image_binding external_binding{
+    progpu_native_scene_external_image_binding external_binding{
         sizeof(progpu_native_scene_external_image_binding),
         PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_PRIMARY,
         0x91C2U,
@@ -1012,11 +1012,58 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
         collision_first, 0x91C0U, 1U);
     (void)render_scene(gpu, collision_engine, nullptr, 1U, 3U, 2U,
         collision_alternate, 0x91C1U, 1U);
+    external_binding.generation = 2U;
+    require(progpu_native_engine_bind_scene_external_images(
+                collision_engine, &external_binding, 1U) ==
+            PROGPU_NATIVE_STATUS_SUCCESS,
+        "picture-mask changed unrelated external binding");
     const auto collision_revisited =
         make_mask_parent(0x91C0U, 2U, 8.0F, first);
     (void)render_scene(gpu, collision_engine, nullptr, 1U, 3U, 1U,
         collision_revisited, 0x91C0U, 2U);
     progpu_native_engine_destroy(collision_engine);
+    semantic_scene_builder external_nested_builder(0x91C3U, 1U);
+    std::uint32_t external_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    progpu_native_scene_image_draw external_draw{};
+    external_draw.image_width = external_draw.image_height = 1U;
+    external_draw.row_bytes = 4U;
+    external_draw.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    external_draw.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+    external_draw.source_rect = {0.0F, 0.0F, 1.0F, 1.0F};
+    external_draw.destination_rect = {0.0F, 0.0F, 8.0F, 8.0F};
+    external_draw.transform = semantic_scene_builder::identity_transform();
+    external_draw.opacity = 1.0F;
+    std::vector<std::byte> external_nested;
+    require(external_nested_builder.add_external_image(
+                1U, 1U, external_resource) &&
+            external_nested_builder.draw_image(external_resource,
+                external_draw, external_draw.destination_rect) &&
+            external_nested_builder.build(external_nested),
+        "picture-mask external-image nested capture");
+    auto* external_mask_engine = create_engine(gpu);
+    const progpu_native_scene_external_image_binding nested_binding{
+        sizeof(progpu_native_scene_external_image_binding),
+        PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_PRIMARY,
+        1U,
+        1U,
+        reinterpret_cast<std::uintptr_t>(external_view),
+        1U,
+        1U,
+        0U,
+        0U};
+    require(progpu_native_engine_bind_scene_external_images(
+                external_mask_engine, &nested_binding, 1U) ==
+            PROGPU_NATIVE_STATUS_SUCCESS,
+        "picture-mask nested external binding");
+    const auto external_mask_first =
+        make_mask_parent(0x91C4U, 1U, 8.0F, external_nested);
+    const auto external_mask_revisited =
+        make_mask_parent(0x91C4U, 2U, 8.0F, external_nested);
+    (void)render_scene(gpu, external_mask_engine, nullptr, 1U, 3U, 2U,
+        external_mask_first, 0x91C4U, 1U);
+    (void)render_scene(gpu, external_mask_engine, nullptr, 1U, 3U, 2U,
+        external_mask_revisited, 0x91C4U, 2U);
+    progpu_native_engine_destroy(external_mask_engine);
     wgpuTextureViewRelease(external_view);
     wgpuTextureDestroy(external_texture);
     wgpuTextureRelease(external_texture);

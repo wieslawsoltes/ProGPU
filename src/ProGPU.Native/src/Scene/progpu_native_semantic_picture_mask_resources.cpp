@@ -14,6 +14,7 @@
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_pipeline.hpp"
 #include "progpu_native_semantic_budget.hpp"
+#include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_replay.hpp"
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_webgpu_compat.hpp"
@@ -121,13 +122,82 @@ void capture_external_image_identity(
     }
 }
 
+bool has_external_image_dependency(const std::byte* scene,
+    const progpu_native_scene_header& header, std::uint32_t depth = 0U) noexcept {
+    // Validation has already checked every range. Retention remains optional,
+    // so reject an unexpectedly deep graph instead of weakening its identity.
+    if (scene == nullptr || depth >= 64U) {
+        return true;
+    }
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        progpu_native_scene_resource resource{};
+        std::memcpy(&resource,
+            scene + header.resource_offset + index * header.resource_stride,
+            sizeof(resource));
+        if ((resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U) {
+            return true;
+        }
+        if ((resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U) {
+            progpu_native_scene_header nested{};
+            std::memcpy(&nested, scene + resource.auxiliary_offset,
+                sizeof(nested));
+            if (has_external_image_dependency(
+                    scene + resource.auxiliary_offset, nested, depth + 1U)) {
+                return true;
+            }
+        }
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+            continue;
+        }
+        std::uint32_t error_offset = resource.payload_offset;
+        semantic::semantic_layer_mask parsed{};
+        if (!semantic::validate_layer_mask_resource(
+                scene, resource, error_offset, &parsed)) {
+            return true;
+        }
+        const auto nested_depends_on_external =
+            [&](const std::byte* nested_scene,
+                std::uint32_t nested_size) noexcept {
+                if (nested_scene == nullptr ||
+                    nested_size < sizeof(progpu_native_scene_header)) {
+                    return true;
+                }
+                progpu_native_scene_header nested{};
+                std::memcpy(&nested, nested_scene, sizeof(nested));
+                return has_external_image_dependency(
+                    nested_scene, nested, depth + 1U);
+            };
+        if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE &&
+            nested_depends_on_external(parsed.composite_picture_streams,
+                parsed.picture.stream_size)) {
+            return true;
+        }
+        if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
+            for (std::uint32_t picture_index = 0U;
+                 picture_index < parsed.composite.picture_mask_count;
+                 ++picture_index) {
+                const auto& picture =
+                    parsed.composite_picture_masks[picture_index];
+                if (nested_depends_on_external(
+                        parsed.composite_picture_streams +
+                            picture.stream_offset,
+                        picture.stream_size)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 bool supports_retained_picture_raster(
     const std::byte* scene,
     const progpu_native_scene_header& header) noexcept {
     std::uint32_t first_command = 0U;
     return semantic::find_append_only_scene_suffix(
                scene, header, scene, header, first_command) &&
-        first_command == header.command_count;
+        first_command == header.command_count &&
+        !has_external_image_dependency(scene, header);
 }
 
 std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
@@ -139,7 +209,6 @@ std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
         if (!entry ||
             entry->scene.size() < sizeof(progpu_native_scene_header) ||
             entry->engine_flags != engine.engine_flags ||
-            !same_external_image_identity(*entry, engine) ||
             !semantic::scene_bytes_equal(
                 std::as_bytes(std::span(&entry->descriptor, 1U)),
                 std::as_bytes(std::span(&descriptor, 1U)))) {
@@ -494,7 +563,6 @@ static bool create_semantic_picture_binding(
             backing->engine_flags = engine.engine_flags;
             backing->scene.assign(
                 nested_scene, nested_scene + picture.stream_size);
-            capture_external_image_identity(*backing, engine);
             backing->texture = source_texture;
             backing->view = source_view;
             source_texture = nullptr;

@@ -82,6 +82,9 @@ struct semantic_picture_backing {
     std::uint64_t engine_flags = 0U;
     bool copy_source_compatible = false;
     std::vector<std::byte> scene;
+    // Incremental picture-image history depends on the sideband image table.
+    // Immutable mask rasters leave this empty because eligibility rejects
+    // external-image dependencies recursively.
     std::vector<external_image_identity> external_images;
     ~semantic_picture_backing();
     std::uint64_t byte_cost() const noexcept {

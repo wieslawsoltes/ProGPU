@@ -3221,12 +3221,14 @@ Native picture masks now retain a submitted raster backing independently of
 the parent render-bundle span. Reuse requires the same engine/device and target
 format, engine flags, raster width, height, DPI, clear color, and exact complete
 nested scene contents under the existing append-only scene comparison. Nested
-scenes with direct external-image resources and seeded incremental image
-captures remain ineligible. Unrelated parent external-image bindings do not
-disable reuse; their complete ordered resource/generation/role/view/extent
-identity is retained and must still match. Sampling transforms, opacity,
-guidelines, and per-span uniforms remain parent operations and therefore do not
-weaken the raster identity.
+scenes with external-image dependencies at any picture-image or picture-mask
+depth and seeded incremental image captures remain ineligible. Unrelated
+parent external-image bindings do not participate in mask-raster identity
+because the recursive admission check proves the retained stream does not
+consume them. Incremental picture-image history continues to retain and compare
+its complete ordered resource/generation/role/view/extent sideband. Sampling
+transforms, opacity, guidelines, and per-span uniforms remain parent operations
+and therefore do not weaken the raster identity.
 Each span owns an added texture-view reference while sharing the backing; span
 release drops that view before its shared backing. The picture-mask cache is
 bounded to 64 entries and 64 MiB, accounts the shared texture once in the native
@@ -3269,9 +3271,25 @@ ms). The parent engine carried external-image bindings for unrelated Toolkit
 content, and the former blanket `empty()` eligibility check therefore disabled
 every mask lookup and retention even though the 816-byte nested mask streams
 did not reference those images. This artifact is also retained as rejected
-evidence and was not qualified or merged. The cache now captures and compares
-the ordered external-image identity table. A stable unrelated table permits
-reuse; any resource, generation, role, view or extent change forces a miss.
+evidence and was not qualified or merged. The cache then captured and compared
+the complete ordered external-image identity table.
+
+The exact `3239b4555e4ed3e47eadfb65aef61aebe82aab4a` Windows ARM64
+artifact (`progpu_native.dll` SHA-256
+`09E1C39EE92C55CAADE625EA2A32A12D3C2E8078B55CCDF3C7894A6BE9396E58`)
+showed that this key was still too broad. Generation 2 populated all nine
+descriptors, but the first 1934x1210 generation-3 revisit reported
+`cacheHit=0` and rerasterized for 28,080.133 ms. Toolkit had advanced an
+unrelated parent external-image binding, so comparing the complete parent
+table rejected a raster whose nested stream did not consume any of it. The run
+was stopped at that decisive miss and is retained as rejected evidence.
+
+Mask-raster admission now walks picture images and picture/composite masks
+recursively and rejects any nested external-image dependency. Once that check
+passes, unrelated parent binding changes cannot alter the raster and are not
+part of its key. The separate incremental picture-image cache keeps its former
+complete sideband identity comparison because those captures may consume the
+bindings.
 
 The provider regression advances only the outer scene generation and layer
 composite revision while leaving the nested picture-mask stream unchanged. It
@@ -3282,10 +3300,12 @@ outer-generation change and requires a one-submission cache hit. Additional
 Direct2D/WebGPU regressions retain two different nested scenes with the same
 scene id and raster descriptor, and insert an ordinary picture image between a
 mask seed and revisit; both revisits must submit only the parent. The
-same-descriptor regression also carries a stable unrelated external-image
-binding, proving that parent bindings do not disable reuse. The focused
+same-descriptor regression changes an unrelated external-image binding between
+the seed and revisit and still requires a hit. A separate nested external-image
+case requires two child submissions, proving that dependency remains
+fail-closed. The focused
 AppleClang Direct2D/WebGPU test and all 19 locally configured native CTest
 executables pass after correcting only the downloaded wgpu-native dylib install
-name in local build outputs. The exact Windows artifact for the separated
-caches, pixels, and final packaged Toolkit run remain required before claiming
-the Windows performance issue closed.
+name in local build outputs. The exact Windows artifact for the recursive
+admission fix, pixels, and final packaged Toolkit run remain required before
+claiming the Windows performance issue closed.
