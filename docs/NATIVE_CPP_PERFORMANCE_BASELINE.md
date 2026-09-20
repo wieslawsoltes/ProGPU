@@ -3203,3 +3203,41 @@ stage is still unknown. Do not infer a deterministic resource-creation fix,
 drop the original outlier, or present the opt-in profiler as vector-clip
 performance closure. Exact Windows and repeated stressed captures remain
 required before changing the retained clip cache or submission lifetimes.
+
+## Native picture-mask raster reuse
+
+The exact merged `9f9ee4b3b2268b14ab55c405bd3954996b3d8480`
+Windows ARM64 artifact was then installed into the same source-overlay Toolkit
+run. It confirmed that child pipeline construction was no longer the dominant
+stage, but also exposed a separate retained-resource defect: each unchanged
+816-byte picture-mask scene was rasterized again when only the parent scene
+generation and bundle changed. Individual child renders took approximately
+28–52 seconds in the Parallels VM, and later generations repeated the same
+work. The run reached popup interaction but had not completed when this defect
+was isolated. This is source-overlay diagnostic evidence, not a completed
+application or package qualification.
+
+Native picture masks now retain a submitted raster backing independently of
+the parent render-bundle span. Reuse requires the same engine/device and target
+format, engine flags, raster width, height, DPI, clear color, and exact complete
+nested scene contents under the existing append-only scene comparison. Masks
+with external image bindings and seeded incremental image captures remain
+ineligible. Sampling transforms, opacity, guidelines, and per-span uniforms
+remain parent operations and therefore do not weaken the raster identity.
+Each span owns an added texture-view reference while sharing the backing; span
+release drops that view before its shared backing. The existing picture cache
+is bounded to eight entries and 64 MiB, accounts the shared texture once in the
+native inventory, and may evict an entry without invalidating an older span.
+Production and sampling stay ordered on the same WebGPU queue; retaining the
+backing is not reported as GPU completion. No elapsed time or unobserved queue
+state is used as a completion signal.
+
+The provider regression advances only the outer scene generation and layer
+composite revision while leaving the nested picture-mask stream unchanged. It
+requires the next render to submit the parent once, with no texture upload,
+instead of submitting another child raster. The clean AppleClang Release build
+completed and all 19 locally configured native CTest executables passed after
+correcting only the downloaded wgpu-native dylib install name in local build
+outputs. The provider-specific regression, exact Windows cache artifact,
+pixels, and final packaged Toolkit run remain required before claiming the
+Windows performance issue closed.
