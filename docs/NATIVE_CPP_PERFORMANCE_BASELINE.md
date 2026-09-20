@@ -3220,10 +3220,13 @@ application or package qualification.
 Native picture masks now retain a submitted raster backing independently of
 the parent render-bundle span. Reuse requires the same engine/device and target
 format, engine flags, raster width, height, DPI, clear color, and exact complete
-nested scene contents under the existing append-only scene comparison. Masks
-with external image bindings and seeded incremental image captures remain
-ineligible. Sampling transforms, opacity, guidelines, and per-span uniforms
-remain parent operations and therefore do not weaken the raster identity.
+nested scene contents under the existing append-only scene comparison. Nested
+scenes with direct external-image resources and seeded incremental image
+captures remain ineligible. Unrelated parent external-image bindings do not
+disable reuse; their complete ordered resource/generation/role/view/extent
+identity is retained and must still match. Sampling transforms, opacity,
+guidelines, and per-span uniforms remain parent operations and therefore do not
+weaken the raster identity.
 Each span owns an added texture-view reference while sharing the backing; span
 release drops that view before its shared backing. The picture-mask cache is
 bounded to 64 entries and 64 MiB, accounts the shared texture once in the native
@@ -3256,6 +3259,20 @@ picture-image insertion path erased every entry with the same nested scene id
 from the shared cache, including mask-only entries. This artifact is retained
 as rejected evidence and was not qualified or merged.
 
+The exact `2eaf23bf170d27fcafc79c00f250f95300b6cb24` Windows ARM64
+artifact (`progpu_native.dll` SHA-256
+`E52CFB308E60E592EF355F46E60189DCAC697CEBA38CB5F3D35B980E6DDC4C57`)
+proved that separating the caches was also insufficient by itself. Generation
+2 populated all nine masks, but generation 3 still rerasterized the first
+1934x1210 stream (32,526.979 ms) and the unique 961x238 stream (30,701.513
+ms). The parent engine carried external-image bindings for unrelated Toolkit
+content, and the former blanket `empty()` eligibility check therefore disabled
+every mask lookup and retention even though the 816-byte nested mask streams
+did not reference those images. This artifact is also retained as rejected
+evidence and was not qualified or merged. The cache now captures and compares
+the ordered external-image identity table. A stable unrelated table permits
+reuse; any resource, generation, role, view or extent change forces a miss.
+
 The provider regression advances only the outer scene generation and layer
 composite revision while leaving the nested picture-mask stream unchanged. It
 requires the next render to submit the parent once, with no texture upload,
@@ -3264,9 +3281,11 @@ fills nine distinct source-extent descriptors, then revisits the first after an
 outer-generation change and requires a one-submission cache hit. Additional
 Direct2D/WebGPU regressions retain two different nested scenes with the same
 scene id and raster descriptor, and insert an ordinary picture image between a
-mask seed and revisit; both revisits must submit only the parent. The focused
-AppleClang Direct2D/WebGPU test passes after correcting only the downloaded
-wgpu-native dylib install name in local build outputs. The full native suite,
-exact Windows artifact for the separated caches, pixels, and final packaged
-Toolkit run remain required before claiming the Windows performance issue
-closed.
+mask seed and revisit; both revisits must submit only the parent. The
+same-descriptor regression also carries a stable unrelated external-image
+binding, proving that parent bindings do not disable reuse. The focused
+AppleClang Direct2D/WebGPU test and all 19 locally configured native CTest
+executables pass after correcting only the downloaded wgpu-native dylib install
+name in local build outputs. The exact Windows artifact for the separated
+caches, pixels, and final packaged Toolkit run remain required before claiming
+the Windows performance issue closed.

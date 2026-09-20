@@ -86,18 +86,60 @@ constexpr std::uint64_t retained_picture_mask_cache_budget =
 constexpr std::size_t retained_picture_mask_cache_entries = 64U;
 constexpr std::size_t retained_picture_image_cache_entries = 8U;
 
+bool same_external_image_identity(
+    const semantic_picture_backing& backing,
+    const progpu_native_engine& engine) noexcept {
+    if (backing.external_images.size() !=
+        engine.semantic_external_image_bindings.size()) {
+        return false;
+    }
+    for (std::size_t index = 0U; index < backing.external_images.size();
+         ++index) {
+        const auto& prior = backing.external_images[index];
+        const auto& current = engine.semantic_external_image_bindings[index];
+        if (prior.resource_id != current.resource_id ||
+            prior.generation != current.generation ||
+            prior.role != current.role ||
+            prior.view != reinterpret_cast<std::uintptr_t>(current.view) ||
+            prior.width != current.width || prior.height != current.height) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void capture_external_image_identity(
+    semantic_picture_backing& backing,
+    const progpu_native_engine& engine) {
+    backing.external_images.reserve(
+        engine.semantic_external_image_bindings.size());
+    for (const auto& binding : engine.semantic_external_image_bindings) {
+        backing.external_images.push_back({binding.resource_id,
+            binding.generation, binding.role,
+            reinterpret_cast<std::uintptr_t>(binding.view), binding.width,
+            binding.height});
+    }
+}
+
+bool supports_retained_picture_raster(
+    const std::byte* scene,
+    const progpu_native_scene_header& header) noexcept {
+    std::uint32_t first_command = 0U;
+    return semantic::find_append_only_scene_suffix(
+               scene, header, scene, header, first_command) &&
+        first_command == header.command_count;
+}
+
 std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
     progpu_native_engine& engine,
     const progpu_native_scene_picture_image& descriptor,
     const std::byte* nested_scene,
     const progpu_native_scene_header& header) noexcept {
-    if (!engine.semantic_external_image_bindings.empty()) {
-        return {};
-    }
     for (const auto& entry : engine.semantic_picture_mask_cache) {
         if (!entry ||
             entry->scene.size() < sizeof(progpu_native_scene_header) ||
             entry->engine_flags != engine.engine_flags ||
+            !same_external_image_identity(*entry, engine) ||
             !semantic::scene_bytes_equal(
                 std::as_bytes(std::span(&entry->descriptor, 1U)),
                 std::as_bytes(std::span(&descriptor, 1U)))) {
@@ -226,6 +268,8 @@ static bool create_semantic_picture_binding(
     std::shared_ptr<semantic_picture_backing> mask_picture_backing;
     progpu_native_scene_header nested_header{};
     std::memcpy(&nested_header, nested_scene, sizeof(nested_header));
+    const bool raster_cache_eligible =
+        supports_retained_picture_raster(nested_scene, nested_header);
     progpu_native_scene_frame_metrics child_metrics{};
     child_metrics.struct_size = sizeof(child_metrics);
     const progpu_native_scene_picture_image raster_descriptor{
@@ -236,7 +280,8 @@ static bool create_semantic_picture_binding(
         child_frame.dpi_scale,
         {0U, 0U, 0U},
         child_frame.clear_color};
-    if (image_output == nullptr && seed_texture == nullptr) {
+    if (image_output == nullptr && seed_texture == nullptr &&
+        raster_cache_eligible) {
         mask_picture_backing = find_retained_picture_raster(
             engine, raster_descriptor, nested_scene, nested_header);
         if (mask_picture_backing) {
@@ -442,14 +487,14 @@ static bool create_semantic_picture_binding(
         return true;
     }
 
-    if (!mask_picture_backing &&
-        engine.semantic_external_image_bindings.empty()) {
+    if (!mask_picture_backing && raster_cache_eligible) {
         try {
             auto backing = std::make_shared<semantic_picture_backing>();
             backing->descriptor = raster_descriptor;
             backing->engine_flags = engine.engine_flags;
             backing->scene.assign(
                 nested_scene, nested_scene + picture.stream_size);
+            capture_external_image_identity(*backing, engine);
             backing->texture = source_texture;
             backing->view = source_view;
             source_texture = nullptr;
@@ -612,7 +657,8 @@ bool create_semantic_picture_image(
     auto& cache = engine.semantic_picture_cache;
     std::shared_ptr<semantic_picture_backing> previous;
     std::uint32_t first_command = 0U;
-    const bool cache_eligible = engine.semantic_external_image_bindings.empty();
+    const bool cache_eligible =
+        supports_retained_picture_raster(nested_scene, header);
     if (cache_eligible) {
         for (const auto& entry : cache) {
             progpu_native_scene_header prior{};
@@ -620,6 +666,7 @@ bool create_semantic_picture_image(
             if (entry->copy_source_compatible &&
                 prior.scene_id == header.scene_id &&
                 entry->engine_flags == engine.engine_flags &&
+                same_external_image_identity(*entry, engine) &&
                 semantic::scene_bytes_equal(std::as_bytes(std::span(&entry->descriptor, 1U)),
                     std::as_bytes(std::span(&source, 1U))) &&
                 semantic::find_append_only_scene_suffix(entry->scene.data(), prior, nested_scene, header, first_command)) {
@@ -643,6 +690,7 @@ bool create_semantic_picture_image(
         backing->engine_flags = engine.engine_flags;
         backing->copy_source_compatible = true;
         if (retain_history) backing->scene.assign(nested_scene, nested_scene + scene_size);
+        if (retain_history) capture_external_image_identity(*backing, engine);
     } catch (const std::bad_alloc&) {
         return false;
     }

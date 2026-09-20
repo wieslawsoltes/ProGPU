@@ -975,6 +975,35 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
         revisited, 0x91D0U, 2U);
     progpu_native_engine_destroy(working_set_engine);
     auto* collision_engine = create_engine(gpu);
+    WGPUTextureDescriptor external_descriptor{};
+    external_descriptor.label = "Unrelated retained picture cache binding";
+    external_descriptor.usage = WGPUTextureUsage_TextureBinding;
+    external_descriptor.dimension = WGPUTextureDimension_2D;
+    external_descriptor.size = {1U, 1U, 1U};
+    external_descriptor.format = WGPUTextureFormat_RGBA8Unorm;
+    external_descriptor.mipLevelCount = 1U;
+    external_descriptor.sampleCount = 1U;
+    WGPUTexture external_texture =
+        wgpuDeviceCreateTexture(gpu.device, &external_descriptor);
+    WGPUTextureView external_view = external_texture == nullptr
+        ? nullptr
+        : wgpuTextureCreateView(external_texture, nullptr);
+    require(external_view != nullptr,
+        "picture-mask unrelated external binding texture");
+    const progpu_native_scene_external_image_binding external_binding{
+        sizeof(progpu_native_scene_external_image_binding),
+        PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_PRIMARY,
+        0x91C2U,
+        1U,
+        reinterpret_cast<std::uintptr_t>(external_view),
+        1U,
+        1U,
+        0U,
+        0U};
+    require(progpu_native_engine_bind_scene_external_images(
+                collision_engine, &external_binding, 1U) ==
+            PROGPU_NATIVE_STATUS_SUCCESS,
+        "picture-mask unrelated external binding");
     const auto collision_first =
         make_mask_parent(0x91C0U, 1U, 8.0F, first);
     const auto collision_alternate =
@@ -988,6 +1017,9 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     (void)render_scene(gpu, collision_engine, nullptr, 1U, 3U, 1U,
         collision_revisited, 0x91C0U, 2U);
     progpu_native_engine_destroy(collision_engine);
+    wgpuTextureViewRelease(external_view);
+    wgpuTextureDestroy(external_texture);
+    wgpuTextureRelease(external_texture);
     semantic_scene_builder mask_parent(0x91F2U, 1U);
     progpu_native_scene_layer_picture_mask mask{};
     mask.struct_size = sizeof(mask);

@@ -67,12 +67,22 @@ struct semantic_glyph_page {
 };
 
 struct semantic_picture_backing {
+    struct external_image_identity {
+        std::uint64_t resource_id = 0U;
+        std::uint64_t generation = 0U;
+        std::uint32_t role = PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_PRIMARY;
+        std::uintptr_t view = 0U;
+        std::uint32_t width = 0U;
+        std::uint32_t height = 0U;
+    };
+
     WGPUTexture texture = nullptr;
     WGPUTextureView view = nullptr;
     progpu_native_scene_picture_image descriptor{};
     std::uint64_t engine_flags = 0U;
     bool copy_source_compatible = false;
     std::vector<std::byte> scene;
+    std::vector<external_image_identity> external_images;
     ~semantic_picture_backing();
     std::uint64_t byte_cost() const noexcept {
         return static_cast<std::uint64_t>(descriptor.width) * descriptor.height * 4U + scene.size();
