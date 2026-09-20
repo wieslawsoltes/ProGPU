@@ -874,8 +874,18 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     rectangle.transform = semantic_scene_builder::identity_transform();
     require(history.add_solid_brush({1.0F, 0.0F, 0.0F, 0.5F}, 1.0F, brush) &&
         history.draw_analytic({&rectangle, 1U}, {&brush, 1U}, {0.0F, 0.0F, 8.0F, 8.0F}), "picture history first draw");
-    std::vector<std::byte> first, appended;
-    require(history.build(first) && history.advance_generation(2U), "picture first capture");
+    std::vector<std::byte> first, first_generation_two, appended;
+    require(history.build(first), "picture first capture");
+    semantic_scene_builder equivalent_history(0x91F0U, 2U);
+    std::uint32_t equivalent_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    require(equivalent_history.add_solid_brush(
+                {1.0F, 0.0F, 0.0F, 0.5F}, 1.0F, equivalent_brush) &&
+            equivalent_history.draw_analytic(
+                {&rectangle, 1U}, {&equivalent_brush, 1U},
+                {0.0F, 0.0F, 8.0F, 8.0F}) &&
+            equivalent_history.build(first_generation_two) &&
+            history.advance_generation(2U),
+        "picture generation-only capture");
     rectangle.x = rectangle.width = 4.0F;
     require(history.add_solid_brush({0.0F, 1.0F, 0.0F, 0.5F}, 1.0F, brush) &&
         history.draw_analytic({&rectangle, 1U}, {&brush, 1U}, {4.0F, 0.0F, 4.0F, 8.0F}) &&
@@ -970,7 +980,8 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
         (void)render_scene(gpu, working_set_engine, nullptr, 1U, 3U, 2U,
             parent, 0x91D0U + index, 1U);
     }
-    const auto revisited = make_mask_parent(0x91D0U, 2U, 8.0F, first);
+    const auto revisited = make_mask_parent(
+        0x91D0U, 2U, 8.0F, first_generation_two);
     (void)render_scene(gpu, working_set_engine, nullptr, 1U, 3U, 1U,
         revisited, 0x91D0U, 2U);
     progpu_native_engine_destroy(working_set_engine);
@@ -1018,7 +1029,7 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
             PROGPU_NATIVE_STATUS_SUCCESS,
         "picture-mask changed unrelated external binding");
     const auto collision_revisited =
-        make_mask_parent(0x91C0U, 2U, 8.0F, first);
+        make_mask_parent(0x91C0U, 2U, 8.0F, first_generation_two);
     (void)render_scene(gpu, collision_engine, nullptr, 1U, 3U, 1U,
         collision_revisited, 0x91C0U, 2U);
     progpu_native_engine_destroy(collision_engine);

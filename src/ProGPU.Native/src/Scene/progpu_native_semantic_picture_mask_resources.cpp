@@ -200,6 +200,55 @@ bool supports_retained_picture_raster(
         !has_external_image_dependency(scene, header);
 }
 
+bool same_generation_independent_picture_scene(
+    const std::byte* previous,
+    const progpu_native_scene_header& prior_header,
+    const std::byte* current,
+    const progpu_native_scene_header& current_header) noexcept {
+    if (previous == nullptr || current == nullptr) {
+        return false;
+    }
+    auto prior = prior_header;
+    auto next = current_header;
+    prior.generation = 0U;
+    next.generation = 0U;
+    if (!semantic::scene_bytes_equal(
+            std::as_bytes(std::span(&prior, 1U)),
+            std::as_bytes(std::span(&next, 1U)))) {
+        return false;
+    }
+    for (std::uint32_t index = 0U; index < next.resource_count; ++index) {
+        progpu_native_scene_resource old_resource{}, new_resource{};
+        std::memcpy(&old_resource,
+            previous + prior.resource_offset + index * prior.resource_stride,
+            sizeof(old_resource));
+        std::memcpy(&new_resource,
+            current + next.resource_offset + index * next.resource_stride,
+            sizeof(new_resource));
+        old_resource.generation = 0U;
+        new_resource.generation = 0U;
+        if (!semantic::scene_bytes_equal(
+                std::as_bytes(std::span(&old_resource, 1U)),
+                std::as_bytes(std::span(&new_resource, 1U)))) {
+            return false;
+        }
+    }
+    for (std::uint32_t index = 0U; index < next.command_count; ++index) {
+        const auto old_offset = prior.command_offset +
+            index * prior.command_stride;
+        const auto new_offset = next.command_offset +
+            index * next.command_stride;
+        if (!semantic::scene_bytes_equal(
+                {previous + old_offset, sizeof(progpu_native_scene_command)},
+                {current + new_offset, sizeof(progpu_native_scene_command)})) {
+            return false;
+        }
+    }
+    return semantic::scene_bytes_equal(
+        {previous + prior.arena_offset, prior.arena_size},
+        {current + next.arena_offset, next.arena_size});
+}
+
 std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
     progpu_native_engine& engine,
     const progpu_native_scene_picture_image& descriptor,
@@ -216,11 +265,8 @@ std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
         }
         progpu_native_scene_header prior{};
         std::memcpy(&prior, entry->scene.data(), sizeof(prior));
-        std::uint32_t first_command = 0U;
-        if (semantic::find_append_only_scene_suffix(
-                entry->scene.data(), prior, nested_scene, header,
-                first_command) &&
-            first_command == header.command_count) {
+        if (same_generation_independent_picture_scene(
+                entry->scene.data(), prior, nested_scene, header)) {
             return entry;
         }
     }
@@ -245,15 +291,12 @@ void retain_picture_raster(
         }
         progpu_native_scene_header prior{};
         std::memcpy(&prior, (*it)->scene.data(), sizeof(prior));
-        std::uint32_t first_command = 0U;
         if (prior.scene_id == header.scene_id &&
             semantic::scene_bytes_equal(
                 std::as_bytes(std::span(&(*it)->descriptor, 1U)),
                 std::as_bytes(std::span(&backing->descriptor, 1U))) &&
-            semantic::find_append_only_scene_suffix(
-                (*it)->scene.data(), prior, backing->scene.data(), header,
-                first_command) &&
-            first_command == header.command_count) {
+            same_generation_independent_picture_scene(
+                (*it)->scene.data(), prior, backing->scene.data(), header)) {
             it = cache.erase(it);
         } else {
             retained_bytes += (*it)->byte_cost();

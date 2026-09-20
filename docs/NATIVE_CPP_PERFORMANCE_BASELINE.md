@@ -3291,6 +3291,24 @@ part of its key. The separate incremental picture-image cache keeps its former
 complete sideband identity comparison because those captures may consume the
 bindings.
 
+A native MSVC ARM64 preflight of that source produced `progpu_native.dll`
+SHA-256
+`FE8FA85966E78C9D290C8702AD7C3342B7BDC827B221E59C4CEE2BC1B585DCCF`.
+It again populated all nine generation-2 descriptors, but its first 1934x1210
+generation-3 revisit missed and rerasterized for 34,874.159 ms. With parent
+binding identity removed, this isolated the next mismatch to the rebuilt
+nested stream: its scene and resource generation stamps advanced from 2 to 3
+although its complete render payload remained unchanged. This preflight was
+stopped at the decisive miss and is not an exact CI artifact or application
+pass.
+
+Mask lookup now compares the complete serialized header, resource records,
+commands and arena while normalizing only the scene and resource generation
+fields. Any payload, descriptor, command, layout, scene id or other header
+change still misses. The regression rebuilds the equivalent nested stream at a
+new generation, changes an unrelated external binding, and requires the same
+one-submission revisit.
+
 The provider regression advances only the outer scene generation and layer
 composite revision while leaving the nested picture-mask stream unchanged. It
 requires the next render to submit the parent once, with no texture upload,
@@ -3301,11 +3319,11 @@ Direct2D/WebGPU regressions retain two different nested scenes with the same
 scene id and raster descriptor, and insert an ordinary picture image between a
 mask seed and revisit; both revisits must submit only the parent. The
 same-descriptor regression changes an unrelated external-image binding between
-the seed and revisit and still requires a hit. A separate nested external-image
-case requires two child submissions, proving that dependency remains
-fail-closed. The focused
+the seed and generation-only rebuilt revisit and still requires a hit. A
+separate nested external-image case requires two child submissions, proving
+that dependency remains fail-closed. The focused
 AppleClang Direct2D/WebGPU test and all 19 locally configured native CTest
 executables pass after correcting only the downloaded wgpu-native dylib install
-name in local build outputs. The exact Windows artifact for the recursive
-admission fix, pixels, and final packaged Toolkit run remain required before
-claiming the Windows performance issue closed.
+name in local build outputs. The exact Windows artifact for the generation-
+normalized identity fix, pixels, and final packaged Toolkit run remain required
+before claiming the Windows performance issue closed.
