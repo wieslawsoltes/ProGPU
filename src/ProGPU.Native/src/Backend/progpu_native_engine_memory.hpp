@@ -123,7 +123,9 @@ inline progpu_native_gpu_memory_snapshot collect_memory(progpu_native_engine& en
     for (const auto& span : engine.semantic_render_bundle_spans) {
         inventory.buffer(span.mask_uniform_buffer);
         inventory.buffer(span.mask_chain_uniform_buffer);
-        inventory.texture(span.mask_texture);
+        inventory.texture(span.mask_picture_backing
+                ? span.mask_picture_backing->texture
+                : span.mask_texture);
     }
     engine.retained_raster_resources.visit_resources([&](const auto& resources) {
         collect_memory(inventory, resources);

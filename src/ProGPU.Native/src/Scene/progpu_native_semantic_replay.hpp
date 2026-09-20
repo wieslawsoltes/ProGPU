@@ -269,6 +269,7 @@ struct semantic_render_bundle_span {
     std::uint64_t operation_id = 0U;
     WGPUBuffer mask_uniform_buffer = nullptr;
     WGPUBuffer mask_chain_uniform_buffer = nullptr;
+    std::shared_ptr<semantic_picture_backing> mask_picture_backing;
     WGPUTexture mask_texture = nullptr;
     WGPUTextureView mask_texture_view = nullptr;
     WGPUBindGroup mask_bind_group = nullptr;

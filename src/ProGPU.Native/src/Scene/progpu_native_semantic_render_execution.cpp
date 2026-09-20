@@ -3943,6 +3943,7 @@ progpu_native_status render_scene(
                 wgpuTextureViewRelease(span.mask_texture_view);
                 span.mask_texture_view = nullptr;
             }
+            span.mask_picture_backing.reset();
             if (span.mask_texture != nullptr) {
                 wgpuTextureDestroy(span.mask_texture);
                 wgpuTextureRelease(span.mask_texture);
