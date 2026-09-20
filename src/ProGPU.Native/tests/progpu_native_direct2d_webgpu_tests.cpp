@@ -907,6 +907,43 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
         require(parent.build(result), "picture parent capture");
         return result;
     };
+    semantic_scene_builder mask_parent(0x91F2U, 1U);
+    progpu_native_scene_layer_picture_mask mask{};
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+    mask.stream_size = static_cast<std::uint32_t>(first.size());
+    mask.bounds = {0.0F, 0.0F, 8.0F, 8.0F};
+    mask.transform = semantic_scene_builder::identity_transform();
+    mask.opacity = 1.0F;
+    std::uint32_t mask_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t mask_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    auto mask_content = rectangle;
+    mask_content.color = {0.0F, 0.0F, 1.0F, 1.0F};
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    layer.bounds = mask.bounds;
+    layer.opacity = 1.0F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.content_revision = 1U;
+    layer.composite_revision = 1U;
+    require(mask_parent.add_picture_mask(mask, first, mask_resource) &&
+        mask_parent.add_solid_brush(
+            {0.0F, 0.0F, 1.0F, 1.0F}, 1.0F, mask_brush),
+        "picture-mask cache seed resources");
+    layer.mask_resource_index = mask_resource;
+    require(mask_parent.push_layer(layer) &&
+        mask_parent.draw_analytic({&mask_content, 1U}, {&mask_brush, 1U},
+            layer.bounds) &&
+        mask_parent.pop_layer(),
+        "picture-mask cache seed commands");
+    std::vector<std::byte> mask_parent_scene;
+    require(mask_parent.build(mask_parent_scene),
+        "picture-mask cache seed capture");
+    (void)render_scene(gpu, engine, nullptr, 1U, 3U, 2U,
+        mask_parent_scene, 0x91F2U, 1U);
     const auto first_parent = make_parent(1U, first);
     const auto first_pixels = render_scene(gpu, engine, nullptr, 1U, 1U, 2U, first_parent, 0x91F1U, 1U);
     const auto appended_parent = make_parent(2U, appended);

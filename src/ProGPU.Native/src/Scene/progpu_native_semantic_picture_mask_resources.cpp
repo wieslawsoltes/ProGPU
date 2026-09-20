@@ -608,7 +608,9 @@ bool create_semantic_picture_image(
         for (const auto& entry : cache) {
             progpu_native_scene_header prior{};
             std::memcpy(&prior, entry->scene.data(), sizeof(prior));
-            if (prior.scene_id == header.scene_id && entry->engine_flags == engine.engine_flags &&
+            if (entry->copy_source_compatible &&
+                prior.scene_id == header.scene_id &&
+                entry->engine_flags == engine.engine_flags &&
                 semantic::scene_bytes_equal(std::as_bytes(std::span(&entry->descriptor, 1U)),
                     std::as_bytes(std::span(&source, 1U))) &&
                 semantic::find_append_only_scene_suffix(entry->scene.data(), prior, nested_scene, header, first_command)) {
@@ -630,6 +632,7 @@ bool create_semantic_picture_image(
         backing = std::make_shared<semantic_picture_backing>();
         backing->descriptor = source;
         backing->engine_flags = engine.engine_flags;
+        backing->copy_source_compatible = true;
         if (retain_history) backing->scene.assign(nested_scene, nested_scene + scene_size);
     } catch (const std::bad_alloc&) {
         return false;

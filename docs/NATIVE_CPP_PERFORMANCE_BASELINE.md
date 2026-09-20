@@ -3228,6 +3228,11 @@ Each span owns an added texture-view reference while sharing the backing; span
 release drops that view before its shared backing. The existing picture cache
 is bounded to eight entries and 64 MiB, accounts the shared texture once in the
 native inventory, and may evict an entry without invalidating an older span.
+Mask-only backings are not eligible as incremental picture-image copy sources;
+only image backings created with `CopySrc` usage may seed an appended image
+capture. An exact image capture replaces a same-scene mask-only entry before a
+later appended generation is considered, preserving reuse without submitting
+an invalid WebGPU texture copy.
 Production and sampling stay ordered on the same WebGPU queue; retaining the
 backing is not reported as GPU completion. No elapsed time or unobserved queue
 state is used as a completion signal.
