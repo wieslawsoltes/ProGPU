@@ -3225,8 +3225,8 @@ with external image bindings and seeded incremental image captures remain
 ineligible. Sampling transforms, opacity, guidelines, and per-span uniforms
 remain parent operations and therefore do not weaken the raster identity.
 Each span owns an added texture-view reference while sharing the backing; span
-release drops that view before its shared backing. The picture cache is bounded
-to 64 entries and 64 MiB, accounts the shared texture once in the native
+release drops that view before its shared backing. The picture-mask cache is
+bounded to 64 entries and 64 MiB, accounts the shared texture once in the native
 inventory, and may evict an entry without invalidating an older span. The entry
 ceiling was raised from eight after the exact Windows ARM64 Toolkit run showed
 nine distinct descriptors for the same nested scene. All nine fit the byte
@@ -3234,21 +3234,39 @@ budget, but the smaller FIFO ceiling evicted the next descriptor in the
 sequential generation-3 traversal and caused every entry to miss again.
 Mask-only backings are not eligible as incremental picture-image copy sources;
 only image backings created with `CopySrc` usage may seed an appended image
-capture. An exact image capture replaces a same-scene mask-only entry before a
-later appended generation is considered, preserving reuse without submitting
-an invalid WebGPU texture copy.
+capture. Picture masks and incremental picture images now use independent
+bounded caches because their identity and replacement rules differ. In
+particular, inserting an image generation cannot purge every retained mask that
+happens to carry the same nested scene id. Masks that share one raster
+descriptor and scene id but contain different nested commands also retain
+separate entries; deduplication removes only an equivalent complete scene.
 Production and sampling stay ordered on the same WebGPU queue; retaining the
 backing is not reported as GPU completion. No elapsed time or unobserved queue
 state is used as a completion signal.
+
+The exact `8dc588f8523253b373abe5c17db4cb028de5aa08` Windows ARM64
+artifact (`progpu_native.dll` SHA-256
+`D45C3207D396D1252503849FF60E547DD7309A3E2C78AADC54D3B32ADBFB65A3`)
+then disproved the entry-ceiling-only fix. Generation 2 populated all nine
+Toolkit masks, including three same-size full-surface streams. Generation 3
+still rerasterized both the first 1934x1210 stream (27,813.841 ms) and the
+otherwise unique 961x238 stream (30,644.548 ms). That second miss ruled out
+only a same-descriptor collision. Inspection showed the incremental
+picture-image insertion path erased every entry with the same nested scene id
+from the shared cache, including mask-only entries. This artifact is retained
+as rejected evidence and was not qualified or merged.
 
 The provider regression advances only the outer scene generation and layer
 composite revision while leaving the nested picture-mask stream unchanged. It
 requires the next render to submit the parent once, with no texture upload,
 instead of submitting another child raster. The Direct2D/WebGPU regression also
 fills nine distinct source-extent descriptors, then revisits the first after an
-outer-generation change and requires a one-submission cache hit. The clean
-AppleClang Release build completed and all 19 locally configured native CTest
-executables passed after correcting only the downloaded wgpu-native dylib
-install name in local build outputs. The provider-specific regression, exact
-Windows cache artifact, pixels, and final packaged Toolkit run remain required
-before claiming the Windows performance issue closed.
+outer-generation change and requires a one-submission cache hit. Additional
+Direct2D/WebGPU regressions retain two different nested scenes with the same
+scene id and raster descriptor, and insert an ordinary picture image between a
+mask seed and revisit; both revisits must submit only the parent. The focused
+AppleClang Direct2D/WebGPU test passes after correcting only the downloaded
+wgpu-native dylib install name in local build outputs. The full native suite,
+exact Windows artifact for the separated caches, pixels, and final packaged
+Toolkit run remain required before claiming the Windows performance issue
+closed.

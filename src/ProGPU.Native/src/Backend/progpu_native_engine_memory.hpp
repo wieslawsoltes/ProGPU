@@ -115,6 +115,8 @@ inline progpu_native_gpu_memory_snapshot collect_memory(progpu_native_engine& en
 #undef T
     for (const auto& picture : engine.semantic_picture_cache)
         if (picture) inventory.texture(picture->texture);
+    for (const auto& picture : engine.semantic_picture_mask_cache)
+        if (picture) inventory.texture(picture->texture);
     for (const auto& draw : engine.semantic_image_cache.draws) collect_memory(inventory, draw);
     for (const auto& slot : engine.semantic_layer_slots) collect_memory(inventory, slot);
     collect_memory(inventory, engine.semantic_root_slot);

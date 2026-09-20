@@ -77,13 +77,14 @@ void release_texture(WGPUTexture& texture, WGPUTextureView& view) noexcept {
     }
 }
 
-constexpr std::uint64_t retained_picture_cache_budget =
+constexpr std::uint64_t retained_picture_mask_cache_budget =
     64ULL * 1024U * 1024U;
 // Real WPF surfaces commonly retain more than eight picture-mask descriptors
 // for one nested scene (the Toolkit/AvalonDock gate uses nine). Keep a bounded
 // lookup ceiling for tiny rasters, but let the byte budget govern ordinary
 // desktop working sets so a sequential rebuild cannot evict every next entry.
-constexpr std::size_t retained_picture_cache_entries = 64U;
+constexpr std::size_t retained_picture_mask_cache_entries = 64U;
+constexpr std::size_t retained_picture_image_cache_entries = 8U;
 
 std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
     progpu_native_engine& engine,
@@ -93,7 +94,7 @@ std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
     if (!engine.semantic_external_image_bindings.empty()) {
         return {};
     }
-    for (const auto& entry : engine.semantic_picture_cache) {
+    for (const auto& entry : engine.semantic_picture_mask_cache) {
         if (!entry ||
             entry->scene.size() < sizeof(progpu_native_scene_header) ||
             entry->engine_flags != engine.engine_flags ||
@@ -120,10 +121,10 @@ void retain_picture_raster(
     const progpu_native_scene_header& header,
     const std::shared_ptr<semantic_picture_backing>& backing) noexcept {
     if (!backing || backing->scene.empty() ||
-        backing->byte_cost() > retained_picture_cache_budget) {
+        backing->byte_cost() > retained_picture_mask_cache_budget) {
         return;
     }
-    auto& cache = engine.semantic_picture_cache;
+    auto& cache = engine.semantic_picture_mask_cache;
     std::uint64_t retained_bytes = 0U;
     for (auto it = cache.begin(); it != cache.end();) {
         if (!*it ||
@@ -133,10 +134,15 @@ void retain_picture_raster(
         }
         progpu_native_scene_header prior{};
         std::memcpy(&prior, (*it)->scene.data(), sizeof(prior));
+        std::uint32_t first_command = 0U;
         if (prior.scene_id == header.scene_id &&
             semantic::scene_bytes_equal(
                 std::as_bytes(std::span(&(*it)->descriptor, 1U)),
-                std::as_bytes(std::span(&backing->descriptor, 1U)))) {
+                std::as_bytes(std::span(&backing->descriptor, 1U))) &&
+            semantic::find_append_only_scene_suffix(
+                (*it)->scene.data(), prior, backing->scene.data(), header,
+                first_command) &&
+            first_command == header.command_count) {
             it = cache.erase(it);
         } else {
             retained_bytes += (*it)->byte_cost();
@@ -145,8 +151,8 @@ void retain_picture_raster(
     }
     const auto cost = backing->byte_cost();
     while (!cache.empty() &&
-        (cache.size() >= retained_picture_cache_entries ||
-            retained_bytes > retained_picture_cache_budget - cost)) {
+        (cache.size() >= retained_picture_mask_cache_entries ||
+            retained_bytes > retained_picture_mask_cache_budget - cost)) {
         retained_bytes -= cache.front()->byte_cost();
         cache.erase(cache.begin());
     }
@@ -668,7 +674,7 @@ bool create_semantic_picture_image(
             else { retained_bytes += (*it)->byte_cost(); ++it; }
         }
         while (!cache.empty() &&
-            (cache.size() >= retained_picture_cache_entries ||
+            (cache.size() >= retained_picture_image_cache_entries ||
                 retained_bytes > cache_budget - cost)) {
             retained_bytes -= cache.front()->byte_cost();
             cache.erase(cache.begin());

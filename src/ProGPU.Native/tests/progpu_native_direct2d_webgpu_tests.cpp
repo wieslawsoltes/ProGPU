@@ -880,6 +880,19 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     require(history.add_solid_brush({0.0F, 1.0F, 0.0F, 0.5F}, 1.0F, brush) &&
         history.draw_analytic({&rectangle, 1U}, {&brush, 1U}, {4.0F, 0.0F, 4.0F, 8.0F}) &&
         history.build(appended), "picture history append");
+    semantic_scene_builder alternate_history(0x91F0U, 1U);
+    auto alternate_rectangle = rectangle;
+    alternate_rectangle.x = 0.0F;
+    alternate_rectangle.width = 8.0F;
+    std::uint32_t alternate_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::vector<std::byte> alternate;
+    require(alternate_history.add_solid_brush(
+                {0.0F, 0.0F, 1.0F, 0.5F}, 1.0F, alternate_brush) &&
+            alternate_history.draw_analytic(
+                {&alternate_rectangle, 1U}, {&alternate_brush, 1U},
+                {0.0F, 0.0F, 8.0F, 8.0F}) &&
+            alternate_history.build(alternate),
+        "picture alternate capture");
     const auto make_parent = [&](std::uint64_t generation, std::span<const std::byte> nested,
                                  bool include_old = false) {
         semantic_scene_builder parent(0x91F1U, generation);
@@ -909,13 +922,14 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     };
     const auto make_mask_parent = [&](std::uint64_t scene_id,
                                       std::uint64_t generation,
-                                      float extent) {
+                                      float extent,
+                                      std::span<const std::byte> nested) {
         semantic_scene_builder parent(scene_id, generation);
         progpu_native_scene_layer_picture_mask picture_mask{};
         picture_mask.struct_size = sizeof(picture_mask);
         picture_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
         picture_mask.flags = PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT;
-        picture_mask.stream_size = static_cast<std::uint32_t>(first.size());
+        picture_mask.stream_size = static_cast<std::uint32_t>(nested.size());
         picture_mask.bounds = {0.0F, 0.0F, extent, extent};
         picture_mask.transform = semantic_scene_builder::identity_transform();
         picture_mask.opacity = 1.0F;
@@ -935,7 +949,7 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
         picture_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         picture_layer.content_revision = 1U;
         picture_layer.composite_revision = 1U;
-        require(parent.add_picture_mask(picture_mask, first, mask_index) &&
+        require(parent.add_picture_mask(picture_mask, nested, mask_index) &&
             parent.add_solid_brush(
                 {0.0F, 0.0F, 1.0F, 1.0F}, 1.0F, brush_index),
             "picture-mask working-set resources");
@@ -952,14 +966,28 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     auto* working_set_engine = create_engine(gpu);
     for (std::uint64_t index = 0U; index < 9U; ++index) {
         const auto parent = make_mask_parent(
-            0x91D0U + index, 1U, 8.0F + static_cast<float>(index));
+            0x91D0U + index, 1U, 8.0F + static_cast<float>(index), first);
         (void)render_scene(gpu, working_set_engine, nullptr, 1U, 3U, 2U,
             parent, 0x91D0U + index, 1U);
     }
-    const auto revisited = make_mask_parent(0x91D0U, 2U, 8.0F);
+    const auto revisited = make_mask_parent(0x91D0U, 2U, 8.0F, first);
     (void)render_scene(gpu, working_set_engine, nullptr, 1U, 3U, 1U,
         revisited, 0x91D0U, 2U);
     progpu_native_engine_destroy(working_set_engine);
+    auto* collision_engine = create_engine(gpu);
+    const auto collision_first =
+        make_mask_parent(0x91C0U, 1U, 8.0F, first);
+    const auto collision_alternate =
+        make_mask_parent(0x91C1U, 1U, 8.0F, alternate);
+    (void)render_scene(gpu, collision_engine, nullptr, 1U, 3U, 2U,
+        collision_first, 0x91C0U, 1U);
+    (void)render_scene(gpu, collision_engine, nullptr, 1U, 3U, 2U,
+        collision_alternate, 0x91C1U, 1U);
+    const auto collision_revisited =
+        make_mask_parent(0x91C0U, 2U, 8.0F, first);
+    (void)render_scene(gpu, collision_engine, nullptr, 1U, 3U, 1U,
+        collision_revisited, 0x91C0U, 2U);
+    progpu_native_engine_destroy(collision_engine);
     semantic_scene_builder mask_parent(0x91F2U, 1U);
     progpu_native_scene_layer_picture_mask mask{};
     mask.struct_size = sizeof(mask);
@@ -999,6 +1027,11 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
         mask_parent_scene, 0x91F2U, 1U);
     const auto first_parent = make_parent(1U, first);
     const auto first_pixels = render_scene(gpu, engine, nullptr, 1U, 1U, 2U, first_parent, 0x91F1U, 1U);
+    require(mask_parent.advance_generation(2U) &&
+            mask_parent.build(mask_parent_scene),
+        "picture-mask cache cross-kind revisit capture");
+    (void)render_scene(gpu, engine, nullptr, 1U, 3U, 1U,
+        mask_parent_scene, 0x91F2U, 2U);
     const auto appended_parent = make_parent(2U, appended);
     const auto incremental = render_scene(gpu, engine, nullptr, 1U, 1U, 3U, appended_parent, 0x91F1U, 2U);
     auto* reference_engine = create_engine(gpu);
