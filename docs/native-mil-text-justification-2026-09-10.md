@@ -21,10 +21,15 @@ advances. Tab prefixes retain the existing grid; only opportunities after the la
 tab may expand. RTL trailing whitespace remains outside the visible left edge.
 
 Positioning retains glyph IDs, font indices, source clusters, bidi order and
-per-style floating-point scales. Expanded advances feed the existing native
+per-style floating-point scales. Expanded advances feed the native advance-owned
 interaction builder, so carets, selection and hit testing consume the same geometry.
+An actually expanded RTL line publishes an explicit positioned-line flag. This
+retains the negative pen origin required by trailing whitespace without mistaking
+an ordinary oversized RTL word for a justified line.
 Intrinsic widths remain natural, unexpanded measurements. C ABI structures and
-entry points are unchanged; scratch requirements account for classification.
+entry points remain source- and binary-layout compatible; bit zero of the first
+positioned-line reserved output byte carries the typed line flag. Scratch
+requirements account for classification.
 Legacy shaped-only C++ entry points keep their original signatures and behavior.
 
 Classification and advance distribution are allocation-free O(S + G) source/cluster

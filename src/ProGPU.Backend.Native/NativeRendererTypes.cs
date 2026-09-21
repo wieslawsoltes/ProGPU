@@ -131,6 +131,22 @@ public enum NativeTextAlignment : uint
     Justify = 3
 }
 
+[Flags]
+public enum NativePositionedTextLineFlags : byte
+{
+    None = 0,
+    RightToLeftJustified = 1 << 0
+}
+
+public partial struct NativePositionedTextLine
+{
+    public NativePositionedTextLineFlags LayoutFlags
+    {
+        readonly get => (NativePositionedTextLineFlags)Reserved0;
+        set => Reserved0 = (byte)value;
+    }
+}
+
 public enum NativeAnalyticPrimitiveKind : uint
 {
     Rectangle = 0,

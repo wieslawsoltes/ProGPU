@@ -629,6 +629,11 @@ typedef struct progpu_native_positioned_text_glyph {
     float advance_y;
 } progpu_native_positioned_text_glyph;
 
+typedef enum progpu_native_positioned_text_line_flags {
+    PROGPU_NATIVE_POSITIONED_TEXT_LINE_FLAG_NONE = 0,
+    PROGPU_NATIVE_POSITIONED_TEXT_LINE_FLAG_RIGHT_TO_LEFT_JUSTIFIED = 1 << 0
+} progpu_native_positioned_text_line_flags;
+
 /* PROGPU_CSHARP_STRUCT: Public.NativePositionedTextLine */
 typedef struct progpu_native_positioned_text_line {
     uint32_t glyph_start;
@@ -639,6 +644,7 @@ typedef struct progpu_native_positioned_text_line {
     float baseline_y;
     float height;
     uint8_t clipped;
+    /* Output flags from progpu_native_positioned_text_line_flags. */
     uint8_t reserved0;
     uint8_t reserved1;
     uint8_t reserved2;

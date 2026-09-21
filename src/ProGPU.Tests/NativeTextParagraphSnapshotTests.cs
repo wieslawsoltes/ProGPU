@@ -57,6 +57,57 @@ public sealed class NativeTextParagraphSnapshotTests
                 origins));
     }
 
+    [Theory]
+    [InlineData(false, -12)]
+    [InlineData(true, 8)]
+    public void InteractionOriginsRetainNativeRightToLeftJustification(
+        bool fragmented,
+        float expected)
+    {
+        var options = new NativeTextParagraphOptions(
+            Scale: 1,
+            MaximumWidth: 100,
+            Alignment: NativeTextAlignment.Justify);
+        NativePositionedTextLine[] lines = [new()
+        {
+            Width = fragmented ? 92 : 112,
+            LayoutFlags = NativePositionedTextLineFlags.RightToLeftJustified
+        }];
+        NativeTextFragmentPlacement[] fragments = fragmented
+            ? [new() { Left = 20, Width = 80 }]
+            : [];
+
+        float[] origins = new float[lines.Length];
+        NativeTextParagraphSnapshot.BuildInteractionLineOrigins(
+            in options,
+            lines,
+            fragments,
+            origins);
+
+        Assert.Equal(new[] { expected }, origins);
+    }
+
+    [Fact]
+    public void InteractionOriginsRejectInconsistentRightToLeftJustificationMetadata()
+    {
+        var options = new NativeTextParagraphOptions(
+            Scale: 1,
+            MaximumWidth: 100,
+            Alignment: NativeTextAlignment.Left);
+        NativePositionedTextLine[] lines = [new()
+        {
+            Width = 112,
+            LayoutFlags = NativePositionedTextLineFlags.RightToLeftJustified
+        }];
+
+        Assert.Throws<InvalidOperationException>(() =>
+            NativeTextParagraphSnapshot.BuildInteractionLineOrigins(
+                in options,
+                lines,
+                [],
+                new float[1]));
+    }
+
     [Fact]
     public void FloatingEventsMapOrderedUtf16BoundariesIncludingTerminalAndSiblings()
     {
