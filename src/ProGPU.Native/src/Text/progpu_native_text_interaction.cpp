@@ -25,6 +25,37 @@ bool try_build_text_interaction(
     return interaction_detail::build(glyphs, lines, cluster_ends, bidi_levels, cluster_boxes, caret_stops, cluster_box_count, caret_stop_count, error);
 }
 
+bool try_build_advance_text_interaction(
+    std::span<const positioned_text_glyph> glyphs,
+    std::span<const positioned_text_line> lines,
+    std::span<const std::int32_t> cluster_ends,
+    std::span<const std::int8_t> bidi_levels,
+    std::span<const float> line_origins,
+    std::span<text_cluster_box> cluster_boxes,
+    std::span<text_caret_stop> caret_stops,
+    std::uint32_t& cluster_box_count,
+    std::uint32_t& caret_stop_count,
+    font_error* error) noexcept {
+    if (line_origins.size() != lines.size()) {
+        cluster_box_count = caret_stop_count = 0U;
+        if (error != nullptr) *error = font_error::invalid_argument;
+        return false;
+    }
+    return interaction_detail::build(
+        glyphs,
+        lines,
+        cluster_ends,
+        bidi_levels,
+        cluster_boxes,
+        caret_stops,
+        cluster_box_count,
+        caret_stop_count,
+        error,
+        false,
+        std::span<const text_fragment_placement>{},
+        line_origins);
+}
+
 bool try_hit_test_text(
     std::span<const text_cluster_box> cluster_boxes,
     float x,
@@ -47,6 +78,33 @@ bool try_build_fragment_text_interaction(
     }
     return interaction_detail::build(glyphs, lines, cluster_ends, bidi_levels,
         cluster_boxes, caret_stops, cluster_box_count, caret_stop_count, error, true, placements);
+}
+
+bool try_build_fragment_advance_text_interaction(
+    std::span<const positioned_text_glyph> glyphs, std::span<const positioned_text_line> lines,
+    std::span<const text_fragment_placement> placements,
+    std::span<const std::int32_t> cluster_ends, std::span<const std::int8_t> bidi_levels,
+    std::span<const float> line_origins,
+    std::span<text_cluster_box> cluster_boxes, std::span<text_caret_stop> caret_stops,
+    std::uint32_t& cluster_box_count, std::uint32_t& caret_stop_count, font_error* error) noexcept {
+    if (placements.size() != lines.size() || line_origins.size() != lines.size()) {
+        cluster_box_count = caret_stop_count = 0U;
+        if (error != nullptr) *error = font_error::invalid_argument;
+        return false;
+    }
+    return interaction_detail::build(
+        glyphs,
+        lines,
+        cluster_ends,
+        bidi_levels,
+        cluster_boxes,
+        caret_stops,
+        cluster_box_count,
+        caret_stop_count,
+        error,
+        true,
+        placements,
+        line_origins);
 }
 
 bool try_get_text_caret_stop(

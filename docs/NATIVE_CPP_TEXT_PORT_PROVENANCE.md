@@ -1505,3 +1505,15 @@ GSUB, GPOS, WOFF, CFF, variation, bitmap/color/SVG, Unicode, fallback, wrapping,
 and interaction paths. Direct retained text rendering remains covered by the
 matched GPU screenshot result above; final cross-platform release CI and
 manual sample inspection remain PR-level gates rather than text-port gaps.
+
+## Advance-owned interaction geometry
+
+The retained paragraph interaction boundary now keeps OpenType drawing offsets
+out of logical caret, hit-test, and selection geometry. Additive C/C++/managed
+builders accept one pen origin per line and walk the original visual-order
+advances, while positioned glyph X/Y remains unchanged for rendering. Ordinary,
+measured, excluded-fragment, and collapsed snapshots share that path with bounded
+stack or pooled managed scratch and caller-owned native buffers. The source
+contract, primary-engine research, ABI/failure policy, exact Segoe UI RTL oracle,
+complexity, performance, and cross-platform validation are recorded in
+[Native text interaction advance geometry](native-text-interaction-advance-geometry.md).

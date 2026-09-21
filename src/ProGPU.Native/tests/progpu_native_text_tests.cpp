@@ -222,6 +222,7 @@ using progpu::native::text::text_hit_test_result;
 using progpu::native::text::text_interaction_requirements;
 using progpu::native::text::try_get_text_interaction_requirements;
 using progpu::native::text::try_build_text_interaction;
+using progpu::native::text::try_build_advance_text_interaction;
 using progpu::native::text::try_hit_test_text;
 using progpu::native::text::try_get_text_caret_stop;
 using progpu::native::text::try_move_text_caret_visually;
@@ -7619,6 +7620,65 @@ void native_positioned_text_layout_wraps_without_allocation() {
         boxes, 1, 3, selection, selection_count, &error));
     require(selection_count == 2U && selection[0U].x == 10.0F &&
         selection[0U].width == 10.0F && selection[1U].y == 12.0F);
+
+    // GPOS placement offsets move ink, not logical cluster or caret geometry.
+    // The explicit pen origin retains alignment while advances provide the
+    // shared boundary for both affinities inside one RTL run.
+    const std::array<positioned_text_glyph, 2U> offset_positioned{
+        positioned_text_glyph{0U, 2932U, 1, 3.5F, 0.0F, 6.0F, 0.0F},
+        positioned_text_glyph{1U, 2925U, 0, 10.0F, 0.0F, 9.0F, 0.0F}};
+    const std::array<positioned_text_line, 1U> offset_lines{
+        positioned_text_line{0U, 2U, 0, 2, 15.0F, 0.0F, 12.0F, false}};
+    const std::array<std::int32_t, 2U> offset_ends{2, 1};
+    const std::array<std::int8_t, 2U> offset_levels{1, 1};
+    const std::array<float, 1U> offset_origins{4.0F};
+    std::array<text_cluster_box, 2U> offset_boxes{};
+    std::array<text_caret_stop, 4U> offset_carets{};
+    require(try_build_advance_text_interaction(
+        offset_positioned,
+        offset_lines,
+        offset_ends,
+        offset_levels,
+        offset_origins,
+        offset_boxes,
+        offset_carets,
+        box_count,
+        caret_count,
+        &error));
+    require(box_count == 2U && caret_count == 4U &&
+        offset_boxes[0U].x == 4.0F && offset_boxes[0U].width == 6.0F &&
+        offset_boxes[1U].x == 10.0F && offset_boxes[1U].width == 9.0F &&
+        offset_carets[1U].x == 10.0F && offset_carets[2U].x == 10.0F);
+    box_count = caret_count = 99U;
+    const std::array<float, 1U> invalid_origins{
+        std::numeric_limits<float>::quiet_NaN()};
+    require(!try_build_advance_text_interaction(
+        offset_positioned,
+        offset_lines,
+        offset_ends,
+        offset_levels,
+        invalid_origins,
+        offset_boxes,
+        offset_carets,
+        box_count,
+        caret_count,
+        &error));
+    require(error == font_error::invalid_argument &&
+        box_count == 0U && caret_count == 0U);
+    box_count = caret_count = 99U;
+    require(!try_build_advance_text_interaction(
+        offset_positioned,
+        offset_lines,
+        offset_ends,
+        offset_levels,
+        {},
+        offset_boxes,
+        offset_carets,
+        box_count,
+        caret_count,
+        &error));
+    require(error == font_error::invalid_argument &&
+        box_count == 0U && caret_count == 0U);
 
     box_count = 99U;
     caret_count = 99U;

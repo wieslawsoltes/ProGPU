@@ -52,13 +52,29 @@ public static unsafe class NativeTextInteractionInterop
     public static NativeRendererStatus Build(in NativeTextInteractionInput input,
         Span<NativeTextClusterBox> boxes, Span<NativeTextCaretStop> carets,
         out NativeTextInteractionResult result)
-        => BuildCore(in input, boxes, carets, out result, false);
+        => BuildCore(in input, default, boxes, carets, out result, false, false);
+
+    /// <summary>
+    /// Builds logical interaction boxes from one physical pen origin per line
+    /// and the retained advances. OpenType drawing offsets remain render-only.
+    /// </summary>
+    public static NativeRendererStatus BuildAdvance(in NativeTextInteractionInput input,
+        ReadOnlySpan<float> lineOrigins,
+        Span<NativeTextClusterBox> boxes, Span<NativeTextCaretStop> carets,
+        out NativeTextInteractionResult result)
+        => BuildCore(in input, lineOrigins, boxes, carets, out result, false, true);
 
     /// <summary>Builds interaction at measured line tops without repacking positioned glyphs.</summary>
     public static NativeRendererStatus BuildMeasured(in NativeTextInteractionInput input,
         Span<NativeTextClusterBox> boxes, Span<NativeTextCaretStop> carets,
         out NativeTextInteractionResult result)
-        => BuildCore(in input, boxes, carets, out result, true);
+        => BuildCore(in input, default, boxes, carets, out result, true, false);
+
+    public static NativeRendererStatus BuildMeasuredAdvance(in NativeTextInteractionInput input,
+        ReadOnlySpan<float> lineOrigins,
+        Span<NativeTextClusterBox> boxes, Span<NativeTextCaretStop> carets,
+        out NativeTextInteractionResult result)
+        => BuildCore(in input, lineOrigins, boxes, carets, out result, true, true);
 
     /// <summary>Uses retained fragment tops and row identity without stacking fragments.</summary>
     public static NativeRendererStatus BuildFragments(in NativeTextInteractionInput input,
@@ -82,20 +98,57 @@ public static unsafe class NativeTextInteractionInterop
         }
     }
 
-    private static NativeRendererStatus BuildCore(in NativeTextInteractionInput input,
+    public static NativeRendererStatus BuildFragmentAdvance(in NativeTextInteractionInput input,
+        ReadOnlySpan<NativeTextFragmentPlacement> fragments,
+        ReadOnlySpan<float> lineOrigins,
         Span<NativeTextClusterBox> boxes, Span<NativeTextCaretStop> carets,
-        out NativeTextInteractionResult result, bool measuredLines)
+        out NativeTextInteractionResult result)
     {
         result = new() { StructSize = (uint)Unsafe.SizeOf<NativeTextInteractionResult>() };
         fixed (NativePositionedTextGlyph* glyphs = input.Glyphs)
         fixed (NativePositionedTextLine* lines = input.Lines)
         fixed (int* ends = input.ClusterEnds)
         fixed (sbyte* levels = input.BidiLevels)
+        fixed (NativeTextFragmentPlacement* placements = fragments)
+        fixed (float* origins = lineOrigins)
         fixed (NativeTextClusterBox* boxOutput = boxes)
         fixed (NativeTextCaretStop* caretOutput = carets)
         fixed (NativeTextInteractionResult* output = &result)
         {
             var request = Request(in input, glyphs, lines, ends, levels);
+            return NativeMethods.BuildFragmentAdvanceTextInteraction(
+                &request, placements, (uint)fragments.Length,
+                origins, (uint)lineOrigins.Length,
+                boxOutput, (uint)boxes.Length, caretOutput, (uint)carets.Length, output);
+        }
+    }
+
+    private static NativeRendererStatus BuildCore(in NativeTextInteractionInput input,
+        ReadOnlySpan<float> lineOrigins,
+        Span<NativeTextClusterBox> boxes, Span<NativeTextCaretStop> carets,
+        out NativeTextInteractionResult result, bool measuredLines, bool advanceGeometry)
+    {
+        result = new() { StructSize = (uint)Unsafe.SizeOf<NativeTextInteractionResult>() };
+        fixed (NativePositionedTextGlyph* glyphs = input.Glyphs)
+        fixed (NativePositionedTextLine* lines = input.Lines)
+        fixed (int* ends = input.ClusterEnds)
+        fixed (sbyte* levels = input.BidiLevels)
+        fixed (float* origins = lineOrigins)
+        fixed (NativeTextClusterBox* boxOutput = boxes)
+        fixed (NativeTextCaretStop* caretOutput = carets)
+        fixed (NativeTextInteractionResult* output = &result)
+        {
+            var request = Request(in input, glyphs, lines, ends, levels);
+            if (advanceGeometry)
+            {
+                return measuredLines
+                    ? NativeMethods.BuildMeasuredAdvanceTextInteraction(
+                        &request, origins, (uint)lineOrigins.Length,
+                        boxOutput, (uint)boxes.Length, caretOutput, (uint)carets.Length, output)
+                    : NativeMethods.BuildAdvanceTextInteraction(
+                        &request, origins, (uint)lineOrigins.Length,
+                        boxOutput, (uint)boxes.Length, caretOutput, (uint)carets.Length, output);
+            }
             return measuredLines
                 ? NativeMethods.BuildMeasuredTextInteraction(&request, boxOutput, (uint)boxes.Length,
                     caretOutput, (uint)carets.Length, output)
@@ -173,6 +226,14 @@ public static unsafe class NativeTextInteractionInterop
 
 internal static unsafe partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_build_fragment_advance")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus BuildFragmentAdvanceTextInteraction(
+        NativeTextInteractionRequest* request,
+        NativeTextFragmentPlacement* fragments, uint fragmentCount,
+        float* lineOrigins, uint lineOriginCount,
+        NativeTextClusterBox* boxes, uint boxCapacity, NativeTextCaretStop* carets, uint caretCapacity,
+        NativeTextInteractionResult* result);
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_build_fragments")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus BuildFragmentTextInteraction(NativeTextInteractionRequest* request,
@@ -188,6 +249,12 @@ internal static unsafe partial class NativeMethods
     internal static partial NativeRendererStatus BuildMeasuredTextInteraction(NativeTextInteractionRequest* request,
         NativeTextClusterBox* boxes, uint boxCapacity, NativeTextCaretStop* carets, uint caretCapacity,
         NativeTextInteractionResult* result);
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_build_measured_advance")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus BuildMeasuredAdvanceTextInteraction(
+        NativeTextInteractionRequest* request, float* lineOrigins, uint lineOriginCount,
+        NativeTextClusterBox* boxes, uint boxCapacity, NativeTextCaretStop* carets, uint caretCapacity,
+        NativeTextInteractionResult* result);
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_get_requirements")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus GetTextInteractionRequirements(
@@ -195,6 +262,12 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_build")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus BuildTextInteraction(NativeTextInteractionRequest* request,
+        NativeTextClusterBox* boxes, uint boxCapacity, NativeTextCaretStop* carets, uint caretCapacity,
+        NativeTextInteractionResult* result);
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_build_advance")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus BuildAdvanceTextInteraction(
+        NativeTextInteractionRequest* request, float* lineOrigins, uint lineOriginCount,
         NativeTextClusterBox* boxes, uint boxCapacity, NativeTextCaretStop* carets, uint caretCapacity,
         NativeTextInteractionResult* result);
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_interaction_hit_test")]

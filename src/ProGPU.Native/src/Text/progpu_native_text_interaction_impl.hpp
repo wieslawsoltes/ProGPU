@@ -41,9 +41,12 @@ bool validate_inputs(
     std::span<const std::int32_t> cluster_ends,
     std::span<const std::int8_t> bidi_levels,
     bool measured_lines = false,
-    std::span<const Fragment> fragments = {}) noexcept {
+    std::span<const Fragment> fragments = {},
+    std::span<const float> line_origins = {}) noexcept {
     if (cluster_ends.size() != glyphs.size() ||
-        bidi_levels.size() != glyphs.size() || (!fragments.empty() && fragments.size() != lines.size())) {
+        bidi_levels.size() != glyphs.size() ||
+        (!fragments.empty() && fragments.size() != lines.size()) ||
+        (!line_origins.empty() && line_origins.size() != lines.size())) {
         return false;
     }
     int row_direction = 0;
@@ -68,7 +71,8 @@ bool validate_inputs(
     std::size_t expected = 0U;
     double line_top = 0.0;
     std::size_t fragment_index = 0U;
-    for (const auto& line : lines) {
+    for (std::size_t line_index = 0U; line_index < lines.size(); ++line_index) {
+        const auto& line = lines[line_index];
         if (!fragments.empty()) line_top = fragments[fragment_index++].top;
         const double line_bottom = line_top + static_cast<double>(line.height);
         const bool valid_metrics = measured_lines || !fragments.empty()
@@ -83,11 +87,17 @@ bool validate_inputs(
             return false;
         }
         const std::size_t end = expected + line.glyph_count;
+        float pen_x = line_origins.empty() ? 0.0F : line_origins[line_index];
+        if (!line_origins.empty() && !std::isfinite(pen_x)) return false;
         for (std::size_t index = expected; index < end; ++index) {
             if (!finite_glyph(glyphs[index]) ||
                 cluster_ends[index] <= glyphs[index].cluster ||
                 bidi_levels[index] < 0 || bidi_levels[index] > 125) {
                 return false;
+            }
+            if (!line_origins.empty()) {
+                pen_x += glyphs[index].advance_x;
+                if (!std::isfinite(pen_x)) return false;
             }
         }
         expected = end;
@@ -126,9 +136,17 @@ bool get_requirements(
     text_interaction_requirements& result,
     font_error* error,
     bool measured_lines = false,
-    std::span<const Fragment> fragments = {}) noexcept {
+    std::span<const Fragment> fragments = {},
+    std::span<const float> line_origins = {}) noexcept {
     result = {};
-    if (!validate_inputs(glyphs, lines, cluster_ends, bidi_levels, measured_lines, fragments)) {
+    if (!validate_inputs(
+            glyphs,
+            lines,
+            cluster_ends,
+            bidi_levels,
+            measured_lines,
+            fragments,
+            line_origins)) {
         set_error(error, font_error::invalid_argument);
         return false;
     }
@@ -154,7 +172,8 @@ bool build(
     std::uint32_t& caret_stop_count,
     font_error* error,
     bool measured_lines = false,
-    std::span<const Fragment> fragments = {}) noexcept {
+    std::span<const Fragment> fragments = {},
+    std::span<const float> line_origins = {}) noexcept {
     cluster_box_count = 0U;
     caret_stop_count = 0U;
     text_interaction_requirements requirements{};
@@ -165,7 +184,7 @@ bool build(
             bidi_levels,
             requirements,
             error,
-            measured_lines, fragments)) {
+            measured_lines, fragments, line_origins)) {
         return false;
     }
     if (cluster_boxes.size() < requirements.cluster_box_capacity ||
@@ -181,25 +200,33 @@ bool build(
          ++line_index) {
         const Line& line = lines[line_index];
         if (!fragments.empty()) line_top = fragments[line_index].top;
+        float pen_x = line_origins.empty() ? 0.0F : line_origins[line_index];
         const std::size_t end = static_cast<std::size_t>(line.glyph_start) +
             line.glyph_count;
         for (std::size_t index = line.glyph_start; index < end;) {
             const std::size_t start = index;
             const std::int32_t cluster = glyphs[index].cluster;
-            float left = std::min(
-                glyphs[index].x,
-                glyphs[index].x + glyphs[index].advance_x);
-            float right = std::max(
-                glyphs[index].x,
-                glyphs[index].x + glyphs[index].advance_x);
+            float left = line_origins.empty()
+                ? std::min(glyphs[index].x, glyphs[index].x + glyphs[index].advance_x)
+                : pen_x;
+            float right = line_origins.empty()
+                ? std::max(glyphs[index].x, glyphs[index].x + glyphs[index].advance_x)
+                : pen_x;
             std::int32_t cluster_end = cluster_ends[index];
             do {
-                left = std::min(left, std::min(
-                    glyphs[index].x,
-                    glyphs[index].x + glyphs[index].advance_x));
-                right = std::max(right, std::max(
-                    glyphs[index].x,
-                    glyphs[index].x + glyphs[index].advance_x));
+                if (line_origins.empty()) {
+                    left = std::min(left, std::min(
+                        glyphs[index].x,
+                        glyphs[index].x + glyphs[index].advance_x));
+                    right = std::max(right, std::max(
+                        glyphs[index].x,
+                        glyphs[index].x + glyphs[index].advance_x));
+                } else {
+                    const float next_x = pen_x + glyphs[index].advance_x;
+                    left = std::min(left, std::min(pen_x, next_x));
+                    right = std::max(right, std::max(pen_x, next_x));
+                    pen_x = next_x;
+                }
                 cluster_end = std::max(cluster_end, cluster_ends[index]);
                 ++index;
             } while (index < end && glyphs[index].cluster == cluster);

@@ -632,6 +632,24 @@ static void ValidateNativeInlineParagraph()
         interactionResult.ClusterBoxCount != 3 || boxes[0].Y != 0 || boxes[1].Y != 20 || boxes[2].Y != 62 ||
         boxes[1].Height != 42 || boxes[1].Width != 30.25f || carets[2].Y != 20 || carets[2].Height != 42)
         throw new InvalidOperationException("Packaged measured interaction lost actual line tops.");
+    NativePositionedTextGlyph[] offsetGlyphs =
+    [
+        new() { GlyphIndex = 0, GlyphId = 2932, Cluster = 1, X = 3.5f, AdvanceX = 6 },
+        new() { GlyphIndex = 1, GlyphId = 2925, Cluster = 0, X = 10, AdvanceX = 9 }
+    ];
+    NativePositionedTextLine[] offsetLines =
+    [
+        new() { GlyphCount = 2, InputEnd = 2, Width = 15, Height = 12 }
+    ];
+    var offsetInput = new NativeTextInteractionInput(offsetGlyphs, offsetLines, [2, 1], [1, 1]);
+    NativeTextClusterBox[] offsetBoxes = new NativeTextClusterBox[2];
+    NativeTextCaretStop[] offsetCarets = new NativeTextCaretStop[4];
+    if (NativeTextInteractionInterop.BuildAdvance(offsetInput, [4], offsetBoxes, offsetCarets,
+            out var offsetResult) != NativeRendererStatus.Success ||
+        offsetResult.ClusterBoxCount != 2 || offsetBoxes[0].X != 4 || offsetBoxes[0].Width != 6 ||
+        offsetBoxes[1].X != 10 || offsetBoxes[1].Width != 9 ||
+        offsetCarets[1].X != 10 || offsetCarets[2].X != 10)
+        throw new InvalidOperationException("Packaged advance interaction applied a drawing offset to source geometry.");
     if (NativeTextInteractionInterop.HitTest(boxes, 10, 21, out var objectHit) != NativeRendererStatus.Success ||
         objectHit.Inside != 1 || objectHit.LineIndex != 1 || objectHit.InputPosition != 1)
         throw new InvalidOperationException("Packaged inline object hit ownership failed.");

@@ -10,6 +10,39 @@ void require(bool condition) { if (!condition) std::abort(); }
 constexpr auto success = PROGPU_NATIVE_STATUS_SUCCESS;
 constexpr auto invalid = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
 
+void advance_interaction() {
+    std::array<progpu_native_positioned_text_glyph, 2> glyphs{{
+        {0, 2932, 0, 1, 3.5F, 0, 6, 0},
+        {1, 2925, 0, 0, 10, 0, 9, 0}}};
+    std::array<progpu_native_positioned_text_line, 1> lines{{
+        {0, 2, 0, 2, 15, 0, 12, 0, 0, 0, 0}}};
+    std::array<std::int32_t, 2> ends{2, 1};
+    std::array<std::int8_t, 2> levels{1, 1};
+    std::array<float, 1> origins{4};
+    progpu_native_text_interaction_request request{
+        sizeof(request), PROGPU_NATIVE_ABI_VERSION,
+        glyphs.data(), 2, lines.data(), 1, ends.data(), 2, levels.data(), 2};
+    std::array<progpu_native_text_cluster_box, 2> boxes{};
+    std::array<progpu_native_text_caret_stop, 4> carets{};
+    progpu_native_text_interaction_result result{};
+    result.struct_size = sizeof(result);
+    const auto build = [&](const float* values, std::uint32_t count) {
+        return progpu_native_text_interaction_build_advance(
+            &request, values, count, boxes.data(), 2, carets.data(), 4, &result);
+    };
+    require(build(origins.data(), 1) == success &&
+        result.cluster_box_count == 2 && result.caret_stop_count == 4);
+    require(boxes[0].x == 4 && boxes[0].width == 6 &&
+        boxes[1].x == 10 && boxes[1].width == 9 &&
+        carets[1].x == 10 && carets[2].x == 10);
+    boxes[0].x = 123;
+    require(build(origins.data(), 0) == invalid &&
+        result.cluster_box_count == 0 && boxes[0].x == 123);
+    origins[0] = std::numeric_limits<float>::quiet_NaN();
+    require(build(origins.data(), 1) == invalid &&
+        result.cluster_box_count == 0 && boxes[0].x == 123);
+}
+
 void fragment_interaction() {
     static_assert(sizeof(progpu_native_text_fragment_placement) == 24);
     static_assert(offsetof(progpu_native_text_fragment_placement, row_index) == 8);
@@ -156,6 +189,7 @@ void measured_interaction() {
 }
 
 int main() {
+    advance_interaction();
     fragment_interaction();
     measured_interaction();
     using namespace progpu::native::text;

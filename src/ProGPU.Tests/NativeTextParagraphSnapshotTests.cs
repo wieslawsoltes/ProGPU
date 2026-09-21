@@ -6,6 +6,57 @@ namespace Avalonia.ProGpu.UnitTests;
 
 public sealed class NativeTextParagraphSnapshotTests
 {
+    [Theory]
+    [InlineData(NativeTextAlignment.Left, 0)]
+    [InlineData(NativeTextAlignment.Justify, 0)]
+    [InlineData(NativeTextAlignment.Center, 30)]
+    [InlineData(NativeTextAlignment.Right, 60)]
+    public void InteractionOriginsRetainParagraphAlignment(
+        NativeTextAlignment alignment,
+        float expected)
+    {
+        var options = new NativeTextParagraphOptions(
+            Scale: 1,
+            MaximumWidth: 100,
+            Alignment: alignment);
+        NativePositionedTextLine[] lines = [new() { Width = 40 }];
+
+        float[] origins = new float[lines.Length];
+        NativeTextParagraphSnapshot.BuildInteractionLineOrigins(
+            in options,
+            lines,
+            [],
+            origins);
+
+        Assert.Equal(new[] { expected }, origins);
+    }
+
+    [Fact]
+    public void InteractionOriginsRetainFragmentPlacementAndLocalAlignment()
+    {
+        var options = new NativeTextParagraphOptions(
+            Scale: 1,
+            MaximumWidth: 500,
+            Alignment: NativeTextAlignment.Center);
+        NativePositionedTextLine[] lines = [new() { Width = 40 }];
+        NativeTextFragmentPlacement[] fragments = [new() { Left = 10, Width = 80 }];
+
+        float[] origins = new float[lines.Length];
+        NativeTextParagraphSnapshot.BuildInteractionLineOrigins(
+            in options,
+            lines,
+            fragments,
+            origins);
+
+        Assert.Equal(new[] { 30f }, origins);
+        Assert.Throws<InvalidOperationException>(() =>
+            NativeTextParagraphSnapshot.BuildInteractionLineOrigins(
+                in options,
+                lines,
+                [new(), new()],
+                origins));
+    }
+
     [Fact]
     public void FloatingEventsMapOrderedUtf16BoundariesIncludingTerminalAndSiblings()
     {
