@@ -5380,6 +5380,34 @@ int main(int argc, char** argv) {
         semantic_metrics.vertex_upload_bytes == 0U &&
         semantic_metrics.uniform_upload_bytes == 0U,
         "stable semantic retained picture-mask replay rebuilt resources");
+    auto* changed_picture_header =
+        reinterpret_cast<progpu_native_scene_header*>(picture_mask_scene.data());
+    auto* changed_picture_commands =
+        reinterpret_cast<progpu_native_scene_command*>(
+            picture_mask_scene.data() + changed_picture_header->command_offset);
+    auto* changed_picture_layer = reinterpret_cast<progpu_native_scene_layer*>(
+        picture_mask_scene.data() + changed_picture_commands[0].payload_offset);
+    changed_picture_header->generation = 2U;
+    ++changed_picture_layer->composite_revision;
+    picture_mask_frame.generation = 2U;
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        picture_mask_scene.data(),
+        picture_mask_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "changed-parent picture-mask scene update failed");
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &picture_mask_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.texture_upload_bytes == 0U,
+        "changed-parent picture-mask replay rerasterized unchanged child "
+        "content");
     std::uint64_t picture_mask_submission{};
     require(progpu_native_engine_get_last_submission(
         engine,

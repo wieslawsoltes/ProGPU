@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -422,6 +423,15 @@ struct progpu_native_engine {
     semantic_image_page semantic_image_cache;
     // Small FIFO bounded independently of page-owned picture snapshots.
     std::vector<std::shared_ptr<semantic_picture_backing>> semantic_picture_cache;
+    // Immutable picture-mask rasters have different identity and replacement
+    // rules from append-only picture images. Keep their working set separate so
+    // an image update cannot evict every mask that happens to share a scene id.
+    std::vector<std::shared_ptr<semantic_picture_backing>>
+        semantic_picture_mask_cache;
+    // Picture rasters are rendered serially on the engine owner thread. Retain
+    // one scratch child so its immutable pipelines survive between distinct
+    // pictures instead of recompiling them for every first-use mask.
+    std::unique_ptr<progpu_native_engine> semantic_picture_child_engine;
     std::vector<semantic_external_image_binding>
         semantic_external_image_bindings;
     semantic_3d_page semantic_3d_cache;
@@ -1193,6 +1203,7 @@ struct progpu_native_engine {
                 wgpuTextureViewRelease(span.mask_texture_view);
                 span.mask_texture_view = nullptr;
             }
+            span.mask_picture_backing.reset();
             if (span.mask_texture != nullptr) {
                 wgpuTextureDestroy(span.mask_texture);
                 wgpuTextureRelease(span.mask_texture);
@@ -1564,6 +1575,9 @@ struct progpu_native_engine {
     ~progpu_native_engine() {
         const progpu::native::webgpu::dispatch_scope dispatch_scope(
             &webgpu_dispatch);
+        // The child borrows this engine's vector pipeline and layout. Destroy
+        // it before releasing any parent WebGPU pipeline resources below.
+        semantic_picture_child_engine.reset();
         if (semantic_encoder != nullptr) {
             wgpuCommandEncoderRelease(semantic_encoder);
             semantic_encoder = nullptr;
@@ -1579,6 +1593,7 @@ struct progpu_native_engine {
         release_semantic_layer_resources();
         release_semantic_image_page();
         semantic_picture_cache.clear();
+        semantic_picture_mask_cache.clear();
         release_semantic_external_image_bindings();
         release_semantic_analytic_page();
         release_semantic_3d_resources();

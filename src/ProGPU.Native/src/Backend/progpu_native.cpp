@@ -85,10 +85,11 @@ progpu_native_status create_engine(
                 shared_vector_pipeline->uniform_layout == nullptr) {
                 return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
             }
-            // The picture child is destroyed before this live parent returns
-            // from mask construction. Borrow only immutable shader/pipeline/
-            // layout; the child owns a fresh frame buffer, bind group and all
-            // scene-specific buffers/textures. No second shader compilation.
+            // The picture child is owned by this live parent and is destroyed
+            // before the parent releases its pipeline. Borrow only immutable
+            // shader/pipeline/layout; the child owns a fresh frame buffer,
+            // bind group and all scene-specific buffers/textures. No second
+            // shader compilation.
             result->shader = shared_vector_pipeline->shader;
             result->pipeline = shared_vector_pipeline->pipeline;
             result->uniform_layout = shared_vector_pipeline->uniform_layout;

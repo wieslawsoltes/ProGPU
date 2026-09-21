@@ -874,12 +874,35 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     rectangle.transform = semantic_scene_builder::identity_transform();
     require(history.add_solid_brush({1.0F, 0.0F, 0.0F, 0.5F}, 1.0F, brush) &&
         history.draw_analytic({&rectangle, 1U}, {&brush, 1U}, {0.0F, 0.0F, 8.0F, 8.0F}), "picture history first draw");
-    std::vector<std::byte> first, appended;
-    require(history.build(first) && history.advance_generation(2U), "picture first capture");
+    std::vector<std::byte> first, first_generation_two, appended;
+    require(history.build(first), "picture first capture");
+    semantic_scene_builder equivalent_history(0x91F0U, 2U);
+    std::uint32_t equivalent_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    require(equivalent_history.add_solid_brush(
+                {1.0F, 0.0F, 0.0F, 0.5F}, 1.0F, equivalent_brush) &&
+            equivalent_history.draw_analytic(
+                {&rectangle, 1U}, {&equivalent_brush, 1U},
+                {0.0F, 0.0F, 8.0F, 8.0F}) &&
+            equivalent_history.build(first_generation_two) &&
+            history.advance_generation(2U),
+        "picture generation-only capture");
     rectangle.x = rectangle.width = 4.0F;
     require(history.add_solid_brush({0.0F, 1.0F, 0.0F, 0.5F}, 1.0F, brush) &&
         history.draw_analytic({&rectangle, 1U}, {&brush, 1U}, {4.0F, 0.0F, 4.0F, 8.0F}) &&
         history.build(appended), "picture history append");
+    semantic_scene_builder alternate_history(0x91F0U, 1U);
+    auto alternate_rectangle = rectangle;
+    alternate_rectangle.x = 0.0F;
+    alternate_rectangle.width = 8.0F;
+    std::uint32_t alternate_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::vector<std::byte> alternate;
+    require(alternate_history.add_solid_brush(
+                {0.0F, 0.0F, 1.0F, 0.5F}, 1.0F, alternate_brush) &&
+            alternate_history.draw_analytic(
+                {&alternate_rectangle, 1U}, {&alternate_brush, 1U},
+                {0.0F, 0.0F, 8.0F, 8.0F}) &&
+            alternate_history.build(alternate),
+        "picture alternate capture");
     const auto make_parent = [&](std::uint64_t generation, std::span<const std::byte> nested,
                                  bool include_old = false) {
         semantic_scene_builder parent(0x91F1U, generation);
@@ -907,8 +930,198 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
         require(parent.build(result), "picture parent capture");
         return result;
     };
+    const auto make_mask_parent = [&](std::uint64_t scene_id,
+                                      std::uint64_t generation,
+                                      float extent,
+                                      std::span<const std::byte> nested) {
+        semantic_scene_builder parent(scene_id, generation);
+        progpu_native_scene_layer_picture_mask picture_mask{};
+        picture_mask.struct_size = sizeof(picture_mask);
+        picture_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+        picture_mask.flags = PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT;
+        picture_mask.stream_size = static_cast<std::uint32_t>(nested.size());
+        picture_mask.bounds = {0.0F, 0.0F, extent, extent};
+        picture_mask.transform = semantic_scene_builder::identity_transform();
+        picture_mask.opacity = 1.0F;
+        picture_mask.reserved0 = static_cast<std::uint32_t>(extent);
+        picture_mask.reserved1 = static_cast<std::uint32_t>(extent);
+        std::uint32_t mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        auto content = rectangle;
+        content.color = {0.0F, 0.0F, 1.0F, 1.0F};
+        progpu_native_scene_layer picture_layer{};
+        picture_layer.struct_size = sizeof(picture_layer);
+        picture_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+        picture_layer.bounds = picture_mask.bounds;
+        picture_layer.opacity = 1.0F;
+        picture_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+        picture_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        picture_layer.content_revision = 1U;
+        picture_layer.composite_revision = 1U;
+        require(parent.add_picture_mask(picture_mask, nested, mask_index) &&
+            parent.add_solid_brush(
+                {0.0F, 0.0F, 1.0F, 1.0F}, 1.0F, brush_index),
+            "picture-mask working-set resources");
+        picture_layer.mask_resource_index = mask_index;
+        require(parent.push_layer(picture_layer) &&
+            parent.draw_analytic({&content, 1U}, {&brush_index, 1U},
+                picture_layer.bounds) &&
+            parent.pop_layer(),
+            "picture-mask working-set commands");
+        std::vector<std::byte> result;
+        require(parent.build(result), "picture-mask working-set capture");
+        return result;
+    };
+    auto* working_set_engine = create_engine(gpu);
+    for (std::uint64_t index = 0U; index < 9U; ++index) {
+        const auto parent = make_mask_parent(
+            0x91D0U + index, 1U, 8.0F + static_cast<float>(index), first);
+        (void)render_scene(gpu, working_set_engine, nullptr, 1U, 3U, 2U,
+            parent, 0x91D0U + index, 1U);
+    }
+    const auto revisited = make_mask_parent(
+        0x91D0U, 2U, 8.0F, first_generation_two);
+    (void)render_scene(gpu, working_set_engine, nullptr, 1U, 3U, 1U,
+        revisited, 0x91D0U, 2U);
+    progpu_native_engine_destroy(working_set_engine);
+    auto* collision_engine = create_engine(gpu);
+    WGPUTextureDescriptor external_descriptor{};
+    external_descriptor.label = "Unrelated retained picture cache binding";
+    external_descriptor.usage = WGPUTextureUsage_TextureBinding;
+    external_descriptor.dimension = WGPUTextureDimension_2D;
+    external_descriptor.size = {1U, 1U, 1U};
+    external_descriptor.format = WGPUTextureFormat_RGBA8Unorm;
+    external_descriptor.mipLevelCount = 1U;
+    external_descriptor.sampleCount = 1U;
+    WGPUTexture external_texture =
+        wgpuDeviceCreateTexture(gpu.device, &external_descriptor);
+    WGPUTextureView external_view = external_texture == nullptr
+        ? nullptr
+        : wgpuTextureCreateView(external_texture, nullptr);
+    require(external_view != nullptr,
+        "picture-mask unrelated external binding texture");
+    progpu_native_scene_external_image_binding external_binding{
+        sizeof(progpu_native_scene_external_image_binding),
+        PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_PRIMARY,
+        0x91C2U,
+        1U,
+        reinterpret_cast<std::uintptr_t>(external_view),
+        1U,
+        1U,
+        0U,
+        0U};
+    require(progpu_native_engine_bind_scene_external_images(
+                collision_engine, &external_binding, 1U) ==
+            PROGPU_NATIVE_STATUS_SUCCESS,
+        "picture-mask unrelated external binding");
+    const auto collision_first =
+        make_mask_parent(0x91C0U, 1U, 8.0F, first);
+    const auto collision_alternate =
+        make_mask_parent(0x91C1U, 1U, 8.0F, alternate);
+    (void)render_scene(gpu, collision_engine, nullptr, 1U, 3U, 2U,
+        collision_first, 0x91C0U, 1U);
+    (void)render_scene(gpu, collision_engine, nullptr, 1U, 3U, 2U,
+        collision_alternate, 0x91C1U, 1U);
+    external_binding.generation = 2U;
+    require(progpu_native_engine_bind_scene_external_images(
+                collision_engine, &external_binding, 1U) ==
+            PROGPU_NATIVE_STATUS_SUCCESS,
+        "picture-mask changed unrelated external binding");
+    const auto collision_revisited =
+        make_mask_parent(0x91C0U, 2U, 8.0F, first_generation_two);
+    (void)render_scene(gpu, collision_engine, nullptr, 1U, 3U, 1U,
+        collision_revisited, 0x91C0U, 2U);
+    progpu_native_engine_destroy(collision_engine);
+    semantic_scene_builder external_nested_builder(0x91C3U, 1U);
+    std::uint32_t external_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    progpu_native_scene_image_draw external_draw{};
+    external_draw.image_width = external_draw.image_height = 1U;
+    external_draw.row_bytes = 4U;
+    external_draw.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    external_draw.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+    external_draw.source_rect = {0.0F, 0.0F, 1.0F, 1.0F};
+    external_draw.destination_rect = {0.0F, 0.0F, 8.0F, 8.0F};
+    external_draw.transform = semantic_scene_builder::identity_transform();
+    external_draw.opacity = 1.0F;
+    std::vector<std::byte> external_nested;
+    require(external_nested_builder.add_external_image(
+                1U, 1U, external_resource) &&
+            external_nested_builder.draw_image(external_resource,
+                external_draw, external_draw.destination_rect) &&
+            external_nested_builder.build(external_nested),
+        "picture-mask external-image nested capture");
+    auto* external_mask_engine = create_engine(gpu);
+    const progpu_native_scene_external_image_binding nested_binding{
+        sizeof(progpu_native_scene_external_image_binding),
+        PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_PRIMARY,
+        1U,
+        1U,
+        reinterpret_cast<std::uintptr_t>(external_view),
+        1U,
+        1U,
+        0U,
+        0U};
+    require(progpu_native_engine_bind_scene_external_images(
+                external_mask_engine, &nested_binding, 1U) ==
+            PROGPU_NATIVE_STATUS_SUCCESS,
+        "picture-mask nested external binding");
+    const auto external_mask_first =
+        make_mask_parent(0x91C4U, 1U, 8.0F, external_nested);
+    const auto external_mask_revisited =
+        make_mask_parent(0x91C4U, 2U, 8.0F, external_nested);
+    (void)render_scene(gpu, external_mask_engine, nullptr, 1U, 3U, 2U,
+        external_mask_first, 0x91C4U, 1U);
+    (void)render_scene(gpu, external_mask_engine, nullptr, 1U, 3U, 2U,
+        external_mask_revisited, 0x91C4U, 2U);
+    progpu_native_engine_destroy(external_mask_engine);
+    wgpuTextureViewRelease(external_view);
+    wgpuTextureDestroy(external_texture);
+    wgpuTextureRelease(external_texture);
+    semantic_scene_builder mask_parent(0x91F2U, 1U);
+    progpu_native_scene_layer_picture_mask mask{};
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+    mask.stream_size = static_cast<std::uint32_t>(first.size());
+    mask.bounds = {0.0F, 0.0F, 8.0F, 8.0F};
+    mask.transform = semantic_scene_builder::identity_transform();
+    mask.opacity = 1.0F;
+    std::uint32_t mask_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t mask_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    auto mask_content = rectangle;
+    mask_content.color = {0.0F, 0.0F, 1.0F, 1.0F};
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    layer.bounds = mask.bounds;
+    layer.opacity = 1.0F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.content_revision = 1U;
+    layer.composite_revision = 1U;
+    require(mask_parent.add_picture_mask(mask, first, mask_resource) &&
+        mask_parent.add_solid_brush(
+            {0.0F, 0.0F, 1.0F, 1.0F}, 1.0F, mask_brush),
+        "picture-mask cache seed resources");
+    layer.mask_resource_index = mask_resource;
+    require(mask_parent.push_layer(layer) &&
+        mask_parent.draw_analytic({&mask_content, 1U}, {&mask_brush, 1U},
+            layer.bounds) &&
+        mask_parent.pop_layer(),
+        "picture-mask cache seed commands");
+    std::vector<std::byte> mask_parent_scene;
+    require(mask_parent.build(mask_parent_scene),
+        "picture-mask cache seed capture");
+    (void)render_scene(gpu, engine, nullptr, 1U, 3U, 2U,
+        mask_parent_scene, 0x91F2U, 1U);
     const auto first_parent = make_parent(1U, first);
     const auto first_pixels = render_scene(gpu, engine, nullptr, 1U, 1U, 2U, first_parent, 0x91F1U, 1U);
+    require(mask_parent.advance_generation(2U) &&
+            mask_parent.build(mask_parent_scene),
+        "picture-mask cache cross-kind revisit capture");
+    (void)render_scene(gpu, engine, nullptr, 1U, 3U, 1U,
+        mask_parent_scene, 0x91F2U, 2U);
     const auto appended_parent = make_parent(2U, appended);
     const auto incremental = render_scene(gpu, engine, nullptr, 1U, 1U, 3U, appended_parent, 0x91F1U, 2U);
     auto* reference_engine = create_engine(gpu);

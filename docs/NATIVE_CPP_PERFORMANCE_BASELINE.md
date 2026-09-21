@@ -3152,10 +3152,32 @@ child creation dropped to 0.011–0.015 ms each; the same bundle reported 11
 masks at 69.495 ms, including nine pictures at 66.852 ms. Children still own
 their frame uniform buffer/bind group, scene buffers, external-image bindings,
 targets, and submissions. The borrowed handles are not released by a child;
-picture-mask construction destroys each child before returning to its parent.
-The borrow is admitted only on the same device, target format, owner thread,
+the borrow is admitted only on the same device, target format, owner thread,
 and live parent pipeline. No cache or timestamp substitutes for scene identity
 or observed GPU completion.
+
+The parent now retains one owner-thread-affine scratch picture child so its
+remaining immutable pipelines and scene bundle survive between distinct
+first-use mask rasters. Byte-identical nested snapshots retain the installed
+scene identity; only a different stream clears the scratch child's admission
+identity before transactional replacement. This distinction is required
+because `update_scene` returns early for an exact snapshot and therefore cannot
+restore an identity cleared unconditionally. Parent submission accounting adds
+only the child's per-render delta, and native memory inventory recursively
+enumerates child ownership while deduplicating immutable handles borrowed from
+the parent. Parent destruction releases the child before its shared vector
+pipeline and layout, and device-loss admission propagates through the owned
+scratch-child chain before teardown so no child performs a completion poll on
+a lost device.
+
+On Apple M3 Pro/Metal, the focused Direct2D WebGPU working-set trace rendered
+the first 588-byte nested mask in 4.126 ms. The next eight distinct raster
+extents over the same exact snapshot reported zero child-creation time and
+0.067–0.145 ms child-render CPU stages. These durations are opt-in CPU stage
+measurements, not GPU completion. All 19 native CTest executables passed after
+the change; the local Silk.NET absolute install name was corrected in build
+outputs only. Exact Windows ARM64 performance evidence for this retained-child
+revision remains required.
 
 The second exact-binary macOS Toolkit/AvalonDock live input run completed and
 exited zero. A first run with the same optimized native binary reached the live
@@ -3203,3 +3225,127 @@ stage is still unknown. Do not infer a deterministic resource-creation fix,
 drop the original outlier, or present the opt-in profiler as vector-clip
 performance closure. Exact Windows and repeated stressed captures remain
 required before changing the retained clip cache or submission lifetimes.
+
+## Native picture-mask raster reuse
+
+The exact merged `9f9ee4b3b2268b14ab55c405bd3954996b3d8480`
+Windows ARM64 artifact was then installed into the same source-overlay Toolkit
+run. It confirmed that child pipeline construction was no longer the dominant
+stage, but also exposed a separate retained-resource defect: each unchanged
+816-byte picture-mask scene was rasterized again when only the parent scene
+generation and bundle changed. Individual child renders took approximately
+28–52 seconds in the Parallels VM, and later generations repeated the same
+work. The run reached popup interaction but had not completed when this defect
+was isolated. This is source-overlay diagnostic evidence, not a completed
+application or package qualification.
+
+Native picture masks now retain a submitted raster backing independently of
+the parent render-bundle span. Reuse requires the same engine/device and target
+format, engine flags, raster width, height, DPI, clear color, and exact complete
+nested scene contents under the existing append-only scene comparison. Nested
+scenes with external-image dependencies at any picture-image or picture-mask
+depth and seeded incremental image captures remain ineligible. Unrelated
+parent external-image bindings do not participate in mask-raster identity
+because the recursive admission check proves the retained stream does not
+consume them. Incremental picture-image history continues to retain and compare
+its complete ordered resource/generation/role/view/extent sideband. Sampling
+transforms, opacity, guidelines, and per-span uniforms remain parent operations
+and therefore do not weaken the raster identity.
+Each span owns an added texture-view reference while sharing the backing; span
+release drops that view before its shared backing. The picture-mask cache is
+bounded to 64 entries and 64 MiB, accounts the shared texture once in the native
+inventory, and may evict an entry without invalidating an older span. The entry
+ceiling was raised from eight after the exact Windows ARM64 Toolkit run showed
+nine distinct descriptors for the same nested scene. All nine fit the byte
+budget, but the smaller FIFO ceiling evicted the next descriptor in the
+sequential generation-3 traversal and caused every entry to miss again.
+Mask-only backings are not eligible as incremental picture-image copy sources;
+only image backings created with `CopySrc` usage may seed an appended image
+capture. Picture masks and incremental picture images now use independent
+bounded caches because their identity and replacement rules differ. In
+particular, inserting an image generation cannot purge every retained mask that
+happens to carry the same nested scene id. Masks that share one raster
+descriptor and scene id but contain different nested commands also retain
+separate entries; deduplication removes only an equivalent complete scene.
+Production and sampling stay ordered on the same WebGPU queue; retaining the
+backing is not reported as GPU completion. No elapsed time or unobserved queue
+state is used as a completion signal.
+
+The exact `8dc588f8523253b373abe5c17db4cb028de5aa08` Windows ARM64
+artifact (`progpu_native.dll` SHA-256
+`D45C3207D396D1252503849FF60E547DD7309A3E2C78AADC54D3B32ADBFB65A3`)
+then disproved the entry-ceiling-only fix. Generation 2 populated all nine
+Toolkit masks, including three same-size full-surface streams. Generation 3
+still rerasterized both the first 1934x1210 stream (27,813.841 ms) and the
+otherwise unique 961x238 stream (30,644.548 ms). That second miss ruled out
+only a same-descriptor collision. Inspection showed the incremental
+picture-image insertion path erased every entry with the same nested scene id
+from the shared cache, including mask-only entries. This artifact is retained
+as rejected evidence and was not qualified or merged.
+
+The exact `2eaf23bf170d27fcafc79c00f250f95300b6cb24` Windows ARM64
+artifact (`progpu_native.dll` SHA-256
+`E52CFB308E60E592EF355F46E60189DCAC697CEBA38CB5F3D35B980E6DDC4C57`)
+proved that separating the caches was also insufficient by itself. Generation
+2 populated all nine masks, but generation 3 still rerasterized the first
+1934x1210 stream (32,526.979 ms) and the unique 961x238 stream (30,701.513
+ms). The parent engine carried external-image bindings for unrelated Toolkit
+content, and the former blanket `empty()` eligibility check therefore disabled
+every mask lookup and retention even though the 816-byte nested mask streams
+did not reference those images. This artifact is also retained as rejected
+evidence and was not qualified or merged. The cache then captured and compared
+the complete ordered external-image identity table.
+
+The exact `3239b4555e4ed3e47eadfb65aef61aebe82aab4a` Windows ARM64
+artifact (`progpu_native.dll` SHA-256
+`09E1C39EE92C55CAADE625EA2A32A12D3C2E8078B55CCDF3C7894A6BE9396E58`)
+showed that this key was still too broad. Generation 2 populated all nine
+descriptors, but the first 1934x1210 generation-3 revisit reported
+`cacheHit=0` and rerasterized for 28,080.133 ms. Toolkit had advanced an
+unrelated parent external-image binding, so comparing the complete parent
+table rejected a raster whose nested stream did not consume any of it. The run
+was stopped at that decisive miss and is retained as rejected evidence.
+
+Mask-raster admission now walks picture images and picture/composite masks
+recursively and rejects any nested external-image dependency. Once that check
+passes, unrelated parent binding changes cannot alter the raster and are not
+part of its key. The separate incremental picture-image cache keeps its former
+complete sideband identity comparison because those captures may consume the
+bindings.
+
+A native MSVC ARM64 preflight of that source produced `progpu_native.dll`
+SHA-256
+`FE8FA85966E78C9D290C8702AD7C3342B7BDC827B221E59C4CEE2BC1B585DCCF`.
+It again populated all nine generation-2 descriptors, but its first 1934x1210
+generation-3 revisit missed and rerasterized for 34,874.159 ms. With parent
+binding identity removed, this isolated the next mismatch to the rebuilt
+nested stream: its scene and resource generation stamps advanced from 2 to 3
+although its complete render payload remained unchanged. This preflight was
+stopped at the decisive miss and is not an exact CI artifact or application
+pass.
+
+Mask lookup now compares the complete serialized header, resource records,
+commands and arena while normalizing only the scene and resource generation
+fields. Any payload, descriptor, command, layout, scene id or other header
+change still misses. The regression rebuilds the equivalent nested stream at a
+new generation, changes an unrelated external binding, and requires the same
+one-submission revisit.
+
+The provider regression advances only the outer scene generation and layer
+composite revision while leaving the nested picture-mask stream unchanged. It
+requires the next render to submit the parent once, with no texture upload,
+instead of submitting another child raster. The Direct2D/WebGPU regression also
+fills nine distinct source-extent descriptors, then revisits the first after an
+outer-generation change and requires a one-submission cache hit. Additional
+Direct2D/WebGPU regressions retain two different nested scenes with the same
+scene id and raster descriptor, and insert an ordinary picture image between a
+mask seed and revisit; both revisits must submit only the parent. The
+same-descriptor regression changes an unrelated external-image binding between
+the seed and generation-only rebuilt revisit and still requires a hit. A
+separate nested external-image case requires two child submissions, proving
+that dependency remains fail-closed. The focused
+AppleClang Direct2D/WebGPU test and all 19 locally configured native CTest
+executables pass after correcting only the downloaded wgpu-native dylib install
+name in local build outputs. The exact Windows artifact for the generation-
+normalized identity fix, pixels, and final packaged Toolkit run remain required
+before claiming the Windows performance issue closed.
