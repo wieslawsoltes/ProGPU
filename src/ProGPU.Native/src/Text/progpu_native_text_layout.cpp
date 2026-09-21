@@ -276,6 +276,7 @@ line_scan scan_line(
     bool final_allowed_line,
     std::span<const float> scales = {}, text_tab_options tabs = {}) noexcept {
     float width = 0.0F;
+    float visible_width = 0.0F;
     float break_width = 0.0F;
     std::size_t last_break = start;
     float cluster_width = 0.0F;
@@ -291,8 +292,18 @@ line_scan scan_line(
         const bool break_here = can_break_after(glyphs, breaks_after, index);
         const bool mandatory = break_here &&
             breaks_after[index] == text_line_break_kind::mandatory;
+        if (!trailing_space(glyphs[index].code_point)) visible_width = next_width;
+        // A legal break-space belongs to the preceding line even when that
+        // whitespace extends past the measure. Fit the visible content, then
+        // retain the complete trailing-whitespace width for callers that
+        // distinguish Width from WidthIncludingTrailingWhitespace.
+        const bool fitting_trailing_whitespace = break_here &&
+            trailing_space(glyphs[index].code_point) &&
+            (options.maximum_width <= 0.0F ||
+                visible_width <= options.maximum_width);
         if (options.maximum_width > 0.0F &&
-            next_width > options.maximum_width && index > start) {
+            next_width > options.maximum_width && index > start &&
+            !fitting_trailing_whitespace) {
             if (last_break > start) {
                 return line_scan{
                     last_break, break_width, final_allowed_line};

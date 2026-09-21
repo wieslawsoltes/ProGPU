@@ -18,6 +18,26 @@ positions and line ranges; the WPF TextLine adapter must preserve them
 for rendering, selection, caret navigation, wrapping and trimming, including
 source-run styling and actual end-of-paragraph semantics.
 
+### Trailing-whitespace line fitting
+
+Native horizontal wrapping fits the visible content before a legal trailing
+whitespace break. The complete whitespace run remains owned by the preceding
+line even when its advance extends beyond `maximum_width`; the positioned line's
+reported width deliberately continues to include that whitespace. Consumers such
+as WPF can therefore publish distinct `Width` and
+`WidthIncludingTrailingWhitespace` values without moving a visible final word to
+the next line. Nonbreaking whitespace and unsafe shaping boundaries remain governed
+by their existing Unicode and cluster policies.
+
+The regression uses two visible words where the second ends inside the measure
+and its break-space ends outside it. It verifies the retained source range, glyph
+count and full width. The focused native text executable passed on macOS ARM64 and
+Windows 11 ARM64/MSVC. A Segoe UI probe through the public native shaping, Unicode
+line-break and layout bindings changed the representative line ranges from
+`0..40,40..80,80..120,120..137` to
+`0..40,40..87,87..129,129..137`, matching the Windows WPF visible-word breaks.
+This is algorithm and platform evidence, not packaged application qualification.
+
 ## Styled source TextLine connection — current implementation
 
 Standard run underlines now consume existing native range geometry and typed
