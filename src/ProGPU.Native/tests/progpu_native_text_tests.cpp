@@ -13207,6 +13207,80 @@ static void measured_items_share_wrapping_and_line_metrics() {
     }
 }
 
+static void right_to_left_justification_publishes_interaction_origin() {
+    using namespace progpu::native::text;
+    const std::array<shaping_glyph, 5> glyphs{{
+        {1U, 'a', 0, shaping_glyph_flags::none, 10},
+        {2U, ' ', 1, shaping_glyph_flags::none, 2},
+        {3U, 'b', 2, shaping_glyph_flags::none, 10},
+        {2U, ' ', 3, shaping_glyph_flags::none, 3},
+        {4U, 'c', 4, shaping_glyph_flags::none, 10}}};
+    const std::array<text_line_break_kind, 5> breaks{
+        text_line_break_kind::prohibited,
+        text_line_break_kind::prohibited,
+        text_line_break_kind::prohibited,
+        text_line_break_kind::opportunity,
+        text_line_break_kind::mandatory};
+    const std::array<std::int8_t, 5> levels{1, 1, 1, 1, 1};
+    const std::array<text_justification_class, 5> classes{
+        text_justification_class::content,
+        text_justification_class::word_space,
+        text_justification_class::content,
+        text_justification_class::word_space,
+        text_justification_class::content};
+    const std::array<text_item_metrics, 5> metrics{
+        text_item_metrics{8, 2}, {8, 2}, {8, 2}, {8, 2}, {8, 2}};
+    text_layout_options options{};
+    options.maximum_width = 25;
+    options.line_height = 10;
+    options.direction = shaping_direction::right_to_left;
+    options.alignment = text_alignment::justify;
+    std::array<float, 5> advances{};
+    std::array<text_visual_cluster_group, 5> groups{};
+    std::array<std::uint32_t, 5> indices{};
+    std::array<positioned_text_glyph, 5> output{};
+    std::array<positioned_text_line, 5> lines{};
+    std::uint32_t glyph_count{}, line_count{};
+    font_error error{};
+    require(try_layout_measured_logical_shaped_text(
+        glyphs, breaks, levels, {}, 1, options, {}, advances, {groups, indices},
+        output, lines, glyph_count, line_count, classes, metrics, &error));
+    const auto rtl_justified = static_cast<std::uint8_t>(
+        positioned_text_line_flags::right_to_left_justified);
+    require(glyph_count == 5 && line_count == 2 && lines[0].width == 28 &&
+        lines[0].flags == rtl_justified && lines[1].flags == 0 &&
+        output[0].x == -3);
+
+    std::array<std::int32_t, 5> cluster_ends{};
+    for (std::size_t index = 0; index < output.size(); ++index)
+        cluster_ends[index] = output[index].cluster + 1;
+    const std::array<float, 2> origins{-3, 0};
+    std::array<text_cluster_box, 5> boxes{};
+    std::array<text_caret_stop, 10> carets{};
+    std::uint32_t box_count{}, caret_count{};
+    require(try_build_advance_text_interaction(
+        output, std::span(lines).first(line_count), cluster_ends, levels,
+        origins, boxes, carets, box_count, caret_count, &error));
+    require(box_count == 5 && caret_count == 10 && boxes[0].x == -3 &&
+        boxes[0].width == 3);
+
+    const std::array<shaping_glyph, 1> overflowing{{
+        {5U, 'x', 0, shaping_glyph_flags::none, 30}}};
+    const std::array<text_line_break_kind, 1> mandatory{
+        text_line_break_kind::mandatory};
+    const std::array<std::int8_t, 1> rtl_level{1};
+    const std::array<text_item_metrics, 1> one_metric{text_item_metrics{8, 2}};
+    std::array<float, 1> one_advance{};
+    std::array<text_visual_cluster_group, 1> one_group{};
+    std::array<std::uint32_t, 1> one_index{};
+    require(try_layout_measured_logical_shaped_text(
+        overflowing, mandatory, rtl_level, {}, 1, options, {}, one_advance,
+        {one_group, one_index}, output, lines, glyph_count, line_count, {},
+        one_metric, &error));
+    require(glyph_count == 1 && line_count == 1 && lines[0].width == 30 &&
+        lines[0].flags == 0 && output[0].x == 0);
+}
+
 static void anchored_exclusions_preserve_free_line_intervals() {
     using namespace progpu::native::text;
     std::array<text_exclusion_rectangle, 4> exclusions{{
@@ -13787,6 +13861,7 @@ int main() {
     measured_exclusion_fragments_share_one_baseline();
     exclusion_bands_fit_original_shaped_ranges();
     anchored_exclusions_preserve_free_line_intervals();
+    right_to_left_justification_publishes_interaction_origin();
     measured_items_share_wrapping_and_line_metrics();
     collapsed_width_preserves_previous_lines_and_rtl_sign_identity();
     trimming_preserves_tab_metrics_and_safe_shaping_boundaries();

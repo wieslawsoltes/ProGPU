@@ -1643,7 +1643,7 @@ progpu_native_status progpu_native_text_layout(
             source.baseline_y,
             source.height,
             static_cast<std::uint8_t>(source.clipped ? 1U : 0U),
-            0U,
+            source.flags,
             0U,
             0U};
     }
@@ -2912,7 +2912,7 @@ static progpu_native_status paragraph_layout_core(
                 source.baseline_y,
                 source.height,
                 static_cast<std::uint8_t>(source.clipped ? 1U : 0U),
-                0U,
+                source.flags,
                 0U,
                 0U};
         }

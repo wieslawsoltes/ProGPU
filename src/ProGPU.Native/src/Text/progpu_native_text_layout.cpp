@@ -1153,7 +1153,10 @@ static bool layout_measured_core(
             baseline,
             line_height,
             should_trim || line.clipped ||
-                (final_allowed && line.end < logical_glyphs.size())};
+                (final_allowed && line.end < logical_glyphs.size()),
+            expansion > 0.0F && (paragraph_level & 1) != 0
+                ? static_cast<std::uint8_t>(positioned_text_line_flags::right_to_left_justified)
+                : static_cast<std::uint8_t>(positioned_text_line_flags::none)};
         ++line_count;
         measured_top += line_height;
         input_start_index = line.end;

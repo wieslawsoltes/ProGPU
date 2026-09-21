@@ -557,7 +557,17 @@ public sealed class NativeTextParagraphSnapshot
                 ? options.MaximumWidth
                 : fragments[index].Width;
             float origin = fragments.IsEmpty ? 0 : fragments[index].Left;
-            if (containerWidth > lines[index].Width)
+            if ((lines[index].LayoutFlags &
+                    NativePositionedTextLineFlags.RightToLeftJustified) != 0)
+            {
+                if (options.Alignment != NativeTextAlignment.Justify ||
+                    containerWidth <= 0 || lines[index].Width < containerWidth)
+                    throw new InvalidOperationException("Native RTL justification metadata is invalid.");
+                // Native RTL justification starts the physical pen before zero
+                // so trailing whitespace remains outside the justified measure.
+                origin += containerWidth - lines[index].Width;
+            }
+            else if (containerWidth > lines[index].Width)
             {
                 origin += options.Alignment switch
                 {

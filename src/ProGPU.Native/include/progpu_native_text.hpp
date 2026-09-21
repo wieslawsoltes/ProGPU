@@ -1911,6 +1911,11 @@ struct positioned_text_glyph final {
     float advance_y = 0.0F;
 };
 
+enum class positioned_text_line_flags : std::uint8_t {
+    none = 0U,
+    right_to_left_justified = 1U << 0U
+};
+
 struct positioned_text_line final {
     std::uint32_t glyph_start = 0U;
     std::uint32_t glyph_count = 0U;
@@ -1920,7 +1925,7 @@ struct positioned_text_line final {
     float baseline_y = 0.0F;
     float height = 0.0F;
     bool clipped = false;
-    std::uint8_t reserved0 = 0U;
+    std::uint8_t flags = static_cast<std::uint8_t>(positioned_text_line_flags::none);
     std::uint8_t reserved1 = 0U;
     std::uint8_t reserved2 = 0U;
 };

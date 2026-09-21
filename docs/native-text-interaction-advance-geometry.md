@@ -58,6 +58,15 @@ The implementation preserves:
 - measured line tops, explicit fragment tops, collapse ownership, and existing
   hit-test/selection/navigation algorithms.
 
+RTL word-space justification has one additional placement fact: retained
+trailing whitespace starts before the visible zero edge after the interior word
+spaces expand to the requested width. The positioned-line output publishes
+`RIGHT_TO_LEFT_JUSTIFIED` only when that expansion actually occurred. The
+paragraph wrapper then derives the physical pen origin as container width minus
+the complete line width. An oversized unbreakable RTL word does not publish the
+flag and therefore remains zero-origin; width alone is never used to guess that
+justification happened.
+
 For `G` positioned glyphs and `L` lines, validation and construction remain
 `O(G + L)` time. C++ uses only caller-owned spans and `O(1)` internal storage.
 The managed paragraph wrapper uses at most 128 stack-resident origins (512 bytes)
@@ -75,7 +84,10 @@ C ABI functions provide the explicit advance contract:
 - `progpu_native_text_interaction_build_fragment_advance`
 
 The ordinary and fragment C++ APIs and all three managed span APIs expose the
-same explicit origin contract. No public record layout or ABI version changes.
+same explicit origin contract. The positioned-line binary size, field names and
+ABI version remain unchanged. Bit zero of its first reserved output byte now
+identifies an actually expanded RTL justified line; managed consumers use the
+typed `LayoutFlags` property rather than reading that byte directly.
 Each advance entry point requires
 exactly one finite origin per line, validates finite cumulative advances before
 writing, preserves zero output counts on failure, and never publishes partial
@@ -96,14 +108,17 @@ and proves that rendering X remains offset while cluster boxes and both caret
 affinities follow the pen and advances. The C ABI test repeats that contract and
 covers an incorrect origin count and a non-finite origin without partial output.
 The managed package-consumer and paragraph tests cover the public API, paragraph
-alignment, and fragment-local alignment.
+alignment, fragment-local alignment, RTL trailing-whitespace origins, invalid
+flag/alignment combinations, and the distinct oversized-unbreakable-word case.
 
 Validated on the delivery branch:
 
 - Apple Clang/macOS ARM64 native text and C ABI interaction tests: pass.
 - MSVC 19.51/Windows ARM64 in the Windows 11 Parallels VM: native text and C ABI
   interaction tests pass.
-- `NativeTextParagraphSnapshotTests`: 16/16 pass.
+- `NativeTextParagraphSnapshotTests`: 19/19 pass after the RTL-origin addition.
+- Source-built LibreWPF native MIL host on macOS ARM64: pass, including styled
+  LTR/RTL justification selection, caret and hit geometry.
 - Segoe UI RTL managed/C++ shaping and layout differential: pass.
 - 6,000-iteration Release interaction call on Apple M3 Pro:
   median `0.084 us`, p95 `0.125 us`, p99 `0.167 us`, and `0 B/run` managed
