@@ -7374,6 +7374,43 @@ void native_text_layout_preserves_whitespace_breaks_after_unsafe_shaping() {
     require(line_count == 2U && non_space_lines[0U].input_end == 2);
 }
 
+void native_text_layout_fits_visible_content_before_trailing_whitespace() {
+    // The second visible word fits exactly inside the measure. Its following
+    // break-space may extend past that measure and still belongs to this line;
+    // consumers expose that separately as width including trailing whitespace.
+    const std::array<shaping_glyph, 5U> glyphs{
+        shaping_glyph{1U, 'a', 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{2U, ' ', 1, shaping_glyph_flags::none, 2},
+        shaping_glyph{3U, 'b', 2, shaping_glyph_flags::none, 17},
+        shaping_glyph{2U, ' ', 3, shaping_glyph_flags::none, 2},
+        shaping_glyph{4U, 'c', 4, shaping_glyph_flags::none, 10}};
+    const std::array<text_line_break_kind, 5U> breaks{
+        text_line_break_kind::prohibited,
+        text_line_break_kind::opportunity,
+        text_line_break_kind::prohibited,
+        text_line_break_kind::opportunity,
+        text_line_break_kind::mandatory};
+    const text_layout_options options{1.0F, 30.0F, 12.0F};
+    text_layout_requirements requirements{};
+    font_error error = font_error::none;
+    require(try_get_text_layout_requirements(
+        glyphs, breaks, options, requirements, &error));
+    require(requirements.line_capacity == 2U);
+
+    std::array<positioned_text_glyph, 5U> positioned{};
+    std::array<positioned_text_line, 2U> lines{};
+    std::uint32_t glyph_count = 0U;
+    std::uint32_t line_count = 0U;
+    require(try_layout_shaped_text(
+        glyphs, breaks, options, positioned, lines,
+        glyph_count, line_count, &error));
+    require(glyph_count == 5U && line_count == 2U);
+    require(lines[0U].input_start == 0 && lines[0U].input_end == 4 &&
+        lines[0U].glyph_count == 4U && lines[0U].width == 31.0F);
+    require(lines[1U].input_start == 4 && lines[1U].input_end == 5 &&
+        lines[1U].width == 10.0F);
+}
+
 void native_positioned_text_layout_wraps_without_allocation() {
     const std::array<shaping_glyph, 4U> glyphs{
         shaping_glyph{1U, 0U, 0, shaping_glyph_flags::none, 10},
@@ -13741,6 +13778,7 @@ int main() {
     native_font_fallback_family_preferences_match_managed_policy();
     native_font_provider_cache_is_borrowed_and_generation_safe();
     native_text_layout_preserves_whitespace_breaks_after_unsafe_shaping();
+    native_text_layout_fits_visible_content_before_trailing_whitespace();
     native_positioned_text_layout_wraps_without_allocation();
     native_text_visual_order_matches_managed_cluster_policy();
     native_logical_text_layout_reorders_bidi_per_line();
