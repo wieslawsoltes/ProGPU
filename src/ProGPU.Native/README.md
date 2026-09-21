@@ -1306,7 +1306,12 @@ Current native parity:
   (with legacy 48-byte read compatibility) and shared GPU coverage
   multiplication. Retained-picture masks carry recursively validated nested
   semantic streams, render on the same WebGPU device/queue, and sample the
-  retained child RGBA alpha channel directly; isolated-layer analytic chains remain typed fail-closed
+  retained child RGBA alpha channel directly. One owner-thread-affine scratch
+  child retains its immutable pipelines across distinct first-use mask rasters;
+  exact nested snapshots preserve their installed identity and compiled bundle,
+  while replacement streams remain transactionally validated. The public GPU
+  inventory recursively includes the child's owned resources and deduplicates
+  its borrowed parent handles. Isolated-layer analytic chains remain typed fail-closed
   rather than approximated;
 - pointer-free retained semantic solid/linear/radial/two-point-conical/sweep
   brushes with exact production `GpuBrush`/gradient-stop layout, compact

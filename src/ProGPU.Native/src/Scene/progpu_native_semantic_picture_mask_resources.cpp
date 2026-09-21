@@ -376,7 +376,7 @@ static bool create_semantic_picture_binding(
     WGPUTextureView source_view = nullptr;
     WGPUBuffer sampling_uniform_buffer = nullptr;
     WGPUBindGroup sampling_bind_group = nullptr;
-    std::unique_ptr<progpu_native_engine> child;
+    progpu_native_engine* child = nullptr;
     std::shared_ptr<semantic_picture_backing> mask_picture_backing;
     progpu_native_scene_header nested_header{};
     std::memcpy(&nested_header, nested_scene, sizeof(nested_header));
@@ -436,16 +436,23 @@ static bool create_semantic_picture_binding(
             return false;
         }
 
-        progpu_native_engine* child_raw = nullptr;
         const auto child_create_begin = trace_picture
             ? cpu_clock::now() : cpu_clock::time_point{};
-        if (create_child_engine(engine, engine.target_format, &child_raw) !=
-                PROGPU_NATIVE_STATUS_SUCCESS ||
-            child_raw == nullptr) {
+        if (!engine.semantic_picture_child_engine) {
+            progpu_native_engine* child_raw = nullptr;
+            if (create_child_engine(engine, engine.target_format, &child_raw) !=
+                    PROGPU_NATIVE_STATUS_SUCCESS ||
+                child_raw == nullptr) {
+                cleanup();
+                return false;
+            }
+            engine.semantic_picture_child_engine.reset(child_raw);
+        }
+        child = engine.semantic_picture_child_engine.get();
+        if (child == nullptr || child->device_lost) {
             cleanup();
             return false;
         }
-        child.reset(child_raw);
         const auto child_create_end = trace_picture
             ? cpu_clock::now() : cpu_clock::time_point{};
         std::vector<progpu_native_scene_external_image_binding> bindings;
@@ -517,11 +524,36 @@ static bool create_semantic_picture_binding(
         }
         const auto child_update_begin = trace_picture
             ? cpu_clock::now() : cpu_clock::time_point{};
-        if (progpu_native_engine_bind_scene_external_images(child.get(),
-                bindings.data(), bindings.size()) !=
-                PROGPU_NATIVE_STATUS_SUCCESS ||
-            progpu_native_engine_update_scene(child.get(), nested_scene,
-                picture.stream_size, nullptr) != PROGPU_NATIVE_STATUS_SUCCESS) {
+        // Scratch picture streams are independent immutable captures and may
+        // legitimately reuse a producer's scene id/generation. Preserve both
+        // the installed identity and compiled bundle for an exact snapshot;
+        // only reset admission identity when a different picture must replace
+        // it. update_scene returns early for an exact snapshot, so resetting
+        // unconditionally would leave its installed identity at zero.
+        const bool exact_child_snapshot =
+            child->semantic_scene_snapshot.size() == picture.stream_size &&
+            std::memcmp(child->semantic_scene_snapshot.data(), nested_scene,
+                picture.stream_size) == 0;
+        if (!exact_child_snapshot) {
+            child->semantic_scene_id = 0U;
+            child->semantic_scene_generation = 0U;
+        }
+        const auto bind_status =
+            progpu_native_engine_bind_scene_external_images(
+                child, bindings.data(), bindings.size());
+        const auto update_status = bind_status == PROGPU_NATIVE_STATUS_SUCCESS
+            ? progpu_native_engine_update_scene(
+                child, nested_scene, picture.stream_size, nullptr)
+            : bind_status;
+        if (bind_status != PROGPU_NATIVE_STATUS_SUCCESS ||
+            update_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            if (trace_picture) {
+                std::fprintf(stderr,
+                    "ProGPU native picture mask child update failed: bind=%u, update=%u, error=%s\n",
+                    static_cast<unsigned>(bind_status),
+                    static_cast<unsigned>(update_status),
+                    child->last_error.c_str());
+            }
             cleanup();
             return false;
         }
@@ -541,18 +573,29 @@ static bool create_semantic_picture_binding(
         child_frame.target_view = reinterpret_cast<std::uintptr_t>(source_view);
         child_frame.scene_id = nested_header.scene_id;
         child_frame.generation = nested_header.generation;
+        const std::uint64_t child_submissions_before = child->submission_count;
         const auto child_render_begin = trace_picture
             ? cpu_clock::now() : cpu_clock::time_point{};
-        if (progpu_native_engine_render_scene(
-                child.get(), &child_frame, &child_metrics) !=
-            PROGPU_NATIVE_STATUS_SUCCESS) {
+        const auto child_render_status = progpu_native_engine_render_scene(
+            child, &child_frame, &child_metrics);
+        if (child_render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            if (trace_picture) {
+                std::fprintf(stderr,
+                    "ProGPU native picture mask child render failed: status=%u, error=%s\n",
+                    static_cast<unsigned>(child_render_status),
+                    child->last_error.c_str());
+            }
             cleanup();
             return false;
         }
         const auto child_render_end = trace_picture
             ? cpu_clock::now() : cpu_clock::time_point{};
-        engine.submission_count += child->submission_count;
-        child.reset();
+        if (child->submission_count < child_submissions_before) {
+            cleanup();
+            return false;
+        }
+        engine.submission_count +=
+            child->submission_count - child_submissions_before;
         if (trace_picture) {
             const auto to_ms = [](cpu_clock::duration duration) noexcept {
                 return std::chrono::duration<double, std::milli>(duration)

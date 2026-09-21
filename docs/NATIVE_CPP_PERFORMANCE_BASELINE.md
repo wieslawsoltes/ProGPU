@@ -3152,10 +3152,32 @@ child creation dropped to 0.011–0.015 ms each; the same bundle reported 11
 masks at 69.495 ms, including nine pictures at 66.852 ms. Children still own
 their frame uniform buffer/bind group, scene buffers, external-image bindings,
 targets, and submissions. The borrowed handles are not released by a child;
-picture-mask construction destroys each child before returning to its parent.
-The borrow is admitted only on the same device, target format, owner thread,
+the borrow is admitted only on the same device, target format, owner thread,
 and live parent pipeline. No cache or timestamp substitutes for scene identity
 or observed GPU completion.
+
+The parent now retains one owner-thread-affine scratch picture child so its
+remaining immutable pipelines and scene bundle survive between distinct
+first-use mask rasters. Byte-identical nested snapshots retain the installed
+scene identity; only a different stream clears the scratch child's admission
+identity before transactional replacement. This distinction is required
+because `update_scene` returns early for an exact snapshot and therefore cannot
+restore an identity cleared unconditionally. Parent submission accounting adds
+only the child's per-render delta, and native memory inventory recursively
+enumerates child ownership while deduplicating immutable handles borrowed from
+the parent. Parent destruction releases the child before its shared vector
+pipeline and layout, and device-loss admission propagates through the owned
+scratch-child chain before teardown so no child performs a completion poll on
+a lost device.
+
+On Apple M3 Pro/Metal, the focused Direct2D WebGPU working-set trace rendered
+the first 588-byte nested mask in 4.126 ms. The next eight distinct raster
+extents over the same exact snapshot reported zero child-creation time and
+0.067–0.145 ms child-render CPU stages. These durations are opt-in CPU stage
+measurements, not GPU completion. All 19 native CTest executables passed after
+the change; the local Silk.NET absolute install name was corrected in build
+outputs only. Exact Windows ARM64 performance evidence for this retained-child
+revision remains required.
 
 The second exact-binary macOS Toolkit/AvalonDock live input run completed and
 exited zero. A first run with the same optimized native binary reached the live

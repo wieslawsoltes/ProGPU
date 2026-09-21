@@ -37,9 +37,9 @@ inline void collect_memory(gpu_memory_inventory& inventory, const semantic_image
     inventory.buffer(value.blur_vertical_uniform_buffer);
 }
 
-inline progpu_native_gpu_memory_snapshot collect_memory(progpu_native_engine& engine) {
-    auto& inventory = engine.memory_inventory;
-    inventory.reset();
+inline void collect_engine_memory(
+    gpu_memory_inventory& inventory,
+    progpu_native_engine& engine) {
     // Enumerate the owning graph, not draw counts, nominal atlas dimensions or
     // texture views. Shared picture/clip aliases are deduplicated by live handle.
 #define B(field) inventory.buffer(engine.field)
@@ -138,6 +138,16 @@ inline progpu_native_gpu_memory_snapshot collect_memory(progpu_native_engine& en
     inventory.borrowed_view(engine.layer_external_mask_view);
     for (const auto& binding : engine.semantic_external_image_bindings)
         inventory.borrowed_view(binding.view);
+    if (engine.semantic_picture_child_engine) {
+        collect_engine_memory(
+            inventory, *engine.semantic_picture_child_engine);
+    }
+}
+
+inline progpu_native_gpu_memory_snapshot collect_memory(progpu_native_engine& engine) {
+    auto& inventory = engine.memory_inventory;
+    inventory.reset();
+    collect_engine_memory(inventory, engine);
     auto result = inventory.summarize();
     result.scene_id = engine.semantic_scene_id;
     result.scene_generation = engine.semantic_scene_generation;

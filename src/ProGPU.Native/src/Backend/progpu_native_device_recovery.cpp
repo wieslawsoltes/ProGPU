@@ -30,6 +30,13 @@ progpu_native_status mark_device_lost(
         engine->device_lost = true;
         ++engine->device_loss_generation;
     }
+    if (engine->semantic_picture_child_engine != nullptr) {
+        const auto child_status = mark_device_lost(
+            engine->semantic_picture_child_engine.get());
+        if (child_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            return child_status;
+        }
+    }
     engine->last_error =
         "The native WebGPU device was lost; recreate the engine on a replacement device.";
     return PROGPU_NATIVE_STATUS_SUCCESS;
