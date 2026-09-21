@@ -212,6 +212,10 @@ int main() {
         &progpu::native::text::try_measure_positioned_text_lines;
     const auto column_metrics_resolver =
         &progpu::native::text::try_measure_positioned_text_columns;
+    const auto advance_interaction_resolver =
+        &progpu::native::text::try_build_advance_text_interaction;
+    const auto fragment_advance_interaction_resolver =
+        &progpu::native::text::try_build_fragment_advance_text_interaction;
     const auto vertical_interaction_requirements_resolver =
         &progpu::native::text::try_get_vertical_text_interaction_requirements;
     const auto vertical_interaction_resolver =
@@ -358,6 +362,8 @@ int main() {
         open_type_projection_resolver == nullptr ||
         line_metrics_resolver == nullptr ||
         column_metrics_resolver == nullptr ||
+        advance_interaction_resolver == nullptr ||
+        fragment_advance_interaction_resolver == nullptr ||
         vertical_interaction_requirements_resolver == nullptr ||
         vertical_interaction_resolver == nullptr ||
         vertical_hit_test_resolver == nullptr ||

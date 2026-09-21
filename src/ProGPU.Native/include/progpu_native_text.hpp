@@ -2551,6 +2551,21 @@ bool try_build_text_interaction(
     std::uint32_t& caret_stop_count,
     font_error* error = nullptr) noexcept;
 
+/* Builds source interaction from the line pen origin and retained advances.
+ * Positioned glyph X continues to include OpenType placement offsets for
+ * rendering; offsets must not move logical caret or selection boundaries. */
+bool try_build_advance_text_interaction(
+    std::span<const positioned_text_glyph> glyphs,
+    std::span<const positioned_text_line> lines,
+    std::span<const std::int32_t> cluster_ends,
+    std::span<const std::int8_t> bidi_levels,
+    std::span<const float> line_origins,
+    std::span<text_cluster_box> cluster_boxes,
+    std::span<text_caret_stop> caret_stops,
+    std::uint32_t& cluster_box_count,
+    std::uint32_t& caret_stop_count,
+    font_error* error = nullptr) noexcept;
+
 bool try_hit_test_text(
     std::span<const text_cluster_box> cluster_boxes,
     float x,
@@ -2568,6 +2583,15 @@ bool try_build_fragment_text_interaction(
     std::span<const positioned_text_glyph> glyphs, std::span<const positioned_text_line> lines,
     std::span<const text_fragment_placement> placements,
     std::span<const std::int32_t> cluster_ends, std::span<const std::int8_t> bidi_levels,
+    std::span<text_cluster_box> cluster_boxes, std::span<text_caret_stop> caret_stops,
+    std::uint32_t& cluster_box_count, std::uint32_t& caret_stop_count,
+    font_error* error = nullptr) noexcept;
+
+bool try_build_fragment_advance_text_interaction(
+    std::span<const positioned_text_glyph> glyphs, std::span<const positioned_text_line> lines,
+    std::span<const text_fragment_placement> placements,
+    std::span<const std::int32_t> cluster_ends, std::span<const std::int8_t> bidi_levels,
+    std::span<const float> line_origins,
     std::span<text_cluster_box> cluster_boxes, std::span<text_caret_stop> caret_stops,
     std::uint32_t& cluster_box_count, std::uint32_t& caret_stop_count,
     font_error* error = nullptr) noexcept;

@@ -112,6 +112,15 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build(
     progpu_native_text_cluster_box* boxes, uint32_t box_capacity,
     progpu_native_text_caret_stop* carets, uint32_t caret_capacity,
     progpu_native_text_interaction_result* result);
+/* Advance geometry keeps rendering placement offsets out of source interaction.
+ * line_origins contains the physical pen X before each line's first visual
+ * glyph and must contain exactly request->line_count finite values. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build_advance(
+    const progpu_native_text_interaction_request* request,
+    const float* line_origins, uint32_t line_origin_count,
+    progpu_native_text_cluster_box* boxes, uint32_t box_capacity,
+    progpu_native_text_caret_stop* carets, uint32_t caret_capacity,
+    progpu_native_text_interaction_result* result);
 PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_hit_test(
     const progpu_native_text_cluster_box* boxes, uint32_t count, float x, float y,
     progpu_native_text_hit_test_result* result);
@@ -130,6 +139,12 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build_meas
     progpu_native_text_cluster_box* boxes, uint32_t box_capacity,
     progpu_native_text_caret_stop* carets, uint32_t caret_capacity,
     progpu_native_text_interaction_result* result);
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build_measured_advance(
+    const progpu_native_text_interaction_request* request,
+    const float* line_origins, uint32_t line_origin_count,
+    progpu_native_text_cluster_box* boxes, uint32_t box_capacity,
+    progpu_native_text_caret_stop* carets, uint32_t caret_capacity,
+    progpu_native_text_interaction_result* result);
 /* Fragment count must equal line_count, including empty input. Placements use
  * nonnegative paragraph-local coordinates, contiguous rows and reserved == 0.
  * Each line is a spatial fragment, not an independent row. All buffers are
@@ -139,6 +154,13 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build_meas
 PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build_fragments(
     const progpu_native_text_interaction_request* request,
     const progpu_native_text_fragment_placement* fragments, uint32_t fragment_count,
+    progpu_native_text_cluster_box* boxes, uint32_t box_capacity,
+    progpu_native_text_caret_stop* carets, uint32_t caret_capacity,
+    progpu_native_text_interaction_result* result);
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_interaction_build_fragment_advance(
+    const progpu_native_text_interaction_request* request,
+    const progpu_native_text_fragment_placement* fragments, uint32_t fragment_count,
+    const float* line_origins, uint32_t line_origin_count,
     progpu_native_text_cluster_box* boxes, uint32_t box_capacity,
     progpu_native_text_caret_stop* carets, uint32_t caret_capacity,
     progpu_native_text_interaction_result* result);

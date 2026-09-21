@@ -293,7 +293,13 @@ public sealed class NativeTextParagraphSnapshot
         if (fragmented) Array.Resize(ref fragmentBuffer, lineBuffer.Length);
 
         if (original != null && collapse is { } collapsedRequest)
-            return BuildCollapsed(original, glyphBuffer, lineBuffer, collapsedRequest, direction);
+            return BuildCollapsed(
+                original,
+                glyphBuffer,
+                lineBuffer,
+                collapsedRequest,
+                direction,
+                in options);
 
         Check(NativeTextBidiInterop.GetRequirements(scalars.AsSpan(0, count), out var bidiRequired));
         var scalarLevels = new NativeTextBidiLevel[checked((int)bidiRequired.LevelCapacity)];
@@ -351,11 +357,27 @@ public sealed class NativeTextParagraphSnapshot
                 NativeTextInteractionInterop.GetRequirements(in interaction, out interactionRequired));
         var boxes = new NativeTextClusterBox[checked((int)interactionRequired.ClusterBoxCapacity)];
         var carets = new NativeTextCaretStop[checked((int)interactionRequired.CaretStopCapacity)];
+        float[]? rentedOrigins = null;
+        Span<float> lineOrigins = lineBuffer.Length <= 128
+            ? stackalloc float[lineBuffer.Length]
+            : (rentedOrigins = ArrayPool<float>.Shared.Rent(lineBuffer.Length))
+                .AsSpan(0, lineBuffer.Length);
         NativeTextInteractionResult interactionResult;
-        Check(fragmented ? NativeTextInteractionInterop.BuildFragments(in interaction, fragmentBuffer,
-            boxes, carets, out interactionResult) :
-            measuredLines ? NativeTextInteractionInterop.BuildMeasured(in interaction, boxes, carets, out interactionResult) :
-            NativeTextInteractionInterop.Build(in interaction, boxes, carets, out interactionResult));
+        try
+        {
+            BuildInteractionLineOrigins(in options, lineBuffer, fragmentBuffer, lineOrigins);
+            Check(fragmented ? NativeTextInteractionInterop.BuildFragmentAdvance(
+                    in interaction, fragmentBuffer, lineOrigins, boxes, carets, out interactionResult) :
+                measuredLines ? NativeTextInteractionInterop.BuildMeasuredAdvance(
+                    in interaction, lineOrigins, boxes, carets, out interactionResult) :
+                NativeTextInteractionInterop.BuildAdvance(
+                    in interaction, lineOrigins, boxes, carets, out interactionResult));
+        }
+        finally
+        {
+            if (rentedOrigins is not null)
+                ArrayPool<float>.Shared.Return(rentedOrigins);
+        }
         return new(glyphBuffer, lineBuffer, ends, levels,
             boxes.AsMemory(0, checked((int)interactionResult.ClusterBoxCount)),
             carets.AsMemory(0, checked((int)interactionResult.CaretStopCount)), intrinsicWidths,
@@ -447,7 +469,8 @@ public sealed class NativeTextParagraphSnapshot
 
     private static NativeTextParagraphSnapshot BuildCollapsed(NativeTextParagraphSnapshot original,
         NativePositionedTextGlyph[] glyphs, NativePositionedTextLine[] lines,
-        NativeTextCollapseRequest request, NativeTextDirection direction)
+        NativeTextCollapseRequest request, NativeTextDirection direction,
+        in NativeTextParagraphOptions options)
     {
         if (lines.Length != request.LineIndex + 1)
             throw new InvalidOperationException("Collapsed layout changed the source line count.");
@@ -497,10 +520,57 @@ public sealed class NativeTextParagraphSnapshot
         Check(NativeTextInteractionInterop.GetRequirements(in interaction, out var required));
         var boxes = new NativeTextClusterBox[checked((int)required.ClusterBoxCapacity)];
         var carets = new NativeTextCaretStop[checked((int)required.CaretStopCapacity)];
-        Check(NativeTextInteractionInterop.Build(in interaction, boxes, carets, out var result));
+        float[]? rentedOrigins = null;
+        Span<float> lineOrigins = lines.Length <= 128
+            ? stackalloc float[lines.Length]
+            : (rentedOrigins = ArrayPool<float>.Shared.Rent(lines.Length)).AsSpan(0, lines.Length);
+        NativeTextInteractionResult result;
+        try
+        {
+            BuildInteractionLineOrigins(in options, lines, [], lineOrigins);
+            Check(NativeTextInteractionInterop.BuildAdvance(
+                in interaction, lineOrigins, boxes, carets, out result));
+        }
+        finally
+        {
+            if (rentedOrigins is not null)
+                ArrayPool<float>.Shared.Return(rentedOrigins);
+        }
         return new(glyphs, lines, ends, levels, boxes.AsMemory(0, checked((int)result.ClusterBoxCount)),
             carets.AsMemory(0, checked((int)result.CaretStopCount)), collapsedRange:
             new(request.LineIndex, glyphs[sign].Cluster, sourceLine.InputEnd, sign));
+    }
+
+    internal static void BuildInteractionLineOrigins(
+        in NativeTextParagraphOptions options,
+        ReadOnlySpan<NativePositionedTextLine> lines,
+        ReadOnlySpan<NativeTextFragmentPlacement> fragments,
+        Span<float> origins)
+    {
+        if (!fragments.IsEmpty && fragments.Length != lines.Length)
+            throw new InvalidOperationException("Native fragment and line counts differ.");
+        if (origins.Length != lines.Length)
+            throw new InvalidOperationException("Native line-origin and line counts differ.");
+        for (int index = 0; index < lines.Length; index++)
+        {
+            float containerWidth = fragments.IsEmpty
+                ? options.MaximumWidth
+                : fragments[index].Width;
+            float origin = fragments.IsEmpty ? 0 : fragments[index].Left;
+            if (containerWidth > lines[index].Width)
+            {
+                origin += options.Alignment switch
+                {
+                    NativeTextAlignment.Center => (containerWidth - lines[index].Width) * 0.5f,
+                    NativeTextAlignment.Right => containerWidth - lines[index].Width,
+                    NativeTextAlignment.Left or NativeTextAlignment.Justify => 0,
+                    _ => throw new InvalidOperationException("Native paragraph alignment is invalid.")
+                };
+            }
+            if (!float.IsFinite(origin))
+                throw new InvalidOperationException("Native interaction line origin is not finite.");
+            origins[index] = origin;
+        }
     }
 
     internal static NativeTextStyleRun[] MapStyles(ReadOnlySpan<NativeTextParagraphStyle> styles,
