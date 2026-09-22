@@ -1237,6 +1237,22 @@ progpu_native_status shape_core(
 
 extern "C" {
 
+progpu_native_status progpu_native_text_resolve_language_tag(
+    const char* language_utf8,
+    std::size_t language_size,
+    std::uint32_t* language_tag) {
+    constexpr std::size_t maximum_language_size = 255U;
+    if (language_tag == nullptr || language_size > maximum_language_size ||
+        (language_utf8 == nullptr && language_size != 0U)) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    const std::string_view language = language_size == 0U
+        ? std::string_view{}
+        : std::string_view{language_utf8, language_size};
+    *language_tag = resolve_open_type_language_tag(language).value;
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 progpu_native_status progpu_native_text_get_shape_requirements(
     const progpu_native_text_shape_request* request,
     progpu_native_text_shape_requirements* requirements) {

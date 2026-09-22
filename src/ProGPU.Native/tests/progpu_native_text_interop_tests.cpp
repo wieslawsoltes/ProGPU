@@ -38,6 +38,30 @@ std::vector<progpu_native_text_scalar> ascii_scalars(std::string_view text) {
     return result;
 }
 
+void language_tags_use_the_native_open_type_resolver() {
+    std::uint32_t language = 0U;
+    require(progpu_native_text_resolve_language_tag(
+                "pl", 2U, &language) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(language == 0x504C4B20U);
+    require(progpu_native_text_resolve_language_tag(
+                "ZH_hAnT-HK", 10U, &language) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(language == 0x5A484820U);
+    require(progpu_native_text_resolve_language_tag(
+                "unknown", 7U, &language) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(language == 0x64666C74U);
+    require(progpu_native_text_resolve_language_tag(
+                nullptr, 0U, &language) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(language == 0x64666C74U);
+    require(progpu_native_text_resolve_language_tag(
+                nullptr, 1U, &language) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(progpu_native_text_resolve_language_tag(
+                "pl", 2U, nullptr) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    const char oversized[256]{};
+    require(progpu_native_text_resolve_language_tag(
+                oversized, sizeof(oversized), &language) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+}
+
 void bulk_shape_is_deterministic_and_caller_owned() {
     const auto font = read_font();
     const auto input = ascii_scalars("AVATAR office 1/2");
@@ -995,6 +1019,7 @@ void bulk_shape_is_deterministic_and_caller_owned() {
 } // namespace
 
 int main() {
+    language_tags_use_the_native_open_type_resolver();
     bulk_shape_is_deterministic_and_caller_owned();
     return 0;
 }

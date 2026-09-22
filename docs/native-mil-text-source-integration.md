@@ -18,6 +18,26 @@ positions and line ranges; the WPF TextLine adapter must preserve them
 for rendering, selection, caret navigation, wrapping and trimming, including
 source-run styling and actual end-of-paragraph semantics.
 
+### Source language-system admission
+
+The C++ backend now publishes
+`progpu_native_text_resolve_language_tag(...)`, a bounded synchronous bridge
+from one borrowed UTF-8 BCP-47 tag to the exact OpenType language-system tag
+used by styled paragraph runs. Input is capped at 255 bytes, is never retained,
+and unknown or empty values use the native `dflt` policy. The managed
+`NativeTextShapingInterop.ResolveLanguageTag(...)` wrapper uses stack storage for
+ordinary tags and pooled storage for longer valid tags; it does not create an
+intermediate string or duplicate the mapping table.
+
+`IPortableTextFormatting.ResolveLanguage(...)` keeps language resolution owned
+by the selected provider. Providers that do not implement it preserve the prior
+zero/default language tag. LibreWPF can therefore carry each source run's real
+culture into `PortableTextStyle.Language`, including mixed-culture paragraphs,
+without copying the native language table or adding a second shaping path.
+This admits OpenType language-system selection only. Locale-specific number
+substitution, dictionary breaking and culture-sensitive font fallback remain
+separate contracts.
+
 ### Trailing-whitespace line fitting
 
 Native horizontal wrapping fits the visible content before a legal trailing
@@ -73,7 +93,8 @@ EndOfParagraph clears the scope. Malformed scope ends and excessive nesting fail
 This closes ordinary hidden inline edges and property-only scope transport, not
 the whole document editor. Directional modifiers still need an explicit native
 embedding contract; decorations, embedded objects, display-mode hinting and the
-previously listed language/trimming/continuation-width gaps remain explicit.
+previously listed locale-specific substitution, trimming and continuation-width
+gaps remain explicit.
 Do not enable Windows SDK admission or report RichTextBox parity from this change.
 
 Construction is O(R) time/storage for R visible source ranges; each boundary query
@@ -264,7 +285,7 @@ temporary vertical stride; WPF consumes line-relative glyph positions and native
 horizontal hit/selection extents, applying its own line height to selection and
 cached brush backgrounds. No full native variable-line-height contract is claimed.
 
-Still open for the core editor: mixed languages/localization, tabs,
+Still open for the core editor: locale-specific number substitution and breaking, custom tabs,
 document objects/modifiers/hidden runs, decorations,
 baseline changes, trimming and the remaining gaps listed in the initial checkpoint
 below. Boolean typography is transported; variations and synthetic font styles
