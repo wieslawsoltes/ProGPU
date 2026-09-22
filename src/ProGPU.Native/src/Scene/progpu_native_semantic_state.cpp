@@ -669,6 +669,47 @@ scissor intersect_semantic_scissors(
         true};
 }
 
+scissor resolve_semantic_damage_scissor(
+    const progpu_native_image_rect& damage,
+    const progpu_native_scene_presentation& presentation) noexcept {
+    const auto viewport_left =
+        static_cast<double>(presentation.viewport_x);
+    const auto viewport_top =
+        static_cast<double>(presentation.viewport_y);
+    const auto viewport_right = viewport_left +
+        static_cast<double>(presentation.viewport_width);
+    const auto viewport_bottom = viewport_top +
+        static_cast<double>(presentation.viewport_height);
+    const auto left = std::max(viewport_left,
+        std::floor(viewport_left + static_cast<double>(damage.x) *
+            presentation.dpi_scale_x));
+    const auto top = std::max(viewport_top,
+        std::floor(viewport_top + static_cast<double>(damage.y) *
+            presentation.dpi_scale_y));
+    const auto right = std::min(viewport_right,
+        std::ceil(viewport_left +
+            static_cast<double>(damage.x + damage.width) *
+                presentation.dpi_scale_x));
+    const auto bottom = std::min(viewport_bottom,
+        std::ceil(viewport_top +
+            static_cast<double>(damage.y + damage.height) *
+                presentation.dpi_scale_y));
+    if (right <= left || bottom <= top) {
+        return {
+            static_cast<std::uint32_t>(left),
+            static_cast<std::uint32_t>(top),
+            0U,
+            0U,
+            false};
+    }
+    return {
+        static_cast<std::uint32_t>(left),
+        static_cast<std::uint32_t>(top),
+        static_cast<std::uint32_t>(right - left),
+        static_cast<std::uint32_t>(bottom - top),
+        true};
+}
+
 scissor resolve_semantic_target_scissor(
     const progpu_native_scene_state& state,
     const scissor& target,
@@ -865,8 +906,7 @@ semantic_layer_target_cursor::semantic_layer_target_cursor(
     const std::byte* bytes, std::uint32_t frame_width, std::uint32_t frame_height,
     const progpu_native_scene_presentation& presentation) noexcept
     : bytes_(bytes),
-      frame_extent_{presentation.viewport_x, presentation.viewport_y,
-          presentation.viewport_width, presentation.viewport_height, true},
+      frame_extent_{0U, 0U, frame_width, frame_height, true},
       frame_width_(frame_width),
       frame_height_(frame_height),
       frame_presentation_(presentation) {

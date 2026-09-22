@@ -1,6 +1,39 @@
 # Native scene presentation: viewport and independent DPI
 
-## Contract checkpoint — 2026-09-08
+## Execution checkpoint — 2026-09-22
+
+The native semantic renderer now executes the previously staged physical
+viewport and independent-axis mapping for flat 2D scene families. Ingress no
+longer rejects a valid non-legacy presentation descriptor after all retained
+state, family, mask, effect, picture and cache-identity consumers have resolved
+that descriptor. Logical scene geometry and shaped text remain unchanged;
+device position is still produced only at native presentation.
+
+Logical damage admission now derives the available logical extent from the
+declared viewport and its individual axes. Damage edges are projected with
+`scaleX`/`scaleY`, translated by the physical viewport origin, rounded outward
+and intersected with that viewport. The default physical replay scissor is the
+viewport rather than the complete target. A partial presentation may preserve
+pixels outside that boundary through the existing preserve-target flag; a normal
+non-preserving render still uses WebGPU's attachment clear for the full target.
+No CPU pixel path, shader fork, extra native crossing or per-item submission is
+introduced.
+
+The provider hardware regression renders the existing mixed semantic scene to a
+separate 64x48 GPU canvas at viewport `(8,4,48,40)` and axes `(0.75,1.25)`. It
+samples translated analytic, path, positioned-glyph and image pixels, both
+physical viewport edges, and the second logical row. Replaying the same mapping
+must reuse its presentation-specific replay identity with zero vertex, index,
+texture, coverage or text-style upload while preserving the source-scene payload
+hash. Mapped 3D and materialized-layer scenes remain explicitly unsupported
+before GPU allocation. This is the executable flat-2D gate; it does not by
+itself qualify those advanced scene families, application hosting or LibreWPF
+package startup.
+
+## Contract checkpoint — 2026-09-08 (historical)
+
+The execution checkpoint above supersedes this original guard state; the details
+below remain the dependency record that led to the implemented mapping.
 
 This is implementation groundwork for the core native MIL application milestone,
 not completed viewport/DPI rendering. The public C frame now carries an opt-in
@@ -299,6 +332,43 @@ is made until representative managed/native measurements and images are availabl
   and [HarfBuzz shaping-plan caching](https://harfbuzz.github.io/shaping-plans-and-caching.html)
   inform retaining CPU shaping/layout independently of device rasterization.
 
+The 2026-09-22 execution audit also checked the current primary contracts:
+
+- [Skia coordinate spaces](https://skia.org/docs/user/coordinates/) keeps local
+  geometry distinct from surface-defined device pixels, matching ProGPU's
+  retained logical scene and late device mapping.
+- [Direct2D transforms](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-transforms-overview)
+  applies the render-target transform before deriving an axis-aligned clip, and
+  [Direct2D target DPI](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-getdpi)
+  exposes separate horizontal and vertical device mappings. ProGPU likewise
+  maps each logical edge before outward physical intersection.
+- [Win2D DPI and DIPs](https://microsoft.github.io/Win2D/WinUI2/html/DPI.htm)
+  keeps vector command lists DPI-independent and applies DPI during target
+  rasterization. This supports preserving scene/text identities while invalidating
+  only device-dependent native preparation.
+- [WebGPU render-pass state](https://www.w3.org/TR/webgpu/#render-pass-encoder)
+  defines framebuffer pixels, an explicit viewport and a physical scissor that
+  discards fragments after viewport transformation. ProGPU retains its own
+  logical-to-physical mapping because its X/Y axes may differ, then submits the
+  resulting physical scissors through that API.
+- [WebRender](https://github.com/servo/webrender) retains display/scene data and
+  separates layout/device units; its glyph rasterizer carries an explicit font
+  transform into device space. ProGPU adopts the separation, not its source or
+  cache layout.
+- [Vello `RenderParams`](https://docs.rs/vello/latest/vello/struct.RenderParams.html)
+  makes target dimensions render-time state while
+  [Vello scenes](https://github.com/linebender/vello/blob/main/vello/src/scene.rs)
+  retain transforms and clips in the encoded scene. ProGPU keeps its existing
+  presentation-specific retained identities instead of rebuilding logical MIL.
+- [Parley positioned lines](https://github.com/linebender/parley/blob/main/parley/src/layout/line.rs)
+  retain line baselines, offsets and advances in layout units, while
+  [HarfBuzz shaping output](https://harfbuzz.github.io/shaping-and-shape-plans.html)
+  returns positioned glyphs without owning rasterization. Therefore the new
+  device axes do not reshape text or mutate interaction clusters.
+
+Only public documentation and upstream source contracts informed this design;
+no foreign implementation text or structure is copied.
+
 No foreign source is copied. Startup, font fallback/variation, shaping reuse,
 worker scheduling, upload policy and device-loss ownership are unchanged here.
 Future execution must preserve lazy setup, visibility culling, demand uploads,
@@ -377,3 +447,16 @@ all tests/verifiers, macOS/Linux and Windows Parallels runs, text/clip/image
 comparisons, device/lifetime tests, cache/performance measurements and exact-head
 CI remain outstanding until the requested core feature freeze. Keep this document
 and the host guards honest about that distinction.
+
+For the 2026-09-22 execution checkpoint, the complete configured native graph
+rebuilt on macOS ARM64 and all 21 local CTest suites passed, including the changed
+WebScene/Dawn provider regression as the authoritative GPU pixel gate. Windows
+D3D12, package/NativeAOT and LibreWPF host gates remain required before removing
+the corresponding host guard.
+
+The complete pinned provider gate also passed with WebScene
+`02823bf8d2e56548b2780d6b92ae7065be1d8605` and Dawn
+`710c33013c53ab2700d332c25ff51430251a8cc4`: the native Metal provider smoke,
+mapped semantic pixel oracle, managed package consumer, readback/allocation
+checks and forced device-loss recreation all completed successfully on Apple M3
+Pro hardware.

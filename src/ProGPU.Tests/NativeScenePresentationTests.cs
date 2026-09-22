@@ -1,3 +1,4 @@
+using System.Numerics;
 using ProGPU.Backend.Native;
 using Xunit;
 
@@ -5,6 +6,23 @@ namespace ProGPU.Tests;
 
 public sealed class NativeScenePresentationTests
 {
+    [Fact]
+    public void CpuStageCaptureExposesMappedPresentationWithoutASecondRender()
+    {
+        Func<NativeCompositor, NativeSceneExternalTarget,
+            NativeScenePresentation, ulong, ulong, Vector4,
+            NativeSceneFrameMetrics> render = static (
+                compositor, target, presentation, sceneId, generation,
+                clearColor) => compositor.RenderSceneWithCpuStages(
+                    target,
+                    presentation,
+                    sceneId,
+                    generation,
+                    clearColor);
+
+        Assert.NotNull(render);
+    }
+
     [Fact]
     public void ExplicitViewportPreservesIndependentAxesAndPhysicalOrigin()
     {
