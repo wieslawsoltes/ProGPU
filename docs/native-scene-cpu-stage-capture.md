@@ -10,6 +10,14 @@ overload remains the fastest default path. The mapped capture overload submits
 the same physical viewport and independent axes as ordinary mapped rendering;
 diagnostics never substitute a uniform scale or a second render.
 
+The package consumer installs a dedicated flat 2D geometry scene before its
+mapped capture assertion. This keeps the package gate inside the renderer's
+admitted presentation surface while the preceding comprehensive retained MIL
+scene continues to cover materialized layers through legacy full-target
+presentation. Reusing that layered scene for mapped capture is an error, not a
+successful CPU-stage test; mapped materialized layers remain fail-closed until
+their presentation contract is implemented.
+
 The native frame flag requires the complete extended
 `progpu_native_scene_frame_metrics` structure. An older metrics prefix with
 the flag is rejected before GPU work; without the flag, old metric callers
