@@ -51,4 +51,33 @@ public static unsafe class NativeTextBidiInterop
                 (NativeTextBidiResult*)Unsafe.AsPointer(ref result));
         }
     }
+
+    /// <summary>
+    /// Resolves bidi after the same native digit substitution used by shaping.
+    /// Source indices remain unchanged; <see cref="GetRequirements"/> supplies
+    /// the scratch and output capacities for both styled and ordinary resolution.
+    /// </summary>
+    public static NativeRendererStatus ResolveStyled(
+        ReadOnlySpan<NativeTextScalar> input, int requestedParagraphLevel,
+        ReadOnlySpan<NativeTextStyleRun> styles,
+        Span<NativeTextBidiLevel> levels, Span<byte> scratch,
+        out NativeTextBidiResult result)
+    {
+        if (styles.IsEmpty)
+            return Resolve(input, requestedParagraphLevel, levels, scratch, out result);
+        result = new NativeTextBidiResult
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeTextBidiResult>()
+        };
+        fixed (NativeTextScalar* inputData = input)
+        fixed (NativeTextStyleRun* styleData = styles)
+        fixed (NativeTextBidiLevel* levelData = levels)
+        fixed (byte* scratchData = scratch)
+        {
+            return NativeMethods.ResolveStyledTextBidi(inputData, checked((uint)input.Length),
+                requestedParagraphLevel, styleData, checked((uint)styles.Length),
+                levelData, checked((uint)levels.Length), scratchData, checked((nuint)scratch.Length),
+                (NativeTextBidiResult*)Unsafe.AsPointer(ref result));
+        }
+    }
 }

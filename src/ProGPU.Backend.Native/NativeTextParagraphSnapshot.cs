@@ -306,9 +306,9 @@ public sealed class NativeTextParagraphSnapshot
         scratch = ArrayPool<byte>.Shared.Rent(checked((int)bidiRequired.ScratchBytes));
         try
         {
-            Check(NativeTextBidiInterop.Resolve(scalars.AsSpan(0, count),
+            Check(NativeTextBidiInterop.ResolveStyled(scalars.AsSpan(0, count),
                 direction == NativeTextDirection.RightToLeft ? 1 : direction == NativeTextDirection.LeftToRight ? 0 : -1,
-                scalarLevels, scratch, out var bidiResult));
+                nativeStyles, scalarLevels, scratch, out var bidiResult));
             if (bidiResult.LevelCount != count) throw new InvalidOperationException("Native bidi metadata is incomplete.");
         }
         finally { ArrayPool<byte>.Shared.Return(scratch); }

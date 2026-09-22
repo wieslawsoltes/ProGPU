@@ -752,6 +752,14 @@ internal static unsafe partial class NativeMethods
         nuint scratchSize,
         NativeTextBidiResult* result);
 
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_resolve_styled_bidi")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ResolveStyledTextBidi(
+        NativeTextScalar* input, uint inputCount, int requestedParagraphLevel,
+        NativeTextStyleRun* styles, uint styleCount,
+        NativeTextBidiLevel* levels, uint levelCapacity,
+        byte* scratch, nuint scratchSize, NativeTextBidiResult* result);
+
     [LibraryImport(
         LibraryName,
         EntryPoint = "progpu_native_text_context_get_paragraph_requirements")]

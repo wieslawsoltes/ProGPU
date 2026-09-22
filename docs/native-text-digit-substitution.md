@@ -30,6 +30,15 @@ and `input_length`; caret, selection, wrapping and source editing therefore
 continue to address the original UTF-16 text. No managed rewrite or per-digit
 native call is involved.
 
+Retained paragraph metadata resolves through `NativeTextBidiInterop.ResolveStyled`,
+which applies that same native substitution to the existing bidi scratch copy.
+Resolving metadata from the original European digit scalars would incorrectly
+export level zero for forced Arabic digits in an LTR paragraph, despite level-two
+rendering. Original source indices remain unchanged; glyph levels, selection
+boxes and caret stops now consume the substituted bidi state in ordinary, measured
+inline and continued paragraphs. The unstyled resolver and scratch requirements
+remain unchanged, with no additional crossing or source-sized allocation.
+
 For contextual substitution the scan starts from the explicit paragraph
 direction. An `AL` bidi strong character selects the culture digits. An `L` or
 `R` strong character selects European digits. This includes strong directional
@@ -96,6 +105,12 @@ Grapheme tests distinguish an interior strong-mark context change, prepend/digit
 ownership and a supplementary emoji ZWJ cluster, while retaining atomic failures.
 Managed tests verify UTF-16 style mapping, the exact generated wire policy and
 rejection of insufficient or aliased spans before crossing into native code.
+
+The managed native-package consumer additionally compares complete retained
+glyphs, lines, source cluster ends, bidi levels, boxes and carets with direct
+Arabic-digit scalar input. Its ordinary, contextual, hard-break, continued and
+inline cases execute in the existing package gate; the explicit
+`--text-digit-substitution-only` selector runs that same fixture independently.
 
 The behavior is based on the public WPF
 [`NumberSubstitutionMethod`](https://learn.microsoft.com/dotnet/api/system.windows.media.numbersubstitutionmethod)

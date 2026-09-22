@@ -257,6 +257,14 @@ bool has_pointer(const void* pointer, std::uint32_t count) noexcept {
     return count == 0U || pointer != nullptr;
 }
 
+bool byte_ranges_overlap(const void* left, std::uint64_t left_size,
+    const void* right, std::uint64_t right_size) noexcept {
+    if (left_size == 0U || right_size == 0U) return false;
+    const auto a = reinterpret_cast<std::uintptr_t>(left);
+    const auto b = reinterpret_cast<std::uintptr_t>(right);
+    return a <= b ? b - a < left_size : a - b < right_size;
+}
+
 template <typename T>
 bool has_aligned_pointer(const T* pointer, std::uint32_t count) noexcept {
     return count == 0U ||
@@ -633,8 +641,9 @@ bool advance_digit_context(std::uint32_t code_point,
     return arabic_context;
 }
 
+template <typename Scalar>
 void apply_digit_substitution(
-    std::span<progpu_native_text_scalar> input,
+    std::span<Scalar> input,
     std::span<const progpu_native_text_style_run> styles,
     std::uint32_t paragraph_direction) noexcept {
     const bool initial_arabic_context = paragraph_direction ==
@@ -655,7 +664,10 @@ void apply_digit_substitution(
                 scalar.code_point = zero + original - 0x30U;
                 scalar.canonical_combining_class =
                     get_unicode_canonical_combining_class(scalar.code_point);
-                scalar.script = get_unicode_script(scalar.code_point).value;
+                if constexpr (std::is_same_v<Scalar, unicode_scalar>)
+                    scalar.script = get_unicode_script(scalar.code_point);
+                else
+                    scalar.script = get_unicode_script(scalar.code_point).value;
             }
         }
         arabic_context = advance_digit_context(
@@ -1322,21 +1334,14 @@ static progpu_native_status resolve_digit_context(
         (include_graphemes && (grapheme_capacity < text_length ||
             !has_pointer(grapheme_starts, text_length))))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-    const auto overlaps = [](const void* left, std::uint64_t left_size,
-        const void* right, std::uint64_t right_size) noexcept {
-        if (left_size == 0U || right_size == 0U) return false;
-        const auto a = reinterpret_cast<std::uintptr_t>(left);
-        const auto b = reinterpret_cast<std::uintptr_t>(right);
-        return a <= b ? b - a < left_size : a - b < right_size;
-    };
     const auto text_bytes = static_cast<std::uint64_t>(text_length) * sizeof(std::uint16_t);
-    if (overlaps(text, text_bytes, substitution_context, text_length) ||
-        overlaps(text, text_bytes, final_arabic_context, 1U) ||
-        overlaps(substitution_context, text_length, final_arabic_context, 1U) ||
+    if (byte_ranges_overlap(text, text_bytes, substitution_context, text_length) ||
+        byte_ranges_overlap(text, text_bytes, final_arabic_context, 1U) ||
+        byte_ranges_overlap(substitution_context, text_length, final_arabic_context, 1U) ||
         (include_graphemes &&
-            (overlaps(text, text_bytes, grapheme_starts, text_length) ||
-             overlaps(substitution_context, text_length, grapheme_starts, text_length) ||
-             overlaps(final_arabic_context, 1U, grapheme_starts, text_length))))
+            (byte_ranges_overlap(text, text_bytes, grapheme_starts, text_length) ||
+             byte_ranges_overlap(substitution_context, text_length, grapheme_starts, text_length) ||
+             byte_ranges_overlap(final_arabic_context, 1U, grapheme_starts, text_length))))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     unicode_decode_requirements requirements{};
     const std::span<const std::uint16_t> source{text, text_length};
@@ -2079,10 +2084,12 @@ progpu_native_status progpu_native_text_get_bidi_requirements(
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
-progpu_native_status progpu_native_text_resolve_bidi(
+static progpu_native_status resolve_bidi(
     const progpu_native_text_scalar* input,
     std::uint32_t input_count,
     std::int32_t requested_paragraph_level,
+    const progpu_native_text_style_run* styles,
+    std::uint32_t style_count,
     progpu_native_text_bidi_level* levels,
     std::uint32_t level_capacity,
     void* scratch,
@@ -2096,11 +2103,26 @@ progpu_native_status progpu_native_text_resolve_bidi(
     result->struct_size = sizeof(*result);
     if (!valid_wire_scalars(input, input_count) ||
         requested_paragraph_level < -1 || requested_paragraph_level > 1 ||
+        style_count > input_count || !has_aligned_pointer(styles, style_count) ||
         level_capacity < input_count ||
         !has_aligned_pointer(levels, input_count) ||
         (input_count != 0U && scratch == nullptr)) {
         result->error_code =
             static_cast<std::uint32_t>(unicode_error::invalid_argument);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    std::uint32_t expected_start = 0U;
+    for (const auto& style : std::span(styles, style_count)) {
+        if (style.scalar_start != expected_start || style.scalar_count == 0U ||
+            style.scalar_count > input_count - expected_start ||
+            !valid_digit_substitution(style.digit_substitution)) {
+            result->error_code = static_cast<std::uint32_t>(unicode_error::invalid_argument);
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        }
+        expected_start += style.scalar_count;
+    }
+    if (style_count != 0U && expected_start != input_count) {
+        result->error_code = static_cast<std::uint32_t>(unicode_error::invalid_argument);
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
     result->paragraph_level = requested_paragraph_level == 1 ? 1 : 0;
@@ -2132,6 +2154,11 @@ progpu_native_status progpu_native_text_resolve_bidi(
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
     copy_scalars(input, native_input);
+    if (has_digit_substitution(styles, style_count))
+        apply_digit_substitution(native_input, std::span(styles, style_count),
+            requested_paragraph_level == 1 ? PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT :
+            requested_paragraph_level == 0 ? PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT :
+            PROGPU_NATIVE_TEXT_DIRECTION_UNSPECIFIED);
     unicode_bidi_scratch bidi_scratch{units, indices, runs, bracket_pairs};
     std::int8_t paragraph_level = 0;
     std::uint32_t written = 0U;
@@ -2159,6 +2186,37 @@ progpu_native_status progpu_native_text_resolve_bidi(
     result->paragraph_level = paragraph_level;
     result->scratch_bytes_used = arena.used();
     return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_text_resolve_bidi(
+    const progpu_native_text_scalar* input, std::uint32_t input_count,
+    std::int32_t requested_paragraph_level,
+    progpu_native_text_bidi_level* levels, std::uint32_t level_capacity,
+    void* scratch, std::size_t scratch_size, progpu_native_text_bidi_result* result) {
+    return resolve_bidi(input, input_count, requested_paragraph_level, nullptr, 0U,
+        levels, level_capacity, scratch, scratch_size, result);
+}
+
+progpu_native_status progpu_native_text_resolve_styled_bidi(
+    const progpu_native_text_scalar* input, std::uint32_t input_count,
+    std::int32_t requested_paragraph_level,
+    const progpu_native_text_style_run* styles, std::uint32_t style_count,
+    progpu_native_text_bidi_level* levels, std::uint32_t level_capacity,
+    void* scratch, std::size_t scratch_size, progpu_native_text_bidi_result* result) {
+    if (!has_aligned_pointer(result, 1U)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    struct borrowed_range { const void* data; std::uint64_t size; };
+    const borrowed_range ranges[]{
+        {input, static_cast<std::uint64_t>(input_count) * sizeof(*input)},
+        {styles, static_cast<std::uint64_t>(style_count) * sizeof(*styles)},
+        {levels, static_cast<std::uint64_t>(level_capacity) * sizeof(*levels)},
+        {scratch, scratch_size}, {result, sizeof(*result)}};
+    for (std::size_t first = 0U; first < 5U; ++first)
+        for (std::size_t second = first + 1U; second < 5U; ++second)
+            if (byte_ranges_overlap(ranges[first].data, ranges[first].size,
+                    ranges[second].data, ranges[second].size))
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    return resolve_bidi(input, input_count, requested_paragraph_level, styles, style_count,
+        levels, level_capacity, scratch, scratch_size, result);
 }
 
 static bool valid_style_runs(const progpu_native_text_context& context,

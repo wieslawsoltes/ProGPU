@@ -23,6 +23,20 @@ typedef struct progpu_native_text_style_run {
 #define PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SCALAR_MASK 0x001FFFFFu
 #define PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_CONTEXTUAL 0x80000000u
 
+/* Resolves metadata using the same digit preprocessing as styled paragraphs.
+ * Only source scalar ranges and digit_substitution are consumed from styles;
+ * fonts, scales and OpenType features have no role in UAX #9 resolution.
+ * Scratch requirements are unchanged from progpu_native_text_get_bidi_requirements.
+ * Input scalars remain borrowed/read-only; outputs retain original source indices.
+ * All input/style/output/scratch/result ranges must be disjoint. Aliased ranges
+ * are rejected before writing any output, scratch or result field. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_resolve_styled_bidi(
+    const progpu_native_text_scalar* input, uint32_t input_count,
+    int32_t requested_paragraph_level,
+    const progpu_native_text_style_run* styles, uint32_t style_count,
+    progpu_native_text_bidi_level* levels, uint32_t level_capacity,
+    void* scratch, size_t scratch_size, progpu_native_text_bidi_result* result);
+
 /* Synchronous borrowed style runs partition every input scalar exactly once,
  * in logical order. font_index names a face already owned by this context;
  * explicit styled faces do not silently enter the primary-face fallback chain.
