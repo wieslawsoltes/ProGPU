@@ -78,22 +78,22 @@ progpu_native_status render_scene(
         return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The semantic scene presentation descriptor is invalid.");
     }
-    // Keep unsupported mappings explicit until paths, text, masks, layers,
-    // effects and retained cache keys all consume independent device axes.
-    if (presentation.viewport_x != 0U || presentation.viewport_y != 0U ||
-        presentation.viewport_width != frame->width || presentation.viewport_height != frame->height ||
-        presentation.dpi_scale_x != frame->dpi_scale || presentation.dpi_scale_y != frame->dpi_scale) {
-        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
-            "Semantic viewport and independent-axis presentation execution is not yet available.");
-    }
+    const bool mapped_presentation =
+        presentation.viewport_x != 0U || presentation.viewport_y != 0U ||
+        presentation.viewport_width != frame->width ||
+        presentation.viewport_height != frame->height ||
+        presentation.dpi_scale_x != frame->dpi_scale ||
+        presentation.dpi_scale_y != frame->dpi_scale;
     const bool damage_requested =
         (frame_flags & PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT) != 0U;
     const bool preserve_requested =
         (frame_flags & PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET) != 0U;
-    const auto logical_width =
-        static_cast<float>(frame->width) / frame->dpi_scale;
-    const auto logical_height =
-        static_cast<float>(frame->height) / frame->dpi_scale;
+    const auto logical_width = static_cast<float>(
+        static_cast<double>(presentation.viewport_width) /
+        presentation.dpi_scale_x);
+    const auto logical_height = static_cast<float>(
+        static_cast<double>(presentation.viewport_height) /
+        presentation.dpi_scale_y);
     if ((frame_flags & ~allowed_frame_flags) != 0U ||
         (damage_requested &&
             (!preserve_requested || !std::isfinite(frame->damage_x) ||
@@ -1573,6 +1573,15 @@ progpu_native_status render_scene(
         ++semantic_draw_count;
     }
 
+    // Flat retained 2D families have complete presentation projection. Keep
+    // the still-unqualified depth and offscreen-composite combinations
+    // explicit until their independent-axis GPU oracles are connected.
+    if (mapped_presentation &&
+        (semantic_3d_draw_count != 0U || semantic_has_materialized_layers)) {
+        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+            "Mapped semantic presentation currently requires a flat 2D scene.");
+    }
+
     const std::uint64_t semantic_effect_uniform_bytes =
         static_cast<std::uint64_t>(semantic_effect_pass_count) *
             semantic_effect_uniform_alignment;
@@ -1608,32 +1617,16 @@ progpu_native_status render_scene(
         preserve_requested &&
         (!damage_requested || semantic_partial_damage_active);
     semantic_scissor semantic_frame_damage{
-        0U, 0U, frame->width, frame->height, true};
+        presentation.viewport_x,
+        presentation.viewport_y,
+        presentation.viewport_width,
+        presentation.viewport_height,
+        true};
     if (semantic_partial_damage_active) {
-        const auto left = std::max(
-            0.0,
-            std::floor(
-                static_cast<double>(frame->damage_x) * frame->dpi_scale));
-        const auto top = std::max(
-            0.0,
-            std::floor(
-                static_cast<double>(frame->damage_y) * frame->dpi_scale));
-        const auto right = std::min(
-            static_cast<double>(frame->width),
-            std::ceil(
-                static_cast<double>(frame->damage_x + frame->damage_width) *
-                frame->dpi_scale));
-        const auto bottom = std::min(
-            static_cast<double>(frame->height),
-            std::ceil(
-                static_cast<double>(frame->damage_y + frame->damage_height) *
-                frame->dpi_scale));
-        semantic_frame_damage = {
-            static_cast<std::uint32_t>(left),
-            static_cast<std::uint32_t>(top),
-            static_cast<std::uint32_t>(right - left),
-            static_cast<std::uint32_t>(bottom - top),
-            right > left && bottom > top};
+        semantic_frame_damage = semantic::resolve_semantic_damage_scissor(
+            {frame->damage_x, frame->damage_y,
+                frame->damage_width, frame->damage_height},
+            presentation);
     }
     std::uint64_t semantic_destination_frame_bytes = 0U;
     std::uint64_t semantic_advanced_source_bytes = 0U;

@@ -266,6 +266,13 @@ scissor intersect_semantic_scissors(
     const scissor& first,
     const scissor& second) noexcept;
 
+// Project one validated logical damage rectangle into the physical
+// presentation viewport. Outward rounding preserves every touched device
+// pixel; the returned scissor never escapes the viewport.
+scissor resolve_semantic_damage_scissor(
+    const progpu_native_image_rect& damage,
+    const progpu_native_scene_presentation& presentation) noexcept;
+
 scissor resolve_semantic_target_scissor(
     const progpu_native_scene_state& state,
     const scissor& target,

@@ -1323,7 +1323,7 @@ void semantic_presentation_layers_keep_independent_device_domains() {
     progpu_native_scene_command pop{};
     pop.kind = PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
     require(cursor.advance(push) == scissor{21U, 32U, 40U, 30U, true});
-    require(cursor.advance(pop) == scissor{13U, 17U, 100U, 80U, true});
+    require(cursor.advance(pop) == scissor{0U, 0U, 200U, 160U, true});
 
     layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
         PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
@@ -1338,7 +1338,7 @@ void semantic_presentation_layers_keep_independent_device_domains() {
     std::memcpy(storage.data(), &layer, sizeof(layer));
     require(cursor.advance(push) == scissor{144U, 240U, 112U, 144U, true});
     require(cursor.advance(pop) == scissor{0U, 0U, 256U, 384U, true});
-    require(cursor.advance(pop) == scissor{13U, 17U, 100U, 80U, true});
+    require(cursor.advance(pop) == scissor{0U, 0U, 200U, 160U, true});
     require(cursor.current_presentation().viewport_x == 13U);
 }
 
@@ -1538,6 +1538,27 @@ void semantic_presentation_identity_tracks_every_device_field() {
         require(hash != presentation_content_hash(123U, frame, changed));
     }
     require(hash != presentation_content_hash(124U, frame, mapped));
+}
+
+void semantic_presentation_damage_projects_outward_into_viewport() {
+    using progpu::native::semantic::resolve_semantic_damage_scissor;
+    using progpu::native::semantic::scissor;
+    const progpu_native_scene_presentation presentation{
+        sizeof(presentation), 8U, 4U, 48U, 40U, 0.75F, 1.25F, 0U};
+    require(resolve_semantic_damage_scissor(
+        {2.25F, 3.25F, 10.5F, 5.5F}, presentation) ==
+        scissor{9U, 8U, 9U, 7U, true});
+    require(resolve_semantic_damage_scissor(
+        {-4.0F, -2.0F, 12.0F, 8.0F}, presentation) ==
+        scissor{8U, 4U, 6U, 8U, true});
+    require(resolve_semantic_damage_scissor(
+        {80.0F, 40.0F, 4.0F, 4.0F}, presentation) ==
+        scissor{68U, 54U, 0U, 0U, false});
+    const progpu_native_scene_presentation legacy{
+        sizeof(legacy), 0U, 0U, 64U, 48U, 2.0F, 2.0F, 0U};
+    require(resolve_semantic_damage_scissor(
+        {1.25F, 2.25F, 4.5F, 3.5F}, legacy) ==
+        scissor{2U, 4U, 10U, 8U, true});
 }
 
 void semantic_static_guidelines_adjust_state_at_target_dpi() {
@@ -1927,6 +1948,7 @@ int main() {
     semantic_presentation_effects_use_independent_physical_distances();
     semantic_presentation_geometry_maps_once_into_target_space();
     semantic_presentation_identity_tracks_every_device_field();
+    semantic_presentation_damage_projects_outward_into_viewport();
     semantic_payload_validation_is_bounded_and_cpu_only();
     draw_state_resolution_is_cpu_only_and_bounded();
     return 0;

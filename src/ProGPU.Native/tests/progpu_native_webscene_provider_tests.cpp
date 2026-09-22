@@ -2468,6 +2468,56 @@ void verify_semantic_scene(
         kIOReturnSuccess, "could not unlock semantic scene IOSurface");
 }
 
+void verify_semantic_presentation_scene(IOSurfaceRef surface) {
+    require(surface != nullptr,
+        "semantic presentation scene has no IOSurface");
+    require(IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess,
+        "could not lock semantic presentation IOSurface");
+    const auto* bytes = static_cast<const std::uint8_t*>(
+        IOSurfaceGetBaseAddress(surface));
+    const std::size_t width = IOSurfaceGetWidth(surface);
+    const std::size_t height = IOSurfaceGetHeight(surface);
+    const std::size_t row_bytes = IOSurfaceGetBytesPerRow(surface);
+    require(bytes != nullptr && width == 64U && height == 48U &&
+        row_bytes >= width * 4U,
+        "unexpected semantic presentation IOSurface storage");
+    const auto pixel = [bytes, row_bytes](std::size_t x, std::size_t y) {
+        return bytes + y * row_bytes + x * 4U;
+    };
+    const auto is_bgra = [](const std::uint8_t* value,
+                            std::uint8_t b,
+                            std::uint8_t g,
+                            std::uint8_t r) {
+        constexpr int tolerance = 48;
+        return std::abs(static_cast<int>(value[0]) - b) <= tolerance &&
+            std::abs(static_cast<int>(value[1]) - g) <= tolerance &&
+            std::abs(static_cast<int>(value[2]) - r) <= tolerance &&
+            value[3] >= 240U;
+    };
+
+    const auto* outside_left = pixel(6U, 14U);
+    const auto* outside_right = pixel(57U, 20U);
+
+    require(is_bgra(outside_left, 10U, 8U, 5U) &&
+            is_bgra(outside_right, 10U, 8U, 5U),
+        "semantic presentation viewport did not clip both physical edges");
+    require(is_bgra(pixel(14U, 14U), 0U, 0U, 255U),
+        "semantic presentation analytic mapping is missing");
+    require(is_bgra(pixel(26U, 14U), 0U, 255U, 0U),
+        "semantic presentation path mapping is missing");
+    require(is_bgra(pixel(38U, 14U), 12U, 35U, 230U),
+        "semantic presentation glyph mapping is missing");
+    require(is_bgra(pixel(49U, 14U), 0U, 255U, 255U),
+        "semantic presentation image mapping is missing");
+    require(is_bgra(pixel(14U, 39U), 132U, 132U, 3U),
+        "semantic presentation second-row mapping is missing");
+
+    require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess,
+        "could not unlock semantic presentation IOSurface");
+}
+
 void verify_semantic_color_glyph_scene(
     IOSurfaceRef surface,
     const char* output_path) {
@@ -3514,12 +3564,58 @@ int main(int argc, char** argv) {
             PROGPU_NATIVE_STATUS_SUCCESS && semantic_metrics.submission_count == 1U &&
             semantic_metrics.vertex_upload_bytes == 0U,
         "explicit legacy-equivalent presentation changed retained replay");
-    mapped_frame.presentation.dpi_scale_x *= 1.25F;
+    webscene_gpu_canvas* mapped_canvas = api.create_canvas(
+        provider, &canvas_configuration, 64U, 48U);
+    require(mapped_canvas != nullptr,
+        "semantic presentation canvas creation failed");
+    std::uintptr_t mapped_texture_handle = 0U;
+    require(api.acquire(provider, mapped_canvas, &mapped_texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS && mapped_texture_handle != 0U,
+        "semantic presentation canvas acquisition failed");
+    auto mapped_texture =
+        reinterpret_cast<WGPUTexture>(mapped_texture_handle);
+    WGPUTextureView mapped_view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        mapped_texture, &view_descriptor);
+    require(mapped_view != nullptr,
+        "semantic presentation target view creation failed");
+    mapped_frame.target_view = reinterpret_cast<std::uintptr_t>(mapped_view);
+    mapped_frame.presentation = {sizeof(mapped_frame.presentation), 8U, 4U,
+        48U, 40U, 0.75F, 1.25F, 0U};
     semantic_metrics = {};
     semantic_metrics.struct_size = sizeof(semantic_metrics);
     require(progpu_native_engine_render_scene(engine, &mapped_frame, &semantic_metrics) ==
-            PROGPU_NATIVE_STATUS_UNSUPPORTED && semantic_metrics.submission_count == 0U,
-        "unimplemented independent-axis presentation was silently approximated");
+            PROGPU_NATIVE_STATUS_SUCCESS && semantic_metrics.submission_count == 1U &&
+            semantic_metrics.payload_hash == semantic_payload_hash,
+        "independent-axis viewport presentation did not preserve scene identity");
+    const auto mapped_payload_hash = semantic_metrics.payload_hash;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(engine, &mapped_frame, &semantic_metrics) ==
+            PROGPU_NATIVE_STATUS_SUCCESS && semantic_metrics.submission_count == 1U &&
+            semantic_metrics.payload_hash == mapped_payload_hash &&
+            semantic_metrics.vertex_upload_bytes == 0U &&
+            semantic_metrics.index_upload_bytes == 0U &&
+            semantic_metrics.texture_upload_bytes == 0U &&
+            semantic_metrics.coverage_staging_bytes == 0U &&
+            semantic_metrics.text_style_upload_bytes == 0U,
+        "stable independent-axis viewport replay rebuilt retained resources");
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(mapped_view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(mapped_texture);
+    webscene_gpu_external_texture mapped_external{};
+    mapped_external.struct_size = sizeof(mapped_external);
+    require(api.present(provider, mapped_canvas, &mapped_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+            mapped_external.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+            (mapped_external.flags &
+                WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "semantic presentation canvas presentation failed");
+    verify_semantic_presentation_scene(
+        reinterpret_cast<IOSurfaceRef>(mapped_external.shared_handle));
+    api.release_external(provider, &mapped_external);
+    api.destroy_canvas(provider, mapped_canvas);
     mapped_frame.struct_size = 80U;
     require(progpu_native_engine_render_scene(engine, &mapped_frame, &semantic_metrics) ==
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && semantic_metrics.submission_count == 0U,
