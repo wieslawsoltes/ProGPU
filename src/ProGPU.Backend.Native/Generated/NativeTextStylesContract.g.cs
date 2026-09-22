@@ -18,5 +18,5 @@ public partial struct NativeTextStyleRun
     public uint FeatureStart;
     public uint FeatureCount;
     public uint Language;
-    public uint Reserved;
+    public uint DigitSubstitution;
 }

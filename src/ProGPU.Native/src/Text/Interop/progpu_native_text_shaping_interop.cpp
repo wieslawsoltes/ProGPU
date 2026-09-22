@@ -592,6 +592,64 @@ void copy_scalars(
     }
 }
 
+constexpr std::uint32_t digit_scalar_mask =
+    PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SCALAR_MASK;
+constexpr std::uint32_t contextual_digit_flag =
+    PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_CONTEXTUAL;
+
+bool valid_digit_substitution(std::uint32_t value) noexcept {
+    if (value == 0U) return true;
+    if ((value & ~(digit_scalar_mask | contextual_digit_flag)) != 0U) return false;
+    const auto zero = value & digit_scalar_mask;
+    if (zero == 0U || zero > 0x10FFF6U ||
+        (zero <= 0xDFFFU && zero + 9U >= 0xD800U)) return false;
+    for (std::uint32_t offset = 0U; offset < 10U; ++offset)
+        if (get_unicode_general_category(zero + offset) !=
+            unicode_general_category::decimal_digit_number) return false;
+    return true;
+}
+
+bool has_digit_substitution(
+    const progpu_native_text_style_run* styles,
+    std::uint32_t count) noexcept {
+    for (std::uint32_t index = 0U; index < count; ++index)
+        if (styles[index].digit_substitution != 0U) return true;
+    return false;
+}
+
+void apply_digit_substitution(
+    std::span<progpu_native_text_scalar> input,
+    std::span<const progpu_native_text_style_run> styles,
+    std::uint32_t paragraph_direction) noexcept {
+    bool arabic_context = paragraph_direction ==
+        PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT;
+    std::size_t style_index = 0U;
+    for (std::size_t index = 0U; index < input.size(); ++index) {
+        while (style_index + 1U < styles.size() &&
+            index >= static_cast<std::size_t>(styles[style_index].scalar_start) +
+                styles[style_index].scalar_count) ++style_index;
+        auto& scalar = input[index];
+        const auto original = scalar.code_point;
+        const auto bidi = get_unicode_bidi_class(original);
+        if (original >= 0x30U && original <= 0x39U && !styles.empty()) {
+            const auto policy = styles[style_index].digit_substitution;
+            const auto zero = policy & digit_scalar_mask;
+            const bool contextual = (policy & contextual_digit_flag) != 0U;
+            if (zero != 0U && (!contextual || arabic_context)) {
+                scalar.code_point = zero + original - 0x30U;
+                scalar.canonical_combining_class =
+                    get_unicode_canonical_combining_class(scalar.code_point);
+                scalar.script = get_unicode_script(scalar.code_point).value;
+            }
+        }
+        if (bidi == unicode_bidi_class::arabic_letter)
+            arabic_context = true;
+        else if (bidi == unicode_bidi_class::left_to_right ||
+            bidi == unicode_bidi_class::right_to_left)
+            arabic_context = false;
+    }
+}
+
 bool valid_layout_request(
     const progpu_native_text_layout_request* request) noexcept {
     if (request == nullptr ||
@@ -803,7 +861,7 @@ bool try_build_paragraph_capacities(
     const progpu_native_text_context& context,
     paragraph_capacities& result,
     font_error& error, bool measured = false, bool excluded = false,
-    std::uint32_t exclusion_count = 0U) noexcept {
+    std::uint32_t exclusion_count = 0U, bool substitute_digits = false) noexcept {
     result = {};
     if (request.input_count == 0U) {
         error = font_error::none;
@@ -874,6 +932,7 @@ bool try_build_paragraph_capacities(
     scratch_size_builder size{};
     if (!size.add<std::byte>(result.shaping.scratch_bytes) ||
         !size.add<progpu_native_text_shaping_glyph>(glyph_count) ||
+        (substitute_digits && !size.add<progpu_native_text_scalar>(input_count)) ||
         !size.add<unicode_scalar>(input_count) ||
         !size.add<unicode_bidi_unit>(input_count) ||
         !size.add<std::uint32_t>(input_count * 4U) ||
@@ -2027,7 +2086,8 @@ static bool valid_style_runs(const progpu_native_text_context& context,
         const auto& style = styles[i];
         if (style.scalar_start != expected || style.scalar_count == 0U ||
             style.scalar_count > shaping.input_count - expected || style.font_index >= context.font_count() ||
-            !std::isfinite(style.scale) || style.scale <= 0.0F || style.reserved != 0U ||
+            !std::isfinite(style.scale) || style.scale <= 0.0F ||
+            !valid_digit_substitution(style.digit_substitution) ||
             style.feature_start > shaping.feature_count || style.feature_count > shaping.feature_count - style.feature_start)
             return false;
         expected += style.scalar_count;
@@ -2159,12 +2219,13 @@ static bool valid_floating_flow(const progpu_native_text_shape_request& shaping,
 
 static bool build_flow_capacities(const progpu_native_text_shape_request& request,
     const progpu_native_text_context& context, paragraph_capacities& result, font_error& error,
+    bool substitute_digits,
     const inline_flow_policy* inline_flow, const excluded_flow_policy* excluded,
     const floating_flow_policy* floating) noexcept {
     const auto float_count = floating == nullptr ? 0U : floating->count;
     const auto count = (excluded == nullptr ? 0U : excluded->count) + float_count;
     if (!try_build_paragraph_capacities(request, context, result, error,
-        inline_flow != nullptr, excluded != nullptr, count)) return false;
+        inline_flow != nullptr, excluded != nullptr, count, substitute_digits)) return false;
     if (floating == nullptr || (request.input_count == 0U && float_count == 0U)) return true;
     scratch_size_builder extra{};
     if (!extra.add<std::byte>(result.scratch_bytes) ||
@@ -2219,7 +2280,8 @@ static progpu_native_status paragraph_requirements_core(
     }
     paragraph_capacities capacities{};
     font_error error = font_error::none;
-    if (!build_flow_capacities(*shaping, *context, capacities, error, inline_flow, excluded_flow, floating_flow)) {
+    if (!build_flow_capacities(*shaping, *context, capacities, error,
+            has_digit_substitution(styles, style_count), inline_flow, excluded_flow, floating_flow)) {
         requirements->error_code = static_cast<std::uint32_t>(error);
         requirements->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
         return status_from_error(error);
@@ -2352,7 +2414,9 @@ static progpu_native_status paragraph_layout_core(
     }
     paragraph_capacities capacities{};
     font_error font_result = font_error::none;
-    if (!build_flow_capacities(*shaping, *context, capacities, font_result, inline_flow, excluded_flow, floating_flow)) {
+    const bool substitute_digits = has_digit_substitution(styles, style_count);
+    if (!build_flow_capacities(*shaping, *context, capacities, font_result,
+            substitute_digits, inline_flow, excluded_flow, floating_flow)) {
         result->error_code = static_cast<std::uint32_t>(font_result);
         result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
         return status_from_error(font_result);
@@ -2419,6 +2483,7 @@ static progpu_native_status paragraph_layout_core(
             (floating_flow == nullptr ? 0U : floating_flow->count);
         std::span<std::byte> shape_scratch{};
         std::span<progpu_native_text_shaping_glyph> run_glyphs{};
+        std::span<progpu_native_text_scalar> substituted_input{};
         std::span<unicode_scalar> native_input{};
         std::span<unicode_bidi_unit> bidi_units{};
         std::span<std::uint32_t> bidi_indices{};
@@ -2452,6 +2517,7 @@ static progpu_native_status paragraph_layout_core(
         std::span<text_exclusion_rectangle> floating_collisions{};
         if (!arena.take(capacities.shaping.scratch_bytes, shape_scratch) ||
             !arena.take(glyph_limit, run_glyphs) ||
+            (substitute_digits && !arena.take(input_count, substituted_input)) ||
             !arena.take(input_count, native_input) ||
             !arena.take(input_count, bidi_units) ||
             !arena.take(input_count * 4U, bidi_indices) ||
@@ -2494,7 +2560,14 @@ static progpu_native_status paragraph_layout_core(
                 const auto& source = excluded_flow->rectangles[i];
                 rectangles[i] = {source.left, source.top, source.right, source.bottom};
             }
-        copy_scalars(shaping->input, native_input);
+        const progpu_native_text_scalar* paragraph_input = shaping->input;
+        if (substitute_digits) {
+            std::copy_n(shaping->input, input_count, substituted_input.data());
+            apply_digit_substitution(substituted_input,
+                std::span(styles, style_count), shaping->direction);
+            paragraph_input = substituted_input.data();
+        }
+        copy_scalars(paragraph_input, native_input);
         unicode_error unicode_result = unicode_error::none;
         unicode_bidi_scratch bidi_scratch{
             bidi_units, bidi_indices, bidi_runs, bidi_pairs};
@@ -2566,8 +2639,8 @@ static progpu_native_status paragraph_layout_core(
         if (style_count != 0U) {
             for (std::uint32_t i = 0U; i < style_count; ++i) {
                 const auto& style = styles[i];
-                const auto& first = shaping->input[style.scalar_start];
-                const auto& last = shaping->input[style.scalar_start + style.scalar_count - 1U];
+                const auto& first = paragraph_input[style.scalar_start];
+                const auto& last = paragraph_input[style.scalar_start + style.scalar_count - 1U];
                 fallback_runs[i] = font_fallback_run{style.scalar_start, style.scalar_count,
                     first.input_index, last.input_index + last.input_length - first.input_index,
                     style.font_index, false, 0U, 0U, 0U};
@@ -2653,7 +2726,7 @@ static progpu_native_status paragraph_layout_core(
                 shaping_glyph item{};
                 item.glyph_id = UINT32_MAX - 1U;
                 item.code_point = 0xFFFCU;
-                item.cluster = static_cast<std::int32_t>(shaping->input[scalar_start].input_index);
+                item.cluster = static_cast<std::int32_t>(paragraph_input[scalar_start].input_index);
                 item.advance_x = object.width == 0.0F ? 0 : 1;
                 logical_glyphs[logical_count] = item;
                 glyph_levels[logical_count] = level;
@@ -2664,12 +2737,12 @@ static progpu_native_status paragraph_layout_core(
                 continue;
             }
             const bool tab_flow = flow != nullptr && flow->incremental_tab > 0.0F;
-            if (tab_flow && shaping->input[scalar_start].code_point == 9U) {
+            if (tab_flow && paragraph_input[scalar_start].code_point == 9U) {
                 if (logical_count >= logical_glyphs.size()) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
                 shaping_glyph tab{};
                 tab.glyph_id = text_tab_glyph_id;
                 tab.code_point = 9U;
-                tab.cluster = static_cast<std::int32_t>(shaping->input[scalar_start].input_index);
+                tab.cluster = static_cast<std::int32_t>(paragraph_input[scalar_start].input_index);
                 logical_glyphs[logical_count] = tab;
                 glyph_levels[logical_count] = paragraph_level;
                 glyph_font_indices[logical_count] = fallback_run.font_index;
@@ -2684,8 +2757,8 @@ static progpu_native_status paragraph_layout_core(
             while (scalar_end < input_count && scalar_end < script_end &&
                 scalar_end < fallback_end &&
                 scalar_levels[scalar_end].level == level &&
-                (!tab_flow || shaping->input[scalar_end].code_point != 9U) &&
-                (inline_flow == nullptr || shaping->input[scalar_end].code_point != 0xFFFCU)) {
+                (!tab_flow || paragraph_input[scalar_end].code_point != 9U) &&
+                (inline_flow == nullptr || paragraph_input[scalar_end].code_point != 0xFFFCU)) {
                 ++scalar_end;
             }
             auto run_request = *shaping;
@@ -2697,7 +2770,7 @@ static progpu_native_status paragraph_layout_core(
                 run_request.feature_count = style.feature_count;
                 run_request.language = style.language;
             }
-            run_request.input = shaping->input + scalar_start;
+            run_request.input = paragraph_input + scalar_start;
             run_request.input_count = static_cast<std::uint32_t>(
                 scalar_end - scalar_start);
             run_request.direction = (level & 1) == 0
@@ -2708,12 +2781,12 @@ static progpu_native_status paragraph_layout_core(
                 run_request.unicode_script = script_run.script.value;
             }
             if (scalar_start != 0U) {
-                run_request.pre_context = shaping->input;
+                run_request.pre_context = paragraph_input;
                 run_request.pre_context_count =
                     static_cast<std::uint32_t>(scalar_start);
             }
             if (scalar_end != input_count) {
-                run_request.post_context = shaping->input + scalar_end;
+                run_request.post_context = paragraph_input + scalar_end;
                 run_request.post_context_count = static_cast<std::uint32_t>(
                     input_count - scalar_end);
             }
@@ -2769,7 +2842,7 @@ static progpu_native_status paragraph_layout_core(
                 const auto& item = floating_flow->events[i];
                 if (item.scalar_index == input_count) glyph_index = logical_count;
                 else {
-                    const auto source_index = static_cast<std::int32_t>(shaping->input[item.scalar_index].input_index);
+                    const auto source_index = static_cast<std::int32_t>(paragraph_input[item.scalar_index].input_index);
                     while (glyph_index < logical_count && logical[glyph_index].cluster < source_index) ++glyph_index;
                     if (glyph_index == logical_count || logical[glyph_index].cluster != source_index) {
                         result->error_code = static_cast<std::uint32_t>(font_error::invalid_argument);
@@ -2782,8 +2855,8 @@ static progpu_native_status paragraph_layout_core(
             }
         }
         if (!try_map_logical_cluster_breaks(
-                std::span<const progpu_native_text_scalar>{
-                    shaping->input, shaping->input_count},
+            std::span<const progpu_native_text_scalar>{
+                    paragraph_input, input_count},
                 scalar_breaks,
                 logical,
                 glyph_breaks.first(logical_count))) {

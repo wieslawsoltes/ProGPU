@@ -30,7 +30,8 @@ public readonly record struct PortableTextParagraphRequest(
 public readonly record struct PortableTextIntrinsicWidths(float Minimum, float Maximum);
 
 public readonly record struct PortableTextStyle(int Start, int Length, PortableTextFont Font,
-    float FontSize, ReadOnlyMemory<PortableTextFeature> Features = default, uint Language = 0);
+    float FontSize, ReadOnlyMemory<PortableTextFeature> Features = default, uint Language = 0,
+    uint DigitZero = 0, bool ContextualDigits = false);
 
 public readonly record struct PortableTextGlyph(uint GlyphId, int Cluster, int ClusterEnd,
     float X, float Y, float Advance, sbyte BidiLevel, uint FontIndex = 0, bool IsTab = false, bool IsCollapseSymbol = false)

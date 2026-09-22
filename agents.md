@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Styled native digit substitution changes only the scratch-owned scalar code point,
+never its original UTF-16 index or length. Apply it before bidi, script, fallback,
+line breaking and shaping. Contextual state crosses style boundaries and uses the
+nearest Arabic-letter bidi strong character, falling back to paragraph direction before
+any letter. Validate the complete ten-scalar Unicode decimal sequence and unknown
+wire bits atomically; never rewrite managed source text or approximate culture
+digits with glyph features. See docs/native-text-digit-substitution.md.
+
 Native dashed source input reuses the renderer's phase/run walker and cap/join
 geometry, preserving gaps, closed seams, endpoint caps, source clips and frames.
 Keep typed aligned batch scratch and actual point/double offsets; never index a

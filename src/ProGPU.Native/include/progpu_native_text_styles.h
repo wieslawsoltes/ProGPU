@@ -14,14 +14,24 @@ typedef struct progpu_native_text_style_run {
     uint32_t feature_start;
     uint32_t feature_count;
     uint32_t language;
-    uint32_t reserved;
+    /* Unicode scalar for the culture's zero digit. Zero disables number
+     * substitution. PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_CONTEXTUAL makes
+     * substitution depend on the nearest preceding strong character. */
+    uint32_t digit_substitution;
 } progpu_native_text_style_run;
+
+#define PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SCALAR_MASK 0x001FFFFFu
+#define PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_CONTEXTUAL 0x80000000u
 
 /* Synchronous borrowed style runs partition every input scalar exactly once,
  * in logical order. font_index names a face already owned by this context;
  * explicit styled faces do not silently enter the primary-face fallback chain.
  * scale is DIP/design-unit, independently for each run. Feature ranges select
  * entries in shaping.features, and language is the run's OpenType language tag.
+ * digit_substitution retains the original input ranges while selecting rendered
+ * Unicode decimal digits before bidi, script, fallback and shaping. Its low 21
+ * bits contain a valid zero-digit scalar followed by nine consecutive decimal
+ * scalars; the contextual flag selects it only after Arabic strong context.
  * Empty styles retain ordinary paragraph behavior. Line height/paragraph
  * direction/wrapping/alignment stay paragraph-wide. Existing context ownership
  * and scratch/result publication rules apply; no style pointers are retained. */
