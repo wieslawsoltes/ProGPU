@@ -215,8 +215,14 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Backend.Native", "NativeTextShapingInterop.cs"));
         string portable = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Wpf.Interop", "PortableTextFormatting.cs"));
+        string nativeExports = File.ReadAllText(FindRepoFile(
+            "eng", "progpu-native-exports.txt"));
+        string dawnExports = File.ReadAllText(FindRepoFile(
+            "eng", "progpu-native-dawn-exports.txt"));
 
         Assert.Contains("progpu_native_text_resolve_language_tag", header, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_text_resolve_language_tag", nativeExports, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_text_resolve_language_tag", dawnExports, StringComparison.Ordinal);
         Assert.Contains("resolve_open_type_language_tag(language).value", native, StringComparison.Ordinal);
         Assert.Contains("maximum_language_size = 255U", native, StringComparison.Ordinal);
         Assert.Contains("public static uint ResolveLanguageTag(ReadOnlySpan<char> language)", managed, StringComparison.Ordinal);
