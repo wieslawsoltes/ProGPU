@@ -448,7 +448,13 @@ if (compiledMilStream is not null)
     NativeSceneFrameMetrics capturedCpuMetrics =
         compositor.RenderSceneWithCpuStages(
             CreateExternalTarget(target),
-            1f,
+            new NativeScenePresentation(
+                4,
+                3,
+                target.Width - 8,
+                target.Height - 6,
+                0.75f,
+                1.25f),
             701,
             1,
             new Vector4(0f, 0f, 0f, 1f));
@@ -459,7 +465,7 @@ if (compiledMilStream is not null)
         capturedCpuMetrics.CpuTotalNanoseconds == 0)
     {
         throw new InvalidOperationException(
-            "Opt-in native owner-thread CPU scene-stage capture failed.");
+            "Mapped opt-in native owner-thread CPU scene-stage capture failed.");
     }
     compositor.WaitForSubmission(capturedCpuSubmission);
     Console.WriteLine(

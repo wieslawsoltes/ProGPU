@@ -846,6 +846,30 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     /// <summary>
+    /// Renders a host-owned target with explicit physical viewport and per-axis
+    /// DPI metadata while capturing native owner-thread CPU stages.
+    /// </summary>
+    public NativeSceneFrameMetrics RenderSceneWithCpuStages(
+        NativeSceneExternalTarget target,
+        NativeScenePresentation presentation,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor)
+    {
+        ValidateExternalTarget(target);
+        return RenderSceneCore(
+            target,
+            presentation.DpiScaleY,
+            sceneId,
+            generation,
+            clearColor,
+            preserveTarget: false,
+            damage: null,
+            presentation,
+            captureCpuStages: true);
+    }
+
+    /// <summary>
     /// Renders the installed immutable semantic scene generation directly to
     /// a host-owned WebGPU texture view while preserving contents outside an
     /// optional logical damage rectangle.

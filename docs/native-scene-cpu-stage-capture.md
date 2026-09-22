@@ -4,8 +4,11 @@ The C++ semantic renderer can report owner-thread CPU durations for one
 installed, immutable scene generation. This is opt-in: the ordinary scene
 rendering overloads do not set `CAPTURE_CPU_STAGES`, do not read the clock, and
 return zero stage fields. `NativeCompositor.RenderSceneWithCpuStages` selects
-capture for a host-owned external target; the existing `RenderScene` overload
-remains the fastest default path.
+capture for a host-owned external target with either the ordinary full-target
+scale or an explicit `NativeScenePresentation`. The existing `RenderScene`
+overload remains the fastest default path. The mapped capture overload submits
+the same physical viewport and independent axes as ordinary mapped rendering;
+diagnostics never substitute a uniform scale or a second render.
 
 The native frame flag requires the complete extended
 `progpu_native_scene_frame_metrics` structure. An older metrics prefix with
