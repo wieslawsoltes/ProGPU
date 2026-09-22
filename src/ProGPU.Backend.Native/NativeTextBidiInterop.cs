@@ -17,11 +17,12 @@ public static unsafe class NativeTextBidiInterop
             StructSize = (uint)Unsafe.SizeOf<NativeTextBidiRequirements>()
         };
         fixed (NativeTextScalar* inputData = input)
+        fixed (NativeTextBidiRequirements* requirementsData = &requirements)
         {
             return NativeMethods.GetTextBidiRequirements(
                 inputData,
                 checked((uint)input.Length),
-                (NativeTextBidiRequirements*)Unsafe.AsPointer(ref requirements));
+                requirementsData);
         }
     }
 
@@ -39,6 +40,7 @@ public static unsafe class NativeTextBidiInterop
         fixed (NativeTextScalar* inputData = input)
         fixed (NativeTextBidiLevel* levelData = levels)
         fixed (byte* scratchData = scratch)
+        fixed (NativeTextBidiResult* resultData = &result)
         {
             return NativeMethods.ResolveTextBidi(
                 inputData,
@@ -48,7 +50,7 @@ public static unsafe class NativeTextBidiInterop
                 checked((uint)levels.Length),
                 scratchData,
                 checked((nuint)scratch.Length),
-                (NativeTextBidiResult*)Unsafe.AsPointer(ref result));
+                resultData);
         }
     }
 
@@ -73,11 +75,12 @@ public static unsafe class NativeTextBidiInterop
         fixed (NativeTextStyleRun* styleData = styles)
         fixed (NativeTextBidiLevel* levelData = levels)
         fixed (byte* scratchData = scratch)
+        fixed (NativeTextBidiResult* resultData = &result)
         {
             return NativeMethods.ResolveStyledTextBidi(inputData, checked((uint)input.Length),
                 requestedParagraphLevel, styleData, checked((uint)styles.Length),
                 levelData, checked((uint)levels.Length), scratchData, checked((nuint)scratch.Length),
-                (NativeTextBidiResult*)Unsafe.AsPointer(ref result));
+                resultData);
         }
     }
 }
