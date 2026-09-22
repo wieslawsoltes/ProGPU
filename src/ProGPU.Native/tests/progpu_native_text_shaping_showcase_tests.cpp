@@ -30,6 +30,19 @@ void require_impl(bool condition, int line) {
 
 #define require(condition) require_impl((condition), __LINE__)
 
+void language_system_tags_use_native_resolver() {
+    std::uint32_t language = 0U;
+    require(progpu_native_text_resolve_language_tag(
+                "pl", 2U, &language) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(language == 0x504C4B20U);
+    require(progpu_native_text_resolve_language_tag(
+                "zh-Hant-HK", 10U, &language) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(language == 0x5A484820U);
+    require(progpu_native_text_resolve_language_tag(
+                "unknown", 7U, &language) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(language == 0x64666C74U);
+}
+
 std::vector<std::byte> read_font() {
     std::ifstream input(PROGPU_NATIVE_TEST_INTER_FONT, std::ios::binary);
     require(input.good());
@@ -302,6 +315,7 @@ static void paragraph_justification_preserves_source_and_terminal_lines() {
 }
 
 int main() {
+    language_system_tags_use_native_resolver();
     justification_classifies_whole_source_clusters();
     paragraph_justification_preserves_source_and_terminal_lines();
     styled_context_preserves_font_scale_and_atomic_failure();

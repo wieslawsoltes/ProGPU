@@ -588,6 +588,15 @@ internal static unsafe partial class NativeMethods
         NativeTextShapeRequest* request,
         NativeTextShapeRequirements* requirements);
 
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_text_resolve_language_tag")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ResolveTextLanguageTag(
+        byte* languageUtf8,
+        nuint languageSize,
+        uint* languageTag);
+
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_create")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus CreateTextContext(

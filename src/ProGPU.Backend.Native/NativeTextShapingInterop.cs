@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace ProGPU.Backend.Native;
 
@@ -64,6 +66,38 @@ public readonly ref struct NativeTextShapeInput
 /// </summary>
 public static unsafe class NativeTextShapingInterop
 {
+    /// <summary>
+    /// Resolves a BCP-47 language to the exact OpenType language-system tag used
+    /// by the C++ shaper. The borrowed UTF-8 input is never retained.
+    /// </summary>
+    public static uint ResolveLanguageTag(ReadOnlySpan<char> language)
+    {
+        int byteCount = Encoding.UTF8.GetByteCount(language);
+        if (byteCount > 255)
+            throw new ArgumentException("A BCP-47 language tag cannot exceed 255 UTF-8 bytes.", nameof(language));
+        byte[]? rented = null;
+        Span<byte> utf8 = byteCount <= 64
+            ? stackalloc byte[byteCount]
+            : (rented = ArrayPool<byte>.Shared.Rent(byteCount)).AsSpan(0, byteCount);
+        try
+        {
+            int written = Encoding.UTF8.GetBytes(language, utf8);
+            uint tag = 0;
+            fixed (byte* pointer = utf8)
+            {
+                NativeRendererStatus status = NativeMethods.ResolveTextLanguageTag(
+                    pointer, checked((nuint)written), &tag);
+                if (status != NativeRendererStatus.Success)
+                    throw new InvalidOperationException($"Native text language resolution failed with {status}.");
+            }
+            return tag;
+        }
+        finally
+        {
+            if (rented != null) ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
     public static NativeRendererStatus GetRequirements(
         in NativeTextShapeInput input,
         out NativeTextShapeRequirements requirements)

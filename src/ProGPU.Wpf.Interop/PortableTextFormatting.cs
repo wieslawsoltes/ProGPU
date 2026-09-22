@@ -65,6 +65,11 @@ public interface IPortableTextParagraph
 
 public interface IPortableTextFormatting
 {
+    /// <summary>
+    /// Resolves a source BCP-47 culture to the provider's native shaping
+    /// language tag. Zero preserves the provider's default language system.
+    /// </summary>
+    uint ResolveLanguage(string ietfLanguageTag) => 0;
     IPortableTextParagraph Format(in PortableTextParagraphRequest request);
 }
 

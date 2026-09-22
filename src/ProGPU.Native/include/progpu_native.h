@@ -3162,6 +3162,14 @@ PROGPU_NATIVE_API size_t progpu_native_engine_get_last_error(
  * font, and capacity validation without allocation. Shape performs one run in
  * caller-owned storage and never retains any supplied pointer.
  */
+/* Resolves one borrowed UTF-8 BCP-47 language tag to the native OpenType
+ * language-system tag used by styled paragraph runs. The input is bounded to
+ * 255 bytes and is never retained. Unknown/empty languages resolve to dflt. */
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_text_resolve_language_tag(
+    const char* language_utf8,
+    size_t language_size,
+    uint32_t* language_tag);
 PROGPU_NATIVE_API progpu_native_status
 progpu_native_text_get_shape_requirements(
     const progpu_native_text_shape_request* request,
