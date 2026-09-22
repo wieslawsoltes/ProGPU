@@ -6,6 +6,26 @@ namespace Avalonia.ProGpu.UnitTests;
 
 public sealed class NativeTextParagraphSnapshotTests
 {
+    [Fact]
+    public void DigitContextRejectsShortOrOverlappingOutputBeforeNativeCall()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            NativeTextShapingInterop.ResolveDigitContext("123", false, new byte[2]));
+        char[] source = ['1', '2', '3'];
+        Assert.Throws<ArgumentException>(() => NativeTextShapingInterop.ResolveDigitContext(
+            source, false, System.Runtime.InteropServices.MemoryMarshal.AsBytes(source.AsSpan())));
+        Assert.Equal(new[] { '1', '2', '3' }, source);
+        byte[] output = [0xA5, 0xA5, 0xA5];
+        Assert.Throws<ArgumentException>(() =>
+            NativeTextShapingInterop.ResolveDigitContext(source, false, output, new byte[2]));
+        Assert.Throws<ArgumentException>(() =>
+            NativeTextShapingInterop.ResolveDigitContext(source, false, output, output));
+        Assert.Throws<ArgumentException>(() => NativeTextShapingInterop.ResolveDigitContext(
+            source, false, output, System.Runtime.InteropServices.MemoryMarshal.AsBytes(source.AsSpan())));
+        Assert.All(output, static value => Assert.Equal((byte)0xA5, value));
+        Assert.Equal(new[] { '1', '2', '3' }, source);
+    }
+
     [Theory]
     [InlineData(NativeTextAlignment.Left, 0)]
     [InlineData(NativeTextAlignment.Justify, 0)]

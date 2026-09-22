@@ -324,6 +324,9 @@ enum class unicode_general_category : std::uint8_t {
 unicode_general_category get_unicode_general_category(
     std::uint32_t code_point) noexcept;
 
+// Returns the exact Unicode decimal digit value 0..9, or -1 for a non-Nd scalar.
+std::int8_t get_unicode_decimal_digit_value(std::uint32_t code_point) noexcept;
+
 /*
  * One decoded scalar retains the original input-unit range. Script is the
  * Unicode 17 Script property translated to ProGPU's OpenType tag convention;
@@ -461,6 +464,11 @@ bool try_segment_unicode_graphemes(
     std::span<unicode_grapheme_cluster> output,
     std::uint32_t& written,
     unicode_error* error = nullptr) noexcept;
+// Strict UTF-16 counterpart using the same UAX #29 boundary state. Writes one
+// byte per code unit: one at a grapheme start, zero inside it, including a low
+// surrogate. All failures and the unused output tail leave storage unchanged.
+bool try_get_utf16_grapheme_starts(std::span<const std::uint16_t> input,
+    std::span<std::uint8_t> starts, unicode_error* error = nullptr) noexcept;
 
 struct unicode_indic_shaping_properties final {
     std::uint8_t category = 0U;

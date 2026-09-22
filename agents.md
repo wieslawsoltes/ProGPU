@@ -3,8 +3,13 @@
 Styled native digit substitution changes only the scratch-owned scalar code point,
 never its original UTF-16 index or length. Apply it before bidi, script, fallback,
 line breaking and shaping. Contextual state crosses style boundaries and uses the
-nearest Arabic-letter bidi strong character, falling back to paragraph direction before
-any letter. Validate the complete ten-scalar Unicode decimal sequence and unknown
+nearest L/R/AL bidi strong character, falling back to paragraph direction before
+any strong character and after hard line breaks. Source font selection uses the
+batched native UTF-16 context capability before physical font mapping; chunked
+callers split at hard boundaries so carried context cannot replace reset direction.
+Keep raw context separate from native grapheme-start bytes: a strong spacing mark
+may change context within a cluster, but must not force a source font/style split.
+Validate actual decimal values zero through nine, not only a continuous Nd range, and unknown
 wire bits atomically; never rewrite managed source text or approximate culture
 digits with glyph features. See docs/native-text-digit-substitution.md.
 

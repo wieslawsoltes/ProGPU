@@ -35,4 +35,17 @@ unicode_general_category get_unicode_general_category(
     return unicode_general_category::other_not_assigned;
 }
 
+std::int8_t get_unicode_decimal_digit_value(std::uint32_t code_point) noexcept {
+    const auto& zeros = detail::unicode_decimal_digit_zeros;
+    std::size_t low = 0U;
+    std::size_t high = zeros.size();
+    while (low < high) {
+        const std::size_t middle = low + (high - low) / 2U;
+        if (code_point < zeros[middle]) high = middle;
+        else if (code_point > zeros[middle] + 9U) low = middle + 1U;
+        else return static_cast<std::int8_t>(code_point - zeros[middle]);
+    }
+    return -1;
+}
+
 } // namespace progpu::native::text

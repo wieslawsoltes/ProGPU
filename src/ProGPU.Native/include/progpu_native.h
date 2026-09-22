@@ -3170,6 +3170,32 @@ progpu_native_text_resolve_language_tag(
     const char* language_utf8,
     size_t language_size,
     uint32_t* language_tag);
+/* Resolves contextual digit selection over borrowed strict UTF-16 in one batch.
+ * Output is the Arabic-strong context after each scalar, replicated over both
+ * surrogate units. Hard line breaks reset to initial_arabic_context. Empty input
+ * preserves that state. No source mutation, allocation or pointer retention.
+ * Invalid input leaves all output unchanged; caller spans must not overlap. */
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_text_resolve_digit_context(
+    const uint16_t* text,
+    uint32_t text_length,
+    uint8_t initial_arabic_context,
+    uint8_t* substitution_context,
+    uint32_t context_capacity,
+    uint8_t* final_arabic_context);
+/* Adds UAX #29 grapheme-start bytes in the same UTF-16 frame. These boundaries
+ * remain separate from the raw digit context, which may change inside a cluster.
+ * Every output span must be disjoint from the source and all other outputs. */
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_text_resolve_digit_context_with_graphemes(
+    const uint16_t* text,
+    uint32_t text_length,
+    uint8_t initial_arabic_context,
+    uint8_t* substitution_context,
+    uint32_t context_capacity,
+    uint8_t* grapheme_starts,
+    uint32_t grapheme_capacity,
+    uint8_t* final_arabic_context);
 PROGPU_NATIVE_API progpu_native_status
 progpu_native_text_get_shape_requirements(
     const progpu_native_text_shape_request* request,

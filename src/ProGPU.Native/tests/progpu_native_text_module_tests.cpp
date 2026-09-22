@@ -1,6 +1,12 @@
 import progpu.native.text;
 
 int main() {
+    if (progpu::native::text::get_unicode_decimal_digit_value(0x1D7CFU) != 1 ||
+        progpu::native::text::get_unicode_decimal_digit_value(0x1D7D8U) != 0) return 1;
+    const unsigned short digit_text[]{0x0627U, 0x0903U, 0x31U};
+    unsigned char digit_starts[3]{};
+    if (!progpu::native::text::try_get_utf16_grapheme_starts(digit_text, digit_starts) ||
+        digit_starts[0] != 1 || digit_starts[1] != 0 || digit_starts[2] != 1) return 1;
     progpu::native::text::text_layout_metrics fragment_extent{};
     if (!progpu::native::text::try_measure_fragment_text_lines({}, {}, 100, fragment_extent) ||
         fragment_extent.content_height != 0 || fragment_extent.measured_width != 100) return 1;

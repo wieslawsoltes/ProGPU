@@ -43,6 +43,90 @@ void language_system_tags_use_native_resolver() {
     require(language == 0x64666C74U);
 }
 
+void digit_context_is_batched_source_preserving_and_transactional() {
+    // Arabic, neutral supplementary scalar, Latin, Hebrew, Syriac and strong
+    // direction controls test native bidi classification independently of fonts.
+    const std::array<std::uint16_t, 16> text{
+        '1', 0x0627U, '2', 0xD83DU, 0xDE42U, '3', 'A', '4',
+        0x05D0U, '5', 0x0710U, '6', 0x200EU, '7', 0x061CU, '8'};
+    std::array<std::uint8_t, 18> contexts{};
+    contexts.fill(0xA5U);
+    std::uint8_t final = 0xA5U;
+    require(progpu_native_text_resolve_digit_context(text.data(), text.size(),
+        0, contexts.data(), contexts.size(), &final) == PROGPU_NATIVE_STATUS_SUCCESS);
+    const std::array<std::uint8_t, 16> expected{
+        0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1};
+    require(std::equal(expected.begin(), expected.end(), contexts.begin()));
+    require(final == 1 && contexts[16] == 0xA5U && contexts[17] == 0xA5U);
+
+    for (const auto boundary : {0x000AU, 0x000DU, 0x0085U, 0x2028U, 0x2029U}) {
+        const std::array<std::uint16_t, 3> segment{
+            'A', static_cast<std::uint16_t>(boundary), '1'};
+        require(progpu_native_text_resolve_digit_context(segment.data(), segment.size(),
+            1, contexts.data(), contexts.size(), &final) == PROGPU_NATIVE_STATUS_SUCCESS);
+        require(contexts[0] == 0 && contexts[1] == 1 && contexts[2] == 1 && final == 1);
+    }
+    const std::array<std::uint16_t, 4> supplementary_arabic{0xD83BU, 0xDE00U, '1', '2'};
+    require(progpu_native_text_resolve_digit_context(supplementary_arabic.data(),
+        supplementary_arabic.size(), 0, contexts.data(), contexts.size(), &final) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    require(contexts[0] == 1 && contexts[1] == 1 && contexts[2] == 1 && final == 1);
+    require(progpu_native_text_resolve_digit_context(nullptr, 0, 1, nullptr, 0,
+        &final) == PROGPU_NATIVE_STATUS_SUCCESS && final == 1);
+
+    contexts.fill(0xA5U); final = 0xA5U;
+    const std::array<std::uint16_t, 2> invalid{'A', 0xD800U};
+    require(progpu_native_text_resolve_digit_context(invalid.data(), invalid.size(),
+        0, contexts.data(), contexts.size(), &final) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(progpu_native_text_resolve_digit_context(text.data(), text.size(),
+        0, contexts.data(), 1, &final) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(progpu_native_text_resolve_digit_context(text.data(), text.size(),
+        2, contexts.data(), contexts.size(), &final) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(std::all_of(contexts.begin(), contexts.end(),
+        [](auto value) { return value == 0xA5U; }) && final == 0xA5U);
+}
+
+void digit_context_keeps_grapheme_starts_separate() {
+    const std::array<std::uint16_t, 7> text{
+        0x0627U, 0x0903U, '1', 0x0627U, 0x0600U, '2', 0x0301U};
+    const auto original = text;
+    std::array<std::uint8_t, 9> contexts{}, starts{};
+    contexts.fill(0xA5U); starts.fill(0xA5U);
+    std::uint8_t final = 0U;
+    require(progpu_native_text_resolve_digit_context_with_graphemes(
+        text.data(), text.size(), 0, contexts.data(), contexts.size(),
+        starts.data(), starts.size(), &final) == PROGPU_NATIVE_STATUS_SUCCESS);
+    // The spacing mark changes strong context inside the Arabic-base cluster.
+    // U+0600 Prepend and the following digit/combining mark form one cluster.
+    const std::array<std::uint8_t, 7> expected_context{1, 0, 0, 1, 1, 1, 1};
+    const std::array<std::uint8_t, 7> expected_starts{1, 0, 1, 1, 1, 0, 0};
+    require(std::equal(expected_context.begin(), expected_context.end(), contexts.begin()));
+    require(std::equal(expected_starts.begin(), expected_starts.end(), starts.begin()));
+    require(contexts[7] == 0xA5U && starts[7] == 0xA5U && final == 1 && text == original);
+
+    const std::array<std::uint16_t, 6> emoji{0xD83DU, 0xDC69U, 0x200DU, 0xD83DU, 0xDCBBU, '1'};
+    require(progpu_native_text_resolve_digit_context_with_graphemes(
+        emoji.data(), emoji.size(), 1, contexts.data(), contexts.size(),
+        starts.data(), starts.size(), &final) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(starts[0] == 1 && starts[1] == 0 && starts[2] == 0 &&
+        starts[3] == 0 && starts[4] == 0 && starts[5] == 1);
+
+    starts.fill(0xA5U); contexts.fill(0xA5U); final = 0xA5U;
+    const std::array<std::uint16_t, 2> invalid{'1', 0xDC00U};
+    require(progpu_native_text_resolve_digit_context_with_graphemes(
+        invalid.data(), invalid.size(), 0, contexts.data(), contexts.size(),
+        starts.data(), starts.size(), &final) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(progpu_native_text_resolve_digit_context_with_graphemes(
+        text.data(), text.size(), 0, contexts.data(), contexts.size(),
+        starts.data(), 1, &final) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(progpu_native_text_resolve_digit_context_with_graphemes(
+        text.data(), text.size(), 0, contexts.data(), contexts.size(),
+        contexts.data(), contexts.size(), &final) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(std::all_of(contexts.begin(), contexts.end(), [](auto value) { return value == 0xA5U; }));
+    require(std::all_of(starts.begin(), starts.end(), [](auto value) { return value == 0xA5U; }));
+    require(final == 0xA5U);
+}
+
 std::vector<std::byte> read_font() {
     std::ifstream input(PROGPU_NATIVE_TEST_INTER_FONT, std::ios::binary);
     require(input.good());
@@ -292,6 +376,10 @@ static void styled_digits_preserve_source_and_follow_context() {
         PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT, true);
     require(glyph_at(after_latin, 1) == glyph_at(direct_western, 0));
     require(glyph_at(after_arabic, 1) == glyph_at(direct_arabic, 0));
+    const std::array<std::uint32_t, 3> hard_break{'A', '\n', '1'};
+    const auto after_break = shape(hard_break, arabic_zero | contextual,
+        PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT, true);
+    require(glyph_at(after_break, 2) == glyph_at(direct_arabic, 0));
 
     std::array<progpu_native_text_scalar, 1> text{{{'1', 0, 1, 0, 0, 0}}};
     progpu_native_text_shape_request shaping{};
@@ -305,6 +393,15 @@ static void styled_digits_preserve_source_and_follow_context() {
     require(progpu_native_text_context_get_styled_paragraph_requirements(context.get(),
         &shaping, &layout, &invalid, 1, &required) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(required.glyph_capacity == 0 && required.scratch_bytes == 0);
+    // Adjacent mathematical decimal alphabets are one continuous Nd range;
+    // starting at ONE must not be accepted as a new zero-through-nine sequence.
+    invalid.digit_substitution = 0x1D7CFU;
+    require(progpu_native_text_context_get_styled_paragraph_requirements(context.get(),
+        &shaping, &layout, &invalid, 1, &required) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(required.glyph_capacity == 0 && required.scratch_bytes == 0);
+    invalid.digit_substitution = 0x1D7D8U;
+    require(progpu_native_text_context_get_styled_paragraph_requirements(context.get(),
+        &shaping, &layout, &invalid, 1, &required) == PROGPU_NATIVE_STATUS_SUCCESS);
 }
 
 static void justification_classifies_whole_source_clusters() {
@@ -421,6 +518,8 @@ static void paragraph_justification_preserves_source_and_terminal_lines() {
 
 int main() {
     language_system_tags_use_native_resolver();
+    digit_context_is_batched_source_preserving_and_transactional();
+    digit_context_keeps_grapheme_starts_separate();
     justification_classifies_whole_source_clusters();
     paragraph_justification_preserves_source_and_terminal_lines();
     styled_context_preserves_font_scale_and_atomic_failure();

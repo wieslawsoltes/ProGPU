@@ -75,6 +75,22 @@ public interface IPortableTextFormatting
 }
 
 /// <summary>
+/// Optional source font-selection capability over the provider's native digit
+/// context policy. Output covers each original UTF-16 unit with 0 or 1; surrogate
+/// units share their scalar's context. Hard breaks reset to the initial context.
+/// A caller carrying context across chunks must split at hard segment boundaries.
+/// </summary>
+public interface IPortableTextDigitContext
+{
+    bool ResolveDigitContext(ReadOnlySpan<char> text, bool initialArabicContext,
+        Span<byte> substitutionContext);
+    /// <summary>Also returns native UAX #29 grapheme starts, independently of raw
+    /// context transitions. Both outputs retain the original UTF-16 frame.</summary>
+    bool ResolveDigitContext(ReadOnlySpan<char> text, bool initialArabicContext,
+        Span<byte> substitutionContext, Span<byte> graphemeStarts);
+}
+
+/// <summary>
 /// Explicit retained paragraph reflow. Full shaping context and original UTF-16
 /// indices survive; only placement from an existing shaped boundary changes.
 /// Exclusion/float geometry needs its own continuation contract.

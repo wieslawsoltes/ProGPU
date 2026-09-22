@@ -267,6 +267,7 @@ using progpu::native::text::sfnt_glyph_outline_bounds_scratch;
 using progpu::native::text::fallback_mark_positioning_scratch;
 using progpu::native::text::unicode_general_category;
 using progpu::native::text::get_unicode_general_category;
+using progpu::native::text::get_unicode_decimal_digit_value;
 using progpu::native::text::arabic_stretch_run;
 using progpu::native::text::arabic_stretch_requirements;
 using progpu::native::text::try_get_arabic_stretch_requirements;
@@ -566,6 +567,15 @@ void unicode_contract_and_strict_decoders_are_transactional() {
         unicode_general_category::other_not_assigned);
     require(get_unicode_general_category(0x110000U) ==
         unicode_general_category::other_not_assigned);
+    for (const auto zero : {0x30U, 0x0660U, 0x0966U, 0xFF10U,
+            0x1D7CEU, 0x1D7D8U, 0x1D7E2U, 0x1D7ECU, 0x1D7F6U}) {
+        for (std::uint32_t digit = 0U; digit < 10U; ++digit)
+            require(get_unicode_decimal_digit_value(zero + digit) ==
+                static_cast<std::int8_t>(digit));
+    }
+    for (const auto non_decimal : {0x41U, 0x00B2U, 0x2160U, 0xD800U,
+            0x110000U, 0xFFFFFFFFU})
+        require(get_unicode_decimal_digit_value(non_decimal) == -1);
 
     constexpr std::array<std::byte, 7U> utf8{
         std::byte{0x41U},

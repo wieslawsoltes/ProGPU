@@ -604,8 +604,8 @@ bool valid_digit_substitution(std::uint32_t value) noexcept {
     if (zero == 0U || zero > 0x10FFF6U ||
         (zero <= 0xDFFFU && zero + 9U >= 0xD800U)) return false;
     for (std::uint32_t offset = 0U; offset < 10U; ++offset)
-        if (get_unicode_general_category(zero + offset) !=
-            unicode_general_category::decimal_digit_number) return false;
+        if (get_unicode_decimal_digit_value(zero + offset) !=
+            static_cast<std::int8_t>(offset)) return false;
     return true;
 }
 
@@ -617,12 +617,29 @@ bool has_digit_substitution(
     return false;
 }
 
+bool advance_digit_context(std::uint32_t code_point,
+    bool initial_arabic_context, bool arabic_context) noexcept {
+    // Hard segment boundaries reset the context independently of style runs.
+    const auto line_break = get_unicode_line_break_class(code_point);
+    if (line_break == unicode_line_break_class::mandatory ||
+        line_break == unicode_line_break_class::carriage_return ||
+        line_break == unicode_line_break_class::line_feed ||
+        line_break == unicode_line_break_class::next_line)
+        return initial_arabic_context;
+    const auto bidi = get_unicode_bidi_class(code_point);
+    if (bidi == unicode_bidi_class::arabic_letter) return true;
+    if (bidi == unicode_bidi_class::left_to_right ||
+        bidi == unicode_bidi_class::right_to_left) return false;
+    return arabic_context;
+}
+
 void apply_digit_substitution(
     std::span<progpu_native_text_scalar> input,
     std::span<const progpu_native_text_style_run> styles,
     std::uint32_t paragraph_direction) noexcept {
-    bool arabic_context = paragraph_direction ==
+    const bool initial_arabic_context = paragraph_direction ==
         PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT;
+    bool arabic_context = initial_arabic_context;
     std::size_t style_index = 0U;
     for (std::size_t index = 0U; index < input.size(); ++index) {
         while (style_index + 1U < styles.size() &&
@@ -630,7 +647,6 @@ void apply_digit_substitution(
                 styles[style_index].scalar_count) ++style_index;
         auto& scalar = input[index];
         const auto original = scalar.code_point;
-        const auto bidi = get_unicode_bidi_class(original);
         if (original >= 0x30U && original <= 0x39U && !styles.empty()) {
             const auto policy = styles[style_index].digit_substitution;
             const auto zero = policy & digit_scalar_mask;
@@ -642,11 +658,8 @@ void apply_digit_substitution(
                 scalar.script = get_unicode_script(scalar.code_point).value;
             }
         }
-        if (bidi == unicode_bidi_class::arabic_letter)
-            arabic_context = true;
-        else if (bidi == unicode_bidi_class::left_to_right ||
-            bidi == unicode_bidi_class::right_to_left)
-            arabic_context = false;
+        arabic_context = advance_digit_context(
+            original, initial_arabic_context, arabic_context);
     }
 }
 
@@ -1295,6 +1308,78 @@ progpu_native_status shape_core(
 } // namespace
 
 extern "C" {
+
+static progpu_native_status resolve_digit_context(
+    const std::uint16_t* text, std::uint32_t text_length,
+    std::uint8_t initial_arabic_context, std::uint8_t* substitution_context,
+    std::uint32_t context_capacity, std::uint8_t* final_arabic_context,
+    bool include_graphemes, std::uint8_t* grapheme_starts,
+    std::uint32_t grapheme_capacity) {
+    if (initial_arabic_context > 1U || final_arabic_context == nullptr ||
+        context_capacity < text_length ||
+        !has_aligned_pointer(text, text_length) ||
+        !has_pointer(substitution_context, text_length) ||
+        (include_graphemes && (grapheme_capacity < text_length ||
+            !has_pointer(grapheme_starts, text_length))))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    const auto overlaps = [](const void* left, std::uint64_t left_size,
+        const void* right, std::uint64_t right_size) noexcept {
+        if (left_size == 0U || right_size == 0U) return false;
+        const auto a = reinterpret_cast<std::uintptr_t>(left);
+        const auto b = reinterpret_cast<std::uintptr_t>(right);
+        return a <= b ? b - a < left_size : a - b < right_size;
+    };
+    const auto text_bytes = static_cast<std::uint64_t>(text_length) * sizeof(std::uint16_t);
+    if (overlaps(text, text_bytes, substitution_context, text_length) ||
+        overlaps(text, text_bytes, final_arabic_context, 1U) ||
+        overlaps(substitution_context, text_length, final_arabic_context, 1U) ||
+        (include_graphemes &&
+            (overlaps(text, text_bytes, grapheme_starts, text_length) ||
+             overlaps(substitution_context, text_length, grapheme_starts, text_length) ||
+             overlaps(final_arabic_context, 1U, grapheme_starts, text_length))))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    unicode_decode_requirements requirements{};
+    const std::span<const std::uint16_t> source{text, text_length};
+    if (include_graphemes ? !try_get_utf16_grapheme_starts(source,
+            std::span<std::uint8_t>{grapheme_starts, grapheme_capacity}) :
+            !try_get_utf16_decode_requirements(source, requirements))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    bool context = initial_arabic_context != 0U;
+    for (std::uint32_t offset = 0U; offset < text_length;) {
+        const auto start = offset;
+        std::uint32_t code_point = text[offset++];
+        if (code_point >= 0xD800U && code_point <= 0xDBFFU) {
+            code_point = 0x10000U + ((code_point - 0xD800U) << 10U) +
+                (text[offset++] - 0xDC00U);
+        }
+        context = advance_digit_context(code_point,
+            initial_arabic_context != 0U, context);
+        substitution_context[start] = static_cast<std::uint8_t>(context);
+        if (offset - start == 2U)
+            substitution_context[start + 1U] = static_cast<std::uint8_t>(context);
+    }
+    *final_arabic_context = static_cast<std::uint8_t>(context);
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_text_resolve_digit_context(
+    const std::uint16_t* text, std::uint32_t text_length,
+    std::uint8_t initial_arabic_context, std::uint8_t* substitution_context,
+    std::uint32_t context_capacity, std::uint8_t* final_arabic_context) {
+    return resolve_digit_context(text, text_length, initial_arabic_context,
+        substitution_context, context_capacity, final_arabic_context,
+        false, nullptr, 0U);
+}
+
+progpu_native_status progpu_native_text_resolve_digit_context_with_graphemes(
+    const std::uint16_t* text, std::uint32_t text_length,
+    std::uint8_t initial_arabic_context, std::uint8_t* substitution_context,
+    std::uint32_t context_capacity, std::uint8_t* grapheme_starts,
+    std::uint32_t grapheme_capacity, std::uint8_t* final_arabic_context) {
+    return resolve_digit_context(text, text_length, initial_arabic_context,
+        substitution_context, context_capacity, final_arabic_context,
+        true, grapheme_starts, grapheme_capacity);
+}
 
 progpu_native_status progpu_native_text_resolve_language_tag(
     const char* language_utf8,

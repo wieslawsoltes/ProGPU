@@ -223,6 +223,14 @@ public class NativeRendererInteropTests
         Assert.Contains("progpu_native_text_resolve_language_tag", header, StringComparison.Ordinal);
         Assert.Contains("progpu_native_text_resolve_language_tag", nativeExports, StringComparison.Ordinal);
         Assert.Contains("progpu_native_text_resolve_language_tag", dawnExports, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_text_resolve_digit_context", header, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_text_resolve_digit_context", nativeExports, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_text_resolve_digit_context", dawnExports, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_text_resolve_digit_context_with_graphemes", header, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_text_resolve_digit_context_with_graphemes", nativeExports, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_text_resolve_digit_context_with_graphemes", dawnExports, StringComparison.Ordinal);
+        Assert.Contains("public static bool ResolveDigitContext(ReadOnlySpan<char> text,", managed, StringComparison.Ordinal);
+        Assert.Contains("public interface IPortableTextDigitContext", portable, StringComparison.Ordinal);
         Assert.Contains("resolve_open_type_language_tag(language).value", native, StringComparison.Ordinal);
         Assert.Contains("maximum_language_size = 255U", native, StringComparison.Ordinal);
         Assert.Contains("public static uint ResolveLanguageTag(ReadOnlySpan<char> language)", managed, StringComparison.Ordinal);
