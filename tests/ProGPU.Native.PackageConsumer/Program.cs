@@ -445,6 +445,17 @@ if (compiledMilStream is not null)
         throw new InvalidOperationException(
             "The ordinary native scene render unexpectedly measured CPU stages.");
     }
+    using (var mappedMil = new NativeMilChannel())
+    {
+        mappedMil.Apply(CreateMilGeometryDrawingBatch());
+        NativeMilCompiledScene mappedScene = mappedMil.CompileScene(2, 703, 1);
+        NativeSceneUpdateMetrics mappedUpdate = compositor.UpdateScene(mappedScene.Stream);
+        if (mappedUpdate.DrawCount == 0)
+        {
+            throw new InvalidOperationException(
+                "The mapped CPU-stage package fixture did not install a flat 2D draw.");
+        }
+    }
     NativeSceneFrameMetrics capturedCpuMetrics =
         compositor.RenderSceneWithCpuStages(
             CreateExternalTarget(target),
@@ -455,7 +466,7 @@ if (compiledMilStream is not null)
                 target.Height - 6,
                 0.75f,
                 1.25f),
-            701,
+            703,
             1,
             new Vector4(0f, 0f, 0f, 1f));
     NativeSubmissionToken capturedCpuSubmission =
