@@ -262,6 +262,34 @@ bool try_segment_unicode_graphemes(
     return true;
 }
 
+bool try_get_utf16_grapheme_starts(std::span<const std::uint16_t> input,
+    std::span<std::uint8_t> starts, unicode_error* error) noexcept {
+    unicode_decode_requirements requirements{};
+    if (!try_get_utf16_decode_requirements(input, requirements, error)) return false;
+    if (starts.size() < input.size()) {
+        set_error(error, unicode_error::insufficient_buffer);
+        return false;
+    }
+    boundary_state state{};
+    auto left = unicode_grapheme_break_class::other;
+    for (std::size_t offset = 0U; offset < input.size();) {
+        const auto start = offset;
+        std::uint32_t code_point = input[offset++];
+        if (code_point >= 0xD800U && code_point <= 0xDBFFU) {
+            code_point = 0x10000U + ((code_point - 0xD800U) << 10U) +
+                (input[offset++] - 0xDC00U);
+        }
+        const auto right = get_unicode_grapheme_break_class(code_point);
+        starts[start] = static_cast<std::uint8_t>(start == 0U ||
+            has_boundary(code_point, left, right, state, true));
+        if (offset - start == 2U) starts[start + 1U] = 0U;
+        advance_state(code_point, right, state);
+        left = right;
+    }
+    set_error(error, unicode_error::none);
+    return true;
+}
+
 namespace detail {
 
 bool try_segment_managed_compatible_graphemes(

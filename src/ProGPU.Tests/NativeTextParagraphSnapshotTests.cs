@@ -6,6 +6,26 @@ namespace Avalonia.ProGpu.UnitTests;
 
 public sealed class NativeTextParagraphSnapshotTests
 {
+    [Fact]
+    public void DigitContextRejectsShortOrOverlappingOutputBeforeNativeCall()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            NativeTextShapingInterop.ResolveDigitContext("123", false, new byte[2]));
+        char[] source = ['1', '2', '3'];
+        Assert.Throws<ArgumentException>(() => NativeTextShapingInterop.ResolveDigitContext(
+            source, false, System.Runtime.InteropServices.MemoryMarshal.AsBytes(source.AsSpan())));
+        Assert.Equal(new[] { '1', '2', '3' }, source);
+        byte[] output = [0xA5, 0xA5, 0xA5];
+        Assert.Throws<ArgumentException>(() =>
+            NativeTextShapingInterop.ResolveDigitContext(source, false, output, new byte[2]));
+        Assert.Throws<ArgumentException>(() =>
+            NativeTextShapingInterop.ResolveDigitContext(source, false, output, output));
+        Assert.Throws<ArgumentException>(() => NativeTextShapingInterop.ResolveDigitContext(
+            source, false, output, System.Runtime.InteropServices.MemoryMarshal.AsBytes(source.AsSpan())));
+        Assert.All(output, static value => Assert.Equal((byte)0xA5, value));
+        Assert.Equal(new[] { '1', '2', '3' }, source);
+    }
+
     [Theory]
     [InlineData(NativeTextAlignment.Left, 0)]
     [InlineData(NativeTextAlignment.Justify, 0)]
@@ -168,7 +188,8 @@ public sealed class NativeTextParagraphSnapshotTests
         var scalars = new NativeTextScalar[text.Length];
         int count = NativeTextParagraphSnapshot.DecodeUtf16(text, scalars);
         var mapped = NativeTextParagraphSnapshot.MapStyles(
-            [new(0, 3, 0, .01f), new(3, 2, 2, .025f, 3, 4, 123)], scalars.AsSpan(0, count), text.Length);
+            [new(0, 3, 0, .01f), new(3, 2, 2, .025f, 3, 4, 123, 0x0660, true)],
+            scalars.AsSpan(0, count), text.Length);
         Assert.Equal(2U, mapped[0].ScalarCount);
         Assert.Equal(2U, mapped[1].ScalarStart);
         Assert.Equal(2U, mapped[1].ScalarCount);
@@ -177,12 +198,17 @@ public sealed class NativeTextParagraphSnapshotTests
         Assert.Equal(3U, mapped[1].FeatureStart);
         Assert.Equal(4U, mapped[1].FeatureCount);
         Assert.Equal(123U, mapped[1].Language);
+        Assert.Equal(0x80000660U, mapped[1].DigitSubstitution);
         Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapStyles(
             [new(0, 2, 0, 1), new(2, 3, 0, 1)], scalars.AsSpan(0, count), text.Length));
         Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapStyles(
             [new(0, 3, 0, 1)], scalars.AsSpan(0, count), text.Length));
         Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapStyles(
             [new(0, 3, 0, 1), new(2, 3, 0, 1)], scalars.AsSpan(0, count), text.Length));
+        Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapStyles(
+            [new(0, 5, 0, 1, ContextualDigits: true)], scalars.AsSpan(0, count), text.Length));
+        Assert.Throws<ArgumentOutOfRangeException>(() => NativeTextParagraphSnapshot.MapStyles(
+            [new(0, 5, 0, 1, DigitZero: 0xD7FF)], scalars.AsSpan(0, count), text.Length));
     }
 
     [Theory]

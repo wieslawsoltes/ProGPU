@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace ProGPU.Backend.Native;
@@ -66,6 +67,66 @@ public readonly ref struct NativeTextShapeInput
 /// </summary>
 public static unsafe class NativeTextShapingInterop
 {
+    /// <summary>
+    /// Resolves native contextual digit selection without changing source text.
+    /// Each UTF-16 unit receives the Arabic-strong context after its scalar (0 or 1).
+    /// Hard line boundaries reset to <paramref name="initialArabicContext"/>.
+    /// Returns the final context for a following chunk in the same hard segment.
+    /// </summary>
+    public static bool ResolveDigitContext(ReadOnlySpan<char> text,
+        bool initialArabicContext, Span<byte> substitutionContext)
+    {
+        ValidateDigitContextSpans(text, substitutionContext);
+        byte finalContext = 0;
+        fixed (char* textPointer = text)
+        fixed (byte* contextPointer = substitutionContext)
+        {
+            NativeRendererStatus status = NativeMethods.ResolveTextDigitContext(
+                textPointer, checked((uint)text.Length), initialArabicContext ? (byte)1 : (byte)0,
+                contextPointer, checked((uint)substitutionContext.Length), &finalContext);
+            if (status != NativeRendererStatus.Success)
+                throw new ArgumentException($"Native digit context resolution failed with {status}.", nameof(text));
+        }
+        return finalContext != 0;
+    }
+
+    /// <summary>
+    /// Also resolves native grapheme starts in the original UTF-16 frame: one
+    /// at a cluster start, zero inside it. Context may change inside a cluster;
+    /// source font/style partitioning must respect the separate start mask.
+    /// </summary>
+    public static bool ResolveDigitContext(ReadOnlySpan<char> text,
+        bool initialArabicContext, Span<byte> substitutionContext, Span<byte> graphemeStarts)
+    {
+        ValidateDigitContextSpans(text, substitutionContext);
+        if (graphemeStarts.Length < text.Length)
+            throw new ArgumentException("Grapheme starts must cover the complete UTF-16 input.", nameof(graphemeStarts));
+        if (MemoryMarshal.AsBytes(text).Overlaps(graphemeStarts) ||
+            substitutionContext.Overlaps(graphemeStarts))
+            throw new ArgumentException("Grapheme starts must not overlap source or context storage.", nameof(graphemeStarts));
+        byte finalContext = 0;
+        fixed (char* textPointer = text)
+        fixed (byte* contextPointer = substitutionContext)
+        fixed (byte* graphemePointer = graphemeStarts)
+        {
+            NativeRendererStatus status = NativeMethods.ResolveTextDigitContextWithGraphemes(
+                textPointer, checked((uint)text.Length), initialArabicContext ? (byte)1 : (byte)0,
+                contextPointer, checked((uint)substitutionContext.Length),
+                graphemePointer, checked((uint)graphemeStarts.Length), &finalContext);
+            if (status != NativeRendererStatus.Success)
+                throw new ArgumentException($"Native digit/grapheme context resolution failed with {status}.", nameof(text));
+        }
+        return finalContext != 0;
+    }
+
+    private static void ValidateDigitContextSpans(ReadOnlySpan<char> text, Span<byte> substitutionContext)
+    {
+        if (substitutionContext.Length < text.Length)
+            throw new ArgumentException("Digit context output must cover the complete UTF-16 input.", nameof(substitutionContext));
+        if (MemoryMarshal.AsBytes(text).Overlaps(substitutionContext))
+            throw new ArgumentException("Digit context output must not overlap source text.", nameof(substitutionContext));
+    }
+
     /// <summary>
     /// Resolves a BCP-47 language to the exact OpenType language-system tag used
     /// by the C++ shaper. The borrowed UTF-8 input is never retained.

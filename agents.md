@@ -1,5 +1,22 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Styled native digit substitution changes only the scratch-owned scalar code point,
+never its original UTF-16 index or length. Apply it before bidi, script, fallback,
+line breaking and shaping. Contextual state crosses style boundaries and uses the
+nearest L/R/AL bidi strong character, falling back to paragraph direction before
+any strong character and after hard line breaks. Source font selection uses the
+batched native UTF-16 context capability before physical font mapping; chunked
+callers split at hard boundaries so carried context cannot replace reset direction.
+Keep raw context separate from native grapheme-start bytes: a strong spacing mark
+may change context within a cluster, but must not force a source font/style split.
+Retained bidi levels and interaction must reuse the same native digit policy as
+shaping; resolving original EN digits after rendering substituted AN digits yields
+incorrect levels even when glyph IDs and positions agree. Preserve original source
+indices and the existing metadata scratch/crossing budget.
+Validate actual decimal values zero through nine, not only a continuous Nd range, and unknown
+wire bits atomically; never rewrite managed source text or approximate culture
+digits with glyph features. See docs/native-text-digit-substitution.md.
+
 Native dashed source input reuses the renderer's phase/run walker and cap/join
 geometry, preserving gaps, closed seams, endpoint caps, source clips and frames.
 Keep typed aligned batch scratch and actual point/double offsets; never index a

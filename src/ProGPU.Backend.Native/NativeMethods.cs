@@ -597,6 +597,19 @@ internal static unsafe partial class NativeMethods
         nuint languageSize,
         uint* languageTag);
 
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_resolve_digit_context")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ResolveTextDigitContext(
+        char* text, uint textLength, byte initialArabicContext,
+        byte* substitutionContext, uint contextCapacity, byte* finalArabicContext);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_resolve_digit_context_with_graphemes")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ResolveTextDigitContextWithGraphemes(
+        char* text, uint textLength, byte initialArabicContext,
+        byte* substitutionContext, uint contextCapacity,
+        byte* graphemeStarts, uint graphemeCapacity, byte* finalArabicContext);
+
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_create")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus CreateTextContext(
@@ -738,6 +751,14 @@ internal static unsafe partial class NativeMethods
         byte* scratch,
         nuint scratchSize,
         NativeTextBidiResult* result);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_resolve_styled_bidi")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ResolveStyledTextBidi(
+        NativeTextScalar* input, uint inputCount, int requestedParagraphLevel,
+        NativeTextStyleRun* styles, uint styleCount,
+        NativeTextBidiLevel* levels, uint levelCapacity,
+        byte* scratch, nuint scratchSize, NativeTextBidiResult* result);
 
     [LibraryImport(
         LibraryName,

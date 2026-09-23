@@ -1,5 +1,30 @@
 # Native C++ text-port provenance and execution plan
 
+## Styled paragraph digit substitution
+
+The native styled paragraph digit-substitution pass is an original ProGPU C++
+implementation over the repository's existing scalar snapshot, Unicode property
+tables and scratch arena. It follows the public WPF `NumberSubstitutionMethod`
+behavior and Unicode bidi-class contract: forced national digits always replace
+European input digits, while contextual substitution uses the nearest preceding
+Arabic-letter bidi strong character or the paragraph direction when no strong character precedes the
+number. It preserves the original input indices and lengths and precedes the
+shared bidi, script, fallback, line-break and shaping pipeline. Native and managed
+wire mapping are differentially covered; no third-party implementation text,
+structure or private table was used. See `docs/native-text-digit-substitution.md`.
+
+The context-only C ABI and optional neutral provider capability reuse that native
+state transition to support source physical-font selection. UTF-16 validation
+uses ProGPU's existing strict decoder contract; scalar decoding retains both
+surrogate units and no font/GPU context is created. Mandatory line boundaries
+reset the explicit seed. Decimal values come from the existing .NET 10 Unicode
+category generator extended with independently validated zero-through-nine data;
+there is no imported digit classifier or third-party table encoding.
+The optional grapheme-start output uses the original ProGPU-owned UAX #29
+`has_boundary` and `advance_state` helpers in `progpu_native_unicode_grapheme.cpp`,
+also used by native paragraph segmentation. It adds only UTF-16 transport and
+retains raw strong-context changes independently of grapheme ownership.
+
 ## Scope and policy
 
 ProGPU's native text implementation is a full parallel backend port of the proven,

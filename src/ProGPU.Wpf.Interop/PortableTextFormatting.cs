@@ -30,7 +30,8 @@ public readonly record struct PortableTextParagraphRequest(
 public readonly record struct PortableTextIntrinsicWidths(float Minimum, float Maximum);
 
 public readonly record struct PortableTextStyle(int Start, int Length, PortableTextFont Font,
-    float FontSize, ReadOnlyMemory<PortableTextFeature> Features = default, uint Language = 0);
+    float FontSize, ReadOnlyMemory<PortableTextFeature> Features = default, uint Language = 0,
+    uint DigitZero = 0, bool ContextualDigits = false);
 
 public readonly record struct PortableTextGlyph(uint GlyphId, int Cluster, int ClusterEnd,
     float X, float Y, float Advance, sbyte BidiLevel, uint FontIndex = 0, bool IsTab = false, bool IsCollapseSymbol = false)
@@ -71,6 +72,22 @@ public interface IPortableTextFormatting
     /// </summary>
     uint ResolveLanguage(string ietfLanguageTag) => 0;
     IPortableTextParagraph Format(in PortableTextParagraphRequest request);
+}
+
+/// <summary>
+/// Optional source font-selection capability over the provider's native digit
+/// context policy. Output covers each original UTF-16 unit with 0 or 1; surrogate
+/// units share their scalar's context. Hard breaks reset to the initial context.
+/// A caller carrying context across chunks must split at hard segment boundaries.
+/// </summary>
+public interface IPortableTextDigitContext
+{
+    bool ResolveDigitContext(ReadOnlySpan<char> text, bool initialArabicContext,
+        Span<byte> substitutionContext);
+    /// <summary>Also returns native UAX #29 grapheme starts, independently of raw
+    /// context transitions. Both outputs retain the original UTF-16 frame.</summary>
+    bool ResolveDigitContext(ReadOnlySpan<char> text, bool initialArabicContext,
+        Span<byte> substitutionContext, Span<byte> graphemeStarts);
 }
 
 /// <summary>
