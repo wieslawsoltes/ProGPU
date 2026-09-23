@@ -604,10 +604,12 @@ constexpr std::uint32_t digit_scalar_mask =
     PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SCALAR_MASK;
 constexpr std::uint32_t contextual_digit_flag =
     PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_CONTEXTUAL;
+constexpr std::uint32_t source_bidi_digit_flag =
+    PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SOURCE_BIDI;
 
 bool valid_digit_substitution(std::uint32_t value) noexcept {
     if (value == 0U) return true;
-    if ((value & ~(digit_scalar_mask | contextual_digit_flag)) != 0U) return false;
+    if ((value & ~(digit_scalar_mask | contextual_digit_flag | source_bidi_digit_flag)) != 0U) return false;
     const auto zero = value & digit_scalar_mask;
     if (zero == 0U || zero > 0x10FFF6U ||
         (zero <= 0xDFFFU && zero + 9U >= 0xD800U)) return false;
@@ -622,6 +624,14 @@ bool has_digit_substitution(
     std::uint32_t count) noexcept {
     for (std::uint32_t index = 0U; index < count; ++index)
         if (styles[index].digit_substitution != 0U) return true;
+    return false;
+}
+
+bool preserve_source_digit_bidi(
+    const progpu_native_text_style_run* styles,
+    std::uint32_t count) noexcept {
+    for (std::uint32_t index = 0U; index < count; ++index)
+        if ((styles[index].digit_substitution & source_bidi_digit_flag) != 0U) return true;
     return false;
 }
 
@@ -2154,7 +2164,8 @@ static progpu_native_status resolve_bidi(
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
     copy_scalars(input, native_input);
-    if (has_digit_substitution(styles, style_count))
+    if (has_digit_substitution(styles, style_count) &&
+        !preserve_source_digit_bidi(styles, style_count))
         apply_digit_substitution(native_input, std::span(styles, style_count),
             requested_paragraph_level == 1 ? PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT :
             requested_paragraph_level == 0 ? PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT :
@@ -2710,7 +2721,8 @@ static progpu_native_status paragraph_layout_core(
                 std::span(styles, style_count), shaping->direction);
             paragraph_input = substituted_input.data();
         }
-        copy_scalars(paragraph_input, native_input);
+        const bool source_digit_bidi = preserve_source_digit_bidi(styles, style_count);
+        copy_scalars(source_digit_bidi ? shaping->input : paragraph_input, native_input);
         unicode_error unicode_result = unicode_error::none;
         unicode_bidi_scratch bidi_scratch{
             bidi_units, bidi_indices, bidi_runs, bidi_pairs};
@@ -2735,6 +2747,8 @@ static progpu_native_status paragraph_layout_core(
             result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_BIDI;
             return status_from_unicode_error(unicode_result);
         }
+        if (source_digit_bidi)
+            copy_scalars(paragraph_input, native_input);
         result->paragraph_level = paragraph_level;
         const bool itemize_scripts = shaping->unicode_script == 0U ||
             shaping->unicode_script == default_script.value;

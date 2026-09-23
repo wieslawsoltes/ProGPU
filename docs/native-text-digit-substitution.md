@@ -12,6 +12,10 @@ context; otherwise the original European digits remain active.
 The generated C ABI retains its 32-byte style record. Its final
 `digit_substitution` word stores the digit-zero scalar in the low 21 bits and
 the contextual policy in `PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_CONTEXTUAL`.
+`PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SOURCE_BIDI` selects source-scalar
+bidi classes while retaining the same substituted glyphs; the corresponding
+managed style option is `PreserveSourceDigitBidi`. This is an explicit
+source-system compatibility mode, not the default ProGPU policy.
 Native validation rejects unknown bits, invalid scalars and sequences whose ten
 members do not have the exact decimal values zero through nine. The existing
 .NET-derived Unicode category generator also emits decimal-zero scalars and
@@ -24,18 +28,27 @@ paragraph result is published.
 
 When any style enables substitution, the C++ paragraph call copies the borrowed
 scalar records into its existing caller-owned scratch arena. It applies digit substitution to that copy before
-bidi resolution, script itemization, grapheme and line-break analysis, font
+script itemization, grapheme and line-break analysis, font
 selection and OpenType shaping. The copy retains every original `input_index`
 and `input_length`; caret, selection, wrapping and source editing therefore
 continue to address the original UTF-16 text. No managed rewrite or per-digit
 native call is involved.
 
+By default bidi resolution also sees substituted scalars. In source-bidi mode,
+bidi resolves the borrowed original scalars first, then the paragraph switches
+to the substituted scratch copy for script, font and shaping work. This preserves
+WPF's source-digit caret order for national/contextual substitution without
+changing the glyph or UTF-16 index domain. The flag is selected consistently
+by the retained metadata resolver and paragraph layout; mixed policies within
+one paragraph resolve bidi in the source domain.
+
 Retained paragraph metadata resolves through `NativeTextBidiInterop.ResolveStyled`,
-which applies that same native substitution to the existing bidi scratch copy.
-Resolving metadata from the original European digit scalars would incorrectly
-export level zero for forced Arabic digits in an LTR paragraph, despite level-two
-rendering. Original source indices remain unchanged; glyph levels, selection
-boxes and caret stops now consume the substituted bidi state in ordinary, measured
+which applies the paragraph's selected bidi policy to the existing scratch copy.
+For the default policy, resolving metadata from original European digits would
+incorrectly export level zero for forced Arabic digits in an LTR paragraph.
+For source-bidi mode, that original level is intentional and matches shaping.
+Original source indices remain unchanged; glyph levels, selection
+boxes and caret stops consume the same selected bidi state in ordinary, measured
 inline and continued paragraphs. The unstyled resolver and scratch requirements
 remain unchanged, with no additional crossing or source-sized allocation.
 
@@ -98,7 +111,9 @@ work remains in the existing native batched pipeline.
 The native showcase test compares forced and contextual substitution with direct
 Arabic-Indic and European input. It covers initial LTR/RTL context, preceding
 Latin and Arabic letters, reset after a hard line break, preserved source clusters
-and atomic rejection of shifted decimal sequences. Native context tests cover
+and atomic rejection of shifted decimal sequences. It also verifies that the
+explicit source-bidi policy retains original scalar levels while selecting the
+same substituted digit glyphs. Native context tests cover
 Latin, Hebrew, Syriac, Arabic, supplementary Arabic scalars, neutral surrogate
 pairs, directional controls, hard boundaries, invalid UTF-16 and untouched tails.
 Grapheme tests distinguish an interior strong-mark context change, prepend/digit
@@ -123,13 +138,15 @@ retains the shared source/shaping/rendering ownership described in
 `native-mil-text-source-integration.md`; it introduces no glyph cache, raster,
 worker, DPI or device-recovery policy.
 
-## Remaining source integration
+## LibreWPF source connection and remaining qualification
 
-LibreWPF must resolve each source `DigitState` to the actual culture digit
-sequence and use the native context capability before selecting actual physical
-fonts for rendered digit intervals. Numeric punctuation has a separate source
-contract; this API admits digit substitution only. Windows comparison, including
-strong controls/punctuation and hard-line behavior, remains an independent
-application and package qualification gate. Managed and native MIL renderers
-consume the same resulting physical-font glyph runs; this source-text preparation
-does not introduce a renderer-specific substitute.
+LibreWPF resolves each source `DigitState` to the actual culture digit sequence
+and uses the native context capability before selecting physical fonts for the
+rendered intervals. Its WPF adapter requests source-bidi mode for substituted
+digits, retaining original ASCII source caret ordering. Managed and native MIL
+renderers consume the same resulting physical-font glyph runs; this does not
+introduce a renderer-specific substitute. Numeric punctuation has a separate
+source contract; this API admits digit substitution only. The Windows stock-WPF
+comparison, including strong controls/punctuation and hard-line behavior,
+remains an independent application and clean-package qualification gate; a
+source or compiled fixture alone does not close it.

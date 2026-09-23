@@ -199,6 +199,13 @@ public sealed class NativeTextParagraphSnapshotTests
         Assert.Equal(4U, mapped[1].FeatureCount);
         Assert.Equal(123U, mapped[1].Language);
         Assert.Equal(0x80000660U, mapped[1].DigitSubstitution);
+        var sourceBidi = NativeTextParagraphSnapshot.MapStyles(
+            [new(0, text.Length, 0, .01f, DigitZero: 0x0660, PreserveSourceDigitBidi: true)],
+            scalars.AsSpan(0, count), text.Length);
+        Assert.Equal(0x40000660U, sourceBidi[0].DigitSubstitution);
+        Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapStyles(
+            [new(0, text.Length, 0, .01f, PreserveSourceDigitBidi: true)],
+            scalars.AsSpan(0, count), text.Length));
         Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapStyles(
             [new(0, 2, 0, 1), new(2, 3, 0, 1)], scalars.AsSpan(0, count), text.Length));
         Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapStyles(

@@ -489,19 +489,19 @@ no shader or C ABI change.
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.1.1-preview.62`
-- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.62`
-- `ProGPU.Avalonia.Rendering` `11.3.20-preview.62`
-- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.62`
+- `ProGPU.Avalonia.Rendering` `12.1.1-preview.63`
+- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.63`
+- `ProGPU.Avalonia.Rendering` `11.3.20-preview.63`
+- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.63`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.62` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.63` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.62 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.63 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -519,7 +519,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.62 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.63 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -537,7 +537,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.62`.
+for example `v0.1.0-preview.63`.
 
 ## NuGet Publishing
 
