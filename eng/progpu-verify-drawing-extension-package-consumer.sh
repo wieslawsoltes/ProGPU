@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.62}"
+package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.63}"
 package_output="${PROGPU_PACKAGE_OUTPUT:-${repo_root}/artifacts/packages/Release}"
 configuration="${PROGPU_CONFIGURATION:-Release}"
 consumer_root="$(mktemp -d "${TMPDIR:-/tmp}/progpu-drawing-consumer.XXXXXX")"
