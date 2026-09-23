@@ -3,6 +3,23 @@ using ProGPU.Backend.Native;
 
 internal static class TextDigitSubstitutionValidation
 {
+    internal static void RunNumberSymbols(string fontPath)
+    {
+        using var context = new NativeTextShapingContext(File.ReadAllBytes(fontPath));
+        const string source = "12%";
+        const string rendered = "12\u066A";
+        var options = new NativeTextParagraphOptions(24f / 2048, 0, 28);
+        NativeTextParagraphStyle[] mapped = [new(0, source.Length, 0, options.Scale,
+            Percent: 0x066A)];
+        NativeTextParagraphStyle[] direct = [new(0, rendered.Length, 0, options.Scale)];
+        var actual = NativeTextParagraphSnapshot.Create(context, source,
+            NativeTextDirection.LeftToRight, options, styles: mapped);
+        var expected = NativeTextParagraphSnapshot.Create(context, rendered,
+            NativeTextDirection.LeftToRight, options, styles: direct);
+        Equal(expected, actual);
+        Console.WriteLine("Native number-symbol glyph/source metadata matches explicit Arabic percent.");
+    }
+
     internal static void Run(string fontPath)
     {
         using var context = new NativeTextShapingContext(File.ReadAllBytes(fontPath));

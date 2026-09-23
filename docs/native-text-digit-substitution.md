@@ -139,6 +139,17 @@ Arabic-digit scalar input. Its ordinary, contextual, hard-break, continued and
 inline cases execute in the existing package gate; the explicit
 `--text-digit-substitution-only` selector runs that same fixture independently.
 
+The `--text-number-symbols-only <font-path>` selector checks the packaged
+styled native shaper against explicit U+066A input using an external font that
+contains both ASCII and Arabic percent glyphs. In the Windows 11 ARM64 VM,
+the LibreWPF Traditional Arabic fixture font passed this selector with the
+published preview.64 native package. That isolates the remaining Windows
+`NativeNational` percent mismatch to the WPF source-style decision, not the
+ProGPU scalar substitution ABI. The selector does not imply that an arbitrary
+multi-scalar `PercentSymbol` (including a trailing bidi mark) is itself a
+native scalar contract; the source adapter must resolve such a policy before
+calling this API.
+
 The behavior is based on the public WPF
 [`NumberSubstitutionMethod`](https://learn.microsoft.com/dotnet/api/system.windows.media.numbersubstitutionmethod)
 contract and Unicode bidirectional classes from

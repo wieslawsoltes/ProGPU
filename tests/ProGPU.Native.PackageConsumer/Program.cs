@@ -16,6 +16,12 @@ if (args.Contains("--text-digit-substitution-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Length == 2 && args[0] == "--text-number-symbols-only")
+{
+    TextDigitSubstitutionValidation.RunNumberSymbols(args[1]);
+    return;
+}
+
 if (args.Contains("--webgpu-init-only", StringComparer.Ordinal))
 {
     Console.WriteLine(
