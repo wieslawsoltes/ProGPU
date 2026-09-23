@@ -602,25 +602,28 @@ public sealed class NativeTextParagraphSnapshot
             result[i] = new NativeTextStyleRun { ScalarStart = (uint)first, ScalarCount = (uint)(scalar - first),
                 FontIndex = style.FontIndex, Scale = style.Scale, FeatureStart = style.FeatureStart,
                 FeatureCount = style.FeatureCount, Language = style.Language,
-                DigitSubstitution = PackDigitSubstitution(style.DigitZero, style.ContextualDigits) };
+                DigitSubstitution = PackDigitSubstitution(style.DigitZero, style.ContextualDigits,
+                    style.PreserveSourceDigitBidi) };
         }
         if (source != textLength) throw new ArgumentException("Styles must cover the complete input.");
         return result;
     }
 
-    private static uint PackDigitSubstitution(uint digitZero, bool contextual)
+    private static uint PackDigitSubstitution(uint digitZero, bool contextual, bool preserveSourceBidi)
     {
         const uint scalarMask = 0x001F_FFFF;
         const uint contextualFlag = 0x8000_0000;
+        const uint sourceBidiFlag = 0x4000_0000;
         if (digitZero == 0)
         {
-            if (contextual)
-                throw new ArgumentException("Contextual digit substitution requires a zero digit scalar.");
+            if (contextual || preserveSourceBidi)
+                throw new ArgumentException("Digit substitution flags require a zero digit scalar.");
             return 0;
         }
         if (digitZero > 0x10FFF6 || (digitZero <= 0xDFFF && digitZero + 9 >= 0xD800))
             throw new ArgumentOutOfRangeException(nameof(digitZero), "The complete decimal digit sequence must contain Unicode scalars.");
-        return (digitZero & scalarMask) | (contextual ? contextualFlag : 0);
+        return (digitZero & scalarMask) | (contextual ? contextualFlag : 0) |
+            (preserveSourceBidi ? sourceBidiFlag : 0);
     }
 
     internal static int DecodeUtf16(ReadOnlySpan<char> text, Span<NativeTextScalar> output)
@@ -686,7 +689,7 @@ public sealed class NativeTextParagraphSnapshot
 /// <summary>Explicit face/feature domain over UTF-16 input; ranges must partition the paragraph.</summary>
 public readonly record struct NativeTextParagraphStyle(int Start, int Length, uint FontIndex,
     float Scale, uint FeatureStart = 0, uint FeatureCount = 0, uint Language = 0,
-    uint DigitZero = 0, bool ContextualDigits = false);
+    uint DigitZero = 0, bool ContextualDigits = false, bool PreserveSourceDigitBidi = false);
 
 /// <summary>One measured non-ink U+FFFC at a UTF-16 position, not a native scalar index.</summary>
 public readonly record struct NativeTextParagraphInlineObject(int Position, float Width, float Ascent, float Descent);

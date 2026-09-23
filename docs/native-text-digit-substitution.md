@@ -12,6 +12,10 @@ context; otherwise the original European digits remain active.
 The generated C ABI retains its 32-byte style record. Its final
 `digit_substitution` word stores the digit-zero scalar in the low 21 bits and
 the contextual policy in `PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_CONTEXTUAL`.
+`PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SOURCE_BIDI` selects source-scalar
+bidi classes while retaining the same substituted glyphs; the corresponding
+managed style option is `PreserveSourceDigitBidi`. This is an explicit
+source-system compatibility mode, not the default ProGPU policy.
 Native validation rejects unknown bits, invalid scalars and sequences whose ten
 members do not have the exact decimal values zero through nine. The existing
 .NET-derived Unicode category generator also emits decimal-zero scalars and
@@ -24,18 +28,27 @@ paragraph result is published.
 
 When any style enables substitution, the C++ paragraph call copies the borrowed
 scalar records into its existing caller-owned scratch arena. It applies digit substitution to that copy before
-bidi resolution, script itemization, grapheme and line-break analysis, font
+script itemization, grapheme and line-break analysis, font
 selection and OpenType shaping. The copy retains every original `input_index`
 and `input_length`; caret, selection, wrapping and source editing therefore
 continue to address the original UTF-16 text. No managed rewrite or per-digit
 native call is involved.
 
+By default bidi resolution also sees substituted scalars. In source-bidi mode,
+bidi resolves the borrowed original scalars first, then the paragraph switches
+to the substituted scratch copy for script, font and shaping work. This preserves
+WPF's source-digit caret order for national/contextual substitution without
+changing the glyph or UTF-16 index domain. The flag is selected consistently
+by the retained metadata resolver and paragraph layout; mixed policies within
+one paragraph resolve bidi in the source domain.
+
 Retained paragraph metadata resolves through `NativeTextBidiInterop.ResolveStyled`,
-which applies that same native substitution to the existing bidi scratch copy.
-Resolving metadata from the original European digit scalars would incorrectly
-export level zero for forced Arabic digits in an LTR paragraph, despite level-two
-rendering. Original source indices remain unchanged; glyph levels, selection
-boxes and caret stops now consume the substituted bidi state in ordinary, measured
+which applies the paragraph's selected bidi policy to the existing scratch copy.
+For the default policy, resolving metadata from original European digits would
+incorrectly export level zero for forced Arabic digits in an LTR paragraph.
+For source-bidi mode, that original level is intentional and matches shaping.
+Original source indices remain unchanged; glyph levels, selection
+boxes and caret stops consume the same selected bidi state in ordinary, measured
 inline and continued paragraphs. The unstyled resolver and scratch requirements
 remain unchanged, with no additional crossing or source-sized allocation.
 

@@ -364,7 +364,11 @@ static void styled_digits_preserve_source_and_follow_context() {
         PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT);
     const auto substituted = shape(western_one, arabic_zero,
         PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT);
+    const auto source_bidi_substituted = shape(western_one,
+        arabic_zero | PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SOURCE_BIDI,
+        PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT);
     require(glyph_at(substituted, 0) == glyph_at(direct_arabic, 0));
+    require(glyph_at(source_bidi_substituted, 0) == glyph_at(direct_arabic, 0));
     require(glyph_at(substituted, 0) != glyph_at(direct_western, 0));
 
     const auto initial_ltr = shape(western_one, arabic_zero | contextual,
@@ -441,8 +445,13 @@ static void styled_bidi_matches_substituted_paragraph_input() {
     for (const auto direction : {-1, 0, 1}) {
         const auto expected = resolve(arabic, 0U, direction);
         const auto actual = resolve(western, 0x0660U, direction);
+        const auto source_bidi = resolve(western,
+            0x0660U | PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SOURCE_BIDI, direction);
+        const auto original = resolve(western, 0U, direction);
         for (std::size_t index = 0U; index < expected.size(); ++index)
             require(expected[index].level == actual[index].level && actual[index].level == 2);
+        for (std::size_t index = 0U; index < original.size(); ++index)
+            require(source_bidi[index].level == original[index].level);
     }
     const std::array<std::uint32_t, 7> contextual{'A', '1', 0x0627U, '2', 'A', '\n', '3'};
     const std::array<std::uint32_t, 7> rendered{'A', '1', 0x0627U, 0x0662U, 'A', '\n', 0x0663U};

@@ -22,6 +22,7 @@ typedef struct progpu_native_text_style_run {
 
 #define PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SCALAR_MASK 0x001FFFFFu
 #define PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_CONTEXTUAL 0x80000000u
+#define PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SOURCE_BIDI 0x40000000u
 
 /* Resolves metadata using the same digit preprocessing as styled paragraphs.
  * Only source scalar ranges and digit_substitution are consumed from styles;
@@ -43,7 +44,10 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_resolve_styled_bidi(
  * scale is DIP/design-unit, independently for each run. Feature ranges select
  * entries in shaping.features, and language is the run's OpenType language tag.
  * digit_substitution retains the original input ranges while selecting rendered
- * Unicode decimal digits before bidi, script, fallback and shaping. Its low 21
+ * Unicode decimal digits before script, fallback and shaping. By default bidi
+ * also sees substituted digits. SOURCE_BIDI retains the original scalar bidi
+ * classes for source systems that substitute glyphs after bidi itemization.
+ * Its low 21
  * bits contain a valid zero-digit scalar followed by nine consecutive decimal
  * scalars; the contextual flag selects it only after Arabic strong context.
  * Empty styles retain ordinary paragraph behavior. Line height/paragraph
