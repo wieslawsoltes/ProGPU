@@ -111,7 +111,9 @@ work remains in the existing native batched pipeline.
 The native showcase test compares forced and contextual substitution with direct
 Arabic-Indic and European input. It covers initial LTR/RTL context, preceding
 Latin and Arabic letters, reset after a hard line break, preserved source clusters
-and atomic rejection of shifted decimal sequences. Native context tests cover
+and atomic rejection of shifted decimal sequences. It also verifies that the
+explicit source-bidi policy retains original scalar levels while selecting the
+same substituted digit glyphs. Native context tests cover
 Latin, Hebrew, Syriac, Arabic, supplementary Arabic scalars, neutral surrogate
 pairs, directional controls, hard boundaries, invalid UTF-16 and untouched tails.
 Grapheme tests distinguish an interior strong-mark context change, prepend/digit
@@ -136,13 +138,15 @@ retains the shared source/shaping/rendering ownership described in
 `native-mil-text-source-integration.md`; it introduces no glyph cache, raster,
 worker, DPI or device-recovery policy.
 
-## Remaining source integration
+## LibreWPF source connection and remaining qualification
 
-LibreWPF must resolve each source `DigitState` to the actual culture digit
-sequence and use the native context capability before selecting actual physical
-fonts for rendered digit intervals. Numeric punctuation has a separate source
-contract; this API admits digit substitution only. Windows comparison, including
-strong controls/punctuation and hard-line behavior, remains an independent
-application and package qualification gate. Managed and native MIL renderers
-consume the same resulting physical-font glyph runs; this source-text preparation
-does not introduce a renderer-specific substitute.
+LibreWPF resolves each source `DigitState` to the actual culture digit sequence
+and uses the native context capability before selecting physical fonts for the
+rendered intervals. Its WPF adapter requests source-bidi mode for substituted
+digits, retaining original ASCII source caret ordering. Managed and native MIL
+renderers consume the same resulting physical-font glyph runs; this does not
+introduce a renderer-specific substitute. Numeric punctuation has a separate
+source contract; this API admits digit substitution only. The Windows stock-WPF
+comparison, including strong controls/punctuation and hard-line behavior,
+remains an independent application and clean-package qualification gate; a
+source or compiled fixture alone does not close it.
