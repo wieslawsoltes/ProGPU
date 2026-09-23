@@ -141,7 +141,8 @@ inline cases execute in the existing package gate; the explicit
 
 The `--text-number-symbols-only <font-path>` selector checks the packaged
 styled native shaper against explicit U+066A input using an external font that
-contains both ASCII and Arabic percent glyphs. In the Windows 11 ARM64 VM,
+contains distinct ASCII and Arabic percent glyphs; missing or identical glyphs
+fail the selector. In the Windows 11 ARM64 VM,
 the LibreWPF Traditional Arabic fixture font passed this selector with the
 published preview.64 native package. That isolates the remaining Windows
 `NativeNational` percent mismatch to the WPF source-style decision, not the

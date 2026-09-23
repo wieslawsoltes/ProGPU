@@ -16,6 +16,12 @@ internal static class TextDigitSubstitutionValidation
             NativeTextDirection.LeftToRight, options, styles: mapped);
         var expected = NativeTextParagraphSnapshot.Create(context, rendered,
             NativeTextDirection.LeftToRight, options, styles: direct);
+        var ascii = NativeTextParagraphSnapshot.Create(context, source,
+            NativeTextDirection.LeftToRight, options, styles: direct);
+        if (expected.Glyphs.IsEmpty || ascii.Glyphs.IsEmpty ||
+            expected.Glyphs.Span[^1].GlyphId == 0 ||
+            expected.Glyphs.Span[^1].GlyphId == ascii.Glyphs.Span[^1].GlyphId)
+            throw new InvalidOperationException("The supplied font does not distinguish Arabic and ASCII percent glyphs.");
         Equal(expected, actual);
         Console.WriteLine("Native number-symbol glyph/source metadata matches explicit Arabic percent.");
     }
