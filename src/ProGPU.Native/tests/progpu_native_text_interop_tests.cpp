@@ -491,7 +491,8 @@ void bulk_shape_is_deterministic_and_caller_owned() {
         inline_request.input = inline_input.data();
         inline_request.input_count = 3;
         inline_request.direction = PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT;
-        progpu_native_text_style_run style{0, 3, 0, 16.0F / 2048.0F, 0, 0, 0, 0};
+        progpu_native_text_style_run style{0, 3, 0, 16.0F / 2048.0F, 0, 0, 0, 0,
+            0, 0, 0};
         progpu_native_text_style_metrics metric{12, 4};
         progpu_native_text_inline_object object{1, 30.25F, 35, 7};
         auto options = paragraph_options;

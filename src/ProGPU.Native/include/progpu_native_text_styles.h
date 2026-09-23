@@ -18,6 +18,11 @@ typedef struct progpu_native_text_style_run {
      * substitution. PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_CONTEXTUAL makes
      * substitution depend on the nearest preceding strong character. */
     uint32_t digit_substitution;
+    /* Optional source number-symbol scalars. Zero preserves the corresponding
+     * ASCII source symbol. Source indices and lengths are never rewritten. */
+    uint32_t percent;
+    uint32_t group_separator;
+    uint32_t decimal_separator;
 } progpu_native_text_style_run;
 
 #define PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SCALAR_MASK 0x001FFFFFu
@@ -43,10 +48,10 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_resolve_styled_bidi(
  * explicit styled faces do not silently enter the primary-face fallback chain.
  * scale is DIP/design-unit, independently for each run. Feature ranges select
  * entries in shaping.features, and language is the run's OpenType language tag.
- * digit_substitution retains the original input ranges while selecting rendered
- * Unicode decimal digits before script, fallback and shaping. By default bidi
- * also sees substituted digits. SOURCE_BIDI retains the original scalar bidi
- * classes for source systems that substitute glyphs after bidi itemization.
+ * digit_substitution and number-symbol fields retain original input ranges
+ * while selecting rendered scalars before script, fallback and shaping. By
+ * default bidi also sees substituted scalars. SOURCE_BIDI retains original
+ * scalar bidi classes for source systems that substitute after itemization.
  * Its low 21
  * bits contain a valid zero-digit scalar followed by nine consecutive decimal
  * scalars; the contextual flag selects it only after Arabic strong context.

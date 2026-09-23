@@ -217,7 +217,8 @@ static void styled_context_preserves_font_scale_and_atomic_failure() {
     shaping.alternate_value = 1;
     progpu_native_text_layout_options layout{};
     layout.struct_size = sizeof(layout); layout.scale = 0.01F; layout.line_height = 24;
-    std::array<progpu_native_text_style_run, 2> styles{{{0, 2, 0, 0.01F, 0, 0, 0, 0}, {2, 1, second_font, 0.02F, 0, 0, 0, 0}}};
+    std::array<progpu_native_text_style_run, 2> styles{{{0, 2, 0, 0.01F, 0, 0, 0, 0, 0, 0, 0},
+        {2, 1, second_font, 0.02F, 0, 0, 0, 0, 0, 0, 0}}};
     progpu_native_text_paragraph_requirements required{}; required.struct_size = sizeof(required);
     require(progpu_native_text_context_get_styled_paragraph_requirements(context.get(), &shaping, &layout,
         styles.data(), static_cast<std::uint32_t>(styles.size()), &required) == PROGPU_NATIVE_STATUS_SUCCESS);
@@ -258,6 +259,10 @@ static void styled_context_preserves_font_scale_and_atomic_failure() {
         styles.data(), static_cast<std::uint32_t>(styles.size()), &required) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(required.glyph_capacity == 0);
     styles[1].scalar_start = 2;
+    styles[0].percent = 0xD800U;
+    require(run() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        result.glyph_count == 0 && glyphs[0].x == 123);
+    styles[0].percent = 0U;
     auto tab_text = text; tab_text[1].code_point = 9;
     shaping.input = tab_text.data(); layout.maximum_width = 0;
     progpu_native_text_flow_options flow{sizeof(flow), 40, 3, 0};
@@ -302,7 +307,8 @@ static void styled_digits_preserve_source_and_follow_context() {
         context(raw, progpu_native_text_context_destroy);
 
     const auto shape = [&](std::span<const std::uint32_t> code_points,
-        std::uint32_t digit_policy, std::uint32_t direction, bool split_style = false) {
+        std::uint32_t digit_policy, std::uint32_t direction, bool split_style = false,
+        std::array<std::uint32_t, 3> symbols = {}) {
         std::vector<progpu_native_text_scalar> text;
         text.reserve(code_points.size());
         for (std::uint32_t index = 0; index < code_points.size(); ++index)
@@ -320,12 +326,15 @@ static void styled_digits_preserve_source_and_follow_context() {
         layout.line_height = 20;
         std::vector<progpu_native_text_style_run> styles;
         if (split_style && text.size() > 1U) {
-            styles.push_back({0, 1, 0, layout.scale, 0, 0, 0, digit_policy});
+            styles.push_back({0, 1, 0, layout.scale, 0, 0, 0, digit_policy,
+                symbols[0], symbols[1], symbols[2]});
             styles.push_back({1, static_cast<std::uint32_t>(text.size() - 1U),
-                0, layout.scale, 0, 0, 0, digit_policy});
+                0, layout.scale, 0, 0, 0, digit_policy,
+                symbols[0], symbols[1], symbols[2]});
         } else {
             styles.push_back({0, static_cast<std::uint32_t>(text.size()), 0,
-                layout.scale, 0, 0, 0, digit_policy});
+                layout.scale, 0, 0, 0, digit_policy,
+                symbols[0], symbols[1], symbols[2]});
         }
         progpu_native_text_paragraph_requirements required{};
         required.struct_size = sizeof(required);
@@ -371,6 +380,36 @@ static void styled_digits_preserve_source_and_follow_context() {
     require(glyph_at(source_bidi_substituted, 0) == glyph_at(direct_arabic, 0));
     require(glyph_at(substituted, 0) != glyph_at(direct_western, 0));
 
+    const std::array<std::uint32_t, 3> source_symbols{'%', ',', '.'};
+    const std::array<std::uint32_t, 3> direct_symbols{'!', ';', ':'};
+    const std::array<std::uint32_t, 3> replacements{'!', ';', ':'};
+    const auto mapped_symbols = shape(source_symbols,
+        PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SOURCE_BIDI | arabic_zero,
+        PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT, false, replacements);
+    const auto direct_symbol_glyphs = shape(direct_symbols, 0,
+        PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT);
+    for (std::int32_t cluster = 0; cluster < 3; ++cluster)
+        require(glyph_at(mapped_symbols, cluster) == glyph_at(direct_symbol_glyphs, cluster));
+
+    const std::array<std::uint32_t, 2> latin_symbol_context{'A', '%'};
+    const std::array<std::uint32_t, 2> arabic_symbol_context{0x0627U, '%'};
+    const auto unmapped_latin_symbol = shape(latin_symbol_context,
+        arabic_zero | contextual, PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT,
+        false, replacements);
+    const auto mapped_arabic_symbol = shape(arabic_symbol_context,
+        arabic_zero | contextual, PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT,
+        false, replacements);
+    const std::array<std::uint32_t, 1> percent_symbol{'%'};
+    const auto direct_percent = shape(percent_symbol, 0,
+        PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT);
+    require(glyph_at(unmapped_latin_symbol, 1) == glyph_at(direct_percent, 0));
+    require(glyph_at(mapped_arabic_symbol, 1) == glyph_at(direct_symbol_glyphs, 0));
+    const auto symbols_without_digit_policy = shape(source_symbols, 0,
+        PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT, false, replacements);
+    for (std::int32_t cluster = 0; cluster < 3; ++cluster)
+        require(glyph_at(symbols_without_digit_policy, cluster) ==
+            glyph_at(direct_symbol_glyphs, cluster));
+
     const auto initial_ltr = shape(western_one, arabic_zero | contextual,
         PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT);
     const auto initial_rtl = shape(western_one, arabic_zero | contextual,
@@ -397,7 +436,7 @@ static void styled_digits_preserve_source_and_follow_context() {
     shaping.input = text.data(); shaping.input_count = 1;
     progpu_native_text_layout_options layout{};
     layout.struct_size = sizeof(layout); layout.scale = 1;
-    progpu_native_text_style_run invalid{0, 1, 0, 1, 0, 0, 0, 'A'};
+    progpu_native_text_style_run invalid{0, 1, 0, 1, 0, 0, 0, 'A', 0, 0, 0};
     progpu_native_text_paragraph_requirements required{};
     required.struct_size = sizeof(required);
     require(progpu_native_text_context_get_styled_paragraph_requirements(context.get(),
@@ -416,7 +455,8 @@ static void styled_digits_preserve_source_and_follow_context() {
 
 static void styled_bidi_matches_substituted_paragraph_input() {
     const auto resolve = [](std::span<const std::uint32_t> values,
-        std::uint32_t policy, std::int32_t direction) {
+        std::uint32_t policy, std::int32_t direction,
+        std::array<std::uint32_t, 3> symbols = {}) {
         std::vector<progpu_native_text_scalar> scalars;
         for (std::uint32_t index = 0U; index < values.size(); ++index)
             scalars.push_back({values[index], index, 1U, 0U, 0U, 0U});
@@ -427,7 +467,7 @@ static void styled_bidi_matches_substituted_paragraph_input() {
         std::vector<std::byte> scratch(required.scratch_bytes);
         std::vector<progpu_native_text_bidi_level> levels(required.level_capacity);
         const progpu_native_text_style_run style{0U, static_cast<std::uint32_t>(scalars.size()),
-            0U, 1.0F, 0U, 0U, 0U, policy};
+            0U, 1.0F, 0U, 0U, 0U, policy, symbols[0], symbols[1], symbols[2]};
         progpu_native_text_bidi_result result{};
         result.struct_size = sizeof(result);
         require(progpu_native_text_resolve_styled_bidi(scalars.data(), wire_count(scalars),
@@ -460,13 +500,27 @@ static void styled_bidi_matches_substituted_paragraph_input() {
     for (std::size_t index = 0U; index < expected.size(); ++index)
         require(expected[index].level == actual[index].level);
 
+    const std::array<std::uint32_t, 5> source_symbols{'A', '1', ',', '2', 0x0627U};
+    const std::array<std::uint32_t, 5> rendered_symbols{'A', '1', 0x066CU, '2', 0x0627U};
+    const std::array<std::uint32_t, 3> group_symbol{0U, 0x066CU, 0U};
+    const auto source_levels = resolve(source_symbols, 0U, 1);
+    const auto mapped_levels = resolve(source_symbols, 0x30U, 1, group_symbol);
+    const auto rendered_levels = resolve(rendered_symbols, 0U, 1);
+    const auto source_policy_levels = resolve(source_symbols,
+        0x30U | PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SOURCE_BIDI, 1, group_symbol);
+    for (std::size_t index = 0U; index < source_symbols.size(); ++index) {
+        require(mapped_levels[index].level == rendered_levels[index].level);
+        require(source_policy_levels[index].level == source_levels[index].level);
+    }
+
     const std::array<progpu_native_text_scalar, 1> input{{{'1', 0U, 1U, 0U, 0U, 0U}}};
     progpu_native_text_bidi_requirements required{};
     required.struct_size = sizeof(required);
     require(progpu_native_text_get_bidi_requirements(input.data(), wire_count(input),
         &required) == PROGPU_NATIVE_STATUS_SUCCESS);
     std::vector<std::byte> scratch(required.scratch_bytes);
-    const progpu_native_text_style_run style{0U, 1U, 0U, 1.0F, 0U, 0U, 0U, 0x0660U};
+    const progpu_native_text_style_run style{0U, 1U, 0U, 1.0F, 0U, 0U, 0U, 0x0660U,
+        0U, 0U, 0U};
     const auto* aliased_style = std::construct_at(
         reinterpret_cast<progpu_native_text_style_run*>(scratch.data()), style);
     const auto original_scratch = scratch;
@@ -483,6 +537,12 @@ static void styled_bidi_matches_substituted_paragraph_input() {
         &invalid, 1U, &level, 1U, scratch.data(), scratch.size(), &result) ==
         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(result.level_count == 0U && level.level == 99 && scratch == original_scratch);
+    invalid = style;
+    invalid.group_separator = 0xD800U;
+    require(progpu_native_text_resolve_styled_bidi(input.data(), wire_count(input), 0,
+        &invalid, 1U, &level, 1U, scratch.data(), scratch.size(), &result) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(result.level_count == 0U && level.level == 99);
 }
 
 static void justification_classifies_whole_source_clusters() {
@@ -529,8 +589,8 @@ static void paragraph_justification_preserves_source_and_terminal_lines() {
         shaping.direction = rtl ? PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT : PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT;
         shaping.alternate_value = 1;
         layout.alignment = justified ? PROGPU_NATIVE_TEXT_ALIGNMENT_JUSTIFY : PROGPU_NATIVE_TEXT_ALIGNMENT_LEFT;
-        std::array<progpu_native_text_style_run, 2> styles{{{0, 2, 0, 0.01F, 0, 0, 0, 0},
-            {2, static_cast<std::uint32_t>(text.size()) - 2, 0, 0.012F, 0, 0, 0, 0}}};
+        std::array<progpu_native_text_style_run, 2> styles{{{0, 2, 0, 0.01F, 0, 0, 0, 0, 0, 0, 0},
+            {2, static_cast<std::uint32_t>(text.size()) - 2, 0, 0.012F, 0, 0, 0, 0, 0, 0, 0}}};
         progpu_native_text_flow_options flow{sizeof(flow), 40, 0, 0};
         progpu_native_text_paragraph_requirements required{}; required.struct_size = sizeof(required);
         require(progpu_native_text_context_get_flow_paragraph_requirements(context.get(), &shaping, &layout,

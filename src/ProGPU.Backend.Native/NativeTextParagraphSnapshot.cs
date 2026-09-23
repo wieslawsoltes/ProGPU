@@ -603,7 +603,9 @@ public sealed class NativeTextParagraphSnapshot
                 FontIndex = style.FontIndex, Scale = style.Scale, FeatureStart = style.FeatureStart,
                 FeatureCount = style.FeatureCount, Language = style.Language,
                 DigitSubstitution = PackDigitSubstitution(style.DigitZero, style.ContextualDigits,
-                    style.PreserveSourceDigitBidi) };
+                    style.PreserveSourceDigitBidi), Percent = style.Percent,
+                GroupSeparator = style.GroupSeparator,
+                DecimalSeparator = style.DecimalSeparator };
         }
         if (source != textLength) throw new ArgumentException("Styles must cover the complete input.");
         return result;
@@ -689,7 +691,8 @@ public sealed class NativeTextParagraphSnapshot
 /// <summary>Explicit face/feature domain over UTF-16 input; ranges must partition the paragraph.</summary>
 public readonly record struct NativeTextParagraphStyle(int Start, int Length, uint FontIndex,
     float Scale, uint FeatureStart = 0, uint FeatureCount = 0, uint Language = 0,
-    uint DigitZero = 0, bool ContextualDigits = false, bool PreserveSourceDigitBidi = false);
+    uint DigitZero = 0, bool ContextualDigits = false, bool PreserveSourceDigitBidi = false,
+    uint Percent = 0, uint GroupSeparator = 0, uint DecimalSeparator = 0);
 
 /// <summary>One measured non-ink U+FFFC at a UTF-16 position, not a native scalar index.</summary>
 public readonly record struct NativeTextParagraphInlineObject(int Position, float Width, float Ascent, float Descent);

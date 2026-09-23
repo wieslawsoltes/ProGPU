@@ -19,4 +19,7 @@ public partial struct NativeTextStyleRun
     public uint FeatureCount;
     public uint Language;
     public uint DigitSubstitution;
+    public uint Percent;
+    public uint GroupSeparator;
+    public uint DecimalSeparator;
 }

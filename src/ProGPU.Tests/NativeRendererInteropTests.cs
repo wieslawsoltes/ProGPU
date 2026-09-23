@@ -169,7 +169,7 @@ public class NativeRendererInteropTests
     [Fact]
     public void StyledParagraphContractsAreBorrowedPinnedAndLeased()
     {
-        Assert.Equal(32, Unsafe.SizeOf<NativeTextStyleRun>());
+        Assert.Equal(44, Unsafe.SizeOf<NativeTextStyleRun>());
         Assert.Equal(12, Marshal.OffsetOf<NativeTextStyleRun>(nameof(NativeTextStyleRun.Scale)).ToInt32());
         string source = File.ReadAllText(FindRepoFile("src", "ProGPU.Backend.Native", "NativeTextStyledParagraphInterop.cs"));
         Assert.Equal(2, source.Split("using var use = _owner.Acquire();").Length - 1);
@@ -2004,7 +2004,7 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
-    public void PrivateInteropRecordsMatchNativeAbiThree()
+    public void PrivateInteropRecordsMatchNativeAbi()
     {
         Assert.Equal(16, Unsafe.SizeOf<NativeTextScalar>());
         Assert.Equal(16, Unsafe.SizeOf<NativeTextFeature>());
@@ -2487,7 +2487,7 @@ public class NativeRendererInteropTests
         Assert.Equal(
             40,
             OffsetOf<NativeMethods.SceneCommand>(nameof(NativeMethods.SceneCommand.BoundsX)));
-        Assert.Equal(4U, NativeMethods.AbiVersion);
+        Assert.Equal(5U, NativeMethods.AbiVersion);
         Assert.Equal(1U, NativeMethods.WgpuNativeMay2024BackendAbi);
         Assert.Equal(2U, NativeMethods.DawnWebScene2026JulyBackendAbi);
         Assert.Equal(1U, NativeDawnAdapter.AdapterAbiVersion);
