@@ -20,7 +20,7 @@ typedef struct progpu_native_engine progpu_native_engine;
 typedef struct progpu_native_text_context progpu_native_text_context;
 
 enum {
-    PROGPU_NATIVE_ABI_VERSION = 4U,
+    PROGPU_NATIVE_ABI_VERSION = 5U,
     PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05 = 1U,
     PROGPU_NATIVE_BACKEND_ABI_DAWN_WEBSCENE_2026_07 = 2U,
     PROGPU_NATIVE_BACKEND_ABI_BROWSER_WEBGPU_2025_10 = 3U

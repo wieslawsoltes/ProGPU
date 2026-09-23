@@ -7,6 +7,27 @@ namespace Avalonia.ProGpu.UnitTests;
 public sealed class NativeTextParagraphSnapshotTests
 {
     [Fact]
+    public void NumberSymbolStyleMappingRetainsOriginalScalarsAndSourceIndices()
+    {
+        const string text = "1%,.2";
+        var source = new NativeTextScalar[text.Length];
+        int count = NativeTextParagraphSnapshot.DecodeUtf16(text, source);
+        var mapped = NativeTextParagraphSnapshot.MapStyles(
+            [new(0, text.Length, 0, .01f, DigitZero: 0x0660,
+                PreserveSourceDigitBidi: true, Percent: 0x066A,
+                GroupSeparator: 0x066C, DecimalSeparator: 0x066B)],
+            source.AsSpan(0, count), text.Length);
+        var style = Assert.Single(mapped);
+        Assert.Equal((0U, (uint)count, 0x066AU, 0x066CU, 0x066BU),
+            (style.ScalarStart, style.ScalarCount, style.Percent,
+                style.GroupSeparator, style.DecimalSeparator));
+        Assert.Equal(text.Select(static character => (uint)character),
+            source.AsSpan(0, count).ToArray().Select(static scalar => scalar.CodePoint));
+        for (int i = 0; i < count; i++)
+            Assert.Equal((uint)i, source[i].InputIndex);
+    }
+
+    [Fact]
     public void DigitContextRejectsShortOrOverlappingOutputBeforeNativeCall()
     {
         Assert.Throws<ArgumentException>(() =>

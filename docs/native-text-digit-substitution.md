@@ -9,7 +9,7 @@ ten-digit Unicode `Nd` sequence with numeric values zero through nine. Zero disa
 `ContextualDigits` flag uses that sequence only in Unicode Arabic-letter bidi
 context; otherwise the original European digits remain active.
 
-The generated C ABI retains its 32-byte style record. Its final
+The generated ABI-5 C style record is 44 bytes. Its
 `digit_substitution` word stores the digit-zero scalar in the low 21 bits and
 the contextual policy in `PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_CONTEXTUAL`.
 `PROGPU_NATIVE_TEXT_DIGIT_SUBSTITUTION_SOURCE_BIDI` selects source-scalar
@@ -22,7 +22,9 @@ members do not have the exact decimal values zero through nine. The existing
 checks every complete sequence. This rejects shifted starts such as U+1D7CF
 inside adjacent mathematical digit alphabets, even though all ten scalars are
 `Nd`. Forced invalid policies fail before any
-paragraph result is published.
+paragraph result is published. The style also carries optional percent,
+grouping and decimal separator scalars. Zero keeps the source symbol; native
+validation rejects invalid Unicode scalars before result publication.
 
 ## Native pipeline
 
@@ -41,6 +43,13 @@ WPF's source-digit caret order for national/contextual substitution without
 changing the glyph or UTF-16 index domain. The flag is selected consistently
 by the retained metadata resolver and paragraph layout; mixed policies within
 one paragraph resolve bidi in the source domain.
+
+The same scratch pass replaces `%`, `,` and `.` only when the style supplies
+their mapped scalar and its contextual policy is active. In source-bidi mode,
+the native resolver reads the original punctuation before using substituted
+scratch scalars for shaping. Source font linking must select a physical face
+containing the replacement before submitting the style. Managed and native
+packages must carry ABI 5 together.
 
 Retained paragraph metadata resolves through `NativeTextBidiInterop.ResolveStyled`,
 which applies the paragraph's selected bidi policy to the existing scratch copy.
@@ -96,7 +105,7 @@ or a prepend character from its digit.
 
 The active algorithm is one allocation-free `O(N)` pass over the paragraph scalar
 snapshot and uses the paragraph's bounded scratch storage. Paragraphs without an
-active digit policy retain their existing scratch size and input path. Substitution is
+active number policy retain their existing scratch size and input path. Substitution is
 scalar-dependent because context can cross run boundaries; SIMD is not suitable
 for the contextual state transition. The context-only API validates UTF-16 once,
 then performs that dependent scan in `O(N)` time and `O(1)` auxiliary storage;
@@ -113,7 +122,10 @@ Arabic-Indic and European input. It covers initial LTR/RTL context, preceding
 Latin and Arabic letters, reset after a hard line break, preserved source clusters
 and atomic rejection of shifted decimal sequences. It also verifies that the
 explicit source-bidi policy retains original scalar levels while selecting the
-same substituted digit glyphs. Native context tests cover
+same substituted digit glyphs. The symbol cases compare `%`, `,` and `.`
+against directly shaped replacements, cover contextual Latin/Arabic activation
+and symbol-only styles, and verify source-versus-rendered bidi levels. Native
+context tests cover
 Latin, Hebrew, Syriac, Arabic, supplementary Arabic scalars, neutral surrogate
 pairs, directional controls, hard boundaries, invalid UTF-16 and untouched tails.
 Grapheme tests distinguish an interior strong-mark context change, prepend/digit
@@ -145,8 +157,12 @@ and uses the native context capability before selecting physical fonts for the
 rendered intervals. Its WPF adapter requests source-bidi mode for substituted
 digits, retaining original ASCII source caret ordering. Managed and native MIL
 renderers consume the same resulting physical-font glyph runs; this does not
-introduce a renderer-specific substitute. Numeric punctuation has a separate
-source contract; this API admits digit substitution only. The Windows stock-WPF
+introduce a renderer-specific substitute. The source adapter now carries
+percent/group/decimal mappings from its culture policy while retaining its
+original text. The source adapter may select WPF's mapped symbol alternate
+when its physical face lacks the preferred symbol. Multi-scalar culture symbols,
+digit alternate-character fallback and exact Windows number-symbol parity remain explicit
+gaps. The Windows stock-WPF
 comparison, including strong controls/punctuation and hard-line behavior,
 remains an independent application and clean-package qualification gate; a
 source or compiled fixture alone does not close it.
