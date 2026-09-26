@@ -1,0 +1,135 @@
+name: Android x64 rendering
+
+on:
+  pull_request:
+    # Also run on stacked PRs; the ordinary Build gate still qualifies main.
+    paths:
+      - .github/workflows/android-rendering.yml
+      - eng/build-wgpu-native-android.sh
+      - eng/progpu-install-linux-packages.sh
+      - eng/progpu-build-android-sample.sh
+      - eng/progpu-test-android-emulator.sh
+      - eng/progpu-verify-android-evidence.py
+      - eng/tests/test_android_evidence.py
+      - global.json
+      - Directory.Build.*
+      - Directory.Packages.props
+      - src/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-x64-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  sample-vulkan:
+    name: Android x64 sample on Vulkan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RUSTUP_TOOLCHAIN: 1.85.1
+      CARGO_BUILD_JOBS: 2
+      LIBCLANG_PATH: /usr/lib/llvm-18/lib
+      PROGPU_ANDROID_EVIDENCE_ROOT: ${{ github.workspace }}/artifacts/progpu-native/android-x64-evidence
+
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+
+      - name: Verify evidence parser contracts
+        run: python3 -m unittest discover -s eng/tests -p test_android_evidence.py -v
+
+      - name: Setup repository .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: microsoft
+          java-version: '21.0.8'
+
+      - name: Setup Android tools
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
+
+      - name: Install pinned native toolchain and Android workload
+        shell: bash
+        run: |
+          ./eng/progpu-install-linux-packages.sh acl libclang-18-dev
+          sdkmanager 'ndk;27.2.12479018' 'platforms;android-36' 'build-tools;36.0.0'
+          echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/27.2.12479018" >> "${GITHUB_ENV}"
+          rustup toolchain install 1.85.1 --profile minimal
+          dotnet workload restore src/ProGPU.Samples.Android/ProGPU.Samples.Android.csproj --skip-manifest-update
+          # Honor the repository's allowed SDK feature-band roll-forward and
+          # install the selected Android workload's actual platform/tool inputs.
+          dotnet build src/ProGPU.Samples.Android/ProGPU.Samples.Android.csproj \
+            -t:InstallAndroidDependencies -f net10.0-android \
+            -p:RuntimeIdentifier=android-x64 -p:RuntimeIdentifiers=android-x64 \
+            -p:AndroidSdkDirectory="${ANDROID_SDK_ROOT}" \
+            -p:JavaSdkDirectory="${JAVA_HOME}" \
+            -p:AndroidInstallJavaDependencies=false -p:AcceptAndroidSDKLicenses=true
+
+      - name: Cache pinned Rust build inputs
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            artifacts/wgpu-native-android-build
+          key: android-wgpu-x64-ndk27.2-rust1.85.1-${{ hashFiles('eng/build-wgpu-native-android.sh') }}
+
+      - name: Build the ABI-pinned x64 UI provider
+        shell: bash
+        run: |
+          mkdir -p "${PROGPU_ANDROID_EVIDENCE_ROOT}"
+          ./eng/build-wgpu-native-android.sh x64 2>&1 | tee "${PROGPU_ANDROID_EVIDENCE_ROOT}/provider-build.log"
+
+      - name: Build and inspect the actual sample APK
+        run: ./eng/progpu-build-android-sample.sh
+
+      - name: Require hardware virtualization
+        shell: bash
+        run: |
+          test -c /dev/kvm
+          sudo setfacl -m "u:${USER}:rw" /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+
+      - name: Launch the x64 sample and capture rendered evidence
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          avd-name: ProGpuX64Rendering
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 300
+          disable-linux-hw-accel: false
+          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          pre-emulator-launch-script: |
+            "${ANDROID_SDK_ROOT}/emulator/emulator" -version > "${PROGPU_ANDROID_EVIDENCE_ROOT}/emulator-version.txt" 2>&1
+            sdkmanager --list_installed > "${PROGPU_ANDROID_EVIDENCE_ROOT}/android-installed-packages.txt" 2>&1
+            cp "${ANDROID_AVD_HOME:-${HOME}/.android/avd}/ProGpuX64Rendering.avd/config.ini" "${PROGPU_ANDROID_EVIDENCE_ROOT}/emulator-config.ini"
+            "${ANDROID_SDK_ROOT}/emulator/emulator" -accel-check > "${PROGPU_ANDROID_EVIDENCE_ROOT}/emulator-acceleration.txt" 2>&1
+          script: ./eng/progpu-test-android-emulator.sh
+
+      - name: Upload APK and full build/runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-android-x64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/progpu-native/android-x64-evidence/
+          if-no-files-found: warn
+          retention-days: 7
