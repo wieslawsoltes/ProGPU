@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Runtime.Versioning;
 using ProGPU.Wpf.Interop;
 using Xunit;
 
@@ -96,6 +97,7 @@ public sealed class WindowsGdiBitmapTests
     }
 
     [WindowsTheory]
+    [SupportedOSPlatform("windows")]
     [InlineData(1, false)]
     [InlineData(4, false)]
     [InlineData(8, false)]
@@ -111,6 +113,7 @@ public sealed class WindowsGdiBitmapTests
     }
 
     [WindowsFact]
+    [SupportedOSPlatform("windows")]
     public void NativeAndManagedOwnershipSurviveInputMutationAndDetach()
     {
         byte[] encoded = CreateBmp(24, false);
