@@ -1069,6 +1069,7 @@ public unsafe partial class Compositor : IDisposable
     internal unsafe BindGroupLayout* MaskBindGroupLayoutOffscreen => _maskBindGroupLayoutOffscreen;
 
     private readonly WgpuContext _context;
+    private readonly WgpuDeviceIdentity _deviceIdentity;
     private readonly GpuImageSamplingPath _imageSamplingPath;
     private readonly RenderPipelineCache _pipelineCache;
     private readonly GlyphAtlas _atlas;
@@ -1860,6 +1861,7 @@ public unsafe partial class Compositor : IDisposable
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
 
+        _deviceIdentity = context.DeviceIdentity;
         _sourceHitTestEmbeddedVisualObserver = TrackEmbeddedVisual;
         _context = context;
         _imageSamplingPath = context.ImageSamplingPath;
@@ -1941,7 +1943,7 @@ public unsafe partial class Compositor : IDisposable
         RegisterExtension(CompositorBuiltInExtensions.VoxelTerrain, new VoxelTerrainExtensionPipeline());
 
         InitializePipelinesAndBindGroups();
-        GpuTexture.OnDisposedWithId += HandleTextureDisposed;
+        GpuTexture.OnDisposedWithDevice += HandleTextureDisposed;
         DxfStaticBuffer.Disposed += HandleStaticDxfBufferDisposed;
     }
 
@@ -4513,11 +4515,15 @@ SceneStateUploadComplete:
         return result;
     }
 
-    private void HandleTextureDisposed(ulong textureId)
+    private void HandleTextureDisposed(WgpuDeviceIdentity deviceIdentity, ulong textureId)
     {
         if (Environment.HasShutdownStarted) return;
+        // Texture retirement is process-wide, but cached bindings and scenes
+        // belong to one device domain. Shared surfaces still receive retirement
+        // from their owner; an unrelated device must not mutate this compositor.
+        if (!ReferenceEquals(deviceIdentity, _deviceIdentity)) return;
 
-        _compiledSceneReusable = false;
+        InvalidateCompiledScene("Texture disposed");
 
         RemoveMaskTexturePoolEntries(textureId);
 
@@ -15554,7 +15560,7 @@ CompilePathStroke:
                 _persistentTextureBindGroups.Clear();
             }
 
-            GpuTexture.OnDisposedWithId -= HandleTextureDisposed;
+            GpuTexture.OnDisposedWithDevice -= HandleTextureDisposed;
             DxfStaticBuffer.Disposed -= HandleStaticDxfBufferDisposed;
 
             for (int index = 0;
