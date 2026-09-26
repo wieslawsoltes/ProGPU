@@ -6,6 +6,7 @@
     "test": "node test.mjs"
   },
   "devDependencies": {
-    "playwright": "1.62.1"
+    "playwright": "1.62.1",
+    "typescript": "6.0.3"
   }
 }

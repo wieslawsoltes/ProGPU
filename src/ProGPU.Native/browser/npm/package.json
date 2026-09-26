@@ -1,0 +1,29 @@
+{
+  "name": "progpu",
+  "version": "0.1.0-preview.1",
+  "description": "Retained GPU vector rendering for JavaScript using ProGPU C++/WebAssembly and WebGPU",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": { "types": "./index.d.ts", "import": "./index.js" },
+    "./native": "./progpu-native.mjs",
+    "./progpu-native.wasm": "./progpu-native.wasm",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js", "scene.js", "index.d.ts", "progpu-native.mjs", "progpu-native.wasm",
+    "build-info.json", "licenses", "THIRD-PARTY-NOTICES.md"
+  ],
+  "sideEffects": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wieslawsoltes/ProGPU.git",
+    "directory": "src/ProGPU.Native/browser/npm"
+  },
+  "homepage": "https://github.com/wieslawsoltes/ProGPU",
+  "bugs": "https://github.com/wieslawsoltes/ProGPU/issues",
+  "keywords": ["webgpu", "wasm", "vector", "graphics", "renderer"],
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/", "tag": "next" }
+}

@@ -98,11 +98,45 @@ jobs:
           version: 4.0.18
           actions-cache-folder: artifacts/emsdk-cache
 
+      - name: Setup npm tooling
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+
+      - name: Test npm authoring and fail-closed release verification
+        run: node --test src/ProGPU.Native/browser/npm/tests/scene.test.mjs eng/progpu-test-npm-release.mjs
+
       - name: Build and test native browser renderer
         shell: bash
         env:
           PROGPU_NATIVE_BROWSER_INSTALL_CHROMIUM: 1
         run: ./eng/progpu-test-native-browser.sh
+
+      - name: Pack and exercise installed npm browser library
+        shell: bash
+        env:
+          DEBUG: pw:browser
+        run: |
+          node eng/progpu-pack-npm.mjs
+          node eng/progpu-test-npm-browser.mjs
+
+      - name: Upload verified npm package
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-npm-package
+          path: |
+            artifacts/npm/*.tgz
+            artifacts/npm/npm-artifact.json
+          if-no-files-found: error
+
+      - name: Upload npm browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-npm-browser-evidence
+          path: artifacts/npm/evidence/
+          if-no-files-found: warn
 
       - name: Upload native browser evidence
         if: always()
