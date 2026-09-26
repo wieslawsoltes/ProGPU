@@ -11,7 +11,7 @@ const require = createRequire(path.join(repo, 'src/ProGPU.Native/browser/package
 /** Compile only against an actually installed package, never checkout aliases.
  * The caller owns a fresh consumer directory and installs its verified tgz first.
  * No generated JS runs, no GPU is requested, and skipLibCheck stays disabled. */
-export async function verifyInstalledNpmTypes(consumerDirectory, packageName = 'progpu') {
+export async function verifyInstalledNpmTypes(consumerDirectory, packageName = '@wieslawsoltes/progpu') {
   const consumer = await fs.realpath(consumerDirectory);
   assert.match(packageName, /^(?:@[a-z0-9._-]+\/)?[a-z0-9][a-z0-9._-]*$/);
   const installed = path.join(consumer, 'node_modules', packageName);
@@ -66,6 +66,8 @@ await engineDevice.queue.onSubmittedWorkDone();
 renderer.dispose();
 
 // These must remain errors, not widened any/unknown authoring contracts.
+// @ts-expect-error The scoped package does not install an unscoped compatibility alias.
+await import('progpu');
 // @ts-expect-error A Scene cannot be constructed outside the builder.
 new Scene();
 // @ts-expect-error Scene identities preserve uint64 bigint transport.

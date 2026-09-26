@@ -6,7 +6,7 @@ is required. A browser with WebGPU and a secure origin (HTTPS or localhost) is
 required; there is no Canvas2D, WebGL, or software-renderer fallback.
 
 ```js
-import { createRenderer, SceneBuilder, Path } from 'progpu';
+import { createRenderer, SceneBuilder, Path } from '@wieslawsoltes/progpu';
 
 const canvas = document.querySelector('canvas');
 const renderer = await createRenderer({ canvas });
@@ -39,8 +39,8 @@ The archive includes its JavaScript modules, TypeScript declarations, generated
 `progpu-native.mjs`, and `progpu-native.wasm`. Serve the Wasm file alongside the
 generated module. Bundlers must copy/preserve that asset URL; check the emitted
 network request rather than treating a successful JavaScript build as proof that
-Wasm was deployed. `progpu/progpu-native.wasm` is an exported asset subpath.
-For unbundled use, map the bare `progpu` specifier to the installed `index.js`
+Wasm was deployed. `@wieslawsoltes/progpu/progpu-native.wasm` is an exported asset subpath.
+For unbundled use, map the bare `@wieslawsoltes/progpu` specifier to the installed `index.js`
 with an import map. Node.js can inspect/pack the library, but is not a supported
 WebGPU rendering host for this browser build.
 

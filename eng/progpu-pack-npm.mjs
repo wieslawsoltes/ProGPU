@@ -85,6 +85,9 @@ const manifest = JSON.parse(await fs.readFile(path.join(stage, 'package.json'), 
 assert.equal(manifest.type, 'module');
 assert.ok(!manifest.private && !manifest.scripts, 'Runtime packages must have no install/publish lifecycle scripts.');
 const [packed] = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts'], stage));
+assert.equal(packed.name, manifest.name);
+assert.equal(packed.version, manifest.version);
+assert.equal(path.basename(packed.filename), packed.filename, 'npm must return a flat archive filename.');
 const required = ['package.json', 'index.js', 'scene.js', 'index.d.ts', 'progpu-native.mjs', 'progpu-native.wasm',
   'README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'build-info.json', ...Object.keys(licenses)];
 assert.deepEqual(packed.files.map(file => file.path).sort(), required.sort(),
