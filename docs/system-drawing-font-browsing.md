@@ -79,7 +79,17 @@ Its focused suite passed all 690 tests. The upstream corpus reported 3,296 passe
 baseline comparison as designed; it remains preserved, not a qualified Build.
 Only that exact Linux-x64 known-failure row and its pass/fail summary are updated.
 
-The Linux-ARM64 baseline remains unchanged pending its actual complete corpus.
+The complete Linux-ARM64 corpus was then run serially on Ubuntu 24.04 ARM64,
+SDK 10.0.400/runtime 10.0.11, against unchanged parent `6bed216d6` and candidate
+`ea318aee6` (whose Font and FontConverter sources match the combined tip).
+The parent passed strict comparison at 3,279 passes, 1,089 failures and 85 skips.
+The candidate reported 3,280 passes, 1,088 failures and the same 85 skips across
+all 4,453 cases. Its sole failure-inventory change was the same
+`FontConverterTest.GetFontPropsSorted` improvement; no skip changed. The candidate
+correctly failed strict comparison before review. Only that observed ARM64 row
+and the pass/fail counts are updated. Both original full result sets, archive
+hashes, runtime configuration and actual assembly hashes are retained.
+
 Independent architecture lanes and the whole new exact-head Build remain
 required before qualification. No test exclusion, assertion, skip, runtime
 policy, or allocation gate is changed; the earlier host 3,400-byte failure is
