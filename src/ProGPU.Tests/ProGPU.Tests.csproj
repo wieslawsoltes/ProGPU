@@ -30,6 +30,8 @@
              Link="Android\AndroidStorageNamePolicy.cs" />
     <Compile Include="..\ProGPU.Android\AndroidScrollDeltaPolicy.cs"
              Link="Android\AndroidScrollDeltaPolicy.cs" />
+    <Compile Include="..\ProGPU.Android\AndroidGpuDiagnosticSubscription.cs"
+             Link="Android\AndroidGpuDiagnosticSubscription.cs" />
     <Compile Include="..\ProGPU.Android.Media\AndroidPcm16Mixer.cs"
              Link="Android\AndroidPcm16Mixer.cs" />
     <Compile Include="..\ProGPU.Android.Media\AndroidMediaCodecAudioPlanner.cs"

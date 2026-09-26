@@ -1,0 +1,15 @@
+
+WINDOW MANAGER LAST ANR (dumpsys window lastanr)
+  ANR time: Sep 26, 2026 11:21:29 AM
+  Application at fault: ActivityRecord{f2ef456 u0 com.android.launcher3/.uioverrides.QuickstepLauncher
+  Reason: Input dispatching timed out (Application does not have a focused window).
+
+  Display #0 currentFocus=Window{72459d u0 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher} focusedApp=ActivityRecord{f2ef456 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t7}
+  Tasks in top down Z order:
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    Frames: parent=[0,0][1080,2400] display=[0,0][1080,2400] frame=[0,0][1080,2400] last=[0,0][1080,2400] insetsChanged=false
+     surface=[0,0][0,0]
+    WindowStateAnimator{a3f8055 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher}:
+      mSurface=Surface(name=com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher)/@0xce1ba6a
+      Surface: shown=false      mDrawState=DRAW_PENDING       mLastHidden=true
+      mEnterAnimationPending=true      mSystemDecorRect=[0,0][0,0]
