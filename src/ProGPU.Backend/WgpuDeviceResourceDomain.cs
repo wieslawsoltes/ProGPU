@@ -17,6 +17,8 @@ namespace ProGPU.Backend;
 /// </remarks>
 internal unsafe sealed class WgpuDeviceResourceDomain : IDisposable
 {
+    public WgpuDeviceIdentity Identity { get; } = new();
+
     private readonly object _sync = new();
     private readonly Dictionary<ShaderModuleKey, ShaderModuleEntry> _shaderModules = new();
     private readonly Dictionary<WgpuDeviceResourceKey, BindGroupLayoutEntry> _bindGroupLayouts = new();

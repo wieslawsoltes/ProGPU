@@ -30,8 +30,16 @@ public unsafe class GpuTexture : IDisposable
     private static readonly object s_mipGeneratorCacheLock = new();
     private static readonly Dictionary<WgpuContext, MipGeneratorResourceCache> s_mipGeneratorCaches = new();
     public static event Action<ulong>? OnDisposedWithId;
+    /// <summary>
+    /// Reports native texture/view retirement with its captured device identity,
+    /// including after the original context has been disposed. Subscribers must
+    /// not access retired native handles or infer device liveness from this token.
+    /// Like <see cref="OnDisposedWithId"/>, this can run on the finalizer thread.
+    /// </summary>
+    public static event Action<WgpuDeviceIdentity, ulong>? OnDisposedWithDevice;
 
     private readonly WgpuContext _context;
+    private readonly WgpuDeviceIdentity? _deviceIdentity;
     private IDisposable? _externalOwner;
     private bool _tracksContextDisposal;
     private string _label;
@@ -217,6 +225,7 @@ public unsafe class GpuTexture : IDisposable
     {
         Id = (ulong)Interlocked.Increment(ref s_idCounter);
         _context = context;
+        _deviceIdentity = context.DeviceIdentity;
         Width = width > 0 ? width : 1;
         Height = height > 0 ? height : 1;
         DepthOrArrayLayers = depthOrArrayLayers > 0 ? depthOrArrayLayers : 1;
@@ -295,6 +304,7 @@ public unsafe class GpuTexture : IDisposable
     {
         Id = (ulong)Interlocked.Increment(ref s_idCounter);
         _context = context;
+        _deviceIdentity = context.DeviceIdentity;
         TexturePtr = texture;
         Width = width > 0 ? width : 1;
         Height = height > 0 ? height : 1;
@@ -1779,9 +1789,26 @@ public unsafe class GpuTexture : IDisposable
             : DepthOrArrayLayers;
     }
 
+    private void NotifyResourcesRetired()
+    {
+        try
+        {
+            if (_deviceIdentity is not null)
+            {
+                OnDisposedWithDevice?.Invoke(_deviceIdentity, Id);
+            }
+        }
+        finally
+        {
+            // Adding context-qualified subscribers must not suppress the
+            // established identity notification, including during finalization.
+            OnDisposedWithId?.Invoke(Id);
+        }
+    }
+
     private void ReleaseResources(bool immediate = false)
     {
-        OnDisposedWithId?.Invoke(Id);
+        NotifyResourcesRetired();
         StopTrackingContextDisposal();
 
         lock (_context.RenderLock)
@@ -1883,7 +1910,7 @@ public unsafe class GpuTexture : IDisposable
 
         try
         {
-            OnDisposedWithId?.Invoke(Id);
+            NotifyResourcesRetired();
         }
         catch
         {

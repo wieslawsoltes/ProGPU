@@ -101,6 +101,12 @@ public unsafe class WgpuContext : IDisposable
         _deviceResourceDomain ??
         throw new InvalidOperationException(
             "The WebGPU device resource domain is not initialized.");
+    /// <summary>
+    /// Gets the initialized device's immutable ownership identity. Resources may
+    /// retain this lightweight token for retirement after a surface is disposed.
+    /// The token itself never extends native device lifetime.
+    /// </summary>
+    public WgpuDeviceIdentity DeviceIdentity => DeviceResourceDomain.Identity;
     public int CachedDeviceShaderModuleCount =>
         _deviceResourceDomain?.ShaderModuleCount ?? 0;
     public int CachedDeviceBindGroupLayoutCount =>
