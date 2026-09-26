@@ -85,7 +85,7 @@ control lifetime/editing, inline objects, anchored blocks and tables remain sepa
 | `ProGPU.Uno` | Uno/WinUI integration and compositor backend adapter. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Uno.svg)](https://www.nuget.org/packages/ProGPU.Uno/) |
 | `ProGPU.SkiaSharp` | ProGPU-backed portable SkiaSharp compatibility shim used by drawing and imaging adapters. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.SkiaSharp.svg)](https://www.nuget.org/packages/ProGPU.SkiaSharp/) |
 | `ProGPU.BinaryCompatibility` | Opt-in official-identity SkiaSharp and Avalonia.Skia build/publish substitution for unchanged modern-.NET consumers. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.BinaryCompatibility.svg)](https://www.nuget.org/packages/ProGPU.BinaryCompatibility/) |
-| `ProGPU.System.Drawing.Common` | ProGPU-backed portable System.Drawing.Common compatibility shim for LibreWinForms and GDI-style callers. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.System.Drawing.Common.svg)](https://www.nuget.org/packages/ProGPU.System.Drawing.Common/) |
+| `ProGPU.System.Drawing.Common` | ProGPU-backed portable System.Drawing.Common compatibility shim for LibreWinForms and GDI-style callers; [managed printing lifecycle](docs/system-drawing-print-lifecycle.md). | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.System.Drawing.Common.svg)](https://www.nuget.org/packages/ProGPU.System.Drawing.Common/) |
 | `LibreWPF.Interop` | LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane. | [![NuGet](https://img.shields.io/nuget/vpre/LibreWPF.Interop.svg)](https://www.nuget.org/packages/LibreWPF.Interop/) |
 
 ### Media playback and editing
