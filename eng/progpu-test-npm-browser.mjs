@@ -84,7 +84,9 @@ try {
     device.lost.then(() => { borrowedDestroyed = true; });
     const firstCanvas = document.querySelector('#first');
     const secondCanvas = document.querySelector('#second');
+    const start = performance.now();
     const first = await createRenderer({ canvas: firstCanvas, device });
+    const factoryMilliseconds = performance.now() - start;
     first.resize({ width: 320, height: 180, pixelRatio: 1 });
     const curve = new Path().moveTo(64, 56).quadraticTo(64, 8, 88, 8)
       .cubicTo(112, 8, 120, 56, 104, 56).lineTo(64, 56).close();
@@ -101,7 +103,10 @@ try {
       .save({ clipRect: [110, 88, 40, 40], opacity: 0.5 })
       .fillRect(100, 80, 70, 70, [1, 1, 1, 1]).restore()
       .pushLayer({ opacity: 0.5, bounds: [180, 88, 48, 48] })
-      .fillRect(180, 88, 48, 48, [1, 0, 0, 1]).popLayer();
+      .fillRect(180, 88, 48, 48, [1, 0, 0, 1]).popLayer()
+      .strokePolyline([[12, 164], [132, 164]], [1, 1, 1, 1],
+        { width: 4, dashes: [2, 2], startCap: 'flat', endCap: 'flat', dashCap: 'flat' })
+      .fillRect(0, 0, 24, 16, [0, 1, 1, 1], { transform: [1, 0, 0, 1, 260, 90] });
     // Mutations after recording must not alter owned geometry or brush bytes.
     curve.lineTo(310, 170); stops[0].color.fill(0);
     const scene = builder.build();
@@ -110,15 +115,27 @@ try {
     verify(update.sceneId === 7n && update.generation === 1n && update.commandCount > 0,
       'Actual native scene compilation must report the supplied identity');
     verify(first.updateScene(scene) === update, 'Repeated immutable scene must avoid another native update');
+    const coldStart = performance.now();
     const cold = first.render({ clearColor: [0.1, 0.1, 0.1, 1] });
     await device.queue.onSubmittedWorkDone();
+    const coldMilliseconds = performance.now() - coldStart;
     const firstPng = firstCanvas.toDataURL();
+    const warmStart = performance.now();
     const warm = first.render({ clearColor: [0.1, 0.1, 0.1, 1] });
     await device.queue.onSubmittedWorkDone();
+    const warmMilliseconds = performance.now() - warmStart;
     verify(warm.submissionCount === 1n && warm.drawCallCount > 0, 'Frame must use the actual native GPU renderer');
     const warmPng = firstCanvas.toDataURL();
     const raw = first.getSceneStream();
     const retained = raw.slice();
+    const rawReuse = first.updateScene(raw);
+    verify(rawReuse.snapshotReused && rawReuse.sceneId === 7n && rawReuse.generation === 1n,
+      'Equal raw bytes must reuse the actual native snapshot');
+    reject(() => first.updateScene(new SceneBuilder({ sceneId: 7n, generation: 1n })
+      .fillRect(8, 8, 40, 40, [0, 0, 1, 1]).build()),
+    'Changed bytes with the same native identity must fail');
+    verify(first.getSceneStream().every((byte, index) => byte === retained[index]),
+      'An invalid repeated generation must preserve all accepted bytes');
     const second = await createRenderer({ canvas: secondCanvas, device });
     second.resize({ width: 320, height: 180, pixelRatio: 1 });
     second.updateScene(raw);
@@ -129,17 +146,39 @@ try {
     second.render({ clearColor: [0.1, 0.1, 0.1, 1] });
     await device.queue.onSubmittedWorkDone();
     const secondPng = secondCanvas.toDataURL();
+    const changed = new SceneBuilder({ sceneId: 7n, generation: 2n })
+      .fillRect(8, 8, 40, 40, [1, 0, 1, 1]).build();
+    const changedUpdate = first.updateScene(changed);
+    verify(changedUpdate.generation === 2n && !changedUpdate.snapshotReused,
+      'A changed generation must compile its actual content');
+    first.render({ clearColor: [0.1, 0.1, 0.1, 1] });
+    await device.queue.onSubmittedWorkDone();
+    const changedPng = firstCanvas.toDataURL();
+    const resized = first.resize({ width: 320, height: 180, pixelRatio: 2 });
+    verify(resized.width === 640 && resized.height === 360 && resized.scale === 2,
+      'Resize must preserve logical size and actual physical DPI');
+    verify(first.updateScene(changed) === changedUpdate, 'Resize must not replace the immutable scene');
+    first.render({ clearColor: [0.1, 0.1, 0.1, 1] });
+    await device.queue.onSubmittedWorkDone();
+    const resizedPng = firstCanvas.toDataURL();
     first.dispose(); first.dispose();
     reject(() => first.render(), 'A disposed renderer must reject rendering');
     verify(!borrowedDestroyed, 'Disposal must not destroy a supplied device');
     second.render({ clearColor: [0.1, 0.1, 0.1, 1] });
     await device.queue.onSubmittedWorkDone();
     const survivingPng = secondCanvas.toDataURL();
+    const owned = await createRenderer({ canvas: firstCanvas });
+    const ownedLost = owned.device.lost;
+    owned.dispose();
+    verify((await ownedLost).reason === 'destroyed', 'Disposal must destroy a factory-owned device');
+    verify(!borrowedDestroyed, 'Disposing another factory-owned device must preserve the borrowed device');
     // Keep this live surface for an actual page-composition screenshot.
     globalThis.npmConsumerCleanup = () => { second.dispose(); device.destroy(); };
     verify(!Object.hasOwn(globalThis, 'Module'), 'Multiple isolated modules must not pollute global Module');
     verify(gpuErrors.length === 0, gpuErrors.join('\n'));
-    return { firstPng, warmPng, secondPng, survivingPng, update, cold, warm,
+    return { firstPng, warmPng, secondPng, survivingPng, changedPng, resizedPng,
+      update, rawReuse, changedUpdate, resized, cold, warm,
+      timings: { factoryMilliseconds, coldMilliseconds, warmMilliseconds },
       gpuErrors, borrowedDestroyed, sourceBytes: retained.length };
   }), new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error('Installed npm package browser contracts exceeded 120 seconds')), 120_000);
@@ -167,6 +206,21 @@ try {
   sample(120, 100, [140, 140, 140, 255]);
   sample(104, 100, [26, 26, 26, 255]);
   sample(190, 100, [140, 13, 13, 255]);
+  sample(16, 164, [255, 255, 255, 255]);
+  sample(24, 164, [26, 26, 26, 255]);
+  sample(32, 164, [255, 255, 255, 255]);
+  sample(264, 96, [0, 255, 255, 255]);
+  sample(4, 4, [26, 26, 26, 255]);
+  const changed = decode(result.changedPng);
+  const resized = decode(result.resizedPng);
+  assert.equal(changed.width, 320); assert.equal(changed.height, 180);
+  assert.equal(resized.width, 640); assert.equal(resized.height, 360);
+  for (const [pixels, x, y] of [[changed, 20, 20], [resized, 40, 40]]) {
+    const offset = (y * pixels.width + x) * 4;
+    assert.deepEqual(Array.from(pixels.data.subarray(offset, offset + 4)), [255, 0, 255, 255]);
+  }
+  // The transformed cyan rectangle from generation one must disappear entirely.
+  assert.deepEqual(Array.from(changed.data.subarray((96 * 320 + 264) * 4, (96 * 320 + 264) * 4 + 4)), [26, 26, 26, 255]);
   assert.ok(pixel(205, 24)[0] > 200 && pixel(205, 24)[2] < 55, 'Gradient left must retain original red stop');
   assert.ok(pixel(290, 24)[0] < 55 && pixel(290, 24)[2] > 200, 'Gradient right must retain blue stop');
   await fs.writeFile(path.join(evidence, 'npm-native-canvas.png'), Buffer.from(result.secondPng.split(',')[1], 'base64'));
@@ -178,7 +232,7 @@ try {
   await page.screenshot({ path: path.join(evidence, 'npm-native-page.png'), timeout: 15_000 });
   await page.evaluate(() => globalThis.npmConsumerCleanup());
   assert.deepEqual(errors, []);
-  const { firstPng, warmPng, secondPng, survivingPng, ...metrics } = result;
+  const { firstPng, warmPng, secondPng, survivingPng, changedPng, resizedPng, ...metrics } = result;
   await fs.writeFile(path.join(evidence, 'npm-browser-contract.json'), JSON.stringify({
     package: artifact.name, version: artifact.version, archiveSha256: artifact.sha256,
     sourceCommit: artifact.sourceCommit, adapter: 'Chromium explicit SwiftShader',
