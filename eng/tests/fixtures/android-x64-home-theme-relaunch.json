@@ -1,0 +1,177 @@
+{
+  "run": "36239983220",
+  "head": "470e0a1532b49f3b49ddc91c8b9290a7a7ecbb20",
+  "properties": {
+    "boot_completed": "1",
+    "device_provisioned": "1",
+    "user_setup_complete": "1",
+    "abi": "x86_64"
+  },
+  "home": "priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true\ncom.android.launcher3/.uioverrides.QuickstepLauncher",
+  "candidate": {
+    "activity": [
+      "ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)",
+      "      topResumedActivity=ActivityRecord{609b993 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t7}",
+      "      * Hist  #0: ActivityRecord{609b993 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t7}",
+      "        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true",
+      "        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=false)",
+      "        startingData=null firstWindowDrawn=true mIsExiting=false",
+      "        nowVisible=true lastVisibleTime=-966ms",
+      "        connections={ConnectionRecord{2ec6e02 u0 com.android.launcher3/com.android.quickstep.TouchInteractionService:@82ce34d flags=0x0}}"
+    ],
+    "window": [
+      "WINDOW MANAGER LAST ANR (dumpsys window lastanr)",
+      "  <no ANR has occurred since boot>",
+      "  mCurrentFocus=Window{725bb5a u0 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher}",
+      "    isKeyguardShowing=false",
+      "  Window #7 Window{725bb5a u0 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher}:",
+      "    mDisplayId=0 rootTaskId=1 mSession=Session{c1f79d9 1332:u0a10120} mClient=android.os.BinderProxy@1602f05",
+      "    mOwnerUid=10120 showForAllUsers=false package=com.android.launcher3 appop=NONE",
+      "    mAttrs={(0,0)(fillxfill) sim={adjust=nothing} layoutInDisplayCutoutMode=always ty=BASE_APPLICATION fmt=TRANSPARENT wanim=0x10302fd",
+      "      fl=LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SHOW_WALLPAPER SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS",
+      "      pfl=NO_MOVE_ANIMATION OPTIMIZE_MEASURE EDGE_TO_EDGE_ENFORCED FORCE_DRAW_STATUS_BAR_BACKGROUND FIT_INSETS_CONTROLLED",
+      "      vsysui=LAYOUT_STABLE LAYOUT_HIDE_NAVIGATION LAYOUT_FULLSCREEN",
+      "      bhv=DEFAULT",
+      "      fitSides=",
+      "      frameRateBoostOnTouch=true",
+      "      dvrrWindowFrameRateHint=true}",
+      "    Requested w=1080 h=2400 mLayoutSeq=45",
+      "    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false",
+      "    WindowStateAnimator{18bac0d com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher}:",
+      "      Surface: shown=true    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null",
+      "    mWallpaperX=0.0 mWallpaperY=0.5",
+      "    mWallpaperXStep=0.33333334 mWallpaperYStep=1.0",
+      "    mWallpaperZoomOut=0.0",
+      "    isOnScreen=true",
+      "    isVisible=true",
+      "    keepClearAreas: restricted=[], unrestricted=[]",
+      "    mPrepareSyncSeqId=0"
+    ],
+    "provenance": {
+      "activity": {
+        "file": "boot-activity.txt",
+        "lines": "1;7-8;41-45",
+        "sha256": "ede21fada6f44cec03654b38ca885a51e1d4c887a8ef7ff503b691efc6ddf725"
+      },
+      "window": {
+        "file": "boot-window.txt",
+        "lines": "1-3;110;212;637-658",
+        "sha256": "6715cd173e1e8e1aab376582083e899922f89e953eee02a6674e969dc5340b8a"
+      }
+    }
+  },
+  "relaunch": {
+    "activity": [
+      "ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)",
+      "      topResumedActivity=ActivityRecord{609b993 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t7}",
+      "      * Hist  #0: ActivityRecord{609b993 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t7}",
+      "        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=false reportedVisible=false",
+      "        mNumInterestingWindows=1 mNumDrawnWindows=0 allDrawn=false lastAllDrawn=false)",
+      "        startingData=null firstWindowDrawn=true mIsExiting=false",
+      "        mPendingRelaunchCount=1",
+      "        nowVisible=false lastVisibleTime=-3s758ms"
+    ],
+    "window": [
+      "WINDOW MANAGER LAST ANR (dumpsys window lastanr)",
+      "  <no ANR has occurred since boot>",
+      "  mCurrentFocus=null",
+      "    isKeyguardShowing=false",
+      "  Window #7 Window{1a10048 u0 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher}:",
+      "    mDisplayId=0 rootTaskId=1 mSession=Session{c1f79d9 1332:u0a10120} mClient=android.os.BinderProxy@46daeb",
+      "    mOwnerUid=10120 showForAllUsers=false package=com.android.launcher3 appop=NONE",
+      "    mAttrs={(0,0)(fillxfill) sim={adjust=nothing} layoutInDisplayCutoutMode=always ty=BASE_APPLICATION fmt=TRANSPARENT wanim=0x10302fd",
+      "      fl=LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SHOW_WALLPAPER SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS",
+      "      pfl=NO_MOVE_ANIMATION OPTIMIZE_MEASURE EDGE_TO_EDGE_ENFORCED FORCE_DRAW_STATUS_BAR_BACKGROUND FIT_INSETS_CONTROLLED",
+      "      vsysui=LAYOUT_STABLE LAYOUT_HIDE_NAVIGATION LAYOUT_FULLSCREEN",
+      "      bhv=DEFAULT",
+      "      fitSides=",
+      "      frameRateBoostOnTouch=true",
+      "      dvrrWindowFrameRateHint=true}",
+      "    Requested w=-1 h=-1 mLayoutSeq=-1",
+      "    mRelayoutCalled=false mLayoutNeeded=false",
+      "    mHasSurface=false isReadyForDisplay()=false mWindowRemovalAllowed=false",
+      "    WindowStateAnimator{2e9d8f4 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher}:",
+      "      mShownAlpha=0.0 mAlpha=1.0 mLastAlpha=0.0",
+      "    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null",
+      "    isOnScreen=false",
+      "    isVisible=false",
+      "    keepClearAreas: restricted=[], unrestricted=[]",
+      "    mPrepareSyncSeqId=0"
+    ],
+    "provenance": {
+      "activity": {
+        "file": "boot-activity-final.txt",
+        "lines": "1;7-8;41-45",
+        "sha256": "0a16c67ad7e63d1bad6f12ba0e0c51b2489e20d8d6efd53ae78c0cd45b70bf08"
+      },
+      "window": {
+        "file": "boot-window-final.txt",
+        "lines": "1-3;110;212;629-649",
+        "sha256": "4c662c09c77f7a146a0b8c1b4550e9442ce4cdd1a325d0ed62a1f4c9ae3d5d77"
+      }
+    }
+  },
+  "recovered": {
+    "activity": [
+      "ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)",
+      "      topResumedActivity=ActivityRecord{609b993 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t7}",
+      "      * Hist  #0: ActivityRecord{609b993 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t7}",
+      "        mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true",
+      "        mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=false)",
+      "        startingData=null firstWindowDrawn=true mIsExiting=false",
+      "        nowVisible=true lastVisibleTime=-1s56ms",
+      "        connections={ConnectionRecord{a9100cf u0 com.android.launcher3/com.android.quickstep.TouchInteractionService:@b01fd2e flags=0x0}}"
+    ],
+    "window": [
+      "WINDOW MANAGER LAST ANR (dumpsys window lastanr)",
+      "  <no ANR has occurred since boot>",
+      "  mCurrentFocus=Window{1a10048 u0 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher}",
+      "    isKeyguardShowing=false",
+      "  Window #7 Window{1a10048 u0 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher}:",
+      "    mDisplayId=0 rootTaskId=1 mSession=Session{c1f79d9 1332:u0a10120} mClient=android.os.BinderProxy@46daeb",
+      "    mOwnerUid=10120 showForAllUsers=false package=com.android.launcher3 appop=NONE",
+      "    mAttrs={(0,0)(fillxfill) sim={adjust=nothing} layoutInDisplayCutoutMode=always ty=BASE_APPLICATION fmt=TRANSPARENT wanim=0x10302fd",
+      "      fl=LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SHOW_WALLPAPER SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS",
+      "      pfl=NO_MOVE_ANIMATION OPTIMIZE_MEASURE EDGE_TO_EDGE_ENFORCED FORCE_DRAW_STATUS_BAR_BACKGROUND FIT_INSETS_CONTROLLED",
+      "      vsysui=LAYOUT_STABLE LAYOUT_HIDE_NAVIGATION LAYOUT_FULLSCREEN",
+      "      bhv=DEFAULT",
+      "      fitSides=",
+      "      frameRateBoostOnTouch=true",
+      "      dvrrWindowFrameRateHint=true}",
+      "    Requested w=1080 h=2400 mLayoutSeq=74",
+      "    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false",
+      "    WindowStateAnimator{2e9d8f4 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher}:",
+      "      Surface: shown=true    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null",
+      "    mWallpaperX=0.0 mWallpaperY=0.5",
+      "    mWallpaperXStep=0.33333334 mWallpaperYStep=1.0",
+      "    mWallpaperZoomOut=0.0",
+      "    isOnScreen=true",
+      "    isVisible=true",
+      "    keepClearAreas: restricted=[], unrestricted=[]",
+      "    mPrepareSyncSeqId=0"
+    ],
+    "provenance": {
+      "activity": {
+        "file": "boot-failure-activity.txt",
+        "lines": "1;7-8;41-45",
+        "sha256": "be0c591aea1c1d7ac2f3c00a5db6a15807e85f69834cb7443013eec837a884d5"
+      },
+      "window": {
+        "file": "boot-failure-window.txt",
+        "lines": "1-3;110;212;635-656",
+        "sha256": "f1a129102514ab51aed4e9721908d25c8ca5804d0cee6b600c805baff5922c3a"
+      }
+    }
+  },
+  "log": [
+    "09-26 11:55:44.370   554   579 I wm_relaunch_resume_activity: [0,101300627,7,com.android.launcher3/.uioverrides.QuickstepLauncher,80000000]",
+    "09-26 11:55:44.385  1332  1332 D b/254119092: ComponentCallbacks#onConfigurationChanged() configDiff={CONFIG_ASSETS_PATHS}",
+    "09-26 11:55:44.869   554  2036 I WindowManager: finishDrawing of relaunch: Window{1a10048 u0 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher} 496ms",
+    "09-26 11:55:45.304   554   678 I input_focus: [Focus entering 1a10048 com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher (server),reason=Window became focusable. Previous reason: NOT_VISIBLE]"
+  ],
+  "log_provenance": {
+    "file": "boot-logcat.txt",
+    "lines": "27911;27915;28485;28885",
+    "sha256": "fa98f86753de6ded97b423f420fb52cb7ea0fb745ba48fdf6ad67399d4a258ff"
+  }
+}

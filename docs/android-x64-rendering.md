@@ -64,6 +64,11 @@ It retains the prior animation settings only after HOME readiness and rechecks
 that readiness before installing the APK. Boot polling and every command share
 the same remaining 300-second budget; diagnostic capture after a failure never
 extends admission. The separate application probe retains its 120-second budget.
+If final confirmation observes a pending HOME relaunch, the complete readiness
+poll resumes within that original budget. Each candidate's before/after dumps,
+PNG, fresh log and confirmation outcome remain under `boot-candidates/NNNN`;
+later success never overwrites a rejected candidate. Animation settings are
+applied once, and any ANR/fatal failure still terminates immediately.
 
 `eng/progpu-test-android-emulator.sh` attaches to one already-running adb target;
 it does not create another emulator or VM. It resolves the package's actual
@@ -144,11 +149,24 @@ no hook between its boot-property poll and unconditional input, so its lifecycle
 was replaced by original ProGPU orchestration rather than patched/copied action
 implementation. This does not establish the separate Qsri timeout's cause.
 
+Run [36239983220](https://github.com/wieslawsoltes/ProGPU/actions/runs/36239983220)
+on `470e0a1532b49f3b49ddc91c8b9290a7a7ecbb20` recorded a genuinely drawn/focused
+HOME after 41.118 seconds, then caught a theme-resource `CONFIG_ASSETS_PATHS`
+relaunch during final confirmation at 11:55:44.370. The replacement window drew
+at 11:55:44.869 and regained focus at 11:55:45.304, without an ANR or fatal log.
+The initial and cleanup PNGs both show AOSP HOME, not the sample. The one-shot
+final check stopped too early; pending confirmation now re-enters the original
+boot budget without relaxing any readiness predicate. An original excerpt fixture
+retains all three observed states and exact source-file hashes. Its recovered
+state is a parser regression, not retroactive admission of the failed run.
+
 Offline boot tests include the actual ANR excerpt, representative ordinary
 Android 15 positive formats, incomplete provisioning, resolved HOME identity,
 pending/hidden/stale windows, missing draw acknowledgements, cumulative fatal
 logs, fixed resource configuration, remaining-deadline accounting and subprocess
-ownership/timeout cleanup. Synthetic positives are parser tests only. A real
+ownership/timeout cleanup. The theme-relaunch regression exercises complete
+candidate rechecks, final retries, unchanged deadline exhaustion and late-result
+rejection. Synthetic positives are parser tests only. A real
 successful boot and visibly correct sample remain required after these changes.
 
 `AndroidWindowHost` now owns a disposable subscription to the existing process-wide

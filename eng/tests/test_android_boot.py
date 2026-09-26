@@ -2,6 +2,7 @@
 """Offline boot-state/process tests; never start an Android emulator."""
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -43,6 +44,73 @@ WINDOW = f"""WINDOW MANAGER LAST ANR (dumpsys window lastanr)
 
 
 class AndroidBootTests(unittest.TestCase):
+    def test_actual_theme_relaunch_rechecks_complete_home_before_confirmation(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures/android-x64-home-theme-relaunch.json").read_text())
+
+        def observed(name):
+            state = fixture[name]
+            return BOOT.boot_ready(fixture["properties"], fixture["home"], "\n".join(state["activity"]),
+                                   "\n".join(state["window"]), "\n".join(fixture["log"]))
+
+        self.assertEqual("725bb5a", observed("candidate")["window"])
+        self.assertIsNone(observed("relaunch"))
+        self.assertEqual("1a10048", observed("recovered")["window"])
+        candidates = Mock(side_effect=[observed("candidate"), observed("relaunch"), observed("recovered")])
+        confirmation = Mock(side_effect=[observed("relaunch"), observed("recovered")])
+        now = [395.0]
+        with patch.object(BOOT.time, "monotonic", side_effect=lambda: now[0]), \
+             patch.object(BOOT.time, "sleep", side_effect=lambda delay: now.__setitem__(0, now[0] + delay)) as sleep, \
+             patch.object(BOOT, "remaining", wraps=BOOT.remaining) as budget:
+            result = BOOT.wait_for_home(400.0, candidates, confirmation)
+        self.assertEqual("1a10048", result["window"])
+        self.assertEqual(3, candidates.call_count)
+        self.assertEqual([call(observed("candidate")), call(observed("recovered"))], confirmation.call_args_list)
+        self.assertEqual([call(1), call(1)], sleep.call_args_list)
+        self.assertTrue(all(entry == call(400.0) for entry in budget.call_args_list))
+
+    def test_pending_final_confirmation_exhausts_original_budget(self):
+        candidate = Mock(return_value={"window": "candidate"})
+        confirmation = Mock(return_value=None)
+        now = [398.0]
+        with patch.object(BOOT.time, "monotonic", side_effect=lambda: now[0]), \
+             patch.object(BOOT.time, "sleep", side_effect=lambda delay: now.__setitem__(0, now[0] + delay)):
+            with self.assertRaisesRegex(TimeoutError, "300-second"):
+                BOOT.wait_for_home(400.0, candidate, confirmation)
+        self.assertEqual(2, candidate.call_count)
+        self.assertEqual(2, confirmation.call_count)
+        self.assertEqual(400.0, now[0])
+
+    def test_late_candidate_or_confirmation_cannot_publish_success(self):
+        for late_phase in ("candidate", "confirmation"):
+            now = [399.0]
+
+            def candidate():
+                if late_phase == "candidate":
+                    now[0] = 400.0
+                return {"window": "ready"}
+
+            def confirmation(value):
+                now[0] = 400.0
+                return value
+
+            with self.subTest(phase=late_phase), patch.object(BOOT.time, "monotonic", side_effect=lambda: now[0]), \
+                 patch.object(BOOT.time, "sleep") as sleep:
+                with self.assertRaises(TimeoutError):
+                    BOOT.wait_for_home(400.0, candidate, confirmation)
+                sleep.assert_not_called()
+
+    def test_fatal_confirmation_is_never_retried(self):
+        for log in ("I am_anr: [0,1332,com.android.launcher3]", "E AndroidRuntime: FATAL EXCEPTION: main"):
+            candidate = Mock(return_value={"window": "ready"})
+            confirmation = Mock(side_effect=lambda value: BOOT.boot_ready(PROPERTIES, HOME, ACTIVITY, WINDOW, log))
+            with self.subTest(log=log), patch.object(BOOT.time, "monotonic", return_value=399.0), \
+                 patch.object(BOOT.time, "sleep") as sleep:
+                with self.assertRaisesRegex(ValueError, "ANR or fatal"):
+                    BOOT.wait_for_home(400.0, candidate, confirmation)
+                sleep.assert_not_called()
+            self.assertEqual(1, candidate.call_count)
+            self.assertEqual(1, confirmation.call_count)
+
     def test_ordinary_dump_without_optional_draw_state_is_ready(self):
         result = BOOT.boot_ready(PROPERTIES, HOME, ACTIVITY, WINDOW, "")
         self.assertEqual(FULL_HOME, result["home"])

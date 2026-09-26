@@ -105,6 +105,22 @@ def remaining(deadline):
     return value
 
 
+def wait_for_home(deadline, check_candidate, confirm_candidate):
+    # A drawn HOME can relaunch while first-boot resource overlays settle.
+    # Both observations must pass; pending confirmation consumes the original
+    # budget and rechecks the complete candidate, never a reset grace period.
+    while True:
+        remaining(deadline)
+        candidate = check_candidate()
+        remaining(deadline)
+        if candidate is not None:
+            result = confirm_candidate(candidate)
+            remaining(deadline)
+            if result is not None:
+                return result
+        time.sleep(min(1, remaining(deadline)))
+
+
 def stop_owned(process, force=False):
     if process is None:
         return
@@ -196,14 +212,18 @@ def main():
             def device(*arguments):
                 return command([adb, "-s", SERIAL, *arguments], env, timeout=min(15, remaining(deadline)))
 
-            def capture(name, *arguments):
-                value = device(*arguments)
+            def retain(name, value, archive=None):
                 (evidence / name).write_bytes(value)
+                if archive is not None:
+                    (archive / name).write_bytes(value)
+
+            def capture(name, *arguments, archive=None):
+                value = device(*arguments)
+                retain(name, value, archive)
                 return value.decode(errors="replace").strip()
 
-            result = None
-            while result is None:
-                remaining(deadline)
+            def check_candidate():
+                nonlocal logcat_process
                 if emulator_process.poll() is not None:
                     raise RuntimeError("Owned emulator exited before HOME readiness")
                 try:
@@ -211,8 +231,7 @@ def main():
                 except RuntimeError:
                     connected = False
                 if not connected:
-                    time.sleep(min(1, remaining(deadline)))
-                    continue
+                    return None
                 if logcat_process is None:
                     logcat_process = subprocess.Popen([adb, "-s", SERIAL, "logcat", "-b", "all", "-v", "threadtime"],
                                                       env=env, stdout=boot_log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -222,8 +241,7 @@ def main():
                 properties = {"boot_completed": capture("boot-completed.txt", "shell", "getprop", "sys.boot_completed"),
                               "abi": capture("boot-abi.txt", "shell", "getprop", "ro.product.cpu.abi")}
                 if properties["boot_completed"] != "1":
-                    time.sleep(min(1, remaining(deadline)))
-                    continue
+                    return None
                 properties["device_provisioned"] = capture("boot-provisioned.txt", "shell", "settings", "get", "global", "device_provisioned")
                 properties["user_setup_complete"] = capture("boot-user-setup.txt", "shell", "settings", "get", "secure", "user_setup_complete")
                 home = capture("boot-home.txt", "shell", "cmd", "package", "resolve-activity", "--brief", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
@@ -232,23 +250,41 @@ def main():
                 result = boot_ready(properties, home, activity, window, (evidence / "boot-logcat.txt").read_text(errors="replace"))
                 with (evidence / "boot-attempts.txt").open("a") as attempts:
                     attempts.write(f"elapsed={BOOT_SECONDS - remaining(deadline):.3f} ready={result is not None}\n")
-                if result is None:
-                    time.sleep(min(1, remaining(deadline)))
+                return result
 
-            # Preserve the previous lane's animation configuration, only after
-            # actual HOME readiness. No synthetic input or keyguard dismissal.
-            for setting in ("window_animation_scale", "transition_animation_scale", "animator_duration_scale"):
-                device("shell", "settings", "put", "global", setting, "0.0")
-            capture("boot-input.txt", "shell", "dumpsys", "input")
-            (evidence / "boot-screenshot.png").write_bytes(device("exec-out", "screencap", "-p"))
-            final_activity = capture("boot-activity-final.txt", "shell", "dumpsys", "activity", "activities")
-            final_window = capture("boot-window-final.txt", "shell", "dumpsys", "window")
-            final_log = capture("boot-logcat-final.txt", "logcat", "-b", "all", "-d", "-v", "threadtime")
-            reject_boot_failures(final_window, (evidence / "boot-logcat.txt").read_text(errors="replace"))
-            result = boot_ready(properties, home, final_activity, final_window, final_log)
-            if result is None or logcat_process.poll() is not None:
-                raise RuntimeError("HOME lost readiness before APK installation")
-            remaining(deadline)
+            candidate_count = 0
+            animations_configured = False
+
+            def confirm_candidate(candidate):
+                nonlocal candidate_count, animations_configured
+                candidate_count += 1
+                archive = evidence / "boot-candidates" / f"{candidate_count:04d}"
+                archive.mkdir(parents=True)
+                for name in ("boot-completed.txt", "boot-abi.txt", "boot-provisioned.txt", "boot-user-setup.txt",
+                             "boot-home.txt", "boot-activity.txt", "boot-window.txt"):
+                    shutil.copyfile(evidence / name, archive / name)
+                # Preserve the previous lane's animation configuration once,
+                # after actual HOME readiness. Never send synthetic input.
+                if not animations_configured:
+                    for setting in ("window_animation_scale", "transition_animation_scale", "animator_duration_scale"):
+                        device("shell", "settings", "put", "global", setting, "0.0")
+                    animations_configured = True
+                capture("boot-input.txt", "shell", "dumpsys", "input", archive=archive)
+                retain("boot-screenshot.png", device("exec-out", "screencap", "-p"), archive)
+                final_activity = capture("boot-activity-final.txt", "shell", "dumpsys", "activity", "activities", archive=archive)
+                final_window = capture("boot-window-final.txt", "shell", "dumpsys", "window", archive=archive)
+                final_log = capture("boot-logcat-final.txt", "logcat", "-b", "all", "-d", "-v", "threadtime", archive=archive)
+                reject_boot_failures(final_window, (evidence / "boot-logcat.txt").read_text(errors="replace"))
+                result = boot_ready(candidate["properties"], candidate["home"], final_activity, final_window, final_log)
+                if logcat_process.poll() is not None:
+                    raise RuntimeError("Boot logcat collection stopped")
+                elapsed = BOOT_SECONDS - remaining(deadline)
+                (archive / "confirmation.json").write_text(json.dumps({"elapsed": elapsed, "ready": result is not None}) + "\n")
+                with (evidence / "boot-attempts.txt").open("a") as attempts:
+                    attempts.write(f"elapsed={elapsed:.3f} candidate={candidate_count} confirmed={result is not None}\n")
+                return result
+
+            result = wait_for_home(deadline, check_candidate, confirm_candidate)
             (evidence / "boot-ready.json").write_text(json.dumps(result, indent=2) + "\n")
             admitted = True
             # The existing probe still owns installation, its 120-second launch
