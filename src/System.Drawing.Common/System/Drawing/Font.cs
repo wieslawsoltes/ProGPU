@@ -48,6 +48,7 @@ public enum StringUnit
 public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISerializable
 {
     private bool _disposed;
+    private readonly string _systemRole = string.Empty;
 
 #pragma warning disable SYSLIB0050
     private Font(SerializationInfo info, StreamingContext context)
@@ -75,8 +76,8 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
     public bool Italic => (Style & FontStyle.Italic) != 0;
     public bool Underline => (Style & FontStyle.Underline) != 0;
     public bool Strikeout => (Style & FontStyle.Strikeout) != 0;
-    public bool IsSystemFont => false;
-    public string SystemFontName => string.Empty;
+    public bool IsSystemFont => _systemRole.Length != 0;
+    public string SystemFontName => _systemRole;
     public string? OriginalFontName { get; }
     public int Height => (int)MathF.Ceiling(GetHeight());
 
@@ -179,7 +180,8 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
         GraphicsUnit unit,
         byte gdiCharSet,
         bool gdiVerticalFont,
-        string? originalFontName)
+        string? originalFontName,
+        string systemRole = "")
     {
         ArgumentNullException.ThrowIfNull(family);
         Validate(emSize, unit);
@@ -191,8 +193,12 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
         GdiCharSet = gdiCharSet;
         GdiVerticalFont = gdiVerticalFont;
         OriginalFontName = originalFontName;
+        _systemRole = systemRole;
         TtfFont = FontFamily.ResolveTypeface(style);
     }
+
+    internal static Font CreateSystemFont(FontFamily family, float size, string role)
+        => new(family, size, FontStyle.Regular, GraphicsUnit.Point, 1, false, family.Name, role);
 
     public object Clone()
     {

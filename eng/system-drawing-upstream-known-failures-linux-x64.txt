@@ -475,7 +475,6 @@
 1|System.Drawing.Tests.RegionTests.Xor_DisposedRegion_ThrowsArgumentException|Xunit.Sdk.ThrowsException
 1|System.Drawing.Tests.RegionTests.Xor_Disposed_ThrowsArgumentException|Xunit.Sdk.ThrowsException
 1|System.Drawing.Tests.RegionTests.Xor_SameRegion_ThrowsInvalidOperationException|Xunit.Sdk.ThrowsException
-1|System.Drawing.Tests.SystemFontsTests.GetFontByName_NoSuchName_ReturnsNull|System.ArgumentNullException
 1|System.Drawing.Tests.SystemPensTests.FromSystemColor_NotSystemColor_ThrowsArgumentException|Xunit.Sdk.EqualException
 1|System.Drawing.Tests.TextureBrushTests.Clone_Disposed_ThrowsArgumentException|Xunit.Sdk.ThrowsException
 1|System.Drawing.Tests.TextureBrushTests.Ctor_BitmapFromIconHandle_Success|System.PlatformNotSupportedException
@@ -533,7 +532,6 @@
 2|System.Drawing.Tests.PenTests.ScaleTransform_InvalidOrder_ThrowsArgumentException|Xunit.Sdk.EqualException
 2|System.Drawing.Tests.PenTests.TranslateTransform_InvalidOrder_ThrowsArgumentException|Xunit.Sdk.EqualException
 2|System.Drawing.Tests.RegionTests.Translate_InvalidFloatValue_EmptiesRegion|System.NotSupportedException
-2|System.Drawing.Tests.SystemFontsTests.GetFontByName_NoSuchName_ReturnsNull|Xunit.Sdk.NullException
 2|System.Drawing.Tests.TextureBrushTests.Ctor_Bitmap|Xunit.Sdk.EqualException
 31|System.Drawing.Tests.BitmapTests.LockBits_Invoke_Success|Xunit.Sdk.EqualException
 3|System.ComponentModel.TypeConverterTests.FontConverterTest.InvalidInputThrowsArgumentException|Xunit.Sdk.ThrowsException
@@ -613,7 +611,6 @@
 6|System.Drawing.Tests.ImageAnimatorTests.CanAnimate_ReturnsTrue_ForAnimatedImages|Xunit.Sdk.TrueException
 6|System.Drawing.Tests.RegionTests.Intersect_GraphicsPath_Success|System.NotSupportedException
 6|System.Drawing.Tests.RegionTests.Xor_GraphicsPath_Success|System.NotSupportedException
-6|System.Drawing.Tests.SystemFontsTests.SystemFont_Get_ReturnsExpected|Xunit.Sdk.NotSameException
 7|System.ComponentModel.TypeConverterTests.FontConverterTest.ConvertToInstanceDescriptor|Xunit.Sdk.EqualException
 7|System.ComponentModel.TypeConverterTests.FontConverterTest.InvalidInputThrowsArgumentException|Xunit.Sdk.EqualException
 7|System.Drawing.Drawing2D.Tests.CustomLineCapTests.BaseCap_Set_InvalidLineCap_ThrowsArgumentException|Xunit.Sdk.EqualException
