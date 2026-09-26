@@ -1064,6 +1064,113 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void ForeignDeviceTextureDisposalPreservesCompiledScene()
+    {
+        using var window = new HeadlessWindow(160, 96);
+        using var foreignContext = new WgpuContext();
+        foreignContext.Initialize(null);
+        Assert.False(window.Context.SharesDeviceWith(foreignContext));
+        window.Content = new DenseSolidRoundedRectangleVisual();
+        window.Render();
+        window.Render();
+        window.Render();
+        Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        byte[] before = window.ReadPixels();
+
+        using (var foreignTexture = new GpuTexture(
+            foreignContext, 1, 1, TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst))
+        {
+        }
+
+        window.Render();
+
+        Assert.True(window.Compositor.Metrics.SceneCacheHit,
+            window.Compositor.Metrics.SceneCacheMissReason);
+        Assert.True(Assert.Single(
+            GetDrawCalls(window.Compositor),
+            static candidate => candidate.Type == Compositor.DrawCallType.Vector).IsSolidRounded);
+        Assert.Equal(before, window.ReadPixels());
+    }
+
+    [Fact]
+    public void OwnDeviceTextureDisposalStillInvalidatesCompiledSceneAndPublishesIdentity()
+    {
+        using var window = new HeadlessWindow(160, 96);
+        window.Content = new DenseSolidRoundedRectangleVisual();
+        window.Render();
+        window.Render();
+        window.Render();
+        Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        byte[] before = window.ReadPixels();
+        using var texture = new GpuTexture(
+            window.Context, 1, 1, TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst);
+        int legacyNotifications = 0;
+        int contextNotifications = 0;
+        void LegacyDisposed(ulong id)
+        {
+            if (id == texture.Id) legacyNotifications++;
+        }
+        void ContextDisposed(WgpuDeviceIdentity identity, ulong id)
+        {
+            if (id != texture.Id) return;
+            Assert.Same(window.Context.DeviceIdentity, identity);
+            contextNotifications++;
+        }
+        GpuTexture.OnDisposedWithId += LegacyDisposed;
+        GpuTexture.OnDisposedWithDevice += ContextDisposed;
+        try
+        {
+            texture.Dispose();
+            texture.Dispose();
+            Assert.Equal(1, legacyNotifications);
+            Assert.Equal(1, contextNotifications);
+            window.Render();
+            Assert.False(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal("Texture disposed", window.Compositor.Metrics.SceneCacheMissReason);
+            Assert.Equal(before, window.ReadPixels());
+            window.Render();
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        }
+        finally
+        {
+            GpuTexture.OnDisposedWithDevice -= ContextDisposed;
+            GpuTexture.OnDisposedWithId -= LegacyDisposed;
+        }
+    }
+
+    [Fact]
+    public void TextureDisposalRetainsDeviceIdentityAfterContextDisposal()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        WgpuDeviceIdentity identity = context.DeviceIdentity;
+        using var texture = new GpuTexture(
+            context, 1, 1, TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst);
+        int notifications = 0;
+        void Disposed(WgpuDeviceIdentity retiredIdentity, ulong id)
+        {
+            if (id != texture.Id) return;
+            Assert.Same(identity, retiredIdentity);
+            notifications++;
+        }
+        GpuTexture.OnDisposedWithDevice += Disposed;
+        try
+        {
+            context.Dispose();
+            Assert.Throws<InvalidOperationException>(() => context.DeviceIdentity);
+            texture.Dispose();
+            Assert.Equal(1, notifications);
+        }
+        finally
+        {
+            GpuTexture.OnDisposedWithDevice -= Disposed;
+        }
+    }
+
+    [Fact]
     public void SparseSolidRoundedRectanglesRemainOnGeneralCachedPipeline()
     {
         using var window = new HeadlessWindow(48, 32);
