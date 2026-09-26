@@ -69,9 +69,21 @@ and it is not a successful whole-suite qualification. API verification passes
 with zero missing types, zero missing members and the same 13 existing shape
 differences. The isolated focused build reports no warnings or errors.
 
-The complete pinned upstream Linux corpus, independent architecture lanes, and
-the whole Build remain required before qualification. No known-failure baseline,
-test exclusion, assertion, skip, runtime policy, or allocation gate is changed.
+The exact combined tip `1cae862ecbb333858e33ede33202b5cc8a9439f0` subsequently ran
+the complete Linux-x64 CI corpus in [Build 36260845014, Drawing job
+108456219175](https://github.com/wieslawsoltes/ProGPU/actions/runs/36260845014/job/108456219175).
+Its focused suite passed all 690 tests. The upstream corpus reported 3,296 passes,
+1,123 failures and 34 skips across the unchanged 4,453 cases and 1,753 methods
+(82 of 89 source files enabled). The only failure-inventory change was
+`FontConverterTest.GetFontPropsSorted` becoming a pass. That run failed the strict
+baseline comparison as designed; it remains preserved, not a qualified Build.
+Only that exact Linux-x64 known-failure row and its pass/fail summary are updated.
+
+The Linux-ARM64 baseline remains unchanged pending its actual complete corpus.
+Independent architecture lanes and the whole new exact-head Build remain
+required before qualification. No test exclusion, assertion, skip, runtime
+policy, or allocation gate is changed; the earlier host 3,400-byte failure is
+still retained and is not explained by the later passing run.
 Font string parsing, platform font discovery and unavailable family names remain
 separate compatibility gaps. These component-model tests do not qualify a live
 property-grid application, native font settings, or rendered text layout.

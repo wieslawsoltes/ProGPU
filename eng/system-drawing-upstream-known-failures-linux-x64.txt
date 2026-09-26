@@ -150,7 +150,6 @@
 1|MonoTests.System.Drawing.Imaging.TiffCodecTest.Save_32bppArgb|System.NotSupportedException
 1|MonoTests.System.Drawing.Imaging.TiffCodecTest.Save_32bppPArgb|System.NotSupportedException
 1|MonoTests.System.Drawing.Imaging.TiffCodecTest.Save_32bppRgb|System.NotSupportedException
-1|System.ComponentModel.TypeConverterTests.FontConverterTest.GetFontPropsSorted|Xunit.Sdk.TrueException
 1|System.ComponentModel.TypeConverterTests.IconConverterTest.TestCanConvertTo|Xunit.Sdk.TrueException
 1|System.ComponentModel.TypeConverterTests.ImageConverterTest.ImageWithOleHeader|System.ArgumentException
 1|System.ComponentModel.TypeConverterTests.ImageConverterTest.TestCanConvertFrom|Xunit.Sdk.TrueException
