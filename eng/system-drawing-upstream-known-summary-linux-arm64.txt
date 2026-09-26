@@ -4,6 +4,6 @@ excluded-source-files|7
 discovered-methods|1753
 excluded-methods|2
 expanded-cases|4453
-passed|3272
-failed|1096
+passed|3279
+failed|1089
 skipped|85

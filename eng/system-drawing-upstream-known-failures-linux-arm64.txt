@@ -606,7 +606,6 @@
 6|System.Drawing.Tests.ImageAnimatorTests.CanAnimate_ReturnsTrue_ForAnimatedImages|Xunit.Sdk.TrueException
 6|System.Drawing.Tests.RegionTests.Intersect_GraphicsPath_Success|System.NotSupportedException
 6|System.Drawing.Tests.RegionTests.Xor_GraphicsPath_Success|System.NotSupportedException
-7|System.ComponentModel.TypeConverterTests.FontConverterTest.ConvertToInstanceDescriptor|Xunit.Sdk.EqualException
 7|System.ComponentModel.TypeConverterTests.FontConverterTest.InvalidInputThrowsArgumentException|Xunit.Sdk.EqualException
 7|System.Drawing.Drawing2D.Tests.CustomLineCapTests.BaseCap_Set_InvalidLineCap_ThrowsArgumentException|Xunit.Sdk.EqualException
 8|System.Drawing.Drawing2D.Tests.LinearGradientBrushTests.Ctor_PointF_PointF_Color_Color|System.NullReferenceException
