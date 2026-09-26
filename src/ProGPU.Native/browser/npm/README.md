@@ -51,6 +51,21 @@ uses the repository's `NPM_TOKEN` only for the final publish step after verifyin
 the successful Build, merged source commit and exact archive digest. Prereleases
 use the `next` distribution tag. There is no install or publish lifecycle script.
 
+## TypeScript
+
+The installed-package declaration gate uses TypeScript 6.0.3 with `strict`,
+`noEmit`, `target: "ES2022"`, `module: "NodeNext"` and `lib: ["ES2022", "DOM"]`.
+The browser DOM declarations supply the real `GPUDevice` type; the package does
+not substitute a reduced device interface or add a runtime typing dependency.
+The same installed consumer was also checked with TypeScript 7.0.2.
+
+TypeScript 5 users need the supplemental `@webgpu/types` package and must opt it
+into their compiler's `types` list (verified with TypeScript 5.9.3 and
+`@webgpu/types` 0.1.74). Do not unconditionally include that supplement with newer
+DOM libraries: duplicate WebGPU declarations fail strict compilation. Follow the
+[GPUWeb type package's compatibility guidance](https://github.com/gpuweb/types)
+when selecting a compiler and DOM declaration version.
+
 ## Ownership and supported authoring
 
 `Path` and `SceneBuilder` are mutable authoring objects. Recording a path/brush

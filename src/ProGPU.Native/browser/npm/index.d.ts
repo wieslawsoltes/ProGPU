@@ -83,7 +83,9 @@ export interface Renderer {
 }
 /** Browser DOM + WebGPU only; no Canvas2D/WebGL/software renderer fallback.
  * The caller owns requestAnimationFrame, CSS sizing and resize notifications.
- * Include the standard WebGPU type declarations in a TypeScript consumer. */
+ * TypeScript 6+ DOM declarations provide GPUDevice. TypeScript 5 consumers must
+ * explicitly enable supplemental @webgpu/types; do not mix those declarations
+ * with newer DOM libraries that already define WebGPU. */
 export function createRenderer(options: {
     canvas: HTMLCanvasElement; device?: GPUDevice; onError?: (error: Error) => void;
 }): Promise<Renderer>;
