@@ -20,6 +20,8 @@ public class FontConverter : TypeConverter
         nameof(Font.Size),
         nameof(Font.Unit),
         nameof(Font.Bold),
+        nameof(Font.GdiCharSet),
+        nameof(Font.GdiVerticalFont),
         nameof(Font.Italic),
         nameof(Font.Strikeout),
         nameof(Font.Underline)
