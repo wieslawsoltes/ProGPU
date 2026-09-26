@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d.h"
 #include "progpu_native_direct2d_compat.hpp"
 #include "progpu_native_direct2d_clip_fixture.hpp"
+#include "progpu_native_direct2d_brush_fixture.hpp"
 #include "progpu_native.h"
 
 #include <d2d1_3.h>
@@ -75,6 +76,113 @@ void require(bool condition, const char* message)
 {
     if (!condition) {
         fail(message);
+    }
+}
+
+void mutable_brush_regressions(ID2D1DeviceContext* source_context)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    ComPtr<ID2D1Device> device;
+    source_context->GetDevice(device.GetAddressOf());
+    ComPtr<ID2D1DeviceContext> context;
+    require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
+        "mutable brush fixture context creation failed");
+    for (const bool streamed : {false, true}) {
+        for (const auto kind : {PROGPU_NATIVE_SCENE_BRUSH_SOLID,
+                 PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT, PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT}) {
+            const unsigned mutation_count = kind == PROGPU_NATIVE_SCENE_BRUSH_SOLID ? 2U
+                : kind == PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT ? 4U : 6U;
+            for (unsigned mutation = 0U; mutation < mutation_count; ++mutation) {
+                const D2D1_GRADIENT_STOP stops[]{{0, {1, 0, 0, 1}}, {1, {0, 0, 1, 1}}};
+                ComPtr<ID2D1GradientStopCollection1> collection;
+                require(context->CreateGradientStopCollection(stops, 2U, D2D1_COLOR_SPACE_SRGB,
+                    D2D1_COLOR_SPACE_SRGB, D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_EXTEND_MODE_CLAMP,
+                    D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT, collection.GetAddressOf()) == S_OK,
+                    "mutable brush fixture stop collection failed");
+                ComPtr<ID2D1SolidColorBrush> solid;
+                ComPtr<ID2D1LinearGradientBrush> linear;
+                ComPtr<ID2D1RadialGradientBrush> radial;
+                ID2D1Brush* brush = nullptr;
+                if (kind == PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+                    const D2D1_COLOR_F color{1, 0, 0, 1};
+                    require(context->CreateSolidColorBrush(&color, nullptr, solid.GetAddressOf()) == S_OK,
+                        "mutable solid brush creation failed");
+                    brush = solid.Get();
+                } else if (kind == PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT) {
+                    const D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES properties{{8, 10}, {1, 2}};
+                    require(context->CreateLinearGradientBrush(&properties, nullptr, collection.Get(),
+                        linear.GetAddressOf()) == S_OK, "mutable linear brush creation failed");
+                    brush = linear.Get();
+                } else {
+                    const D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES properties{{8, 10}, {1, 2}, 20, 12};
+                    require(context->CreateRadialGradientBrush(&properties, nullptr, collection.Get(),
+                        radial.GetAddressOf()) == S_OK, "mutable radial brush creation failed");
+                    brush = radial.Get();
+                }
+                const auto apply = [&](const fixture::brush_fixture_state& state) {
+                    brush->SetOpacity(state.opacity);
+                    const D2D1_MATRIX_3X2_F transform{state.transform[0], state.transform[1], state.transform[2],
+                        state.transform[3], state.transform[4], state.transform[5]};
+                    brush->SetTransform(&transform);
+                    if (solid) {
+                        const D2D1_COLOR_F color{state.color[0], state.color[1], state.color[2], state.color[3]};
+                        solid->SetColor(&color);
+                    } else if (linear) {
+                        linear->SetStartPoint({state.first[0], state.first[1]});
+                        linear->SetEndPoint({state.second[0], state.second[1]});
+                    } else {
+                        radial->SetCenter({state.first[0], state.first[1]});
+                        radial->SetGradientOriginOffset({state.second[0], state.second[1]});
+                        radial->SetRadiusX(state.radius_x);
+                        radial->SetRadiusY(state.radius_y);
+                    }
+                };
+                progpu_native_direct2d_scene_recorder* recorder = nullptr;
+                int32_t native_hresult = E_FAIL;
+                require(progpu_native_direct2d_scene_recorder_create(7100U, 1U, nullptr,
+                    &recorder, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                    "mutable brush recorder creation failed");
+                void* raw_sink = nullptr;
+                require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink,
+                    &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+                    "mutable brush recorder sink acquisition failed");
+                ComPtr<ID2D1CommandSink1> sink;
+                sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+                ComPtr<ID2D1CommandList> list;
+                if (streamed) {
+                    require(context->CreateCommandList(list.GetAddressOf()) == S_OK,
+                        "mutable brush command list creation failed");
+                    context->SetTarget(list.Get());
+                    context->BeginDraw();
+                } else require(sink->BeginDraw() == S_OK, "mutable brush recorder begin failed");
+                const D2D1_RECT_F rectangle{1, 2, 20, 18};
+                for (unsigned index = 0U; index < 4U; ++index) {
+                    apply(index == 1U || index == 2U ? fixture::changed_brush_state(kind, mutation)
+                        : fixture::brush_fixture_state{});
+                    if (streamed) context->FillRectangle(&rectangle, brush);
+                    else require(sink->FillRectangle(&rectangle, brush) == S_OK, "mutable brush callback failed");
+                }
+                if (streamed) {
+                    require(context->EndDraw() == S_OK && list->Close() == S_OK,
+                        "mutable brush command list close failed");
+                    context->SetTarget(nullptr);
+                } else require(sink->EndDraw() == S_OK, "mutable brush recorder end failed");
+                brush->SetOpacity(0);
+                solid.Reset(); linear.Reset(); radial.Reset(); collection.Reset();
+                if (streamed) require(list->Stream(sink.Get()) == S_OK, "mutable brush command list stream failed");
+                progpu_native_direct2d_scene_stream_result result{};
+                result.struct_size = sizeof(result);
+                require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U,
+                    &result, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+                    result.translated_draw_count == 4U, "mutable brush stream measurement failed");
+                std::vector<uint8_t> bytes(static_cast<size_t>(result.required_bytes));
+                require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(),
+                    &result, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                    fixture::mutable_brush_contract(std::as_bytes(std::span(bytes)), kind, mutation, !streamed),
+                    "mutable brush snapshot or unchanged-state cache reuse failed");
+                progpu_native_direct2d_scene_recorder_destroy(recorder);
+            }
+        }
     }
 }
 
@@ -5132,6 +5240,8 @@ int main()
     direct_sink.Reset();
     progpu_native_direct2d_scene_recorder_destroy(direct_recorder);
     direct_recorder = nullptr;
+
+    mutable_brush_regressions(context.Get());
 
     {
         ComPtr<ID2D1PathGeometry> line_geometry;

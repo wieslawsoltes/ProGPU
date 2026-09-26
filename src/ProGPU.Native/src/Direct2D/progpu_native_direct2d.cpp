@@ -6774,7 +6774,16 @@ public:
 private:
     struct brush_cache_entry {
         ComPtr<IUnknown> identity;
+        ComPtr<IUnknown> gradient_collection_identity;
         D2D1_MATRIX_3X2_F draw_transform{};
+        D2D1_MATRIX_3X2_F brush_transform{};
+        D2D1_COLOR_F color{};
+        D2D1_POINT_2F start{};
+        D2D1_POINT_2F end{};
+        float radius_x = 0.0F;
+        float radius_y = 0.0F;
+        float opacity = 0.0F;
+        uint32_t type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
         uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     };
 
@@ -6815,6 +6824,22 @@ private:
         return left._11 == right._11 && left._12 == right._12 &&
             left._21 == right._21 && left._22 == right._22 &&
             left._31 == right._31 && left._32 == right._32;
+    }
+
+    static bool same_brush_snapshot(
+        const brush_cache_entry& left,
+        const brush_cache_entry& right) noexcept
+    {
+        return left.identity.Get() == right.identity.Get() &&
+            left.gradient_collection_identity.Get() == right.gradient_collection_identity.Get() &&
+            left.type == right.type && left.opacity == right.opacity &&
+            same_transform(left.draw_transform, right.draw_transform) &&
+            same_transform(left.brush_transform, right.brush_transform) &&
+            left.color.r == right.color.r && left.color.g == right.color.g &&
+            left.color.b == right.color.b && left.color.a == right.color.a &&
+            left.start.x == right.start.x && left.start.y == right.start.y &&
+            left.end.x == right.end.x && left.end.y == right.end.y &&
+            left.radius_x == right.radius_x && left.radius_y == right.radius_y;
     }
 
     static bool finite_rectangle(const D2D1_RECT_F* value) noexcept
@@ -7316,40 +7341,67 @@ private:
         if (brush == nullptr) {
             return fail_invalid_value();
         }
-        ComPtr<IUnknown> identity;
-        if (FAILED(brush->QueryInterface(IID_PPV_ARGS(&identity)))) {
+        // Snapshot every mutable input before looking up retained paint. COM
+        // identity alone does not identify brush content between callbacks.
+        // Gradient collections are immutable and keep their owned identity;
+        // unchanged hits do not read/allocate their stop arrays again.
+        // Time: O(B) for B cached snapshots, as before; O(1) extra capture work.
+        // Space: O(1) per retained snapshot. No pixel or SIMD workload is added.
+        brush_cache_entry snapshot{};
+        if (FAILED(brush->QueryInterface(IID_PPV_ARGS(&snapshot.identity)))) {
             return fail_unsupported_resource();
         }
+        snapshot.draw_transform = transform_;
+        snapshot.opacity = brush->GetOpacity();
+        ComPtr<ID2D1SolidColorBrush> solid;
+        ComPtr<ID2D1LinearGradientBrush> linear;
+        ComPtr<ID2D1RadialGradientBrush> radial;
+        ComPtr<ID2D1GradientStopCollection> collection;
+        if (SUCCEEDED(brush->QueryInterface(IID_PPV_ARGS(&solid)))) {
+            snapshot.color = solid->GetColor();
+        } else if (SUCCEEDED(brush->QueryInterface(IID_PPV_ARGS(&linear)))) {
+            snapshot.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+            snapshot.start = linear->GetStartPoint();
+            snapshot.end = linear->GetEndPoint();
+            linear->GetGradientStopCollection(collection.GetAddressOf());
+        } else if (SUCCEEDED(brush->QueryInterface(IID_PPV_ARGS(&radial)))) {
+            snapshot.type = PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT;
+            snapshot.start = radial->GetCenter();
+            snapshot.end = radial->GetGradientOriginOffset();
+            snapshot.radius_x = radial->GetRadiusX();
+            snapshot.radius_y = radial->GetRadiusY();
+            radial->GetGradientStopCollection(collection.GetAddressOf());
+        } else {
+            return fail_unsupported_resource();
+        }
+        if (!solid) {
+            brush->GetTransform(&snapshot.brush_transform);
+            if (!collection || FAILED(collection->QueryInterface(
+                    IID_PPV_ARGS(&snapshot.gradient_collection_identity)))) {
+                return fail_unsupported_resource();
+            }
+        }
         for (const auto& cached : brush_cache_) {
-            if (cached.identity.Get() == identity.Get() &&
-                same_transform(cached.draw_transform, transform_)) {
+            if (same_brush_snapshot(cached, snapshot)) {
                 brush_index = cached.brush_index;
                 return S_OK;
             }
         }
 
         HRESULT result = E_NOTIMPL;
-        ComPtr<ID2D1SolidColorBrush> solid;
-        if (SUCCEEDED(brush->QueryInterface(IID_PPV_ARGS(&solid)))) {
+        if (solid) {
             result = add_solid_brush(solid.Get(), brush_index);
+        } else if (linear) {
+            result = add_linear_gradient_brush(linear.Get(), brush_index);
         } else {
-            ComPtr<ID2D1LinearGradientBrush> linear;
-            if (SUCCEEDED(brush->QueryInterface(IID_PPV_ARGS(&linear)))) {
-                result = add_linear_gradient_brush(linear.Get(), brush_index);
-            } else {
-                ComPtr<ID2D1RadialGradientBrush> radial;
-                result = SUCCEEDED(
-                        brush->QueryInterface(IID_PPV_ARGS(&radial)))
-                    ? add_radial_gradient_brush(radial.Get(), brush_index)
-                    : fail_unsupported_resource();
-            }
+            result = add_radial_gradient_brush(radial.Get(), brush_index);
         }
         if (FAILED(result)) {
             return result;
         }
         try {
-            brush_cache_.push_back(
-                {std::move(identity), transform_, brush_index});
+            snapshot.brush_index = brush_index;
+            brush_cache_.push_back(std::move(snapshot));
         } catch (...) {
             // Caching is an optimization only; the semantic brush is already
             // retained by the scene builder and remains correct without it.

@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d_compat.hpp"
 #include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native_direct2d_clip_fixture.hpp"
+#include "progpu_native_direct2d_brush_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -1314,6 +1315,88 @@ private:
 
 static_assert(
     offsetof(fake_text_layout_vtable, draw) == 58U * sizeof(void*));
+
+bool mutable_brush_regressions(compat::scene_factory_native* scene_factory)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    for (const auto kind : {PROGPU_NATIVE_SCENE_BRUSH_SOLID,
+             PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT, PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT}) {
+        const unsigned mutation_count = kind == PROGPU_NATIVE_SCENE_BRUSH_SOLID ? 2U
+            : kind == PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT ? 4U : 6U;
+        for (unsigned mutation = 0U; mutation < mutation_count; ++mutation) {
+            const compat::scene_render_target_properties properties{64, 48, 96, 96, 7100, 1};
+            compat::render_target* raw_target = nullptr;
+            if (scene_factory->CreateSceneRenderTarget(&properties, &raw_target) != com::ok) return false;
+            com::pointer<compat::render_target> target;
+            target.attach(raw_target);
+            com::pointer<compat::scene_render_target_native> scene;
+            if (target.as(compat::scene_render_target_native_interface_id, scene) != com::ok) return false;
+            const compat::gradient_stop stops[]{{0, {1, 0, 0, 1}}, {1, {0, 0, 1, 1}}};
+            compat::gradient_stop_collection* raw_collection = nullptr;
+            if (target->CreateGradientStopCollection(stops, 2U, compat::gamma::gamma_2_2,
+                    compat::extend_mode::clamp, &raw_collection) != com::ok) return false;
+            com::pointer<compat::gradient_stop_collection> collection;
+            collection.attach(raw_collection);
+            com::pointer<compat::solid_color_brush> solid;
+            com::pointer<compat::linear_gradient_brush> linear;
+            com::pointer<compat::radial_gradient_brush> radial;
+            compat::brush* brush = nullptr;
+            if (kind == PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+                const compat::color_f color{1, 0, 0, 1};
+                compat::solid_color_brush* raw = nullptr;
+                if (target->CreateSolidColorBrush(&color, nullptr, &raw) != com::ok) return false;
+                solid.attach(raw);
+                brush = solid.get();
+            } else if (kind == PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT) {
+                const compat::linear_gradient_brush_properties value{{8, 10}, {1, 2}};
+                compat::linear_gradient_brush* raw = nullptr;
+                if (target->CreateLinearGradientBrush(&value, nullptr, collection.get(), &raw) != com::ok) return false;
+                linear.attach(raw);
+                brush = linear.get();
+            } else {
+                const compat::radial_gradient_brush_properties value{{8, 10}, {1, 2}, 20, 12};
+                compat::radial_gradient_brush* raw = nullptr;
+                if (target->CreateRadialGradientBrush(&value, nullptr, collection.get(), &raw) != com::ok) return false;
+                radial.attach(raw);
+                brush = radial.get();
+            }
+            const auto apply = [&](const fixture::brush_fixture_state& state) {
+                brush->SetOpacity(state.opacity);
+                const compat::matrix_3x2_f transform{state.transform[0], state.transform[1], state.transform[2],
+                    state.transform[3], state.transform[4], state.transform[5]};
+                brush->SetTransform(&transform);
+                if (solid) {
+                    const compat::color_f color{state.color[0], state.color[1], state.color[2], state.color[3]};
+                    solid->SetColor(&color);
+                } else if (linear) {
+                    linear->SetStartPoint({state.first[0], state.first[1]});
+                    linear->SetEndPoint({state.second[0], state.second[1]});
+                } else {
+                    radial->SetCenter({state.first[0], state.first[1]});
+                    radial->SetGradientOriginOffset({state.second[0], state.second[1]});
+                    radial->SetRadiusX(state.radius_x);
+                    radial->SetRadiusY(state.radius_y);
+                }
+            };
+            target->BeginDraw();
+            const compat::rectangle_f rectangle{1, 2, 20, 18};
+            for (unsigned index = 0U; index < 4U; ++index) {
+                apply(index == 1U || index == 2U ? fixture::changed_brush_state(kind, mutation)
+                    : fixture::brush_fixture_state{});
+                target->FillRectangle(&rectangle, brush);
+            }
+            if (target->EndDraw(nullptr, nullptr) != com::ok) return false;
+            // Final source mutation/release must not rewrite any retained draw.
+            brush->SetOpacity(0);
+            solid.reset(); linear.reset(); radial.reset(); collection.reset();
+            std::vector<std::byte> bytes(static_cast<std::size_t>(scene->GetRequiredSceneSize()));
+            std::uint64_t written = 0U;
+            if (scene->BuildScene(bytes.data(), bytes.size(), &written) != com::ok || written != bytes.size() ||
+                !fixture::mutable_brush_contract(bytes, kind, mutation, false)) return false;
+        }
+    }
+    return true;
+}
 
 } // namespace
 
@@ -6136,6 +6219,7 @@ int run_tests()
         !scene_factory) {
         return 118;
     }
+    if (!mutable_brush_regressions(scene_factory.get())) return 401;
     const compat::scene_render_target_properties target_properties{
         640U, 480U, 96.0F, 96.0F, 7001U, 11U};
     compat::render_target* raw_target = nullptr;
