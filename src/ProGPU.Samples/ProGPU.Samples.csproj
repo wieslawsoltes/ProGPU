@@ -36,6 +36,14 @@
     <ProjectReference Include="..\PresentationCore\PresentationCore.csproj" />
   </ItemGroup>
 
+  <!-- This flag selects only this assembly's sample sources. Forwarding it to
+       shared runtime/analyzer projects creates a second build identity for the
+       same output files when a mobile host also references those projects. -->
+  <ItemGroup>
+    <ProjectReference Update="@(ProjectReference)"
+                      GlobalPropertiesToRemove="%(ProjectReference.GlobalPropertiesToRemove);ProGpuSamplesMobile" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Silk.NET.Input.Common" />
     <PackageReference Include="Microsoft.CodeAnalysis.Common"

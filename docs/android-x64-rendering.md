@@ -25,12 +25,27 @@ because its filename happens to match.
 
 The sample owns its Android target framework; the build invocation does not
 replace every referenced project's framework with an Android global property.
-The two XAML generator project references remove only target RID properties,
+The two XAML generator project references remove target RID properties,
 so the generator and its analyzer dependencies execute as RID-free host tools
 while the application's runtime references retain `android-x64`. Executable
 SDK reference-resolution tests cover both Android RIDs and both consumers.
 Fresh-configuration Fluent-theme and mobile-sample library builds additionally
 exercise the actual host generator closure; they are not APK runtime evidence.
+
+`ProGpuSamplesMobile` selects only the shared sample assembly's sources and
+references. Its outgoing project references remove that property while keeping
+the existing generator RID removals. Otherwise a shared dependency reached both
+through the mobile sample and directly through the Android host has two global
+property identities writing the same files. Run
+[36262291461](https://github.com/wieslawsoltes/ProGPU/actions/runs/36262291461)
+exposed this in overlapping Fluent-theme builds: the only property difference
+was `ProGpuSamplesMobile=true` versus absent, and `GenerateDepsFile` failed with
+a sharing violation. The retained binlog also recorded a WinUI DLL collision.
+Reference-resolution tests execute the real SDK child targets for true, false
+and absent selection, reject leakage into shared projects, and preserve the
+mobile source exclusions. The old project fails the child-property assertion;
+all seven reference cases pass after isolation. This does not serialize the
+build, suppress locking errors, or change tests, APK/runtime gates or deadlines.
 
 The Actions runner is Ubuntu 24.04 x64, with explicit accessible KVM and an
 API 35 AOSP `default;x86_64` image, without Google apps/services. This is the
@@ -194,6 +209,12 @@ not change product provider or renderer defaults.
 
 ## Primary references
 
+- [MSBuild race-condition diagnosis](https://learn.microsoft.com/en-us/visualstudio/msbuild/fix-intermittent-build-failures)
+  identifies mismatched project-reference global properties as separate builds
+  of shared outputs; the retained failing binlog establishes that case here.
+- [MSBuild project-reference protocol](https://github.com/dotnet/msbuild/blob/main/documentation/ProjectReference-Protocol.md)
+  defines reference metadata and global-property propagation. The sample-only
+  property is removed at its outgoing boundary, not from its own evaluation.
 - [.NET Android build properties](https://learn.microsoft.com/en-us/dotnet/android/building-apps/build-properties#embedassembliesintoapk)
   describe embedded managed assemblies versus Fast Deployment.
 - [GitHub hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
