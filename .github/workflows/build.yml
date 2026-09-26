@@ -101,6 +101,29 @@ jobs:
           PROGPU_NATIVE_BROWSER_INSTALL_CHROMIUM: 1
         run: ./eng/progpu-test-native-browser.sh
 
+      - name: Pack and exercise installed npm browser library
+        shell: bash
+        run: |
+          node eng/progpu-pack-npm.mjs
+          node eng/progpu-test-npm-browser.mjs
+
+      - name: Upload verified npm package
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-npm-package
+          path: |
+            artifacts/npm/*.tgz
+            artifacts/npm/npm-artifact.json
+          if-no-files-found: error
+
+      - name: Upload npm browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-npm-browser-evidence
+          path: artifacts/npm/evidence/
+          if-no-files-found: warn
+
       - name: Upload native browser evidence
         if: always()
         uses: actions/upload-artifact@v7
