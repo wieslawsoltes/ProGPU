@@ -143,6 +143,13 @@ public sealed class AndroidMediaProviderContractTests
             "src",
             "ProGPU.Android",
             "ProGPU.Android.csproj");
+        string targets = ReadRepoFile(
+            "src", "ProGPU.Android", "buildTransitive", "ProGPU.Android.targets");
+
+        Assert.Contains(
+            "<Import Project=\"buildTransitive/ProGPU.Android.targets\" />",
+            project,
+            StringComparison.Ordinal);
 
         Assert.Contains(
             "01249a97332468dbdd6cf5edb8dd7bae77875de5",
@@ -234,15 +241,15 @@ public sealed class AndroidMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "libwebgpu_dawn.so",
-            project,
+            targets,
             StringComparison.Ordinal);
         Assert.Contains(
             "ProGpuRequireZeroCopyMedia",
-            project,
+            targets,
             StringComparison.Ordinal);
         Assert.Contains(
             "build-webgpu-dawn-android.sh",
-            project,
+            targets,
             StringComparison.Ordinal);
     }
 
@@ -257,6 +264,8 @@ public sealed class AndroidMediaProviderContractTests
             "src",
             "ProGPU.Android",
             "ProGPU.Android.csproj");
+        string targets = ReadRepoFile(
+            "src", "ProGPU.Android", "buildTransitive", "ProGPU.Android.targets");
 
         Assert.Contains(
             "DawnGpuContext.CreateNativePresentation(source)",
@@ -276,7 +285,7 @@ public sealed class AndroidMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "libwebgpu_dawn.so",
-            project,
+            targets,
             StringComparison.Ordinal);
     }
 
