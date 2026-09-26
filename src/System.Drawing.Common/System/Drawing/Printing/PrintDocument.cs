@@ -33,11 +33,37 @@ public class PrintDocument : Component
 
     public void Print()
     {
-        var printEvent = new PrintEventArgs();
-        OnBeginPrint(printEvent);
-        if (printEvent.Cancel) return;
+        // One invocation belongs to the controller selected before callbacks.
+        PrintController controller = PrintController;
+        PrintAction action = PrintAction.PrintToPrinter;
+        if (controller.IsPreview)
+        {
+            action = PrintAction.PrintToPreview;
+        }
+        else if (PrinterSettings.PrintToFile)
+        {
+            action = PrintAction.PrintToFile;
+        }
 
-        PrintController.OnStartPrint(this, printEvent);
+        var printEvent = new PrintEventArgs(action);
+        OnBeginPrint(printEvent);
+        if (printEvent.Cancel)
+        {
+            OnEndPrint(printEvent);
+            return;
+        }
+
+        controller.OnStartPrint(this, printEvent);
+        if (printEvent.Cancel)
+        {
+            // No page sequence was entered. An EndPrint handler failure here
+            // propagates before the controller receives completion.
+            OnEndPrint(printEvent);
+            controller.OnEndPrint(this, printEvent);
+            return;
+        }
+
+        bool completedPages = false;
         try
         {
             bool more;
@@ -55,7 +81,7 @@ public class PrintDocument : Component
                     Math.Max(0, pageBounds.Height - margins.Top - margins.Bottom));
                 using Graphics measurementGraphics = PrinterSettings.CreateMeasurementGraphics(query.PageSettings);
                 var page = new PrintPageEventArgs(measurementGraphics, marginBounds, pageBounds, query.PageSettings);
-                Graphics? controllerGraphics = PrintController.OnStartPage(this, page);
+                Graphics? controllerGraphics = controller.OnStartPage(this, page);
                 if (controllerGraphics is not null)
                 {
                     page.Graphics = controllerGraphics;
@@ -64,7 +90,7 @@ public class PrintDocument : Component
                 try
                 {
                     OnPrintPage(page);
-                    PrintController.OnEndPage(this, page);
+                    controller.OnEndPage(this, page);
                 }
                 finally
                 {
@@ -73,14 +99,28 @@ public class PrintDocument : Component
                         controllerGraphics?.Dispose();
                     }
                 }
-                more = page.HasMorePages && !page.Cancel;
+                if (page.Cancel) break;
+                more = page.HasMorePages;
+                completedPages = !more;
             }
             while (more);
         }
         finally
         {
-            PrintController.OnEndPrint(this, printEvent);
-            OnEndPrint(printEvent);
+            try
+            {
+                OnEndPrint(printEvent);
+                if (!completedPages)
+                {
+                    printEvent.Cancel = true;
+                }
+            }
+            finally
+            {
+                // Once pages are attempted, controller completion must still
+                // run if an application EndPrint handler throws.
+                controller.OnEndPrint(this, printEvent);
+            }
         }
     }
 
