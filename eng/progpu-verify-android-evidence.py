@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import signal
@@ -305,15 +306,26 @@ def verify_foreground(activity, window):
 def run_command(arguments, timeout):
     require(arguments and timeout > 0, "A command and positive timeout are required")
     process = subprocess.Popen(arguments, start_new_session=True)
+
+    def stop_command():
+        # This group may contain descendants even if its leader just exited.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=10)
+
     try:
         return process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        # Only the process group created for this invocation is owned here.
-        import os
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait(timeout=10)
+        stop_command()
         print(f"Command exceeded {timeout}s: {arguments[0]}", file=sys.stderr)
         return 124
+    except BaseException:
+        # Parent lifecycle cancellation also owns this nested command session.
+        # Its adb client must not survive merely because it has another PGID.
+        stop_command()
+        raise
 
 
 def main():
@@ -371,4 +383,8 @@ def main():
 
 
 if __name__ == "__main__":
+    def terminate(signum, frame):
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, terminate)
     sys.exit(main())

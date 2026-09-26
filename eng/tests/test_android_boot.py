@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 
 SPEC = importlib.util.spec_from_file_location("android_boot", Path(__file__).resolve().parents[1] / "progpu-run-android-emulator.py")
@@ -142,6 +142,14 @@ class AndroidBootTests(unittest.TestCase):
             BOOT.stop_owned(unrelated)
         self.assertIsNotNone(unrelated.returncode)
         BOOT.stop_owned(unrelated)
+
+    def test_graceful_cleanup_escalates_once_without_duplicate_group_kill(self):
+        process = Mock(pid=12345)
+        process.poll.return_value = None
+        process.wait.side_effect = [subprocess.TimeoutExpired("owned", 15), 0]
+        with patch.object(BOOT.os, "killpg") as kill:
+            BOOT.stop_owned(process)
+        self.assertEqual([call(12345, BOOT.signal.SIGTERM), call(12345, BOOT.signal.SIGKILL)], kill.call_args_list)
 
     def test_command_failure_and_stderr_provenance(self):
         output = BOOT.command([sys.executable, "-c", "import sys; print('version', file=sys.stderr)"], dict(os.environ), timeout=5, merge_error=True)

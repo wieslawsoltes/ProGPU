@@ -4,11 +4,15 @@
 import importlib.util
 import base64
 import json
+import os
 from pathlib import Path
+import select
+import signal
 import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 import zlib
@@ -234,6 +238,36 @@ class AndroidEvidenceTests(unittest.TestCase):
             sys.executable, SPEC.origin, "run-command", "--timeout", "1", "--", sys.executable,
             "-c", "import time; time.sleep(30)"], capture_output=True, text=True, timeout=5)
         self.assertEqual(124, result.returncode, result.stderr)
+
+    def test_command_cancellation_terminates_its_nested_session(self):
+        child_pid = None
+        wrapper = subprocess.Popen([
+            sys.executable, SPEC.origin, "run-command", "--timeout", "30", "--", sys.executable,
+            "-c", "import os,time; print(os.getpid(), flush=True); time.sleep(30)"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            ready, _, _ = select.select([wrapper.stdout], [], [], 5)
+            self.assertTrue(ready, "Owned child did not report its identity")
+            child_pid = int(wrapper.stdout.readline().strip())
+            wrapper.terminate()  # Only the wrapper; its child owns another session.
+            _, error = wrapper.communicate(timeout=5)
+            self.assertEqual(128 + signal.SIGTERM, wrapper.returncode, error)
+            deadline = time.monotonic() + 2
+            while True:
+                state = subprocess.run(["ps", "-p", str(child_pid), "-o", "stat="], capture_output=True, text=True, timeout=1).stdout.strip()
+                if not state or state.startswith("Z"):
+                    break
+                self.assertLess(time.monotonic(), deadline, f"Nested command remains running: {state}")
+                time.sleep(0.01)
+        finally:
+            # Test cleanup is restricted to the two sessions created above.
+            for identity in (child_pid, wrapper.pid):
+                if identity is not None:
+                    try:
+                        os.killpg(identity, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            wrapper.communicate(timeout=5)
 
     def test_truncated_corrupt_and_error_text_screenshots_rejected(self):
         valid = png()

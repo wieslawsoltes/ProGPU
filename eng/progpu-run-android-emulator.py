@@ -117,15 +117,19 @@ def stop_owned(process, force=False):
 
     # The group can outlive its leader, including a child holding a command's
     # stdout pipe open. Ownership is the session created at Popen, not poll().
-    send(signal.SIGTERM if not force and process.poll() is None else signal.SIGKILL)
+    hard_kill = force or process.poll() is not None
+    send(signal.SIGKILL if hard_kill else signal.SIGTERM)
     try:
         process.wait(timeout=15)
     except subprocess.TimeoutExpired:
-        send(signal.SIGKILL)
+        if not hard_kill:
+            send(signal.SIGKILL)
+            hard_kill = True
         process.wait(timeout=5)
     finally:
         # A gracefully exited leader does not prove all descendants have exited.
-        send(signal.SIGKILL)
+        if not hard_kill:
+            send(signal.SIGKILL)
 
 
 def command(arguments, env, timeout=None, input_text=None, merge_error=False):
