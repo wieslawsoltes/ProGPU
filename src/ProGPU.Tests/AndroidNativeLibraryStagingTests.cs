@@ -246,6 +246,38 @@ public sealed class AndroidNativeLibraryStagingTests
         Assert.DoesNotContain("PROGPUANDROID", result.Output, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("android-arm64", false)]
+    [InlineData("android-x64", false)]
+    [InlineData("android-arm64", true)]
+    [InlineData("android-x64", true)]
+    public async Task ScheduledStagingPrecedesAndroidLibraryCategorization(string rid, bool application)
+    {
+        using StagingFixture fixture = new() { ObserveScheduledBuild = true };
+        fixture.Properties["TargetPlatformIdentifier"] = string.Empty;
+        fixture.Properties["AndroidApplication"] = application.ToString();
+        fixture.LateProperties["TargetPlatformIdentifier"] = "android";
+        fixture.LateProperties["RuntimeIdentifier"] = rid;
+        List<string> expected = [];
+        foreach (string family in new[] { "wgpu", "dawn", "engine" })
+        {
+            expected.Add(fixture.AddLibrary(family, "source", rid));
+            fixture.AddLibrary(family, "source", OtherRid(rid));
+        }
+        string caller = fixture.AddMarker(Path.Combine(fixture.Root, "caller", "libcaller.so"));
+        fixture.AddExistingLibrary(caller, rid, "caller-owned");
+
+        BuildResult result = await fixture.RunAsync();
+
+        result.RequireSuccess();
+        Assert.Equal(4, result.CategorizedItems.Length);
+        Assert.Equal(result.Items, result.CategorizedItems);
+        foreach (string path in expected)
+            AssertLibrary(Assert.Single(result.CategorizedItems, item => SamePath(item.Path, path)), path, rid);
+        Assert.Equal("caller-owned", Assert.Single(result.CategorizedItems, item => SamePath(item.Path, caller)).Ownership);
+        Assert.DoesNotContain("PROGPUANDROID", result.Output, StringComparison.Ordinal);
+    }
+
     private static string Abi(string rid) => rid == "android-arm64" ? "arm64-v8a" : "x86_64";
     private static string OtherRid(string rid) => rid == "android-arm64" ? "android-x64" : "android-arm64";
     private static bool SamePath(string left, string right) => string.Equals(
@@ -261,7 +293,7 @@ public sealed class AndroidNativeLibraryStagingTests
 
     private sealed record NativeItem(string Path, string Abi, string RuntimeIdentifier, string Ownership);
 
-    private sealed record BuildResult(int ExitCode, string Output, NativeItem[] Items)
+    private sealed record BuildResult(int ExitCode, string Output, NativeItem[] Items, NativeItem[] CategorizedItems)
     {
         public void RequireSuccess() => Assert.True(ExitCode == 0, Output);
 
@@ -287,6 +319,7 @@ public sealed class AndroidNativeLibraryStagingTests
             ["_ComputeFilesToPublishForRuntimeIdentifiers"] = "false"
         };
         public Dictionary<string, string> LateProperties { get; } = [];
+        public bool ObserveScheduledBuild { get; init; }
         private readonly List<XElement> _existingItems = [];
         private readonly string _targets;
         private readonly string _repositoryRoot;
@@ -344,7 +377,16 @@ public sealed class AndroidNativeLibraryStagingTests
                 new XElement("ItemGroup", _existingItems),
                 new XElement("Import", new XAttribute("Project", _targets)),
                 new XElement("Target", new XAttribute("Name", "SetLateAndroidProperties"),
-                    new XElement("PropertyGroup", LateProperties.Select(pair => new XElement(pair.Key, pair.Value))))))
+                    new XElement("PropertyGroup", LateProperties.Select(pair => new XElement(pair.Key, pair.Value)))),
+                // Observe item availability at the Android SDK's first library
+                // consumer, before its later checks/PrepareForBuild. This is an
+                // original scheduling probe, not a substitute Android packager.
+                new XElement("Target", new XAttribute("Name", "_CategorizeAndroidLibraries"),
+                    new XElement("ItemGroup", new XElement("FixtureCategorizedNativeLibrary",
+                        new XAttribute("Include", "@(AndroidNativeLibrary)")))),
+                new XElement("Target", new XAttribute("Name", "PrepareForBuild")),
+                new XElement("Target", new XAttribute("Name", "_CheckProjectItems")),
+                new XElement("Target", new XAttribute("Name", "_BuildLibraryImportsCache"))))
                 .Save(project);
 
             ProcessStartInfo start = new()
@@ -359,7 +401,10 @@ public sealed class AndroidNativeLibraryStagingTests
             foreach (string argument in new[]
             {
                 "msbuild", project, "-nologo", "-verbosity:quiet", "-nodeReuse:false", "-maxCpuCount:1",
-                "-target:SetLateAndroidProperties,ProGpuStageAndroidNativeLibraries", "-getItem:AndroidNativeLibrary"
+                ObserveScheduledBuild
+                    ? "-target:SetLateAndroidProperties,_CategorizeAndroidLibraries,_CheckProjectItems,PrepareForBuild,_BuildLibraryImportsCache"
+                    : "-target:SetLateAndroidProperties,ProGpuStageAndroidNativeLibraries",
+                "-getItem:AndroidNativeLibrary,FixtureCategorizedNativeLibrary"
             })
                 start.ArgumentList.Add(argument);
             foreach (string argument in arguments)
@@ -386,16 +431,18 @@ public sealed class AndroidNativeLibraryStagingTests
             string output = standardOutput + "\n" + await stderr;
             // -getItem also publishes actual item state after a failed target.
             // Never fabricate an empty array for failure/atomicity assertions.
-            return new(process.ExitCode, output, ReadItems(standardOutput, output));
+            return new(process.ExitCode, output,
+                ReadItems(standardOutput, output, "AndroidNativeLibrary"),
+                ReadItems(standardOutput, output, "FixtureCategorizedNativeLibrary"));
         }
 
-        private static NativeItem[] ReadItems(string standardOutput, string diagnosticOutput)
+        private static NativeItem[] ReadItems(string standardOutput, string diagnosticOutput, string itemName)
         {
             int jsonStart = standardOutput.IndexOf('{');
             Assert.True(jsonStart >= 0, diagnosticOutput);
             Utf8JsonReader reader = new(Encoding.UTF8.GetBytes(standardOutput[jsonStart..]));
             using JsonDocument json = JsonDocument.ParseValue(ref reader);
-            return json.RootElement.GetProperty("Items").GetProperty("AndroidNativeLibrary")
+            return json.RootElement.GetProperty("Items").GetProperty(itemName)
                 .EnumerateArray().Select(item => new NativeItem(
                     item.GetProperty("Identity").GetString()!,
                     item.GetProperty("Abi").GetString()!,

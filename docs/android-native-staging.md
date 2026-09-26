@@ -14,8 +14,10 @@ algorithm. Unsupported RIDs and missing required Dawn fail before new native
 items are published. Ordinary missing providers retain warning behavior.
 The native-engine package entries and manifests are unchanged.
 
-Selection runs at target execution, before item validation and library import
-collection, so late SDK properties are visible. The installed .NET Android
+Selection runs at target execution, before `_CategorizeAndroidLibraries`, item
+validation and library import collection, so late SDK properties are visible.
+Categorization must see the items before it captures a class library's native
+payload for its AAR; staging at `PrepareForBuild` alone is too late. The installed .NET Android
 36.1.53 SDK selects outer ABIs from `RuntimeIdentifiers` when present, and
 creates per-RID publish inner builds. The target follows those two contexts;
 it does not interpret `-r android-x64` alone as overriding the sample's dual-RID
@@ -41,8 +43,8 @@ items. Enabling `ProGpuRequireZeroCopyMedia` emitted `PROGPUANDROID002` and
 failed with no native items. All eleven Android media source-contract tests
 passed after moving their staging assertions to the shared target.
 
-All 32 executable `AndroidNativeLibraryStagingTests` passed on macOS ARM64 in
-five seconds. They launch SDK-independent MSBuild projects against an exact
+All 36 executable `AndroidNativeLibraryStagingTests` passed on macOS ARM64.
+They launch SDK-independent MSBuild projects against an exact
 copy of the packaged targets and inspect actual output items, including failed
 builds. Coverage includes all three families/layouts and both ABIs, layout
 priority, strict missing-Dawn failures, partial multi-RID input, unsupported and
@@ -51,6 +53,18 @@ engine paths, caller-owned item preservation and non-Android no-op behavior.
 The matrix exposed and verified a real metadata-ordering correction: each
 fallback layout must inspect the preceding MSBuild update, not another metadata
 assignment in the same update. Fixtures use text markers, never native binaries.
+
+The first compiled x64 sample APK in run
+[36235352764](https://github.com/wieslawsoltes/ProGPU/actions/runs/36235352764)
+also exposed a scheduling defect: SDK 36.1.69 categorized the host library
+before its dynamic native items existed, so the final APK omitted wgpu-native.
+The four new scheduling cases fail before the correction and pass after it,
+observing both ABIs and application/library contexts without directly invoking
+the staging target. An independent call to the installed 36.1.53 SDK's actual
+`_CategorizeAndroidLibraries` target likewise changed from empty output to the
+exact x64 marker in `EmbeddedNativeLibrary`, with its ABI/RID metadata intact.
+That marker probe does not build an AAR or load native code; the compiled APK
+and runtime gate must still verify real provider bytes and rendering.
 
 These checks do not establish actual ELF architecture, successful Android
 compilation, APK archive contents, device loading, Vulkan capabilities or

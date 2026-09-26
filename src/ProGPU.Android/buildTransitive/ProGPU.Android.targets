@@ -4,7 +4,7 @@
        A RID-less library embeds each supported ABI it has, just as a multi-RID
        application does. No native backend or renderer choice is changed here. -->
   <Target Name="ProGpuStageAndroidNativeLibraries"
-          BeforeTargets="PrepareForBuild;_CheckProjectItems;_BuildLibraryImportsCache"
+          BeforeTargets="_CategorizeAndroidLibraries;PrepareForBuild;_CheckProjectItems;_BuildLibraryImportsCache"
           Condition="'$(TargetPlatformIdentifier)' == 'android'">
     <!-- Source builds supply artifact roots. Package consumers may override the
          same roots; the engine payload defaults to this package's runtimes. -->
