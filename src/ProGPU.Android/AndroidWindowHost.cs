@@ -28,6 +28,7 @@ internal sealed class AndroidWindowHost : Java.Lang.Object, IWindowHost, Choreog
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Action<string> _setClipboard;
     private readonly Func<string> _getClipboard;
+    private readonly AndroidGpuDiagnosticSubscription _gpuDiagnostics;
     private HostedWindow? _hosted;
     private Choreographer? _choreographer;
     private nint _nativeWindow;
@@ -72,6 +73,10 @@ internal sealed class AndroidWindowHost : Java.Lang.Object, IWindowHost, Choreog
         _renderView.SurfaceUnavailable += OnSurfaceUnavailable;
         _renderView.MetricsChanged += OnMetricsChanged;
         _choreographer = Choreographer.Instance;
+        // Console output is not reliable Android logcat evidence. Subscribe
+        // only after host construction succeeds, before any renderer is created.
+        _gpuDiagnostics = new AndroidGpuDiagnosticSubscription(
+            static message => global::Android.Util.Log.Error("ProGPU.Android", message));
     }
 
     public void Activate(XamlWindow window)
@@ -521,6 +526,8 @@ internal sealed class AndroidWindowHost : Java.Lang.Object, IWindowHost, Choreog
     {
         if (_disposed) return;
         _disposed = true;
+        // Detach even if later native surface/device teardown throws.
+        _gpuDiagnostics.Dispose();
         if (_hosted is { } hosted) Close(hosted.Window);
         StopFrameLoop();
         _renderView.SurfaceAvailable -= OnSurfaceAvailable;
