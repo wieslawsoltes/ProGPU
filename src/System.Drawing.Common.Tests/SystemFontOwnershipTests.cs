@@ -25,6 +25,8 @@ public sealed class SystemFontOwnershipTests
         Assert.Equal(name, second.SystemFontName);
         Assert.Equal(8.25f, first.Size);
         Assert.Equal(GraphicsUnit.Point, first.Unit);
+        Assert.Equal(first.Name, first.OriginalFontName);
+        Assert.Equal(first.OriginalFontName, second.OriginalFontName);
 
         float height = first.GetHeight();
         first.Dispose();
