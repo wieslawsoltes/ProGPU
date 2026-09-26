@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import resource
+import select
 import signal
 import subprocess
 import sys
@@ -78,10 +78,53 @@ def finish_traces(directory, child_status, verified=False):
     return records
 
 
-def collector_limit():
-    # Unix CI only. The ceiling applies to the collector, never the testhost.
-    # SIGXFSZ/early EOF is an explicit diagnostic failure, not a valid trace.
-    resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_TRACE_BYTES, MAX_TRACE_BYTES))
+class TraceRelay:
+    """Bound only the owned trace file, never the runtime's memory-backed files."""
+
+    def __init__(self, fifo, output):
+        os.mkfifo(fifo, 0o600)
+        self.reader = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+        try:
+            self.output = output.open("xb", buffering=0)
+        except Exception:
+            os.close(self.reader)
+            raise
+        self.received = 0
+        self.written = 0
+
+    def drain(self):
+        # A busy writer must not starve test polling or finalization deadlines.
+        drained = 0
+        deadline = time.monotonic() + 0.02
+        while drained < 4 * 1024 * 1024 and time.monotonic() < deadline:
+            try:
+                chunk = os.read(self.reader, 64 * 1024)
+            except BlockingIOError:
+                # Give the blocked writer a scheduling opportunity without
+                # making throughput depend on one pipe buffer per test poll.
+                select.select([self.reader], [], [], min(0.002, max(0, deadline - time.monotonic())))
+                continue
+            if not chunk:
+                # Before the collector opens its end this is expected, not EOF
+                # of the eventual EventPipe stream. Only collector exit ends it.
+                break
+            drained += len(chunk)
+            self.received += len(chunk)
+            retained = chunk[:max(0, MAX_TRACE_BYTES - self.written)]
+            offset = 0
+            while offset < len(retained):
+                written = self.output.write(memoryview(retained)[offset:])
+                if not written:
+                    raise OSError("Trace writer made no progress.")
+                offset += written
+                self.written += written
+            # Overflow is drained/discarded so collection can stop cleanly. It
+            # always fails diagnostics; it is never parsed as complete evidence.
+        return drained
+
+    def close(self):
+        os.close(self.reader)
+        self.output.close()
 
 
 def stop_collector(collector):
@@ -91,10 +134,23 @@ def stop_collector(collector):
         os.killpg(collector.pid, signal.SIGINT)
 
 
-def finalize_collector(collector):
+def finalize_collector(collector, relay=None, deadline=None):
+    if deadline is None:
+        deadline = time.monotonic() + 30
     stop_collector(collector)
+    if relay is not None:
+        while True:
+            drained = relay.drain()
+            if collector.poll() is not None and drained == 0:
+                return collector.returncode
+            if time.monotonic() >= deadline:
+                if collector.poll() is None:
+                    os.killpg(collector.pid, signal.SIGKILL)
+                    collector.wait(timeout=5)
+                raise RuntimeError("Collector failed to finalize/drain within 30 seconds; testhost was not terminated.")
+            time.sleep(0.01)
     try:
-        return collector.wait(timeout=30)
+        return collector.wait(timeout=max(0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
         # This is the separately created collector group, not the test command.
         os.killpg(collector.pid, signal.SIGKILL)
@@ -126,6 +182,8 @@ def run(dotnet, output):
     child = None
     collector = None
     collector_log = None
+    relay = None
+    collector_deadline = None
     try:
         with (directory / "collector-setup.log").open("w") as setup:
             subprocess.run([dotnet, "tool", "restore"], cwd=ROOT, stdout=setup,
@@ -139,16 +197,22 @@ def run(dotnet, output):
                            cwd=ROOT, stdout=setup, stderr=subprocess.STDOUT, timeout=120, check=True)
             subprocess.run([dotnet, "build", str(LIFETIME_PROJECT), "--configuration", "Release", "--verbosity", "quiet"],
                            cwd=ROOT, stdout=setup, stderr=subprocess.STDOUT, timeout=120, check=True)
+        fifo = Path(socket_directory.name) / "capture.fifo"
+        relay = TraceRelay(fifo, trace)
         collector_command = [dotnet, "tool", "run", "dotnet-trace", "--", "collect", "--diagnostic-port", str(socket),
-                             "--buffersize", "64", "--providers", PROVIDERS, "--output", str(trace)]
+                             "--buffersize", "64", "--providers", PROVIDERS, "--output", str(fifo)]
         status["collectorCommand"] = collector_command
         collector_log = (directory / "collector.log").open("wb")
         collector = subprocess.Popen(collector_command, cwd=ROOT, stdout=collector_log,
                                      stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                     start_new_session=True, preexec_fn=collector_limit)
+                                     start_new_session=True)
         ready_deadline = time.monotonic() + 15
         while not socket.exists():
-            if collector.poll() is not None or time.monotonic() >= ready_deadline:
+            relay.drain()
+            if collector.poll() is not None:
+                status["collectorExitCode"] = collector.returncode
+                raise RuntimeError(f"Collector exited {collector.returncode} before creating its private diagnostic socket.")
+            if time.monotonic() >= ready_deadline:
                 raise RuntimeError("Collector did not create its private diagnostic socket within 15 seconds.")
             time.sleep(0.05)
         # No shell, pipeline, retry, filter, warmup, JIT or parallelism override.
@@ -170,20 +234,21 @@ def run(dotnet, output):
                 try:
                     for signum in (signal.SIGTERM, signal.SIGINT):
                         previous[signum] = signal.signal(signum, forward)
-                    stop_time = None
                     with (directory / "quality.log").open("rb") as reader:
                         while child.poll() is None:
+                            relay.drain()
                             sys.stdout.buffer.write(reader.read())
                             sys.stdout.buffer.flush()
-                            if stop_time is None and (directory / "testhost-session-ended").exists():
+                            if collector_deadline is None and (directory / "testhost-session-ended").exists():
                                 status["collectorStopReason"] = "test-session-end"
+                                collector_deadline = time.monotonic() + 30
                                 stop_collector(collector)
-                                stop_time = time.monotonic()
-                            if stop_time is None and trace.exists() and trace.stat().st_size >= STOP_TRACE_BYTES:
+                            if relay.received >= STOP_TRACE_BYTES:
                                 status["diagnosticError"] = "Trace reached the 96-MiB collection-stop budget."
-                                stop_collector(collector)
-                                stop_time = time.monotonic()
-                            if stop_time is not None and collector.poll() is None and time.monotonic() - stop_time >= 30:
+                                if collector_deadline is None:
+                                    collector_deadline = time.monotonic() + 30
+                                    stop_collector(collector)
+                            if collector_deadline is not None and collector.poll() is None and time.monotonic() >= collector_deadline:
                                 os.killpg(collector.pid, signal.SIGKILL)
                                 collector.wait(timeout=5)
                                 status["diagnosticError"] = "Collector exceeded its 30-second finalization budget."
@@ -200,7 +265,11 @@ def run(dotnet, output):
                         signal.signal(signum, handler)
         # Shell-compatible signal exit, otherwise preserve the exact child code.
         status["testExitCode"] = child_status if child_status >= 0 else 128 - child_status
-        status["collectorExitCode"] = finalize_collector(collector)
+        if collector_deadline is None:
+            collector_deadline = time.monotonic() + 30
+        status["collectorExitCode"] = finalize_collector(collector, relay, collector_deadline)
+        if relay.received >= STOP_TRACE_BYTES:
+            status["diagnosticError"] = "Trace reached the 96-MiB collection-stop budget."
         if status["collectorExitCode"] != 0:
             status["diagnosticError"] = f"Collector exited {status['collectorExitCode']}."
         if not trace.is_file() or trace.stat().st_size == 0 or trace.stat().st_size > MAX_TRACE_BYTES:
@@ -229,10 +298,18 @@ def run(dotnet, output):
     finally:
         if collector is not None and collector.poll() is None:
             try:
-                finalize_collector(collector)
+                if collector_deadline is None:
+                    collector_deadline = time.monotonic() + 30
+                finalize_collector(collector, relay, collector_deadline)
             except Exception as error:
                 status["diagnosticError"] = str(error)
         try:
+            if collector is not None:
+                status["collectorExitCode"] = collector.returncode
+            if relay is not None:
+                status["traceBytesReceived"] = relay.received
+                status["traceBytesDiscarded"] = relay.received - relay.written
+                relay.close()
             if collector_log is not None:
                 collector_log.close()
             socket_directory.cleanup()
