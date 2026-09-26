@@ -61,14 +61,18 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
     }
 #pragma warning restore SYSLIB0050
 
+    [Browsable(false)]
     public FontFamily FontFamily { get; }
     [TypeConverter(typeof(FontConverter.FontNameConverter))]
     public string Name => FontFamily.Name;
     public float Size { get; }
+    [Browsable(false)]
     public float SizeInPoints => Unit == GraphicsUnit.Point ? Size : Graphics.ConvertFontSizeToPoints(Size, Unit, 96f);
+    [Browsable(false)]
     public FontStyle Style { get; }
     [TypeConverter(typeof(FontConverter.FontUnitConverter))]
     public GraphicsUnit Unit { get; }
+    [Browsable(false)]
     public GraphicsUnit OriginalUnit => Unit;
     public byte GdiCharSet { get; }
     public bool GdiVerticalFont { get; }
@@ -76,9 +80,13 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
     public bool Italic => (Style & FontStyle.Italic) != 0;
     public bool Underline => (Style & FontStyle.Underline) != 0;
     public bool Strikeout => (Style & FontStyle.Strikeout) != 0;
+    [Browsable(false)]
     public bool IsSystemFont => _systemRole.Length != 0;
+    [Browsable(false)]
     public string SystemFontName => _systemRole;
+    [Browsable(false)]
     public string? OriginalFontName { get; }
+    [Browsable(false)]
     public int Height => (int)MathF.Ceiling(GetHeight());
 
     internal TtfFont TtfFont { get; }

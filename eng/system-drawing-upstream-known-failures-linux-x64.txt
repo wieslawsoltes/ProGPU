@@ -150,7 +150,6 @@
 1|MonoTests.System.Drawing.Imaging.TiffCodecTest.Save_32bppArgb|System.NotSupportedException
 1|MonoTests.System.Drawing.Imaging.TiffCodecTest.Save_32bppPArgb|System.NotSupportedException
 1|MonoTests.System.Drawing.Imaging.TiffCodecTest.Save_32bppRgb|System.NotSupportedException
-1|System.ComponentModel.TypeConverterTests.FontConverterTest.GetFontPropsSorted|Xunit.Sdk.TrueException
 1|System.ComponentModel.TypeConverterTests.IconConverterTest.TestCanConvertTo|Xunit.Sdk.TrueException
 1|System.ComponentModel.TypeConverterTests.ImageConverterTest.ImageWithOleHeader|System.ArgumentException
 1|System.ComponentModel.TypeConverterTests.ImageConverterTest.TestCanConvertFrom|Xunit.Sdk.TrueException
@@ -611,7 +610,6 @@
 6|System.Drawing.Tests.ImageAnimatorTests.CanAnimate_ReturnsTrue_ForAnimatedImages|Xunit.Sdk.TrueException
 6|System.Drawing.Tests.RegionTests.Intersect_GraphicsPath_Success|System.NotSupportedException
 6|System.Drawing.Tests.RegionTests.Xor_GraphicsPath_Success|System.NotSupportedException
-7|System.ComponentModel.TypeConverterTests.FontConverterTest.ConvertToInstanceDescriptor|Xunit.Sdk.EqualException
 7|System.ComponentModel.TypeConverterTests.FontConverterTest.InvalidInputThrowsArgumentException|Xunit.Sdk.EqualException
 7|System.Drawing.Drawing2D.Tests.CustomLineCapTests.BaseCap_Set_InvalidLineCap_ThrowsArgumentException|Xunit.Sdk.EqualException
 8|System.Drawing.Drawing2D.Tests.LinearGradientBrushTests.Ctor_PointF_PointF_Color_Color|System.NullReferenceException

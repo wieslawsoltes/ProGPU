@@ -11,12 +11,17 @@ namespace System.Drawing;
 /// </summary>
 public class FontConverter : TypeConverter
 {
+    private static readonly Type[] s_constructorParameterTypes =
+        [typeof(string), typeof(float), typeof(FontStyle), typeof(GraphicsUnit), typeof(byte), typeof(bool)];
+
     private static readonly string[] s_propertyOrder =
     [
         nameof(Font.Name),
         nameof(Font.Size),
         nameof(Font.Unit),
         nameof(Font.Bold),
+        nameof(Font.GdiCharSet),
+        nameof(Font.GdiVerticalFont),
         nameof(Font.Italic),
         nameof(Font.Strikeout),
         nameof(Font.Underline)
@@ -102,24 +107,44 @@ public class FontConverter : TypeConverter
 
             if (destinationType == typeof(InstanceDescriptor))
             {
-                ConstructorInfo constructor = typeof(Font).GetConstructor(
-                    [typeof(string), typeof(float), typeof(FontStyle), typeof(GraphicsUnit), typeof(byte), typeof(bool)])!;
-                return new InstanceDescriptor(
-                    constructor,
-                    new object[]
-                    {
-                        font.OriginalFontName ?? font.Name,
-                        font.Size,
-                        font.Style,
-                        font.Unit,
-                        font.GdiCharSet,
-                        font.GdiVerticalFont
-                    },
-                    isComplete: true);
+                return CreateConstructorDescriptor(font);
             }
         }
 
         return base.ConvertTo(context, culture, value, destinationType);
+    }
+
+    private static InstanceDescriptor CreateConstructorDescriptor(Font font)
+    {
+        // The string-based overloads form a prefix: retain every argument up to
+        // the last nondefault value, including defaults before that value.
+        int argumentCount = font.GdiVerticalFont ? 6
+            : font.GdiCharSet != 1 ? 5
+            : font.Unit != GraphicsUnit.Point ? 4
+            : font.Style != FontStyle.Regular ? 3
+            : 2;
+        var arguments = new object[argumentCount];
+        arguments[0] = font.OriginalFontName ?? font.Name;
+        arguments[1] = font.Size;
+        if (argumentCount > 2)
+        {
+            arguments[2] = font.Style;
+        }
+        if (argumentCount > 3)
+        {
+            arguments[3] = font.Unit;
+        }
+        if (argumentCount > 4)
+        {
+            arguments[4] = font.GdiCharSet;
+        }
+        if (argumentCount > 5)
+        {
+            arguments[5] = font.GdiVerticalFont;
+        }
+
+        ConstructorInfo constructor = typeof(Font).GetConstructor(s_constructorParameterTypes[..argumentCount])!;
+        return new InstanceDescriptor(constructor, arguments, isComplete: true);
     }
 
     public override object CreateInstance(ITypeDescriptorContext? context, IDictionary propertyValues)
