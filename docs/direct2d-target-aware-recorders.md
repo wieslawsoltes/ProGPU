@@ -110,10 +110,17 @@ for 36 DPI/affine/brush/geometry combinations, poisons caller target storage aft
 creation, checks independent COM lifetime after recorder destruction, and retains
 the legacy targetless rejection. Invalid C entry-point cases assert output reset.
 
-Fixtures are authored, not executed. Apple Clang C++20 core/portable COM/header
+At the original checkpoint, fixtures were authored but not executed. Apple Clang C++20 core/portable COM/header
 targets compile/link; ProGPU.Tests Release compiles with zero warnings/errors.
 Windows provider/fixture compilation, managed native-runtime lifetime tests,
 full renderer packaging, cross-platform/image/VM tests, benchmark measurements,
 source verifiers and exact-head PR CI qualification remain pending. The fast
 native build excludes the full renderer and Windows provider; its success is not
 evidence that either was rebuilt or exercised.
+
+On 2026-09-26 the complete Windows ARM64 provider test executable, including
+the target-aware recorder fixtures above, compiled with MSVC 19.51 `/W4 /WX`
+and passed. Core/portable suites also passed on macOS ARM64 and Linux ARM64
+(Clang 18). The generated-contract verifier passed. See
+[brush snapshot validation](direct2d-brush-snapshots.md) for the common run and
+its limits: full WGPU/image/package/application qualification remains separate.

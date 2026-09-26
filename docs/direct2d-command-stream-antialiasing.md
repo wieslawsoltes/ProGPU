@@ -92,7 +92,7 @@ Existing portable fixtures cover both independent mask modes and both mask kinds
 Managed boolean-vector-mask and mixed-path allocation fixtures are parameterized
 over 1/4/8; undeclared-grid rejection fixtures are also authored.
 
-Fixtures are authored, not executed. The fast macOS C++20 build compiles/links
+At the original checkpoint, fixtures were authored but not executed. The fast macOS C++20 build compiles/links
 the portable COM fixture and shared oracle only. It has no Windows provider target;
 Windows provider/fixture compilation and full renderer builds remain outstanding.
 Final `ProGPU.Tests` Release compilation succeeds with zero warnings and errors;
@@ -106,3 +106,11 @@ translator cases; this checkpoint does not establish full Direct2D or Win2D pari
 The later [target-brush-domain checkpoint](direct2d-target-brush-domains.md)
 supersedes the full-target surface-command-list opacity-brush limitation and
 records the corresponding targetless-recorder and compilation limits.
+
+The complete Windows ARM64 provider suite, including the command-list clip and
+layer fixtures above, passed on 2026-09-26 with MSVC `/W4 /WX`. Portable core/COM
+suites passed on macOS, Windows and Linux ARM64. The macOS managed renderer
+suite passed 4,704 tests with seven existing skips, and all 281 headless tests
+passed. Generated-contract verification passed. These are the actual scopes of
+the [brush snapshot validation](direct2d-brush-snapshots.md); they do not establish
+Windows WGPU pixel parity, full package/application coverage or performance.
