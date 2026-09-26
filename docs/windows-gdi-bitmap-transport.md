@@ -45,6 +45,12 @@ orientation, native borrowing, input mutation, transfer and owned pixel lifetime
 Pure cases cover malformed metadata, checked extent overflow and partial palettes.
 Non-Windows runs explicitly skip the native cases; they cannot qualify Windows.
 
+The existing Windows Build test filter explicitly includes `WindowsGdiBitmapTests`
+alongside every previous selected class. A source guard retains that inclusion.
+The earlier Windows job for `54824f43e` compiled but did not select these tests;
+its successful result is not GDI runtime qualification. The updated exact-head
+Windows test results are required before claiming pixel or ownership completion.
+
 The dependent LibreWPF PR connects real OLE FORMATETC/STGMEDIUM ownership and
 source BitmapSource storage, with actual Showcase package copy/paste and lifetime
 gates. Compile success alone does not resolve the historical Windows image hang.
