@@ -96,3 +96,46 @@ test('save/layer scopes cannot cross or silently remain unbalanced', () => {
 test('unsupported browser targets reject instead of selecting a fallback', async () => {
     await assert.rejects(publicApi.createRenderer({canvas: {}}), /HTMLCanvasElement/);
 });
+
+test('failed factory detaches callbacks and releases canvas ownership without destroying a borrowed device', async () => {
+    const original = new Map(['HTMLCanvasElement', 'document', 'navigator'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+    const document = {};
+    class Canvas {
+        isConnected = true; ownerDocument = document; attributes = new Map();
+        hasAttribute(name) { return this.attributes.has(name); }
+        getAttribute(name) { return this.attributes.get(name) ?? null; }
+        setAttribute(name, value) { this.attributes.set(name, value); }
+        removeAttribute(name) { this.attributes.delete(name); }
+    }
+    let resolveLost, destroyed = 0, reported = 0;
+    const listeners = new Set();
+    const device = {
+        queue: {submit() {}},
+        lost: new Promise((resolve) => { resolveLost = resolve; }),
+        addEventListener(name, callback) { assert.equal(name, 'uncapturederror'); listeners.add(callback); },
+        removeEventListener(name, callback) { assert.equal(name, 'uncapturederror'); listeners.delete(callback); },
+        destroy() { ++destroyed; },
+    };
+    try {
+        Object.defineProperty(globalThis, 'HTMLCanvasElement', {value: Canvas, configurable: true});
+        Object.defineProperty(globalThis, 'document', {value: document, configurable: true});
+        Object.defineProperty(globalThis, 'navigator', {value: {gpu: {getPreferredCanvasFormat: () => 'rgba8unorm'}}, configurable: true});
+        const canvas = new Canvas();
+        // The source tree intentionally has no generated Wasm module. This
+        // exercises the actual asynchronous module-load failure cleanup, not a
+        // mock successful renderer. Actual GPU lifetime is an installed gate.
+        for (let attempt = 0; attempt < 2; ++attempt) {
+            await assert.rejects(publicApi.createRenderer({canvas, device, onError: () => ++reported}), {code: 'ERR_MODULE_NOT_FOUND'});
+            assert.equal(listeners.size, 0);
+            assert.equal(canvas.hasAttribute('data-progpu-renderer'), false);
+        }
+        resolveLost({reason: 'destroyed', message: 'test-owned late notification'});
+        await device.lost; await Promise.resolve();
+        assert.equal(reported, 0); assert.equal(destroyed, 0);
+    } finally {
+        for (const [key, descriptor] of original) {
+            if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+            else delete globalThis[key];
+        }
+    }
+});

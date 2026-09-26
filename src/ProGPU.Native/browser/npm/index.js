@@ -3,6 +3,13 @@ export {Scene, SceneBuilder, Path};
 
 const canvasOwners = new WeakSet();
 
+// Construct this callback outside createRenderer's lexical environment. A
+// pending borrowed-device promise must retain only the detachable token, not
+// the factory's canvas, module, renderer methods or other closed-over state.
+function deviceLossCallback(lifetime) {
+    return (info) => lifetime.report?.(new Error(`WebGPU device lost (${info.reason}): ${info.message}`));
+}
+
 /** One isolated native module/renderer. No DOM work or GPU initialization occurs
  * on import. The application owns its animation loop and resize policy. */
 export async function createRenderer({canvas, device: suppliedDevice, onError} = {}) {
@@ -93,7 +100,7 @@ export async function createRenderer({canvas, device: suppliedDevice, onError} =
         device.addEventListener('uncapturederror', listener);
         // The promise captures only the detachable lifetime token, not the
         // renderer/module/device. A borrowed device may long outlive dispose.
-        device.lost.then((info) => lifetime.report?.(new Error(`WebGPU device lost (${info.reason}): ${info.message}`)));
+        device.lost.then(deviceLossCallback(lifetime));
         const format = navigator.gpu.getPreferredCanvasFormat();
         if (format !== 'rgba8unorm' && format !== 'bgra8unorm') throw new Error(`Unsupported native canvas format: ${format}`);
         const {default: factory} = await import('./progpu-native.mjs');
