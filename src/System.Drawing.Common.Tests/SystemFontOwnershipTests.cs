@@ -47,7 +47,7 @@ public sealed class SystemFontOwnershipTests
     [InlineData("captionfont")]
     [InlineData("UnrecognizedFont")]
     public void UnknownNamesReturnNull(string? name)
-        => Assert.Null(SystemFonts.GetFontByName(name!));
+        => Assert.Null(SystemFonts.GetFontByName(name));
 
     [Fact]
     public void DifferentRolesAndOrdinaryCopiesDoNotShareSystemIdentity()
