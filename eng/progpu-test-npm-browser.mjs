@@ -81,13 +81,14 @@ try {
     verify(adapter, 'WebGPU adapter is required');
     const device = await adapter.requestDevice();
     const gpuErrors = [];
+    const onError = error => gpuErrors.push(error.message);
     device.addEventListener('uncapturederror', event => gpuErrors.push(event.error.message));
     let borrowedDestroyed = false;
     device.lost.then(() => { borrowedDestroyed = true; });
     const firstCanvas = document.querySelector('#first');
     const secondCanvas = document.querySelector('#second');
     const start = performance.now();
-    const first = await createRenderer({ canvas: firstCanvas, device });
+    const first = await createRenderer({ canvas: firstCanvas, device, onError });
     const factoryMilliseconds = performance.now() - start;
     first.resize({ width: 320, height: 180, pixelRatio: 1 });
     const curve = new Path().moveTo(64, 56).quadraticTo(64, 8, 88, 8)
@@ -142,7 +143,7 @@ try {
     'Changed bytes with the same native identity must fail');
     verify(first.getSceneStream().every((byte, index) => byte === retained[index]),
       'An invalid repeated generation must preserve all accepted bytes');
-    const second = await createRenderer({ canvas: secondCanvas, device });
+    const second = await createRenderer({ canvas: secondCanvas, device, onError });
     second.resize({ width: 320, height: 180, pixelRatio: 1 });
     second.updateScene(raw);
     raw.fill(0);
@@ -173,13 +174,15 @@ try {
     second.render({ clearColor: [0.1, 0.1, 0.1, 1] });
     await device.queue.onSubmittedWorkDone();
     const survivingPng = secondCanvas.toDataURL();
-    const owned = await createRenderer({ canvas: firstCanvas });
+    const owned = await createRenderer({ canvas: firstCanvas, onError });
     const ownedLost = owned.device.lost;
     owned.dispose();
     verify((await ownedLost).reason === 'destroyed', 'Disposal must destroy a factory-owned device');
     verify(!borrowedDestroyed, 'Disposing another factory-owned device must preserve the borrowed device');
     // Keep this live surface for an actual page-composition screenshot.
     globalThis.npmConsumerCleanup = () => { second.dispose(); device.destroy(); };
+    globalThis.npmConsumerDiagnostics = () => ({ gpuErrors, borrowedDestroyed,
+      survivingError: second.error?.message ?? null });
     verify(!Object.hasOwn(globalThis, 'Module'), 'Multiple isolated modules must not pollute global Module');
     verify(gpuErrors.length === 0, gpuErrors.join('\n'));
     return { firstPng, warmPng, secondPng, survivingPng, changedPng, resizedPng,
@@ -236,13 +239,16 @@ try {
   assert.equal(presentedPixels.height, first.height);
   assert.ok(presentedPixels.data.equals(first.data), 'Browser must actually present every rendered pixel');
   await page.screenshot({ path: path.join(evidence, 'npm-native-page.png'), timeout: 15_000 });
+  const finalDiagnostics = await page.evaluate(() => globalThis.npmConsumerDiagnostics());
+  assert.deepEqual(finalDiagnostics, { gpuErrors: [], borrowedDestroyed: false, survivingError: null },
+    'Late device or presentation errors must fail the installed consumer');
   await page.evaluate(() => globalThis.npmConsumerCleanup());
   assert.deepEqual(errors, []);
   const { firstPng, warmPng, secondPng, survivingPng, changedPng, resizedPng, ...metrics } = result;
   await fs.writeFile(path.join(evidence, 'npm-browser-contract.json'), JSON.stringify({
     package: artifact.name, version: artifact.version, archiveSha256: artifact.sha256,
     sourceCommit: artifact.sourceCommit, adapter: 'Chromium explicit SwiftShader',
-    completePixelEquality: true, typeQualification, ...metrics
+    completePixelEquality: true, typeQualification, finalDiagnostics, ...metrics
   }, (_, value) => typeof value === 'bigint' ? value.toString() : value, 2) + '\n');
   console.log(`Installed ${artifact.name}@${artifact.version}: native WebGPU, paths, gradients, clips, layers, retained pixels and borrowed-device ownership passed.`);
 } finally {
