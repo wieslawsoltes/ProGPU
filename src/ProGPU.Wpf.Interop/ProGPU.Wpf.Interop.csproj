@@ -3,6 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PackageId>LibreWPF.Interop</PackageId>
     <PackageDescription>LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane.</PackageDescription>
     <PackageTags>librewpf;progpu;webgpu;silk.net;interop</PackageTags>

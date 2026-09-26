@@ -51,7 +51,9 @@ jobs:
         run: ./eng/progpu-verify-system-drawing-api.sh
 
       - name: Run focused quality and allocation gates
-        run: dotnet test src/System.Drawing.Common.Tests/System.Drawing.Common.Tests.csproj --configuration Release --verbosity normal
+        run: |
+          python3 -m unittest discover -s eng/tests -p test_system_drawing_trace.py -v
+          python3 eng/progpu-test-system-drawing.py
 
       - name: Run pinned official System.Drawing behavior corpus
         shell: bash
@@ -74,6 +76,7 @@ jobs:
           name: progpu-system-drawing-contract
           path: |
             artifacts/system-drawing-api-compat/current.txt
+            artifacts/system-drawing-quality/**
             artifacts/system-drawing-upstream/results/*
             BenchmarkDotNet.Artifacts/results/*
           if-no-files-found: warn
@@ -95,11 +98,45 @@ jobs:
           version: 4.0.18
           actions-cache-folder: artifacts/emsdk-cache
 
+      - name: Setup npm tooling
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+
+      - name: Test npm authoring and fail-closed release verification
+        run: node --test src/ProGPU.Native/browser/npm/tests/scene.test.mjs eng/progpu-test-npm-release.mjs
+
       - name: Build and test native browser renderer
         shell: bash
         env:
           PROGPU_NATIVE_BROWSER_INSTALL_CHROMIUM: 1
         run: ./eng/progpu-test-native-browser.sh
+
+      - name: Pack and exercise installed npm browser library
+        shell: bash
+        env:
+          DEBUG: pw:browser
+        run: |
+          node eng/progpu-pack-npm.mjs
+          node eng/progpu-test-npm-browser.mjs
+
+      - name: Upload verified npm package
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-npm-package
+          path: |
+            artifacts/npm/*.tgz
+            artifacts/npm/npm-artifact.json
+          if-no-files-found: error
+
+      - name: Upload npm browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-npm-browser-evidence
+          path: artifacts/npm/evidence/
+          if-no-files-found: warn
 
       - name: Upload native browser evidence
         if: always()
@@ -1365,7 +1402,7 @@ jobs:
           if ($IsWindows) {
             $testArgs += @(
               "--filter",
-              "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests"
+              "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests"
             )
           } elseif ($IsMacOS) {
             # macOS 26's hosted Metal compiler rejects the historical contextual

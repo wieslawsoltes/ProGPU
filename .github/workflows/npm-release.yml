@@ -1,0 +1,106 @@
+name: npm release
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Exact completed successful Build run containing progpu-npm-package.
+        type: string
+        required: true
+      publish:
+        description: Publish the verified, unchanged prerelease archive to npm next.
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify immutable npm Build artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact_id }}
+      attempt: ${{ steps.artifact.outputs.attempt }}
+      archive_sha256: ${{ steps.artifact.outputs.archive_sha256 }}
+    steps:
+      - name: Require manual invocation from canonical main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'wieslawsoltes/ProGPU'
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+      - name: Run offline negative verifier contracts
+        run: node --test eng/progpu-test-npm-release.mjs
+      - name: Verify exact Build, merged source, artifact digest and package
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: node eng/progpu-verify-npm-release.mjs --run-id "$BUILD_RUN_ID" --output "$RUNNER_TEMP/progpu-npm-verified"
+      - name: Retain verification evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: npm-release-verification
+          path: ${{ runner.temp }}/progpu-npm-verified/*.json
+          if-no-files-found: error
+
+  publish:
+    name: Publish unchanged archive to npm next
+    needs: verify
+    if: ${{ inputs.publish && github.ref == 'refs/heads/main' && github.repository == 'wieslawsoltes/ProGPU' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      # No id-token permission: npm's current-workflow provenance would describe
+      # this dispatch, not the historical Build that produced this archive.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.21.0
+          registry-url: https://registry.npmjs.org/
+          package-manager-cache: false
+      - name: Re-download and re-verify the identical selection
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          PROGPU_EXPECTED_ARTIFACT_ID: ${{ needs.verify.outputs.artifact_id }}
+          PROGPU_EXPECTED_ATTEMPT: ${{ needs.verify.outputs.attempt }}
+          PROGPU_EXPECTED_ARCHIVE_SHA256: ${{ needs.verify.outputs.archive_sha256 }}
+        run: node eng/progpu-verify-npm-release.mjs --run-id "$BUILD_RUN_ID" --output "$RUNNER_TEMP/progpu-npm-publish"
+      - name: Publish the verified tgz without lifecycle scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          ARCHIVE_NAME: ${{ steps.artifact.outputs.archive_name }}
+          NPM_CONFIG_PROVENANCE: 'false'
+        run: |
+          set -euo pipefail
+          test -n "$NODE_AUTH_TOKEN"
+          npm publish "$RUNNER_TEMP/progpu-npm-publish/$ARCHIVE_NAME" --ignore-scripts --access public --tag next --registry https://registry.npmjs.org/
