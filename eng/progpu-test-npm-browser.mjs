@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { verifyInstalledNpmTypes } from './progpu-test-npm-types.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.resolve(process.argv[2] ?? path.join(repo, 'artifacts/npm'));
@@ -28,6 +29,7 @@ assert.equal(info.sourceCommit, artifact.sourceCommit);
 for (const [name, digest] of Object.entries(info.licenses)) {
   assert.equal(createHash('sha256').update(await fs.readFile(path.join(installedRoot, name))).digest('hex'), digest);
 }
+const typeQualification = await verifyInstalledNpmTypes(consumer, artifact.name);
 const importMap = { imports: { progpu: `./node_modules/${artifact.name}/index.js` } };
 await fs.writeFile(path.join(consumer, 'index.html'), `<!doctype html>
 <meta charset="utf-8"><title>ProGPU installed npm package</title>
@@ -125,6 +127,10 @@ try {
     await device.queue.onSubmittedWorkDone();
     const warmMilliseconds = performance.now() - warmStart;
     verify(warm.submissionCount === 1n && warm.drawCallCount > 0, 'Frame must use the actual native GPU renderer');
+    for (const name of ['vertexUploadBytes', 'indexUploadBytes', 'textureUploadBytes', 'uniformUploadBytes',
+      'coverageStagingBytes', 'brushUploadBytes', 'gradientStopUploadBytes', 'textStyleUploadBytes', 'colorGlyphUploadBytes']) {
+      verify(warm[name] === 0, `Unchanged retained frame must not upload ${name}`);
+    }
     const warmPng = firstCanvas.toDataURL();
     const raw = first.getSceneStream();
     const retained = raw.slice();
@@ -236,7 +242,7 @@ try {
   await fs.writeFile(path.join(evidence, 'npm-browser-contract.json'), JSON.stringify({
     package: artifact.name, version: artifact.version, archiveSha256: artifact.sha256,
     sourceCommit: artifact.sourceCommit, adapter: 'Chromium explicit SwiftShader',
-    completePixelEquality: true, ...metrics
+    completePixelEquality: true, typeQualification, ...metrics
   }, (_, value) => typeof value === 'bigint' ? value.toString() : value, 2) + '\n');
   console.log(`Installed ${artifact.name}@${artifact.version}: native WebGPU, paths, gradients, clips, layers, retained pixels and borrowed-device ownership passed.`);
 } finally {

@@ -10,7 +10,7 @@ import { createRenderer, SceneBuilder, Path } from 'progpu';
 
 const canvas = document.querySelector('canvas');
 const renderer = await createRenderer({ canvas });
-renderer.resize({ width: 640, height: 360, pixelRatio: devicePixelRatio });
+renderer.resize({ width: 640, height: 360, pixelRatio: Math.max(1, Math.min(4, devicePixelRatio)) });
 
 const curve = new Path()
   .moveTo(80, 160)
