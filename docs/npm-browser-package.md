@@ -65,6 +65,23 @@ bounded correctness measurements on explicit Chromium SwiftShader, not a
 hardware performance, full engine integration, memory-residency or scroll-latency
 claim. `render()` returns after submission, not after GPU/display completion.
 
+The Linux software test also selects Chromium's Vulkan compositor with
+`--enable-features=Vulkan --use-vulkan=swiftshader` and disables GL fallback.
+WebGPU adapter selection alone does not initialize that compositor. With the
+previous ANGLE-only test flags, Chromium 151 rejected the first canvas shared
+image and canceled queue completion. A standalone WebGPU clear without any
+ProGPU/Wasm reproduced the failure, including both supported canvas formats;
+changing device preference, optional features or animation-frame timing did not
+repair it. The explicit compositor configuration passed every clear pixel and
+the complete installed-package gate on Linux ARM64, using the same archive
+previously checked on macOS. Browser version, launch flags and actual SwiftShader
+adapter identity are retained, with phase/console/device-loss evidence on failure.
+This changes only the test host, not application adapter defaults, renderer
+selection, assertions or deadlines; exact-head Linux x64 CI remains required.
+Chromium documents the compositor/initialization distinction in its
+[GPU modes](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/content/browser/gpu/fallback.md)
+and [Vulkan switches](https://chromium.googlesource.com/chromium/src/+/caa03c9c6b945b2f364f962cb8f75abe835f4b01/gpu/command_buffer/service/gpu_switches.cc).
+
 `eng/progpu-pack-npm.mjs` stages fresh files from the pinned Emscripten 4.0.18
 build. It requires the complete JS/Wasm/typing payload and original ProGPU,
 Emscripten/runtime and Emdawnwebgpu notices, and rejects local port overrides.

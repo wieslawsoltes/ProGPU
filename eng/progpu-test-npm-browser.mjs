@@ -59,16 +59,36 @@ const { chromium } = require('playwright');
 const { default: utilities } = await import(pathToFileURL(path.join(
   path.dirname(require.resolve('playwright-core')), 'lib/utilsBundle.js')));
 const errors = [];
+const consoleDiagnostics = [];
+let phase = 'launch';
+const browserArgs = ['--enable-unsafe-webgpu', '--use-angle=swiftshader'];
+if (process.platform === 'linux') {
+  // SwiftShader WebGPU alone does not initialize Chromium's Linux canvas
+  // compositor. Select its matching Vulkan implementation explicitly and
+  // reject fallback to GL; this is test-host setup, not renderer fallback.
+  browserArgs.push('--enable-features=Vulkan', '--use-vulkan=swiftshader',
+    '--disable-vulkan-fallback-to-gl-for-testing');
+}
 let browser;
 let timer;
 try {
   browser = await chromium.launch({ channel: 'chromium', headless: true,
-    args: ['--enable-unsafe-webgpu', '--use-angle=swiftshader'] });
+    args: browserArgs });
   const page = await browser.newPage({ viewport: { width: 720, height: 620 }, deviceScaleFactor: 1 });
   page.on('pageerror', error => errors.push(error.message));
-  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('console', message => {
+    const text = message.text();
+    if (consoleDiagnostics.length < 64) consoleDiagnostics.push({ type: message.type(), text: text.slice(0, 4096) });
+    if (text.startsWith('ProGPU npm phase: ')) {
+      phase = text.slice('ProGPU npm phase: '.length);
+      console.log(text);
+    }
+    if (message.type() === 'error') errors.push(text);
+  });
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
   const result = await Promise.race([page.evaluate(async () => {
+    const stage = name => console.info(`ProGPU npm phase: ${name}`);
+    stage('import');
     const { createRenderer, SceneBuilder, Path } = await import('progpu');
     const verify = (condition, message) => { if (!condition) throw new Error(message); };
     const reject = (action, message) => {
@@ -77,17 +97,32 @@ try {
       verify(rejected, message);
     };
     verify(!Object.hasOwn(globalThis, 'Module'), 'ES import must not create a global Module');
+    stage('request borrowed adapter');
     const adapter = await navigator.gpu.requestAdapter();
     verify(adapter, 'WebGPU adapter is required');
+    const adapterIdentity = {
+      vendor: adapter.info.vendor, architecture: adapter.info.architecture,
+      device: adapter.info.device, description: adapter.info.description,
+      isFallbackAdapter: adapter.info.isFallbackAdapter,
+      canvasFormat: navigator.gpu.getPreferredCanvasFormat(),
+    };
+    console.info('ProGPU npm adapter: ' + JSON.stringify(adapterIdentity));
+    verify(adapterIdentity.architecture === 'swiftshader' && adapterIdentity.isFallbackAdapter,
+      'This explicit software qualification must use the actual SwiftShader adapter');
+    stage('request borrowed device');
     const device = await adapter.requestDevice();
     const gpuErrors = [];
     const onError = error => gpuErrors.push(error.message);
     device.addEventListener('uncapturederror', event => gpuErrors.push(event.error.message));
     let borrowedDestroyed = false;
-    device.lost.then(() => { borrowedDestroyed = true; });
+    device.lost.then(info => {
+      borrowedDestroyed = true;
+      console.info('ProGPU npm device loss: ' + JSON.stringify({ reason: info.reason, message: info.message }));
+    });
     const firstCanvas = document.querySelector('#first');
     const secondCanvas = document.querySelector('#second');
     const start = performance.now();
+    stage('create first native renderer');
     const first = await createRenderer({ canvas: firstCanvas, device, onError });
     const factoryMilliseconds = performance.now() - start;
     first.resize({ width: 320, height: 180, pixelRatio: 1 });
@@ -119,11 +154,13 @@ try {
       'Actual native scene compilation must report the supplied identity');
     verify(first.updateScene(scene) === update, 'Repeated immutable scene must avoid another native update');
     const coldStart = performance.now();
+    stage('render cold frame and await completion');
     const cold = first.render({ clearColor: [0.1, 0.1, 0.1, 1] });
     await device.queue.onSubmittedWorkDone();
     const coldMilliseconds = performance.now() - coldStart;
     const firstPng = firstCanvas.toDataURL();
     const warmStart = performance.now();
+    stage('render retained frame and await completion');
     const warm = first.render({ clearColor: [0.1, 0.1, 0.1, 1] });
     await device.queue.onSubmittedWorkDone();
     const warmMilliseconds = performance.now() - warmStart;
@@ -143,6 +180,7 @@ try {
     'Changed bytes with the same native identity must fail');
     verify(first.getSceneStream().every((byte, index) => byte === retained[index]),
       'An invalid repeated generation must preserve all accepted bytes');
+    stage('create second native renderer on borrowed device');
     const second = await createRenderer({ canvas: secondCanvas, device, onError });
     second.resize({ width: 320, height: 180, pixelRatio: 1 });
     second.updateScene(raw);
@@ -153,6 +191,7 @@ try {
     second.render({ clearColor: [0.1, 0.1, 0.1, 1] });
     await device.queue.onSubmittedWorkDone();
     const secondPng = secondCanvas.toDataURL();
+    stage('replace scene and resize');
     const changed = new SceneBuilder({ sceneId: 7n, generation: 2n })
       .fillRect(8, 8, 40, 40, [1, 0, 1, 1]).build();
     const changedUpdate = first.updateScene(changed);
@@ -168,12 +207,14 @@ try {
     first.render({ clearColor: [0.1, 0.1, 0.1, 1] });
     await device.queue.onSubmittedWorkDone();
     const resizedPng = firstCanvas.toDataURL();
+    stage('dispose first renderer and render surviving owner');
     first.dispose(); first.dispose();
     reject(() => first.render(), 'A disposed renderer must reject rendering');
     verify(!borrowedDestroyed, 'Disposal must not destroy a supplied device');
     second.render({ clearColor: [0.1, 0.1, 0.1, 1] });
     await device.queue.onSubmittedWorkDone();
     const survivingPng = secondCanvas.toDataURL();
+    stage('create factory-owned device and renderer');
     const owned = await createRenderer({ canvas: firstCanvas, onError });
     const ownedLost = owned.device.lost;
     owned.dispose();
@@ -185,10 +226,11 @@ try {
       survivingError: second.error?.message ?? null });
     verify(!Object.hasOwn(globalThis, 'Module'), 'Multiple isolated modules must not pollute global Module');
     verify(gpuErrors.length === 0, gpuErrors.join('\n'));
+    stage('complete native contracts');
     return { firstPng, warmPng, secondPng, survivingPng, changedPng, resizedPng,
       update, rawReuse, changedUpdate, resized, cold, warm,
       timings: { factoryMilliseconds, coldMilliseconds, warmMilliseconds },
-      gpuErrors, borrowedDestroyed, sourceBytes: retained.length };
+      gpuErrors, borrowedDestroyed, adapterIdentity, sourceBytes: retained.length };
   }), new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error('Installed npm package browser contracts exceeded 120 seconds')), 120_000);
   })]);
@@ -248,9 +290,17 @@ try {
   await fs.writeFile(path.join(evidence, 'npm-browser-contract.json'), JSON.stringify({
     package: artifact.name, version: artifact.version, archiveSha256: artifact.sha256,
     sourceCommit: artifact.sourceCommit, adapter: 'Chromium explicit SwiftShader',
+    browserVersion: browser.version(), browserArgs,
     completePixelEquality: true, typeQualification, finalDiagnostics, ...metrics
   }, (_, value) => typeof value === 'bigint' ? value.toString() : value, 2) + '\n');
   console.log(`Installed ${artifact.name}@${artifact.version}: native WebGPU, paths, gradients, clips, layers, retained pixels and borrowed-device ownership passed.`);
+} catch (error) {
+  await fs.writeFile(path.join(evidence, 'npm-browser-failure.json'), JSON.stringify({
+    package: artifact.name, version: artifact.version, archiveSha256: artifact.sha256,
+    sourceCommit: artifact.sourceCommit, phase, browserVersion: browser?.version(), browserArgs,
+    error: error.stack ?? String(error), errors, consoleDiagnostics,
+  }, null, 2) + '\n');
+  throw error;
 } finally {
   clearTimeout(timer);
   if (browser) await browser.close();

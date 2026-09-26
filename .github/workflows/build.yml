@@ -112,6 +112,8 @@ jobs:
 
       - name: Pack and exercise installed npm browser library
         shell: bash
+        env:
+          DEBUG: pw:browser
         run: |
           node eng/progpu-pack-npm.mjs
           node eng/progpu-test-npm-browser.mjs
