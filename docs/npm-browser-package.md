@@ -1,15 +1,16 @@
 # Native browser npm package
 
-`@wieslawsoltes/progpu` is the proposed scoped identity for the ES-module consumer
+`@wieslawsoltes/progpu` is the approved scoped identity for the ES-module consumer
 of the existing retained C++ WebGPU renderer,
 not a packaged gallery executable. The first version is `0.1.0-preview.1` under
 the `next` tag. Source files under `src/ProGPU.Native/browser/npm` are not a
 publishable package until the pinned native build and staging checks finish.
 
-The scoped-name proposal awaits the maintainer's naming choice. The initial
-unpublished `progpu` name was rejected by the registry as too similar to `prompt`;
-preparing this change does not authorize merging or publication. Version
-`0.1.0-preview.1`, public access and the `next` tag are unchanged.
+The maintainer approved this scoped name after the initial unpublished `progpu`
+name was rejected by the registry as too similar to `prompt`. Publication still
+requires the complete successful producer Build and verification-only release
+receipt described below. Version `0.1.0-preview.1`, public access and the `next`
+tag are unchanged; naming approval is not evidence of a published package.
 
 Consumers import `@wieslawsoltes/progpu`; its Wasm asset subpath is
 `@wieslawsoltes/progpu/progpu-native.wasm`. The installed-package browser and
