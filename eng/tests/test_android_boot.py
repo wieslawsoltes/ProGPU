@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import unittest
 from unittest.mock import patch
 
@@ -109,6 +110,11 @@ class AndroidBootTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "x86_64"):
             BOOT.boot_ready({**PROPERTIES, "abi": "arm64-v8a"}, HOME, ACTIVITY, WINDOW, "")
 
+    def test_missing_abi_never_admits_an_otherwise_ready_device(self):
+        for value in (None, ""):
+            with self.subTest(value=value):
+                self.assertIsNone(BOOT.boot_ready({**PROPERTIES, "abi": value}, HOME, ACTIVITY, WINDOW, ""))
+
     def test_profile_resources_replace_duplicates_without_changing_other_fields(self):
         text = "hw.ramSize=512\nhw.gpu.mode=auto\nhw.ramSize=1024\nhw.cpu.ncore=8\nhw.keyboard=no\n"
         result = BOOT.configure_avd(text)
@@ -142,6 +148,20 @@ class AndroidBootTests(unittest.TestCase):
         self.assertEqual(b"version\n", output)
         with self.assertRaisesRegex(RuntimeError, "intentional"):
             BOOT.command([sys.executable, "-c", "import sys; print('intentional', file=sys.stderr); sys.exit(3)"], dict(os.environ), timeout=5)
+
+    def test_exited_command_leader_cannot_leave_a_descendant_holding_pipes(self):
+        parent = ("import subprocess,sys; child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
+                  "print(child.pid, flush=True)")
+        with self.assertRaises(subprocess.TimeoutExpired) as expired:
+            BOOT.command([sys.executable, "-c", parent], dict(os.environ), timeout=0.3)
+        child_pid = int(expired.exception.output.strip())
+        deadline = time.monotonic() + 2
+        while True:
+            state = subprocess.run(["ps", "-p", str(child_pid), "-o", "stat="], capture_output=True, text=True, timeout=1).stdout.strip()
+            if not state or state.startswith("Z"):
+                break
+            self.assertLess(time.monotonic(), deadline, f"Owned descendant remains running: {state}")
+            time.sleep(0.01)
 
     def test_lifecycle_rejects_non_ci_execution_before_starting_processes(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false"}), patch.object(BOOT.subprocess, "Popen") as start:

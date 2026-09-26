@@ -9,8 +9,10 @@ on:
       - eng/progpu-install-linux-packages.sh
       - eng/progpu-build-android-sample.sh
       - eng/progpu-test-android-emulator.sh
+      - eng/progpu-run-android-emulator.py
       - eng/progpu-verify-android-evidence.py
       - eng/tests/test_android_evidence.py
+      - eng/tests/test_android_boot.py
       - eng/tests/fixtures/android-x64-*
       - global.json
       - Directory.Build.*
@@ -44,7 +46,7 @@ jobs:
           submodules: recursive
 
       - name: Verify evidence parser contracts
-        run: python3 -m unittest discover -s eng/tests -p test_android_evidence.py -v
+        run: python3 -m unittest discover -s eng/tests -p 'test_android_*.py' -v
 
       - name: Setup repository .NET SDK
         uses: actions/setup-dotnet@v5
@@ -106,25 +108,7 @@ jobs:
           test -w /dev/kvm
 
       - name: Launch the x64 sample and capture rendered evidence
-        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
-        with:
-          api-level: 35
-          target: default
-          arch: x86_64
-          profile: pixel_6
-          avd-name: ProGpuX64Rendering
-          cores: 2
-          ram-size: 2048M
-          heap-size: 512M
-          emulator-boot-timeout: 300
-          disable-linux-hw-accel: false
-          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
-          pre-emulator-launch-script: |
-            "${ANDROID_SDK_ROOT}/emulator/emulator" -version > "${PROGPU_ANDROID_EVIDENCE_ROOT}/emulator-version.txt" 2>&1
-            sdkmanager --list_installed > "${PROGPU_ANDROID_EVIDENCE_ROOT}/android-installed-packages.txt" 2>&1
-            cp "${ANDROID_AVD_HOME:-${HOME}/.android/avd}/ProGpuX64Rendering.avd/config.ini" "${PROGPU_ANDROID_EVIDENCE_ROOT}/emulator-config.ini"
-            "${ANDROID_SDK_ROOT}/emulator/emulator" -accel-check > "${PROGPU_ANDROID_EVIDENCE_ROOT}/emulator-acceleration.txt" 2>&1
-          script: ./eng/progpu-test-android-emulator.sh
+        run: python3 eng/progpu-run-android-emulator.py
 
       - name: Upload APK and full build/runtime evidence
         if: always()

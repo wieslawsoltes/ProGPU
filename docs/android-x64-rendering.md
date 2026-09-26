@@ -38,8 +38,32 @@ ordinary full-rendering image, not an automated-test-device image with graphics
 disabled. The emulator uses `-gpu swiftshader` and
 `-accel on`, not an ARM guest or silently unaccelerated execution. This is
 software-Vulkan functional evidence; it is not physical-device GPU performance.
-The emulator action is pinned by commit, but SDK emulator/image packages are
-versioned external inputs whose actual versions must be retained with results.
+SDK emulator/image packages are versioned external inputs whose actual versions
+must be retained with results. The CI-owned lifecycle installs the same stable
+API 35 image/emulator packages through the already provisioned Android tools.
+
+`eng/progpu-run-android-emulator.py` creates one fresh AVD in its own temporary
+directory and owns its emulator/logcat subprocess groups. It refuses existing
+adb devices and is restricted to the Linux x64 Actions lane with accessible KVM.
+It neither wipes another AVD nor kills the adb server; cleanup targets only its
+own processes. Emulator versions, configuration, launch output, boot logcat,
+activity/window/input state and a pre-install screenshot are retained.
+
+Boot readiness must complete within 300 seconds of emulator launch. The boot
+property alone is insufficient: provisioning and user setup must be complete,
+and the resolved HOME component must be the actual resumed and focused activity.
+Its own activity record must acknowledge the first/all/reported draw and current
+visibility; its matching window must have a shown, ready, visible on-screen
+surface with no keyguard. Ordinary Android 15 window dumps omit `mDrawState`, so
+that optional field is not required. An explicitly pending state still rejects
+the candidate. Draw flags from another activity/window cannot satisfy the check.
+Any recorded boot ANR or fatal log is a hard failure, not a retryable condition.
+
+The lifecycle sends no synthetic input, unlock command or ANR-dialog dismissal.
+It retains the prior animation settings only after HOME readiness and rechecks
+that readiness before installing the APK. Boot polling and every command share
+the same remaining 300-second budget; diagnostic capture after a failure never
+extends admission. The separate application probe retains its 120-second budget.
 
 `eng/progpu-test-android-emulator.sh` attaches to one already-running adb target;
 it does not create another emulator or VM. It resolves the package's actual
@@ -109,6 +133,24 @@ is retained as a hash-verified negative fixture; the guard rejects all nine tile
 The fence warning and timing motivate bounded presentation polling and additional
 diagnostics, not a proven renderer defect or a claim that waiting fixes it.
 
+Run [36238216481](https://github.com/wieslawsoltes/ProGPU/actions/runs/36238216481)
+correctly failed its focus guard because Quickstep's ANR obscured the sample.
+The prior action observed boot completion at 11:21:23.370 and immediately sent
+keyevent 82; the launcher recorded an input-dispatch/no-focused-window ANR at
+11:21:29.115, before APK installation at 11:21:35. Its retained ANR snapshot had
+a surface and focus entry but a hidden `DRAW_PENDING` launcher buffer. This is
+the negative boot fixture, not sample rendering evidence. The pinned action had
+no hook between its boot-property poll and unconditional input, so its lifecycle
+was replaced by original ProGPU orchestration rather than patched/copied action
+implementation. This does not establish the separate Qsri timeout's cause.
+
+Offline boot tests include the actual ANR excerpt, representative ordinary
+Android 15 positive formats, incomplete provisioning, resolved HOME identity,
+pending/hidden/stale windows, missing draw acknowledgements, cumulative fatal
+logs, fixed resource configuration, remaining-deadline accounting and subprocess
+ownership/timeout cleanup. Synthetic positives are parser tests only. A real
+successful boot and visibly correct sample remain required after these changes.
+
 `AndroidWindowHost` now owns a disposable subscription to the existing process-wide
 `WgpuContext.OnWebGpuError` and `OnWebGpuDeviceLost` events. Typed failures reach
 the same `ProGPU.Android` error log already rejected by this gate. Subscription
@@ -151,6 +193,11 @@ not change product provider or renderer defaults.
   behavior change is included without runtime evidence.
 - [PNG filter specification](https://www.w3.org/TR/png-3/#9Filters)
   supplies the byte reconstruction, edge conditions and Paeth tie contract.
-- [Android emulator runner configuration](https://github.com/ReactiveCircus/android-emulator-runner#configurations)
-  defines explicit image architecture and emulator options; its defaults are not
-  the x64/Vulkan contract used here.
+- [Pinned emulator runner lifecycle](https://github.com/ReactiveCircus/android-emulator-runner/blob/a421e43855164a8197daf9d8d40fe71c6996bb0d/src/emulator-manager.ts#L90)
+  was inspected to identify the unconditional boot-time input and missing
+  readiness hook; no implementation code was imported.
+- [Android emulator command line](https://developer.android.com/studio/run/emulator-commandline)
+  and [AVD manager commands](https://developer.android.com/tools/avdmanager)
+  define the existing CLI/configuration contracts used by the owned lifecycle.
+- [ADB device state](https://developer.android.com/tools/adb#devicestatus)
+  explicitly distinguishes an attached device from a fully operational system.

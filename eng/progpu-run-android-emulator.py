@@ -50,6 +50,8 @@ def boot_ready(properties, home, activity, window, log):
     reject_boot_failures(window, log)
     if properties.get("abi") not in (None, "", "x86_64"):
         raise ValueError("Booted device does not have the required x86_64 ABI")
+    if properties.get("abi") != "x86_64":
+        return None
     if any(properties.get(key) != "1" for key in ("boot_completed", "device_provisioned", "user_setup_complete")):
         return None
     # --brief may precede the component with priority/match metadata.
@@ -104,18 +106,26 @@ def remaining(deadline):
 
 
 def stop_owned(process, force=False):
-    if process is None or process.poll() is not None:
+    if process is None:
         return
-    try:
-        os.killpg(process.pid, signal.SIGKILL if force else signal.SIGTERM)
-    except ProcessLookupError:
-        process.wait(timeout=5)
-        return
+
+    def send(signum):
+        try:
+            os.killpg(process.pid, signum)
+        except ProcessLookupError:
+            pass
+
+    # The group can outlive its leader, including a child holding a command's
+    # stdout pipe open. Ownership is the session created at Popen, not poll().
+    send(signal.SIGTERM if not force and process.poll() is None else signal.SIGKILL)
     try:
         process.wait(timeout=15)
     except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
+        send(signal.SIGKILL)
         process.wait(timeout=5)
+    finally:
+        # A gracefully exited leader does not prove all descendants have exited.
+        send(signal.SIGKILL)
 
 
 def command(arguments, env, timeout=None, input_text=None, merge_error=False):
@@ -171,7 +181,7 @@ def main():
                             ("android-installed-packages.txt", ["sdkmanager", "--list_installed"])):
         (evidence / name).write_bytes(command(arguments, env, timeout=15, merge_error=True))
 
-    emulator_process = logcat_process = None
+    emulator_process = logcat_process = probe_process = None
     admitted = False
     with (evidence / "emulator-launch.log").open("wb") as emulator_log, (evidence / "boot-logcat.txt").open("wb") as boot_log:
         try:
@@ -239,7 +249,9 @@ def main():
             admitted = True
             # The existing probe still owns installation, its 120-second launch
             # deadline, process/focus/log checks and real screenshot-content gate.
-            return subprocess.call(["bash", str(repo / "eng/progpu-test-android-emulator.sh")], env=env)
+            probe_process = subprocess.Popen(["bash", str(repo / "eng/progpu-test-android-emulator.sh")],
+                                             env=env, start_new_session=True)
+            return probe_process.wait()
         finally:
             if emulator_process is not None and emulator_process.poll() is None and not admitted:
                 # Failure evidence is cleanup, never additional time to qualify.
@@ -251,9 +263,12 @@ def main():
                     except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
                         (evidence / (name + ".error")).write_text(str(error))
             try:
-                stop_owned(logcat_process)
+                stop_owned(probe_process)
             finally:
-                stop_owned(emulator_process)
+                try:
+                    stop_owned(logcat_process)
+                finally:
+                    stop_owned(emulator_process)
 
 
 if __name__ == "__main__":
