@@ -25,7 +25,7 @@ finish() {
   if [[ "${device_ready}" == true ]]; then
     device logcat -b all -d -v threadtime > "${evidence}/logcat-final.txt" 2>&1
     device shell dumpsys activity activities > "${evidence}/activity-final.txt" 2>&1
-    device shell dumpsys window windows > "${evidence}/window-final.txt" 2>&1
+    device shell dumpsys window > "${evidence}/window-final.txt" 2>&1
     device shell dumpsys package "${package}" > "${evidence}/package-final.txt" 2>&1
     device shell pidof "${package}" > "${evidence}/pid-final.txt" 2>&1
     if ((status != 0)); then
@@ -120,11 +120,15 @@ while ((SECONDS < deadline)); do
 done
 [[ "${frame_ready}" == true ]] || { echo "No valid Vulkan first frame within 120 seconds." >&2; exit 1; }
 launch_device shell dumpsys activity activities > "${evidence}/activity.txt"
+launch_device shell dumpsys window > "${evidence}/window.txt"
 launch_device exec-out screencap -p > "${evidence}/screenshot.png" 2> "${evidence}/screenshot.log"
-python3 "${verifier}" screenshot --png "${evidence}/screenshot.png" --activity "${evidence}/activity.txt" --output "${evidence}/screenshot.json"
+launch_device shell dumpsys window > "${evidence}/window-after-screenshot.txt"
+python3 "${verifier}" screenshot --png "${evidence}/screenshot.png" \
+  --activity "${evidence}/activity.txt" --window "${evidence}/window.txt" \
+  --window-after "${evidence}/window-after-screenshot.txt" --output "${evidence}/screenshot.json"
 [[ "$(launch_device shell pidof -s "${package}" | tr -d '\r')" == "${application_pid}" ]] || { echo "Sample exited during screenshot capture." >&2; exit 1; }
 launch_device logcat -b all -d -v threadtime > "${evidence}/logcat-after-screenshot.txt"
 python3 "${verifier}" first-frame --log "${evidence}/logcat-after-screenshot.txt" --pid "${application_pid}" --output "${evidence}/first-frame.json"
 ((SECONDS <= deadline)) || { echo "120-second launch deadline expired." >&2; exit 1; }
-printf 'PASS: x64 Vulkan frame, live resumed sample, and valid screenshot captured. Visual inspection still required; no media/native-engine or hardware-performance qualification.\n' > "${evidence}/runtime-status.txt"
+printf 'PASS: x64 Vulkan frame, live resumed and focused sample, and valid screenshot captured. Visual inspection still required; no media/native-engine or hardware-performance qualification.\n' > "${evidence}/runtime-status.txt"
 echo "Android x64 UI runtime evidence captured at ${evidence}; inspect screenshot for visible sample fidelity."

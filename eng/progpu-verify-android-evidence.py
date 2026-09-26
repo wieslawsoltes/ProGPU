@@ -206,6 +206,16 @@ def stage_apk(build_log, destination, project_directory):
     destination.write_bytes(source.read_bytes())
 
 
+def verify_foreground(activity, window):
+    require(re.search(r"(?:topResumedActivity|mResumedActivity)[^\n]*com\.progpu\.samples/", activity),
+            "Sample is not the resumed activity")
+    # A resumed activity can sit behind another process's ANR dialog. Require
+    # the actual focused window, not a package name appearing elsewhere in a dump.
+    focused = re.findall(r"^\s*mCurrentFocus\s*=\s*([^\n]+)", window, re.MULTILINE)
+    require(focused and all(re.fullmatch(r"Window\{[0-9a-f]+\s+u[0-9]+\s+com\.progpu\.samples/[^\s}]+\}", value.strip())
+                            for value in focused), "Sample is not the focused window (dialog, keyguard, or missing focus)")
+
+
 def run_command(arguments, timeout):
     require(arguments and timeout > 0, "A command and positive timeout are required")
     process = subprocess.Popen(arguments, start_new_session=True)
@@ -238,6 +248,8 @@ def main():
     screenshot = commands.add_parser("screenshot")
     screenshot.add_argument("--png", type=Path, required=True)
     screenshot.add_argument("--activity", type=Path, required=True)
+    screenshot.add_argument("--window", type=Path, required=True)
+    screenshot.add_argument("--window-after", type=Path, required=True)
     screenshot.add_argument("--output", type=Path, required=True)
     run = commands.add_parser("run-command")
     run.add_argument("--timeout", type=int, required=True)
@@ -258,7 +270,8 @@ def main():
                 return 1
         else:
             activity = args.activity.read_text(errors="replace")
-            require(re.search(r"(?:topResumedActivity|mResumedActivity)[^\n]*com\.progpu\.samples/", activity), "Sample is not the resumed activity")
+            verify_foreground(activity, args.window.read_text(errors="replace"))
+            verify_foreground(activity, args.window_after.read_text(errors="replace"))
             result = verify_png(args.png.read_bytes())
         args.output.write_text(json.dumps(result, indent=2) + "\n")
         return 0

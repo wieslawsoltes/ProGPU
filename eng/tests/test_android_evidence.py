@@ -89,6 +89,31 @@ class AndroidEvidenceTests(unittest.TestCase):
             with self.subTest(contents=contents), self.assertRaises(ValueError):
                 EVIDENCE.verify_png(contents)
 
+    def test_resumed_and_focused_sample(self):
+        EVIDENCE.verify_foreground(
+            "topResumedActivity=ActivityRecord{123 u0 com.progpu.samples/test.MainActivity t8}",
+            "  mCurrentFocus=Window{abc123 u0 com.progpu.samples/test.MainActivity}\n")
+
+    def test_resumed_sample_behind_dialog_or_another_window_is_rejected(self):
+        activity = "topResumedActivity=ActivityRecord{123 u0 com.progpu.samples/test.MainActivity t8}"
+        for focus in ("null", "Window{123 u0 Application Not Responding: com.google.android.apps.nexuslauncher}",
+                      "Window{123 u0 NotificationShade}", "Window{123 u0 com.android.launcher/.Launcher}",
+                      "Window{123 u0 com.progpu.samples.other/.MainActivity}"):
+            with self.subTest(focus=focus), self.assertRaises(ValueError):
+                EVIDENCE.verify_foreground(activity, "mCurrentFocus=" + focus)
+
+    def test_window_inventory_without_focus_is_not_foreground_evidence(self):
+        with self.assertRaises(ValueError):
+            EVIDENCE.verify_foreground(
+                "mResumedActivity: ActivityRecord{123 u0 com.progpu.samples/test.MainActivity t8}",
+                "Window #1 Window{123 u0 com.progpu.samples/test.MainActivity}:\n    isVisible=true\n")
+
+    def test_focused_sample_without_resumed_activity_is_rejected(self):
+        with self.assertRaises(ValueError):
+            EVIDENCE.verify_foreground(
+                "mLastPausedActivity: ActivityRecord{123 u0 com.progpu.samples/test.MainActivity t8}",
+                "mCurrentFocus=Window{123 u0 com.progpu.samples/test.MainActivity}\n")
+
     def test_wrong_elf_abi_rejected(self):
         for contents in (synthetic_elf(machine=183), synthetic_elf(elf_class=1), b"not a binary"):
             with self.subTest(contents=contents), self.assertRaises(ValueError):

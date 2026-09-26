@@ -33,7 +33,9 @@ Fresh-configuration Fluent-theme and mobile-sample library builds additionally
 exercise the actual host generator closure; they are not APK runtime evidence.
 
 The Actions runner is Ubuntu 24.04 x64, with explicit accessible KVM and an
-API 35 `google_apis;x86_64` image. The emulator uses `-gpu swiftshader` and
+API 35 AOSP `default;x86_64` image, without Google apps/services. This is the
+ordinary full-rendering image, not an automated-test-device image with graphics
+disabled. The emulator uses `-gpu swiftshader` and
 `-accel on`, not an ARM guest or silently unaccelerated execution. This is
 software-Vulkan functional evidence; it is not physical-device GPU performance.
 The emulator action is pinned by commit, but SDK emulator/image packages are
@@ -44,6 +46,8 @@ it does not create another emulator or VM. It resolves the package's actual
 launcher activity, installs the signed APK and launches it. Evidence includes
 the sample process's Vulkan first-frame diagnostics, positive drawing/content
 dimensions, foreground activity state, unfiltered logcat and a real screenshot.
+The sample must own the actual focused window both before and after capture:
+a resumed activity alone does not exclude another application's ANR dialog.
 An installed APK, live process, successful `am start`, assembly-probe message,
 or activity showing an error view is not a rendering pass.
 
@@ -62,6 +66,15 @@ Parser unit tests use synthetic input only and do not qualify native binaries
 or a device. A green device run must be followed by inspection of its actual
 screenshot before claiming that the reported blank-display behavior is resolved.
 
+Run [36236053116](https://github.com/wieslawsoltes/ProGPU/actions/runs/36236053116)
+verified the actual APK/provider and recorded a Vulkan first frame, but is not
+a visible-rendering pass: a Pixel Launcher ANR began before sample launch and
+covered the captured display. Its separate emulator-version probe also exposed
+the missing host `libpulse.so.0` dependency. The CI setup now installs `libpulse0`,
+uses the ordinary AOSP image to avoid Google first-boot services, and validates
+window focus around the screenshot. CPU/RAM settings and all deadlines are
+unchanged; no dialog is dismissed or ignored to produce a pass.
+
 Dawn `AHardwareBuffer` media import, the provider-resolved C++ engine, physical
 device behavior/performance and fully trimmed/AOT Release execution remain
 independent requirements. The UI lane does not replace or weaken them and does
@@ -75,6 +88,8 @@ not change product provider or renderer defaults.
   document Android hardware acceleration on Linux runners.
 - [Android emulator acceleration](https://developer.android.com/studio/run/emulator-acceleration)
   distinguishes matching guest architecture, VM acceleration and graphics modes.
+- [Official AOSP image catalog](https://dl.google.com/android/repository/sys-img/android/sys-img2-3.xml)
+  lists the Android 35 `default;x86_64` system image.
 - [Android emulator runner configuration](https://github.com/ReactiveCircus/android-emulator-runner#configurations)
   defines explicit image architecture and emulator options; its defaults are not
   the x64/Vulkan contract used here.

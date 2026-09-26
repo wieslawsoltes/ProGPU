@@ -64,7 +64,7 @@ jobs:
       - name: Install pinned native toolchain and Android workload
         shell: bash
         run: |
-          ./eng/progpu-install-linux-packages.sh acl libclang-18-dev
+          ./eng/progpu-install-linux-packages.sh acl libclang-18-dev libpulse0
           sdkmanager 'ndk;27.2.12479018' 'platforms;android-36' 'build-tools;36.0.0'
           echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/27.2.12479018" >> "${GITHUB_ENV}"
           rustup toolchain install 1.85.1 --profile minimal
@@ -108,7 +108,7 @@ jobs:
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 35
-          target: google_apis
+          target: default
           arch: x86_64
           profile: pixel_6
           avd-name: ProGpuX64Rendering
