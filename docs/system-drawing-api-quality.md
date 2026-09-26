@@ -34,6 +34,45 @@ Only regenerate the baseline after reviewing the complete diff:
 The suppression file is debt, not acceptance of permanent incompatibility. Pull requests should normally remove suppressions and must never add suppressions merely to make CI green.
 Baseline regeneration removes machine-specific left/right assembly paths, so suppressions are keyed by diagnostic and API target and behave identically in local clones and hosted CI. The verifier rejects a committed baseline that still contains absolute assembly paths.
 
+## Allocation failure diagnostics
+
+The full CI quality suite runs through:
+
+```bash
+python3 eng/progpu-test-system-drawing.py
+```
+
+This executes the original unfiltered Release `dotnet test` command with
+testhost-only EventPipe settings and a TRX logger. It does not change the
+`WarmedPrivateMetricReadsAreAllocationFree` test's one warmup, 1,000 iterations
+of four metric reads, or zero-byte assertion, and does not change JIT,
+parallelism, retries, or the existing 25-minute CI job deadline.
+
+The [runtime's EventPipe environment settings](https://learn.microsoft.com/dotnet/core/diagnostics/eventpipe)
+are supplied through [VSTest's testhost environment configuration](https://learn.microsoft.com/visualstudio/test/configure-unit-tests-by-using-a-dot-runsettings-file#specify-environment-variables-in-the-runsettings-file),
+not the build or test-launcher environment. The provider mask matches the
+existing sample-memory profiler. The selected SDK/runtime supplies collection;
+no unpinned profiler tool is downloaded. A 64-MiB non-streaming runtime buffer
+is flushed to a PID-qualified trace on normal testhost shutdown. A crash may
+leave no trace, and buffer exhaustion may lose events. Sampled allocation
+events cannot prove the absence of a small allocation or guarantee its stack.
+
+Each invocation owns a new `artifacts/system-drawing-quality/run-*` directory.
+The log, TRX, SDK/runtime information, settings and JSON status are retained.
+Successful runs remove their own traces. Failed runs retain intact traces up
+to 128 MiB each and 256 MiB total, recording hashes or an explicit discard
+reason. Diagnostic errors never replace the test command's nonzero exit;
+cancellation is forwarded only to the wrapper's own child process group.
+The existing CI evidence artifact uploads these files even after failure.
+The repository's `ProGPU.SampleMemoryProfiler` already pins TraceEvent 3.1.15
+for offline trace inspection; raw traces can also be opened in PerfView.
+
+This is evidence collection, not an allocation fix. Linux Build 36246685645
+reported 1,024 bytes in that test (620/621 passed). Unchanged host checks,
+including the full traced suite using SDK 10.0.401/runtime 10.0.12 on macOS
+ARM64, passed 621/621. Those host passes neither explain nor qualify the Linux
+failure. Preserve the failing trace and its original result for attribution.
+
 ## Current measured debt
 
 After the component-model converter, hosted graphics-flush, graphics-state, point/source-rectangle and destination-point image-overload, coordinate-space, graphics-container, image-convenience, drawing-identity, brush-base, pen-ownership, stock-icon, printer-settings collection, image-attributes, page device-selection, managed printing-shape, effects, cached-bitmap, managed-metadata, managed-identity, pen-transform, typed-LOGFONT, custom-cap/compound-pen, path-gradient, metafile parser, metafile enumeration, type-scoped bitmap-resource, cumulative graphics-context, managed icon-extraction, managed serialization/base-shape, typed desktop-capture, typed native-image-import, typed native font/graphics interop, portable metafile-comment recording, and bounded typed EMF/WMF vector playback compatibility slices:

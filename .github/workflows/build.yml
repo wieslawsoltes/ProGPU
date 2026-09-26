@@ -51,7 +51,9 @@ jobs:
         run: ./eng/progpu-verify-system-drawing-api.sh
 
       - name: Run focused quality and allocation gates
-        run: dotnet test src/System.Drawing.Common.Tests/System.Drawing.Common.Tests.csproj --configuration Release --verbosity normal
+        run: |
+          python3 -m unittest discover -s eng/tests -p test_system_drawing_trace.py -v
+          python3 eng/progpu-test-system-drawing.py
 
       - name: Run pinned official System.Drawing behavior corpus
         shell: bash
@@ -74,6 +76,7 @@ jobs:
           name: progpu-system-drawing-contract
           path: |
             artifacts/system-drawing-api-compat/current.txt
+            artifacts/system-drawing-quality/**
             artifacts/system-drawing-upstream/results/*
             BenchmarkDotNet.Artifacts/results/*
           if-no-files-found: warn
