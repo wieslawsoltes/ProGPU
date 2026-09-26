@@ -43,35 +43,59 @@ python3 eng/progpu-test-system-drawing.py
 ```
 
 This executes the original unfiltered Release `dotnet test` command with
-testhost-only EventPipe settings and a TRX logger. It does not change the
+testhost-only diagnostic settings and a TRX logger. It does not change the
 `WarmedPrivateMetricReadsAreAllocationFree` test's one warmup, 1,000 iterations
 of four metric reads, or zero-byte assertion, and does not change JIT,
 parallelism, retries, or the existing 25-minute CI job deadline.
 
-The [runtime's EventPipe environment settings](https://learn.microsoft.com/dotnet/core/diagnostics/eventpipe)
-are supplied through [VSTest's testhost environment configuration](https://learn.microsoft.com/visualstudio/test/configure-unit-tests-by-using-a-dot-runsettings-file#specify-environment-variables-in-the-runsettings-file),
-not the build or test-launcher environment. The provider mask matches the
-existing sample-memory profiler. The selected SDK/runtime supplies collection;
-no unpinned profiler tool is downloaded. A 64-MiB non-streaming runtime buffer
-is flushed to a PID-qualified trace on normal testhost shutdown. A crash may
-leave no trace, and buffer exhaustion may lose events. Sampled allocation
-events cannot prove the absence of a small allocation or guarantee its stack.
+The official [diagnostic-port handshake](https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-trace#use-diagnostic-port-to-collect-a-trace-from-app-startup)
+is supplied through [VSTest's testhost environment configuration](https://learn.microsoft.com/visualstudio/test/configure-unit-tests-by-using-a-dot-runsettings-file#specify-environment-variables-in-the-runsettings-file),
+not the build or test-launcher environment. The local manifest pins
+`dotnet-trace` 9.0.661903 (upstream commit
+`d7b455b46332b31fd9ba3a3f3e020387984c511a`). It listens on a private socket,
+starts the existing sample-memory provider set with a 64-MiB runtime buffer,
+and never suspends the connected testhost. Collector death before connection
+must not block the tests. It never launches or owns the testhost; strict
+method-metadata checks reject a capture that connects too late for coverage.
+
+The typed `ProGPU.TestTraceLifetime` in-process VSTest data collector is enabled
+only in those runsettings and uses the same pinned TestPlatform.ObjectModel
+17.11.1 as the test SDK. Test-case callbacks do no work. At `TestSessionEnd`,
+after all tests, it reports its actual PID and holds runner teardown for at
+most the existing 30-second diagnostic-finalization budget while the external
+collector stops and closes the stream. No measured test or font code calls it.
+This boundary avoids teardown ending a trace before its terminal block;
+`ProcessExit` is insufficient because VSTest may terminate the host directly.
+The callback does not replace the test result even if its handshake fails.
 
 Each invocation owns a new `artifacts/system-drawing-quality/run-*` directory.
 The log, TRX, SDK/runtime information, settings and JSON status are retained.
-Successful runs remove their own traces. Failed runs retain intact traces up
-to 128 MiB each and 256 MiB total, recording hashes or an explicit discard
-reason. Diagnostic errors never replace the test command's nonzero exit;
-cancellation is forwarded only to the wrapper's own child process group.
+Strict TraceEvent 3.1.15 parsing must succeed without partial/error recovery or
+reported event loss. Its single process must match the callback's PID, and the
+trace must contain the metric method's metadata and allocation samples. Those
+are coverage checks, not proof of a sampled allocation within the measured loop.
+Only successful, verified runs remove their own traces; hashes and parse
+receipts remain. Failed tests or diagnostics retain traces up to 128 MiB each
+and 256 MiB total, recording an explicit discard reason otherwise. Collection
+stops at 96 MiB to leave finalization headroom; an independent collector-only
+128-MiB file-size limit enforces the hard ceiling. Budget exhaustion is a
+diagnostic failure even if the shortened trace parses. Stop/timeout cleanup
+signals target only the separately owned collector group, never the testhost.
+Diagnostic errors never replace the test command's nonzero exit. Explicit
+user/job cancellation is forwarded only to the owned test command group.
 The existing CI evidence artifact uploads these files even after failure.
 The repository's `ProGPU.SampleMemoryProfiler` already pins TraceEvent 3.1.15
 for offline trace inspection; raw traces can also be opened in PerfView.
 
-This is evidence collection, not an allocation fix. Linux Build 36246685645
-reported 1,024 bytes in that test (620/621 passed). Unchanged host checks,
-including the full traced suite using SDK 10.0.401/runtime 10.0.12 on macOS
-ARM64, passed 621/621. Those host passes neither explain nor qualify the Linux
-failure. Preserve the failing trace and its original result for attribution.
+This is evidence collection, not an allocation fix. Linux Builds 36246685645
+and 36248067974 reported 1,024 bytes in that test (620/621 and 648/649 passed).
+The first bounded non-streaming capture retained a partial trace without the
+failing method; that cannot attribute the allocation. Local SDK
+10.0.401/runtime 10.0.12 macOS ARM64 validation of the external lifetime-seamed
+collector passed the unchanged full 649 tests and strictly parsed its complete
+trace before cleanup. That host pass neither explains nor qualifies the Linux
+failure. Sampled events may miss a 1,024-byte allocation entirely. Preserve the
+failing trace and its original result for attribution.
 
 ## Current measured debt
 
