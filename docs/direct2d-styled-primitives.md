@@ -109,12 +109,19 @@ The shared helper requires emitted coverage for nonempty draws; logical draw
 counts alone cannot prove rendering.
 
 Apple Clang C++20 portable COM fixtures compile and link. Fixture compilation
-errors were corrected; none of these fixtures have been executed. The fast
+errors were corrected; none of these fixtures had executed at this checkpoint. The fast
 build excludes the Windows provider and full renderer, so these Windows edits
 and fixtures have no compilation evidence yet. Windows/MSVC/Clang and Linux/Wasm
 builds, native pixel differentials, runtime/SIMD/performance, VM/package/SDK,
 source verifiers and exact-head PR CI qualification remain deferred. No parity
 or speedup claim is made. ProGPU main was refreshed with zero missing commits.
+
+The 2026-09-26 [brush snapshot validation](direct2d-brush-snapshots.md) subsequently
+compiled and passed the full Windows ARM64 provider suite with MSVC `/W4 /WX`,
+including these styled primitive fixtures. The portable compatibility suite
+passed on macOS, Windows and Linux ARM64. Generated-contract verification also
+passed. These results establish recorder coverage, not the deferred full WGPU
+pixel, application, package, performance or Wasm gates.
 
 Remaining Windows command-stream gaps include bitmap/image/glyph recording,
 meshes, opacity masks and FillGeometry opacity brushes, non-source-over blend
