@@ -1,16 +1,86 @@
 <Project>
-  <PropertyGroup Condition="'$(TargetPlatformIdentifier)' == 'android' And '$(ProGpuNativeDawnAndroidRoot)' == ''">
-    <ProGpuNativeDawnAndroidRoot>$(MSBuildThisFileDirectory)..\runtimes</ProGpuNativeDawnAndroidRoot>
-  </PropertyGroup>
-  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'android' And Exists('$(ProGpuNativeDawnAndroidRoot)')">
-    <AndroidNativeLibrary Include="$(ProGpuNativeDawnAndroidRoot)\android-*\native\libprogpu_native_dawn.so" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'android' And '$(ProGpuWgpuNativeAndroidRoot)' != '' And Exists('$(ProGpuWgpuNativeAndroidRoot)')">
-    <AndroidNativeLibrary Include="$(ProGpuWgpuNativeAndroidRoot)\**\libwgpu_native.so" />
-  </ItemGroup>
-  <Target Name="ProGpuPackageWarnMissingAndroidWgpuNative"
-          BeforeTargets="PrepareForBuild"
-          Condition="'$(TargetPlatformIdentifier)' == 'android' And ('$(ProGpuWgpuNativeAndroidRoot)' == '' Or !Exists('$(ProGpuWgpuNativeAndroidRoot)'))">
-    <Warning Text="ProGPU.Android requires libwgpu_native.so at deployment time. Set ProGpuWgpuNativeAndroidRoot to a directory produced by eng/build-wgpu-native-android.sh." />
+  <!-- Resolve at execution time: Android SDK defaults and device-selected RIDs
+       are not necessarily available when buildTransitive imports are evaluated.
+       A RID-less library embeds each supported ABI it has, just as a multi-RID
+       application does. No native backend or renderer choice is changed here. -->
+  <Target Name="ProGpuStageAndroidNativeLibraries"
+          BeforeTargets="_CategorizeAndroidLibraries;PrepareForBuild;_CheckProjectItems;_BuildLibraryImportsCache"
+          Condition="'$(TargetPlatformIdentifier)' == 'android'">
+    <!-- Source builds supply artifact roots. Package consumers may override the
+         same roots; the engine payload defaults to this package's runtimes. -->
+    <PropertyGroup Condition="'$(ProGpuNativeDawnAndroidRoot)' == ''">
+      <ProGpuNativeDawnAndroidRoot>$(MSBuildThisFileDirectory)..\runtimes</ProGpuNativeDawnAndroidRoot>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ProGpuAndroidNativeRid Include="$(RuntimeIdentifier)"
+                              Condition="'$(RuntimeIdentifier)' != '' And ('$(RuntimeIdentifiers)' == '' Or '$(_ComputeFilesToPublishForRuntimeIdentifiers)' == 'true')" />
+      <_ProGpuAndroidNativeRid Include="$([MSBuild]::Unescape('$(RuntimeIdentifiers)'))"
+                              Condition="'$(RuntimeIdentifiers)' != '' And ('$(_ComputeFilesToPublishForRuntimeIdentifiers)' != 'true' Or '$(RuntimeIdentifier)' == '')"
+                              KeepDuplicates="false" />
+      <_ProGpuAndroidNativeRid Include="android-arm64;android-x64"
+                              Condition="'$(RuntimeIdentifier)' == '' And '$(RuntimeIdentifiers)' == ''" />
+      <_ProGpuAndroidNativeRid Update="@(_ProGpuAndroidNativeRid)">
+        <Abi Condition="'%(_ProGpuAndroidNativeRid.Identity)' == 'android-arm64'">arm64-v8a</Abi>
+        <Abi Condition="'%(_ProGpuAndroidNativeRid.Identity)' == 'android-x64'">x86_64</Abi>
+      </_ProGpuAndroidNativeRid>
+    </ItemGroup>
+
+    <Error Code="PROGPUANDROID003"
+           Condition="'%(_ProGpuAndroidNativeRid.Abi)' == ''"
+           Text="ProGPU Android native libraries do not support RuntimeIdentifier '%(_ProGpuAndroidNativeRid.Identity)'. Use android-arm64 or android-x64." />
+
+    <!-- Resolve one file per family and requested RID. Prefer the build-script
+         layout, then a package root, then an explicitly supplied runtimes root.
+         Each layout is a separate update so its conditions see the metadata
+         selected by earlier layouts. Never glob a different ABI or backup. -->
+    <ItemGroup>
+      <_ProGpuAndroidNativeRid Update="@(_ProGpuAndroidNativeRid)">
+        <WgpuLibrary Condition="'$(ProGpuWgpuNativeAndroidRoot)' != '' And Exists('$(ProGpuWgpuNativeAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libwgpu_native.so')">$([System.IO.Path]::GetFullPath('$(ProGpuWgpuNativeAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libwgpu_native.so'))</WgpuLibrary>
+        <DawnLibrary Condition="'$(ProGpuDawnAndroidRoot)' != '' And Exists('$(ProGpuDawnAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libwebgpu_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuDawnAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libwebgpu_dawn.so'))</DawnLibrary>
+        <EngineLibrary Condition="'$(ProGpuNativeDawnAndroidRoot)' != '' And Exists('$(ProGpuNativeDawnAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libprogpu_native_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuNativeDawnAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libprogpu_native_dawn.so'))</EngineLibrary>
+      </_ProGpuAndroidNativeRid>
+    </ItemGroup>
+    <ItemGroup>
+      <_ProGpuAndroidNativeRid Update="@(_ProGpuAndroidNativeRid)">
+        <WgpuLibrary Condition="'%(_ProGpuAndroidNativeRid.WgpuLibrary)' == '' And '$(ProGpuWgpuNativeAndroidRoot)' != '' And Exists('$(ProGpuWgpuNativeAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so')">$([System.IO.Path]::GetFullPath('$(ProGpuWgpuNativeAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so'))</WgpuLibrary>
+        <DawnLibrary Condition="'%(_ProGpuAndroidNativeRid.DawnLibrary)' == '' And '$(ProGpuDawnAndroidRoot)' != '' And Exists('$(ProGpuDawnAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuDawnAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so'))</DawnLibrary>
+        <EngineLibrary Condition="'%(_ProGpuAndroidNativeRid.EngineLibrary)' == '' And '$(ProGpuNativeDawnAndroidRoot)' != '' And Exists('$(ProGpuNativeDawnAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libprogpu_native_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuNativeDawnAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libprogpu_native_dawn.so'))</EngineLibrary>
+      </_ProGpuAndroidNativeRid>
+    </ItemGroup>
+    <ItemGroup>
+      <_ProGpuAndroidNativeRid Update="@(_ProGpuAndroidNativeRid)">
+        <WgpuLibrary Condition="'%(_ProGpuAndroidNativeRid.WgpuLibrary)' == '' And '$(ProGpuWgpuNativeAndroidRoot)' != '' And Exists('$(ProGpuWgpuNativeAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so')">$([System.IO.Path]::GetFullPath('$(ProGpuWgpuNativeAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so'))</WgpuLibrary>
+        <DawnLibrary Condition="'%(_ProGpuAndroidNativeRid.DawnLibrary)' == '' And '$(ProGpuDawnAndroidRoot)' != '' And Exists('$(ProGpuDawnAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuDawnAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so'))</DawnLibrary>
+        <EngineLibrary Condition="'%(_ProGpuAndroidNativeRid.EngineLibrary)' == '' And '$(ProGpuNativeDawnAndroidRoot)' != '' And Exists('$(ProGpuNativeDawnAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libprogpu_native_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuNativeDawnAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libprogpu_native_dawn.so'))</EngineLibrary>
+      </_ProGpuAndroidNativeRid>
+    </ItemGroup>
+
+    <Error Code="PROGPUANDROID002"
+           Condition="'$(ProGpuRequireZeroCopyMedia)' == 'true' And '%(_ProGpuAndroidNativeRid.DawnLibrary)' == ''"
+           Text="ProGpuRequireZeroCopyMedia=true requires libwebgpu_dawn.so for %(_ProGpuAndroidNativeRid.Identity) (%(_ProGpuAndroidNativeRid.Abi)). Set ProGpuDawnAndroidRoot to the matching output of eng/build-webgpu-dawn-android.sh." />
+    <Warning Code="PROGPUANDROID001"
+             Condition="'%(_ProGpuAndroidNativeRid.WgpuLibrary)' == '' And '%(_ProGpuAndroidNativeRid.DawnLibrary)' == ''"
+             Text="ProGPU Android has no native WebGPU provider for %(_ProGpuAndroidNativeRid.Identity) (%(_ProGpuAndroidNativeRid.Abi)). Set ProGpuDawnAndroidRoot to the matching output of eng/build-webgpu-dawn-android.sh, or ProGpuWgpuNativeAndroidRoot to eng/build-wgpu-native-android.sh output for UI-only rendering." />
+
+    <ItemGroup>
+      <_ProGpuAndroidStagedLibrary Include="%(_ProGpuAndroidNativeRid.WgpuLibrary)"
+                                   Condition="'%(_ProGpuAndroidNativeRid.WgpuLibrary)' != ''">
+        <Abi>%(_ProGpuAndroidNativeRid.Abi)</Abi>
+        <RuntimeIdentifier>%(_ProGpuAndroidNativeRid.Identity)</RuntimeIdentifier>
+      </_ProGpuAndroidStagedLibrary>
+      <_ProGpuAndroidStagedLibrary Include="%(_ProGpuAndroidNativeRid.DawnLibrary)"
+                                   Condition="'%(_ProGpuAndroidNativeRid.DawnLibrary)' != ''">
+        <Abi>%(_ProGpuAndroidNativeRid.Abi)</Abi>
+        <RuntimeIdentifier>%(_ProGpuAndroidNativeRid.Identity)</RuntimeIdentifier>
+      </_ProGpuAndroidStagedLibrary>
+      <_ProGpuAndroidStagedLibrary Include="%(_ProGpuAndroidNativeRid.EngineLibrary)"
+                                   Condition="'%(_ProGpuAndroidNativeRid.EngineLibrary)' != ''">
+        <Abi>%(_ProGpuAndroidNativeRid.Abi)</Abi>
+        <RuntimeIdentifier>%(_ProGpuAndroidNativeRid.Identity)</RuntimeIdentifier>
+      </_ProGpuAndroidStagedLibrary>
+      <AndroidNativeLibrary Include="@(_ProGpuAndroidStagedLibrary)"
+                            Exclude="@(AndroidNativeLibrary)"
+                            KeepDuplicates="false" />
+    </ItemGroup>
   </Target>
 </Project>
