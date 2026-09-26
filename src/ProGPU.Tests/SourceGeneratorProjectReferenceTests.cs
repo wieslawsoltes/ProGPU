@@ -31,7 +31,10 @@ public sealed class SourceGeneratorProjectReferenceTests
             item => Path.GetFileName(item.GetProperty("Identity").GetString()) == "ProGPU.Xaml.SourceGenerator.dll");
         Assert.Equal("Analyzer", generator.GetProperty("OutputItemType").GetString());
         Assert.Equal("false", generator.GetProperty("ReferenceOutputAssembly").GetString());
-        Assert.Equal(["RuntimeIdentifier", "RuntimeIdentifiers"],
+        string[] removedProperties = projectName == "ProGPU.Samples"
+            ? ["RuntimeIdentifier", "RuntimeIdentifiers", "ProGpuSamplesMobile"]
+            : ["RuntimeIdentifier", "RuntimeIdentifiers"];
+        Assert.Equal(removedProperties,
             generator.GetProperty("GlobalPropertiesToRemove").GetString()!.Split(';'));
         Assert.Equal(Path.Combine(root, "src", "ProGPU.Xaml.SourceGenerator", "bin", configuration,
             "netstandard2.0", "ProGPU.Xaml.SourceGenerator.dll"),
@@ -54,7 +57,47 @@ public sealed class SourceGeneratorProjectReferenceTests
             "net10.0", rid, "ProGPU.WinUI.dll"), Path.GetFullPath(runtime.GetProperty("Identity").GetString()!));
     }
 
-    private static async Task<JsonDocument> ResolveReferences(string root, string project, string configuration, string rid)
+    [Theory]
+    [InlineData("true")]
+    [InlineData("false")]
+    [InlineData(null)]
+    public async Task SampleMobileSelectionDoesNotCreateSharedDependencyBuildIdentities(string? mobile)
+    {
+        string root = FindRepositoryRoot();
+        string project = Path.Combine(root, "src", "ProGPU.Samples", "ProGPU.Samples.csproj");
+        string scratch = Path.Combine(Path.GetTempPath(), "progpu-sample-reference-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scratch);
+        try
+        {
+            string probe = Path.Combine(scratch, "SampleReferenceProbe.targets");
+            await File.WriteAllTextAsync(probe, """
+                <Project>
+                  <Target Name="RequireSampleOnlyMobileSelection" BeforeTargets="GetTargetPath"
+                          Condition="'$(MSBuildProjectName)' != 'ProGPU.Samples'">
+                    <Error Condition="'$(ProGpuSamplesMobile)' != ''"
+                           Text="Sample-only mobile selection leaked into shared project $(MSBuildProjectName)." />
+                  </Target>
+                </Project>
+                """);
+            using JsonDocument result = await ResolveReferences(root, project,
+                "SampleMobileReferenceCheck", "android-x64", mobile, probe);
+            JsonElement properties = result.RootElement.GetProperty("Properties");
+            Assert.Equal(mobile ?? "", properties.GetProperty("ProGpuSamplesMobile").GetString());
+            string[] sources = result.RootElement.GetProperty("Items").GetProperty("Compile").EnumerateArray()
+                .Select(item => item.GetProperty("Identity").GetString()!.Replace('\\', '/')).ToArray();
+            Assert.Equal(mobile != "true", sources.Contains("Pages/MarkdownPage.cs"));
+            Assert.Equal(mobile != "true", sources.Contains("Pages/VisualDesignerPage.cs"));
+            Assert.Equal(mobile != "true", sources.Contains("Pages/XamlPlaygroundPage.cs"));
+            Assert.NotEmpty(result.RootElement.GetProperty("Items").GetProperty("_ResolvedProjectReferencePaths").EnumerateArray());
+        }
+        finally
+        {
+            Directory.Delete(scratch, recursive: true);
+        }
+    }
+
+    private static async Task<JsonDocument> ResolveReferences(string root, string project, string configuration, string rid,
+        string? mobile = "true", string? referenceProbe = null)
     {
         ProcessStartInfo start = new()
         {
@@ -70,12 +113,16 @@ public sealed class SourceGeneratorProjectReferenceTests
             "msbuild", project, "-nologo", "-verbosity:quiet", "-nodeReuse:false", "-maxCpuCount:1",
             "-target:ResolveProjectReferences", "-p:BuildProjectReferences=false",
             "-p:SkipResolvePackageAssets=true",
-            "-p:ProGpuSamplesMobile=true", "-p:Configuration=" + configuration,
+            "-p:Configuration=" + configuration,
             "-p:RuntimeIdentifier=" + rid, "-p:RuntimeIdentifiers=" + rid,
             "-getProperty:RuntimeIdentifier,RuntimeIdentifiers,ProGpuSamplesMobile",
-            "-getItem:Analyzer,_ResolvedProjectReferencePaths"
+            "-getItem:Analyzer,_ResolvedProjectReferencePaths,Compile"
         })
             start.ArgumentList.Add(argument);
+        if (mobile is not null)
+            start.ArgumentList.Add("-p:ProGpuSamplesMobile=" + mobile);
+        if (referenceProbe is not null)
+            start.ArgumentList.Add("-p:CustomAfterMicrosoftCommonTargets=" + referenceProbe);
         start.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en-US";
         start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
         using Process process = Process.Start(start) ?? throw new InvalidOperationException("Could not start dotnet msbuild.");

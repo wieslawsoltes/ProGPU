@@ -13,6 +13,7 @@ const output = path.resolve(process.argv[2] ?? path.join(repo, 'artifacts/npm'))
 const evidence = path.join(output, 'evidence');
 await fs.mkdir(evidence, { recursive: true });
 const artifact = JSON.parse(await fs.readFile(path.join(output, 'npm-artifact.json'), 'utf8'));
+assert.equal(artifact.name, 'progpu-renderer');
 assert.match(artifact.archive, /^[a-zA-Z0-9._-]+\.tgz$/);
 const archive = path.join(output, artifact.archive);
 assert.equal(createHash('sha256').update(await fs.readFile(archive)).digest('hex'), artifact.sha256);
@@ -30,7 +31,7 @@ for (const [name, digest] of Object.entries(info.licenses)) {
   assert.equal(createHash('sha256').update(await fs.readFile(path.join(installedRoot, name))).digest('hex'), digest);
 }
 const typeQualification = await verifyInstalledNpmTypes(consumer, artifact.name);
-const importMap = { imports: { progpu: `./node_modules/${artifact.name}/index.js` } };
+const importMap = { imports: { 'progpu-renderer': `./node_modules/${artifact.name}/index.js` } };
 await fs.writeFile(path.join(consumer, 'index.html'), `<!doctype html>
 <meta charset="utf-8"><title>ProGPU installed npm package</title>
 <style>body{margin:12px;background:#202026;color:white;font:16px/24px sans-serif}h1{font-size:24px;line-height:32px;margin:0 0 12px}p{margin:0 0 12px}canvas{display:block;width:320px;height:180px;margin:12px 0}</style>
@@ -89,7 +90,7 @@ try {
   const result = await Promise.race([page.evaluate(async () => {
     const stage = name => console.info(`ProGPU npm phase: ${name}`);
     stage('import');
-    const { createRenderer, SceneBuilder, Path } = await import('progpu');
+    const { createRenderer, SceneBuilder, Path } = await import('progpu-renderer');
     const verify = (condition, message) => { if (!condition) throw new Error(message); };
     const reject = (action, message) => {
       let rejected = false;
