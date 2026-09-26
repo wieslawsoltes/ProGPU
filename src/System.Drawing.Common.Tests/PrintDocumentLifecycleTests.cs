@@ -86,6 +86,51 @@ public class PrintDocumentLifecycleTests
         Assert.Equal(finishCancel, scenario.FinishSawCancel);
     }
 
+    [Fact]
+    public void QueriedPageSettingsPersistAcrossPagesWithoutMutatingDocumentDefaults()
+    {
+        using Scenario scenario = new() { ContinueOnce = true };
+        PageSettings defaults = scenario.Document.DefaultPageSettings;
+        QueryPageSettingsEventArgs? firstQuery = null;
+        PageSettings? queriedSettings = null;
+        int queries = 0;
+        List<Rectangle> printedMargins = [];
+        scenario.Document.QueryPageSettings += (_, e) =>
+        {
+            if (++queries == 1)
+            {
+                firstQuery = e;
+                queriedSettings = e.PageSettings;
+                Assert.NotSame(defaults, queriedSettings);
+                Assert.NotSame(defaults.Margins, queriedSettings.Margins);
+                queriedSettings.Margins.Left = 2;
+                queriedSettings.Color = true;
+            }
+            else
+            {
+                Assert.Equal(2, queries);
+                Assert.Same(firstQuery, e);
+                Assert.Same(queriedSettings, e.PageSettings);
+                Assert.Equal(2, e.PageSettings.Margins.Left);
+                Assert.True(e.PageSettings.Color);
+            }
+        };
+        scenario.Document.PrintPage += (_, e) =>
+        {
+            Assert.Same(queriedSettings, e.PageSettings);
+            printedMargins.Add(e.MarginBounds);
+        };
+
+        scenario.Document.Print();
+
+        Assert.Equal(2, queries);
+        Assert.Equal([new Rectangle(2, 0, 6, 8), new Rectangle(2, 0, 6, 8)], printedMargins);
+        Assert.Same(defaults, scenario.Document.DefaultPageSettings);
+        Assert.Equal(0, defaults.Margins.Left);
+        Assert.False(defaults.Color);
+        Assert.Equal("Begin,Start,Query,StartPage,Page,EndPage,Query,StartPage,Page,EndPage,End,Finish", scenario.Order);
+    }
+
     [Theory]
     [InlineData("Begin", "Begin,End")]
     [InlineData("Start", "Begin,Start,End")]

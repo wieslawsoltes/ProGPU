@@ -66,10 +66,10 @@ public class PrintDocument : Component
         bool completedPages = false;
         try
         {
+            var query = new QueryPageSettingsEventArgs((PageSettings)DefaultPageSettings.Clone());
             bool more;
             do
             {
-                var query = new QueryPageSettingsEventArgs((PageSettings)DefaultPageSettings.Clone());
                 OnQueryPageSettings(query);
                 if (query.Cancel) break;
                 Rectangle pageBounds = query.PageSettings.Bounds;
