@@ -38,7 +38,7 @@ if sys.argv[1] == 'zip':
         require(archive.getinfo('npm-artifact.json').file_size <= 1024 * 1024, 'Oversized artifact metadata')
         metadata = json.loads(archive.read('npm-artifact.json'))
         name = metadata.get('archive', '')
-        require(isinstance(name, str) and bool(re.fullmatch(r'wieslawsoltes-progpu-[A-Za-z0-9.+-]+\.tgz', name)), 'Unsafe archive filename')
+        require(isinstance(name, str) and bool(re.fullmatch(r'progpu-renderer-[A-Za-z0-9.+-]+\.tgz', name)), 'Unsafe archive filename')
         require(set(archive.namelist()) == {'npm-artifact.json', name}, 'Unexpected artifact member/path')
         for filename in ('npm-artifact.json', name):
             with open(os.path.join(sys.argv[3], filename), 'xb') as destination:
@@ -104,12 +104,12 @@ export function validateMergedSource(sourceCommit, repo) {
 
 export function validatePackage(metadata, files, archiveBytes, build) {
   assert.equal(metadata.schemaVersion, 1, 'Unknown artifact schema');
-  assert.equal(metadata.name, '@wieslawsoltes/progpu', 'Wrong npm package');
+  assert.equal(metadata.name, 'progpu-renderer', 'Wrong npm package');
   assert.match(metadata.version, /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*$/, 'A fixed prerelease SemVer is required');
   assert.ok(metadata.version.length <= 128, 'Oversized version');
   // Bound to the approved identity; the offline fixture checks this spelling
   // against actual npm pack output, not an inferred scope-stripping rule.
-  assert.equal(metadata.archive, `wieslawsoltes-progpu-${metadata.version}.tgz`, 'Archive name/version mismatch');
+  assert.equal(metadata.archive, `progpu-renderer-${metadata.version}.tgz`, 'Archive name/version mismatch');
   digest(metadata.sha256);
   assert.equal(sha(archiveBytes), metadata.sha256, 'Package archive SHA256 mismatch');
   assert.equal(metadata.integrity, `sha512-${createHash('sha512').update(archiveBytes).digest('base64')}`, 'Package integrity mismatch');

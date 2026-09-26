@@ -18,7 +18,7 @@ const build = {id: 123, run_attempt: 2, workflow_id: 456, path: '.github/workflo
 const workflow = {id: 456, path: '.github/workflows/build.yml', name: 'Build'};
 const artifact = {id: 789, name: 'progpu-npm-package', expired: false, expires_at: '2100-01-01T00:00:00Z',
   digest: `sha256:${'c'.repeat(64)}`, workflow_run: {id: 123, head_sha: sourceCommit, repository_id: 17, head_repository_id: 17}};
-const manifest = {name: '@wieslawsoltes/progpu', version: '0.1.0-preview.1', type: 'module', main: './index.js', types: './index.d.ts',
+const manifest = {name: 'progpu-renderer', version: '0.1.0-preview.1', type: 'module', main: './index.js', types: './index.d.ts',
   exports: {'.': {types: './index.d.ts', import: './index.js'}, './native': './progpu-native.mjs',
     './progpu-native.wasm': './progpu-native.wasm', './package.json': './package.json'},
   publishConfig: {access: 'public', registry: 'https://registry.npmjs.org/', tag: 'next'}};
@@ -99,8 +99,8 @@ async function fixture(directory, options = {}) {
     writeArchive('tar', archive, entries);
   }
   const bytes = await fs.readFile(archive);
-  const metadata = {schemaVersion: 1, name: '@wieslawsoltes/progpu', version: manifest.version,
-    archive: packed?.filename ?? `wieslawsoltes-progpu-${manifest.version}.tgz`, sha256: hash(bytes),
+  const metadata = {schemaVersion: 1, name: 'progpu-renderer', version: manifest.version,
+    archive: packed?.filename ?? `progpu-renderer-${manifest.version}.tgz`, sha256: hash(bytes),
     integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}`, ...info};
   return {archive, bytes, metadata};
 }
@@ -145,13 +145,13 @@ test('real ZIP/tgz metadata fixture round trip, exact inventory and license hash
   await assert.rejects(verifyDownloadedArtifact(zip, path.join(directory, 'bad'), build, workflow, artifact, '123'), /digest mismatch/);
 });
 
-test('actual offline npm pack scoped filename passes immutable archive verification', async t => {
+test('actual offline npm pack renderer filename passes immutable archive verification', async t => {
   const directory = await workspace(t);
   const sourceManifest = JSON.parse(await fs.readFile(new URL('../src/ProGPU.Native/browser/npm/package.json', import.meta.url), 'utf8'));
   assert.equal(sourceManifest.name, manifest.name);
   assert.equal(sourceManifest.version, manifest.version);
   const f = await fixture(directory, {npmPack: true});
-  assert.equal(f.metadata.archive, 'wieslawsoltes-progpu-0.1.0-preview.1.tgz');
+  assert.equal(f.metadata.archive, 'progpu-renderer-0.1.0-preview.1.tgz');
   validatePackage(f.metadata, inspectArchive(f.archive), f.bytes, build);
   const zip = path.join(directory, 'artifact.zip');
   writeArchive('zip', zip, [entry('npm-artifact.json', JSON.stringify(f.metadata)), entry(f.metadata.archive, f.bytes)]);
@@ -166,8 +166,9 @@ test('package metadata and inner manifest/build-info fail closed', async t => {
   const files = inspectArchive(f.archive);
   for (const mutate of [
     m => m.schemaVersion = 2, m => m.name = 'other', m => m.version = '1.0.0',
-    m => m.name = 'progpu', m => m.name = '@foreign/progpu',
+    m => m.name = 'progpu', m => m.name = '@wieslawsoltes/progpu', m => m.name = '@foreign/progpu',
     m => m.archive = `progpu-${m.version}.tgz`,
+    m => m.archive = `wieslawsoltes-progpu-${m.version}.tgz`,
     m => m.archive = `foreign-progpu-${m.version}.tgz`,
     m => m.archive = `@wieslawsoltes/progpu-${m.version}.tgz`,
     m => m.version = '0.1.0-preview.01', m => m.version = '0.1.0-preview.1\ninjected=1',
@@ -185,6 +186,7 @@ test('package metadata and inner manifest/build-info fail closed', async t => {
     f => f['unexpected.js'] = {sha256: '0'.repeat(64)},
     f => f['package.json'].json.version = '0.1.0-preview.2',
     f => f['package.json'].json.name = 'progpu',
+    f => f['package.json'].json.name = '@wieslawsoltes/progpu',
     f => f['package.json'].json.name = '@foreign/progpu',
     f => f['package.json'].json.scripts = {}, f => f['package.json'].json.scripts = {install: 'evil'},
     f => f['package.json'].json.publishConfig.tag = 'latest',
@@ -230,6 +232,7 @@ test('reject wrong/duplicate/traversing/nonregular ZIP contents even with matchi
     [normal[0], entry(`../${f.metadata.archive}`, f.bytes)],
     [normal[0], entry(f.metadata.archive, f.bytes, {type: 'symlink'})],
     [entry('npm-artifact.json', JSON.stringify({...f.metadata, archive: `progpu-${manifest.version}.tgz`})), entry(`progpu-${manifest.version}.tgz`, f.bytes)],
+    [entry('npm-artifact.json', JSON.stringify({...f.metadata, archive: `wieslawsoltes-progpu-${manifest.version}.tgz`})), entry(`wieslawsoltes-progpu-${manifest.version}.tgz`, f.bytes)],
     [entry('npm-artifact.json', JSON.stringify({...f.metadata, archive: `foreign-progpu-${manifest.version}.tgz`})), entry(`foreign-progpu-${manifest.version}.tgz`, f.bytes)],
     [entry('npm-artifact.json', JSON.stringify({...f.metadata, archive: '../escape.tgz'})), normal[1]]
   ].entries()) {

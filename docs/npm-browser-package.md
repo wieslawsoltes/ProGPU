@@ -1,20 +1,23 @@
 # Native browser npm package
 
-`@wieslawsoltes/progpu` is the approved scoped identity for the ES-module consumer
+`progpu-renderer` is the purpose-based npm identity for the ES-module consumer
 of the existing retained C++ WebGPU renderer,
 not a packaged gallery executable. The first version is `0.1.0-preview.1` under
 the `next` tag. Source files under `src/ProGPU.Native/browser/npm` are not a
 publishable package until the pinned native build and staging checks finish.
 
-The maintainer approved this scoped name after the initial unpublished `progpu`
-name was rejected by the registry as too similar to `prompt`. Publication still
-requires the complete successful producer Build and verification-only release
-receipt described below. Version `0.1.0-preview.1`, public access and the `next`
-tag are unchanged; naming approval is not evidence of a published package.
+The initial unpublished `progpu` name was rejected by the registry as too similar
+to `prompt`. The subsequent `@wieslawsoltes/progpu` proposal was superseded before
+any publication by `progpu-renderer`, retaining the project brand and describing
+its rendering purpose without a personal scope. Registry availability is not
+proof of registry acceptance. Publication still requires the complete successful
+producer Build and verification-only release receipt described below. Version
+`0.1.0-preview.1`, public access and the `next` tag are unchanged; selecting a name
+is not evidence of a published package.
 
-Consumers import `@wieslawsoltes/progpu`; its Wasm asset subpath is
-`@wieslawsoltes/progpu/progpu-native.wasm`. The installed-package browser and
-TypeScript gates use that exact scoped identity, without an unscoped alias.
+Consumers import `progpu-renderer`; its Wasm asset subpath is
+`progpu-renderer/progpu-native.wasm`. The installed-package browser and TypeScript
+gates use that exact identity, without aliases for either earlier name.
 
 ## Architecture and ownership
 
@@ -101,12 +104,12 @@ license hashes, archive SHA256 and npm SHA512 integrity. Dirty local diagnostic
 archives can be tested but cannot be released.
 
 Staging records the filename returned by `npm pack --json`. An offline test
-executes npm itself and verifies its scoped archive name
-`wieslawsoltes-progpu-0.1.0-preview.1.tgz` through the unchanged ZIP/hash/content
-pipeline. The release verifier rejects the old unscoped identity, foreign scopes,
-scope-stripped/mismatched filenames and inner/outer identity mismatches. Archives
-from the earlier unscoped Build cannot be renamed or republished as the scoped
-package; a fresh successful complete Build must produce the new exact bytes.
+executes npm itself and verifies the archive name
+`progpu-renderer-0.1.0-preview.1.tgz` through the unchanged ZIP/hash/content
+pipeline. The release verifier rejects both earlier identities and archive names,
+foreign scopes, mismatched filenames and inner/outer identity mismatches. Archives
+from an earlier-name Build cannot be renamed or republished as this package;
+a fresh successful complete Build must produce the new exact bytes.
 
 The separate `npm release` workflow is manual, canonical-main-only and defaults
 to verification without publication. Its `build_run_id` must identify an entire
@@ -144,7 +147,7 @@ implementation code is not copied into the adapter.
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) and [Vello Scene](https://docs.rs/vello/latest/vello/struct.Scene.html) | Retained scene generation and GPU submission remain distinct; native visibility, batching and demand-driven uploads are retained. |
 | [Parley Layout](https://docs.rs/parley/latest/parley/struct.Layout.html), [DirectWrite layout](https://learn.microsoft.com/en-us/windows/win32/directwrite/text-formatting-and-layout) and [HarfBuzz clusters](https://harfbuzz.github.io/working-with-harfbuzz-clusters.html) | Shaping, font/cluster identity and layout reuse stay in the existing text services. No character-count layout, glyph-feature substitution or per-frame reshaping is introduced. |
 | [npm CI tokens](https://docs.npmjs.com/using-private-packages-in-a-ci-cd-workflow) and [provenance](https://docs.npmjs.com/generating-provenance-statements/) | Restrict token exposure, preserve exact tested bytes and do not misattribute historical-build provenance. |
-| [npm scopes](https://docs.npmjs.com/cli/v11/using-npm/scope/) and [npm pack](https://docs.npmjs.com/cli/v11/commands/npm-pack/) | Preserve the scoped import/install identity and record actual pack output; an offline npm fixture independently verifies the permitted tarball basename. |
+| [npm scopes](https://docs.npmjs.com/cli/v11/using-npm/scope/) and [npm pack](https://docs.npmjs.com/cli/v11/commands/npm-pack/) | Preserve the exact import/install identity and record actual pack output; an offline npm fixture independently verifies the permitted tarball basename and rejects earlier identities. |
 
 Startup remains lazy until the explicit factory; renderer caches remain native
 and device-owned. DPI is separately supplied from logical coordinates. Existing
