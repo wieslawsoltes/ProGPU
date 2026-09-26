@@ -121,8 +121,9 @@ void mutable_brush_regressions(ID2D1DeviceContext* source_context)
                 }
                 const auto apply = [&](const fixture::brush_fixture_state& state) {
                     brush->SetOpacity(state.opacity);
-                    const D2D1_MATRIX_3X2_F transform{state.transform[0], state.transform[1], state.transform[2],
-                        state.transform[3], state.transform[4], state.transform[5]};
+                    const D2D1_MATRIX_3X2_F transform = D2D1::Matrix3x2F(
+                        state.transform[0], state.transform[1], state.transform[2],
+                        state.transform[3], state.transform[4], state.transform[5]);
                     brush->SetTransform(&transform);
                     if (solid) {
                         const D2D1_COLOR_F color{state.color[0], state.color[1], state.color[2], state.color[3]};
