@@ -2,8 +2,10 @@
 
 ProGPU's Android host runs the same shared application, controls, retained
 scene, shaders, and renderer used by the desktop, browser, and iPhone samples.
-It presents directly to an Android `SurfaceView` through WebGPU and
-`wgpu-native`'s Vulkan backend. It does not embed a browser, render through an
+It presents directly to an Android `SurfaceView` through WebGPU and Vulkan.
+The host selects Dawn when `libwebgpu_dawn.so` is available; its existing
+wgpu-native path supports UI rendering but cannot import the media provider's
+`AHardwareBuffer` frames. It does not embed a browser, render through an
 Android `Canvas`, read pixels back through Skia, or depend on MAUI, Uno, or
 AndroidX.
 
@@ -19,16 +21,18 @@ flowchart LR
     Api --> Android["Android: ProGPU.Android host"]
     Android --> Holder["SurfaceView and SurfaceHolder"]
     Holder --> NativeWindow["ANativeWindow"]
-    NativeWindow --> Silk["Silk.NET.WebGPU managed ABI"]
-    Silk --> Native["wgpu-native: WGSL and Vulkan"]
-    Native --> Swapchain["Vulkan Android surface at physical size"]
+    NativeWindow --> Dawn["Dawn: WebGPUSharp ABI and media import"]
+    NativeWindow --> Silk["UI-only alternative: Silk and wgpu-native"]
+    Dawn --> Swapchain["Vulkan Android surface at physical size"]
+    Silk --> Swapchain
 ```
 
 The useful part of the browser architecture is the typed, platform-neutral
 `IWebGpuApi` and external-window boundary. Android reuses that boundary but not
 the browser command encoder, JavaScript decoder, worker transport, or canvas.
-The managed renderer calls the same Silk.NET WebGPU C ABI as desktop directly
-inside the application process.
+The selected provider calls its corresponding native WebGPU ABI directly
+inside the application process. Dawn and wgpu-native are separate pinned ABIs,
+not interchangeable shared libraries.
 
 The native host has four ownership layers:
 
@@ -96,9 +100,16 @@ remove it if upstream exposes an Android Vulkan-only feature boundary.
 
 ## Native dependency and ABI contract
 
-The Android host uses the .NET Android workload and ProGPU's existing
-Silk.NET.WebGPU binding. Its only added native component is `libwgpu_native.so`.
-Silk.NET.WebGPU 2.23.0 was generated for the WebGPU C ABI represented by
+The Android host uses the .NET Android workload. For presentation with native
+zero-copy media, [`eng/build-webgpu-dawn-android.sh`](../eng/build-webgpu-dawn-android.sh)
+builds `libwebgpu_dawn.so` against WebGPUSharp 0.5.5's pinned Dawn commit
+`01249a97332468dbdd6cf5edb8dd7bae77875de5`. It requires Android API 30 or newer
+and writes ABI-specific libraries beneath `artifacts/dawn-android/lib/`.
+The provider-resolved C++ renderer is a separate `libprogpu_native_dawn.so`
+payload; it does not replace the Dawn provider library.
+
+For the UI-only alternative, Silk.NET.WebGPU 2.23.0 was generated for the
+WebGPU C ABI represented by
 wgpu-native commit
 `33133da4ec5a0174cb21539ef2d3346f75200411`. Newer wgpu-native callback-info,
 surface-chain, device-callback, and render-pass layouts are not drop-in
@@ -131,25 +142,58 @@ builds deterministic when the Rust and NDK toolchain versions recorded in the
 manifest are also held constant. Third-party source and build output remain
 ignored external artifacts; no upstream implementation is copied into ProGPU.
 
+### Native-library staging
+
+The source project and NuGet consumers use the same
+`buildTransitive/ProGPU.Android.targets` staging target. It selects exact files
+for each requested `android-arm64` (`arm64-v8a`) or `android-x64` (`x86_64`)
+RID and supplies explicit `AndroidNativeLibrary` ABI metadata. A library for
+one architecture cannot satisfy another architecture's provider check.
+
+| Property | Native filename | Source-build default |
+| --- | --- | --- |
+| `ProGpuDawnAndroidRoot` | `libwebgpu_dawn.so` | `artifacts/dawn-android` |
+| `ProGpuWgpuNativeAndroidRoot` | `libwgpu_native.so` | `artifacts/wgpu-native-android` |
+| `ProGpuNativeDawnAndroidRoot` | `libprogpu_native_dawn.so` | `artifacts/progpu-native/mobile/android` |
+
+Each root accepts `lib/{abi}/{filename}`, `runtimes/{rid}/native/{filename}`,
+or `{rid}/native/{filename}`, in that order. NuGet's native-engine root defaults
+to the package's `runtimes` directory; provider roots must be supplied by the
+consumer. Package presence does not establish GPU or device compatibility.
+
+`PROGPUANDROID001` warns for each requested RID without either WebGPU provider.
+With `ProGpuRequireZeroCopyMedia=true`, `PROGPUANDROID002` instead rejects every
+requested RID missing Dawn, even if wgpu-native or the native engine is present.
+`PROGPUANDROID003` rejects unsupported requested RIDs. Staging does not change
+the host's runtime provider selection or native library validation.
+
+An outer build uses `RuntimeIdentifiers` when set; the SDK's per-RID publish
+inner build uses its single `RuntimeIdentifier`. A library with neither stages
+available libraries for both supported ABIs. The sample declares both RIDs, so
+an x64-only build must override its plural property as well as its single RID.
+See [.NET Android native-library items](https://learn.microsoft.com/en-us/dotnet/android/building-apps/build-items#androidnativelibrary)
+for the ABI metadata contract.
+
 ## Build, AOT, and deployment
 
 Prerequisites:
 
 - .NET 10 SDK with the Android workload (`dotnet workload install android`);
-- an Android SDK, platform tools, API 24 or newer, and an installed NDK;
+- an Android SDK, platform tools, API 30 or newer, and an installed NDK;
 - the JDK version required by the installed .NET Android workload;
-- Rust and Cargo (the build script installs requested Rust target components);
+- Rust and Cargo for wgpu-native, or CMake/Ninja and the Dawn script's build
+  prerequisites for Dawn;
 - a Vulkan-capable physical Android device, or an emulator configured with a
   Vulkan-capable GPU backend.
 
-Point the build at the NDK and create the ARM64 native library:
+Point the build at the NDK and create the Dawn libraries for both sample ABIs:
 
 ```bash
 export ANDROID_NDK_ROOT=/absolute/path/to/android-sdk/ndk/your-version
-./eng/build-wgpu-native-android.sh arm64
+./eng/build-webgpu-dawn-android.sh all
 ```
 
-Build both device and x64-emulator libraries when needed:
+For the UI-only alternative, build both wgpu-native libraries instead:
 
 ```bash
 ./eng/build-wgpu-native-android.sh all
@@ -159,7 +203,16 @@ Build the shared gallery host:
 
 ```bash
 dotnet build src/ProGPU.Samples.Android/ProGPU.Samples.Android.csproj \
-  -c Debug -f net10.0-android
+  -c Debug -f net10.0-android -p:ProGpuRequireZeroCopyMedia=true
+```
+
+Omit the zero-copy requirement only when intentionally qualifying UI-only
+wgpu-native behavior. For an x64-only emulator build, use:
+
+```bash
+dotnet build src/ProGPU.Samples.Android/ProGPU.Samples.Android.csproj \
+  -c Debug -f net10.0-android -r android-x64 \
+  -p:RuntimeIdentifiers=android-x64 -p:ProGpuRequireZeroCopyMedia=true
 ```
 
 For a physical ARM64 device, validate the fully trimmed/AOT Release path, not
@@ -168,7 +221,8 @@ only the Debug interpreter path:
 ```bash
 dotnet publish src/ProGPU.Samples.Android/ProGPU.Samples.Android.csproj \
   -c Release -f net10.0-android -r android-arm64 \
-  -p:RunAOTCompilation=true
+  -p:RuntimeIdentifiers=android-arm64 \
+  -p:RunAOTCompilation=true -p:ProGpuRequireZeroCopyMedia=true
 ```
 
 Use the .NET Android `Install` target or `adb install -r` on the signed APK
@@ -176,8 +230,9 @@ produced by that publish. A physical device is required for authoritative GPU
 frame-time, thermal, power, memory-pressure, refresh-rate, stylus, mouse, and
 IME results. Emulator results are useful functional evidence only.
 
-API 24 is the native-library baseline because Android exposes Vulkan there,
-but API level alone does not prove hardware Vulkan support. Adapter discovery
+The standalone wgpu-native script retains its API 24 baseline, but the current
+managed host, sample and Dawn build require API 30. API level alone does not
+prove hardware Vulkan support. Adapter discovery
 must fail explicitly with a useful diagnostic when a device exposes no Vulkan
 physical device; ProGPU does not silently switch to a bitmap renderer.
 
