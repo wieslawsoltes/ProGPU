@@ -31,19 +31,26 @@
 
     <!-- Resolve one file per family and requested RID. Prefer the build-script
          layout, then a package root, then an explicitly supplied runtimes root.
-         Never glob a different ABI or a similarly named backup library. -->
+         Each layout is a separate update so its conditions see the metadata
+         selected by earlier layouts. Never glob a different ABI or backup. -->
     <ItemGroup>
       <_ProGpuAndroidNativeRid Update="@(_ProGpuAndroidNativeRid)">
         <WgpuLibrary Condition="'$(ProGpuWgpuNativeAndroidRoot)' != '' And Exists('$(ProGpuWgpuNativeAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libwgpu_native.so')">$([System.IO.Path]::GetFullPath('$(ProGpuWgpuNativeAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libwgpu_native.so'))</WgpuLibrary>
-        <WgpuLibrary Condition="'%(_ProGpuAndroidNativeRid.WgpuLibrary)' == '' And '$(ProGpuWgpuNativeAndroidRoot)' != '' And Exists('$(ProGpuWgpuNativeAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so')">$([System.IO.Path]::GetFullPath('$(ProGpuWgpuNativeAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so'))</WgpuLibrary>
-        <WgpuLibrary Condition="'%(_ProGpuAndroidNativeRid.WgpuLibrary)' == '' And '$(ProGpuWgpuNativeAndroidRoot)' != '' And Exists('$(ProGpuWgpuNativeAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so')">$([System.IO.Path]::GetFullPath('$(ProGpuWgpuNativeAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so'))</WgpuLibrary>
-
         <DawnLibrary Condition="'$(ProGpuDawnAndroidRoot)' != '' And Exists('$(ProGpuDawnAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libwebgpu_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuDawnAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libwebgpu_dawn.so'))</DawnLibrary>
-        <DawnLibrary Condition="'%(_ProGpuAndroidNativeRid.DawnLibrary)' == '' And '$(ProGpuDawnAndroidRoot)' != '' And Exists('$(ProGpuDawnAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuDawnAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so'))</DawnLibrary>
-        <DawnLibrary Condition="'%(_ProGpuAndroidNativeRid.DawnLibrary)' == '' And '$(ProGpuDawnAndroidRoot)' != '' And Exists('$(ProGpuDawnAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuDawnAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so'))</DawnLibrary>
-
         <EngineLibrary Condition="'$(ProGpuNativeDawnAndroidRoot)' != '' And Exists('$(ProGpuNativeDawnAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libprogpu_native_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuNativeDawnAndroidRoot)/lib/%(_ProGpuAndroidNativeRid.Abi)/libprogpu_native_dawn.so'))</EngineLibrary>
+      </_ProGpuAndroidNativeRid>
+    </ItemGroup>
+    <ItemGroup>
+      <_ProGpuAndroidNativeRid Update="@(_ProGpuAndroidNativeRid)">
+        <WgpuLibrary Condition="'%(_ProGpuAndroidNativeRid.WgpuLibrary)' == '' And '$(ProGpuWgpuNativeAndroidRoot)' != '' And Exists('$(ProGpuWgpuNativeAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so')">$([System.IO.Path]::GetFullPath('$(ProGpuWgpuNativeAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so'))</WgpuLibrary>
+        <DawnLibrary Condition="'%(_ProGpuAndroidNativeRid.DawnLibrary)' == '' And '$(ProGpuDawnAndroidRoot)' != '' And Exists('$(ProGpuDawnAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuDawnAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so'))</DawnLibrary>
         <EngineLibrary Condition="'%(_ProGpuAndroidNativeRid.EngineLibrary)' == '' And '$(ProGpuNativeDawnAndroidRoot)' != '' And Exists('$(ProGpuNativeDawnAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libprogpu_native_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuNativeDawnAndroidRoot)/runtimes/%(_ProGpuAndroidNativeRid.Identity)/native/libprogpu_native_dawn.so'))</EngineLibrary>
+      </_ProGpuAndroidNativeRid>
+    </ItemGroup>
+    <ItemGroup>
+      <_ProGpuAndroidNativeRid Update="@(_ProGpuAndroidNativeRid)">
+        <WgpuLibrary Condition="'%(_ProGpuAndroidNativeRid.WgpuLibrary)' == '' And '$(ProGpuWgpuNativeAndroidRoot)' != '' And Exists('$(ProGpuWgpuNativeAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so')">$([System.IO.Path]::GetFullPath('$(ProGpuWgpuNativeAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwgpu_native.so'))</WgpuLibrary>
+        <DawnLibrary Condition="'%(_ProGpuAndroidNativeRid.DawnLibrary)' == '' And '$(ProGpuDawnAndroidRoot)' != '' And Exists('$(ProGpuDawnAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuDawnAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libwebgpu_dawn.so'))</DawnLibrary>
         <EngineLibrary Condition="'%(_ProGpuAndroidNativeRid.EngineLibrary)' == '' And '$(ProGpuNativeDawnAndroidRoot)' != '' And Exists('$(ProGpuNativeDawnAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libprogpu_native_dawn.so')">$([System.IO.Path]::GetFullPath('$(ProGpuNativeDawnAndroidRoot)/%(_ProGpuAndroidNativeRid.Identity)/native/libprogpu_native_dawn.so'))</EngineLibrary>
       </_ProGpuAndroidNativeRid>
     </ItemGroup>
