@@ -45,10 +45,13 @@ cp "${wgpu_root}/SHA256SUMS" "${evidence}/wgpu-SHA256SUMS"
 
 # SignAndroidPackage includes Build. EmbedAssembliesIntoApk prevents an IDE-only
 # fast-deployment APK; keeping the staged provider bytes permits exact hash proof.
+# The sample already declares net10.0-android. Do not pass TargetFramework as a
+# global restore property: its ordinary net10.0/netstandard references must keep
+# their own restore targets before Android negotiates the build graph.
 # The fixed 15-minute command bound leaves the workflow's other deadlines intact.
 bounded 900 "${dotnet_command}" msbuild "${project}" \
   -restore -target:SignAndroidPackage -nologo -verbosity:minimal \
-  -p:Configuration=Debug -p:TargetFramework=net10.0-android \
+  -p:Configuration=Debug \
   -p:RuntimeIdentifier=android-x64 -p:RuntimeIdentifiers=android-x64 \
   -p:EmbedAssembliesIntoApk=true -p:AndroidPackageFormat=apk -p:AndroidPackageFormats=apk \
   -p:AndroidStripNativeLibraries=false -p:AndroidCreatePackagePerAbi=false \

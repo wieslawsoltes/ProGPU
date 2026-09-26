@@ -160,9 +160,11 @@ class AndroidEvidenceTests(unittest.TestCase):
             root = Path(temporary)
             (root / "bin").mkdir()
             (root / "bin/sample-Signed.apk").write_bytes(b"signed fixture")
-            output = "Build output\n" + json.dumps({"Properties": {"ApkFileSigned": "bin/sample-Signed.apk"}, "Items": {}})
-            EVIDENCE.stage_apk(output, root / "staged.apk", root)
-            self.assertEqual(b"signed fixture", (root / "staged.apk").read_bytes())
+            for path in ("bin/sample-Signed.apk", "bin\\sample-Signed.apk"):
+                with self.subTest(path=path):
+                    output = "Build output\n" + json.dumps({"Properties": {"ApkFileSigned": path}, "Items": {}})
+                    EVIDENCE.stage_apk(output, root / "staged.apk", root)
+                    self.assertEqual(b"signed fixture", (root / "staged.apk").read_bytes())
 
     def test_missing_or_ambiguous_apk_metadata_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

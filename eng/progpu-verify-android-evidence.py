@@ -195,7 +195,9 @@ def stage_apk(build_log, destination, project_directory):
         except json.JSONDecodeError:
             continue
     require(len(documents) == 1, "Build did not emit one signed-APK metadata result")
-    source = Path(documents[0]["Properties"]["ApkFileSigned"])
+    # MSBuild accepts backslash separators on Unix and may emit a mixed path
+    # (for example bin\\Debug/net10.0-android/...) in evaluated metadata.
+    source = Path(documents[0]["Properties"]["ApkFileSigned"].replace("\\", "/"))
     if not source.is_absolute():
         source = project_directory / source
     source = source.resolve()
