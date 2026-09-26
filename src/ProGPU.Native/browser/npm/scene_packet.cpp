@@ -132,7 +132,7 @@ void command(std::uint32_t kind, reader& input, semantic_scene_builder& builder)
         stroke.transform = input.transform(); stroke.stroke_thickness = input.number(); stroke.miter_limit = input.number();
         const auto closed = input.u32();
         reader::require(closed <= 1U && stroke.stroke_thickness > 0.0F && stroke.miter_limit >= 1.0F);
-        stroke.flags = closed != 0U ? PROGPU_NATIVE_POLYLINE_FLAG_CLOSED : 0U;
+        stroke.flags = closed != 0U ? static_cast<std::uint32_t>(PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) : 0U;
         stroke.start_cap = input.u32(); stroke.end_cap = input.u32(); stroke.line_join = input.u32(); stroke.dash_cap = input.u32();
         reader::require(stroke.start_cap <= PROGPU_NATIVE_STROKE_CAP_TRIANGLE && stroke.end_cap <= PROGPU_NATIVE_STROKE_CAP_TRIANGLE &&
             stroke.dash_cap <= PROGPU_NATIVE_STROKE_CAP_TRIANGLE && stroke.line_join <= PROGPU_NATIVE_STROKE_JOIN_ROUND);
