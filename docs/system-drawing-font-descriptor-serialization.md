@@ -1,7 +1,7 @@
 # Font constructor serialization
 
-`FontConverter` emits the shortest string-based constructor descriptor that
-retains the font's complete value. A nondefault value retains the preceding
+`FontConverter` emits the shortest complete constructor-prefix descriptor for
+its serialization contract. A nondefault value retains the preceding
 arguments even when those arguments themselves have their default values:
 
 | Last required value | Constructor argument count |
@@ -11,6 +11,10 @@ arguments even when those arguments themselves have their default values:
 | Non-point unit | 4 |
 | Charset other than 1 | 5 |
 | Vertical font | 6 |
+
+This preserves the canonical style-before-unit prefix. It does not choose the
+separate three-argument `Font(string, float, GraphicsUnit)` overload for a
+non-point regular font.
 
 The descriptor retains `OriginalFontName ?? Name`, size, style, unit, charset and
 vertical state. Invoking it creates an independently owned font, including after
