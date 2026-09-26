@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
@@ -34,7 +35,14 @@ if args[:5] == ["tool", "run", "dotnet-trace", "--", "collect"]:
     endpoint = args[args.index("--diagnostic-port") + 1]
     output = pathlib.Path(args[args.index("--output") + 1])
     assert args[args.index("--buffersize") + 1] == "64"
+    if os.environ.get("STUB_DIE_BEFORE_SOCKET") == "1":
+        signal.signal(signal.SIGXFSZ, signal.SIG_DFL)
+        os.kill(os.getpid(), signal.SIGXFSZ)
     def stop(*_):
+        if os.environ.get("STUB_FINALIZATION") == "1":
+            with output.open("wb", buffering=0) as stream:
+                for _ in range(32):
+                    stream.write(b"terminal-flush" * 8192)
         (output.parent / "collector-stopped").touch()
         sys.exit(0)
     signal.signal(signal.SIGINT, stop)
@@ -45,12 +53,13 @@ if args[:5] == ["tool", "run", "dotnet-trace", "--", "collect"]:
         time.sleep(0.1)
         sys.exit(23)
     peer, _ = server.accept()
-    if os.environ.get("STUB_TRACE", "1") == "1":
-        output.write_bytes(b"synthetic trace control, not a real nettrace")
-        if os.environ.get("STUB_BUDGET") == "1":
-            with output.open("r+b") as stream:
-                stream.truncate(96 * 1024 * 1024)
     peer.sendall(b"started")
+    if os.environ.get("STUB_TRACE", "1") == "1":
+        with output.open("wb", buffering=0) as stream:
+            stream.write(b"synthetic trace control, not a real nettrace")
+            if os.environ.get("STUB_BUDGET") == "1":
+                for _ in range(1600):
+                    stream.write(b"x" * 65536)
     while True:
         time.sleep(0.01)
 if pathlib.Path(args[0]).name == "ProGPU.SampleMemoryProfiler.dll":
@@ -92,10 +101,10 @@ print("synthetic child stdout", flush=True)
 print("synthetic child stderr", file=sys.stderr, flush=True)
 code = int(os.environ["STUB_EXIT"])
 if os.environ.get("STUB_BUDGET") == "1":
-    deadline = time.monotonic() + 3
-    while not (settings.parent / "collector-stopped").exists() and time.monotonic() < deadline:
+    deadline = time.monotonic() + 10
+    while not (pathlib.Path(endpoint).parent / "collector-stopped").exists() and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert (settings.parent / "collector-stopped").is_file()
+    assert (pathlib.Path(endpoint).parent / "collector-stopped").is_file()
 (settings.parent / "test-completed").touch()
 (settings.parent / "testhost-session-ended").write_text(str(os.getpid()))
 deadline = time.monotonic() + 3
@@ -103,6 +112,8 @@ while not (settings.parent / "collector-finalized").exists() and time.monotonic(
     time.sleep(0.01)
 if os.environ.get("STUB_OUTPUT_FAILURE") != "1":
     assert (settings.parent / "collector-finalized").is_file()
+if (pathlib.Path(endpoint).parent / "collector-stopped").exists():
+    (settings.parent / "collector-stopped").touch()
 if code < 0:
     os.kill(os.getpid(), -code)
 sys.exit(code)
@@ -154,6 +165,9 @@ sys.exit(m.main())
         directory, = output.glob("run-*")
         status = json.loads((directory / "status.json").read_text())
         self.assertEqual(b"caller-owned", unrelated.read_bytes())
+        if extra and extra.get("STUB_DIE_BEFORE_SOCKET") == "1":
+            self.assertFalse((directory / "quality.log").exists())
+            return result, directory, status
         self.assertIn("synthetic child stdout", (directory / "quality.log").read_text())
         if fault not in ("output", "persistent-output"):
             self.assertIn("synthetic child stderr", result.stdout)
@@ -225,6 +239,43 @@ sys.exit(m.main())
         self.assertEqual(23, status["collectorExitCode"])
         self.assertTrue((directory / "test-completed").is_file())
 
+    def test_collector_death_before_socket_preserves_actual_signal(self):
+        result, _, status = self.run_stub(7, extra={"STUB_DIE_BEFORE_SOCKET": "1"})
+        self.assertEqual(2, result.returncode)
+        self.assertIsNone(status["testExitCode"])
+        self.assertEqual(-signal.SIGXFSZ, status["collectorExitCode"])
+        self.assertIn("before creating", status["diagnosticError"])
+
+    def test_fifo_is_drained_while_collector_flushes_at_session_end(self):
+        result, _, status = self.run_stub(0, extra={"STUB_FINALIZATION": "1"})
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertGreater(status["traceBytesReceived"], 3 * 1024 * 1024)
+        self.assertEqual(0, status["traceBytesDiscarded"])
+
+    def test_fifo_hard_cap_discards_overflow_without_blocking_writer(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            fifo = root / "trace.fifo"
+            output = root / "trace.nettrace"
+            with patch.object(TRACE, "MAX_TRACE_BYTES", 128 * 1024):
+                relay = TRACE.TraceRelay(fifo, output)
+                try:
+                    self.assertEqual(0, relay.drain())  # Writer has not opened yet.
+                    writer = subprocess.Popen([sys.executable, "-c",
+                        "import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(b'x'*262144)", str(fifo)])
+                    deadline = time.monotonic() + 5
+                    while writer.poll() is None and time.monotonic() < deadline:
+                        relay.drain()
+                        time.sleep(0.01)
+                    self.assertEqual(0, writer.wait(timeout=1))
+                    while relay.drain():
+                        pass
+                    self.assertEqual(256 * 1024, relay.received)
+                    self.assertEqual(128 * 1024, relay.written)
+                    self.assertEqual(128 * 1024, output.stat().st_size)
+                finally:
+                    relay.close()
+
     def test_diagnostic_output_and_cleanup_errors_preserve_observed_test_failure(self):
         for fault in ("output", "persistent-output", "cleanup"):
             result, _, status = self.run_stub(7, extra={"STUB_OUTPUT_FAILURE": "1"}, fault=fault)
@@ -241,6 +292,40 @@ sys.exit(m.main())
                 TRACE.finalize_collector(collector)
         self.assertEqual([(424242, signal.SIGINT), (424242, signal.SIGKILL)],
                          [entry.args for entry in kill.call_args_list])
+
+    def test_fifo_finalization_reuses_first_stop_deadline(self):
+        collector = Mock(pid=424242)
+        collector.poll.return_value = None
+        relay = Mock()
+        relay.drain.return_value = 1
+        with patch.object(TRACE.time, "monotonic", return_value=131), patch.object(TRACE.os, "killpg") as kill:
+            with self.assertRaisesRegex(RuntimeError, "testhost was not terminated"):
+                TRACE.finalize_collector(collector, relay, deadline=130)
+        self.assertEqual([(424242, signal.SIGINT), (424242, signal.SIGKILL)],
+                         [entry.args for entry in kill.call_args_list])
+        collector.wait.assert_called_once_with(timeout=5)
+
+    def test_trace_writer_handles_partial_and_zero_progress_writes(self):
+        for progress in (2, 0):
+            with self.subTest(progress=progress), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                relay = TRACE.TraceRelay(root / "trace.fifo", root / "trace.nettrace")
+                original = relay.output
+                relay.output = Mock()
+                relay.output.write.side_effect = lambda data: original.write(data[:progress])
+                try:
+                    with patch.object(TRACE.os, "read", side_effect=[b"complete", b""]):
+                        if progress:
+                            relay.drain()
+                            self.assertEqual(8, relay.written)
+                            self.assertEqual(b"complete", (root / "trace.nettrace").read_bytes())
+                        else:
+                            with self.assertRaisesRegex(OSError, "no progress"):
+                                relay.drain()
+                            self.assertEqual(0, relay.written)
+                finally:
+                    relay.output = original
+                    relay.close()
 
     def test_retention_budget_removes_oversize_without_truncating_valid_trace(self):
         with tempfile.TemporaryDirectory() as name:

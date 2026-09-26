@@ -77,15 +77,30 @@ are coverage checks, not proof of a sampled allocation within the measured loop.
 Only successful, verified runs remove their own traces; hashes and parse
 receipts remain. Failed tests or diagnostics retain traces up to 128 MiB each
 and 256 MiB total, recording an explicit discard reason otherwise. Collection
-stops at 96 MiB to leave finalization headroom; an independent collector-only
-128-MiB file-size limit enforces the hard ceiling. Budget exhaustion is a
-diagnostic failure even if the shortened trace parses. Stop/timeout cleanup
+stops at 96 MiB to leave finalization headroom. A private FIFO feeds a bounded
+wrapper-owned writer that never writes more than 128 MiB to the trace file;
+overflow is drained and discarded only to release the collector, and always
+fails diagnostics. Reads are nonblocking and bounded per poll, including during
+collector finalization. Early FIFO EOF before the writer opens is not stream
+completion. Budget exhaustion is a diagnostic failure even if the shortened
+trace parses. Stop/timeout cleanup
 signals target only the separately owned collector group, never the testhost.
 Diagnostic errors never replace the test command's nonzero exit. Explicit
 user/job cancellation is forwarded only to the owned test command group.
 The existing CI evidence artifact uploads these files even after failure.
 The repository's `ProGPU.SampleMemoryProfiler` already pins TraceEvent 3.1.15
 for offline trace inspection; raw traces can also be opened in PerfView.
+
+Do not impose `RLIMIT_FSIZE` on the managed collector. It also limits Linux
+memory-backed files: the .NET 8 runtime's executable-code double mapper attempts
+a 2-TiB `ftruncate` and is killed by `SIGXFSZ` before collector startup. The
+[upstream runtime fix](https://github.com/dotnet/runtime/pull/119316) is in .NET
+10, but the pinned tool targets .NET 8 and can select an installed older runtime.
+An isolated Linux ARM64 control with the official SHA-512-verified 8.0.31 runtime
+confirmed collector exit -25 with the former 128-MiB process limit and successful
+startup without it; installed 10.0.11 succeeded both ways. No W^X/JIT switch or
+runtime/package-cache change is needed: the FIFO bounds only the actual trace.
+Collector exit codes are retained even when startup fails before test launch.
 
 This is evidence collection, not an allocation fix. Linux Builds 36246685645
 and 36248067974 reported 1,024 bytes in that test (620/621 and 648/649 passed).
