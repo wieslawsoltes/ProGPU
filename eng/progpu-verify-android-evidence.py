@@ -30,6 +30,12 @@ FRAME = re.compile(
 )
 
 
+class ScreenshotContentPending(ValueError):
+    def __init__(self, result):
+        super().__init__(f"Screenshot interior is blank or lacks distributed gallery content: {result['content_tiles']}/9 contrasting tiles")
+        self.result = result
+
+
 def require(condition, message):
     if not condition:
         raise ValueError(message)
@@ -151,7 +157,7 @@ def first_frame(log, pid):
     return frames[0] if frames else None
 
 
-def verify_png(data):
+def decode_png(data):
     require(data[:8] == b"\x89PNG\r\n\x1a\n", "Screenshot is not PNG")
     offset, dimensions, compressed, ended = 8, None, bytearray(), False
     while offset < len(data):
@@ -173,6 +179,8 @@ def verify_png(data):
         elif kind == b"IEND":
             require(length == 0 and end + 4 == len(data), "Invalid PNG end")
             ended = True
+        elif kind in (b"tRNS", b"acTL", b"fcTL", b"fdAT"):
+            raise ValueError("Screenshot must be a single opaque PNG image")
         offset = end + 4
     require(ended and dimensions is not None and compressed, "Incomplete screenshot")
     width, height, channels = dimensions
@@ -180,8 +188,86 @@ def verify_png(data):
     inflater = zlib.decompressobj()
     pixels = inflater.decompress(compressed, size + 1)
     require(inflater.eof and not inflater.unused_data and len(pixels) == size, "Invalid screenshot pixel stream")
-    require(all(pixels[row * (1 + width * channels)] <= 4 for row in range(height)), "Invalid PNG row filter")
-    return {"width": width, "height": height, "sha256": sha256(data)}
+    return width, height, channels, reconstruct_png_rows(pixels, width, height, channels)
+
+
+def reconstruct_png_rows(filtered, width, height, channels):
+    # PNG 9.2-9.4: byte-wise modulo-256 reconstruction, including alpha.
+    # O(width * height * channels) time; two decoded rows of scratch.
+    stride = width * channels
+    previous = bytearray(stride)
+    for y in range(height):
+        offset = y * (stride + 1)
+        kind = filtered[offset]
+        require(kind <= 4, "Invalid PNG row filter")
+        row = bytearray(filtered[offset + 1:offset + 1 + stride])
+        if kind:
+            for index in range(stride):
+                left = row[index - channels] if index >= channels else 0
+                above = previous[index]
+                corner = previous[index - channels] if index >= channels else 0
+                if kind == 1:
+                    prediction = left
+                elif kind == 2:
+                    prediction = above
+                elif kind == 3:
+                    prediction = (left + above) // 2
+                else:
+                    estimate = left + above - corner
+                    distances = (abs(estimate - left), abs(estimate - above), abs(estimate - corner))
+                    prediction = (left, above, corner)[distances.index(min(distances))]
+                row[index] = (row[index] + prediction) & 255
+        yield row
+        previous = row
+
+
+def verify_png(data):
+    width, height, channels, rows = decode_png(data)
+    # This is a negative blank-frame guard for the gallery, not a pixel oracle.
+    # A conservative interior excludes system bars: their icons alone made a
+    # black SurfaceView look nonempty in run 36236752156. Never accept alpha
+    # variation, one bright pixel, or one small overlay as rendered gallery UI.
+    left, top, right, bottom = width // 10, height // 5, width * 9 // 10, height * 4 // 5
+    require(right - left >= 32 and bottom - top >= 32, "Screenshot interior is too small")
+    histograms = [dict() for _ in range(9)]
+    counts = [0] * 9
+    for y, row in enumerate(rows):
+        if not top <= y < bottom:
+            continue
+        tile_y = (y - top) * 3 // (bottom - top)
+        for x in range(left, right):
+            index = x * channels
+            require(channels == 3 or row[index + 3] == 255, "Screenshot interior is not opaque")
+            color = (row[index] >> 4) << 8 | (row[index + 1] >> 4) << 4 | row[index + 2] >> 4
+            tile = tile_y * 3 + (x - left) * 3 // (right - left)
+            histogram = histograms[tile]
+            histogram[color] = histogram.get(color, 0) + 1
+            counts[tile] += 1
+    tiles = []
+    for histogram, count in zip(histograms, counts):
+        dominant = max(histogram, key=histogram.get)
+        # At least two 16-level RGB bins of contrast, covering >=0.1% of a
+        # tile (and >=16 pixels). Quantization ignores tiny encoding noise.
+        contrasting = sum(amount for color, amount in histogram.items()
+                          if max(abs(((color >> shift) & 15) - ((dominant >> shift) & 15))
+                                 for shift in (0, 4, 8)) >= 2)
+        required = max(16, (count + 999) // 1000)
+        tiles.append({"pixels": count, "dominant_rgb_bin": dominant,
+                      "contrasting_pixels": contrasting, "required_pixels": required,
+                      "has_content": contrasting >= required})
+    content_tiles = sum(tile["has_content"] for tile in tiles)
+    occupied = [index for index, tile in enumerate(tiles) if tile["has_content"]]
+    # An overlay crossing a boundary may occupy two or four ADJACENT tiles.
+    # Demand an opposite row/column pair, not merely two histogram successes.
+    distributed = any(abs(a // 3 - b // 3) == 2 or abs(a % 3 - b % 3) == 2
+                      for a in occupied for b in occupied)
+    result = {"width": width, "height": height, "sha256": sha256(data),
+              "interior": [left, top, right, bottom], "content_tiles": content_tiles,
+              "distributed_content": distributed, "tiles": tiles,
+              "scope": "Blank-frame rejection only; visible gallery fidelity still requires image review"}
+    if not distributed:
+        raise ScreenshotContentPending(result)
+    return result
 
 
 def stage_apk(build_log, destination, project_directory):
@@ -275,6 +361,10 @@ def main():
             result = verify_png(args.png.read_bytes())
         args.output.write_text(json.dumps(result, indent=2) + "\n")
         return 0
+    except ScreenshotContentPending as error:
+        args.output.write_text(json.dumps(error.result, indent=2) + "\n")
+        print(f"Android screenshot pending: {error}", file=sys.stderr)
+        return 1
     except (ValueError, OSError, KeyError, zipfile.BadZipFile, zlib.error) as error:
         print(f"Android evidence rejected: {error}", file=sys.stderr)
         return 2

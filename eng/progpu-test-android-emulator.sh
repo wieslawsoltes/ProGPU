@@ -86,6 +86,11 @@ until [[ -s "${evidence}/logcat.txt" ]]; do
 done
 
 deadline=$((SECONDS + 120))
+launch_command() {
+  local remaining=$((deadline - SECONDS))
+  ((remaining > 0)) || { echo "120-second launch deadline expired." >&2; return 124; }
+  bounded "${remaining}" "$@"
+}
 launch_device() {
   local remaining=$((deadline - SECONDS))
   ((remaining > 0)) || { echo "120-second launch deadline expired." >&2; return 124; }
@@ -109,7 +114,7 @@ while ((SECONDS < deadline)); do
   kill -0 "${logcat_pid}" 2>/dev/null || { echo "Logcat collection stopped unexpectedly." >&2; exit 1; }
   current_pid="$(launch_device shell pidof -s "${package}" 2>/dev/null | tr -d '\r' || true)"
   [[ "${current_pid}" == "${application_pid}" ]] || { echo "Sample exited or restarted before qualification." >&2; exit 1; }
-  if python3 "${verifier}" first-frame --log "${evidence}/logcat.txt" --pid "${application_pid}" --output "${evidence}/first-frame.json"; then
+  if launch_command python3 "${verifier}" first-frame --log "${evidence}/logcat.txt" --pid "${application_pid}" --output "${evidence}/first-frame.json"; then
     frame_ready=true
     break
   else
@@ -119,16 +124,60 @@ while ((SECONDS < deadline)); do
   sleep 1
 done
 [[ "${frame_ready}" == true ]] || { echo "No valid Vulkan first frame within 120 seconds." >&2; exit 1; }
-launch_device shell dumpsys activity activities > "${evidence}/activity.txt"
-launch_device shell dumpsys window > "${evidence}/window.txt"
-launch_device exec-out screencap -p > "${evidence}/screenshot.png" 2> "${evidence}/screenshot.log"
-launch_device shell dumpsys window > "${evidence}/window-after-screenshot.txt"
-python3 "${verifier}" screenshot --png "${evidence}/screenshot.png" \
-  --activity "${evidence}/activity.txt" --window "${evidence}/window.txt" \
-  --window-after "${evidence}/window-after-screenshot.txt" --output "${evidence}/screenshot.json"
+capture_surface_state() {
+  launch_device shell dumpsys SurfaceFlinger --list > "${evidence}/surfaceflinger-$1-layers.txt" 2>&1
+  launch_device shell dumpsys SurfaceFlinger > "${evidence}/surfaceflinger-$1.txt" 2>&1
+}
+verify_live_log() {
+  kill -0 "${logcat_pid}" 2>/dev/null || { echo "Logcat collection stopped unexpectedly." >&2; return 1; }
+  # The live capture preserves errors even if Android's circular buffer rotates.
+  launch_command python3 "${verifier}" first-frame --log "${evidence}/logcat.txt" --pid "${application_pid}" --output "${evidence}/first-frame.json"
+}
+# Present returning is not display completion. Poll actual opaque client pixels
+# inside the SAME launch deadline; never accept elapsed time or a PNG container.
+screenshot_ready=false
+screenshot_attempt=0
+while ((SECONDS < deadline)); do
+  verify_live_log
+  [[ "$(launch_device shell pidof -s "${package}" | tr -d '\r')" == "${application_pid}" ]] || { echo "Sample exited during screenshot polling." >&2; exit 1; }
+  launch_device shell dumpsys activity activities > "${evidence}/activity.txt"
+  launch_device shell dumpsys window > "${evidence}/window.txt"
+  launch_device exec-out screencap -p > "${evidence}/screenshot.png" 2> "${evidence}/screenshot.log"
+  launch_device shell dumpsys window > "${evidence}/window-after-screenshot.txt"
+  screenshot_attempt=$((screenshot_attempt + 1))
+  if launch_command python3 "${verifier}" screenshot --png "${evidence}/screenshot.png" \
+      --activity "${evidence}/activity.txt" --window "${evidence}/window.txt" \
+      --window-after "${evidence}/window-after-screenshot.txt" --output "${evidence}/screenshot.json"; then
+    screenshot_result=0
+  else
+    screenshot_result=$?
+  fi
+  printf 'attempt=%s elapsed=%s result=%s\n' "${screenshot_attempt}" "$((120 - deadline + SECONDS))" "${screenshot_result}" >> "${evidence}/screenshot-attempts.txt"
+  if ((screenshot_attempt == 1)); then
+    cp "${evidence}/screenshot.png" "${evidence}/screenshot-initial.png"
+    if [[ -f "${evidence}/screenshot.json" ]]; then cp "${evidence}/screenshot.json" "${evidence}/screenshot-initial.json"; fi
+    cp "${evidence}/window.txt" "${evidence}/window-initial.txt"
+    cp "${evidence}/window-after-screenshot.txt" "${evidence}/window-initial-after-screenshot.txt"
+    capture_surface_state initial
+  fi
+  # Invalid images, lost focus/ANR dialogs and source errors are never retried
+  # into success. Only a valid focused image lacking content is pending (1).
+  ((screenshot_result <= 1)) || exit "${screenshot_result}"
+  launch_device logcat -b all -d -v threadtime > "${evidence}/logcat-after-screenshot.txt"
+  verify_live_log
+  launch_command python3 "${verifier}" first-frame --log "${evidence}/logcat-after-screenshot.txt" --pid "${application_pid}" --output "${evidence}/first-frame.json"
+  if ((screenshot_result == 0)); then
+    screenshot_ready=true
+    break
+  fi
+  sleep 1
+done
+[[ "${screenshot_ready}" == true ]] || { echo "No meaningful gallery pixels within 120-second launch deadline." >&2; exit 1; }
+capture_surface_state final
 [[ "$(launch_device shell pidof -s "${package}" | tr -d '\r')" == "${application_pid}" ]] || { echo "Sample exited during screenshot capture." >&2; exit 1; }
 launch_device logcat -b all -d -v threadtime > "${evidence}/logcat-after-screenshot.txt"
-python3 "${verifier}" first-frame --log "${evidence}/logcat-after-screenshot.txt" --pid "${application_pid}" --output "${evidence}/first-frame.json"
+verify_live_log
+launch_command python3 "${verifier}" first-frame --log "${evidence}/logcat-after-screenshot.txt" --pid "${application_pid}" --output "${evidence}/first-frame.json"
 ((SECONDS <= deadline)) || { echo "120-second launch deadline expired." >&2; exit 1; }
-printf 'PASS: x64 Vulkan frame, live resumed and focused sample, and valid screenshot captured. Visual inspection still required; no media/native-engine or hardware-performance qualification.\n' > "${evidence}/runtime-status.txt"
+printf 'PASS: x64 Vulkan frame, live resumed and focused sample, and distributed interior screenshot content captured. Visual inspection still required; no media/native-engine or hardware-performance qualification.\n' > "${evidence}/runtime-status.txt"
 echo "Android x64 UI runtime evidence captured at ${evidence}; inspect screenshot for visible sample fidelity."

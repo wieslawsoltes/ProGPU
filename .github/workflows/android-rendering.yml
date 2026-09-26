@@ -11,6 +11,7 @@ on:
       - eng/progpu-test-android-emulator.sh
       - eng/progpu-verify-android-evidence.py
       - eng/tests/test_android_evidence.py
+      - eng/tests/fixtures/android-x64-*
       - global.json
       - Directory.Build.*
       - Directory.Packages.props
