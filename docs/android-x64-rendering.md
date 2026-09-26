@@ -23,6 +23,15 @@ provider bytes in its x64 native directory. Its other native entries must also
 be x64 ELF libraries. A desktop or wrong-architecture provider is not accepted
 because its filename happens to match.
 
+The sample owns its Android target framework; the build invocation does not
+replace every referenced project's framework with an Android global property.
+The two XAML generator project references remove only target RID properties,
+so the generator and its analyzer dependencies execute as RID-free host tools
+while the application's runtime references retain `android-x64`. Executable
+SDK reference-resolution tests cover both Android RIDs and both consumers.
+Fresh-configuration Fluent-theme and mobile-sample library builds additionally
+exercise the actual host generator closure; they are not APK runtime evidence.
+
 The Actions runner is Ubuntu 24.04 x64, with explicit accessible KVM and an
 API 35 `google_apis;x86_64` image. The emulator uses `-gpu swiftshader` and
 `-accel on`, not an ARM guest or silently unaccelerated execution. This is

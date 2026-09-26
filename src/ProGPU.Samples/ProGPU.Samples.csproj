@@ -23,9 +23,11 @@
                       Condition="'$(ProGpuSamplesMobile)' != 'true'" />
     <ProjectReference Include="..\ProGPU.Xaml.Workspaces\ProGPU.Xaml.Workspaces.csproj"
                       Condition="'$(ProGpuSamplesMobile)' != 'true'" />
+    <!-- The generator executes on the build host, not the application's target RID. -->
     <ProjectReference Include="..\ProGPU.Xaml.SourceGenerator\ProGPU.Xaml.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
-                      ReferenceOutputAssembly="false" />
+                      ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="RuntimeIdentifier;RuntimeIdentifiers" />
     <ProjectReference Include="..\ProGPU.Dxf\ProGPU.Dxf.csproj" />
     <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
     <ProjectReference Include="..\ProGPU.Fonts.Noto\ProGPU.Fonts.Noto.csproj" />
