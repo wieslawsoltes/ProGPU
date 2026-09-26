@@ -1289,6 +1289,39 @@ if(EMSCRIPTEN)
         --use-port=emdawnwebgpu:cpp_bindings=false)
     progpu_native_enable_warnings(progpu_native_browser_renderer_objects)
 
+    # Reusable ES-module library: no gallery main, shell, global Module or
+    # pre-run side effects. Each async factory owns an independent native host.
+    add_executable(progpu_native_browser_module
+        $<TARGET_OBJECTS:progpu_native_browser_renderer_objects>
+        browser/Host/progpu_native_browser_window_host.cpp
+        browser/npm/native_module.cpp
+        browser/npm/scene_packet.cpp)
+    target_compile_features(progpu_native_browser_module PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_browser_module PRIVATE
+        PROGPU_NATIVE_BUILD=1 PROGPU_NATIVE_DAWN_ABI=1 PROGPU_NATIVE_BROWSER=1)
+    target_include_directories(progpu_native_browser_module PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/browser"
+        "${CMAKE_CURRENT_SOURCE_DIR}/browser/include")
+    target_link_libraries(progpu_native_browser_module PRIVATE
+        progpu_native_image progpu_native_scene_builder progpu_native_text)
+    target_compile_options(progpu_native_browser_module PRIVATE
+        --use-port=emdawnwebgpu:cpp_bindings=false
+        -fexceptions
+        $<$<CONFIG:Release>:-O3> $<$<CONFIG:Release>:-flto>)
+    target_link_options(progpu_native_browser_module PRIVATE
+        --use-port=emdawnwebgpu:cpp_bindings=false --no-entry
+        -sMODULARIZE=1 -sEXPORT_ES6=1 -sALLOW_MEMORY_GROWTH=1
+        -sEXIT_RUNTIME=0 -sENVIRONMENT=web -sFILESYSTEM=0
+        -sDISABLE_EXCEPTION_CATCHING=0
+        "-sEXPORTED_FUNCTIONS=['_malloc','_free']"
+        "-sEXPORTED_RUNTIME_METHODS=['HEAPU8']"
+        $<$<CONFIG:Release>:-O3> $<$<CONFIG:Release>:-flto>
+        $<$<CONFIG:Release>:-sASSERTIONS=0>)
+    set_target_properties(progpu_native_browser_module PROPERTIES
+        OUTPUT_NAME "progpu-native" SUFFIX ".mjs")
+    progpu_native_enable_warnings(progpu_native_browser_module)
+
     add_executable(progpu_native_browser_smoke
         $<TARGET_OBJECTS:progpu_native_browser_renderer_objects>
         include/progpu_native_browser.h
@@ -1425,6 +1458,18 @@ endif()
 endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+    add_executable(progpu_native_browser_scene_tests
+        browser/npm/scene_packet.cpp
+        browser/npm/tests/scene_packet_tests.cpp)
+    target_compile_features(progpu_native_browser_scene_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_browser_scene_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/browser/npm")
+    target_link_libraries(progpu_native_browser_scene_tests PRIVATE progpu_native_scene_builder)
+    progpu_native_enable_warnings(progpu_native_browser_scene_tests)
+    progpu_native_enable_sanitizers(progpu_native_browser_scene_tests)
+    add_test(NAME progpu_native_browser_scene_tests COMMAND progpu_native_browser_scene_tests)
+    set_tests_properties(progpu_native_browser_scene_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_geometry_utility_tests
         tests/progpu_native_geometry_utility_tests.cpp
         src/Backend/progpu_native_geometry_utility.cpp)

@@ -18,6 +18,7 @@ return args.Length == 0 ? Usage() : args[0] switch
     "summarize" => Summarize(args),
     "summarize-avalonia" => SummarizeAvalonia(args),
     "inspect" => Inspect(args),
+    "verify-drawing-trace" => DrawingAllocationTraceVerifier.Run(args),
     _ => Usage()
 };
 

@@ -196,7 +196,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("\"--runtime\",", workflow, StringComparison.Ordinal);
         Assert.Contains("\"${{ matrix.rid }}\",", workflow, StringComparison.Ordinal);
         Assert.Contains("if ($IsWindows)", workflow, StringComparison.Ordinal);
-        Assert.Contains("\"FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("\"FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests\"", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("$shapingArgs = $testArgs + @(", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet @testArgs", workflow, StringComparison.Ordinal);
         Assert.Contains("FullyQualifiedName!~ShapingContractsTests", workflow, StringComparison.Ordinal);

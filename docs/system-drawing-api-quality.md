@@ -34,6 +34,84 @@ Only regenerate the baseline after reviewing the complete diff:
 The suppression file is debt, not acceptance of permanent incompatibility. Pull requests should normally remove suppressions and must never add suppressions merely to make CI green.
 Baseline regeneration removes machine-specific left/right assembly paths, so suppressions are keyed by diagnostic and API target and behave identically in local clones and hosted CI. The verifier rejects a committed baseline that still contains absolute assembly paths.
 
+## Allocation failure diagnostics
+
+The full CI quality suite runs through:
+
+```bash
+python3 eng/progpu-test-system-drawing.py
+```
+
+This executes the original unfiltered Release `dotnet test` command with
+testhost-only diagnostic settings and a TRX logger. It does not change the
+`WarmedPrivateMetricReadsAreAllocationFree` test's one warmup, 1,000 iterations
+of four metric reads, or zero-byte assertion, and does not change JIT,
+parallelism, retries, or the existing 25-minute CI job deadline.
+
+The official [diagnostic-port handshake](https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-trace#use-diagnostic-port-to-collect-a-trace-from-app-startup)
+is supplied through [VSTest's testhost environment configuration](https://learn.microsoft.com/visualstudio/test/configure-unit-tests-by-using-a-dot-runsettings-file#specify-environment-variables-in-the-runsettings-file),
+not the build or test-launcher environment. The local manifest pins
+`dotnet-trace` 9.0.661903 (upstream commit
+`d7b455b46332b31fd9ba3a3f3e020387984c511a`). It listens on a private socket,
+starts the existing sample-memory provider set with a 64-MiB runtime buffer,
+and never suspends the connected testhost. Collector death before connection
+must not block the tests. It never launches or owns the testhost; strict
+method-metadata checks reject a capture that connects too late for coverage.
+
+The typed `ProGPU.TestTraceLifetime` in-process VSTest data collector is enabled
+only in those runsettings and uses the same pinned TestPlatform.ObjectModel
+17.11.1 as the test SDK. Test-case callbacks do no work. At `TestSessionEnd`,
+after all tests, it reports its actual PID and holds runner teardown for at
+most the existing 30-second diagnostic-finalization budget while the external
+collector stops and closes the stream. No measured test or font code calls it.
+This boundary avoids teardown ending a trace before its terminal block;
+`ProcessExit` is insufficient because VSTest may terminate the host directly.
+The callback does not replace the test result even if its handshake fails.
+
+Each invocation owns a new `artifacts/system-drawing-quality/run-*` directory.
+The log, TRX, SDK/runtime information, settings and JSON status are retained.
+Strict TraceEvent 3.1.15 parsing must succeed without partial/error recovery or
+reported event loss. Its single process must match the callback's PID, and the
+trace must contain the metric method's metadata and allocation samples. Those
+are coverage checks, not proof of a sampled allocation within the measured loop.
+Only successful, verified runs remove their own traces; hashes and parse
+receipts remain. Failed tests or diagnostics retain traces up to 128 MiB each
+and 256 MiB total, recording an explicit discard reason otherwise. Collection
+stops at 96 MiB to leave finalization headroom. A private FIFO feeds a bounded
+wrapper-owned writer that never writes more than 128 MiB to the trace file;
+overflow is drained and discarded only to release the collector, and always
+fails diagnostics. Reads are nonblocking and bounded per poll, including during
+collector finalization. Early FIFO EOF before the writer opens is not stream
+completion. Budget exhaustion is a diagnostic failure even if the shortened
+trace parses. Stop/timeout cleanup
+signals target only the separately owned collector group, never the testhost.
+Diagnostic errors never replace the test command's nonzero exit. Explicit
+user/job cancellation is forwarded only to the owned test command group.
+The existing CI evidence artifact uploads these files even after failure.
+The repository's `ProGPU.SampleMemoryProfiler` already pins TraceEvent 3.1.15
+for offline trace inspection; raw traces can also be opened in PerfView.
+
+Do not impose `RLIMIT_FSIZE` on the managed collector. It also limits Linux
+memory-backed files: the .NET 8 runtime's executable-code double mapper attempts
+a 2-TiB `ftruncate` and is killed by `SIGXFSZ` before collector startup. The
+[upstream runtime fix](https://github.com/dotnet/runtime/pull/119316) is in .NET
+10, but the pinned tool targets .NET 8 and can select an installed older runtime.
+An isolated Linux ARM64 control with the official SHA-512-verified 8.0.31 runtime
+confirmed collector exit -25 with the former 128-MiB process limit and successful
+startup without it; installed 10.0.11 succeeded both ways. No W^X/JIT switch or
+runtime/package-cache change is needed: the FIFO bounds only the actual trace.
+Collector exit codes are retained even when startup fails before test launch.
+
+This is evidence collection, not an allocation fix. Linux Builds 36246685645
+and 36248067974 reported 1,024 bytes in that test (620/621 and 648/649 passed).
+The first bounded non-streaming capture retained a partial trace without the
+failing method; that cannot attribute the allocation. Local SDK
+10.0.401/runtime 10.0.12 macOS ARM64 validation of the external lifetime-seamed
+collector passed the unchanged full 649 tests and strictly parsed its complete
+trace before cleanup. That host pass neither explains nor qualifies the Linux
+failure. Sampled events may miss a 1,024-byte allocation entirely. Preserve the
+failing trace and its original result for attribution.
+
 ## Current measured debt
 
 After the component-model converter, hosted graphics-flush, graphics-state, point/source-rectangle and destination-point image-overload, coordinate-space, graphics-container, image-convenience, drawing-identity, brush-base, pen-ownership, stock-icon, printer-settings collection, image-attributes, page device-selection, managed printing-shape, effects, cached-bitmap, managed-metadata, managed-identity, pen-transform, typed-LOGFONT, custom-cap/compound-pen, path-gradient, metafile parser, metafile enumeration, type-scoped bitmap-resource, cumulative graphics-context, managed icon-extraction, managed serialization/base-shape, typed desktop-capture, typed native-image-import, typed native font/graphics interop, portable metafile-comment recording, and bounded typed EMF/WMF vector playback compatibility slices:
