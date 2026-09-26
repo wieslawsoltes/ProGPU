@@ -31,13 +31,14 @@ for (const [name, digest] of Object.entries(info.licenses)) {
 const importMap = { imports: { progpu: `./node_modules/${artifact.name}/index.js` } };
 await fs.writeFile(path.join(consumer, 'index.html'), `<!doctype html>
 <meta charset="utf-8"><title>ProGPU installed npm package</title>
-<style>body{margin:12px;background:#202026;color:white;font:16px sans-serif}canvas{display:block;width:320px;height:180px;margin:12px 0}</style>
+<style>body{margin:12px;background:#202026;color:white;font:16px/24px sans-serif}h1{font-size:24px;line-height:32px;margin:0 0 12px}p{margin:0 0 12px}canvas{display:block;width:320px;height:180px;margin:12px 0}</style>
 <h1>ProGPU installed npm package</h1><p>Independent native renderer instances, one borrowed WebGPU device.</p>
 <script type="importmap">${JSON.stringify(importMap)}</script>
 <canvas id="first" width="320" height="180"></canvas><canvas id="second" width="320" height="180"></canvas>`);
 const server = createServer(async (request, response) => {
   try {
     const requested = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
+    if (requested === '/favicon.ico') { response.writeHead(204); response.end(); return; }
     const file = path.resolve(consumer, `.${requested === '/' ? '/index.html' : requested}`);
     if (!file.startsWith(consumer + path.sep)) throw new Error('Invalid path');
     const content = await fs.readFile(file);
@@ -170,7 +171,10 @@ try {
   assert.ok(pixel(290, 24)[0] < 55 && pixel(290, 24)[2] > 200, 'Gradient right must retain blue stop');
   await fs.writeFile(path.join(evidence, 'npm-native-canvas.png'), Buffer.from(result.secondPng.split(',')[1], 'base64'));
   const presented = await page.locator('#second').screenshot({ path: path.join(evidence, 'npm-native-presented.png'), timeout: 15_000 });
-  assert.deepEqual(utilities.PNG.sync.read(presented).data, first.data, 'Browser must actually present the rendered pixels');
+  const presentedPixels = utilities.PNG.sync.read(presented);
+  assert.equal(presentedPixels.width, first.width);
+  assert.equal(presentedPixels.height, first.height);
+  assert.ok(presentedPixels.data.equals(first.data), 'Browser must actually present every rendered pixel');
   await page.screenshot({ path: path.join(evidence, 'npm-native-page.png'), timeout: 15_000 });
   await page.evaluate(() => globalThis.npmConsumerCleanup());
   assert.deepEqual(errors, []);

@@ -95,6 +95,15 @@ jobs:
           version: 4.0.18
           actions-cache-folder: artifacts/emsdk-cache
 
+      - name: Setup npm tooling
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+
+      - name: Test npm authoring and fail-closed release verification
+        run: node --test src/ProGPU.Native/browser/npm/tests/scene.test.mjs eng/progpu-test-npm-release.mjs
+
       - name: Build and test native browser renderer
         shell: bash
         env:
