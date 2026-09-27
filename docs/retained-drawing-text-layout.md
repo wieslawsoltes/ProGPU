@@ -70,7 +70,10 @@ empty font metrics, target-DPI rejection and unsupported-format rejection.
 
 Existing and new owned-snapshot cases compare the shared point/caret/navigation/
 selection contract and prove that clearing/regenerating the original glyph
-collection does not mutate a captured generation. Logs and TRX files, including
+collection does not mutate a captured generation. The current focused text run
+passes all 88 shaping, interaction, snapshot and source-guard cases, with zero
+failures/skips. PR #201 depends on #200; its base is `main` so that all required
+Build, Docs and parity workflows run before the ordered merge. Logs and TRX files, including
 the initial strict decoration failures, remain under `artifacts/text-interaction`.
 Full PR CI, renderer pixels, package consumers and final source-editor/platform
 qualification remain separate requirements.
