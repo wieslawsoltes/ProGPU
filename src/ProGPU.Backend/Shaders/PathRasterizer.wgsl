@@ -262,15 +262,15 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    var packed = 0u;
+    var coverageWord = 0u;
     for (var lane = 0u; lane < 4u; lane = lane + 1u) {
         let x = firstX + lane;
         if (x < uniforms.width) {
-            packed = packed | (path_coverage_byte(x, y, uniforms) << (lane * 8u));
+            coverageWord = coverageWord | (path_coverage_byte(x, y, uniforms) << (lane * 8u));
         }
     }
 
-    coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = packed;
+    coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;
 }
 
 @compute @workgroup_size(16, 16)
@@ -283,16 +283,16 @@ fn cs_main_ordinary(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    var packed = 0u;
+    var coverageWord = 0u;
     for (var lane = 0u; lane < 4u; lane = lane + 1u) {
         let x = firstX + lane;
         if (x < uniforms.width) {
-            packed = packed |
+            coverageWord = coverageWord |
                 (ordinary_path_coverage_byte(x, y, uniforms) << (lane * 8u));
         }
     }
 
-    coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = packed;
+    coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;
 }
 
 @compute @workgroup_size(16, 16)
@@ -374,7 +374,7 @@ fn cs_split_boolean_combine(
     if (wordX * 4u >= uniforms.width || y >= uniforms.height) {
         return;
     }
-    var packed = 0u;
+    var coverageWord = 0u;
     let sampleGrid = clamp(uniforms.sampleGrid, 1u, 8u);
     let sampleWeight = 1.0 / f32(sampleGrid * sampleGrid);
     for (var lane = 0u; lane < 4u; lane = lane + 1u) {
@@ -390,10 +390,10 @@ fn cs_split_boolean_combine(
                 255u,
                 u32(round(
                     f32(coveredSamples) * sampleWeight * 255.0)));
-            packed = packed | (coverage << (lane * 8u));
+            coverageWord = coverageWord | (coverage << (lane * 8u));
         }
     }
     coverageOutput[
         uniforms.destinationOffsetWords +
-        y * uniforms.destinationRowWords + wordX] = packed;
+        y * uniforms.destinationRowWords + wordX] = coverageWord;
 }

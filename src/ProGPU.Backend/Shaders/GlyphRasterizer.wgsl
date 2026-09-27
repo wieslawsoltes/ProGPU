@@ -370,15 +370,15 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    var packed = 0u;
+    var coverageWord = 0u;
     for (var lane = 0u; lane < 4u; lane = lane + 1u) {
         let x = firstX + lane;
         if (x < uniforms.width) {
-            packed = packed | (glyph_coverage_byte(x, y) << (lane * 8u));
+            coverageWord = coverageWord | (glyph_coverage_byte(x, y) << (lane * 8u));
         }
     }
 
-    coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = packed;
+    coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;
 }
 
 // The fragment entry is the same per-pixel algorithm without compute-only
