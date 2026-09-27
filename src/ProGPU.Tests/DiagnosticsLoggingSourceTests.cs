@@ -318,6 +318,11 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("private readonly struct LineRange", source, StringComparison.Ordinal);
         Assert.Contains("public int Start { get; }", source, StringComparison.Ordinal);
         Assert.Contains("public int Count { get; }", source, StringComparison.Ordinal);
+        Assert.Contains("public float Left { get; }", source, StringComparison.Ordinal);
+        Assert.Contains("public float Top { get; }", source, StringComparison.Ordinal);
+        Assert.Contains("public float Height { get; }", source, StringComparison.Ordinal);
+        Assert.Contains("List<LineRange> lines = _horizontalLines;", source, StringComparison.Ordinal);
+        Assert.Contains("new LineRange(line.Start, line.Count, shiftX, line.Top, line.Height)", source, StringComparison.Ordinal);
         Assert.Contains("private static int EstimateGlyphCapacity(string text)", source, StringComparison.Ordinal);
         Assert.Contains("private static int EstimateLineCapacity(string text)", source, StringComparison.Ordinal);
         Assert.Contains("private static void AddLineRange(List<LineRange> lines, int start, int end)", source, StringComparison.Ordinal);
