@@ -127,7 +127,20 @@ public sealed class TextInteractionSnapshot
                 current = i;
             }
         }
-        return stops[Math.Clamp(current + Math.Sign(direction), 0, stops.Count - 1)];
+        int step = Math.Sign(direction);
+        if (step == 0) return stops[current];
+        TextCaretStop origin = stops[current];
+        for (int next = current + step; next >= 0 && next < stops.Count; next += step)
+        {
+            TextCaretStop candidate = stops[next];
+            // Adjacent clusters retain both affinities at an ordinary shared
+            // edge. One key press must pass that coincident edge, while distinct
+            // bidi positions, levels and wrapped-line positions remain stops.
+            if (candidate.TextPosition != origin.TextPosition ||
+                candidate.Position != origin.Position || candidate.BidiLevel != origin.BidiLevel)
+                return candidate;
+        }
+        return origin;
     }
 
     internal static IReadOnlyList<TextBounds> GetSelectionRectangles(

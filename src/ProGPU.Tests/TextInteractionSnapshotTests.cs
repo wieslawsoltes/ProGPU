@@ -8,6 +8,26 @@ namespace ProGPU.Tests;
 public sealed class TextInteractionSnapshotTests
 {
     [Theory]
+    [InlineData("abc", new[] { 0, 1, 2, 3 })]
+    [InlineData("a\u0301b", new[] { 0, 2, 3 })]
+    public void VisualMovementAdvancesPastCoincidentAffinities(string text, int[] boundaries)
+    {
+        var source = new TextLayout(text, InterFontFamily.Regular, 20, 500);
+        TextInteractionSnapshot snapshot = source.CreateInteractionSnapshot();
+        TextCaretStop caret = snapshot.GetCaretStop(0);
+        for (int i = 1; i < boundaries.Length; i++)
+        {
+            caret = snapshot.MoveCaretVisually(caret.TextPosition, caret.IsTrailing, 1);
+            Assert.Equal(boundaries[i], caret.TextPosition);
+        }
+        for (int i = boundaries.Length - 2; i >= 0; i--)
+        {
+            caret = snapshot.MoveCaretVisually(caret.TextPosition, caret.IsTrailing, -1);
+            Assert.Equal(boundaries[i], caret.TextPosition);
+        }
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("abc")]
     [InlineData("x\u0301 abc אבג")]

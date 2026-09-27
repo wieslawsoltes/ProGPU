@@ -70,10 +70,23 @@ empty font metrics, target-DPI rejection and unsupported-format rejection.
 
 Existing and new owned-snapshot cases compare the shared point/caret/navigation/
 selection contract and prove that clearing/regenerating the original glyph
-collection does not mutate a captured generation. The current focused text run
-passes all 88 shaping, interaction, snapshot and source-guard cases, with zero
+collection does not mutate a captured generation. The initial focused text run
+passed all 88 selected shaping, interaction, snapshot and source-guard cases, with zero
 failures/skips. PR #201 depends on #200; its base is `main` so that all required
 Build, Docs and parity workflows run before the ordered merge. Logs and TRX files, including
 the initial strict decoration failures, remain under `artifacts/text-interaction`.
 Full PR CI, renderer pixels, package consumers and final source-editor/platform
 qualification remain separate requirements.
+
+Canonical editor integration exposed repeated arrow stops at an ordinary shared
+cluster edge: leading and trailing affinity records had the same source index,
+physical position and bidi level. Two independent movement cases fail before
+the correction (ordinary text and a combining cluster). Movement now skips only
+those coincident alternatives, retaining the actual affinity records and distinct
+bidi/source/line positions. The full linked text/source-guard project passes
+143 cases with zero failures/skips after this correction.
+
+The first complete Drawing CI at `8138dc9e3` failed the unchanged
+`WarmedPrivateMetricReadsAreAllocationFree` assertion (zero expected, 1,024 bytes
+observed). That failure is retained in the job log and is not a successful gate;
+neither its assertion nor the runtime/warmup policy has been relaxed.
