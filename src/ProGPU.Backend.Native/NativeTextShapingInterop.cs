@@ -351,6 +351,31 @@ public sealed unsafe partial class NativeTextShapingContext : IDisposable
         }
     }
 
+    /// <summary>
+    /// Copies exact font-provided hdmx advances in device pixels, without size
+    /// substitution or hint execution. Missing records succeed with available
+    /// false and leave advances unchanged. Invalid requests do not publish
+    /// partial advances; output beyond glyphIndices.Length is always untouched.
+    /// Font index zero is the primary face. Spans must not overlap.
+    /// </summary>
+    public NativeRendererStatus GetDeviceAdvances(
+        uint fontIndex, uint pixelsPerEm, ReadOnlySpan<uint> glyphIndices,
+        Span<float> advances, out bool available)
+    {
+        using var use = _owner.Acquire();
+        available = false;
+        uint nativeAvailable = 0;
+        fixed (uint* glyphs = glyphIndices)
+        fixed (float* output = advances)
+        {
+            NativeRendererStatus status = NativeMethods.GetTextContextDeviceAdvances(
+                use.Handle, fontIndex, pixelsPerEm, glyphs, checked((uint)glyphIndices.Length),
+                output, checked((uint)advances.Length), &nativeAvailable);
+            available = status == NativeRendererStatus.Success && nativeAvailable == 1;
+            return status;
+        }
+    }
+
     public NativeRendererStatus GetRequirements(
         in NativeTextShapeInput input,
         out NativeTextShapeRequirements requirements)

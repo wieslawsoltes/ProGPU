@@ -3224,6 +3224,26 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_create(
 PROGPU_NATIVE_API void progpu_native_text_context_destroy(
     progpu_native_text_context* context);
 
+/* Exact font-provided hdmx advances, in device pixels, for primary (zero) or
+ * registered fallback font indices. ppem is an integer in [1, 65535]. Missing
+ * table/size returns success with available=0 and leaves advances untouched.
+ * Success with available=1 writes exactly glyph_count floats in input order.
+ * Validate all glyph IDs even when no record exists. Invalid requests never
+ * write advances; available is cleared unless aliased/misaligned, in which
+ * case no caller memory is modified. All caller spans/status must be disjoint.
+ * The context owns a bounded cache over its immutable font bytes. This API
+ * performs no hint execution, size interpolation, variable-instance selection,
+ * shaping or layout, and does not admit WPF Display mode by itself. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_get_device_advances(
+    progpu_native_text_context* context,
+    uint32_t font_index,
+    uint32_t pixels_per_em,
+    const uint32_t* glyph_indices,
+    uint32_t glyph_count,
+    float* advances,
+    uint32_t advance_capacity,
+    uint32_t* available);
+
 /* Context plans and fallback-font storage are mutable. C/C++ callers must
  * serialize operations and destruction on the same context. Distinct contexts
  * may execute concurrently. The managed NativeTextShapingContext wrapper owns

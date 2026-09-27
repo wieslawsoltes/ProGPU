@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using ProGPU.Backend;
@@ -6300,6 +6301,30 @@ public class NativeRendererInteropTests
 
     [Fact]
     public void SemanticImageEffectBuildsWithoutAllocation()
+        => ValidateImageEffectBuildsOnWorker(allocateControl: false);
+
+    [Fact]
+    public void SemanticImageEffectAllocationMeasurementDetectsEscapingObjects()
+        => ValidateImageEffectBuildsOnWorker(allocateControl: true);
+
+    private static object? s_imageEffectAllocationControl;
+
+    private static void ValidateImageEffectBuildsOnWorker(bool allocateControl)
+    {
+        ExceptionDispatchInfo? failure = null;
+        // Match the existing private-font/CAD measurement isolation. The worker
+        // owns every stack span; no caller buffer can outlive a timed-out join.
+        var worker = new Thread(() =>
+        {
+            try { ValidateImageEffectBuilds(allocateControl); }
+            catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+        }) { IsBackground = true };
+        worker.Start();
+        Assert.True(worker.Join(TimeSpan.FromSeconds(30)), "The image-effect allocation measurement did not finish.");
+        failure?.Throw();
+    }
+
+    private static void ValidateImageEffectBuilds(bool allocateControl)
     {
         Span<byte> destination = stackalloc byte[2048];
         Span<byte> pixels = stackalloc byte[16];
@@ -6357,18 +6382,33 @@ public class NativeRendererInteropTests
                 builder.TryBuild(out _);
         }
 
-        Assert.True(Build(destination, pixels, in image, in effect));
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        bool success = true;
-        for (int iteration = 0; iteration < 10_000; ++iteration)
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static (bool Success, long Allocated) Measure(
+            Span<byte> bytes, ReadOnlySpan<byte> imagePayload,
+            in NativeSceneImageDraw draw, in NativeSceneImageEffect imageEffect,
+            bool allocateControl)
         {
-            success &= Build(destination, pixels, in image, in effect);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            bool success = true;
+            for (int iteration = 0; iteration < 10_000; ++iteration)
+            {
+                if (allocateControl)
+                    Volatile.Write(ref s_imageEffectAllocationControl, new object());
+                success &= Build(bytes, imagePayload, in draw, in imageEffect);
+            }
+            return (success, GC.GetAllocatedBytesForCurrentThread() - before);
         }
-        // Measure only the builder loop, never the test framework's assertion
-        // dispatch. Keep the exact zero-byte requirement for all 10,000 builds.
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        // Retain the original single warmup and all 10,000 builder calls. Keep
+        // assertions outside the non-inlined measurement, with GC enabled.
+        Assert.True(Build(destination, pixels, in image, in effect));
+        (bool success, long allocated) = Measure(destination, pixels, in image, in effect, allocateControl);
         Assert.True(success);
-        Assert.Equal(0L, allocated);
+        if (allocateControl)
+            Assert.True(allocated >= 10_000 * IntPtr.Size,
+                "The measurement must detect every deliberately escaping allocation.");
+        else
+            Assert.Equal(0L, allocated);
 
         var blurred = new NativeSceneImageEffect(
             default,
