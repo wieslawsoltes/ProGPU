@@ -40,6 +40,36 @@ public sealed class WgpuContextTests
         public uint WaitFlags;
     }
 
+    [Fact]
+    public async Task SurfaceConfigurationWaitsForTheSubmissionRenderLock()
+    {
+        using var started = new ManualResetEventSlim();
+        using var returned = new ManualResetEventSlim();
+        using var context = new WgpuContext();
+        Task<bool> configuration;
+        System.Threading.Monitor.Enter(context.RenderLock);
+        try
+        {
+            configuration = Task.Run(() =>
+            {
+                started.Set();
+                bool result = context.TryConfigureSwapChain(640, 480);
+                returned.Set();
+                return result;
+            });
+            Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
+            Assert.False(returned.Wait(TimeSpan.FromMilliseconds(250)));
+        }
+        finally
+        {
+            System.Threading.Monitor.Exit(context.RenderLock);
+        }
+        // No fake surface/device pointers: admission still rejects an
+        // uninitialized context after acquiring the real production lock.
+        Assert.False(await configuration.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(returned.IsSet);
+    }
+
     [System.Runtime.InteropServices.UnmanagedCallersOnly(
         CallConvs = [typeof(System.Runtime.CompilerServices.CallConvCdecl)])]
     private static unsafe uint PollQueueProbe(Device* device, uint wait, void* token)

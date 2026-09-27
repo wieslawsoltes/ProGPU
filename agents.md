@@ -218,6 +218,10 @@ or cancellation cleanup. Drive nonblocking fence progress, sleep while pending
 and preserve actual map callback ownership; elapsed time is not completion.
 Keep managed and C++ drains paired, Dawn future waits/browser admission intact,
 and all existing host/readback deadlines. See docs/native-wgpu-completion.md.
+Native surface configuration invokes that same blocking maintenance internally.
+Drain the real queue first under the submission render lock, reject device loss,
+and retain the lock through configuration. Frame counts and managed submission
+counters do not prove that native queued copies have completed.
 
 Managed glyph/path atlases retain their binding contracts and captured execution
 policy at construction, but compile raster pipelines only for actual work. Keep

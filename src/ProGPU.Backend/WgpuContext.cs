@@ -1981,6 +1981,16 @@ public unsafe class WgpuContext : IDisposable
 
     public bool TryConfigureSwapChain(uint width, uint height, bool refreshCapabilities = false)
     {
+        // Keep queue completion and reconfiguration in the same synchronization
+        // domain as submissions, including shared-device popup surfaces.
+        lock (RenderLock)
+        {
+            return TryConfigureSwapChainCore(width, height, refreshCapabilities);
+        }
+    }
+
+    private bool TryConfigureSwapChainCore(uint width, uint height, bool refreshCapabilities)
+    {
         if (IsDeviceLost)
         {
             _isSurfaceConfigured = false;
@@ -2097,7 +2107,16 @@ public unsafe class WgpuContext : IDisposable
             Height = height > 0 ? height : 1
         };
 
+        // The pinned wgpu-core surface_configure calls Maintain::Wait itself.
+        // Its timed blocking path can advance retirement without actual fence
+        // completion. Drain through our nonblocking-fence policy first, while
+        // retaining RenderLock so another host cannot submit in between.
+        WaitIdle();
         _isSurfaceConfigured = false;
+        if (IsDeviceLost)
+        {
+            return false;
+        }
         Wgpu.SurfaceConfigure(Surface, &config);
         if (IsDeviceLost)
         {
