@@ -4,6 +4,11 @@
 
 ProGPU is a high-performance, GPU-first UI framework and composition substrate for .NET, built on top of Silk.NET and WebGPU (wgpu-native). It provides a lightweight, low-allocation alternative to traditional heavyweight UI frameworks by routing all vector graphics, text layout, and composition operations directly to the GPU using native WebGPU draw pipelines.
 
+Native hosts can explicitly select a WebGPU backend before instance creation with
+`PROGPU_WGPU_BACKEND=vulkan` (or `gl`, `metal`, `dx12`, `automatic`). See
+[native backend selection](docs/native-backend-selection.md) for the typed API,
+`WGPU_BACKEND` alias, shared-device rules and qualification limits.
+
 ## NuGet Packages
 
 ProGPU runtime packages are built from `eng/progpu-package-list.sh` by the
