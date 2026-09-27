@@ -72,7 +72,36 @@ and check immutable source size/unit. Non-Windows exercises the same controls at
 96 DPI. Both probe projects compile with zero warnings/errors.
 
 The existing Windows x64 and ARM64 system-font CI jobs retain all eight role and
-ownership checks, add independent six-unit exact metric comparison, and require
+ownership checks, add the independent six-unit comparison described below, and require
 all 23 ownership/layout/screen-DPI tests to execute and pass. Their original
 12-minute bound is unchanged. Full exact-head Build, Docs, package consumption
 and application appearance remain separate requirements.
+
+## Native floating-point precision versus portable arithmetic
+
+The initial x64 gate on `ec3c9b95f` exposed a mistaken bit-equality assumption in
+the new oracle, not a remaining factor-of-two DPI error. Microsoft's own 10.0.12
+GDI+ implementation returns `15.960936` from implicit Point `GetHeight()` but
+`15.9609375` from `GetHeight(96)` at screen DPI 96. Document/Millimeter point
+conversion returns `8.999998` rather than 9; the explicit Millimeter path also
+differs by two single-precision ULPs and was not changed by this fix. All captured
+integer heights, units, sizes and design metrics agree. The original failing
+receipt is artifact `10943597894`, SHA256
+`65de8133be4a7e49b7ec31c5f8670f2a5d50331abb6593aa02cbffecb0ff8fba`.
+ARM64's corresponding exact-field job passed, including all 23 tests.
+
+Portable metrics remain defined by the existing typed design metrics and explicit
+unit arithmetic; they do not adopt a platform-specific GDI+ rounding algorithm or
+delegate privately loaded font metrics to a native font with a matching name.
+The revised oracle verifies that arithmetic **exactly**, independently in the
+Microsoft process using its public family metrics. It also compares all four
+computed floating metrics against GDI+ with a maximum distance of two positive,
+finite single-precision ULPs. Identity, source size, integer Height, family metrics,
+screen DPI, roles and units still compare exactly. This is not a pixel tolerance,
+absolute epsilon, rounding-to-integers comparison or native rendering exception.
+
+Sixteen comparison controls accept offsets -2 through +2, reject either three-ULP
+boundary, invalid/nonpositive metrics and half/double DPI errors, and reject even
+a one-ULP error in the portable arithmetic. Both Windows jobs run these controls
+before the real oracle. The original failing receipt is preserved; correcting
+the new oracle's numeric contract does not retroactively qualify that producer.

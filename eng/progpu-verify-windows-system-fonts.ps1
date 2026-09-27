@@ -2,6 +2,8 @@ param([Parameter(Mandatory = $true)][ValidateSet('win-x64', 'win-arm64')][string
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if (-not $IsWindows) { throw 'Windows system font validation requires actual Windows.' }
+& (Join-Path $PSScriptRoot 'test-progpu-font-metric-comparison.ps1')
+. (Join-Path $PSScriptRoot 'progpu-font-metric-comparison.ps1')
 $root = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $root "artifacts/windows-system-fonts/$Rid"
 New-Item -ItemType Directory -Force $output | Out-Null
@@ -17,6 +19,7 @@ $expectedRoles = @('CaptionFont', 'DefaultFont', 'DialogFont', 'IconTitleFont', 
 $properties = @('Role', 'Name', 'Size', 'SizeInPoints', 'Style', 'Unit', 'GdiCharSet', 'GdiVerticalFont', 'SystemFontName', 'IsSystemFont')
 $expectedUnits = @('Document', 'Inch', 'Millimeter', 'Pixel', 'Point', 'World')
 $metricProperties = @('Name', 'Size', 'Unit', 'SizeInPoints', 'Height', 'ImplicitHeight', 'Explicit96', 'Explicit192', 'EmHeight', 'LineSpacing')
+$computedMetricProperties = @('SizeInPoints', 'ImplicitHeight', 'Explicit96', 'Explicit192')
 foreach ($mode in @('unaware', 'system', 'per-monitor-v2')) {
     $referencePath = Join-Path $output "$mode-reference.json"
     $portablePath = Join-Path $output "$mode-portable.json"
@@ -57,11 +60,16 @@ foreach ($mode in @('unaware', 'system', 'per-monitor-v2')) {
     foreach ($metric in $expected.Metrics) {
         $found = @($actual.Metrics | Where-Object Unit -CEQ $metric.Unit)
         if ($found.Count -ne 1) { throw "Missing or duplicated metric unit: $($metric.Unit)" }
+        Assert-PortableFontArithmetic $metric $found[0] "$mode/$($metric.Unit)"
         foreach ($property in $metricProperties) {
+            if ($computedMetricProperties -contains $property) {
+                Assert-NativeFontMetric $metric.$property $found[0].$property "$mode/$($metric.Unit)/$property"
+                continue
+            }
             if ($metric.$property -cne $found[0].$property) {
                 throw "$mode/$($metric.Unit)/${property}: expected '$($metric.$property)', actual '$($found[0].$property)'"
             }
         }
     }
-    Write-Host "System fonts match Microsoft: $Rid / $mode / all 8 roles, 6 metric units and ownership checks."
+    Write-Host "System fonts match Microsoft: $Rid / $mode / 8 exact roles, 6 exact unit-arithmetic cases, native rounding <= 2 ULPs."
 }
