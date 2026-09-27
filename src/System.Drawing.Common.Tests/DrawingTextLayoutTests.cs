@@ -9,6 +9,33 @@ namespace System.Drawing.Tests;
 public sealed class DrawingTextLayoutTests
 {
     [Theory]
+    [InlineData("\n\n", new[] { 0, 1, 2 }, 0)]
+    [InlineData("a\r\n\r\nb\r\n", new[] { 0, 3, 5, 8 }, 2)]
+    public void RetainedDrawingKeepsEmptyRowsAndOriginalCrLfIndices(string text, int[] starts, int glyphCount)
+    {
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        using var font = new Font(FontFamily.GenericSansSerif, 20);
+        using var brush = new SolidBrush(Color.Black);
+        using StringFormat format = MakeFormat();
+        DrawingTextLayout layout = DrawingTextLayout.Create(graphics, text, font, new SizeF(300, 500), format);
+        float height = font.GetHeight(graphics);
+        Assert.Equal(text.Length, layout.TextLength);
+        for (int row = 0; row < starts.Length; row++)
+        {
+            var caret = layout.GetCaretStop(starts[row]);
+            Assert.Equal(starts[row], caret.TextPosition);
+            Assert.Equal(row * height, caret.Position.Y, 4);
+            Assert.Equal(height, caret.Height, 4);
+            if (starts[row] == text.Length || text[starts[row]] is '\r' or '\n')
+                Assert.Equal(starts[row], layout.HitTestPoint(new PointF(10000, (row + .5f) * height)).TextPosition);
+        }
+        layout.Draw(graphics, brush, PointF.Empty);
+        Assert.Equal(glyphCount, context.Commands.Where(c => c.Type == RenderCommandType.DrawGlyphRun)
+            .Sum(c => c.GlyphIndices!.Length));
+    }
+
+    [Theory]
     [InlineData(StringAlignment.Near, false, false)]
     [InlineData(StringAlignment.Center, false, false)]
     [InlineData(StringAlignment.Far, false, false)]
