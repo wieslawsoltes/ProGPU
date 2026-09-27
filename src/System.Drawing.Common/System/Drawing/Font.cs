@@ -67,7 +67,8 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
     public string Name => FontFamily.Name;
     public float Size { get; }
     [Browsable(false)]
-    public float SizeInPoints => Unit == GraphicsUnit.Point ? Size : Graphics.ConvertFontSizeToPoints(Size, Unit, 96f);
+    public float SizeInPoints => Unit == GraphicsUnit.Point ? Size : Graphics.ConvertFontSizeToPoints(
+        Size, Unit, Unit is GraphicsUnit.Pixel or GraphicsUnit.World ? FontMetricDpi.GetDefault() : 96f);
     [Browsable(false)]
     public FontStyle Style { get; }
     [TypeConverter(typeof(FontConverter.FontUnitConverter))]
@@ -244,7 +245,7 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
 
     public override int GetHashCode() => HashCode.Combine(Name, Style, Size, Unit);
 
-    public float GetHeight() => GetHeight(96f);
+    public float GetHeight() => GetHeight(FontMetricDpi.GetDefault());
 
     public float GetHeight(Graphics graphics)
     {

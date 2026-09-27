@@ -1,5 +1,15 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Implicit Windows Font height and pixel/world point conversion use a scoped
+screen DC in the caller's current DPI context; never cache that DPI globally or
+mutate source size. Keep non-Windows 96-DPI policy, explicit Graphics/image/target
+metrics and public HDC boundaries unchanged. Preserve native failures, paired
+DC release, awareness-transition controls and independent six-unit Microsoft
+comparisons. Portable unit arithmetic remains exact; only native GDI+ computed
+float metrics admit the documented two-ULP conversion difference, with rejection
+controls. Role/size/integer-height/DPI identities remain exact. See
+docs/windows-font-screen-dpi.md; metric parity is not UI parity.
+
 Windows SystemFonts read actual OS role metadata before constructing owned
 portable fonts. Keep stock HFONTs borrowed, native query handles scoped, complete
 style/charset/vertical identity and screen-DC point conversion. Never hard-code

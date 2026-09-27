@@ -40,13 +40,57 @@ try
             second.GdiVerticalFont, second.SystemFontName, second.IsSystemFont
         });
     }
+    nint dc = GetDC(0);
+    if (dc == 0) throw new Win32Exception();
+    int screenDpi;
+    try { screenDpi = GetDeviceCaps(dc, 90); }
+    finally { if (ReleaseDC(0, dc) != 1) throw new Win32Exception(); }
+    if (screenDpi <= 0) throw new InvalidOperationException("Invalid screen DPI.");
+    var metrics = new List<object>();
+    foreach (var item in new[] {
+        (GraphicsUnit.Point, 9f), (GraphicsUnit.Pixel, 12f), (GraphicsUnit.World, 12f),
+        (GraphicsUnit.Inch, .125f), (GraphicsUnit.Document, 37.5f), (GraphicsUnit.Millimeter, 3.175f) })
+    {
+        using Font font = new("Segoe UI", item.Item2, FontStyle.Regular, item.Item1);
+        if (font.Name != "Segoe UI") throw new InvalidOperationException("The metric reference font is unavailable.");
+        // Independent unit arithmetic over public family metrics, not another
+        // call to the height API under test. GDI+ float conversion order differs
+        // across its native implementations; the portable arithmetic must not.
+        float ExpectedHeight(float dpi)
+        {
+            float pixels = item.Item1 switch
+            {
+                GraphicsUnit.Point => item.Item2 * dpi / 72f,
+                GraphicsUnit.Inch => item.Item2 * dpi,
+                GraphicsUnit.Document => item.Item2 * dpi / 300f,
+                GraphicsUnit.Millimeter => item.Item2 * dpi / 25.4f,
+                _ => item.Item2
+            };
+            return font.FontFamily.GetLineSpacing(font.Style) * pixels / font.FontFamily.GetEmHeight(font.Style);
+        }
+        float expectedPoints = item.Item1 switch
+        {
+            GraphicsUnit.Pixel or GraphicsUnit.World => item.Item2 * 72f / screenDpi,
+            GraphicsUnit.Inch => item.Item2 * 72f,
+            GraphicsUnit.Document => item.Item2 * 72f / 300f,
+            GraphicsUnit.Millimeter => item.Item2 * 72f / 25.4f,
+            _ => item.Item2
+        };
+        metrics.Add(new { font.Name, font.Size, Unit = item.Item1.ToString(), font.SizeInPoints,
+            font.Height, ImplicitHeight = font.GetHeight(), Explicit96 = font.GetHeight(96),
+            Explicit192 = font.GetHeight(192), EmHeight = font.FontFamily.GetEmHeight(font.Style),
+            LineSpacing = font.FontFamily.GetLineSpacing(font.Style),
+            PortableArithmetic = new { SizeInPoints = expectedPoints, ImplicitHeight = ExpectedHeight(screenDpi),
+                Explicit96 = ExpectedHeight(96), Explicit192 = ExpectedHeight(192) } });
+    }
     var assembly = typeof(SystemFonts).Assembly;
     using var assemblyFile = File.OpenRead(assembly.Location);
     File.WriteAllText(args[1], JsonSerializer.Serialize(new
     {
         Mode = args[0], Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
         Assembly = assembly.FullName, AssemblyPath = assembly.Location,
-        AssemblySha256 = Convert.ToHexString(SHA256.HashData(assemblyFile)), Fonts = fonts
+        AssemblySha256 = Convert.ToHexString(SHA256.HashData(assemblyFile)), Fonts = fonts,
+        ScreenDpi = screenDpi, Metrics = metrics
     }, new JsonSerializerOptions { WriteIndented = true }));
 }
 finally { SetThreadDpiAwarenessContext(previous); }
@@ -60,3 +104,12 @@ static extern nint GetThreadDpiAwarenessContext();
 [DllImport("user32.dll", ExactSpelling = true)]
 [return: MarshalAs(UnmanagedType.Bool)]
 static extern bool AreDpiAwarenessContextsEqual(nint first, nint second);
+
+[DllImport("user32.dll", ExactSpelling = true)]
+static extern nint GetDC(nint window);
+
+[DllImport("user32.dll", ExactSpelling = true)]
+static extern int ReleaseDC(nint window, nint dc);
+
+[DllImport("gdi32.dll", ExactSpelling = true)]
+static extern int GetDeviceCaps(nint dc, int index);
