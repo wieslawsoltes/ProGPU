@@ -86,10 +86,32 @@ missing admission, stale view/device generations and exception-safe release with
 default output. These tests exercise the original typed policy, not AppKit, a
 desktop, external CG matching, package staging or rendered pixels.
 
-At authoring time these new tests and the backend have not been built or run;
-only source/diff checks are recorded. The repository docs verifier stopped at the
-fresh worktree's missing `external/ACadSharp` submodule project; it did not pass.
-Actual macOS ARM64 and x64 interop execution,
-installed-package consumption and native popup desktop acceptance remain separate
-required qualification. Existing independent Windows/X11 native geometry probes
-are not replaced or qualified by this Cocoa seam.
+Local validation of product/test commit `54b8539c0` on macOS ARM64 used SDK
+10.0.201 / runtime 10.0.5. The actual complete `ProGPU.Backend.csproj` compiled
+without warnings/errors, and all **42 cases passed, zero failed, zero skipped**.
+A signed, isolated xUnit project linked the unchanged
+`src/ProGPU.Tests/NativeWindowGeometryTests.cs` and referenced that actual backend
+project, using the repository's pinned test packages. It did not substitute
+product types or build/run the full `ProGPU.Tests` dependency graph. Compilation
+and these deterministic policy cases do not execute AppKit geometry queries.
+
+The scoped command, from the repository root, was:
+
+```sh
+NUGET_PACKAGES="$PWD/artifacts/window-geometry-tests/packages" \
+TMPDIR="$PWD/artifacts/window-geometry-tests/tmp" \
+dotnet test artifacts/window-geometry-tests/GeometryTests.csproj \
+  -c Release -m:1 -nodeReuse:false -p:UseSharedCompilation=false \
+  -p:RestoreFallbackFolders=<existing-read-only-package-cache> \
+  --logger 'trx;LogFileName=geometry.trx' \
+  --results-directory artifacts/window-geometry-tests/results
+```
+
+The task-owned project, run log and TRX remain under that local `artifacts`
+directory; the authoritative checked-in tests still run through the unchanged
+full `ProGPU.Tests` CI gate. Diff checks passed. The repository docs verifier
+stopped at the fresh worktree's missing `external/ACadSharp` submodule project;
+it did not pass. Actual macOS ARM64 and x64 interop execution, installed-package
+consumption and native popup desktop acceptance remain separate required
+qualification. Existing independent Windows/X11 native geometry probes are not
+replaced or qualified by this Cocoa seam.
