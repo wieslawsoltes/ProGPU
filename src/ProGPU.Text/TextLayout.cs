@@ -70,8 +70,23 @@ public class TextLayout
     [ThreadStatic]
     private static ShapingBuffer? t_shapingBuffer;
 
-    private readonly record struct LineRange(
-        int Start, int Count, float Left = 0, float Top = 0, float Height = 0);
+    private readonly struct LineRange
+    {
+        public LineRange(int start, int count, float left = 0, float top = 0, float height = 0)
+        {
+            Start = start;
+            Count = count;
+            Left = left;
+            Top = top;
+            Height = height;
+        }
+
+        public int Start { get; }
+        public int Count { get; }
+        public float Left { get; }
+        public float Top { get; }
+        public float Height { get; }
+    }
 
     // Retain the layout writer's line frames. Glyph Position includes OpenType
     // drawing offsets and is not a logical pen or a reliable line discriminator.
@@ -532,7 +547,7 @@ public class TextLayout
                 continue;
             }
 
-            lines[lineIndex] = line with { Left = shiftX };
+            lines[lineIndex] = new LineRange(line.Start, line.Count, shiftX, line.Top, line.Height);
             int lineEnd = line.Start + line.Count;
             for (var glyphIndex = line.Start; glyphIndex < lineEnd; glyphIndex++)
             {

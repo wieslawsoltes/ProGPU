@@ -75,3 +75,13 @@ Logs and TRX files are retained under `artifacts/text-interaction/`, including
 the initial fixture and linked-test assembly-identity compilation failures.
 Full exact-head CI, Svg.Skia parity, package/NativeAOT and eventual application
 validation remain required; no VM or desktop rendering was used here.
+
+The first hosted producer `36302203783` at `90ae0016c` exposed one retained
+source-shape guard: it requires the original `readonly struct LineRange` with
+explicit start/count properties. Linux completed 4,773 cases (4,763 passed,
+one guard failure, nine existing skips); the Windows source-guard group had
+93 passes and that same failure. The implementation now preserves that original
+struct and extends its explicit fields, retaining every guard and additionally
+checking line origins, tops, heights and shared writer ownership. All 82 focused
+cases plus the actual guard pass locally (83/83). The failed hosted producer is
+not eligible for artifact staging; a new complete producer is required.
