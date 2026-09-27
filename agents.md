@@ -1,5 +1,12 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Native device-advance queries borrow one selected immutable font context under
+its existing use lease. Preserve exact hdmx ppem/face identity, bounded positive
+and negative caching, atomic glyph validation and untouched caller tails.
+Device pixels are not design units, ink bounds or hinted variable-instance
+metrics. Do not infer Display admission, interpolate absent records or add a
+per-glyph crossing. See docs/native-font-device-advances.md.
+
 Retained DrawingTextLayout painting and interaction must share one original
 formatted generation. Own exact glyph/font runs and interaction geometry; do not
 reshape prefixes for carets or borrow mutable Font/StringFormat state. Keep
