@@ -31,19 +31,19 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     let result = results[texel_index / 2u];
-    var packed: vec4<u32>;
+    var packedResult: vec4<u32>;
     if ((texel_index & 1u) == 0u) {
-        packed = vec4<u32>(
+        packedResult = vec4<u32>(
             result.hit,
             bitcast<u32>(result.id),
             result.primitive_index,
             bitcast<u32>(result.z_index));
     } else {
-        packed = vec4<u32>(
+        packedResult = vec4<u32>(
             result.candidate_count,
             result.nodes_visited,
             result.precise_tests,
             result.intersection_detail);
     }
-    textureStore(output, vec2<i32>(i32(texel_index), 0), packed);
+    textureStore(output, vec2<i32>(i32(texel_index), 0), packedResult);
 }

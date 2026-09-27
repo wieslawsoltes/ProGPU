@@ -47,7 +47,7 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (wordX * 4u >= uniforms.width || y >= uniforms.height) {
         return;
     }
-    var packed = 0u;
+    var coverageWord = 0u;
     for (var lane = 0u; lane < 4u; lane = lane + 1u) {
         let x = wordX * 4u + lane;
         if (x < uniforms.width) {
@@ -55,10 +55,10 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 uniforms,
                 x,
                 y);
-            packed = packed | (coverage << (lane * 8u));
+            coverageWord = coverageWord | (coverage << (lane * 8u));
         }
     }
     coverageOutput[
         uniforms.destinationOffsetWords +
-        y * uniforms.destinationRowWords + wordX] = packed;
+        y * uniforms.destinationRowWords + wordX] = coverageWord;
 }

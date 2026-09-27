@@ -14,12 +14,12 @@ struct Params {
 @group(0) @binding(2) var<uniform> params: Params;
 
 fn load_coverage(x: i32, y: i32) -> f32 {
-    let packed = textureLoad(inputTex, vec2<i32>(x / 4, y), 0);
+    let packedCoverage = textureLoad(inputTex, vec2<i32>(x / 4, y), 0);
     switch (x & 3) {
-        case 0: { return packed.r; }
-        case 1: { return packed.g; }
-        case 2: { return packed.b; }
-        default: { return packed.a; }
+        case 0: { return packedCoverage.r; }
+        case 1: { return packedCoverage.g; }
+        case 2: { return packedCoverage.b; }
+        default: { return packedCoverage.a; }
     }
 }
 
