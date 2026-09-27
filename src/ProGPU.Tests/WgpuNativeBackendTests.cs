@@ -177,4 +177,29 @@ public sealed class WgpuNativeBackendTests
         Assert.True(owner > shared && acquire > owner);
         Assert.Equal(2, source.Split("NativeBackendOptions.ValidateOwnership(false);", StringSplitOptions.None).Length - 1);
     }
+
+    [Fact]
+    public void NativeSurfaceConfigurationDrainsTheActualQueueBeforeThePinnedBlockingPath()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Directory.Packages.props")))
+            directory = directory.Parent;
+        Assert.NotNull(directory);
+        string source = File.ReadAllText(Path.Combine(directory.FullName, "src/ProGPU.Backend/WgpuContext.cs"));
+        int entry = source.IndexOf("public bool TryConfigureSwapChain(", StringComparison.Ordinal);
+        int locked = source.IndexOf("lock (RenderLock)", entry, StringComparison.Ordinal);
+        int call = source.IndexOf("return TryConfigureSwapChainCore(width, height, refreshCapabilities);", locked, StringComparison.Ordinal);
+        int core = source.IndexOf("private bool TryConfigureSwapChainCore(", call, StringComparison.Ordinal);
+        int external = source.IndexOf("externalSurface.ConfigureExternalSurface(", core, StringComparison.Ordinal);
+        int browser = source.IndexOf("BackendKind == WgpuBackendKind.BrowserWebGpu", external, StringComparison.Ordinal);
+        int drain = source.IndexOf("WaitIdle();", browser, StringComparison.Ordinal);
+        int invalidated = source.IndexOf("_isSurfaceConfigured = false;", drain, StringComparison.Ordinal);
+        int loss = source.IndexOf("if (IsDeviceLost)", invalidated, StringComparison.Ordinal);
+        int reject = source.IndexOf("return false;", loss, StringComparison.Ordinal);
+        int configure = source.IndexOf("Wgpu.SurfaceConfigure(Surface, &config);", reject, StringComparison.Ordinal);
+        Assert.True(entry >= 0 && locked > entry && call > locked && core > call);
+        Assert.True(external > core && browser > external && drain > browser);
+        Assert.True(invalidated > drain && loss > invalidated && reject > loss && configure > reject);
+        Assert.DoesNotContain("_queueSubmissionCount", source[core..configure], StringComparison.Ordinal);
+    }
 }
