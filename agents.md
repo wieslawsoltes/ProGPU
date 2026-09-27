@@ -688,6 +688,14 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+Native window geometry snapshots are read-only, live-owner queries. Cocoa uses
+actual content-view bounds converted through its window to screen points, with
+the current primary-screen origin; never infer content from frame/chrome, AX
+elements or a framebuffer ratio. Keep backing scale separate, borrow identities
+only, retain/revalidate during the synchronous read and publish nothing on stale
+window/view/device identity. AppKit windowNumber is not an asserted CGWindowID.
+Unsupported providers remain unavailable. See docs/native-window-geometry-snapshot.md.
+
 `IPortableDrawingBoundsSource` distinguishes authoritative empty content from
 unavailable metadata. Successful PortableRect.Empty can select the existing
 null-drawing MIL image contract; false cannot. Preserve source dependencies across
