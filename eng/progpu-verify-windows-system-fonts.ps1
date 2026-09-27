@@ -15,6 +15,8 @@ $referenceDll = Join-Path $root "eng/probes/SystemFonts/Reference/bin/Release/ne
 $portableDll = Join-Path $root "eng/probes/SystemFonts/Portable/bin/Release/net10.0/$Rid/SystemFonts.Portable.dll"
 $expectedRoles = @('CaptionFont', 'DefaultFont', 'DialogFont', 'IconTitleFont', 'MenuFont', 'MessageBoxFont', 'SmallCaptionFont', 'StatusFont')
 $properties = @('Role', 'Name', 'Size', 'SizeInPoints', 'Style', 'Unit', 'GdiCharSet', 'GdiVerticalFont', 'SystemFontName', 'IsSystemFont')
+$expectedUnits = @('Document', 'Inch', 'Millimeter', 'Pixel', 'Point', 'World')
+$metricProperties = @('Name', 'Size', 'Unit', 'SizeInPoints', 'Height', 'ImplicitHeight', 'Explicit96', 'Explicit192', 'EmHeight', 'LineSpacing')
 foreach ($mode in @('unaware', 'system', 'per-monitor-v2')) {
     $referencePath = Join-Path $output "$mode-reference.json"
     $portablePath = Join-Path $output "$mode-portable.json"
@@ -37,7 +39,12 @@ foreach ($mode in @('unaware', 'system', 'per-monitor-v2')) {
             (($receipt.Fonts.Role | Sort-Object) -join ',') -cne ($expectedRoles -join ',')) {
             throw 'Incomplete system font role/mode coverage.'
         }
+        if ($receipt.ScreenDpi -le 0 -or $receipt.Metrics.Count -ne 6 -or
+            (($receipt.Metrics.Unit | Sort-Object) -join ',') -cne ($expectedUnits -join ',')) {
+            throw 'Incomplete font metric/DPI coverage.'
+        }
     }
+    if ($expected.ScreenDpi -ne $actual.ScreenDpi) { throw 'The font probes observed different screen DPI.' }
     foreach ($font in $expected.Fonts) {
         $found = @($actual.Fonts | Where-Object Role -CEQ $font.Role)
         if ($found.Count -ne 1) { throw "Missing or duplicated role: $($font.Role)" }
@@ -47,5 +54,14 @@ foreach ($mode in @('unaware', 'system', 'per-monitor-v2')) {
             }
         }
     }
-    Write-Host "System fonts match Microsoft: $Rid / $mode / all 8 roles and ownership checks."
+    foreach ($metric in $expected.Metrics) {
+        $found = @($actual.Metrics | Where-Object Unit -CEQ $metric.Unit)
+        if ($found.Count -ne 1) { throw "Missing or duplicated metric unit: $($metric.Unit)" }
+        foreach ($property in $metricProperties) {
+            if ($metric.$property -cne $found[0].$property) {
+                throw "$mode/$($metric.Unit)/${property}: expected '$($metric.$property)', actual '$($found[0].$property)'"
+            }
+        }
+    }
+    Write-Host "System fonts match Microsoft: $Rid / $mode / all 8 roles, 6 metric units and ownership checks."
 }

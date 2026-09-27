@@ -46,12 +46,12 @@ jobs:
       - name: Verify independent ownership and native descriptor layout
         shell: pwsh
         run: |
-          dotnet test src/System.Drawing.Common.Tests/System.Drawing.Common.Tests.csproj -c Release -r '${{ matrix.rid }}' --filter 'FullyQualifiedName~SystemFontOwnershipTests|FullyQualifiedName~SystemFontDescriptorTests' --logger 'trx;LogFileName=system-fonts.trx' --results-directory 'artifacts/windows-system-fonts/${{ matrix.rid }}'
+          dotnet test src/System.Drawing.Common.Tests/System.Drawing.Common.Tests.csproj -c Release -r '${{ matrix.rid }}' --filter 'FullyQualifiedName~SystemFontOwnershipTests|FullyQualifiedName~SystemFontDescriptorTests|FullyQualifiedName~FontScreenDpiTests' --logger 'trx;LogFileName=system-fonts.trx' --results-directory 'artifacts/windows-system-fonts/${{ matrix.rid }}'
           if ($LASTEXITCODE -ne 0) { throw 'System font ownership/layout tests failed.' }
           $trx = [xml](Get-Content -Raw 'artifacts/windows-system-fonts/${{ matrix.rid }}/system-fonts.trx')
           $counts = $trx.TestRun.ResultSummary.Counters
-          if ([int]$counts.total -ne 17 -or [int]$counts.executed -ne 17 -or [int]$counts.passed -ne 17) {
-            throw 'All 17 system font ownership/descriptor cases must execute and pass.'
+          if ([int]$counts.total -ne 23 -or [int]$counts.executed -ne 23 -or [int]$counts.passed -ne 23) {
+            throw 'All 23 system font ownership/descriptor/screen-DPI cases must execute and pass.'
           }
       - name: Preserve independent system font receipts
         if: always()
