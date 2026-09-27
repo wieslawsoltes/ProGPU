@@ -3225,40 +3225,49 @@ public partial class Graphics :
         Vector2 origin,
         Matrix4x4 transform)
     {
-        var isBold = (font.Style & FontStyle.Bold) != 0;
-        var isItalic = (font.Style & FontStyle.Italic) != 0;
-        var nativeBrush = TransformBrush(brush);
-        GlyphRunBuilder? run = null;
+        DrawPreparedGlyphRuns(PrepareDrawingGlyphRuns(layout), font.Style, GetFontPixelSize(font), brush, origin, transform);
+    }
 
-        for (int i = 0; i < layout.Glyphs.Count; i++)
+    private static PreparedDrawingGlyphRun[] PrepareDrawingGlyphRuns(ProGPU.Text.TextLayout layout)
+    {
+        if (layout.Glyphs.Count == 0) return [];
+        int runCount = 1;
+        for (int i = 1; i < layout.Glyphs.Count; i++)
+            if (!ReferenceEquals(layout.Glyphs[i - 1].Font, layout.Glyphs[i].Font)) runCount++;
+        var runs = new PreparedDrawingGlyphRun[runCount];
+        int runIndex = 0;
+        for (int start = 0; start < layout.Glyphs.Count;)
         {
-            ProGPU.Text.TextRunGlyph glyph = layout.Glyphs[i];
-            if (run == null || !ReferenceEquals(run.Font, glyph.Font))
+            ProGPU.Text.TtfFont face = layout.Glyphs[start].Font;
+            int end = start + 1;
+            while (end < layout.Glyphs.Count && ReferenceEquals(face, layout.Glyphs[end].Font)) end++;
+            var indices = new ushort[end - start];
+            var positions = new Vector2[indices.Length];
+            for (int i = 0; i < indices.Length; i++)
             {
-                if (run != null)
-                {
-                    RecordGlyphRun(run);
-                }
-
-                run = new GlyphRunBuilder(glyph.Font);
+                ProGPU.Text.TextRunGlyph glyph = layout.Glyphs[start + i];
+                indices[i] = glyph.GlyphIndex;
+                positions[i] = glyph.Position;
             }
-
-            run.GlyphIndices.Add(glyph.GlyphIndex);
-            run.GlyphPositions.Add(glyph.Position);
+            runs[runIndex++] = new PreparedDrawingGlyphRun(face, indices, positions);
+            start = end;
         }
+        return runs;
+    }
 
-        if (run != null)
-        {
-            RecordGlyphRun(run);
-        }
-
-        void RecordGlyphRun(GlyphRunBuilder glyphRun)
+    private void DrawPreparedGlyphRuns(PreparedDrawingGlyphRun[] runs, FontStyle style,
+        float fontSize, Brush brush, Vector2 origin, Matrix4x4 transform)
+    {
+        bool isBold = (style & FontStyle.Bold) != 0;
+        bool isItalic = (style & FontStyle.Italic) != 0;
+        var nativeBrush = TransformBrush(brush);
+        foreach (PreparedDrawingGlyphRun run in runs)
         {
             _context.DrawGlyphRun(
-                glyphRun.GlyphIndices.ToArray(),
-                glyphRun.GlyphPositions.ToArray(),
-                glyphRun.Font,
-                GetFontPixelSize(font),
+                run.GlyphIndices,
+                run.GlyphPositions,
+                run.Font,
+                fontSize,
                 nativeBrush,
                 origin,
                 transform,
@@ -3272,7 +3281,8 @@ public partial class Graphics :
         Font font,
         Brush brush,
         Vector2 origin,
-        Matrix4x4 transform)
+        Matrix4x4 transform,
+        List<PreparedDrawingTextDecoration>? retainedRectangles = null)
     {
         if ((!font.Underline && !font.Strikeout) || layout.Glyphs.Count == 0 ||
             font.TtfFont.UnitsPerEm <= 0)
@@ -3292,7 +3302,7 @@ public partial class Graphics :
         float strikeoutPosition = font.TtfFont.StrikeoutPosition ??
             (short)(font.TtfFont.UnitsPerEm / 3);
         float lineTolerance = MathF.Max(0.01f, MathF.Abs(layout.FontSize) * 0.75f);
-        ProGPU.Vector.Brush nativeBrush = TransformBrush(brush);
+        ProGPU.Vector.Brush? nativeBrush = retainedRectangles is null ? TransformBrush(brush) : null;
 
         int lineStart = 0;
         while (lineStart < layout.Glyphs.Count)
@@ -3314,30 +3324,30 @@ public partial class Graphics :
             {
                 if (font.Underline)
                 {
-                    _context.DrawRectangle(
-                        nativeBrush,
-                        null,
-                        new Rect(
-                            origin.X + left,
-                            origin.Y + baseline - underlinePosition * scale,
+                    DrawOrRetainRectangle(new PreparedDrawingTextDecoration(
+                            left,
+                            baseline,
+                            underlinePosition * scale,
                             right - left,
-                            underlineThickness),
-                        transform);
+                            underlineThickness));
                 }
                 if (font.Strikeout)
                 {
-                    _context.DrawRectangle(
-                        nativeBrush,
-                        null,
-                        new Rect(
-                            origin.X + left,
-                            origin.Y + baseline - strikeoutPosition * scale,
+                    DrawOrRetainRectangle(new PreparedDrawingTextDecoration(
+                            left,
+                            baseline,
+                            strikeoutPosition * scale,
                             right - left,
-                            strikeoutThickness),
-                        transform);
+                            strikeoutThickness));
                 }
             }
             lineStart = lineEnd;
+        }
+
+        void DrawOrRetainRectangle(PreparedDrawingTextDecoration decoration)
+        {
+            if (retainedRectangles is not null) retainedRectangles.Add(decoration);
+            else _context.DrawRectangle(nativeBrush, null, decoration.Place(origin), transform);
         }
     }
 
@@ -3398,7 +3408,8 @@ public partial class Graphics :
         string text,
         Font font,
         SizeF layoutArea,
-        StringFormat format)
+        StringFormat format,
+        bool retainCompleteParagraph = false)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(font);
@@ -3471,7 +3482,7 @@ public partial class Graphics :
         int charactersFitted = text.Length;
         int mnemonicIndex = hotkeyText.MnemonicIndex;
 
-        if ((exceedsWidth || exceedsHeight)
+        if (!retainCompleteParagraph && (exceedsWidth || exceedsHeight)
             && (format.Trimming != StringTrimming.None || lineLimit || (clipToLayout && exceedsHeight)))
         {
             StringTrimming trimming = format.Trimming == StringTrimming.None
@@ -3987,18 +3998,6 @@ public partial class Graphics :
         int MnemonicIndex);
 
     private readonly record struct HotkeyText(string Text, int MnemonicIndex);
-
-    private sealed class GlyphRunBuilder
-    {
-        public GlyphRunBuilder(ProGPU.Text.TtfFont font)
-        {
-            Font = font;
-        }
-
-        public ProGPU.Text.TtfFont Font { get; }
-        public List<ushort> GlyphIndices { get; } = [];
-        public List<Vector2> GlyphPositions { get; } = [];
-    }
 
     private float GetFontPixelSize(Font font)
     {
