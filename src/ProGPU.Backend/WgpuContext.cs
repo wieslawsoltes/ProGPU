@@ -1985,11 +1985,11 @@ public unsafe class WgpuContext : IDisposable
         // domain as submissions, including shared-device popup surfaces.
         lock (RenderLock)
         {
-            return TryConfigureSwapChainCore(width, height, refreshCapabilities);
+            return TryConfigureSwapChainCore(width, height, refreshCapabilities, waitForCompletion: true);
         }
     }
 
-    private bool TryConfigureSwapChainCore(uint width, uint height, bool refreshCapabilities)
+    private bool TryConfigureSwapChainCore(uint width, uint height, bool refreshCapabilities, bool waitForCompletion)
     {
         if (IsDeviceLost)
         {
@@ -2028,6 +2028,19 @@ public unsafe class WgpuContext : IDisposable
         if (Surface == null || Device == null)
         {
             return false;
+        }
+
+        bool pollWithoutWaiting = !waitForCompletion && BackendKind == WgpuBackendKind.SilkNative;
+        if (pollWithoutWaiting)
+        {
+            if (!PollNativeDeviceCore(wait: false))
+            {
+                // Do not mutate cached surface state, query capabilities or log
+                // a configuration on a pending render-time attempt. Its caller
+                // retains the presentation request and retries on a later tick.
+                return false;
+            }
+            MarkSubmittedWorkDrained();
         }
 
         long configurationStart = Stopwatch.GetTimestamp();
@@ -2109,9 +2122,14 @@ public unsafe class WgpuContext : IDisposable
 
         // The pinned wgpu-core surface_configure calls Maintain::Wait itself.
         // Its timed blocking path can advance retirement without actual fence
-        // completion. Drain through our nonblocking-fence policy first, while
-        // retaining RenderLock so another host cannot submit in between.
-        WaitIdle();
+        // completion. A render tick must defer a pending native resize rather
+        // than block its event thread. Explicit synchronous configuration keeps
+        // its drain contract. Both paths retain RenderLock through configuration
+        // so another host cannot submit between completion and SurfaceConfigure.
+        if (!pollWithoutWaiting)
+        {
+            WaitIdle();
+        }
         _isSurfaceConfigured = false;
         if (IsDeviceLost)
         {
@@ -2338,14 +2356,35 @@ public unsafe class WgpuContext : IDisposable
 
     public bool TryReconfigureIfNeeded(uint width, uint height)
     {
-        if (!_isSurfaceConfigured ||
-            width != _lastWidth ||
-            height != _lastHeight)
-        {
-            return TryConfigureSwapChain(width, height);
-        }
+        return TryReconfigureIfNeededCore(width, height, waitForCompletion: true);
+    }
 
-        return _isSurfaceConfigured;
+    /// <summary>
+    /// Attempts reconfiguration with explicit control over Silk-native queue
+    /// waiting. When <paramref name="waitForNativeCompletion"/> is false, pending
+    /// work returns false without reconfiguring; the caller must defer acquisition
+    /// and preserve its presentation request. External/browser providers retain
+    /// their existing configuration contracts. The two-argument overload keeps
+    /// the original synchronous drain, including for one-shot presenters.
+    /// </summary>
+    public bool TryReconfigureIfNeeded(uint width, uint height, bool waitForNativeCompletion)
+    {
+        return TryReconfigureIfNeededCore(width, height, waitForNativeCompletion);
+    }
+
+    private bool TryReconfigureIfNeededCore(uint width, uint height, bool waitForCompletion)
+    {
+        lock (RenderLock)
+        {
+            if (!_isSurfaceConfigured ||
+                width != _lastWidth ||
+                height != _lastHeight)
+            {
+                return TryConfigureSwapChainCore(width, height, refreshCapabilities: false, waitForCompletion);
+            }
+
+            return _isSurfaceConfigured;
+        }
     }
 
     public void PollDevice(bool wait)
@@ -2356,20 +2395,7 @@ public unsafe class WgpuContext : IDisposable
                 Device != null &&
                 !_isDisposed)
             {
-                if (_devicePollAddress == 0)
-                {
-                    _devicePollAddress =
-                        Wgpu.Context.GetProcAddress(
-                            "wgpuDevicePoll");
-                }
-
-                var poll =
-                    (delegate* unmanaged[Cdecl]<
-                        Device*,
-                        uint,
-                        void*,
-                        uint>)_devicePollAddress;
-                _ = PollNativeQueueCompletion(Device, poll, wait);
+                _ = PollNativeDeviceCore(wait);
                 if (wait)
                 {
                     MarkSubmittedWorkDrained();
@@ -2392,6 +2418,17 @@ public unsafe class WgpuContext : IDisposable
                 }
             }
         }
+    }
+
+    // The caller holds RenderLock and has admitted a live Silk-native device.
+    private bool PollNativeDeviceCore(bool wait)
+    {
+        if (_devicePollAddress == 0)
+        {
+            _devicePollAddress = Wgpu.Context.GetProcAddress("wgpuDevicePoll");
+        }
+        var poll = (delegate* unmanaged[Cdecl]<Device*, uint, void*, uint>)_devicePollAddress;
+        return PollNativeQueueCompletion(Device, poll, wait);
     }
 
     // The pinned wgpu-native blocking poll can report completion after an
