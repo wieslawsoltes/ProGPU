@@ -12,6 +12,11 @@
 
 namespace {
 using bytes = std::vector<std::uint8_t>;
+template <typename T, std::size_t Count>
+constexpr std::uint32_t wire_count(const std::array<T, Count>&) noexcept {
+    static_assert(Count <= std::numeric_limits<std::uint32_t>::max());
+    return static_cast<std::uint32_t>(Count);
+}
 unsigned checks = 0U;
 void require(bool condition, std::source_location location = std::source_location::current()) {
     ++checks;
@@ -74,13 +79,13 @@ int main() {
     const std::array<float, 3> expected{1.0F, 0.0F, 255.0F};
     std::array<float, 12> output{};
     std::uint32_t available = 99U;
-    for (std::uint32_t count = 0U; count <= indices.size(); ++count) {
+    for (std::uint32_t count = 0U; count <= wire_count(indices); ++count) {
         for (unsigned repeat = 0U; repeat < 2U; ++repeat) {
             output.fill(-777.0F);
             require(progpu_native_text_context_get_device_advances(context.value, 0U, 12U,
-                indices.data(), count, output.data(), output.size(), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
+                indices.data(), count, output.data(), wire_count(output), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
             require(available == 1U);
-            for (std::size_t i = 0U; i < output.size(); ++i)
+            for (std::size_t i = 0U; i < wire_count(output); ++i)
                 require(output[i] == (i < count ? expected[indices[i]] : -777.0F));
         }
     }
@@ -88,10 +93,10 @@ int main() {
     for (std::uint32_t ppem = 1U; ppem <= 40U; ++ppem) {
         output.fill(-777.0F);
         require(progpu_native_text_context_get_device_advances(context.value, 0U, ppem,
-            indices.data(), indices.size(), output.data(), output.size(), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
+            indices.data(), wire_count(indices), output.data(), wire_count(output), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
         require(available == ((ppem == 12U || ppem == 16U) ? 1U : 0U));
-        for (std::size_t i = 0U; i < output.size(); ++i) {
-            const float value = i >= indices.size() || available == 0U ? -777.0F :
+        for (std::size_t i = 0U; i < wire_count(output); ++i) {
+            const float value = i >= wire_count(indices) || available == 0U ? -777.0F :
                 ppem == 12U ? expected[indices[i]] : static_cast<float>(indices[i] + 2U);
             require(output[i] == value);
         }
@@ -105,12 +110,12 @@ int main() {
         require(index == face);
         std::fill(fallback.begin(), fallback.end(), 0U);
         require(progpu_native_text_context_get_device_advances(context.value, face, 12U,
-            indices.data(), indices.size(), output.data(), output.size(), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
+            indices.data(), wire_count(indices), output.data(), wire_count(output), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
         require(available == 1U && output[0U] == static_cast<float>(face + 4U));
     }
     for (const auto face : {0U, 1U, 20U}) {
         require(progpu_native_text_context_get_device_advances(context.value, face, 12U,
-            indices.data(), indices.size(), output.data(), output.size(), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
+            indices.data(), wire_count(indices), output.data(), wire_count(output), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
         require(available == 1U && output[0U] == (face == 0U ? 255.0F : static_cast<float>(face + 4U)));
     }
     context_owner absent(font_bytes(false));
@@ -121,11 +126,11 @@ int main() {
     const auto sentinel = output;
     for (const auto ppem : {12U, 13U, 256U, 65535U}) {
         require(progpu_native_text_context_get_device_advances(absent.value, 0U, ppem,
-            indices.data(), indices.size(), output.data(), output.size(), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
+            indices.data(), wire_count(indices), output.data(), wire_count(output), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
         require(available == 0U && output == sentinel);
     }
     require(progpu_native_text_context_get_device_advances(damaged.value, 0U, 12U,
-        indices.data(), indices.size(), output.data(), output.size(), &available) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        indices.data(), wire_count(indices), output.data(), wire_count(output), &available) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(available == 0U && output == sentinel);
 
     const auto rejects = [&](progpu_native_text_context* owner, std::uint32_t face,
@@ -137,13 +142,13 @@ int main() {
             glyphs, count, destination, capacity, &available) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT, location);
         require(available == 0U && output == sentinel, location);
     };
-    rejects(nullptr, 0U, 12U, indices.data(), indices.size(), output.data(), output.size());
-    rejects(context.value, 21U, 12U, indices.data(), indices.size(), output.data(), output.size());
+    rejects(nullptr, 0U, 12U, indices.data(), wire_count(indices), output.data(), wire_count(output));
+    rejects(context.value, 21U, 12U, indices.data(), wire_count(indices), output.data(), wire_count(output));
     for (const auto ppem : {0U, 65536U, std::numeric_limits<std::uint32_t>::max()})
-        rejects(context.value, 0U, ppem, indices.data(), indices.size(), output.data(), output.size());
-    rejects(context.value, 0U, 12U, nullptr, 1U, output.data(), output.size());
-    rejects(context.value, 0U, 12U, indices.data(), indices.size(), nullptr, indices.size());
-    rejects(context.value, 0U, 12U, indices.data(), indices.size(), output.data(), indices.size() - 1U);
+        rejects(context.value, 0U, ppem, indices.data(), wire_count(indices), output.data(), wire_count(output));
+    rejects(context.value, 0U, 12U, nullptr, 1U, output.data(), wire_count(output));
+    rejects(context.value, 0U, 12U, indices.data(), wire_count(indices), nullptr, wire_count(indices));
+    rejects(context.value, 0U, 12U, indices.data(), wire_count(indices), output.data(), wire_count(indices) - 1U);
     // The entire declared span must fit even for the intentionally misaligned
     // destination. Otherwise its overrun can alias availability on a different
     // compiler's stack, correctly selecting the all-storage-preserved contract.
@@ -151,37 +156,37 @@ int main() {
     unaligned.fill(std::byte{0x5A});
     const auto unaligned_sentinel = unaligned;
     rejects(context.value, 0U, 12U, reinterpret_cast<const std::uint32_t*>(unaligned.data() + 1U), 1U,
-        output.data(), output.size());
-    rejects(context.value, 0U, 12U, indices.data(), indices.size(),
-        reinterpret_cast<float*>(unaligned.data() + 1U), indices.size());
+        output.data(), wire_count(output));
+    rejects(context.value, 0U, 12U, indices.data(), wire_count(indices),
+        reinterpret_cast<float*>(unaligned.data() + 1U), wire_count(indices));
     require(unaligned == unaligned_sentinel);
     rejects(context.value, 0U, 12U,
         reinterpret_cast<const std::uint32_t*>(std::numeric_limits<std::uintptr_t>::max() - 3U),
-        2U, output.data(), output.size());
+        2U, output.data(), wire_count(output));
     for (const auto bad : {3U, 65535U, 0x80000000U, 0xFFFFFFFFU}) {
-        for (std::size_t slot = 0U; slot < indices.size(); ++slot) {
+        for (std::size_t slot = 0U; slot < wire_count(indices); ++slot) {
             auto invalid = indices;
             invalid[slot] = bad;
             for (const auto ppem : {12U, 13U})
-                rejects(context.value, 0U, ppem, invalid.data(), invalid.size(), output.data(), output.size());
+                rejects(context.value, 0U, ppem, invalid.data(), wire_count(invalid), output.data(), wire_count(output));
         }
     }
     require(progpu_native_text_context_get_device_advances(context.value, 0U, 12U,
-        indices.data(), indices.size(), output.data(), output.size(), nullptr) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        indices.data(), wire_count(indices), output.data(), wire_count(output), nullptr) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(output == sentinel);
     auto aliased = indices;
     const auto saved = aliased;
     require(progpu_native_text_context_get_device_advances(context.value, 0U, 12U,
-        aliased.data(), aliased.size(), output.data(), output.size(), aliased.data()) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        aliased.data(), wire_count(aliased), output.data(), wire_count(output), aliased.data()) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(aliased == saved && output == sentinel);
     require(progpu_native_text_context_get_device_advances(context.value, 0U, 12U,
-        indices.data(), indices.size(), output.data(), output.size(),
+        indices.data(), wire_count(indices), output.data(), wire_count(output),
         reinterpret_cast<std::uint32_t*>(output.data() + 11U)) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(output == sentinel);
     available = 99U;
     require(progpu_native_text_context_get_device_advances(context.value, 0U, 12U,
-        aliased.data(), aliased.size(), reinterpret_cast<float*>(aliased.data()),
-        aliased.size(), &available) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        aliased.data(), wire_count(aliased), reinterpret_cast<float*>(aliased.data()),
+        wire_count(aliased), &available) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(aliased == saved && available == 99U);
     require(progpu_native_text_context_get_device_advances(context.value, 0U, 12U,
         nullptr, 0U, nullptr, 0U, &available) == PROGPU_NATIVE_STATUS_SUCCESS);

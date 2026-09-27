@@ -90,6 +90,9 @@ stack layout cannot accidentally turn it into the distinct overlapping-status
 case. It also verifies that the misaligned storage is untouched and reports the
 actual failing caller location. Export manifests retain canonical sorted order;
 the production rejection and overlap contracts are unchanged.
+Fixture array counts use compile-time checked 32-bit conversion at the C ABI;
+the MSVC `/W4 /WX` gate remains enabled. The fixture also compiles locally with
+Clang `-Wconversion -Werror`, retaining all 1,119 checks and sanitizer coverage.
 
 Both renderer modes can consume this shared context API; no managed-only metric
 algorithm, drawing fallback or renderer-specific behavior is added. Normal shaping,
