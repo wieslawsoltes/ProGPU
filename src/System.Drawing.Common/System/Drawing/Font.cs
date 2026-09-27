@@ -208,6 +208,10 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
     internal static Font CreateSystemFont(FontFamily family, float size, string role)
         => new(family, size, FontStyle.Regular, GraphicsUnit.Point, 1, false, family.Name, role);
 
+    internal static Font CreateSystemFont(FontFamily family, float size, FontStyle style,
+        byte charSet, bool vertical, string role)
+        => new(family, size, style, GraphicsUnit.Point, charSet, vertical, family.Name, role);
+
     public object Clone()
     {
         ThrowIfDisposed();

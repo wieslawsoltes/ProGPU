@@ -11,10 +11,10 @@ the system role. Unknown, empty, differently cased and null `GetFontByName`
 requests return null rather than selecting an unrelated default font.
 
 This is an original ProGPU implementation of observable API and ownership
-contracts. The current portable generic-sans selection, 8.25-point size, style,
-charset and font metrics are unchanged. These role names do not claim native OS
-font-settings discovery, Windows font-name parity, accessibility text scaling,
-or identical cross-platform form autoscaling. Those are separate contracts.
+contracts. Non-Windows generic-sans selection and 8.25-point size remain unchanged.
+Windows now uses the separate [native system-font settings contract](windows-system-font-settings.md).
+Role identity alone does not qualify accessibility behavior, rendered text,
+or identical cross-platform form autoscaling.
 
 ## Validation
 
