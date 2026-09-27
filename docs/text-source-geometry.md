@@ -21,6 +21,12 @@ on the next row. Positions are advance geometry, not glyph ink offsets. The
 Drawing facade applies the same layout alignment offset as drawing and the
 existing caret/selection methods.
 
+Hit testing selects the actual horizontal row's half-open vertical band before
+horizontal cluster proximity. A longer adjacent row cannot steal a hit beyond a
+short row's end; a shared Y edge belongs to the following row. Both direct layout
+and retained snapshot queries use the same policy. Legacy/vertical geometry
+without writer-owned rows retains its previous distance policy.
+
 All source-row arrays are captured with the snapshot; later mutation or
 regeneration of the original glyph collection cannot change their ownership.
 Source indices outside `[0, TextLength]` and invalid row indices are rejected;
@@ -35,12 +41,16 @@ The original implementation provenance is ProGPU's `TextLayout` horizontal
 writer, `TextInteractionSnapshot`, and `DrawingTextLayout`; no third-party source
 implementation was imported.
 
-Local macOS ARM64 validation passes all 208 linked shaping/interaction/source-
+Local macOS ARM64 validation passes all 213 linked shaping/interaction/source-
 guard cases and all 27 retained Drawing-layout cases, zero failures/skips.
 Evidence is under `artifacts/source-geometry`. Tests cover all source units,
 hard/soft boundaries, hidden formatting characters, bidi edges, zero-height rows,
 snapshot ownership, argument rejection, Drawing alignment and original draw
 contracts. Full exact-head CI and source editor integration remain required.
+
+The source-editor integration exposed the short-row hit defect. The five new
+shared regression cases initially failed three cases and passed two controls;
+the corrected shared policy passes all five without changing glyph shaping.
 
 This provides the geometry needed for WinForms character/physical-line APIs; it
 does not itself replace their USER32 dispatch, qualify platform editor behavior,

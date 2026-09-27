@@ -9,6 +9,36 @@ namespace ProGPU.Tests;
 public sealed class TextSourceGeometryTests
 {
     [Theory]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    public void OutsideHorizontalExtentStaysOnTheOwnedShortRow(bool shortFirst, bool before)
+    {
+        var layout = Make(shortFirst ? "a\r\nWWWWWWWWWW" : "WWWWWWWWWW\r\na");
+        var snapshot = layout.CreateInteractionSnapshot();
+        int row = shortFirst ? 0 : 1;
+        int start = snapshot.GetRowSourceStart(row);
+        TextCaretStop caret = snapshot.GetRowBoundary(start, false, end: !before);
+        Vector2 point = new(before ? -1000 : 1000, caret.Position.Y + caret.Height / 2);
+        TextHitTestResult hit = snapshot.HitTestPoint(point);
+        Assert.Equal(caret.TextPosition, hit.TextPosition);
+        Assert.False(hit.IsInside);
+        Assert.Equal(hit, layout.HitTestPoint(point));
+    }
+
+    [Fact]
+    public void SharedRowEdgeSelectsTheFollowingHalfOpenRow()
+    {
+        var layout = Make("a\r\nWWWWWWWWWW");
+        var snapshot = layout.CreateInteractionSnapshot();
+        TextCaretStop second = snapshot.GetCaretStop(3);
+        Vector2 point = new(-1000, second.Position.Y);
+        Assert.Equal(3, snapshot.HitTestPoint(point).TextPosition);
+        Assert.Equal(snapshot.HitTestPoint(point), layout.HitTestPoint(point));
+    }
+
+    [Theory]
     [InlineData("", new[] { 0 })]
     [InlineData("a\r\nb", new[] { 0, 3 })]
     [InlineData("a\nb", new[] { 0, 2 })]

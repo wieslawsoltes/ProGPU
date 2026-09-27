@@ -214,11 +214,27 @@ public sealed class TextInteractionSnapshot
         IReadOnlyList<TextLayout.ClusterBox> boxes, float emptyHeight, Vector2 point,
         IReadOnlyList<TextLayout.EmptyLineCaret> emptyLines)
     {
+        // Writer-owned horizontal rows select by their vertical band before
+        // horizontal proximity. Otherwise a long adjacent row can steal a hit
+        // beyond a short row's end. Legacy/vertical boxes have RowIndex == -1
+        // and retain their existing geometric-distance policy.
+        float nearestBoxRow = float.PositiveInfinity;
+        int selectedRow = -1;
+        bool selectedRowOwnsY = false;
+        for (int i = 0; i < boxes.Count; i++)
+        {
+            TextLayout.ClusterBox box = boxes[i];
+            float distance = VerticalDistance(point.Y, box.Top, box.Height);
+            bool ownsY = point.Y >= box.Top && point.Y < box.Bottom;
+            if (distance < nearestBoxRow || (distance == nearestBoxRow && ownsY && !selectedRowOwnsY))
+            {
+                nearestBoxRow = distance;
+                selectedRow = box.RowIndex;
+                selectedRowOwnsY = ownsY;
+            }
+        }
         if (emptyLines.Count != 0)
         {
-            float nearestBoxRow = float.PositiveInfinity;
-            foreach (TextLayout.ClusterBox box in boxes)
-                nearestBoxRow = Math.Min(nearestBoxRow, VerticalDistance(point.Y, box.Top, box.Height));
             float nearestEmptyRow = float.PositiveInfinity;
             TextCaretStop empty = emptyLines[0].Caret;
             foreach (TextLayout.EmptyLineCaret line in emptyLines)
@@ -246,6 +262,7 @@ public sealed class TextInteractionSnapshot
         for (int i = 0; i < boxes.Count; i++)
         {
             TextLayout.ClusterBox box = boxes[i];
+            if (selectedRow >= 0 && box.RowIndex != selectedRow) continue;
             float dx = point.X < box.Left ? box.Left - point.X : point.X > box.Right ? point.X - box.Right : 0;
             float dy = point.Y < box.Top ? box.Top - point.Y : point.Y > box.Bottom ? point.Y - box.Bottom : 0;
             float distance = dx * dx + dy * dy;
