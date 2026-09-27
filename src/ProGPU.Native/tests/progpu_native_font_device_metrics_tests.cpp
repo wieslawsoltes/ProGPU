@@ -85,7 +85,7 @@ int main() {
     const auto data = font_bytes(table);
     sfnt_font_view font{};
     require(sfnt_font_view::try_create(data, 0U, font));
-    for (const std::uint16_t size : {12U, 16U}) {
+    for (const auto size : std::array<std::uint16_t, 2>{12U, 16U}) {
         ++cases;
         sfnt_horizontal_device_metrics metrics{};
         bool available = false;
@@ -99,7 +99,7 @@ int main() {
         for (std::size_t index = 0U; index < 3U; ++index)
             require(metrics.glyph_widths[index] == table[record_offset + 2U + index]);
     }
-    for (const std::uint16_t size : {1U, 11U, 13U, 17U, 255U, 256U, 65535U})
+    for (const auto size : std::array<std::uint16_t, 7>{1U, 11U, 13U, 17U, 255U, 256U, 65535U})
         absent_or_invalid(data, size, true);
     absent_or_invalid(data, 0U, false, font_error::invalid_argument);
     absent_or_invalid(font_bytes({}, 1U), 12U, true);
