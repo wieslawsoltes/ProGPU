@@ -9,6 +9,29 @@ namespace System.Drawing.Tests;
 public sealed class DrawingTextLayoutTests
 {
     [Theory]
+    [InlineData(StringAlignment.Near)]
+    [InlineData(StringAlignment.Center)]
+    [InlineData(StringAlignment.Far)]
+    public void RowNavigationUsesAlignedLayoutCoordinates(StringAlignment alignment)
+    {
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
+        using var font = new Font(FontFamily.GenericSansSerif, 20);
+        using StringFormat format = MakeFormat();
+        format.Alignment = alignment;
+        format.LineAlignment = StringAlignment.Far;
+        DrawingTextLayout layout = DrawingTextLayout.Create(graphics, "aaaa\n\naaaa", font, new SizeF(300, 500), format);
+        var origin = layout.GetCaretStop(3);
+        var middle = layout.MoveCaretVertically(3, false, 1, origin.Position.X);
+        Assert.Equal(5, middle.TextPosition);
+        var last = layout.MoveCaretVertically(5, middle.IsTrailing, 1, origin.Position.X);
+        Assert.Equal(9, last.TextPosition);
+        Assert.Equal(origin.Position.X, last.Position.X);
+        Assert.True(last.Position.Y > origin.Position.Y);
+        Assert.Equal(6, layout.GetRowBoundary(9, false, false).TextPosition);
+        Assert.Equal(10, layout.GetRowBoundary(9, false, true).TextPosition);
+    }
+
+    [Theory]
     [InlineData("\n\n", new[] { 0, 1, 2 }, 0)]
     [InlineData("a\r\n\r\nb\r\n", new[] { 0, 3, 5, 8 }, 2)]
     public void RetainedDrawingKeepsEmptyRowsAndOriginalCrLfIndices(string text, int[] starts, int glyphCount)
