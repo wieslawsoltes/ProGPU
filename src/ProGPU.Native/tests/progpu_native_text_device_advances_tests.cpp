@@ -74,7 +74,7 @@ struct context_owner final {
 int main() {
     auto original = font_bytes();
     context_owner context(original);
-    std::fill(original.begin(), original.end(), 0U); // Context owns its bytes.
+    std::fill(original.begin(), original.end(), std::uint8_t{0}); // Context owns its bytes.
     const std::array<std::uint32_t, 9> indices{2U, 0U, 1U, 2U, 1U, 0U, 2U, 2U, 0U};
     const std::array<float, 3> expected{1.0F, 0.0F, 255.0F};
     std::array<float, 12> output{};
@@ -108,7 +108,7 @@ int main() {
         require(progpu_native_text_context_add_fallback_font(context.value,
             fallback.data(), fallback.size(), 0U, face, &index) == PROGPU_NATIVE_STATUS_SUCCESS);
         require(index == face);
-        std::fill(fallback.begin(), fallback.end(), 0U);
+        std::fill(fallback.begin(), fallback.end(), std::uint8_t{0});
         require(progpu_native_text_context_get_device_advances(context.value, face, 12U,
             indices.data(), wire_count(indices), output.data(), wire_count(output), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
         require(available == 1U && output[0U] == static_cast<float>(face + 4U));
