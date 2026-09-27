@@ -59,3 +59,13 @@ gate correctly rejected an unrecorded improvement). Artifact10922475222 has
 SHA256 `309c4e39e92c67b4a55ddc2a29ea9d3b09892fe8466a7bedf52934b2115bf249`.
 Passing source/corpus cases do not qualify a failed whole Build or native Forms
 appearance; a complete exact-head producer is still required.
+
+A separate actual Linux ARM64 run used the unchanged22f source archive,
+SDK10.0.400/runtime10.0.11 and the complete4453-case corpus. It built with
+zero warnings/errors and observed only the same `GraphicsTest.Dpi` improvement:
+3281passed/1087failed/85skipped, with the skip file byte-identical. Its own ARM64
+failure entry and summary are updated from that evidence, not the macOS run.
+Retained `results.xml` SHA256:
+`cf55a923675695b4349f3d1056f9620edddf4498e8a1715bd7d113b5c0d01c90`.
+The independently collected evidence remains under
+`/Volumes/1TB-macOS/progpu199-drawing-ci.R7y6PRtm/linux-arm64-u2n7f84t/results`.
