@@ -35,6 +35,8 @@ public partial class Graphics :
 
     private readonly DrawingContext _context;
     private readonly Bitmap? _bitmap;
+    private readonly float _dpiX;
+    private readonly float _dpiY;
     private readonly RectangleF? _deviceBounds;
     private readonly WgpuContext? _targetContext;
     private readonly Action? _completed;
@@ -216,8 +218,8 @@ public partial class Graphics :
         }
     }
 
-    public float DpiX => 96f;
-    public float DpiY => 96f;
+    public float DpiX => _dpiX;
+    public float DpiY => _dpiY;
 
     public RectangleF VisibleClipBounds
     {
@@ -264,7 +266,9 @@ public partial class Graphics :
             targetContext: null,
             completed: null,
             flushed: null,
-            metafileRecording: null)
+            metafileRecording: null,
+            dpiX: bitmap?.HorizontalResolution ?? 96f,
+            dpiY: bitmap?.VerticalResolution ?? 96f)
     {
     }
 
@@ -276,10 +280,16 @@ public partial class Graphics :
         WgpuContext? targetContext,
         Action? completed,
         Action<FlushIntention>? flushed,
-        PortableMetafileRecordingSession? metafileRecording = null)
+        PortableMetafileRecordingSession? metafileRecording = null,
+        float dpiX = 96f,
+        float dpiY = 96f)
     {
+        ValidateDpi(dpiX, nameof(dpiX));
+        ValidateDpi(dpiY, nameof(dpiY));
         _context = context;
         _bitmap = bitmap;
+        _dpiX = dpiX;
+        _dpiY = dpiY;
         _baseTransform = baseTransform;
         _deviceBounds = deviceBounds;
         _targetContext = targetContext;
@@ -552,13 +562,57 @@ public partial class Graphics :
             flushed);
     }
 
+    /// <summary>
+    /// Creates a recorder with explicit target resolution. Hosts recording in
+    /// device pixels pass the actual target DPI; logical-coordinate hosts retain
+    /// 96 DPI and apply their existing presentation transform. Resolution does
+    /// not alter pixel-sized fonts or the host-provided transform.
+    /// </summary>
+    public static Graphics FromProGpuDrawingContext(
+        DrawingContext drawingContext,
+        RectangleF deviceBounds,
+        Matrix4x4 outerTransform,
+        float dpiX,
+        float dpiY,
+        WgpuContext? targetContext = null,
+        Action<FlushIntention>? flushed = null,
+        Action? completed = null)
+    {
+        if (!IsFiniteNonNegative(deviceBounds))
+        {
+            throw new ArgumentOutOfRangeException(nameof(deviceBounds),
+                "Device bounds must be finite and have non-negative dimensions.");
+        }
+
+        ValidateDpi(dpiX, nameof(dpiX));
+        ValidateDpi(dpiY, nameof(dpiY));
+        if (targetContext is not null)
+        {
+            ObjectDisposedException.ThrowIf(targetContext.IsDisposed, targetContext);
+        }
+
+        return FromProGpuDrawingContextCore(drawingContext, outerTransform,
+            deviceBounds, targetContext, completed, flushed, dpiX, dpiY);
+    }
+
+    private static void ValidateDpi(float dpi, string parameterName)
+    {
+        if (!float.IsFinite(dpi) || dpi <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(parameterName,
+                "Target resolution must be finite and positive.");
+        }
+    }
+
     private static Graphics FromProGpuDrawingContextCore(
         DrawingContext drawingContext,
         Matrix4x4 outerTransform,
         RectangleF? deviceBounds,
         WgpuContext? targetContext = null,
         Action? completed = null,
-        Action<FlushIntention>? flushed = null)
+        Action<FlushIntention>? flushed = null,
+        float dpiX = 96f,
+        float dpiY = 96f)
     {
         ArgumentNullException.ThrowIfNull(drawingContext);
         if (!IsFinite2DAffineTransform(outerTransform))
@@ -581,7 +635,9 @@ public partial class Graphics :
             deviceBounds,
             targetContext,
             completed,
-            flushed);
+            flushed,
+            dpiX: dpiX,
+            dpiY: dpiY);
     }
 
     private static bool IsFiniteNonNegative(RectangleF bounds) =>

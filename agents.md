@@ -688,6 +688,13 @@ adapter.
   builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
+Drawing recorder DPI is explicit immutable target state. Device-pixel hosts pass
+actual target resolution; logical-coordinate hosts and existing overloads keep
+96 DPI. Use the shared font measurement/recording conversion, never mutate source
+fonts or multiply both font size and presentation scale. Image recorders capture
+image resolution. Native appearance/package qualification remains separate from
+recorded-command tests. See docs/drawing-target-dpi.md.
+
 Native window geometry snapshots are read-only, live-owner queries. Cocoa uses
 actual content-view bounds converted through its window to screen points, with
 the current primary-screen origin; never infer content from frame/chrome, AX
