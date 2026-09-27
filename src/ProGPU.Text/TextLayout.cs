@@ -1036,167 +1036,28 @@ public class TextLayout
         return result;
     }
 
-    public IReadOnlyList<TextCaretStop> GetVisualCaretStops()
-    {
-        List<ClusterBox> boxes = BuildClusterBoxes();
-        if (boxes.Count == 0)
-        {
-            return [new TextCaretStop(0, false, Vector2.Zero, Math.Max(0f, FontSize), 0)];
-        }
+    /// <summary>Captures owned interaction geometry without retaining mutable glyph collections.</summary>
+    public TextInteractionSnapshot CreateInteractionSnapshot()
+        => new(Text.Length, FontSize, BuildClusterBoxes().ToArray());
 
-        var stops = new List<TextCaretStop>(boxes.Count * 2);
-        for (int index = 0; index < boxes.Count; index++)
-        {
-            ClusterBox box = boxes[index];
-            bool rtl = (box.Level & 1) != 0;
-            // Cluster boxes are already emitted line-by-line in physical order.
-            // Preserve that order instead of sorting by glyph bounds: fallback
-            // fonts can have different ascenders on the same baseline.
-            stops.Add(new TextCaretStop(
-                rtl ? box.End : box.Start,
-                rtl,
-                new Vector2(box.Left, box.Top),
-                box.Height,
-                box.Level));
-            stops.Add(new TextCaretStop(
-                rtl ? box.Start : box.End,
-                !rtl,
-                new Vector2(box.Right, box.Top),
-                box.Height,
-                box.Level));
-        }
-        for (int index = stops.Count - 1; index > 0; index--)
-        {
-            TextCaretStop current = stops[index];
-            TextCaretStop previous = stops[index - 1];
-            if (current.TextPosition == previous.TextPosition &&
-                current.IsTrailing == previous.IsTrailing &&
-                Vector2.DistanceSquared(current.Position, previous.Position) < 0.0001f)
-            {
-                stops.RemoveAt(index);
-            }
-        }
-        return stops;
-    }
+    public IReadOnlyList<TextCaretStop> GetVisualCaretStops()
+        => TextInteractionSnapshot.BuildCaretStops(BuildClusterBoxes(), FontSize);
 
     public TextHitTestResult HitTestPoint(Vector2 point)
-    {
-        List<ClusterBox> boxes = BuildClusterBoxes();
-        if (boxes.Count == 0)
-        {
-            return new TextHitTestResult(0, false, false, new TextBounds(0f, 0f, 0f, FontSize), 0);
-        }
-
-        float bestDistance = float.PositiveInfinity;
-        ClusterBox best = boxes[0];
-        bool inside = false;
-        for (int index = 0; index < boxes.Count; index++)
-        {
-            ClusterBox box = boxes[index];
-            float dx = point.X < box.Left ? box.Left - point.X : point.X > box.Right ? point.X - box.Right : 0f;
-            float dy = point.Y < box.Top ? box.Top - point.Y : point.Y > box.Bottom ? point.Y - box.Bottom : 0f;
-            float distance = dx * dx + dy * dy;
-            if (distance >= bestDistance) continue;
-            bestDistance = distance;
-            best = box;
-            inside = dx == 0f && dy == 0f;
-        }
-
-        bool visualRightHalf = point.X >= (best.Left + best.Right) * 0.5f;
-        bool rtl = (best.Level & 1) != 0;
-        bool trailing = rtl ? !visualRightHalf : visualRightHalf;
-        int position = trailing ? best.End : best.Start;
-        return new TextHitTestResult(
-            position,
-            trailing,
-            inside,
-            new TextBounds(best.Left, best.Top, best.Width, best.Height),
-            best.Level);
-    }
+        => TextInteractionSnapshot.HitTestPoint(BuildClusterBoxes(), FontSize, point);
 
     public TextCaretStop GetCaretStop(int textPosition, bool trailingAffinity = false)
-    {
-        IReadOnlyList<TextCaretStop> stops = GetVisualCaretStops();
-        TextCaretStop best = stops[0];
-        int bestDistance = int.MaxValue;
-        for (int index = 0; index < stops.Count; index++)
-        {
-            TextCaretStop candidate = stops[index];
-            int distance = Math.Abs(candidate.TextPosition - textPosition);
-            if (distance < bestDistance ||
-                (distance == bestDistance && candidate.IsTrailing == trailingAffinity && best.IsTrailing != trailingAffinity))
-            {
-                best = candidate;
-                bestDistance = distance;
-            }
-        }
-        return best;
-    }
+        => TextInteractionSnapshot.GetCaretStop(GetVisualCaretStops(), textPosition, trailingAffinity);
 
-    public TextCaretStop MoveCaretVisually(
-        int textPosition,
-        bool trailingAffinity,
-        int direction)
-    {
-        IReadOnlyList<TextCaretStop> stops = GetVisualCaretStops();
-        if (stops.Count == 0) return default;
-        int current = 0;
-        float bestDistance = float.PositiveInfinity;
-        for (int index = 0; index < stops.Count; index++)
-        {
-            TextCaretStop candidate = stops[index];
-            float affinityPenalty = candidate.IsTrailing == trailingAffinity ? 0f : 0.25f;
-            float logicalPenalty = Math.Abs(candidate.TextPosition - textPosition) * 1000f;
-            float distance = logicalPenalty + affinityPenalty;
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                current = index;
-            }
-        }
-        return stops[Math.Clamp(current + Math.Sign(direction), 0, stops.Count - 1)];
-    }
+    public TextCaretStop MoveCaretVisually(int textPosition, bool trailingAffinity, int direction)
+        => TextInteractionSnapshot.MoveCaretVisually(GetVisualCaretStops(), textPosition, trailingAffinity, direction);
 
     public IReadOnlyList<TextBounds> GetSelectionRectangles(int textStart, int textLength)
     {
-        int selectionStart = Math.Clamp(Math.Min(textStart, textStart + textLength), 0, Text.Length);
-        int selectionEnd = Math.Clamp(Math.Max(textStart, textStart + textLength), 0, Text.Length);
-        if (selectionEnd <= selectionStart) return Array.Empty<TextBounds>();
-
-        List<ClusterBox> boxes = BuildClusterBoxes();
-        var selected = new List<ClusterBox>();
-        for (int index = 0; index < boxes.Count; index++)
-        {
-            ClusterBox box = boxes[index];
-            if (box.End > selectionStart && box.Start < selectionEnd)
-            {
-                selected.Add(box);
-            }
-        }
-        selected.Sort(static (left, right) =>
-        {
-            int line = left.Top.CompareTo(right.Top);
-            return line != 0 ? line : left.Left.CompareTo(right.Left);
-        });
-
-        var result = new List<TextBounds>();
-        for (int index = 0; index < selected.Count; index++)
-        {
-            ClusterBox box = selected[index];
-            if (result.Count > 0)
-            {
-                TextBounds previous = result[^1];
-                if (Math.Abs(previous.Y - box.Top) < 0.01f &&
-                    Math.Abs(previous.Height - box.Height) < 0.01f &&
-                    box.Left <= previous.Right + 0.5f)
-                {
-                    result[^1] = new TextBounds(previous.X, previous.Y, Math.Max(previous.Right, box.Right) - previous.X, previous.Height);
-                    continue;
-                }
-            }
-            result.Add(new TextBounds(box.Left, box.Top, box.Width, box.Height));
-        }
-        return result;
+        int start = Math.Clamp(Math.Min(textStart, textStart + textLength), 0, Text.Length);
+        int end = Math.Clamp(Math.Max(textStart, textStart + textLength), 0, Text.Length);
+        return end <= start ? Array.Empty<TextBounds>()
+            : TextInteractionSnapshot.GetSelectionRectangles(BuildClusterBoxes(), start, end);
     }
 
     private List<ClusterBox> BuildClusterBoxes()
@@ -1299,7 +1160,7 @@ public class TextLayout
         }
     }
 
-    private readonly record struct ClusterBox(int Start, int End, sbyte Level, float Left, float Top, float Width, float Height)
+    internal readonly record struct ClusterBox(int Start, int End, sbyte Level, float Left, float Top, float Width, float Height)
     {
         public float Right => Left + Width;
         public float Bottom => Top + Height;

@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Retained DrawingTextLayout painting and interaction must share one original
+formatted generation. Own exact glyph/font runs and interaction geometry; do not
+reshape prefixes for carets or borrow mutable Font/StringFormat state. Keep
+alignment offsets, original decoration arithmetic, clipping and target-DPI
+admission paired. Index-changing formatting requires a real source-map contract,
+not silently rewritten text. This retained API does not by itself qualify source
+editor wiring, empty hard-row caret navigation or native UI/package behavior.
+
 Managed TextLayout horizontal interaction retains the writer's exact line frames
 and sums visual-order advances, matching native measured-advance geometry. Glyph
 X/Y placement is draw-only: never split a combining cluster by positioned Y or
