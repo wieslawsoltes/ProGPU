@@ -1,5 +1,7 @@
 using ProGPU.Text;
 using System.Drawing.Text;
+using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Xunit;
 
@@ -130,10 +132,49 @@ public sealed class FontQualityTests
     [Fact]
     public void WarmedPrivateMetricReadsAreAllocationFree()
     {
+        (long allocated, int total) = MeasureIsolatedPrivateMetrics(allocateControl: false);
+
+        Assert.True(total > 0);
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void PrivateMetricAllocationMeasurementDetectsEscapingObjects()
+    {
+        (long allocated, int total) = MeasureIsolatedPrivateMetrics(allocateControl: true);
+
+        Assert.True(total > 0);
+        Assert.True(allocated >= 1000 * IntPtr.Size,
+            "The measurement must detect every deliberately escaping allocation.");
+    }
+
+    private static object? s_metricAllocationControl;
+
+    private static (long Allocated, int Total) MeasureIsolatedPrivateMetrics(bool allocateControl)
+    {
         using var collection = new PrivateFontCollection();
         collection.AddFontFile(FontPath);
         using FontFamily family = Assert.Single(collection.Families);
 
+        (long Allocated, int Total) result = (-1, 0);
+        ExceptionDispatchInfo? failure = null;
+        // Keep font loading, test-runner setup and assertions off the measured
+        // thread. The original warmup and all 1,000 iterations remain intact;
+        // GC stays enabled and the measurement is never retried or discounted.
+        var worker = new Thread(() =>
+        {
+            try { result = MeasurePrivateMetrics(family, allocateControl); }
+            catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+        }) { IsBackground = true };
+        worker.Start();
+        Assert.True(worker.Join(TimeSpan.FromSeconds(30)), "The private font metric measurement did not finish.");
+        failure?.Throw();
+        return result;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (long Allocated, int Total) MeasurePrivateMetrics(FontFamily family, bool allocateControl)
+    {
         _ = family.GetEmHeight(FontStyle.Regular);
         _ = family.GetCellAscent(FontStyle.Regular);
         _ = family.GetCellDescent(FontStyle.Regular);
@@ -143,14 +184,14 @@ public sealed class FontQualityTests
         int total = 0;
         for (int index = 0; index < 1000; index++)
         {
+            if (allocateControl)
+                Volatile.Write(ref s_metricAllocationControl, new object());
             total += family.GetEmHeight(FontStyle.Regular);
             total += family.GetCellAscent(FontStyle.Regular);
             total += family.GetCellDescent(FontStyle.Regular);
             total += family.GetLineSpacing(FontStyle.Regular);
         }
 
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        Assert.True(total > 0);
-        Assert.Equal(0, allocated);
+        return (GC.GetAllocatedBytesForCurrentThread() - before, total);
     }
 }
