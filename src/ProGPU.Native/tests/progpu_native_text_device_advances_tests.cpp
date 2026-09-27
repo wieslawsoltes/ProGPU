@@ -130,11 +130,12 @@ int main() {
 
     const auto rejects = [&](progpu_native_text_context* owner, std::uint32_t face,
         std::uint32_t ppem, const std::uint32_t* glyphs, std::uint32_t count,
-        float* destination, std::uint32_t capacity) {
+        float* destination, std::uint32_t capacity,
+        std::source_location location = std::source_location::current()) {
         available = 99U;
         require(progpu_native_text_context_get_device_advances(owner, face, ppem,
-            glyphs, count, destination, capacity, &available) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
-        require(available == 0U && output == sentinel);
+            glyphs, count, destination, capacity, &available) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT, location);
+        require(available == 0U && output == sentinel, location);
     };
     rejects(nullptr, 0U, 12U, indices.data(), indices.size(), output.data(), output.size());
     rejects(context.value, 21U, 12U, indices.data(), indices.size(), output.data(), output.size());
@@ -143,11 +144,17 @@ int main() {
     rejects(context.value, 0U, 12U, nullptr, 1U, output.data(), output.size());
     rejects(context.value, 0U, 12U, indices.data(), indices.size(), nullptr, indices.size());
     rejects(context.value, 0U, 12U, indices.data(), indices.size(), output.data(), indices.size() - 1U);
-    alignas(std::uint32_t) std::array<std::byte, 32> unaligned{};
+    // The entire declared span must fit even for the intentionally misaligned
+    // destination. Otherwise its overrun can alias availability on a different
+    // compiler's stack, correctly selecting the all-storage-preserved contract.
+    alignas(std::uint32_t) std::array<std::byte, sizeof(output) + alignof(float)> unaligned{};
+    unaligned.fill(std::byte{0x5A});
+    const auto unaligned_sentinel = unaligned;
     rejects(context.value, 0U, 12U, reinterpret_cast<const std::uint32_t*>(unaligned.data() + 1U), 1U,
         output.data(), output.size());
     rejects(context.value, 0U, 12U, indices.data(), indices.size(),
         reinterpret_cast<float*>(unaligned.data() + 1U), indices.size());
+    require(unaligned == unaligned_sentinel);
     rejects(context.value, 0U, 12U,
         reinterpret_cast<const std::uint32_t*>(std::numeric_limits<std::uintptr_t>::max() - 3U),
         2U, output.data(), output.size());

@@ -71,7 +71,7 @@ The standalone C ABI test covers cold/warm reads, sparse sizes, zero/255 widths,
 duplicates/order, all four-lane/tail lengths, cache eviction, primary/fallback
 identity, caller-font mutation, malformed later records, all invalid-index lanes,
 missing records, short/unaligned/overlapping/overflowed spans and untouched tails.
-Its 1,118 checks pass on macOS ARM64. The new CTest and existing hdmx reader CTest
+Its 1,119 checks pass on macOS ARM64. The new CTest and existing hdmx reader CTest
 pass, and the new test also passes with AddressSanitizer and UndefinedBehaviorSanitizer.
 
 The managed consumer builds without warnings or errors and passes matching span,
@@ -82,6 +82,14 @@ normal native package program, preserving all existing JIT/NativeAOT selectors.
 Both native providers' required export lists include the new C entrypoint.
 Native contract generation/ownership checks pass. Hosted cross-platform package
 and module/header gates remain mandatory before merge.
+
+The first hosted run caught an ordering error in both export manifests and an
+undersized negative-test buffer under GCC. The misaligned destination fixture now
+owns its entire declared capacity plus the alignment offset, so another compiler's
+stack layout cannot accidentally turn it into the distinct overlapping-status
+case. It also verifies that the misaligned storage is untouched and reports the
+actual failing caller location. Export manifests retain canonical sorted order;
+the production rejection and overlap contracts are unchanged.
 
 Both renderer modes can consume this shared context API; no managed-only metric
 algorithm, drawing fallback or renderer-specific behavior is added. Normal shaping,
