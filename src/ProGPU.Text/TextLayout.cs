@@ -70,17 +70,12 @@ public class TextLayout
     [ThreadStatic]
     private static ShapingBuffer? t_shapingBuffer;
 
-    private readonly struct LineRange
-    {
-        public LineRange(int start, int count)
-        {
-            Start = start;
-            Count = count;
-        }
+    private readonly record struct LineRange(
+        int Start, int Count, float Left = 0, float Top = 0, float Height = 0);
 
-        public int Start { get; }
-        public int Count { get; }
-    }
+    // Retain the layout writer's line frames. Glyph Position includes OpenType
+    // drawing offsets and is not a logical pen or a reliable line discriminator.
+    private readonly List<LineRange> _horizontalLines = new();
 
     private static readonly string[] FallbackFontPaths = new[]
     {
@@ -340,6 +335,7 @@ public class TextLayout
         FormattingOptions = TextLayoutFormattingOptions.Default;
         _tabStops = Array.Empty<float>();
         Glyphs.Clear();
+        _horizontalLines.Clear();
         ContentSize = Vector2.Zero;
         MeasuredSize = Vector2.Zero;
         HasTextures = false;
@@ -369,6 +365,7 @@ public class TextLayout
     {
         HasTextures = true;
         Glyphs.Clear();
+        _horizontalLines.Clear();
         if (string.IsNullOrEmpty(Text))
         {
             ContentSize = Vector2.Zero;
@@ -391,7 +388,8 @@ public class TextLayout
         float scale = FontSize / Font.UnitsPerEm;
         float lineSpacing = (Font.Ascender - Font.Descender + Font.LineGap) * scale;
         float fontAscent = Font.Ascender * scale;
-        var lines = new List<LineRange>(EstimateLineCapacity(Text));
+        List<LineRange> lines = _horizontalLines;
+        lines.EnsureCapacity(EstimateLineCapacity(Text));
         var lineWidths = new List<float>(EstimateLineCapacity(Text));
         float cursorY = 0f;
         int sourceStart = 0;
@@ -407,7 +405,7 @@ public class TextLayout
 
             if (candidates.Count == 0)
             {
-                lines.Add(new LineRange(Glyphs.Count, 0));
+                lines.Add(new LineRange(Glyphs.Count, 0, 0, cursorY, lineSpacing));
                 lineWidths.Add(0f);
                 cursorY += lineSpacing;
             }
@@ -503,7 +501,7 @@ public class TextLayout
                         cursorX += advance;
                     }
 
-                    lines.Add(new LineRange(glyphStart, Glyphs.Count - glyphStart));
+                    lines.Add(new LineRange(glyphStart, Glyphs.Count - glyphStart, 0, cursorY, lineSpacing));
                     lineWidths.Add(GetMeasuredLineWidth(candidates, candidateStart, candidateEnd));
                     cursorY += lineSpacing;
                     candidateStart = candidateEnd;
@@ -534,6 +532,7 @@ public class TextLayout
                 continue;
             }
 
+            lines[lineIndex] = line with { Left = shiftX };
             int lineEnd = line.Start + line.Count;
             for (var glyphIndex = line.Start; glyphIndex < lineEnd; glyphIndex++)
             {
@@ -616,6 +615,7 @@ public class TextLayout
             cursorX += advance;
         }
 
+        _horizontalLines.Add(new LineRange(0, Glyphs.Count, 0, 0, lineSpacing));
         ContentSize = new Vector2(width, lineSpacing);
         MeasuredSize = new Vector2(float.IsInfinity(MaxWidth) ? width : MaxWidth, lineSpacing);
         return true;
@@ -1187,6 +1187,10 @@ public class TextLayout
     private List<ClusterBox> BuildClusterBoxes()
     {
         var result = new List<ClusterBox>();
+        if (_horizontalLines.Count != 0)
+        {
+            ValidateHorizontalLineMembership();
+        }
         if (Glyphs.Count == 0) return result;
 
         var logicalClusters = Glyphs.Select(static glyph => glyph.Cluster).Distinct().Order().ToArray();
@@ -1196,6 +1200,12 @@ public class TextLayout
             int start = logicalClusters[index];
             int end = index + 1 < logicalClusters.Length ? logicalClusters[index + 1] : Text.Length;
             clusterEnds[start] = Math.Max(start + 1, end);
+        }
+
+        if (_horizontalLines.Count != 0)
+        {
+            BuildHorizontalClusterBoxes(clusterEnds, result);
+            return result;
         }
 
         for (int glyphIndex = 0; glyphIndex < Glyphs.Count;)
@@ -1225,6 +1235,53 @@ public class TextLayout
             glyphIndex = endGlyph;
         }
         return result;
+    }
+
+    private void ValidateHorizontalLineMembership()
+    {
+        int expectedStart = 0;
+        foreach (LineRange line in _horizontalLines)
+        {
+            if (line.Start != expectedStart || line.Count < 0 || line.Count > Glyphs.Count - line.Start)
+            {
+                throw new InvalidOperationException("Glyph membership no longer matches the retained text layout.");
+            }
+            expectedStart += line.Count;
+        }
+        if (expectedStart != Glyphs.Count)
+        {
+            throw new InvalidOperationException("Glyph membership no longer matches the retained text layout.");
+        }
+    }
+
+    private void BuildHorizontalClusterBoxes(
+        IReadOnlyDictionary<int, int> clusterEnds, List<ClusterBox> result)
+    {
+        // Same pen/advance contract as the native measured-advance interaction
+        // builder. Sequential accumulation is dependent; no glyph is repositioned.
+        foreach (LineRange line in _horizontalLines)
+        {
+            float pen = line.Left;
+            int end = line.Start + line.Count;
+            for (int index = line.Start; index < end;)
+            {
+                TextRunGlyph first = Glyphs[index];
+                float left = pen;
+                float right = pen;
+                do
+                {
+                    float next = pen + Glyphs[index].Glyph.Advance;
+                    left = Math.Min(left, Math.Min(pen, next));
+                    right = Math.Max(right, Math.Max(pen, next));
+                    pen = next;
+                    index++;
+                }
+                while (index < end && Glyphs[index].Cluster == first.Cluster);
+
+                result.Add(new ClusterBox(first.Cluster, clusterEnds[first.Cluster],
+                    first.BidiLevel, left, line.Top, Math.Max(0, right - left), line.Height));
+            }
+        }
     }
 
     private readonly record struct ClusterBox(int Start, int End, sbyte Level, float Left, float Top, float Width, float Height)
