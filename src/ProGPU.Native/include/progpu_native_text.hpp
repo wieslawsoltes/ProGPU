@@ -2784,6 +2784,14 @@ struct sfnt_horizontal_glyph_metrics final {
     std::int16_t left_side_bearing = 0;
 };
 
+/* Exact hdmx record, borrowed from the font's immutable byte lifetime. These
+ * unsigned advances are device pixels, not design units or ink bounds. */
+struct sfnt_horizontal_device_metrics final {
+    std::span<const std::byte> glyph_widths{};
+    std::uint8_t pixels_per_em = 0U;
+    std::uint8_t maximum_width = 0U;
+};
+
 struct sfnt_vertical_header_metrics final {
     std::int16_t ascender = 0;
     std::int16_t descender = 0;
@@ -3611,6 +3619,15 @@ public:
     bool try_get_horizontal_glyph_metrics(
         std::uint16_t glyph_index,
         sfnt_horizontal_glyph_metrics& result) const noexcept;
+    /* Validates the complete hdmx table before publishing an exact-size record.
+     * Missing table/size succeeds with available=false; malformed data fails.
+     * Outputs are cleared on failure or absence. No nearest-size substitution,
+     * scaling, hint execution or variable-instance admission is implied. */
+    bool try_get_horizontal_device_metrics(
+        std::uint16_t pixels_per_em,
+        sfnt_horizontal_device_metrics& result,
+        bool& available,
+        font_error* error = nullptr) const noexcept;
     /* Returns the managed TtfFont.GetAdvanceWidth base/HVAR value in design
      * units. The scratch overload additionally applies raw gvar phantom-point
      * fallback when HVAR does not own advance variation. */

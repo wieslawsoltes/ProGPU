@@ -825,6 +825,7 @@ add_library(progpu_native_text STATIC
     src/Text/Shaping/progpu_native_font_provider.cpp
     src/Text/Font/progpu_native_font_kerning.cpp
     src/Text/Font/progpu_native_font_horizontal_metrics.cpp
+    src/Text/Font/progpu_native_font_device_metrics.cpp
     src/Text/Font/progpu_native_font_bounds.cpp
     src/Text/Font/progpu_native_font_style.cpp
     src/Text/Font/progpu_native_system_font_catalog.cpp
@@ -1836,6 +1837,17 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         COMMAND progpu_native_motion_mark_tests)
     set_tests_properties(
         progpu_native_motion_mark_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_font_device_metrics_tests
+        tests/progpu_native_font_device_metrics_tests.cpp)
+    target_compile_features(progpu_native_font_device_metrics_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_font_device_metrics_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_link_libraries(progpu_native_font_device_metrics_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_font_device_metrics_tests)
+    progpu_native_enable_sanitizers(progpu_native_font_device_metrics_tests)
+    add_test(NAME progpu_native_font_device_metrics_tests COMMAND progpu_native_font_device_metrics_tests)
+    set_tests_properties(progpu_native_font_device_metrics_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_text_shaping_showcase_tests
         tests/progpu_native_text_shaping_showcase_tests.cpp
