@@ -223,6 +223,70 @@ public sealed class DrawingTextLayoutTests
         Assert.Empty(context.Commands);
     }
 
+    [Fact]
+    public void SourceRowsIncludeBlankRowsAndBothCrLfUnitsWithoutInk()
+    {
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
+        using var font = new Font(FontFamily.GenericSansSerif, 16);
+        using StringFormat format = MakeFormat();
+        DrawingTextLayout layout = DrawingTextLayout.Create(graphics, "a\r\n\r\nb", font, new SizeF(300, 100), format);
+        Assert.Equal(3, layout.RowCount);
+        Assert.Equal(new[] { 0, 3, 5 }, Enumerable.Range(0, layout.RowCount).Select(layout.GetRowSourceStart));
+        Assert.Equal(new[] { 0, 0, 0, 1, 1, 2, 2 }, Enumerable.Range(0, 7).Select(layout.GetRowIndexFromTextPosition));
+        Assert.Equal(layout.GetSourcePositionPoint(1), layout.GetSourcePositionPoint(2));
+        Assert.Equal(layout.GetSourcePositionPoint(3), layout.GetSourcePositionPoint(4));
+        Assert.Empty(layout.GetSelectionRectangles(1, 4));
+    }
+
+    [Fact]
+    public void SourcePositionsFollowTheSameDrawingAlignmentOffset()
+    {
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
+        using var font = new Font(FontFamily.GenericSansSerif, 16);
+        using StringFormat format = MakeFormat();
+        format.FormatFlags |= StringFormatFlags.NoWrap;
+        const string text = "abc\r\nxy";
+        DrawingTextLayout near = DrawingTextLayout.Create(graphics, text, font, new SizeF(300, 100), format);
+        format.Alignment = StringAlignment.Far;
+        format.LineAlignment = StringAlignment.Far;
+        DrawingTextLayout far = DrawingTextLayout.Create(graphics, text, font, new SizeF(300, 100), format);
+        var offset = new SizeF(300 - near.ContentSize.Width, 100 - near.ContentSize.Height);
+        for (int position = 0; position <= text.Length; position++)
+        {
+            Assert.Equal(PointF.Add(near.GetSourcePositionPoint(position), offset), far.GetSourcePositionPoint(position));
+            Assert.Equal(near.GetRowIndexFromTextPosition(position), far.GetRowIndexFromTextPosition(position));
+        }
+    }
+
+    [Fact]
+    public void SourceRowQueriesPreserveWrappedCaretAffinity()
+    {
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
+        using var font = new Font(FontFamily.GenericSansSerif, 16);
+        using StringFormat format = MakeFormat();
+        DrawingTextLayout prefix = DrawingTextLayout.Create(graphics, "aa ", font, new SizeF(300, 100), format);
+        float width = prefix.GetCaretStop(3).Position.X + 1;
+        DrawingTextLayout layout = DrawingTextLayout.Create(graphics, "aa aa aa", font, new SizeF(width, 100), format);
+        Assert.Equal(new[] { 0, 3, 6 }, Enumerable.Range(0, layout.RowCount).Select(layout.GetRowSourceStart));
+        Assert.Equal(1, layout.GetRowIndexFromTextPosition(3));
+        Assert.Equal(0, layout.GetCaretRowIndex(3, true));
+        Assert.Equal(1, layout.GetCaretRowIndex(3, false));
+    }
+
+    [Fact]
+    public void EmptyDrawingLayoutKeepsOneOwnedSourceRow()
+    {
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
+        using var font = new Font(FontFamily.GenericSansSerif, 16);
+        DrawingTextLayout layout = DrawingTextLayout.Create(graphics, "", font, new SizeF(300, 100));
+        Assert.Equal(1, layout.RowCount);
+        Assert.Equal(0, layout.GetRowSourceStart(0));
+        Assert.Equal(0, layout.GetRowIndexFromTextPosition(0));
+        Assert.Equal(0, layout.GetCaretRowIndex(0));
+        var caret = layout.GetCaretStop(0);
+        Assert.Equal(new PointF(caret.Position.X, caret.Position.Y), layout.GetSourcePositionPoint(0));
+    }
+
     private static StringFormat MakeFormat()
     {
         var format = new StringFormat(StringFormatFlags.NoClip | StringFormatFlags.MeasureTrailingSpaces)
