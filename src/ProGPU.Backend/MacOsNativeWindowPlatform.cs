@@ -40,6 +40,13 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
     public override bool SupportsManagedResize => true;
     public override bool SupportsSystemChromeExtension => true;
 
+    public override bool TryGetGeometrySnapshot(out NativeWindowGeometrySnapshot snapshot)
+    {
+        snapshot = default;
+        return Window.IsInitialized && !Window.IsClosing && Window.Native?.Cocoa == _nsWindow &&
+            CocoaNativeWindowGeometry.TryCapture(Handle, out snapshot);
+    }
+
     public override bool ApplyChrome(in NativeWindowState state)
     {
         _state = state;

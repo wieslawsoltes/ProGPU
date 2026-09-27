@@ -17,6 +17,8 @@ internal interface INativeWindowPlatform : IDisposable
     bool IsProcessingPromotedTouchMouse { get; }
     Action<NativeTouchEvent>? TouchHandler { get; set; }
 
+    bool TryGetGeometrySnapshot(out NativeWindowGeometrySnapshot snapshot);
+
     bool ApplyChrome(in NativeWindowState state);
     bool SetTopMost(bool value);
     bool SetEnabled(bool value);

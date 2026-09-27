@@ -46,6 +46,14 @@ internal unsafe class GlfwNativeWindowPlatform : INativeWindowPlatform
     public virtual bool IsProcessingPromotedTouchMouse => false;
     public virtual Action<NativeTouchEvent>? TouchHandler { get; set; }
 
+    public virtual bool TryGetGeometrySnapshot(out NativeWindowGeometrySnapshot snapshot)
+    {
+        // GLFW position/size and framebuffer ratios are not authoritative
+        // native content-view geometry. Other providers need their own query.
+        snapshot = default;
+        return false;
+    }
+
     public virtual bool ApplyChrome(in NativeWindowState state)
     {
         if (GlfwWindow == null)

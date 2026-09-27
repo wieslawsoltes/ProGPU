@@ -53,6 +53,32 @@ public sealed class SilkWindowController : IDisposable
     public bool IsProcessingPromotedTouchMouse =>
         _platform?.IsProcessingPromotedTouchMouse ?? false;
 
+    /// <summary>
+    /// Reads actual native content/frame geometry without attaching, showing,
+    /// activating or changing this window. Requires the live attached window on
+    /// its creating thread. Cocoa additionally requires the AppKit main thread;
+    /// unsupported providers and retired identities return false/default.
+    /// </summary>
+    public bool TryGetGeometrySnapshot(out NativeWindowGeometrySnapshot snapshot)
+    {
+        snapshot = default;
+        INativeWindowPlatform? platform = _platform;
+        if (_disposed || _threadId != Environment.CurrentManagedThreadId || platform is null ||
+            !_window.IsInitialized || _window.IsClosing)
+            return false;
+
+        NativeWindowHandle handle = platform.Handle;
+        if (!handle.IsValid || GlfwNativeWindowPlatform.ResolveWindowHandle(_window) != handle ||
+            !platform.TryGetGeometrySnapshot(out NativeWindowGeometrySnapshot current) ||
+            _disposed || !ReferenceEquals(_platform, platform) || !_window.IsInitialized || _window.IsClosing ||
+            platform.Handle != handle || GlfwNativeWindowPlatform.ResolveWindowHandle(_window) != handle ||
+            current.Window != handle)
+            return false;
+
+        snapshot = current;
+        return true;
+    }
+
     public Action<NativeTouchEvent>? TouchHandler
     {
         get => _platform?.TouchHandler;
