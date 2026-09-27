@@ -32,7 +32,7 @@ public sealed class GraphicsTargetDpiTests
         Assert.Equal(at96.Height * dpi / 96f, measured.Height, 4);
         Assert.Equal(font.GetHeight(dpi), font.GetHeight(graphics));
         Assert.Equal(9f, font.Size);
-        RenderCommand glyph = Assert.Single(context.Commands.Where(c => c.Type == RenderCommandType.DrawGlyphRun));
+        RenderCommand glyph = Assert.Single(context.Commands, c => c.Type == RenderCommandType.DrawGlyphRun);
         Assert.Equal(9f * dpi / 72f, glyph.FontSize);
     }
 
@@ -46,8 +46,9 @@ public sealed class GraphicsTargetDpiTests
         using Graphics at96 = Create(new DrawingContext(), 96f, 96f);
         using Graphics at192 = Create(context, 192f, 192f);
         Assert.Equal(at96.MeasureString("Alpha", font), at192.MeasureString("Alpha", font));
-        at192.DrawString("Alpha", font, Brushes.Black, 0f, 0f);
-        Assert.Equal(12f, Assert.Single(context.Commands.Where(c => c.Type == RenderCommandType.DrawGlyphRun)).FontSize);
+        using var format = StringFormat.GenericTypographic;
+        at192.DrawString("Alpha", font, Brushes.Black, new RectangleF(0, 0, 1000, 1000), format);
+        Assert.Equal(12f, Assert.Single(context.Commands, c => c.Type == RenderCommandType.DrawGlyphRun).FontSize);
     }
 
     [Fact]
@@ -100,6 +101,16 @@ public sealed class GraphicsTargetDpiTests
             new RectangleF(0, 0, 100, 100), Matrix4x4.Identity, x, y, completed: () => completed++));
         Assert.Empty(context.Commands);
         Assert.Equal(0, completed);
+    }
+
+    [Fact]
+    public void PhysicalPageUnitsUseBothIndependentTargetAxes()
+    {
+        using Graphics graphics = Create(new DrawingContext(), 144f, 192f);
+        graphics.PageUnit = GraphicsUnit.Inch;
+        PointF[] points = [new(1f, 1f)];
+        graphics.TransformPoints(CoordinateSpace.Device, CoordinateSpace.World, points);
+        Assert.Equal(new PointF(144f, 192f), Assert.Single(points));
     }
 
     [Fact]
