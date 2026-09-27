@@ -44,6 +44,22 @@ public sealed class DrawingTextLayout
     public SizeF ContentSize { get; }
     public float DpiX { get; }
     public float DpiY { get; }
+    public int RowCount => _interaction.RowCount;
+
+    public int GetRowSourceStart(int rowIndex) => _interaction.GetRowSourceStart(rowIndex);
+
+    public int GetRowIndexFromTextPosition(int textPosition)
+        => _interaction.GetRowIndexFromTextPosition(textPosition);
+
+    public int GetCaretRowIndex(int textPosition, bool trailingAffinity = false)
+        => _interaction.GetCaretRowIndex(textPosition, trailingAffinity);
+
+    public PointF GetSourcePositionPoint(int textPosition)
+    {
+        Vector2 position = _interaction.GetSourcePositionPoint(textPosition) + Offset;
+        return new PointF(position.X, position.Y);
+    }
+
     internal Vector2 Offset { get; }
     internal float FontSize { get; }
     internal FontStyle Style { get; }

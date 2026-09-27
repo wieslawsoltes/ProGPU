@@ -526,7 +526,8 @@ public class TextLayout
                     }
 
                     lines.Add(new LineRange(glyphStart, Glyphs.Count - glyphStart, 0, cursorY, lineSpacing,
-                        sourceStart, sourceEnd, paragraph.ParagraphLevel));
+                        candidateStart == 0 ? sourceStart : candidates[candidateStart].Cluster,
+                        sourceEnd, paragraph.ParagraphLevel));
                     lineWidths.Add(GetMeasuredLineWidth(candidates, candidateStart, candidateEnd));
                     cursorY += lineSpacing;
                     candidateStart = candidateEnd;
@@ -1054,7 +1055,9 @@ public class TextLayout
     {
         var geometry = BuildInteractionGeometry();
         return new(Text.Length, FontSize, geometry.Boxes.ToArray(), geometry.EmptyLines.ToArray(),
-            ShapingOptions.Direction is not (ShapingDirection.TopToBottom or ShapingDirection.BottomToTop));
+            ShapingOptions.Direction is not (ShapingDirection.TopToBottom or ShapingDirection.BottomToTop),
+            _horizontalLines.Count != 0 ? _horizontalLines.Select(static line => line.SourceStart).ToArray()
+                : Text.Length == 0 ? [0] : []);
     }
 
     public IReadOnlyList<TextCaretStop> GetVisualCaretStops()

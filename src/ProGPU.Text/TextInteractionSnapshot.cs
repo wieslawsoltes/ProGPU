@@ -11,15 +11,17 @@ public sealed class TextInteractionSnapshot
     private readonly float _emptyHeight;
     private readonly int[] _caretRows;
     private readonly bool _horizontal;
+    private readonly int[] _sourceRowStarts;
 
     internal TextInteractionSnapshot(int textLength, float emptyHeight, TextLayout.ClusterBox[] boxes,
-        TextLayout.EmptyLineCaret[] emptyLines, bool horizontal)
+        TextLayout.EmptyLineCaret[] emptyLines, bool horizontal, int[] sourceRowStarts)
     {
         TextLength = textLength;
         _emptyHeight = emptyHeight;
         _boxes = boxes;
         _emptyLines = emptyLines;
         _horizontal = horizontal;
+        _sourceRowStarts = sourceRowStarts;
         var rows = new List<int>();
         _carets = BuildCaretStops(boxes, emptyHeight, emptyLines, rows).ToArray();
         _caretRows = rows.ToArray();
@@ -27,6 +29,77 @@ public sealed class TextInteractionSnapshot
 
     public int TextLength { get; }
     public ReadOnlySpan<TextCaretStop> CaretStops => _carets;
+
+    /// <summary>Number of retained horizontal source rows, including blank and trailing rows.</summary>
+    public int RowCount
+    {
+        get { EnsureSourceRows(); return _sourceRowStarts.Length; }
+    }
+
+    /// <summary>Original UTF-16 start of a physical row, including soft wraps.</summary>
+    public int GetRowSourceStart(int rowIndex)
+    {
+        EnsureSourceRows();
+        if ((uint)rowIndex >= (uint)_sourceRowStarts.Length) throw new ArgumentOutOfRangeException(nameof(rowIndex));
+        return _sourceRowStarts[rowIndex];
+    }
+
+    /// <summary>
+    /// Finds the row owning a source position. CR/LF delimiters stay with their
+    /// preceding row; a soft-wrap boundary belongs to the following row.
+    /// The terminal insertion position belongs to the final row.
+    /// </summary>
+    public int GetRowIndexFromTextPosition(int textPosition)
+    {
+        EnsureSourceRows();
+        if ((uint)textPosition > (uint)TextLength) throw new ArgumentOutOfRangeException(nameof(textPosition));
+        int found = Array.BinarySearch(_sourceRowStarts, textPosition);
+        return found >= 0 ? found : ~found - 1;
+    }
+
+    /// <summary>Finds the actual caret row, preserving affinity at a shared wrap boundary.</summary>
+    public int GetCaretRowIndex(int textPosition, bool trailingAffinity = false)
+    {
+        EnsureSourceRows();
+        return _caretRows[FindCaretIndex(_carets, textPosition, trailingAffinity)];
+    }
+
+    /// <summary>
+    /// Returns the leading logical edge of the shaped cluster owning a source
+    /// position, or the owning row's end for a hard delimiter. Never synthesizes
+    /// an interior-cluster caret or maps a CRLF interior to the next row.
+    /// </summary>
+    public Vector2 GetSourcePositionPoint(int textPosition)
+    {
+        int row = GetRowIndexFromTextPosition(textPosition);
+        foreach (TextLayout.ClusterBox box in _boxes)
+        {
+            if (box.RowIndex == row && textPosition >= box.Start && textPosition < box.End)
+                return new Vector2((box.Level & 1) != 0 ? box.Right : box.Left, box.Top);
+        }
+
+        TextCaretStop first = default, last = default;
+        bool found = false;
+        for (int i = 0; i < _carets.Length; i++)
+        {
+            if (_caretRows[i] != row) continue;
+            TextCaretStop caret = _carets[i];
+            if (!found || caret.TextPosition < first.TextPosition ||
+                (caret.TextPosition == first.TextPosition && !caret.IsTrailing)) first = caret;
+            if (!found || caret.TextPosition > last.TextPosition ||
+                (caret.TextPosition == last.TextPosition && caret.IsTrailing)) last = caret;
+            found = true;
+        }
+        if (!found) throw new InvalidOperationException("The source row has no retained caret.");
+        return textPosition < first.TextPosition ? first.Position : last.Position;
+    }
+
+    private void EnsureSourceRows()
+    {
+        EnsureHorizontalRows();
+        if (_sourceRowStarts.Length == 0)
+            throw new NotSupportedException("Source-position queries require writer-owned horizontal row metadata.");
+    }
 
     public TextHitTestResult HitTestPoint(Vector2 point) => HitTestPoint(_boxes, _emptyHeight, point, _emptyLines);
 
@@ -141,11 +214,27 @@ public sealed class TextInteractionSnapshot
         IReadOnlyList<TextLayout.ClusterBox> boxes, float emptyHeight, Vector2 point,
         IReadOnlyList<TextLayout.EmptyLineCaret> emptyLines)
     {
+        // Writer-owned horizontal rows select by their vertical band before
+        // horizontal proximity. Otherwise a long adjacent row can steal a hit
+        // beyond a short row's end. Legacy/vertical boxes have RowIndex == -1
+        // and retain their existing geometric-distance policy.
+        float nearestBoxRow = float.PositiveInfinity;
+        int selectedRow = -1;
+        bool selectedRowOwnsY = false;
+        for (int i = 0; i < boxes.Count; i++)
+        {
+            TextLayout.ClusterBox box = boxes[i];
+            float distance = VerticalDistance(point.Y, box.Top, box.Height);
+            bool ownsY = point.Y >= box.Top && point.Y < box.Bottom;
+            if (distance < nearestBoxRow || (distance == nearestBoxRow && ownsY && !selectedRowOwnsY))
+            {
+                nearestBoxRow = distance;
+                selectedRow = box.RowIndex;
+                selectedRowOwnsY = ownsY;
+            }
+        }
         if (emptyLines.Count != 0)
         {
-            float nearestBoxRow = float.PositiveInfinity;
-            foreach (TextLayout.ClusterBox box in boxes)
-                nearestBoxRow = Math.Min(nearestBoxRow, VerticalDistance(point.Y, box.Top, box.Height));
             float nearestEmptyRow = float.PositiveInfinity;
             TextCaretStop empty = emptyLines[0].Caret;
             foreach (TextLayout.EmptyLineCaret line in emptyLines)
@@ -173,6 +262,7 @@ public sealed class TextInteractionSnapshot
         for (int i = 0; i < boxes.Count; i++)
         {
             TextLayout.ClusterBox box = boxes[i];
+            if (selectedRow >= 0 && box.RowIndex != selectedRow) continue;
             float dx = point.X < box.Left ? box.Left - point.X : point.X > box.Right ? point.X - box.Right : 0;
             float dy = point.Y < box.Top ? box.Top - point.Y : point.Y > box.Bottom ? point.Y - box.Bottom : 0;
             float distance = dx * dx + dy * dy;
