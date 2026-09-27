@@ -23,6 +23,44 @@ env:
   PROGPU_QUALIFIED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  windows-system-fonts:
+    name: Windows system font reference (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Compare actual Microsoft and portable system font descriptors
+        shell: pwsh
+        run: ./eng/progpu-verify-windows-system-fonts.ps1 -Rid '${{ matrix.rid }}'
+      - name: Verify independent ownership and native descriptor layout
+        shell: pwsh
+        run: |
+          dotnet test src/System.Drawing.Common.Tests/System.Drawing.Common.Tests.csproj -c Release -r '${{ matrix.rid }}' --filter 'FullyQualifiedName~SystemFontOwnershipTests|FullyQualifiedName~SystemFontDescriptorTests' --logger 'trx;LogFileName=system-fonts.trx' --results-directory 'artifacts/windows-system-fonts/${{ matrix.rid }}'
+          if ($LASTEXITCODE -ne 0) { throw 'System font ownership/layout tests failed.' }
+          $trx = [xml](Get-Content -Raw 'artifacts/windows-system-fonts/${{ matrix.rid }}/system-fonts.trx')
+          $counts = $trx.TestRun.ResultSummary.Counters
+          if ([int]$counts.total -ne 17 -or [int]$counts.executed -ne 17 -or [int]$counts.passed -ne 17) {
+            throw 'All 17 system font ownership/descriptor cases must execute and pass.'
+          }
+      - name: Preserve independent system font receipts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-system-fonts-${{ matrix.rid }}
+          path: artifacts/windows-system-fonts/${{ matrix.rid }}/
+          if-no-files-found: error
+
   system-drawing-contract:
     name: System.Drawing API, quality, and performance
     runs-on: ubuntu-latest

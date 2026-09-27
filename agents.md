@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Windows SystemFonts read actual OS role metadata before constructing owned
+portable fonts. Keep stock HFONTs borrowed, native query handles scoped, complete
+style/charset/vertical identity and screen-DC point conversion. Never hard-code
+Segoe UI/96 DPI, exchange Microsoft managed Drawing objects, or turn this private
+settings query into public HDC/HFONT admission. Preserve the separate-process
+Microsoft oracle on both Windows architectures and all non-Windows controls.
+See docs/windows-system-font-settings.md; descriptor parity is not full UI parity.
+
 Render-time native surface deferral is explicit opt-in. A pending real queue poll
 returns before surface configuration or publication; callers retain presentation
 requests and defer acquisition. Hold the submission lock through actual completion

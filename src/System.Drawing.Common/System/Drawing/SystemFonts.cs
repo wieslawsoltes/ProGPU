@@ -36,8 +36,18 @@ public static class SystemFonts
 
     private static Font Create(string role)
     {
-        // Keep the existing portable font-selection and size policy. Only the
-        // caller-owned wrapper and its role identity are new for each request.
+        if (OperatingSystem.IsWindows())
+        {
+            // Only scalar metadata crosses the OS boundary. Font ownership,
+            // discovery, shaping and rendering remain portable ProGPU objects.
+            WindowsSystemFontDescriptor descriptor = WindowsSystemFontDescriptor.Read(role);
+            using FontFamily nativeFamily = new(descriptor.FamilyName);
+            return Font.CreateSystemFont(nativeFamily, descriptor.SizeInPoints, descriptor.Style,
+                descriptor.CharSet, descriptor.Vertical, role);
+        }
+
+        // Preserve the existing non-Windows policy until its platform settings
+        // contract is implemented independently.
         using FontFamily family = FontFamily.GenericSansSerif;
         return Font.CreateSystemFont(family, 8.25f, role);
     }

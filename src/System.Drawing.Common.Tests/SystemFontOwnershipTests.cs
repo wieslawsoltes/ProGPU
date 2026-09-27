@@ -23,7 +23,8 @@ public sealed class SystemFontOwnershipTests
         Assert.Equal(name, first.SystemFontName);
         Assert.True(second.IsSystemFont);
         Assert.Equal(name, second.SystemFontName);
-        Assert.Equal(8.25f, first.Size);
+        if (!OperatingSystem.IsWindows()) Assert.Equal(8.25f, first.Size);
+        Assert.True(float.IsFinite(first.Size) && first.Size > 0);
         Assert.Equal(GraphicsUnit.Point, first.Unit);
         Assert.Equal(first.Name, first.OriginalFontName);
         Assert.Equal(first.OriginalFontName, second.OriginalFontName);
@@ -58,7 +59,8 @@ public sealed class SystemFontOwnershipTests
         using Font menu = SystemFonts.MenuFont;
         using Font copy = Assert.IsType<Font>(caption.Clone());
         using Font prototype = new(caption, caption.Style);
-        using Font ordinary = new(caption.FontFamily, caption.Size, caption.Style, caption.Unit);
+        using Font ordinary = new(caption.FontFamily, caption.Size, caption.Style, caption.Unit,
+            caption.GdiCharSet, caption.GdiVerticalFont);
 
         Assert.NotSame(caption, menu);
         Assert.Equal(nameof(SystemFonts.CaptionFont), caption.SystemFontName);
