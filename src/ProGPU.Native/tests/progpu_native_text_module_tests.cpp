@@ -1,6 +1,12 @@
 import progpu.native.text;
 
 int main() {
+    progpu::native::text::sfnt_font_view device_metrics_font{};
+    progpu::native::text::sfnt_horizontal_device_metrics device_metrics{};
+    bool device_metrics_available = true;
+    if (device_metrics_font.try_get_horizontal_device_metrics(
+            12U, device_metrics, device_metrics_available) ||
+        device_metrics_available || !device_metrics.glyph_widths.empty()) return 1;
     if (progpu::native::text::get_unicode_decimal_digit_value(0x1D7CFU) != 1 ||
         progpu::native::text::get_unicode_decimal_digit_value(0x1D7D8U) != 0) return 1;
     const unsigned short digit_text[]{0x0627U, 0x0903U, 0x31U};

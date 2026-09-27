@@ -298,6 +298,7 @@ using ::progpu::native::text::sfnt_glyph_outline_bounds_requirements;
 using ::progpu::native::text::sfnt_glyph_outline_bounds_scratch;
 using ::progpu::native::text::sfnt_header_metrics;
 using ::progpu::native::text::sfnt_horizontal_glyph_metrics;
+using ::progpu::native::text::sfnt_horizontal_device_metrics;
 using ::progpu::native::text::sfnt_horizontal_header_metrics;
 using ::progpu::native::text::sfnt_table_view;
 using ::progpu::native::text::sfnt_outline_point;
