@@ -10,6 +10,12 @@ WgpuContext.OnWebGpuError += (type, message) =>
 WgpuContext.OnWebGpuDeviceLost += (reason, message) =>
     Console.Error.WriteLine($"package-consumer: WebGPU device lost {reason}: {message}");
 
+if (args.Contains("--text-device-advances-only", StringComparer.Ordinal))
+{
+    TextDeviceAdvanceValidation.Run();
+    return;
+}
+
 if (args.Contains("--text-digit-substitution-only", StringComparer.Ordinal))
 {
     TextDigitSubstitutionValidation.Run(Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"));
@@ -539,6 +545,7 @@ Console.WriteLine(
 
 static void ValidateNativeInlineParagraph()
 {
+    TextDeviceAdvanceValidation.Run();
     TextDigitSubstitutionValidation.Run(Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"));
     TextContinuationValidation.Run(Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"));
     if (Marshal.SizeOf<NativeTextFloatingItem>() != 16 || Marshal.SizeOf<NativeTextFloatingOptions>() != 32 ||

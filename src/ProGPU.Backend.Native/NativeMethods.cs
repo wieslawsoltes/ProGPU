@@ -621,6 +621,12 @@ internal static unsafe partial class NativeMethods
         nuint normalizationDataSize,
         nint* context);
 
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_get_device_advances")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetTextContextDeviceAdvances(
+        nint context, uint fontIndex, uint pixelsPerEm, uint* glyphIndices,
+        uint glyphCount, float* advances, uint advanceCapacity, uint* available);
+
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_destroy")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial void DestroyTextContext(nint context);

@@ -4,6 +4,7 @@
 #include "progpu_native_text.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cmath>
@@ -53,6 +54,12 @@ struct progpu_native_text_plan_entry final {
 struct progpu_native_text_context final {
     static constexpr std::size_t plan_capacity = 16U;
 
+    struct device_width_entry final {
+        progpu::native::text::sfnt_horizontal_device_metrics metrics{};
+        std::uint32_t font_index = 0U;
+        std::uint16_t pixels_per_em = 0U;
+    };
+
     std::vector<std::byte> font_bytes{};
     std::vector<std::byte> normalization_bytes{};
     progpu::native::text::sfnt_font_view font{};
@@ -62,6 +69,30 @@ struct progpu_native_text_context final {
     std::vector<progpu_native_text_plan_entry> plans{};
     std::uint64_t plan_clock = 0U;
     std::uint32_t plan_build_count = 0U;
+    // Borrow only this context's immutable font storage, including fallback
+    // vector moves. Zero ppem marks unused slots; absence is also cached.
+    std::array<device_width_entry, 16U> device_widths{};
+    std::size_t device_width_cursor = 0U;
+
+    bool try_get_device_widths(std::uint32_t font_index,
+        std::uint16_t pixels_per_em,
+        progpu::native::text::sfnt_horizontal_device_metrics& result,
+        progpu::native::text::font_error& error) noexcept {
+        for (const auto& entry : device_widths) {
+            if (entry.pixels_per_em == pixels_per_em && entry.font_index == font_index) {
+                result = entry.metrics;
+                error = progpu::native::text::font_error::none;
+                return true;
+            }
+        }
+        const auto* selected = font_at(font_index);
+        bool available = false;
+        if (selected == nullptr || !selected->try_get_horizontal_device_metrics(
+                pixels_per_em, result, available, &error)) return false;
+        device_widths[device_width_cursor] = {result, font_index, pixels_per_em};
+        device_width_cursor = (device_width_cursor + 1U) % device_widths.size();
+        return true;
+    }
 
     bool try_get_plan(
         const progpu::native::text::sfnt_font_view& selected_font,
@@ -1537,6 +1568,92 @@ progpu_native_status progpu_native_text_context_create(
 
 void progpu_native_text_context_destroy(progpu_native_text_context* context) {
     delete context;
+}
+
+progpu_native_status progpu_native_text_context_get_device_advances(
+    progpu_native_text_context* context,
+    std::uint32_t font_index,
+    std::uint32_t pixels_per_em,
+    const std::uint32_t* glyph_indices,
+    std::uint32_t glyph_count,
+    float* advances,
+    std::uint32_t advance_capacity,
+    std::uint32_t* available) {
+    if (!has_aligned_pointer(available, 1U)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    const auto input_bytes = static_cast<std::uint64_t>(glyph_count) * sizeof(std::uint32_t);
+    const auto output_bytes = static_cast<std::uint64_t>(advance_capacity) * sizeof(float);
+    // An aliased status pointer cannot be cleared without modifying input or
+    // an output tail. Reject overlaps before writing any caller memory.
+    if (byte_ranges_overlap(glyph_indices, input_bytes, available, sizeof(*available)) ||
+        byte_ranges_overlap(advances, output_bytes, available, sizeof(*available)) ||
+        byte_ranges_overlap(glyph_indices, input_bytes, advances, output_bytes))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    *available = 0U;
+    const auto input_address = reinterpret_cast<std::uintptr_t>(glyph_indices);
+    const auto output_address = reinterpret_cast<std::uintptr_t>(advances);
+    if (context == nullptr || font_index >= context->font_count() ||
+        pixels_per_em == 0U || pixels_per_em > std::numeric_limits<std::uint16_t>::max() ||
+        advance_capacity < glyph_count ||
+        !has_aligned_pointer(glyph_indices, glyph_count) ||
+        !has_aligned_pointer(advances, advance_capacity) ||
+        input_bytes > std::numeric_limits<std::size_t>::max() ||
+        output_bytes > std::numeric_limits<std::size_t>::max() ||
+        input_bytes > std::numeric_limits<std::uintptr_t>::max() - input_address ||
+        output_bytes > std::numeric_limits<std::uintptr_t>::max() - output_address)
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+
+    // Validate IDs independently of optional-record availability. A missing
+    // ppem must not turn an invalid glyph request into successful absence.
+    std::uint16_t font_glyph_count = 0U;
+    if (!context->font_at(font_index)->try_get_glyph_count(font_glyph_count) ||
+        font_glyph_count == 0U) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    std::size_t index = 0U;
+    const auto count = static_cast<std::size_t>(glyph_count);
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const auto limit = vdupq_n_u32(font_glyph_count);
+    for (; count - index >= 4U; index += 4U) {
+        if (vminvq_u32(vcltq_u32(vld1q_u32(glyph_indices + index), limit)) == 0U)
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+#elif defined(__SSE2__) || defined(_M_X64)
+    const auto maximum = _mm_set1_epi32(static_cast<int>(font_glyph_count) - 1);
+    for (; count - index >= 4U; index += 4U) {
+        const auto values = _mm_loadu_si128(reinterpret_cast<const __m128i*>(glyph_indices + index));
+        const auto invalid = _mm_or_si128(_mm_cmpgt_epi32(values, maximum), _mm_srai_epi32(values, 31));
+        if (_mm_movemask_epi8(invalid) != 0) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+#endif
+    for (; index < count; ++index)
+        if (glyph_indices[index] >= font_glyph_count) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+
+    sfnt_horizontal_device_metrics metrics{};
+    font_error error = font_error::none;
+    if (!context->try_get_device_widths(font_index,
+            static_cast<std::uint16_t>(pixels_per_em), metrics, error))
+        return status_from_error(error);
+    if (metrics.glyph_widths.empty()) return PROGPU_NATIVE_STATUS_SUCCESS;
+
+    const auto width = [&](std::size_t offset) {
+        return std::to_integer<std::uint32_t>(metrics.glyph_widths[glyph_indices[offset]]);
+    };
+    index = 0U;
+    // Sparse byte gathers use scalar loads on NEON/SSE2; independent numeric
+    // conversion and publication use four lanes. No font-unit rescaling occurs.
+#if defined(__aarch64__) || defined(_M_ARM64)
+    for (; count - index >= 4U; index += 4U) {
+        const std::uint32_t values[4]{width(index), width(index + 1U), width(index + 2U), width(index + 3U)};
+        vst1q_f32(advances + index, vcvtq_f32_u32(vld1q_u32(values)));
+    }
+#elif defined(__SSE2__) || defined(_M_X64)
+    for (; count - index >= 4U; index += 4U) {
+        const auto values = _mm_setr_epi32(static_cast<int>(width(index)), static_cast<int>(width(index + 1U)),
+            static_cast<int>(width(index + 2U)), static_cast<int>(width(index + 3U)));
+        _mm_storeu_ps(advances + index, _mm_cvtepi32_ps(values));
+    }
+#endif
+    for (; index < count; ++index) advances[index] = static_cast<float>(width(index));
+    *available = 1U;
+    return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
 progpu_native_status progpu_native_text_context_add_fallback_font(
