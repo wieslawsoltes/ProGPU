@@ -64,6 +64,8 @@ public unsafe class WgpuContext : IDisposable
     public string AdapterName { get; private set; } = string.Empty;
     /// <summary>Explicitly requires a WebGPU fallback adapter; false preserves high-performance selection.</summary>
     public bool ForceFallbackAdapter { get; init; }
+    /// <summary>Immutable native instance backend selection; shared surfaces must match their owner.</summary>
+    public WgpuNativeBackendOptions NativeBackendOptions { get; init; } = WgpuNativeBackendOptions.FromEnvironment();
     /// <summary>Immutable before native instance creation; automatic retains the backend default.</summary>
     public WgpuDx12CompilerOptions Dx12CompilerOptions { get; init; } = WgpuDx12CompilerOptions.FromEnvironment();
     /// <summary>The compiler of the initialized owned D3D12 device; null for uninitialized or external devices.</summary>
@@ -920,6 +922,10 @@ public unsafe class WgpuContext : IDisposable
         SafeLog($"[WGPUCONTEXT] Initialize started, window exists={window != null}\n");
         ArgumentNullException.ThrowIfNull(Dx12CompilerOptions);
         Dx12CompilerOptions.ValidateOwnership(OperatingSystem.IsWindows());
+        ArgumentNullException.ThrowIfNull(NativeBackendOptions);
+        uint instanceBackends = NativeBackendOptions.ResolveInstanceBackends(
+            OperatingSystem.IsWindows(), OperatingSystem.IsAndroid(), OperatingSystem.IsIOS(),
+            Dx12CompilerOptions.Preference);
         _window = window;
         Wgpu = CreateNativeWebGpuApi();
         Api = new SilkWebGpuApi(Wgpu, RenderLock);
@@ -943,7 +949,7 @@ public unsafe class WgpuContext : IDisposable
         fixed (byte* dxcPath = compilerPath)
         fixed (byte* dxilPath = validatorPath)
         {
-            var instanceExtras = CreateNativeInstanceExtras(Dx12CompilerOptions.Preference, dxcPath, dxilPath);
+            var instanceExtras = CreateNativeInstanceExtras(instanceBackends, Dx12CompilerOptions.Preference, dxcPath, dxilPath);
             var instanceDesc = new InstanceDescriptor
             {
                 NextInChain = instanceExtras.Chain.SType == 0 ? null : &instanceExtras.Chain
@@ -1055,7 +1061,7 @@ public unsafe class WgpuContext : IDisposable
                 ? WgpuAdapterSelectionReason.HighPerformanceSurfaceCompatible
                 : WgpuAdapterSelectionReason.HighPerformance));
         string adapterDiagnostic =
-            $"[WGPUCONTEXT] Adapter '{AdapterName}', backend={AdapterBackendType}, " +
+            $"[WGPUCONTEXT] Adapter '{AdapterName}', backend={AdapterBackendType}, requestedBackend={NativeBackendOptions.Preference}, " +
             $"type={AdapterSelectionDiagnostics.AdapterType}, " +
             $"driver='{AdapterSelectionDiagnostics.DriverDescription}', " +
             $"vendor=0x{AdapterSelectionDiagnostics.VendorId:X4}, " +
@@ -1064,6 +1070,15 @@ public unsafe class WgpuContext : IDisposable
             $"reason={AdapterSelectionDiagnostics.SelectionReason}";
         SafeLog(adapterDiagnostic + "\n");
         ProGpuBackendDiagnostics.WriteLine(adapterDiagnostic);
+        try
+        {
+            NativeBackendOptions.ValidateAdapter(AdapterBackendType);
+        }
+        catch (NotSupportedException)
+        {
+            ReleaseAdapterInitializationResources();
+            throw;
+        }
         if (Dx12CompilerOptions.Preference != WgpuDx12ShaderCompiler.Automatic && AdapterBackendType != BackendType.D3D12)
         {
             ReleaseAdapterInitializationResources();
@@ -1349,16 +1364,9 @@ public unsafe class WgpuContext : IDisposable
         _hasSurfaceConfigurationCapabilities = false;
     }
 
-    private static NativeInstanceExtras CreateNativeInstanceExtras(
-        WgpuDx12ShaderCompiler compiler, byte* dxcPath, byte* dxilPath)
+    internal static NativeInstanceExtras CreateNativeInstanceExtras(
+        uint backends, WgpuDx12ShaderCompiler compiler, byte* dxcPath, byte* dxilPath)
     {
-        uint backends = OperatingSystem.IsWindows()
-            ? NativeInstanceExtras.D3D12Backend
-            : OperatingSystem.IsAndroid()
-                ? NativeInstanceExtras.VulkanBackend
-                : OperatingSystem.IsIOS()
-                    ? NativeInstanceExtras.MetalBackend
-                    : 0u;
         return backends == 0u
             ? default
             : new NativeInstanceExtras
@@ -1379,14 +1387,11 @@ public unsafe class WgpuContext : IDisposable
 
     // wgpu-native 0.19 extension ABI from its public wgpu.h. Silk exposes the
     // standard WebGPU descriptor chain but intentionally does not generate native-only
-    // extensions, so this private sequential representation keeps that boundary explicit.
+    // extensions, so this internal sequential representation keeps that boundary explicit.
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeInstanceExtras
+    internal struct NativeInstanceExtras
     {
         public const uint STypeValue = 0x00030006;
-        public const uint VulkanBackend = 1u << 0;
-        public const uint MetalBackend = 1u << 2;
-        public const uint D3D12Backend = 1u << 3;
 
         public ChainedStruct Chain;
         public uint Backends;
@@ -1643,6 +1648,8 @@ public unsafe class WgpuContext : IDisposable
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(Dx12CompilerOptions);
         Dx12CompilerOptions.ValidateOwnership(false);
+        ArgumentNullException.ThrowIfNull(NativeBackendOptions);
+        NativeBackendOptions.ValidateOwnership(false);
         if (ForceFallbackAdapter) throw new NotSupportedException("A borrowed device cannot satisfy a new adapter-selection request.");
         if (Api != null || Device != null || _isDisposed)
             throw new InvalidOperationException("The WebGPU context is already initialized or disposed.");
@@ -1717,6 +1724,8 @@ public unsafe class WgpuContext : IDisposable
         ArgumentNullException.ThrowIfNull(lifetime);
         ArgumentNullException.ThrowIfNull(Dx12CompilerOptions);
         Dx12CompilerOptions.ValidateOwnership(false);
+        ArgumentNullException.ThrowIfNull(NativeBackendOptions);
+        NativeBackendOptions.ValidateOwnership(false);
         if (ForceFallbackAdapter) throw new NotSupportedException("A borrowed device cannot satisfy a new adapter-selection request.");
         if (Api != null || Device != null || _isDisposed)
         {
@@ -1815,6 +1824,8 @@ public unsafe class WgpuContext : IDisposable
         ArgumentNullException.ThrowIfNull(deviceOwner);
         ArgumentNullException.ThrowIfNull(Dx12CompilerOptions);
         Dx12CompilerOptions.Validate();
+        ArgumentNullException.ThrowIfNull(NativeBackendOptions);
+        NativeBackendOptions.ValidateAdapter(deviceOwner.AdapterBackendType);
         if (ForceFallbackAdapter && deviceOwner.AdapterSelectionDiagnostics.SelectionReason is not
             (WgpuAdapterSelectionReason.RequiredFallback or WgpuAdapterSelectionReason.RequiredFallbackSurfaceCompatible))
             throw new NotSupportedException("A shared surface cannot replace its owner's adapter with a fallback adapter.");
