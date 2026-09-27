@@ -40,8 +40,13 @@ public sealed class WgpuContextTests
         public uint WaitFlags;
     }
 
-    [Fact]
-    public async Task SurfaceConfigurationWaitsForTheSubmissionRenderLock()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task SurfaceConfigurationWaitsForTheSubmissionRenderLock(int entrypoint)
     {
         using var started = new ManualResetEventSlim();
         using var returned = new ManualResetEventSlim();
@@ -53,7 +58,16 @@ public sealed class WgpuContextTests
             configuration = Task.Run(() =>
             {
                 started.Set();
-                bool result = context.TryConfigureSwapChain(640, 480);
+                bool result;
+                if (entrypoint == 0) result = context.TryConfigureSwapChain(640, 480);
+                else if (entrypoint == 1) result = context.TryReconfigureIfNeeded(640, 480);
+                else if (entrypoint == 3) result = context.TryReconfigureIfNeeded(640, 480, waitForNativeCompletion: false);
+                else if (entrypoint == 4) result = context.TryReconfigureIfNeeded(640, 480, waitForNativeCompletion: true);
+                else
+                {
+                    context.ReconfigureIfNeeded(640, 480);
+                    result = false;
+                }
                 returned.Set();
                 return result;
             });

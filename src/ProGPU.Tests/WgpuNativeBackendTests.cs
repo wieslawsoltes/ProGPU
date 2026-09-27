@@ -188,7 +188,7 @@ public sealed class WgpuNativeBackendTests
         string source = File.ReadAllText(Path.Combine(directory.FullName, "src/ProGPU.Backend/WgpuContext.cs"));
         int entry = source.IndexOf("public bool TryConfigureSwapChain(", StringComparison.Ordinal);
         int locked = source.IndexOf("lock (RenderLock)", entry, StringComparison.Ordinal);
-        int call = source.IndexOf("return TryConfigureSwapChainCore(width, height, refreshCapabilities);", locked, StringComparison.Ordinal);
+        int call = source.IndexOf("return TryConfigureSwapChainCore(width, height, refreshCapabilities, waitForCompletion: true);", locked, StringComparison.Ordinal);
         int core = source.IndexOf("private bool TryConfigureSwapChainCore(", call, StringComparison.Ordinal);
         int external = source.IndexOf("externalSurface.ConfigureExternalSurface(", core, StringComparison.Ordinal);
         int browser = source.IndexOf("BackendKind == WgpuBackendKind.BrowserWebGpu", external, StringComparison.Ordinal);
@@ -201,5 +201,38 @@ public sealed class WgpuNativeBackendTests
         Assert.True(external > core && browser > external && drain > browser);
         Assert.True(invalidated > drain && loss > invalidated && reject > loss && configure > reject);
         Assert.DoesNotContain("_queueSubmissionCount", source[core..configure], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderTimeResizeDefersPendingCompletionWithoutPublishingNewSurfaceState()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Directory.Packages.props")))
+            directory = directory.Parent;
+        Assert.NotNull(directory);
+        string source = File.ReadAllText(Path.Combine(directory.FullName, "src/ProGPU.Backend/WgpuContext.cs"));
+        int selection = source.IndexOf("bool pollWithoutWaiting = !waitForCompletion && BackendKind == WgpuBackendKind.SilkNative;", StringComparison.Ordinal);
+        int deferred = source.IndexOf("if (pollWithoutWaiting)", selection, StringComparison.Ordinal);
+        int poll = source.IndexOf("if (!PollNativeDeviceCore(wait: false))", deferred, StringComparison.Ordinal);
+        int pending = source.IndexOf("return false;", poll, StringComparison.Ordinal);
+        int drained = source.IndexOf("MarkSubmittedWorkDrained();", pending, StringComparison.Ordinal);
+        int synchronous = source.IndexOf("WaitIdle();", drained, StringComparison.Ordinal);
+        int invalidated = source.IndexOf("_isSurfaceConfigured = false;", synchronous, StringComparison.Ordinal);
+        int configure = source.IndexOf("Wgpu.SurfaceConfigure(Surface, &config);", invalidated, StringComparison.Ordinal);
+        Assert.True(selection >= 0 && deferred > selection && poll > deferred && pending > poll && drained > pending);
+        Assert.True(synchronous > drained && invalidated > synchronous && configure > invalidated);
+        foreach (string mutation in new[] { "_lastWidth =", "_lastHeight =", "SurfaceConfigurationCount++", "_isSurfaceConfigured =" })
+            Assert.DoesNotContain(mutation, source[deferred..pending], StringComparison.Ordinal);
+        Assert.Contains("_ = TryReconfigureIfNeeded(width, height);", source, StringComparison.Ordinal);
+        Assert.Contains("return TryReconfigureIfNeededCore(width, height, waitForCompletion: true);", source, StringComparison.Ordinal);
+        Assert.Contains("return TryReconfigureIfNeededCore(width, height, waitForNativeCompletion);", source, StringComparison.Ordinal);
+        int capabilities = source.IndexOf("Wgpu.SurfaceGetCapabilities(", pending, StringComparison.Ordinal);
+        Assert.True(capabilities > pending && capabilities < synchronous);
+        Assert.Contains("if (!pollWithoutWaiting)", source[drained..synchronous], StringComparison.Ordinal);
+        int reconfigure = source.IndexOf("private bool TryReconfigureIfNeededCore(", StringComparison.Ordinal);
+        int locked = source.IndexOf("lock (RenderLock)", reconfigure, StringComparison.Ordinal);
+        int check = source.IndexOf("if (!_isSurfaceConfigured ||", locked, StringComparison.Ordinal);
+        int call = source.IndexOf("return TryConfigureSwapChainCore(width, height, refreshCapabilities: false, waitForCompletion);", check, StringComparison.Ordinal);
+        Assert.True(reconfigure >= 0 && locked > reconfigure && check > locked && call > check);
     }
 }

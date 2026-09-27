@@ -1,5 +1,12 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Render-time native surface deferral is explicit opt-in. A pending real queue poll
+returns before surface configuration or publication; callers retain presentation
+requests and defer acquisition. Hold the submission lock through actual completion
+and configuration, never use managed counters or elapsed time as completion, and
+keep original synchronous/one-shot APIs and external-provider contracts unchanged.
+An additive deferral primitive is not host wiring or Windows idle qualification.
+
 Native device-advance queries borrow one selected immutable font context under
 its existing use lease. Preserve exact hdmx ppem/face identity, bounded positive
 and negative caching, atomic glyph validation and untouched caller tails.

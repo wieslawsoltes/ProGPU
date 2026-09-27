@@ -28,6 +28,32 @@ pending nonblocking polls, configuration/submission lock serialization and sourc
 ordering. These are not GPU/application proof. Exact-head package CI and the
 LibreWPF ARM64 resize reproduction remain required before claiming the crash fixed.
 
+### Deferred render-time reconfiguration
+
+The additive `TryReconfigureIfNeeded(width, height, waitForNativeCompletion: false)`
+overload performs one nonblocking Silk-native completion poll under the same
+render/submission lock. Pending work returns `false` before capability queries,
+configuration logging, native surface configuration or publication of dimensions
+and configuration counters. Actual completion remains mandatory: neither elapsed
+time nor managed submission counters can admit the surface. The lock covers the
+successful completion check through `SurfaceConfigure`.
+
+Opt-in hosts must preserve their pending presentation request and skip acquisition
+on `false`. This is intentionally not the default: texture presenters and other
+one-shot callers cannot silently drop their only presentation. Both original
+two-argument methods and explicit configuration retain their synchronous drain.
+Browser/external-Dawn configuration, compiler/backend defaults and all completion,
+readback and application deadlines remain unchanged.
+
+The synchronous drain is a concrete event-thread blocking path during a busy-queue
+resize. This overload removes that wait only for opted-in callers; it does not
+attribute the previous Showcase timeout to this path, reduce GPU work, qualify
+idle CPU use or make the original resize observation pass. Host integration and
+actual Windows application evidence remain required. Local controls pass 132/132,
+including pending-poll behavior, all five configuration entrypoints' submission
+lock serialization, unchanged synchronous defaults and fail-before-publication
+ordering. They are not a native pending-queue/application runtime qualification.
+
 ## Blocking application path
 
 Acceptance application: `ProGPU.Wpf.ShowcaseApp`. The first native frame must
