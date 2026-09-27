@@ -1053,7 +1053,8 @@ public class TextLayout
     public TextInteractionSnapshot CreateInteractionSnapshot()
     {
         var geometry = BuildInteractionGeometry();
-        return new(Text.Length, FontSize, geometry.Boxes.ToArray(), geometry.EmptyLines.ToArray());
+        return new(Text.Length, FontSize, geometry.Boxes.ToArray(), geometry.EmptyLines.ToArray(),
+            ShapingOptions.Direction is not (ShapingDirection.TopToBottom or ShapingDirection.BottomToTop));
     }
 
     public IReadOnlyList<TextCaretStop> GetVisualCaretStops()
@@ -1161,8 +1162,9 @@ public class TextLayout
     {
         // Same pen/advance contract as the native measured-advance interaction
         // builder. Sequential accumulation is dependent; no glyph is repositioned.
-        foreach (LineRange line in _horizontalLines)
+        for (int row = 0; row < _horizontalLines.Count; row++)
         {
+            LineRange line = _horizontalLines[row];
             if (line.Count == 0)
             {
                 // A real writer-owned empty row has a caret, not a synthetic
@@ -1170,7 +1172,7 @@ public class TextLayout
                 // order without sorting or comparing rounded vertical metrics.
                 emptyLines?.Add(new EmptyLineCaret(result.Count,
                     new TextCaretStop(line.SourceStart, false, new Vector2(line.Left, line.Top),
-                        line.Height, line.ParagraphLevel)));
+                        line.Height, line.ParagraphLevel), row));
             }
             float pen = line.Left;
             int end = line.Start + line.Count;
@@ -1190,14 +1192,15 @@ public class TextLayout
                 while (index < end && Glyphs[index].Cluster == first.Cluster);
 
                 result.Add(new ClusterBox(first.Cluster, Math.Min(clusterEnds[first.Cluster], line.SourceEnd),
-                    first.BidiLevel, left, line.Top, Math.Max(0, right - left), line.Height));
+                    first.BidiLevel, left, line.Top, Math.Max(0, right - left), line.Height, row));
             }
         }
     }
 
-    internal readonly record struct EmptyLineCaret(int BeforeBoxIndex, TextCaretStop Caret);
+    internal readonly record struct EmptyLineCaret(int BeforeBoxIndex, TextCaretStop Caret, int RowIndex = -1);
 
-    internal readonly record struct ClusterBox(int Start, int End, sbyte Level, float Left, float Top, float Width, float Height)
+    internal readonly record struct ClusterBox(int Start, int End, sbyte Level, float Left, float Top, float Width, float Height,
+        int RowIndex = -1)
     {
         public float Right => Left + Width;
         public float Bottom => Top + Height;

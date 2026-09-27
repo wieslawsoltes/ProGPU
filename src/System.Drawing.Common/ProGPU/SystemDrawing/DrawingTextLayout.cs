@@ -57,6 +57,12 @@ public sealed class DrawingTextLayout
     public TextCaretStop MoveCaretVisually(int textPosition, bool trailingAffinity, int direction)
         => Translate(_interaction.MoveCaretVisually(textPosition, trailingAffinity, direction));
 
+    public TextCaretStop GetRowBoundary(int textPosition, bool trailingAffinity, bool end)
+        => Translate(_interaction.GetRowBoundary(textPosition, trailingAffinity, end));
+
+    public TextCaretStop MoveCaretVertically(int textPosition, bool trailingAffinity, int direction, float preferredX)
+        => Translate(_interaction.MoveCaretVertically(textPosition, trailingAffinity, direction, preferredX - Offset.X));
+
     public TextHitTestResult HitTestPoint(PointF point)
     {
         TextHitTestResult hit = _interaction.HitTestPoint(new Vector2(point.X, point.Y) - Offset);

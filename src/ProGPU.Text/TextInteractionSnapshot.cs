@@ -9,15 +9,20 @@ public sealed class TextInteractionSnapshot
     private readonly TextCaretStop[] _carets;
     private readonly TextLayout.EmptyLineCaret[] _emptyLines;
     private readonly float _emptyHeight;
+    private readonly int[] _caretRows;
+    private readonly bool _horizontal;
 
     internal TextInteractionSnapshot(int textLength, float emptyHeight, TextLayout.ClusterBox[] boxes,
-        TextLayout.EmptyLineCaret[] emptyLines)
+        TextLayout.EmptyLineCaret[] emptyLines, bool horizontal)
     {
         TextLength = textLength;
         _emptyHeight = emptyHeight;
         _boxes = boxes;
         _emptyLines = emptyLines;
-        _carets = BuildCaretStops(boxes, emptyHeight, emptyLines).ToArray();
+        _horizontal = horizontal;
+        var rows = new List<int>();
+        _carets = BuildCaretStops(boxes, emptyHeight, emptyLines, rows).ToArray();
+        _caretRows = rows.ToArray();
     }
 
     public int TextLength { get; }
@@ -31,6 +36,53 @@ public sealed class TextInteractionSnapshot
     public TextCaretStop MoveCaretVisually(int textPosition, bool trailingAffinity, int direction)
         => MoveCaretVisually(_carets, textPosition, trailingAffinity, direction);
 
+    /// <summary>Returns an existing source-start/end caret on the current horizontal layout row.</summary>
+    public TextCaretStop GetRowBoundary(int textPosition, bool trailingAffinity, bool end)
+    {
+        EnsureHorizontalRows();
+        int current = FindCaretIndex(_carets, textPosition, trailingAffinity);
+        TextCaretStop best = _carets[current];
+        int row = _caretRows[current];
+        for (int i = 0; i < _carets.Length; i++)
+        {
+            if (_caretRows[i] != row) continue;
+            TextCaretStop candidate = _carets[i];
+            if ((end ? candidate.TextPosition > best.TextPosition : candidate.TextPosition < best.TextPosition) ||
+                (candidate.TextPosition == best.TextPosition && candidate.IsTrailing == end && best.IsTrailing != end))
+                best = candidate;
+        }
+        return best;
+    }
+
+    /// <summary>Moves one actual horizontal row, choosing an existing stop nearest the caller's preferred X.</summary>
+    public TextCaretStop MoveCaretVertically(int textPosition, bool trailingAffinity, int direction, float preferredX)
+    {
+        EnsureHorizontalRows();
+        if (!float.IsFinite(preferredX)) throw new ArgumentOutOfRangeException(nameof(preferredX));
+        int current = FindCaretIndex(_carets, textPosition, trailingAffinity);
+        TextCaretStop best = _carets[current];
+        int row = _caretRows[current] + Math.Sign(direction);
+        double distance = double.PositiveInfinity;
+        for (int i = 0; i < _carets.Length; i++)
+        {
+            if (_caretRows[i] != row) continue;
+            TextCaretStop candidate = _carets[i];
+            double next = Math.Abs((double)candidate.Position.X - preferredX);
+            if (next < distance || (next == distance &&
+                candidate.IsTrailing == trailingAffinity && best.IsTrailing != trailingAffinity))
+            {
+                best = candidate;
+                distance = next;
+            }
+        }
+        return direction == 0 ? _carets[current] : best;
+    }
+
+    private void EnsureHorizontalRows()
+    {
+        if (!_horizontal) throw new NotSupportedException("Row navigation requires horizontal text layout.");
+    }
+
     public IReadOnlyList<TextBounds> GetSelectionRectangles(int textStart, int textLength)
     {
         int start = Math.Clamp(Math.Min(textStart, textStart + textLength), 0, TextLength);
@@ -40,17 +92,24 @@ public sealed class TextInteractionSnapshot
 
     internal static IReadOnlyList<TextCaretStop> BuildCaretStops(
         IReadOnlyList<TextLayout.ClusterBox> boxes, float emptyHeight,
-        IReadOnlyList<TextLayout.EmptyLineCaret> emptyLines)
+        IReadOnlyList<TextLayout.EmptyLineCaret> emptyLines, List<int>? rowIndices = null)
     {
+        rowIndices ??= new List<int>();
         if (boxes.Count == 0 && emptyLines.Count == 0)
+        {
+            rowIndices.Add(0);
             return [new TextCaretStop(0, false, Vector2.Zero, Math.Max(0f, emptyHeight), 0)];
+        }
 
         var stops = new List<TextCaretStop>(boxes.Count * 2 + emptyLines.Count);
         int emptyIndex = 0;
         for (int i = 0; i <= boxes.Count; i++)
         {
             while (emptyIndex < emptyLines.Count && emptyLines[emptyIndex].BeforeBoxIndex == i)
+            {
+                rowIndices.Add(emptyLines[emptyIndex].RowIndex);
                 stops.Add(emptyLines[emptyIndex++].Caret);
+            }
             if (i == boxes.Count) break;
             TextLayout.ClusterBox box = boxes[i];
             bool rtl = (box.Level & 1) != 0;
@@ -59,6 +118,8 @@ public sealed class TextInteractionSnapshot
                 new Vector2(box.Left, box.Top), box.Height, box.Level));
             stops.Add(new TextCaretStop(rtl ? box.Start : box.End, !rtl,
                 new Vector2(box.Right, box.Top), box.Height, box.Level));
+            rowIndices.Add(box.RowIndex);
+            rowIndices.Add(box.RowIndex);
         }
         for (int i = stops.Count - 1; i > 0; i--)
         {
@@ -66,8 +127,12 @@ public sealed class TextInteractionSnapshot
             TextCaretStop previous = stops[i - 1];
             if (current.TextPosition == previous.TextPosition &&
                 current.IsTrailing == previous.IsTrailing &&
+                rowIndices[i] == rowIndices[i - 1] &&
                 Vector2.DistanceSquared(current.Position, previous.Position) < .0001f)
+            {
                 stops.RemoveAt(i);
+                rowIndices.RemoveAt(i);
+            }
         }
         return stops;
     }
@@ -128,17 +193,20 @@ public sealed class TextInteractionSnapshot
 
     internal static TextCaretStop GetCaretStop(
         IReadOnlyList<TextCaretStop> stops, int textPosition, bool trailingAffinity)
+        => stops[FindCaretIndex(stops, textPosition, trailingAffinity)];
+
+    private static int FindCaretIndex(IReadOnlyList<TextCaretStop> stops, int textPosition, bool trailingAffinity)
     {
-        TextCaretStop best = stops[0];
-        int bestDistance = int.MaxValue;
+        int best = 0;
+        long bestDistance = long.MaxValue;
         for (int i = 0; i < stops.Count; i++)
         {
             TextCaretStop candidate = stops[i];
-            int distance = Math.Abs(candidate.TextPosition - textPosition);
+            long distance = Math.Abs((long)candidate.TextPosition - textPosition);
             if (distance < bestDistance || (distance == bestDistance &&
-                candidate.IsTrailing == trailingAffinity && best.IsTrailing != trailingAffinity))
+                candidate.IsTrailing == trailingAffinity && stops[best].IsTrailing != trailingAffinity))
             {
-                best = candidate;
+                best = i;
                 bestDistance = distance;
             }
         }
