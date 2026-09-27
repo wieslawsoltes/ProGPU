@@ -41,6 +41,24 @@ void advance_interaction() {
     origins[0] = std::numeric_limits<float>::quiet_NaN();
     require(build(origins.data(), 1) == invalid &&
         result.cluster_box_count == 0 && boxes[0].x == 123);
+
+    // Paired with TextLayoutAdvanceInteractionTests: placement of a zero-advance
+    // mark is draw-only, including Y offsets that differ from the source row.
+    origins[0] = 4;
+    glyphs[0].cluster = 0;
+    glyphs[1].x = 7;
+    glyphs[1].y = -7;
+    glyphs[1].advance_x = 0;
+    lines[0].width = 6;
+    ends.fill(2);
+    levels.fill(0);
+    require(build(origins.data(), 1) == success &&
+        result.cluster_box_count == 1 && result.caret_stop_count == 2);
+    require(boxes[0].x == 4 && boxes[0].y == 0 && boxes[0].width == 6 &&
+        boxes[0].height == 12 && carets[0].input_position == 0 &&
+        carets[1].input_position == 2 && carets[0].x == 4 && carets[1].x == 10 &&
+        carets[0].y == 0 && carets[1].y == 0);
+    require(glyphs[0].x == 3.5F && glyphs[1].x == 7 && glyphs[1].y == -7);
 }
 
 void fragment_interaction() {

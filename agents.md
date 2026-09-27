@@ -1,5 +1,12 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Managed TextLayout horizontal interaction retains the writer's exact line frames
+and sums visual-order advances, matching native measured-advance geometry. Glyph
+X/Y placement is draw-only: never split a combining cluster by positioned Y or
+derive caret boxes from ink offsets. Keep original glyphs, UTF-16/bidi identity,
+alignment, line gaps and regeneration ownership. Vertical and empty-row caret
+admission and source editor UI remain separate. See docs/text-layout-advance-interaction.md.
+
 Styled native digit substitution changes only the scratch-owned scalar code point,
 never its original UTF-16 index or length. Apply it before script, fallback,
 line breaking and shaping. Generic styled paragraphs resolve bidi on substituted
