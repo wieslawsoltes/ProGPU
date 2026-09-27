@@ -322,7 +322,11 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("public float Top { get; }", source, StringComparison.Ordinal);
         Assert.Contains("public float Height { get; }", source, StringComparison.Ordinal);
         Assert.Contains("List<LineRange> lines = _horizontalLines;", source, StringComparison.Ordinal);
-        Assert.Contains("new LineRange(line.Start, line.Count, shiftX, line.Top, line.Height)", source, StringComparison.Ordinal);
+        Assert.Contains("new LineRange(line.Start, line.Count, shiftX, line.Top, line.Height,\n                line.SourceStart, line.SourceEnd, line.ParagraphLevel)", source, StringComparison.Ordinal);
+        Assert.Contains("public int SourceStart { get; }", source, StringComparison.Ordinal);
+        Assert.Contains("public int SourceEnd { get; }", source, StringComparison.Ordinal);
+        Assert.Contains("public sbyte ParagraphLevel { get; }", source, StringComparison.Ordinal);
+        Assert.Contains("new EmptyLineCaret(result.Count,", source, StringComparison.Ordinal);
         Assert.Contains("private static int EstimateGlyphCapacity(string text)", source, StringComparison.Ordinal);
         Assert.Contains("private static int EstimateLineCapacity(string text)", source, StringComparison.Ordinal);
         Assert.Contains("private static void AddLineRange(List<LineRange> lines, int start, int end)", source, StringComparison.Ordinal);

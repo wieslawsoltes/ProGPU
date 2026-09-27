@@ -15,6 +15,14 @@ derive caret boxes from ink offsets. Keep original glyphs, UTF-16/bidi identity,
 alignment, line gaps and regeneration ownership. Vertical and empty-row caret
 admission and source editor UI remain separate. See docs/text-layout-advance-interaction.md.
 
+Managed horizontal hard-break rows retain explicit writer-owned caret metadata,
+not fake drawable glyphs or shaping clusters. Keep LF/CR/CRLF source positions,
+paragraph levels and alignment, and cap real cluster ends at their hard segment.
+Merge empty carets by retained box insertion index, never rounded Y sorting.
+Snapshots own this metadata; empty-row hits use the actual half-open row band
+without claiming an inside-glyph hit. This does not qualify vertical writing,
+source editor navigation or native text ABI behavior. See docs/text-hard-break-interaction.md.
+
 Styled native digit substitution changes only the scratch-owned scalar code point,
 never its original UTF-16 index or length. Apply it before script, fallback,
 line breaking and shaping. Generic styled paragraphs resolve bidi on substituted

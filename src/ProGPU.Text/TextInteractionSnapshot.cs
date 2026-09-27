@@ -7,20 +7,23 @@ public sealed class TextInteractionSnapshot
 {
     private readonly TextLayout.ClusterBox[] _boxes;
     private readonly TextCaretStop[] _carets;
+    private readonly TextLayout.EmptyLineCaret[] _emptyLines;
     private readonly float _emptyHeight;
 
-    internal TextInteractionSnapshot(int textLength, float emptyHeight, TextLayout.ClusterBox[] boxes)
+    internal TextInteractionSnapshot(int textLength, float emptyHeight, TextLayout.ClusterBox[] boxes,
+        TextLayout.EmptyLineCaret[] emptyLines)
     {
         TextLength = textLength;
         _emptyHeight = emptyHeight;
         _boxes = boxes;
-        _carets = BuildCaretStops(boxes, emptyHeight).ToArray();
+        _emptyLines = emptyLines;
+        _carets = BuildCaretStops(boxes, emptyHeight, emptyLines).ToArray();
     }
 
     public int TextLength { get; }
     public ReadOnlySpan<TextCaretStop> CaretStops => _carets;
 
-    public TextHitTestResult HitTestPoint(Vector2 point) => HitTestPoint(_boxes, _emptyHeight, point);
+    public TextHitTestResult HitTestPoint(Vector2 point) => HitTestPoint(_boxes, _emptyHeight, point, _emptyLines);
 
     public TextCaretStop GetCaretStop(int textPosition, bool trailingAffinity = false)
         => GetCaretStop(_carets, textPosition, trailingAffinity);
@@ -36,14 +39,19 @@ public sealed class TextInteractionSnapshot
     }
 
     internal static IReadOnlyList<TextCaretStop> BuildCaretStops(
-        IReadOnlyList<TextLayout.ClusterBox> boxes, float emptyHeight)
+        IReadOnlyList<TextLayout.ClusterBox> boxes, float emptyHeight,
+        IReadOnlyList<TextLayout.EmptyLineCaret> emptyLines)
     {
-        if (boxes.Count == 0)
+        if (boxes.Count == 0 && emptyLines.Count == 0)
             return [new TextCaretStop(0, false, Vector2.Zero, Math.Max(0f, emptyHeight), 0)];
 
-        var stops = new List<TextCaretStop>(boxes.Count * 2);
-        for (int i = 0; i < boxes.Count; i++)
+        var stops = new List<TextCaretStop>(boxes.Count * 2 + emptyLines.Count);
+        int emptyIndex = 0;
+        for (int i = 0; i <= boxes.Count; i++)
         {
+            while (emptyIndex < emptyLines.Count && emptyLines[emptyIndex].BeforeBoxIndex == i)
+                stops.Add(emptyLines[emptyIndex++].Caret);
+            if (i == boxes.Count) break;
             TextLayout.ClusterBox box = boxes[i];
             bool rtl = (box.Level & 1) != 0;
             // Retain the writer's physical order and both bidi affinities.
@@ -65,8 +73,32 @@ public sealed class TextInteractionSnapshot
     }
 
     internal static TextHitTestResult HitTestPoint(
-        IReadOnlyList<TextLayout.ClusterBox> boxes, float emptyHeight, Vector2 point)
+        IReadOnlyList<TextLayout.ClusterBox> boxes, float emptyHeight, Vector2 point,
+        IReadOnlyList<TextLayout.EmptyLineCaret> emptyLines)
     {
+        if (emptyLines.Count != 0)
+        {
+            float nearestBoxRow = float.PositiveInfinity;
+            foreach (TextLayout.ClusterBox box in boxes)
+                nearestBoxRow = Math.Min(nearestBoxRow, VerticalDistance(point.Y, box.Top, box.Height));
+            float nearestEmptyRow = float.PositiveInfinity;
+            TextCaretStop empty = emptyLines[0].Caret;
+            foreach (TextLayout.EmptyLineCaret line in emptyLines)
+            {
+                float distance = VerticalDistance(point.Y, line.Caret.Position.Y, line.Caret.Height);
+                bool ownsY = point.Y >= line.Caret.Position.Y &&
+                    point.Y < line.Caret.Position.Y + line.Caret.Height;
+                if (distance < nearestEmptyRow || (distance == nearestEmptyRow && ownsY))
+                {
+                    nearestEmptyRow = distance;
+                    empty = line.Caret;
+                }
+            }
+            bool containsY = point.Y >= empty.Position.Y && point.Y < empty.Position.Y + empty.Height;
+            if (boxes.Count == 0 || nearestEmptyRow < nearestBoxRow || containsY)
+                return new TextHitTestResult(empty.TextPosition, empty.IsTrailing, false,
+                    new TextBounds(empty.Position.X, empty.Position.Y, 0, empty.Height), empty.BidiLevel);
+        }
         if (boxes.Count == 0)
             return new TextHitTestResult(0, false, false, new TextBounds(0, 0, 0, emptyHeight), 0);
 
@@ -90,6 +122,9 @@ public sealed class TextInteractionSnapshot
         return new TextHitTestResult(trailing ? best.End : best.Start, trailing, inside,
             new TextBounds(best.Left, best.Top, best.Width, best.Height), best.Level);
     }
+
+    private static float VerticalDistance(float y, float top, float height)
+        => y < top ? top - y : y > top + height ? y - (top + height) : 0;
 
     internal static TextCaretStop GetCaretStop(
         IReadOnlyList<TextCaretStop> stops, int textPosition, bool trailingAffinity)
