@@ -7,6 +7,12 @@ must not destroy a leased view or a native-session-retained panel. Reentrant clo
 cannot publish a new lease or visible success. This internal lifetime primitive
 does not admit source input/presentation or automatic modality; retain those gates
 until both source hosts use the owned surface. See docs/native-cocoa-owned-popup-surface.md.
+Owned Cocoa view callbacks queue typed native-point input without calling source
+handlers. Preserve button-event identity, precise scroll units/phases and input
+generations; never replace event state with current global polling. Overflow and
+callback faults must fail before publication. Native input blocking applies only
+to the owned non-key popup, not ordinary Cocoa windows. Retire closed surfaces
+after native callbacks and renderer leases end, through the managed host drain.
 
 Native compute traces report owned pipeline selection and encoding/submission
 boundaries, never completion. Preserve the immutable opt-in, per-engine bound,
