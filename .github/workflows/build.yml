@@ -56,21 +56,28 @@ jobs:
           if (Test-Path -LiteralPath $evidence) { throw 'Evidence directory already exists.' }
           New-Item -ItemType Directory -Path $evidence | Out-Null
           $dll = Join-Path $env:GITHUB_WORKSPACE 'tests/ProGPU.PathRasterization.Conformance/bin/Release/net10.0/${{ matrix.rid }}/ProGPU.PathRasterization.Conformance.dll'
-          $stdout = Join-Path $evidence 'stdout.log'
-          $stderr = Join-Path $evidence 'stderr.log'
-          $child = Start-Process -FilePath (Get-Command dotnet).Source -ArgumentList @(('"{0}"' -f $dll), '${{ matrix.architecture }}') -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-          try {
-            if (!$child.WaitForExit(120000)) { throw 'Source GPU differential exceeded its 120-second process bound.' }
-            Get-Content -LiteralPath $stdout
-            Get-Content -LiteralPath $stderr
-            if ($child.ExitCode -ne 0) { throw "Source GPU differential exited $($child.ExitCode)." }
-            if (!(Select-String -LiteralPath $stdout -SimpleMatch 'Path rasterization conformance passed: 3 executed, 0 skipped.' -Quiet)) {
-              throw 'All three original regression bodies must execute and pass.'
+          $cases = @('coverage', 'simple-first', 'boolean-first')
+          $completed = @()
+          foreach ($case in $cases) {
+            $stdout = Join-Path $evidence "$case-stdout.log"
+            $stderr = Join-Path $evidence "$case-stderr.log"
+            $child = Start-Process -FilePath (Get-Command dotnet).Source -ArgumentList @(('"{0}"' -f $dll), '${{ matrix.architecture }}', $case) -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            try {
+              if (!$child.WaitForExit(120000)) { throw "Source GPU regression $case exceeded its 120-second process bound." }
+              if ($child.ExitCode -ne 0) { throw "Source GPU regression $case exited $($child.ExitCode)." }
+              if (!(Select-String -LiteralPath $stdout -SimpleMatch "Path rasterization conformance passed: 1 executed, 0 skipped; case=$case." -Quiet)) {
+                throw "The original regression body $case must execute and pass."
+              }
+              $completed += $case
+            } finally {
+              if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
+              $child.Dispose()
+              Get-Content -LiteralPath $stdout
+              Get-Content -LiteralPath $stderr
             }
-          } finally {
-            if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
-            $child.Dispose()
           }
+          if ($completed.Count -ne 3) { throw 'All three original regression bodies must execute and pass.' }
+          @{ executed = $completed; skipped = 0; processDeadlineSeconds = 120 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'summary.json')
       - name: Retain source GPU coverage and pipeline acquisition evidence
         if: always()
         uses: actions/upload-artifact@v7

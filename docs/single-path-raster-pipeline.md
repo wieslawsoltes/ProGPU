@@ -38,13 +38,26 @@ placements/scales. It checks row padding, intercase guards, partial-word tails,
 overdispatch and rejected operation kinds. Two actual-atlas sequences cover
 simple-first and Boolean-first compilation, mixed batches, retention and disposal.
 The lightweight Windows executable links these three original test bodies and
-requires all three to execute, without skip/discovery substitutions.
+requires all three to execute, without skip/discovery substitutions. Windows CI
+executes them in independent processes, each still bounded by 120 seconds. Every
+case has an exact execution marker and its own logs; a final receipt requires all
+three successes. The default executable mode still executes all three together.
 
 Local Metal Release evidence: 43 focused regressions passed, zero skipped; the
 standalone harness also executed all three bodies. One observation reported
 157.292 ms ordinary and 46.145 ms single-path pipeline acquisition. These are
 API wall times, not GPU latency, statistics, an isolated cold-cache comparison,
 Windows evidence, or proof that the Forms grid starts within its deadline.
+
+The first Windows x64 combined process passed all three original bodies and
+recorded 22939.613 ms ordinary / 3649.803 ms single-path API acquisition. The ARM64
+combined process exceeded 120 seconds after logging 38185.829 ms / 9312.365 ms;
+its final regression body was not identified and it is a failure, not a partial
+qualification. This prompted independent bounded case execution, not a longer
+per-process deadline or removal of any case. Neither observation is a matched
+application benchmark. The mixed-atlas regression additionally requires a simple
+request before a Boolean request, proving the batch cannot select from its first
+item alone.
 
 Required before merge: full Build/Docs and Svg.Skia parity, Windows x64/ARM64 raw
 GPU differentials, native path/clip/Boolean package coverage for both providers,

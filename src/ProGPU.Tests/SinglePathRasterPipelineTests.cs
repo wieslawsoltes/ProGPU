@@ -52,6 +52,7 @@ public sealed class SinglePathRasterPipelineTests
             Assert.Contains(segments, segment => segment.SegmentType == kind);
         using var context = new WgpuContext();
         context.Initialize(null);
+        Console.WriteLine($"Path coverage device: provider={context.BackendKind}, backend={context.AdapterBackendType}, adapter={context.AdapterName}");
         using var cache = new RenderPipelineCache(context);
         var shader = cache.GetOrCreateShader("PathDifferential", Shaders.PathRasterizerShader);
         uint[] reference = Run("cs_main_ordinary");
@@ -146,6 +147,7 @@ public sealed class SinglePathRasterPipelineTests
     {
         using var context = new WgpuContext();
         context.Initialize(null);
+        Console.WriteLine($"Path atlas device: booleanFirst={booleanFirst}, provider={context.BackendKind}, backend={context.AdapterBackendType}, adapter={context.AdapterName}");
         using var atlas = new PathAtlas(context, atlasSize: 128);
         var a = PrimitivePathGeometry.CreateRectangle(0, 0, 12, 12);
         var b = PrimitivePathGeometry.CreateEllipse(new Vector2(7, 7), 6, 5);
@@ -157,8 +159,13 @@ public sealed class SinglePathRasterPipelineTests
         Assert.Equal(1, context.CachedDeviceComputePipelineCount);
         byte[] before = atlas.AtlasTexture.ReadPixels();
         Assert.Contains(before, pixel => pixel > 200);
-        var second = atlas.GetOrCreatePath(booleanFirst ? a : combined, 1.25f);
-        var third = atlas.GetOrCreatePath(PrimitivePathGeometry.CreateRectangle(1, 1, 7, 7), 1.25f);
+        // In the mixed case the simple request deliberately precedes the Boolean
+        // request. Looking only at the first admitted request must not choose
+        // the specialized pipeline for the whole batch.
+        var second = atlas.GetOrCreatePath(a, 1.25f);
+        var third = atlas.GetOrCreatePath(booleanFirst
+            ? PrimitivePathGeometry.CreateRectangle(1, 1, 7, 7)
+            : combined, 1.25f);
         atlas.RasterizePendingPaths();
         Assert.Equal(2, context.CachedDeviceComputePipelineCount);
         byte[] after = atlas.AtlasTexture.ReadPixels();
