@@ -4238,9 +4238,8 @@ public unsafe class PathAtlas : IDisposable
                     }
 
                     PendingRasterization candidateRasterization = rasterizations[groupEnd];
-                    int outputByteOffset = AlignUp(
-                        groupCoverageBytes,
-                        (int)GpuCoverageUpload.CopyRowAlignment);
+                    int outputByteOffset = checked((int)GpuCoverageUpload.AlignCopyOffset(
+                        checked((uint)groupCoverageBytes)));
                     int candidateEnd = checked(
                         outputByteOffset +
                         checked((int)(candidateRasterization.OutputBytesPerRow * candidate.Height)));

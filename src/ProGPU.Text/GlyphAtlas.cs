@@ -1168,7 +1168,7 @@ public unsafe partial class GlyphAtlas : IDisposable
                                         _uniformRingBuffer.Size ||
                                     (_rasterizationPath ==
                                         GpuComputeExecutionPath.NativeCompute &&
-                                     _coverageRingOffset + coverageBytes >
+                                     (ulong)GpuCoverageUpload.AlignCopyOffset(_coverageRingOffset) + coverageBytes >
                                         ComputeCoverageRingBuffer.Size))
                                 {
                                     FlushBatchEncoder();
@@ -1178,6 +1178,9 @@ public unsafe partial class GlyphAtlas : IDisposable
                                 if (_rasterizationPath ==
                                     GpuComputeExecutionPath.NativeCompute)
                                 {
+                                    // Padding is between slices, not in their row pitch or glyph bounds.
+                                    // Account for it above before deciding whether the ring must flush.
+                                    _coverageRingOffset = GpuCoverageUpload.AlignCopyOffset(_coverageRingOffset);
                                     uniforms.OutputOffsetWords =
                                         _coverageRingOffset / 4;
                                     uniforms.OutputRowWords =
