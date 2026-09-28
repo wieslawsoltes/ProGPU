@@ -38,11 +38,37 @@ if ($expected.Assembly -ceq $actual.Assembly -or $expected.AssemblySha256 -ceq $
     throw 'The reference must use the independent Microsoft Windows Desktop assembly.'
 }
 $names = @('Replace', 'Intersect', 'Union', 'Xor', 'Exclude', 'Complement', 'save', 'container', 'flush', 'translate', 'page', 'display', 'rotate')
+$transformNames = foreach ($operation in @('assign', 'elements', 'multiply', 'scale', 'translate', 'rotate', 'assign-offset', 'elements-offset')) {
+    $values = @('NaN', 'Infinity', '-Infinity', '0')
+    if ($operation -in @('assign', 'elements', 'multiply', 'scale')) { $values += @('1E-12', '1E+30', '-2') }
+    foreach ($value in $values) { "$operation/$value" }
+}
 foreach ($receipt in $receipts) {
     if ($receipt.Cases.Count -ne 13 -or ($receipt.Cases.Name -join ',') -cne ($names -join ',')) {
         throw 'All 13 distinct drawing clip cases must execute in source order.'
     }
+    $keys = @($receipt.Transforms | ForEach-Object { "$($_.Operation)/$($_.Value)" })
+    if ($receipt.Transforms.Count -ne 44 -or ($keys -join ',') -cne ($transformNames -join ',')) {
+        throw 'All 44 distinct transform cases must execute in source order.'
+    }
 }
+for ($index = 0; $index -lt 44; $index++) {
+    $reference = $expected.Transforms[$index]
+    $portable = $actual.Transforms[$index]
+    if ($reference.Error -cne $portable.Error -or
+        ($reference.Clip | ConvertTo-Json -Compress) -cne ($portable.Clip | ConvertTo-Json -Compress) -or
+        $reference.Matrix.Count -ne 6 -or $portable.Matrix.Count -ne 6) {
+        throw "Transform mutation mismatch: $($transformNames[$index])."
+    }
+    for ($element = 0; $element -lt 6; $element++) {
+        # Numeric equality treats signed zero alike; no tolerance. Named NaN
+        # components are explicitly retained by the separate translation cases.
+        if (-not ([double]$reference.Matrix[$element]).Equals([double]$portable.Matrix[$element])) {
+            throw "Transform matrix mismatch: $($transformNames[$index])/$element."
+        }
+    }
+}
+Write-Host "Drawing transforms match Microsoft: $Rid / 44 cases, exact acceptance and unchanged state after rejection."
 for ($index = 0; $index -lt 13; $index++) {
     $reference = $expected.Cases[$index]
     $portable = $actual.Cases[$index]

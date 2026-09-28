@@ -23,6 +23,19 @@ units: Display retains the `PageScale` property without applying it. Pixel and
 physical units apply the stored scale. The shared page mapping follows that
 policy; do not use default Display units as a scaled-pixel reference.
 
+World matrix assignment, `TransformElements`, multiplication, scale and rotation
+validate the candidate before publication. `Matrix3x2.Invert` can return true for
+NaN components, so inversion alone is not admission. Reuse the original
+`Matrix.MultiplyWithGdiPlusOverflow` arithmetic, finite-component checks and the
+existing representable inversion predicate, without an arbitrary small-scale
+epsilon. Rejection preserves the previous world matrix, clip and recorder.
+This is fixed-work, allocation-free validation for mutators; matrix-property
+assignment retains its existing caller-owned clone. Both renderer consumers see
+the same unchanged recording after rejection. Standalone Matrix semantics are
+unchanged. Actual Microsoft probing shows `TranslateTransform` has a distinct
+policy and accepts non-finite offsets; it remains separate, not silently clamped
+or treated as permission to accept invalid matrix assignments.
+
 Saved states retain both transforms. Restore and flush push the clip with its
 captured transform, including finite-universe construction for symbolic infinite
 regions. Parent container clips remain separate enclosing scopes. The cumulative
@@ -106,6 +119,24 @@ Windows gate; this does not qualify arbitrary curved Boolean rasterization.
 Additional source regressions assert exact four-edge output and reject a small
 near-rectangle deviation, an ordinary shear, extent overflow and endpoint rounding.
 The final local Release selection passed 83 cases, zero skipped (14 seconds).
+Hosted run 36425702766 then confirmed Intersect at 384 pixels on both Windows
+architectures. Union still produced 890 rather than 896 fully red pixels; the
+full pixel gate remains failed, with no tolerance change. Probe receipts now
+retain already-read RGBA bytes to locate such differences without another render.
+
+The transform follow-up adds 31 source regressions. Its initial 25-case selection
+failed 18 times before implementation; the final expanded Drawing selection
+passed all 114 cases, zero skipped (17 seconds). Actual Microsoft Windows ARM64
+and portable macOS ARM64 receipts match all 44 transform cases exactly in
+acceptance/exception, numeric matrix values and reset-frame clip bounds. The
+Microsoft diagnostic used the installed .NET 11 preview; hosted .NET 10 checks
+on both Windows architectures remain required. Numeric equality treats signed
+zero alike and preserves explicit NaN translation components; there is no epsilon.
+The Windows gate validates every transform identity/order before its unchanged
+13 bitmap cases. A transformed SVG image previously published an all-NaN matrix,
+then failed clip conversion and masked that error during cleanup. Rejecting the
+bad scale preserves drawing state; it does not manufacture valid SVG dimensions
+or claim that the external SVG renderer's malformed nested image now renders.
 
 The pinned official Linux x64 corpus independently improved from 3297 to 3309
 passes, with 1110 remaining known failures and 34 unchanged skips out of 4453.

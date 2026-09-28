@@ -246,7 +246,7 @@ public sealed class GraphicsClipFrameTests
     }
 
     [Fact]
-    public void TinyInvertibleFrameIsNotRejectedAndFailedCombinationKeepsClip()
+    public void TinyInvertibleFrameIsNotRejectedAndFailedUpdateKeepsClip()
     {
         using Graphics graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
         graphics.SetClip(new Rectangle(0, 0, 2, 2));
@@ -255,8 +255,7 @@ public sealed class GraphicsClipFrameTests
         graphics.ResetTransform();
         Assert.Equal(new RectangleF(0, 0, 1, 1), graphics.ClipBounds);
 
-        graphics.ScaleTransform(0, 1);
-        Assert.Throws<ArgumentException>(() => graphics.IntersectClip(new Rectangle(0, 0, 2, 2)));
+        Assert.Throws<ArgumentException>(() => graphics.ScaleTransform(0, 1));
         graphics.ResetTransform();
         Assert.Equal(new RectangleF(0, 0, 1, 1), graphics.ClipBounds);
     }

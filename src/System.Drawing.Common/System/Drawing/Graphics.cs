@@ -101,6 +101,8 @@ public partial class Graphics :
         {
             if (value != null)
             {
+                ThrowIfDisposed();
+                ValidateWorldTransform(value.Value);
                 _transform = value.Clone();
             }
         }
@@ -116,11 +118,7 @@ public partial class Graphics :
         set
         {
             ThrowIfDisposed();
-            if (!Matrix3x2.Invert(value, out _))
-            {
-                throw new ArgumentException("Parameter is not valid.");
-            }
-
+            ValidateWorldTransform(value);
             _transform.MatrixElements = value;
         }
     }
@@ -798,13 +796,13 @@ public partial class Graphics :
         ScaleTransform(sx, sy, MatrixOrder.Prepend);
 
     public void ScaleTransform(float sx, float sy, MatrixOrder order) =>
-        _transform.Scale(sx, sy, order);
+        ApplyWorldTransform(Matrix3x2.CreateScale(sx, sy), order);
 
     public void RotateTransform(float angle) =>
         RotateTransform(angle, MatrixOrder.Prepend);
 
     public void RotateTransform(float angle, MatrixOrder order) =>
-        _transform.Rotate(angle, order);
+        ApplyWorldTransform(Matrix3x2.CreateRotation(angle * (MathF.PI / 180f)), order);
 
     public void MultiplyTransform(Matrix matrix) =>
         MultiplyTransform(matrix, MatrixOrder.Prepend);
@@ -812,7 +810,35 @@ public partial class Graphics :
     public void MultiplyTransform(Matrix matrix, MatrixOrder order)
     {
         ArgumentNullException.ThrowIfNull(matrix);
-        _transform.Multiply(matrix, order);
+        ApplyWorldTransform(matrix.Value, order);
+    }
+
+    private void ApplyWorldTransform(Matrix3x2 operation, MatrixOrder order)
+    {
+        ThrowIfDisposed();
+        Matrix3x2 current = _transform.Value;
+        Matrix3x2 next = order switch
+        {
+            MatrixOrder.Prepend => Matrix.MultiplyWithGdiPlusOverflow(operation, current),
+            MatrixOrder.Append => Matrix.MultiplyWithGdiPlusOverflow(current, operation),
+            _ => throw new ArgumentException("Parameter is not valid.")
+        };
+        ValidateWorldTransform(next);
+        _transform.MatrixElements = next;
+    }
+
+    private static void ValidateWorldTransform(Matrix3x2 transform)
+    {
+        // Matrix.Invert may return true for NaN components. Validate before
+        // publication; translation's distinct native acceptance policy is kept
+        // in TranslateTransform, not generalized to assignment/scale/rotation.
+        if (!float.IsFinite(transform.M11) || !float.IsFinite(transform.M12) ||
+            !float.IsFinite(transform.M21) || !float.IsFinite(transform.M22) ||
+            !float.IsFinite(transform.M31) || !float.IsFinite(transform.M32) ||
+            !Matrix3x2.Invert(transform, out _))
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
     }
 
     public void ResetTransform()

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 if (args.Length != 1)
     throw new ArgumentException("Expected an output JSON path.");
@@ -11,6 +12,7 @@ if (args.Length != 1)
 string[] names = ["Replace", "Intersect", "Union", "Xor", "Exclude", "Complement",
     "save", "container", "flush", "translate", "page", "display", "rotate"];
 var cases = new List<object>();
+var transforms = CaptureTransforms();
 foreach (string name in names)
 {
     var elapsed = Stopwatch.StartNew();
@@ -95,6 +97,9 @@ foreach (string name in names)
             if (pixel.ToArgb() == Color.Red.ToArgb()) ink++;
         }
     }
+    // Preserve the already-read bytes for locating any platform pixel mismatch;
+    // avoid another render/readback or an image-encoder dependency in the oracle.
+    File.WriteAllBytes(args[0] + "." + name + ".rgba", pixels);
     // Display units ignore PageScale: the two disjoint rectangles must remain
     // empty. Pixel units apply the same scale and retain their full overlap.
     if (name == "display" ? ink != 0 : ink == 0)
@@ -110,8 +115,52 @@ File.WriteAllText(args[0], JsonSerializer.Serialize(new
     Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
     Assembly = assembly.FullName, AssemblyPath = assembly.Location,
     AssemblySha256 = Convert.ToHexString(SHA256.HashData(assemblyFile)),
-    Cases = cases
-}, new JsonSerializerOptions { WriteIndented = true }));
+    Cases = cases, Transforms = transforms
+}, new JsonSerializerOptions { WriteIndented = true,
+    NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals }));
 
 static float[] Coordinates(RectangleF rectangle) =>
     [rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height];
+
+static List<object> CaptureTransforms()
+{
+    var result = new List<object>();
+    foreach (string operation in new[] { "assign", "elements", "multiply", "scale", "translate", "rotate", "assign-offset", "elements-offset" })
+    {
+        float[] values = operation is "translate" or "rotate" or "assign-offset" or "elements-offset"
+            ? [float.NaN, float.PositiveInfinity, float.NegativeInfinity, 0f]
+            : [float.NaN, float.PositiveInfinity, float.NegativeInfinity, 0f, 1e-12f, 1e30f, -2f];
+        foreach (float value in values)
+        {
+            using var bitmap = new Bitmap(8, 8);
+            using var graphics = Graphics.FromImage(bitmap);
+            graphics.TranslateTransform(3, 4);
+            graphics.SetClip(new Rectangle(1, 2, 3, 4));
+            string? error = null;
+            using var matrix = operation.EndsWith("-offset", StringComparison.Ordinal)
+                ? new Matrix(1, 0, 0, 1, value, value)
+                : new Matrix(value, 0, 0, value, 0, 0);
+            try
+            {
+                switch (operation)
+                {
+                    case "assign": graphics.Transform = matrix; break;
+                    case "assign-offset": graphics.Transform = matrix; break;
+                    case "elements": graphics.TransformElements = matrix.MatrixElements; break;
+                    case "elements-offset": graphics.TransformElements = matrix.MatrixElements; break;
+                    case "multiply": graphics.MultiplyTransform(matrix); break;
+                    case "scale": graphics.ScaleTransform(value, value); break;
+                    case "translate": graphics.TranslateTransform(value, value); break;
+                    case "rotate": graphics.RotateTransform(value); break;
+                }
+            }
+            catch (Exception exception) { error = exception.GetType().FullName; }
+            using Matrix current = graphics.Transform;
+            graphics.ResetTransform();
+            result.Add(new { Operation = operation,
+                Value = value.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                Error = error, Matrix = current.Elements, Clip = Coordinates(graphics.ClipBounds) });
+        }
+    }
+    return result;
+}

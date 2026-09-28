@@ -8,6 +8,9 @@ Keep rectangle Boolean bounds based on surviving scans, not operand envelopes.
 Rectangle intersection simplification requires four exact closed axis-aligned
 edges and all unique corners; never promote a near-rectangle or curve by tolerance.
 Display units retain PageScale as metadata; only scalable units apply it.
+World matrix assignment, multiplication, scale and rotation validate before
+publication; retain Matrix's original overflow arithmetic and the distinct native
+TranslateTransform acceptance policy. Do not infer finite state from Invert alone.
 No identity inverse, epsilon rejection or text-local workaround is permitted.
 See docs/drawing-clip-coordinate-frames.md; source checks are not popup UI parity.
 
