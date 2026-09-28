@@ -429,8 +429,9 @@ bool encode_semantic_effect_chain(
             binding,
             1U,
             &uniform_offset);
-        wgpuComputePassEncoderDispatchWorkgroups(
+        engine.dispatch_compute(
             pass,
+            pipeline,
             (slot.effect_width + 15U) / 16U,
             (slot.effect_height + 15U) / 16U,
             1U);

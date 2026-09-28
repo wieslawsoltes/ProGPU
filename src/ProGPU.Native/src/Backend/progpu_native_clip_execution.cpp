@@ -1051,8 +1051,9 @@ bool rebuild_vector_clip_chain(
                 bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine.dispatch_compute(
                 compute,
+                pipeline,
                 dispatch_x,
                 dispatch_y,
                 static_cast<std::uint32_t>(uniform_count));
@@ -1143,8 +1144,9 @@ bool rebuild_vector_clip_chain(
                 temporary.signed_combine_bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine.dispatch_compute(
                 row_pass,
+                engine.path_split_signed_rows_pipeline,
                 signed_sample_workgroups_x,
                 signed_sample_workgroups_y,
                 static_cast<std::uint32_t>(
@@ -1176,8 +1178,9 @@ bool rebuild_vector_clip_chain(
                 temporary.bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine.dispatch_compute(
                 combine,
+                engine.path_split_boolean_combine_pipeline,
                 workgroups_x,
                 workgroups_y,
                 static_cast<std::uint32_t>(
@@ -1209,8 +1212,9 @@ bool rebuild_vector_clip_chain(
                 temporary.signed_combine_bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine.dispatch_compute(
                 combine,
+                engine.path_split_signed_coverage_pipeline,
                 signed_pack_workgroups_x,
                 signed_pack_workgroups_y,
                 static_cast<std::uint32_t>(

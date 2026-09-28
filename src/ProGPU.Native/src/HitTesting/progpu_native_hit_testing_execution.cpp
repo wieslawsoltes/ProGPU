@@ -81,8 +81,11 @@ bool encode_ordered_query(progpu_native_engine& engine, WGPUCommandEncoder encod
         if (pass == nullptr) return false;
         wgpuComputePassEncoderSetPipeline(pass, engine.semantic_hit_test_ordered_pipelines[slot]);
         wgpuComputePassEncoderSetBindGroup(pass, 0U, engine.semantic_hit_test_bind_group, 0U, nullptr);
-        if (indirect) wgpuComputePassEncoderDispatchWorkgroupsIndirect(pass, engine.semantic_hit_test_dispatch_arguments, 0U);
-        else wgpuComputePassEncoderDispatchWorkgroups(pass, 1U, 1U, 1U);
+        if (indirect) engine.dispatch_compute_indirect(pass,
+            engine.semantic_hit_test_ordered_pipelines[slot],
+            engine.semantic_hit_test_dispatch_arguments, 0U);
+        else engine.dispatch_compute(pass,
+            engine.semantic_hit_test_ordered_pipelines[slot], 1U, 1U, 1U);
         wgpuComputePassEncoderEnd(pass);
         wgpuComputePassEncoderRelease(pass);
         return true;
@@ -807,7 +810,7 @@ progpu_native_status begin_hit_test(
         engine->semantic_hit_test_bind_group,
         0U,
         nullptr);
-    wgpuComputePassEncoderDispatchWorkgroups(pass, 1U, 1U, 1U);
+    engine->dispatch_compute(pass, query_pipeline, 1U, 1U, 1U);
     wgpuComputePassEncoderEnd(pass);
     wgpuComputePassEncoderRelease(pass);
     }
@@ -836,8 +839,9 @@ progpu_native_status begin_hit_test(
         nullptr);
     constexpr std::uint32_t readback_workgroup_count =
         (browser_readback_texel_count + 63U) / 64U;
-    wgpuComputePassEncoderDispatchWorkgroups(
+    engine->dispatch_compute(
         readback_pass,
+        engine->semantic_hit_test_readback_pipeline,
         readback_workgroup_count,
         1U,
         1U);

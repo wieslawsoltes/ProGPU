@@ -1043,8 +1043,9 @@ bool encode_group_effect(
                 bind_group,
                 1U,
                 &uniform_offset);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine.dispatch_compute(
                 pass,
+                pipeline,
                 (engine.effect_chain_width + 15U) / 16U,
                 (engine.effect_chain_height + 15U) / 16U,
                 1U);
@@ -1216,8 +1217,9 @@ bool encode_group_effect(
             bind_group,
             1U,
             &uniform_offset);
-        wgpuComputePassEncoderDispatchWorkgroups(
+        engine.dispatch_compute(
             pass,
+            pipeline,
             (engine.effect_width + 15U) / 16U,
             (engine.effect_height + 15U) / 16U,
             1U);

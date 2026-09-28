@@ -1,5 +1,11 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Native compute traces report owned pipeline selection and encoding/submission
+boundaries, never completion. Preserve the immutable opt-in, per-engine bound,
+explicit truncation and unknown GPU-owned indirect dimensions. Keep both native
+providers on the same dispatch sites without additional waits, reads or submits.
+See docs/native-compute-dispatch-diagnostics.md; attribution is not qualification.
+
 Exact path-atlas pixel loads require four integer corners with one identical
 atlas/device offset and a proven unit physical projection. Preserve filtering
 for fractional/DPI/viewport/late-transform mappings, gamma and alias semantics.

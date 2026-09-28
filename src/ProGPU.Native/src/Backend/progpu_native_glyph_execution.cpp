@@ -1643,8 +1643,9 @@ progpu_native_status render_glyphs(
                 1U,
                 &dynamic_offset);
             const auto& raster = engine->glyph_rasters[index];
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine->dispatch_compute(
                 compute_pass,
+                engine->glyph_raster_pipeline,
                 (raster.width + 63U) / 64U,
                 (raster.height + 15U) / 16U,
                 1U);
