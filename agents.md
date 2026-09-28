@@ -99,6 +99,14 @@ Snapshots own this metadata; empty-row hits use the actual half-open row band
 without claiming an inside-glyph hit. This does not qualify vertical writing,
 source editor navigation or native text ABI behavior. See docs/text-hard-break-interaction.md.
 
+Native glyph raster sharing preserves one source-indexed descriptor per original
+outline while executing only exact first-owner tiles. Compare bit-exact bounds,
+scale, phase and every validated selected segment byte; an arena offset is not
+coverage identity. Keep whole-batch retained keys unchanged, collision equality,
+all compute/raster/SIMD/scalar routes and the raster zero-staging contract. Shared
+coverage never merges source draws, owners or paints. See
+docs/native-glyph-raster-sharing.md; original application gates remain required.
+
 Styled native digit substitution changes only the scratch-owned scalar code point,
 never its original UTF-16 index or length. Apply it before script, fallback,
 line breaking and shaping. Generic styled paragraphs resolve bidi on substituted
