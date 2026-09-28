@@ -21051,6 +21051,7 @@ CompilePathStroke:
         TextureFormat? overrideFormat = null,
         bool hasMask = true)
     {
+        isOffscreen = RequiresSeparateOffscreenPipeline(isOffscreen, DrawCallType.Vector);
         if (!overrideFormat.HasValue &&
             blendMode == GpuBlendMode.SrcOver &&
             !hasMask)
@@ -21141,6 +21142,7 @@ CompilePathStroke:
         TextureFormat? overrideFormat = null,
         bool hasMask = true)
     {
+        isOffscreen = RequiresSeparateOffscreenPipeline(isOffscreen, DrawCallType.Vector);
         if (!overrideFormat.HasValue &&
             blendMode == GpuBlendMode.SrcOver &&
             !hasMask)
@@ -21269,6 +21271,21 @@ CompilePathStroke:
         };
     }
 
+    // The primary/offscreen binding layouts are aliases. When both targets
+    // use one sample, their descriptors differ only in the old logical name.
+    // Keep format, blend, mask, texture alpha and shader entry in the key.
+    private bool RequiresSeparateOffscreenPipeline(bool isOffscreen, DrawCallType type)
+    {
+        if (!isOffscreen || Options.PrimarySampleCount != 1) return isOffscreen;
+        return type switch
+        {
+            DrawCallType.Vector => _vectorPipelineLayoutOffscreen != _vectorPipelineLayout,
+            DrawCallType.Text => _textPipelineLayoutOffscreen != _textPipelineLayout,
+            DrawCallType.Texture => _texturePipelineLayoutOffscreen != _texturePipelineLayout,
+            _ => true
+        };
+    }
+
     private RenderPipeline* GetPipeline(
         DrawCallType type,
         GpuBlendMode blendMode,
@@ -21277,6 +21294,7 @@ CompilePathStroke:
         GpuTextureAlphaMode textureAlphaMode = GpuTextureAlphaMode.Premultiplied,
         bool hasMask = true)
     {
+        isOffscreen = RequiresSeparateOffscreenPipeline(isOffscreen, type);
         var key = new PipelineSelectionKey(
             type,
             0,
