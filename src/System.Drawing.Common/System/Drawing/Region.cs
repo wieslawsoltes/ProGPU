@@ -125,6 +125,23 @@ public sealed class Region : MarshalByRefObject, IDisposable
     {
         ArgumentNullException.ThrowIfNull(g);
         ThrowIfDisposed();
+        // Operand envelopes are not the bounds of a difference or an empty
+        // intersection. Reuse exact rectangle scans for Boolean regions only;
+        // ordinary geometry keeps its existing bounds fast path.
+        if (_expression.Kind == RegionExpressionKind.Boolean &&
+            TryGetAxisAlignedScans(_expression, Matrix3x2.Identity, out RectangleF[] scans))
+        {
+            if (scans.Length == 0)
+            {
+                return RectangleF.Empty;
+            }
+            RectangleF result = scans[0];
+            for (int index = 1; index < scans.Length; index++)
+            {
+                result = RectangleF.Union(result, scans[index]);
+            }
+            return result;
+        }
         return TryGetBounds(_expression, out RectangleF bounds)
             ? bounds
             : RectangleF.Empty;

@@ -36,6 +36,8 @@ public sealed class GraphicsContainerQualityTests
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
         graphics.TextContrast = 0;
         graphics.TextRenderingHint = TextRenderingHint.AntiAlias;
+        using Region clipBeforeContainer = graphics.Clip;
+        RectangleF clipBoundsBeforeContainer = clipBeforeContainer.GetBounds(graphics);
 
         GraphicsContainer container = graphics.BeginContainer();
 
@@ -54,7 +56,10 @@ public sealed class GraphicsContainerQualityTests
 
         graphics.EndContainer(container);
 
-        Assert.Equal(new RectangleF(2f, 3f, 4f, 5f), graphics.Clip.GetBounds(graphics));
+        // The clip was captured before page scaling and rotation. Its public
+        // coordinates follow the current world frame, while device coverage stays fixed.
+        using Region restoredClip = graphics.Clip;
+        Assert.Equal(clipBoundsBeforeContainer, restoredClip.GetBounds(graphics));
         Assert.Equal(CompositingMode.SourceCopy, graphics.CompositingMode);
         Assert.Equal(CompositingQuality.HighQuality, graphics.CompositingQuality);
         Assert.Equal(InterpolationMode.HighQualityBicubic, graphics.InterpolationMode);

@@ -55,7 +55,10 @@ public partial class Graphics :
     private Point _renderingOrigin;
     private int _textContrast = 4;
     private Region? _clip;
+    // GetContextInfo has a separate cumulative saved-context contract. Rendering
+    // clips retain the actual world/page/container/host mapping at capture time.
     private Matrix3x2 _clipContextTransform = Matrix3x2.Identity;
+    private Matrix3x2 _clipDeviceTransform = Matrix3x2.Identity;
     private bool _hasPushedClip;
     private bool _hasPushedCompositingMode;
     private int _disposed;
@@ -64,7 +67,7 @@ public partial class Graphics :
 
     public Region Clip
     {
-        get => _clip?.Clone() ?? new Region();
+        get => CloneClipInCurrentWorld();
         set
         {
             ArgumentNullException.ThrowIfNull(value);
@@ -72,7 +75,22 @@ public partial class Graphics :
         }
     }
 
-    public RectangleF ClipBounds => _clip?.GetBounds(this) ?? VisibleClipBounds;
+    public RectangleF ClipBounds
+    {
+        get
+        {
+            if (_clip is null)
+            {
+                return VisibleClipBounds;
+            }
+            if (_clipDeviceTransform == CombinedTransform)
+            {
+                return _clip.GetBounds(this);
+            }
+            using Region clip = CloneClipInCurrentWorld();
+            return clip.GetBounds(this);
+        }
+    }
     public bool IsClipEmpty => _clip?.IsEmpty(this) == true;
     public bool IsVisibleClipEmpty => IsClipEmpty || VisibleClipBounds.IsEmpty;
 
@@ -221,40 +239,39 @@ public partial class Graphics :
     public float DpiX => _dpiX;
     public float DpiY => _dpiY;
 
-    public RectangleF VisibleClipBounds
+    public RectangleF VisibleClipBounds => GetVisibleSurfaceBounds(CombinedTransform);
+
+    private RectangleF GetVisibleSurfaceBounds(Matrix3x2 worldToDevice)
     {
-        get
+        RectangleF deviceBounds;
+        if (_deviceBounds is { } explicitDeviceBounds)
         {
-            RectangleF deviceBounds;
-            if (_deviceBounds is { } explicitDeviceBounds)
-            {
-                deviceBounds = explicitDeviceBounds;
-            }
-            else if (_bitmap is not null)
-            {
-                deviceBounds = new RectangleF(0f, 0f, _bitmap.Width, _bitmap.Height);
-            }
-            else
-            {
-                return RectangleF.Empty;
-            }
-
-            if (!Matrix3x2.Invert(CombinedTransform, out Matrix3x2 deviceToWorld))
-            {
-                return RectangleF.Empty;
-            }
-
-            Vector2 topLeft = Vector2.Transform(new Vector2(deviceBounds.Left, deviceBounds.Top), deviceToWorld);
-            Vector2 topRight = Vector2.Transform(new Vector2(deviceBounds.Right, deviceBounds.Top), deviceToWorld);
-            Vector2 bottomLeft = Vector2.Transform(new Vector2(deviceBounds.Left, deviceBounds.Bottom), deviceToWorld);
-            Vector2 bottomRight = Vector2.Transform(new Vector2(deviceBounds.Right, deviceBounds.Bottom), deviceToWorld);
-            float left = MathF.Min(MathF.Min(topLeft.X, topRight.X), MathF.Min(bottomLeft.X, bottomRight.X));
-            float top = MathF.Min(MathF.Min(topLeft.Y, topRight.Y), MathF.Min(bottomLeft.Y, bottomRight.Y));
-            float right = MathF.Max(MathF.Max(topLeft.X, topRight.X), MathF.Max(bottomLeft.X, bottomRight.X));
-            float bottom = MathF.Max(MathF.Max(topLeft.Y, topRight.Y), MathF.Max(bottomLeft.Y, bottomRight.Y));
-
-            return new RectangleF(left, top, right - left, bottom - top);
+            deviceBounds = explicitDeviceBounds;
         }
+        else if (_bitmap is not null)
+        {
+            deviceBounds = new RectangleF(0f, 0f, _bitmap.Width, _bitmap.Height);
+        }
+        else
+        {
+            return RectangleF.Empty;
+        }
+
+        if (!Matrix3x2.Invert(worldToDevice, out Matrix3x2 deviceToWorld))
+        {
+            return RectangleF.Empty;
+        }
+
+        Vector2 topLeft = Vector2.Transform(new Vector2(deviceBounds.Left, deviceBounds.Top), deviceToWorld);
+        Vector2 topRight = Vector2.Transform(new Vector2(deviceBounds.Right, deviceBounds.Top), deviceToWorld);
+        Vector2 bottomLeft = Vector2.Transform(new Vector2(deviceBounds.Left, deviceBounds.Bottom), deviceToWorld);
+        Vector2 bottomRight = Vector2.Transform(new Vector2(deviceBounds.Right, deviceBounds.Bottom), deviceToWorld);
+        float left = MathF.Min(MathF.Min(topLeft.X, topRight.X), MathF.Min(bottomLeft.X, bottomRight.X));
+        float top = MathF.Min(MathF.Min(topLeft.Y, topRight.Y), MathF.Min(bottomLeft.Y, bottomRight.Y));
+        float right = MathF.Max(MathF.Max(topLeft.X, topRight.X), MathF.Max(bottomLeft.X, bottomRight.X));
+        float bottom = MathF.Max(MathF.Max(topLeft.Y, topRight.Y), MathF.Max(bottomLeft.Y, bottomRight.Y));
+
+        return new RectangleF(left, top, right - left, bottom - top);
     }
 
     internal Graphics(DrawingContext context, Bitmap? bitmap = null)
@@ -772,7 +789,7 @@ public partial class Graphics :
             return;
         }
 
-        Region translated = _clip.Clone();
+        Region translated = CloneClipInCurrentWorld();
         translated.Translate(dx, dy);
         ReplaceClip(translated);
     }
@@ -1050,6 +1067,7 @@ public partial class Graphics :
         _clip?.Dispose();
         _clip = null;
         _clipContextTransform = Matrix3x2.Identity;
+        _clipDeviceTransform = Matrix3x2.Identity;
 
         _transform.Dispose();
         _transform = new Matrix();
@@ -1085,7 +1103,8 @@ public partial class Graphics :
             RenderingOrigin,
             TextContrast,
             _clip?.Clone(),
-            _clipContextTransform));
+            _clipContextTransform,
+            _clipDeviceTransform));
     }
 
     private int FindSavedContext(object state, bool isContainer)
@@ -1132,7 +1151,7 @@ public partial class Graphics :
         _compositingQuality = saved.CompositingQuality;
         _renderingOrigin = saved.RenderingOrigin;
         _textContrast = saved.TextContrast;
-        ReplaceClip(saved.Clip?.Clone(), saved.ClipContextTransform);
+        ReplaceClip(saved.Clip?.Clone(), saved.ClipContextTransform, saved.ClipDeviceTransform);
 
         for (int index = stateIndex; index < _savedStates.Count; index++)
         {
@@ -1172,7 +1191,8 @@ public partial class Graphics :
         Point RenderingOrigin,
         int TextContrast,
         Region? Clip,
-        Matrix3x2 ClipContextTransform);
+        Matrix3x2 ClipContextTransform,
+        Matrix3x2 ClipDeviceTransform);
 
     public void SetClip(Graphics g) => SetClip(g, CombineMode.Replace);
 
@@ -1213,7 +1233,7 @@ public partial class Graphics :
 
         Region next = combineMode == CombineMode.Replace
             ? region.Clone()
-            : _clip?.Clone() ?? new Region();
+            : CloneClipInCurrentWorld();
         if (combineMode != CombineMode.Replace)
         {
             switch (combineMode)
@@ -1247,7 +1267,36 @@ public partial class Graphics :
 
     public void ResetClip() => ReplaceClip(null);
 
-    private void ReplaceClip(Region? clip, Matrix3x2? contextTransform = null)
+    private Region CloneClipInCurrentWorld()
+    {
+        Region clip = _clip?.Clone() ?? new Region();
+        Matrix3x2 current = CombinedTransform;
+        if (_clip is null || clip.IsInfinite(this) || _clipDeviceTransform == current)
+        {
+            return clip;
+        }
+
+        try
+        {
+            if (!Matrix3x2.Invert(current, out Matrix3x2 deviceToWorld))
+            {
+                throw new ArgumentException("The current graphics transform is not invertible.");
+            }
+            using var mapping = new Matrix(_clipDeviceTransform * deviceToWorld);
+            clip.Transform(mapping);
+            return clip;
+        }
+        catch
+        {
+            clip.Dispose();
+            throw;
+        }
+    }
+
+    private void ReplaceClip(
+        Region? clip,
+        Matrix3x2? contextTransform = null,
+        Matrix3x2? deviceTransform = null)
     {
         if (_hasPushedClip)
         {
@@ -1260,6 +1309,9 @@ public partial class Graphics :
         _clipContextTransform = clip is null
             ? Matrix3x2.Identity
             : contextTransform ?? GetCumulativeContextTransform();
+        _clipDeviceTransform = clip is null
+            ? Matrix3x2.Identity
+            : deviceTransform ?? CombinedTransform;
         PushCurrentClip();
     }
 
@@ -1271,8 +1323,8 @@ public partial class Graphics :
         }
 
         _context.PushGeometryClip(
-            _clip.CreatePathGeometry(GetFiniteDrawingUniverse()),
-            CurrentTransform4x4());
+            _clip.CreatePathGeometry(GetFiniteDrawingUniverse(_clipDeviceTransform)),
+            ToMatrix4x4(_clipDeviceTransform));
         _hasPushedClip = true;
     }
 
@@ -1315,9 +1367,11 @@ public partial class Graphics :
         _hasPushedCompositingMode = false;
     }
 
-    private RectangleF GetFiniteDrawingUniverse()
+    private RectangleF GetFiniteDrawingUniverse() => GetFiniteDrawingUniverse(CombinedTransform);
+
+    private RectangleF GetFiniteDrawingUniverse(Matrix3x2 worldToDevice)
     {
-        RectangleF visible = VisibleClipBounds;
+        RectangleF visible = GetVisibleSurfaceBounds(worldToDevice);
         return visible.Width > 0f && visible.Height > 0f
             ? visible
             : new RectangleF(-1_000_000f, -1_000_000f, 2_000_000f, 2_000_000f);
@@ -2412,9 +2466,33 @@ public partial class Graphics :
     public bool IsVisible(Point point) => IsVisible(point.X, point.Y);
     public bool IsVisible(PointF point) => IsVisible(point.X, point.Y);
     public bool IsVisible(int x, int y) => IsVisible((float)x, y);
-    public bool IsVisible(float x, float y) => _clip?.IsVisible(x, y, this) ?? VisibleClipBounds.Contains(x, y);
+    public bool IsVisible(float x, float y)
+    {
+        if (_clip is null)
+        {
+            return VisibleClipBounds.Contains(x, y);
+        }
+        if (_clipDeviceTransform == CombinedTransform)
+        {
+            return _clip.IsVisible(x, y, this);
+        }
+        using Region clip = CloneClipInCurrentWorld();
+        return clip.IsVisible(x, y, this);
+    }
     public bool IsVisible(Rectangle rect) => IsVisible((RectangleF)rect);
-    public bool IsVisible(RectangleF rect) => _clip?.IsVisible(rect, this) ?? VisibleClipBounds.IntersectsWith(rect);
+    public bool IsVisible(RectangleF rect)
+    {
+        if (_clip is null)
+        {
+            return VisibleClipBounds.IntersectsWith(rect);
+        }
+        if (_clipDeviceTransform == CombinedTransform)
+        {
+            return _clip.IsVisible(rect, this);
+        }
+        using Region clip = CloneClipInCurrentWorld();
+        return clip.IsVisible(rect, this);
+    }
     public bool IsVisible(int x, int y, int width, int height) =>
         IsVisible((float)x, y, width, height);
     public bool IsVisible(float x, float y, float width, float height) =>

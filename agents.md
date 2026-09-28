@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+System.Drawing clips retain their capture-time world/page/container/host mapping.
+Combine or translate only after mapping the old region into the current world
+frame; preserve curves, Boolean topology and caller snapshots. Restore/flush
+must reuse the captured mapping, separate from cumulative GetContextInfo state.
+Keep rectangle Boolean bounds based on surviving scans, not operand envelopes.
+No identity inverse, epsilon rejection or text-local workaround is permitted.
+See docs/drawing-clip-coordinate-frames.md; source checks are not popup UI parity.
+
 Native semantic glyph resources may share compiled outline/segment slices only
 after exact original-byte and flag equality within one validated immutable scene.
 Keep every positioned draw, style, clip and source owner; color bitmap resources
