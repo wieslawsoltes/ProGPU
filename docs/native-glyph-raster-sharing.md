@@ -70,3 +70,15 @@ Full exact-head Build, both provider GPU gates, every original RID/package case,
 and the original Windows Showcase resize/idle gate remain required before merge.
 No failed/canceled producer may supply staged native runtimes. Native dispatch
 reduction is not by itself measured application latency or final release parity.
+
+Build `36459867439` exposed an obsolete growth-fixture assumption: separate
+segment offsets no longer force duplicate glyphs to consume separate tiles.
+The unchanged growth assertion failed on Linux ARM64 and reproduced locally.
+The fixture now gives each outline a distinct unused LINE/QUADRATIC control-point
+value, preserving coverage while requiring a distinct exact-byte raster identity.
+An additional cold assertion requires every fixture outline to rasterize. The
+original growth, generation, stable-replay and pixel checks remain unchanged.
+All five local execution modes rasterize 1,024 jobs, grow the seeded atlas from
+1,024 to 2,048 with one growth event, retain it on warm replay and match managed
+pixels exactly. Ordinary retention/sharing checks still pass. Hosted CI remains
+required; this fixture correction does not qualify the original ARM64 application.
