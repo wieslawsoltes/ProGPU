@@ -1,6 +1,6 @@
-// Algorithm: Convert analytic path winding or bounded postfix predicates into supersampled R8 coverage, with phased mask combination for driver-sensitive overlaps.
+// Algorithm: Convert analytic path winding or bounded postfix predicates into supersampled R8 coverage, with phased mask combination for driver-sensitive overlaps; a proven linear-only entry shares the exact winding/sample/packing math without compiling curve solvers.
 // Time complexity: O(A*(S+N)) per texel for A supersamples, S segment visits, and N bounded postfix instructions.
-// Space complexity: O(1) private storage for single paths, O(D) expression-stack storage for D<=16; split mask programs retain two u32 words per leaf texel.
+// Space complexity: O(1) private storage for single/linear paths, O(D) expression-stack storage for D<=16; split mask programs retain two u32 words per leaf texel. Linear admission additionally reads S segment kinds once per four-texel word, with O(1) state.
 // The managed PathAtlas retains this bounded inline evaluator for compatibility.
 // ProGPU.Native recognizes the signed program flag before dispatch and uses the
 // staged leaf/evaluate/pack pipelines instead.
@@ -114,7 +114,7 @@ fn signed_winding_program_row_coverage_mask(
 // A proven single-path batch additionally avoids compiling any Boolean program
 // or second-operand traversal. Arithmetic and the shared winding predicate are
 // unchanged; this is pipeline specialization, not a different raster algorithm.
-fn single_path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
+fn single_path_coverage_byte_impl(x: u32, y: u32, uniforms: PathUniforms, linearOnly: bool) -> u32 {
     let record = pathRecords[uniforms.pathIndex];
     let px = uniforms.xStart + f32(x);
     let py = uniforms.yStart + f32(y);
@@ -124,11 +124,17 @@ fn single_path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
     for (var sampleY = 0u; sampleY < sampleGrid; sampleY = sampleY + 1u) {
         let samplePositionY = py + (f32(sampleY) + 0.5) / f32(sampleGrid);
         let samplePathY = samplePositionY / uniforms.scaleY;
-        let mask = row_coverage_mask(px, samplePathY, sampleGrid, uniforms.scaleX, record);
+        let mask = winding_row_coverage_mask(
+            row_winding_impl(px, samplePathY, sampleGrid, uniforms.scaleX, record, linearOnly),
+            sampleGrid, record.fillRule);
         let validMask = (1u << sampleGrid) - 1u;
         coveredSamples = coveredSamples + countOneBits(mask & validMask);
     }
     return min(255u, u32(round(f32(coveredSamples) * sampleWeight * 255.0)));
+}
+
+fn single_path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
+    return single_path_coverage_byte_impl(x, y, uniforms, false);
 }
 
 // Ordinary paths and mask-only boolean programs use a separate entry point so
@@ -307,6 +313,39 @@ fn cs_main_single_path(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let x = firstX + lane;
         if (x < uniforms.width) {
             coverageWord = coverageWord | (single_path_coverage_byte(x, y, uniforms) << (lane * 8u));
+        }
+    }
+    coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;
+}
+
+@compute @workgroup_size(16, 16)
+fn cs_main_linear_path(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let uniforms = pathUniforms[global_id.z];
+    let wordX = global_id.x;
+    let y = global_id.y;
+    let firstX = wordX * 4u;
+    if (uniforms.pathOpKind != 0u || firstX >= uniforms.width || y >= uniforms.height ||
+        uniforms.pathIndex >= arrayLength(&pathRecords)) {
+        return;
+    }
+    // Host dispatch proves the complete batch is linear. Retain a fail-closed
+    // raw entrypoint as well: a curve or unknown kind is never treated as a line.
+    let record = pathRecords[uniforms.pathIndex];
+    let segmentLength = arrayLength(&segments);
+    if (record.startSegment > segmentLength ||
+        record.segmentCount > segmentLength - record.startSegment) {
+        return;
+    }
+    for (var index = 0u; index < record.segmentCount; index++) {
+        if (segments[record.startSegment + index].segmentType != 0u) {
+            return;
+        }
+    }
+    var coverageWord = 0u;
+    for (var lane = 0u; lane < 4u; lane++) {
+        let x = firstX + lane;
+        if (x < uniforms.width) {
+            coverageWord |= single_path_coverage_byte_impl(x, y, uniforms, true) << (lane * 8u);
         }
     }
     coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;

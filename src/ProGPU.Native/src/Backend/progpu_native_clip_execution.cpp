@@ -144,10 +144,13 @@ bool rebuild_vector_clip_chain(
         ? cpu_clock::now() : cpu_clock::time_point{};
 
     try {
+        bool has_only_linear_segments = true;
         for (std::size_t index = 0U; index < chain.segment_count; ++index) {
             if (!validate_native_path_segment(chain.segments[index])) {
                 return false;
             }
+            has_only_linear_segments = has_only_linear_segments &&
+                chain.segments[index].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE;
         }
 
         std::vector<gpu_path_uniforms> path_uniforms;
@@ -894,7 +897,10 @@ bool rebuild_vector_clip_chain(
                 [](const auto& phase) { return !phase.empty(); });
         };
         const path_raster_pipeline_requirements required{
-            .single_path = !path_uniforms.empty() && !has_inline_path_operation,
+            .linear_path = !path_uniforms.empty() && !has_inline_path_operation &&
+                has_only_linear_segments,
+            .single_path = !path_uniforms.empty() && !has_inline_path_operation &&
+                !has_only_linear_segments,
             .ordinary = !path_uniforms.empty() && has_inline_path_operation &&
                 !has_inline_signed_winding,
             .inline_signed = !path_uniforms.empty() && has_inline_signed_winding,
@@ -1054,7 +1060,9 @@ bool rebuild_vector_clip_chain(
                     ? engine.path_raster_pipeline
                     : has_inline_path_operation
                         ? engine.path_raster_ordinary_pipeline
-                        : engine.path_raster_single_path_pipeline,
+                        : has_only_linear_segments
+                            ? engine.path_raster_linear_path_pipeline
+                            : engine.path_raster_single_path_pipeline,
                 workgroups_x,
                 workgroups_y)) {
             if (owns_encoder && encoder != nullptr) {
