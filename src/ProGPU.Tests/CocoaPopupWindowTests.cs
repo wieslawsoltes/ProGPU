@@ -37,6 +37,7 @@ public sealed class CocoaPopupWindowTests
         var operations = new Operations();
         using var window = Create(operations);
         window.Initialize();
+        using var input = NativeWindowInput.CreateInput(window);
         using var controller = new SilkWindowController(window);
         Assert.True(controller.Attach());
         Assert.Equal(operations.Window, controller.Handle);
@@ -329,7 +330,7 @@ public sealed class CocoaPopupWindowTests
         Assert.False(platform.SupportsManagedResize);
     }
 
-    private static CocoaPopupWindow Create(Operations operations, Action? wakeOwner = null, Action? onCreate = null)
+    internal static CocoaPopupWindow Create(Operations operations, Action? wakeOwner = null, Action? onCreate = null)
     {
         var options = WindowOptions.Default;
         options.API = GraphicsAPI.None;
@@ -355,13 +356,15 @@ public sealed class CocoaPopupWindowTests
         public IWindow CreateWindow(WindowOptions options) => throw new NotSupportedException();
     }
 
-    private sealed class Operations : ICocoaOwnedPopupOperations
+    internal sealed class Operations : ICocoaOwnedPopupOperations
     {
         public NativeWindowHandle Window { get; } = new(NativeWindowKind.Cocoa, 2, 0, "NSPanel");
         public nint ContentView => 3;
         public CocoaPopupInputQueue Input { get; } = new();
         public bool IsCurrent => true;
         public bool HideAccepted = true, BoundsAccepted = true;
+        public bool CursorAccepted = true;
+        public List<(Silk.NET.Input.StandardCursor Cursor, bool Hidden)> CursorRequests { get; } = [];
         public List<string> Calls { get; } = [];
         public NativeWindowGeometrySnapshot Geometry = new(
             new(NativeWindowKind.Cocoa, 2, 0, "NSPanel"), 3, 4, default, default, 2);
@@ -370,6 +373,12 @@ public sealed class CocoaPopupWindowTests
             set => Geometry = Geometry with { ContentBounds = value, FrameBounds = value };
         }
         public bool SetInputAllowed(bool allowed) => true;
+        public bool SupportsCursor(Silk.NET.Input.StandardCursor cursor) => CursorAccepted;
+        public bool SetCursor(Silk.NET.Input.StandardCursor cursor, bool hidden)
+        {
+            CursorRequests.Add((cursor, hidden));
+            return CursorAccepted;
+        }
         public bool Show() { Calls.Add("show"); Input.SetVisible(true); return true; }
         public bool Hide() { Calls.Add("hide"); Input.SetVisible(false); return HideAccepted; }
         public bool SetBounds(NativeWindowBounds bounds)

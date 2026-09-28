@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Silk.NET.Input;
 
 namespace ProGPU.Backend;
 
@@ -51,6 +52,9 @@ internal static unsafe partial class CocoaNativePopupWindow
                 Send(Class("NSColor\0"u8), transparent ? "clearColor\0"u8 : "windowBackgroundColor\0"u8));
 
             registration = new(panel, view, input);
+            registration.Cursor = ResolveOwnedCursor(StandardCursor.Arrow);
+            Retain(registration.Cursor);
+            if (registration.Cursor == 0) return null;
             s_ownedInputs!.Add(view, registration);
             nint trackingClass = Class("NSTrackingArea\0"u8);
             if (trackingClass == 0) return null;
@@ -153,6 +157,34 @@ internal static unsafe partial class CocoaNativePopupWindow
             if (!IsCurrent || !TryGetOwnedPopupFrame(bounds, out var frame)) return false;
             OwnedMessageSetFrame(panel, Selector("setFrame:display:\0"u8), frame, 0);
             return TryGetGeometry(out var geometry) && geometry.ContentBounds == bounds;
+        }
+
+        public bool SupportsCursor(StandardCursor cursor)
+        {
+            using var pool = new Pool();
+            return IsCurrent && ResolveOwnedCursor(cursor) != 0;
+        }
+
+        public bool SetCursor(StandardCursor cursor, bool hidden)
+        {
+            using var pool = new Pool();
+            if (!IsCurrent) return false;
+            nint next = ResolveOwnedCursor(cursor);
+            if (next == 0) return false;
+            if (hidden)
+            {
+                if (registration.InvisibleCursor == 0)
+                    registration.InvisibleCursor = CreateOwnedInvisibleCursor();
+                next = registration.InvisibleCursor;
+                if (next == 0) return false;
+            }
+            Retain(next);
+            nint previous = registration.Cursor;
+            registration.Cursor = next;
+            Release(previous);
+            MessageVoidArgument(panel, Selector("invalidateCursorRectsForView:\0"u8), view);
+            Input.EnsureHealthy();
+            return IsCurrent && registration.Cursor == next;
         }
 
         public bool TryGetGeometry(out NativeWindowGeometrySnapshot snapshot)

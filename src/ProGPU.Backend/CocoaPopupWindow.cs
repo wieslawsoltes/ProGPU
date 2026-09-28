@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Silk.NET.Core;
 using Silk.NET.Core.Contexts;
+using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
 
@@ -16,9 +17,11 @@ internal sealed class CocoaPopupWindow : IWindow
     private readonly NativeView _native;
     private readonly long _start = Stopwatch.GetTimestamp();
     private CocoaOwnedPopupSurface? _surface;
+    private CocoaPopupInputContext? _inputContext;
     private NativeWindowGeometrySnapshot _geometry;
     private Vector2D<int> _position, _size, _framebufferSize;
     private bool _initialized, _initializing, _visible, _closing, _disposeRequested;
+    private bool _retiring, _inputAllowed = true;
     private int _dispatchDepth;
     private ulong _geometryVersion;
     private double _lastUpdate, _lastRender;
@@ -58,6 +61,57 @@ internal sealed class CocoaPopupWindow : IWindow
 
     // Drained by the input adapter only after native event dispatch returns.
     internal event Action? InputPending;
+    internal ulong InputGeneration => _surface?.InputGeneration ?? 0;
+    internal bool IsInNativeInputCallback => _surface?.IsInNativeCallback ?? false;
+
+    internal IInputContext CreateInput()
+    {
+        CheckUsable();
+        if (!_initialized) throw new InvalidOperationException("Initialize the owned popup before attaching input.");
+        if (_inputContext is not null) throw new InvalidOperationException("The owned popup already has an input context.");
+        var context = new CocoaPopupInputContext(this);
+        _inputContext = context;
+        try
+        {
+            if (!RequireSurface().SetInputAllowed(_inputAllowed))
+                throw new InvalidOperationException("The owned popup rejected input context admission.");
+            context.ObservePolicyChange();
+            return context;
+        }
+        catch { context.Dispose(); throw; }
+    }
+
+    internal void ReleaseInput(CocoaPopupInputContext context)
+    {
+        CheckThread();
+        if (!ReferenceEquals(_inputContext, context)) return;
+        _inputContext = null;
+        if (_disposeRequested)
+        {
+            if (!_retiring) TryCompleteDispose();
+        }
+        else if (!_closing && !RequireSurface().SetInputAllowed(false))
+            throw new InvalidOperationException("The owned popup could not stop detached input.");
+    }
+
+    internal bool SupportsCursor(StandardCursor cursor)
+    {
+        CheckUsable();
+        return RequireSurface().SupportsCursor(cursor);
+    }
+
+    internal bool SetCursor(StandardCursor cursor, bool hidden)
+    {
+        CheckUsable();
+        return RequireSurface().SetCursor(cursor, hidden);
+    }
+
+    internal void BlockFaultedInput()
+    {
+        CheckThread();
+        if (!_closing && !_disposeRequested && !RequireSurface().SetInputAllowed(false))
+            throw new InvalidOperationException("The owned popup rejected blocking faulted input.");
+    }
     internal int ReadInput(Span<CocoaPopupPointerEvent> destination, out ulong generation)
     {
         CheckUsable();
@@ -73,7 +127,9 @@ internal sealed class CocoaPopupWindow : IWindow
     internal bool SetInputAllowed(bool allowed)
     {
         CheckUsable();
-        return RequireSurface().SetInputAllowed(allowed);
+        _inputAllowed = allowed;
+        try { return RequireSurface().SetInputAllowed(allowed && _inputContext is { AcceptsInput: true }); }
+        finally { _inputContext?.ObservePolicyChange(); }
     }
 
     internal bool TryGetGeometry(out NativeWindowGeometrySnapshot snapshot)
@@ -116,6 +172,7 @@ internal sealed class CocoaPopupWindow : IWindow
             if (!accepted || _closing || _disposeRequested)
                 throw new InvalidOperationException("The owned Cocoa popup rejected visibility.");
             _visible = value;
+            _inputContext?.ObservePolicyChange();
         }
     }
     public Vector2D<int> Position
@@ -290,6 +347,7 @@ internal sealed class CocoaPopupWindow : IWindow
         _visible = false;
         if (_surface is not null && !_disposeRequested && !_surface.Hide())
             throw new InvalidOperationException("The closing owned popup could not be hidden.");
+        _inputContext?.ObservePolicyChange();
         ++_dispatchDepth;
         try { Closing?.Invoke(); }
         finally { EndDispatch(); }
@@ -300,23 +358,32 @@ internal sealed class CocoaPopupWindow : IWindow
         CheckThread();
         _disposeRequested = _closing = true;
         _visible = false;
+        _surface?.CloseInput();
+        _inputContext?.ObservePolicyChange();
         TryCompleteDispose();
     }
 
     internal bool TryCompleteDispose()
     {
         CheckThread();
-        if (!_disposeRequested || _initializing || _dispatchDepth != 0) return false;
-        if (_surface is not null)
+        if (!_disposeRequested || _initializing || _dispatchDepth != 0 || _retiring || IsInNativeInputCallback) return false;
+        _retiring = true;
+        try
         {
-            _surface.Dispose();
-            if (!_surface.IsReleased) return false;
+            _inputContext?.Dispose();
+            if (_inputContext is not null) return false;
+            if (_surface is not null)
+            {
+                _surface.Dispose();
+                if (!_surface.IsReleased) return false;
+            }
+            _initialized = false;
+            Load = Closing = InputPending = null;
+            Update = Render = null;
+            Move = Resize = FramebufferResize = null;
+            return true;
         }
-        _initialized = false;
-        Load = Closing = InputPending = null;
-        Update = Render = null;
-        Move = Resize = FramebufferResize = null;
-        return true;
+        finally { _retiring = false; }
     }
 
     public void ContinueEvents() { CheckThread(); if (!_disposeRequested) _wakeOwner(); }

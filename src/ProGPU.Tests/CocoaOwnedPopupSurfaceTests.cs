@@ -346,6 +346,8 @@ public sealed class CocoaOwnedPopupSurfaceTests
         public CocoaPopupInputQueue Input { get; } = new();
         public bool IsCurrent { get { OnIdentity?.Invoke(); return Current; } }
         public bool SetInputAllowed(bool allowed) { OnInputAllowed?.Invoke(allowed); return InputAccepted; }
+        public bool SupportsCursor(Silk.NET.Input.StandardCursor cursor) => true;
+        public bool SetCursor(Silk.NET.Input.StandardCursor cursor, bool hidden) => true;
         internal NativeWindowGeometrySnapshot Geometry => new(Window, ContentView, 13,
             new(-500, 25, 80, 60), new(-500, 25, 80, 60), 2);
         public bool Show() { Events.Add("show"); Input.SetVisible(true); OnShow?.Invoke(); return true; }

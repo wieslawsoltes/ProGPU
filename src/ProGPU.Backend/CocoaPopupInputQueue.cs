@@ -144,6 +144,7 @@ internal sealed class CocoaPopupInputQueue
             !double.IsFinite(value.X) || !double.IsFinite(value.Y) ||
             !double.IsFinite(value.Timestamp) || value.Timestamp < 0 ||
             !double.IsFinite(value.ScrollX) || !double.IsFinite(value.ScrollY) ||
+            ((uint)value.Modifiers & ~0x00ff0000u) != 0 ||
             value.ClickCount < 0) return false;
         if (value.Kind is CocoaPopupPointerKind.Down or CocoaPopupPointerKind.Up or CocoaPopupPointerKind.Drag)
         {

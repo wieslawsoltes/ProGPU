@@ -1,3 +1,5 @@
+using Silk.NET.Input;
+
 namespace ProGPU.Backend;
 
 // This surface is intentionally internal until the source hosts own its input
@@ -6,6 +8,7 @@ internal sealed class CocoaOwnedPopupSurface : IDisposable
 {
     private readonly int _thread = Environment.CurrentManagedThreadId;
     private ICocoaOwnedPopupOperations? _operations;
+    private readonly CocoaPopupInputQueue _input;
     private int _leases;
     private int _transitionDepth;
     private bool _closeRequested;
@@ -14,6 +17,7 @@ internal sealed class CocoaOwnedPopupSurface : IDisposable
     {
         ArgumentNullException.ThrowIfNull(operations);
         _operations = operations;
+        _input = operations.Input;
     }
 
     internal static bool TryCreate(NativeWindowHandle owner, NativeWindowBounds bounds,
@@ -27,6 +31,23 @@ internal sealed class CocoaOwnedPopupSurface : IDisposable
     }
 
     internal bool IsReleased => _operations is null;
+    internal ulong InputGeneration { get { CheckThread(); return _input.Generation; } }
+    internal bool IsInNativeCallback { get { CheckThread(); return _input.IsInNativeCallback; } }
+    internal void CloseInput() { CheckThread(); _input.Close(); }
+
+    internal bool SupportsCursor(StandardCursor cursor)
+    {
+        var operations = Enter();
+        try { return operations.SupportsCursor(cursor) && !_closeRequested; }
+        finally { Exit(); }
+    }
+
+    internal bool SetCursor(StandardCursor cursor, bool hidden)
+    {
+        var operations = Enter();
+        try { return operations.SetCursor(cursor, hidden) && !_closeRequested; }
+        finally { Exit(); }
+    }
 
     internal bool SetInputAllowed(bool allowed)
     {
@@ -210,5 +231,7 @@ internal interface ICocoaOwnedPopupOperations : IDisposable
     bool Show();
     bool Hide();
     bool SetBounds(NativeWindowBounds bounds);
+    bool SupportsCursor(StandardCursor cursor);
+    bool SetCursor(StandardCursor cursor, bool hidden);
     bool TryGetGeometry(out NativeWindowGeometrySnapshot snapshot);
 }

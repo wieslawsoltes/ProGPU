@@ -12,12 +12,20 @@ internal static unsafe partial class CocoaNativePopupWindow
     {
         internal nint Panel { get; } = panel;
         internal CocoaPopupInputQueue Input { get; } = input;
+        internal nint Cursor;
+        internal nint InvisibleCursor;
+        private bool _disposed;
 
         public void Dispose()
         {
+            if (_disposed) return;
             Input.Close();
             if (s_ownedInputs is { } inputs && inputs.TryGetValue(view, out var current) && ReferenceEquals(current, this))
                 s_ownedInputs.Remove(view);
+            MessageVoid(view, Selector("discardCursorRects\0"u8));
+            Release(Cursor); Cursor = 0;
+            Release(InvisibleCursor); InvisibleCursor = 0;
+            _disposed = true;
         }
     }
 
@@ -51,6 +59,7 @@ internal static unsafe partial class CocoaNativePopupWindow
             if (type == 0) return false;
             if (!AddOwnedBoolMethod(type, "isFlipped\0"u8, &OwnedTrue) ||
                 !AddOwnedBoolMethod(type, "acceptsFirstResponder\0"u8, &OwnedFalse) ||
+                !AddOwnedCursorMethod(type) ||
                 !AddOwnedFirstMouseMethod(type) ||
                 !AddOwnedEventMethod(type, "mouseDown:\0"u8) ||
                 !AddOwnedEventMethod(type, "mouseUp:\0"u8) ||
