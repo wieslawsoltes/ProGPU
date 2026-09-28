@@ -11,5 +11,6 @@
     <ProjectReference Include="../../src/ProGPU.Vector/ProGPU.Vector.csproj" />
     <PackageReference Include="xunit" />
     <Compile Include="../../src/ProGPU.Tests/SinglePathRasterPipelineTests.cs" Link="SinglePathRasterPipelineTests.cs" />
+    <Compile Include="../../src/ProGPU.Tests/LinearPathRasterPipelineTests.cs" Link="LinearPathRasterPipelineTests.cs" />
   </ItemGroup>
 </Project>

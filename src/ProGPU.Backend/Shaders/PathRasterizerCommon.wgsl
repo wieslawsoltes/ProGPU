@@ -282,12 +282,16 @@ fn path_sample_x(
     return (pixel_x + sample_offset_x) / scale_x;
 }
 
-fn row_winding(
+// linearOnly is true only behind the complete line-kind admission gate.
+// Both entries retain the original line crossing order, half-open Y endpoints,
+// sample positions and integer winding; the ordinary wrapper admits all curves.
+fn row_winding_impl(
     pixelX: f32,
     sampleY: f32,
     sampleGrid: u32,
     scaleX: f32,
-    record: PathRecord) -> WindingRow {
+    record: PathRecord,
+    linearOnly: bool) -> WindingRow {
     let firstSampleX = path_sample_x(
         pixelX,
         0u,
@@ -318,7 +322,7 @@ fn row_winding(
     let endIdx = record.startSegment + record.segmentCount;
     for (var i: u32 = record.startSegment; i < endIdx; i = i + 1u) {
         let seg = segments[i];
-        if (seg.segmentType == 0u) {
+        if (linearOnly || seg.segmentType == 0u) {
             let A = seg.p0;
             let B = seg.p1;
             if (A.y == B.y) {
@@ -636,6 +640,15 @@ fn row_winding(
     }
 
     return winding;
+}
+
+fn row_winding(
+    pixelX: f32,
+    sampleY: f32,
+    sampleGrid: u32,
+    scaleX: f32,
+    record: PathRecord) -> WindingRow {
+    return row_winding_impl(pixelX, sampleY, sampleGrid, scaleX, record, false);
 }
 
 fn winding_row_coverage_mask(

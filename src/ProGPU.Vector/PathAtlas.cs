@@ -414,6 +414,7 @@ public unsafe class PathAtlas : IDisposable
     private readonly PipelineLayout* _computePipelineLayout;
     private ComputePipeline* _computePipeline;
     private ComputePipeline* _singlePathComputePipeline;
+    private ComputePipeline* _linearPathComputePipeline;
     private bool _isDisposed;
 
     public GpuTexture AtlasTexture => _atlasTexture;
@@ -616,8 +617,16 @@ public unsafe class PathAtlas : IDisposable
             _computePipelineLayoutLease.Handle;
     }
 
-    private ComputePipeline* EnsureComputePipeline(bool singlePathOnly)
+    private ComputePipeline* EnsureComputePipeline(bool singlePathOnly, bool linearPathOnly)
     {
+        if (linearPathOnly)
+        {
+            if (_linearPathComputePipeline != null) return _linearPathComputePipeline;
+            var linearShader = _pipelineCache.GetOrCreateShader("PathRasterizer", Shaders.PathRasterizerShader, "PathRasterizerShader");
+            _linearPathComputePipeline = _pipelineCache.GetOrCreateComputePipeline(
+                "PathRasterizer.LinearPath", linearShader, "cs_main_linear_path", _computePipelineLayout);
+            return _linearPathComputePipeline;
+        }
         if (singlePathOnly && _singlePathComputePipeline != null) return _singlePathComputePipeline;
         if (!singlePathOnly && _computePipeline != null) return _computePipeline;
         var shaderModule = _pipelineCache.GetOrCreateShader("PathRasterizer", Shaders.PathRasterizerShader, "PathRasterizerShader");
@@ -629,6 +638,13 @@ public unsafe class PathAtlas : IDisposable
         if (singlePathOnly) _singlePathComputePipeline = pipeline;
         else _computePipeline = pipeline;
         return pipeline;
+    }
+
+    private static bool HasOnlyLinearSegments(ReadOnlySpan<GpuPathSegment> segments)
+    {
+        foreach (ref readonly var segment in segments)
+            if (segment.SegmentType != 0) return false;
+        return true;
     }
 
     private WgpuBindGroupLayoutLease CreateRasterizationBindGroupLayout()
@@ -4099,6 +4115,7 @@ public unsafe class PathAtlas : IDisposable
         int totalRecordCount = 0;
         int totalSegmentCount = 0;
         bool singlePathOnly = true;
+        bool linearPathOnly = true;
         bool diagnosticsEnabled = ProGpuVectorDiagnostics.IsEnabled;
         ulong totalRasterPixels = 0;
         uint maxRasterWidth = 0;
@@ -4153,6 +4170,8 @@ public unsafe class PathAtlas : IDisposable
                         LastBooleanProgramRasterizationCount++;
                     }
                 }
+                linearPathOnly = linearPathOnly && pathOpKind == 0 &&
+                    HasOnlyLinearSegments(segmentsA) && HasOnlyLinearSegments(segmentsB);
                 totalRecordCount = checked(
                     totalRecordCount +
                     recordsA.Length +
@@ -4177,7 +4196,7 @@ public unsafe class PathAtlas : IDisposable
             // Classify actual admitted raster requests, not geometry bounds or
             // the first item. Mixed/Boolean batches retain the existing evaluator.
             // Compile only after proving there is work, and before pass entry.
-            var computePipeline = EnsureComputePipeline(singlePathOnly);
+            var computePipeline = EnsureComputePipeline(singlePathOnly, linearPathOnly);
             Array.Sort(
                 rasterizations,
                 0,
