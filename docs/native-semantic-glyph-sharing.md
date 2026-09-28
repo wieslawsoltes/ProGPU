@@ -94,8 +94,17 @@ and admission limits remain. Stable page hits do not create or scan this index.
 Matched final application performance, Instruments traces and complete image
 gates remain required; this fixture is not a startup/scrolling performance claim.
 
-The pre-existing Dawn mixed fixture contains two exact duplicate glyph resources
-and an already shared path tile. Its exact coverage assertion now counts two
-20-row, 256-byte-pitch tiles (10,240 bytes), removing only the duplicate glyph
-tile from the previous 15,360 bytes. Its draw, command, family, submission,
-style and independent image assertions are unchanged; this is not a tolerance.
+The pre-existing Dawn mixed fixture declares two identical glyph resources, but
+both glyph commands already reference resource 2; resource 6 is unused. Its two
+path resources retain separate compiled segment offsets and therefore separate
+path tiles. Its original exact coverage remains three 20-row, 256-byte-pitch
+tiles (15,360 bytes): two path tiles and one glyph tile. No additional sharing
+applies to that fixture, and all its original counters and image assertions
+remain unchanged. The earlier 10,240-byte expectation incorrectly counted a
+shared path tile and has been corrected, not relaxed to an inequality.
+
+Exact-head Build 36374127230 ran all nine new sharing cases successfully through
+the pinned Dawn/WebScene Metal provider before identifying that mixed-fixture
+expectation error. This proves the new provider differential, not completion of
+the full provider gate or successful producer Build. The corrected head must
+still pass the entire original gate and downstream package/application checks.

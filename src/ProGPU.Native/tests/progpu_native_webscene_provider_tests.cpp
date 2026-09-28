@@ -3533,10 +3533,11 @@ int main(int argc, char** argv) {
         engine,
         &semantic_frame,
         &semantic_metrics);
-    // One already shared path tile plus one exact shared glyph tile. Each
-    // 12-pixel outline retains 4-pixel padding on both sides and 256-byte rows.
-    // Both glyph draws, their styles and all original pixel checks remain.
-    constexpr std::uint64_t mixed_coverage_bytes = 2U * 256U * 20U;
+    // Both glyph commands already reference resource 2; resource 6 is unused.
+    // The two path resources retain distinct compiled segment offsets, so this
+    // fixture still needs two path tiles and one glyph tile. Each 12-pixel
+    // outline retains 4-pixel padding on both sides and 256-byte rows.
+    constexpr std::uint64_t mixed_coverage_bytes = 3U * 256U * 20U;
     if (semantic_status != PROGPU_NATIVE_STATUS_SUCCESS ||
         semantic_metrics.command_count != 12U ||
         semantic_metrics.draw_call_count != 9U ||
