@@ -138,6 +138,15 @@ then failed clip conversion and masked that error during cleanup. Rejecting the
 bad scale preserves drawing state; it does not manufacture valid SVG dimensions
 or claim that the external SVG renderer's malformed nested image now renders.
 
+Hosted run 36427980081 confirms all 44 transform cases on both Windows x64 and
+ARM64 with the pinned .NET 10 runtime. The bitmap gate still fails: six Union
+pixels at x=8, y=58..63 are `(255,1,1,255)` instead of `(255,0,0,255)`.
+This localizes a one-byte coverage difference, not its cause; no tolerance or
+sampling policy is changed. The same run resolves four additional official
+Linux x64 cases (noninvertible Multiply/Transform and zero-X/zero-Y Scale), with
+3313 passes, 1106 remaining known failures and 34 skips. Remove only those four
+measured obsolete expectations; keep ARM64 and all SVG inventories unchanged.
+
 The pinned official Linux x64 corpus independently improved from 3297 to 3309
 passes, with 1110 remaining known failures and 34 unchanged skips out of 4453.
 CI run 36424060755 reported exactly 12 resolved clip failures and no new failures;
