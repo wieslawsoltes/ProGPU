@@ -28,10 +28,27 @@ ProGPU's product allocation assertions remain unchanged. This diagnostic cannot
 qualify them, mark a failed producer Build successful, or establish whether a
 particular CI delta is runtime bookkeeping versus an actual charged allocation.
 In particular, the Linux audio-mixer failure in Build `36434866677` reported
-4040 bytes, but the prior independent evidence was macOS-only. Do not infer a
-Linux cause from that macOS report; collect the independent platform result.
+4040 bytes. The standalone observation does not establish the cause of that
+particular product failure; the following Build `36436941579` passed its Linux
+build/test job without changing the mixer or its allocation assertion.
 
 One local Release run on .NET 10.0.5 ARM64 observed 26 nonzero worker-phase
 intervals in 0.746 seconds, with all 32 empty and 32 positive controls passing.
-The failure remains visible as exit 1. This repeats the previously reported
-macOS observation; Linux and Windows require their own receipts.
+The failure remains visible as exit 1.
+
+## Hosted platform observations
+
+[Run 36437994714](https://github.com/wieslawsoltes/ProGPU/actions/runs/36437994714)
+ran commit `552a73ced2c27468e59a1415d5a658ee7ccf3197` once per platform. All
+three used .NET 10.0.12 with workstation GC and returned exit 1. Each retained
+32 zero empty controls and 32 exact 64-byte positive controls.
+
+| Runner | Architecture | Nonzero worker-phase intervals / 192 | Collection requests | Gen2 collections | Probe elapsed |
+| --- | --- | --- | --- | --- | --- |
+| Windows | X64 | 47 | 167 | 165 | 0.989 s |
+| Ubuntu | X64 | 67 | 225 | 228 | 1.143 s |
+| macOS 26 | ARM64 | 24 | 40 | 42 | 0.725 s |
+
+The run preserves stdout, stderr, exit status and `dotnet --info` in separate
+per-platform artifacts. This expands the independent reproduction beyond macOS;
+it is not a product-test waiver or proof of the runtime's internal cause.
