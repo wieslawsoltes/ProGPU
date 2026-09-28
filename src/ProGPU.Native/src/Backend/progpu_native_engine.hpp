@@ -611,8 +611,8 @@ struct progpu_native_engine {
         const char* name = "unknown";
         std::uint32_t slot = 0U;
         if (selected != nullptr) {
-            for (const auto& [pipeline, key] : pipelines) {
-                if (pipeline == selected) { name = key; break; }
+            for (const auto& [owned_pipeline, key] : pipelines) {
+                if (owned_pipeline == selected) { name = key; break; }
             }
             for (std::uint32_t index = 0U;
                  index < semantic_hit_test_pipelines.size(); ++index) {
@@ -634,20 +634,20 @@ struct progpu_native_engine {
     }
 
     void dispatch_compute(WGPUComputePassEncoder pass,
-                          WGPUComputePipeline pipeline,
+                          WGPUComputePipeline selected_pipeline,
                           std::uint32_t x, std::uint32_t y,
                           std::uint32_t z) noexcept {
         wgpuComputePassEncoderDispatchWorkgroups(pass, x, y, z);
-        trace_compute_pipeline(pipeline, "encoded", x, y, z);
+        trace_compute_pipeline(selected_pipeline, "encoded", x, y, z);
     }
 
     void dispatch_compute_indirect(WGPUComputePassEncoder pass,
-                                   WGPUComputePipeline pipeline,
+                                   WGPUComputePipeline selected_pipeline,
                                    WGPUBuffer arguments,
                                    std::uint64_t offset) noexcept {
         wgpuComputePassEncoderDispatchWorkgroupsIndirect(pass, arguments, offset);
         // Zeroes denote unavailable GPU-owned dimensions, not a zero-work dispatch.
-        trace_compute_pipeline(pipeline, "encoded-indirect", 0U, 0U, 0U);
+        trace_compute_pipeline(selected_pipeline, "encoded-indirect", 0U, 0U, 0U);
     }
 
     void submit(WGPUCommandBuffer command) noexcept {

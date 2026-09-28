@@ -60,3 +60,9 @@ and vertical blur and shadow dispatches. This is not Dawn GPU, Windows WARP,
 indirect-query or complete package/application qualification; those retain their
 independent CI/runtime gates. The internal test independently exercises disabled
 and missing sinks, field identity, indirect encoding and the 4,096-event limit.
+
+Build `36449160844` rejected three diagnostic identifiers under MSVC C4458
+because they shadowed the engine's `pipeline` member. The correction names the
+owned map entry and selected dispatch pipeline explicitly, without suppressing
+warnings or changing the selected handle, dispatch arguments or trace behavior.
+The original failed producer remains ineligible for downstream package staging.
