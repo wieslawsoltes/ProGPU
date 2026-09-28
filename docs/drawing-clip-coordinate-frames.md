@@ -179,3 +179,37 @@ the full unchanged native input scenario (including F10/Down), macOS/Linux UI,
 successful whole producer Builds, downstream pins and final releases remain
 required. Nested-container mid-scope flush and general curved region query
 precision are not newly qualified by these fixtures.
+
+## Exact coverage and native SVG follow-up
+
+Commit `ec4646d7cd40849d4566a7173391b2454590e0a9` implements
+[exact pixel-aligned atlas transfer](path-atlas-pixel-mapping.md) in the managed
+and native renderers. Both Windows reference jobs in Build `36434866677` pass
+all 44 transform and 13 exact bitmap cases, including the six Union pixels.
+The remaining full Build/package/application gates are separate requirements.
+
+The native SVG.NET reference was resumed on Windows ARM64 on 2026-09-28, with
+the unchanged SVG.NET commit `fd33bed4ff14c803b800214ddec977ca0a2e0f8e` used by
+the pinned corpus. Its separate native build depends only on SVG.NET/ExCSS and
+Microsoft WindowsDesktop, not the ProGPU Drawing assembly. Under the installed
+.NET 11 preview runtime (explicit major roll-forward), `struct-image-16-f`
+throws `System.ArgumentException` from Microsoft GDI+ `Graphics.ScaleTransform`
+at `SvgImage.Drawing.cs:159`. The portable receipt fails at that same source call.
+The .NET 10 hosted reference independently checks invalid scale rejection in the
+44-case transform inventory; the SVG-specific native probe is not relabeled as
+a .NET 10 run.
+
+The exact fixture SHA-256 is
+`7bd31c27ec9031622180ed1b709fd2a9f5a631664a492058744261a76a5600d2`.
+Native probe DLL SHA-256:
+`181a2f03af9873953346725800f2266cf730e421a24ed83ca3e82fc1293730d1`;
+native SVG.NET DLL SHA-256:
+`8b90ecd85c862a4f9d8518c8e5a406b7d0eaee2f220971d89e5dab7b6c540beb`.
+The original 30-second process bound was retained; stdout/stderr are retained in
+the `svg-native-reference.wegcQL` evidence directory. The old interrupted receipt
+was not overwritten.
+
+Reclassify only this fixture from an obsolete pixel difference to that exact
+expected exception. It is not a rendered-image improvement, permission to accept
+invalid scales, or a waiver of the three still-unverified recursive exceptions.
+Other resolved image inventories remain unchanged pending actual image review.
