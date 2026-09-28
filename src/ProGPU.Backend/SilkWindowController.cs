@@ -198,13 +198,16 @@ public sealed class SilkWindowController : IDisposable
     /// <summary>
     /// Applies native input admission independently of application enabled intent.
     /// SetEnabled continues updating that intent while blocked; releasing the gate
-    /// restores its latest value. Only Win32 currently provides full native blocking.
+    /// restores its latest value. Win32 provides full native blocking; our owned
+    /// non-key Cocoa popup provides its own pointer-only native gate. Ordinary
+    /// Cocoa windows remain unsupported here.
     /// </summary>
     public bool SetInputAllowed(bool allowed)
     {
         ThrowIfDisposed();
         if (_threadId != Environment.CurrentManagedThreadId || !EnsureAttached() ||
-            _platform!.Handle.Kind != NativeWindowKind.Win32) return false;
+            (_platform!.Handle.Kind != NativeWindowKind.Win32 &&
+             _platform is not CocoaPopupNativeWindowPlatform)) return false;
         _inputAllowed = allowed;
         return Apply((platform, _) => ApplyInputState(platform));
     }
