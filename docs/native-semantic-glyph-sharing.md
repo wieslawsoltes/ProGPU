@@ -54,7 +54,7 @@ Both wgpu-native's Direct2D/MIL GPU test and Dawn's WebScene provider gate invok
 the same fixture with independent engines and actual completed pixel readback.
 
 Initial macOS ARM64 Release evidence (Apple M3 Pro, Metal, pinned Silk wgpu-native):
-the CPU internal tests pass and the complete Direct2D/MIL GPU test passes. All
+all 19 CPU CTests pass and the complete Direct2D/MIL GPU test passes. All
 nine variants have byte-identical subject/reference and warm images. Cold exact
 duplicates stage 5,120 coverage bytes versus the reference's 15,360; placement/
 paint-only changes stage zero while uploading changed instances. Changed raster
@@ -93,3 +93,9 @@ by the original draw/resource limits; the original worst-case packed allocation
 and admission limits remain. Stable page hits do not create or scan this index.
 Matched final application performance, Instruments traces and complete image
 gates remain required; this fixture is not a startup/scrolling performance claim.
+
+The pre-existing Dawn mixed fixture contains two exact duplicate glyph resources
+and an already shared path tile. Its exact coverage assertion now counts two
+20-row, 256-byte-pitch tiles (10,240 bytes), removing only the duplicate glyph
+tile from the previous 15,360 bytes. Its draw, command, family, submission,
+style and independent image assertions are unchanged; this is not a tolerance.

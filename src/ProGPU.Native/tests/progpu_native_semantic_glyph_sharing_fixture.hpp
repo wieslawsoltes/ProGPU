@@ -126,6 +126,8 @@ void verify_semantic_glyph_sharing(Render render, Require require) {
             require(cold.coverage_staging_bytes != 0U,
                 "changed glyph raster identity reused stale coverage");
         }
+        if (variant == 7U || variant == 8U) require(cold.coverage_staging_bytes != 0U,
+            "DPI changes failed to invalidate retained glyph coverage");
         if (variant == 8U) require(pixels == original_pixels,
             "glyph sharing failed to restore original output after mutations/DPI change");
         std::fprintf(stderr, "Glyph sharing: variant=%u dpi=%.1f coverage=%llu reference=%llu exact pixels passed\n",

@@ -3533,12 +3533,16 @@ int main(int argc, char** argv) {
         engine,
         &semantic_frame,
         &semantic_metrics);
+    // One already shared path tile plus one exact shared glyph tile. Each
+    // 12-pixel outline retains 4-pixel padding on both sides and 256-byte rows.
+    // Both glyph draws, their styles and all original pixel checks remain.
+    constexpr std::uint64_t mixed_coverage_bytes = 2U * 256U * 20U;
     if (semantic_status != PROGPU_NATIVE_STATUS_SUCCESS ||
         semantic_metrics.command_count != 12U ||
         semantic_metrics.draw_call_count != 9U ||
         semantic_metrics.family_switch_count != 8U ||
         semantic_metrics.submission_count != 1U ||
-        semantic_metrics.coverage_staging_bytes != 15360U ||
+        semantic_metrics.coverage_staging_bytes != mixed_coverage_bytes ||
         semantic_metrics.payload_hash == 0U) {
         std::array<char, 512U> semantic_error{};
         progpu_native_engine_get_last_error(
@@ -3562,7 +3566,7 @@ int main(int argc, char** argv) {
         semantic_metrics.draw_call_count == 9U &&
         semantic_metrics.family_switch_count == 8U &&
         semantic_metrics.submission_count == 1U &&
-        semantic_metrics.coverage_staging_bytes == 15360U &&
+        semantic_metrics.coverage_staging_bytes == mixed_coverage_bytes &&
         semantic_metrics.text_style_upload_bytes ==
             3U * sizeof(progpu_native_scene_text_style) &&
         semantic_metrics.payload_hash != 0U,
