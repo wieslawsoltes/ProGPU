@@ -68,20 +68,59 @@ must be noncollectible; registration never adopts another module's Objective-C
 classes. Tracking areas and per-view registrations are removed before releasing
 native view ownership.
 
+## Shared window and presentation lifetime
+
+`CocoaPopupWindow` implements the existing public Silk `IWindow` contract over
+the owned surface. Its only native source is the actual Cocoa panel: `Native.Glfw`
+is null. A dedicated `CocoaPopupNativeWindowPlatform` is selected before the
+ordinary Cocoa/GLFW adapter. Constructing a GLFW adapter for this window throws
+before loading GLFW or using any pointer. The shared controller preserves the
+exact `NSPanel` handle descriptor and uses this popup's pointer-only input gate;
+ordinary Cocoa windows still do not acquire full native blocking.
+
+Initialization remains hidden. Reentrant close/disposal during creation retains
+and retires the unpublished panel, and recursive initialization is rejected.
+Geometry comes from the owned native snapshot. Desktop positions stay in points,
+while framebuffer extents and point-to-framebuffer conversion use the actual
+backing scale. Position/size/backing-size state publishes together before managed
+events. A reentrant resize supersedes pending old-size events. Native view/window
+identity cannot change within a live adapter.
+
+The source owner still polls native events. Popup `DoEvents` only refreshes
+geometry and offers queued input to the managed input adapter; `DoUpdate` also
+does this so AppKit modal polling does not starve delivery. Neither starts another
+global poll. Managed callbacks have explicit retirement depth, and a closing
+adapter can finish disposal after native callbacks or render leases end.
+
+The adapter is intentionally restricted to a nonactivating, untitled, hidden-
+created, borderless NoAPI popup. It does not promise fullscreen, independent
+topmost/focus, GL/Vulkan contexts, native file drops, a separate run loop, or a
+source dispatcher. It reports unsupported mutations instead of applying them to
+the owner's GLFW window. Source factories must supply this contract explicitly.
+
+`WgpuContext` now acquires one owned-view lease before the existing Silk native
+surface creation path, including shared-device initialization. Failed creation
+releases the borrow; failed shared-surface configuration tears down the surface
+before the borrow and shared-device reference. Normal disposal unconfigures and
+releases the actual GPU surface before releasing its native-view lease. If final
+native Hide fails, the window retains retirement ownership; a spent lease must
+not prevent a subsequent context cleanup. No alternate renderer/device is created.
+
 ## Integration still required — do not enable automatic modality
 
 The surface is internal and not selected by either source framework. Allocation
 of an NSPanel is not popup admission or application qualification. The same draft
 work must still connect:
 
-1. A shared owned-window/input/platform adapter for the host's Silk contracts,
-   consuming the new pointer records and generation, preserving typed source
-   ownership/capture, and completing deferred retirement after native polling.
-   Do not pass an NSPanel pointer to a GLFW operation or duplicate a source host's
-   renderer just to create its surface.
-2. A presentation adapter using the owner's actual shared device and both renderer
-   modes. Surface teardown must precede release of the view lease. No alternate
-   renderer or independent device is an acceptable substitute.
+1. The input context/cursor adapter must consume native pointer records and
+   generations, preserve event-specific modifiers, precise scroll semantics and
+   typed source ownership/capture. Its cancellation must connect to hide, input
+   blocking and disposal. The new window's managed input-drain hook is not itself
+   a registered Silk input provider. Do not allow the GLFW input provider to claim
+   an owned panel or use an owner's cursor as an assumed popup cursor.
+2. The shared window/presentation lifetime path must be exercised with the owner's
+   actual device in both renderer modes. The implementation is not native surface
+   creation, rendering, device-loss or callback-retirement qualification.
 3. The LibreWPF and LibreWinForms native-popup factories, preserving placement,
    raster DPI, transparency, keyboard routing, hide/reopen, and source lifecycle.
 4. Native modal-session entry only after the source popup/release/focus contracts
@@ -106,6 +145,13 @@ metadata, invalid events, sticky failures, visibility/policy generations,
 thread ownership and the prohibition on input delivery inside native callbacks.
 The surface tests also exercise input-gate ordering, callback-deferred retirement,
 and last-lease release while a native callback remains active.
+
+`CocoaPopupWindowTests` adds hidden initialization, exact typed controller dispatch,
+independent input intent, desktop/backing conversions, backing-scale changes,
+reentrant geometry/creation/close, failed bounds and retirement, render-lease and
+native-callback lifetime, owner-loop wakeup, creating-thread rejection and explicit
+unsupported operations. These tests use original fake native operations and do
+not load AppKit or GLFW.
 
 The backend and test-project Release builds succeeded with zero warnings and errors. Test execution
 and native UI qualification are deferred while implementation continues; CI must
@@ -133,3 +179,6 @@ without changing package declarations or versions.
   coordinate contracts. Original `CocoaNativeSystemMenu` supplies the existing
   process-owned Objective-C class registration/callback ABI pattern. No
   third-party implementation was copied or translated.
+- The pinned Silk.NET 2.23 public interface/option declarations supply the window
+  adapter contract. No foreign window/input implementation or inaccessible base
+  class was copied, invoked through reflection, or used as implementation source.

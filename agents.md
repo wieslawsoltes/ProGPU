@@ -13,6 +13,13 @@ generations; never replace event state with current global polling. Overflow and
 callback faults must fail before publication. Native input blocking applies only
 to the owned non-key popup, not ordinary Cocoa windows. Retire closed surfaces
 after native callbacks and renderer leases end, through the managed host drain.
+Owned Cocoa Silk windows use a dedicated native platform and exact NSPanel
+identity; never send their Handle to GLFW or let a GLFW input provider claim them.
+The source owner polls events; managed popup drains must not add another global
+poll. Retain initialization/dispatch retirement guards, actual geometry and
+event-specific input generations. GPU presentation surfaces release before their
+view lease, including failed shared-surface configuration. Window/input/presentation
+integration and both source hosts remain required before automatic modality.
 
 Native compute traces report owned pipeline selection and encoding/submission
 boundaries, never completion. Preserve the immutable opt-in, per-engine bound,
