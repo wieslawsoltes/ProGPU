@@ -163,6 +163,10 @@ public class ShaderResourceTests
             Shaders.PathRasterizerShader,
             StringComparison.Ordinal);
         Assert.Contains(
+            "fn cs_main_single_path(@builtin(global_invocation_id)",
+            Shaders.PathRasterizerShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "fn ordinary_path_coverage_byte(",
             Shaders.PathRasterizerShader,
             StringComparison.Ordinal);

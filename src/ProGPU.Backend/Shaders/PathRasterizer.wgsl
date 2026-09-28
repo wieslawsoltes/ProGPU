@@ -1,6 +1,6 @@
 // Algorithm: Convert analytic path winding or bounded postfix predicates into supersampled R8 coverage, with phased mask combination for driver-sensitive overlaps.
 // Time complexity: O(A*(S+N)) per texel for A supersamples, S segment visits, and N bounded postfix instructions.
-// Space complexity: O(D) private expression-stack storage for D<=16; split mask programs retain two u32 words per leaf texel.
+// Space complexity: O(1) private storage for single paths, O(D) expression-stack storage for D<=16; split mask programs retain two u32 words per leaf texel.
 // The managed PathAtlas retains this bounded inline evaluator for compatibility.
 // ProGPU.Native recognizes the signed program flag before dispatch and uses the
 // staged leaf/evaluate/pack pipelines instead.
@@ -109,6 +109,26 @@ fn signed_winding_program_row_coverage_mask(
         return 0u;
     }
     return winding_row_coverage_mask(stack[0], sampleGrid, 1u);
+}
+
+// A proven single-path batch additionally avoids compiling any Boolean program
+// or second-operand traversal. Arithmetic and the shared winding predicate are
+// unchanged; this is pipeline specialization, not a different raster algorithm.
+fn single_path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
+    let record = pathRecords[uniforms.pathIndex];
+    let px = uniforms.xStart + f32(x);
+    let py = uniforms.yStart + f32(y);
+    var coveredSamples = 0u;
+    let sampleGrid = clamp(uniforms.sampleGrid, 1u, 8u);
+    let sampleWeight = 1.0 / f32(sampleGrid * sampleGrid);
+    for (var sampleY = 0u; sampleY < sampleGrid; sampleY = sampleY + 1u) {
+        let samplePositionY = py + (f32(sampleY) + 0.5) / f32(sampleGrid);
+        let samplePathY = samplePositionY / uniforms.scaleY;
+        let mask = row_coverage_mask(px, samplePathY, sampleGrid, uniforms.scaleX, record);
+        let validMask = (1u << sampleGrid) - 1u;
+        coveredSamples = coveredSamples + countOneBits(mask & validMask);
+    }
+    return min(255u, u32(round(f32(coveredSamples) * sampleWeight * 255.0)));
 }
 
 // Ordinary paths and mask-only boolean programs use a separate entry point so
@@ -270,6 +290,25 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
+    coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;
+}
+
+@compute @workgroup_size(16, 16)
+fn cs_main_single_path(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let uniforms = pathUniforms[global_id.z];
+    let wordX = global_id.x;
+    let y = global_id.y;
+    let firstX = wordX * 4u;
+    if (uniforms.pathOpKind != 0u || firstX >= uniforms.width || y >= uniforms.height) {
+        return;
+    }
+    var coverageWord = 0u;
+    for (var lane = 0u; lane < 4u; lane = lane + 1u) {
+        let x = firstX + lane;
+        if (x < uniforms.width) {
+            coverageWord = coverageWord | (single_path_coverage_byte(x, y, uniforms) << (lane * 8u));
+        }
+    }
     coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;
 }
 

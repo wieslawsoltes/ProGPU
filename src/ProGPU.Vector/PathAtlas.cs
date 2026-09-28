@@ -413,6 +413,7 @@ public unsafe class PathAtlas : IDisposable
     private readonly BindGroupLayout* _computeBindGroupLayout;
     private readonly PipelineLayout* _computePipelineLayout;
     private ComputePipeline* _computePipeline;
+    private ComputePipeline* _singlePathComputePipeline;
     private bool _isDisposed;
 
     public GpuTexture AtlasTexture => _atlasTexture;
@@ -615,15 +616,19 @@ public unsafe class PathAtlas : IDisposable
             _computePipelineLayoutLease.Handle;
     }
 
-    private void EnsureComputePipeline()
+    private ComputePipeline* EnsureComputePipeline(bool singlePathOnly)
     {
-        if (_computePipeline != null) return;
+        if (singlePathOnly && _singlePathComputePipeline != null) return _singlePathComputePipeline;
+        if (!singlePathOnly && _computePipeline != null) return _computePipeline;
         var shaderModule = _pipelineCache.GetOrCreateShader("PathRasterizer", Shaders.PathRasterizerShader, "PathRasterizerShader");
-        _computePipeline = _pipelineCache.GetOrCreateComputePipeline(
-            "PathRasterizer",
+        var pipeline = _pipelineCache.GetOrCreateComputePipeline(
+            singlePathOnly ? "PathRasterizer.SinglePath" : "PathRasterizer",
             shaderModule,
-            "cs_main_ordinary",
+            singlePathOnly ? "cs_main_single_path" : "cs_main_ordinary",
             _computePipelineLayout);
+        if (singlePathOnly) _singlePathComputePipeline = pipeline;
+        else _computePipeline = pipeline;
+        return pipeline;
     }
 
     private WgpuBindGroupLayoutLease CreateRasterizationBindGroupLayout()
@@ -4081,7 +4086,6 @@ public unsafe class PathAtlas : IDisposable
         LastDirectBooleanRasterizationCount = 0;
         LastBooleanProgramRasterizationCount = 0;
         if (_pendingPaths.Count == 0) return;
-        EnsureComputePipeline();
 
         PendingRasterization[]? rasterizations = null;
         RasterizationDispatch[]? dispatches = null;
@@ -4094,6 +4098,7 @@ public unsafe class PathAtlas : IDisposable
         int dispatchCount = 0;
         int totalRecordCount = 0;
         int totalSegmentCount = 0;
+        bool singlePathOnly = true;
         bool diagnosticsEnabled = ProGpuVectorDiagnostics.IsEnabled;
         ulong totalRasterPixels = 0;
         uint maxRasterWidth = 0;
@@ -4141,6 +4146,7 @@ public unsafe class PathAtlas : IDisposable
                     0);
                 if (pathOpKind != 0)
                 {
+                    singlePathOnly = false;
                     LastDirectBooleanRasterizationCount++;
                     if ((pathOpKind & BooleanProgramFlag) != 0)
                     {
@@ -4168,6 +4174,10 @@ public unsafe class PathAtlas : IDisposable
                 return;
             }
 
+            // Classify actual admitted raster requests, not geometry bounds or
+            // the first item. Mixed/Boolean batches retain the existing evaluator.
+            // Compile only after proving there is work, and before pass entry.
+            var computePipeline = EnsureComputePipeline(singlePathOnly);
             Array.Sort(
                 rasterizations,
                 0,
@@ -4429,7 +4439,7 @@ public unsafe class PathAtlas : IDisposable
                     (nint)bindGroup);
                 var passDescriptor = new ComputePassDescriptor();
                 var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
-                _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
+                _context.Api.ComputePassEncoderSetPipeline(pass, computePipeline);
                 _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
                 _context.Api.ComputePassEncoderDispatchWorkgroups(
                     pass,

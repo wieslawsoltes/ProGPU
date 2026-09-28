@@ -23,6 +23,62 @@ env:
   PROGPU_QUALIFIED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  windows-path-rasterization:
+    name: Windows single-path raster coverage (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            architecture: x64
+          - os: windows-11-arm
+            rid: win-arm64
+            architecture: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Build the original linked GPU regression bodies
+        shell: pwsh
+        run: |
+          dotnet build tests/ProGPU.PathRasterization.Conformance/ProGPU.PathRasterization.Conformance.csproj -c Release -r '${{ matrix.rid }}'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compare exact GPU coverage and actual atlas dispatch
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/path-rasterization/${{ matrix.rid }}'
+          if (Test-Path -LiteralPath $evidence) { throw 'Evidence directory already exists.' }
+          New-Item -ItemType Directory -Path $evidence | Out-Null
+          $dll = Join-Path $env:GITHUB_WORKSPACE 'tests/ProGPU.PathRasterization.Conformance/bin/Release/net10.0/${{ matrix.rid }}/ProGPU.PathRasterization.Conformance.dll'
+          $stdout = Join-Path $evidence 'stdout.log'
+          $stderr = Join-Path $evidence 'stderr.log'
+          $child = Start-Process -FilePath (Get-Command dotnet).Source -ArgumentList @(('"{0}"' -f $dll), '${{ matrix.architecture }}') -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            if (!$child.WaitForExit(120000)) { throw 'Source GPU differential exceeded its 120-second process bound.' }
+            Get-Content -LiteralPath $stdout
+            Get-Content -LiteralPath $stderr
+            if ($child.ExitCode -ne 0) { throw "Source GPU differential exited $($child.ExitCode)." }
+            if (!(Select-String -LiteralPath $stdout -SimpleMatch 'Path rasterization conformance passed: 3 executed, 0 skipped.' -Quiet)) {
+              throw 'All three original regression bodies must execute and pass.'
+            }
+          } finally {
+            if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
+            $child.Dispose()
+          }
+      - name: Retain source GPU coverage and pipeline acquisition evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: single-path-rasterization-${{ matrix.rid }}
+          path: artifacts/path-rasterization/${{ matrix.rid }}/
+          if-no-files-found: error
+
   windows-system-fonts:
     name: Windows system font reference (${{ matrix.rid }})
     strategy:
