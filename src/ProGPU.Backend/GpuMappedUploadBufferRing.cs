@@ -81,7 +81,7 @@ public unsafe sealed class GpuMappedUploadBufferRing : IDisposable
                     MappedAtCreation = true
                 };
                 WgpuBuffer* buffer =
-                    context.Api.DeviceCreateBuffer(context.Device, &descriptor);
+                    context.CreateBuffer(&descriptor);
                 if (buffer == null)
                 {
                     throw new InvalidOperationException(
@@ -120,6 +120,7 @@ public unsafe sealed class GpuMappedUploadBufferRing : IDisposable
         out WgpuBuffer* sourceBuffer)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        _context.ThrowIfDeviceLost();
         if (_pendingSubmission != null)
         {
             throw new InvalidOperationException(
@@ -169,6 +170,7 @@ public unsafe sealed class GpuMappedUploadBufferRing : IDisposable
                 // A map completion can become ready after the frame-end poll.
                 // Process callbacks once more before allocating queue staging.
                 _context.PollDevice(wait: false);
+                _context.ThrowIfDeviceLost();
             }
         }
 

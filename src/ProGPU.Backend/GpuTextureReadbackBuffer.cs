@@ -88,7 +88,7 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
             MappedAtCreation = false
         };
 
-        _buffer = _context.Api.DeviceCreateBuffer(_context.Device, &bufferDesc);
+        _buffer = _context.CreateBuffer(&bufferDesc);
         if (_buffer == null)
         {
             BufferSize = 0;
