@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Owned Cocoa popup surfaces allocate real nonactivating NSPanels, never reclassify
+GLFW objects or exchange their content views/delegates. Keep hidden creation,
+primary-screen point mapping and explicit render-view leases; close may hide but
+must not destroy a leased view or a native-session-retained panel. Reentrant close
+cannot publish a new lease or visible success. This internal lifetime primitive
+does not admit source input/presentation or automatic modality; retain those gates
+until both source hosts use the owned surface. See docs/native-cocoa-owned-popup-surface.md.
+
 Native compute traces report owned pipeline selection and encoding/submission
 boundaries, never completion. Preserve the immutable opt-in, per-engine bound,
 explicit truncation and unknown GPU-owned indirect dimensions. Keep both native
