@@ -299,6 +299,51 @@ public sealed class GraphicsClipFrameTests
         }
     }
 
+    [Fact]
+    public void ExactRectangleIntersectionRecordsItsActualFourEdges()
+    {
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        graphics.SetClip(new Rectangle(8, 40, 32, 24));
+        graphics.TranslateTransform(8, 40);
+        graphics.IntersectClip(new Rectangle(8, 4, 32, 16));
+        var command = context.Commands.Last();
+        Assert.Equal(RenderCommandType.PushGeometryClip, command.Type);
+        Assert.False(command.Path!.IsCombined);
+        var figure = Assert.Single(command.Path.Figures);
+        Assert.Equal(new Vector2(8, 4), figure.StartPoint);
+        Assert.Equal(new[] { new Vector2(32, 4), new Vector2(32, 20), new Vector2(8, 20), new Vector2(8, 4) },
+            figure.Segments.Select(segment => Assert.IsType<ProGPU.Vector.LineSegment>(segment).Point));
+    }
+
+    [Theory]
+    [InlineData(-1e20f, 1f)]
+    [InlineData(-float.MaxValue, float.MaxValue)]
+    public void RectangleIntersectionRetainsEdgesWhenExtentCannotRepresentThem(float left, float right)
+    {
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        using var path = new GraphicsPath();
+        path.AddPolygon([new PointF(left, 0), new PointF(right, 0), new PointF(right, 8), new PointF(left, 8)]);
+        graphics.SetClip(path);
+        graphics.SetClip(path, CombineMode.Intersect);
+        Assert.True(context.Commands.Last().Path!.IsCombined);
+    }
+
+    [Theory]
+    [InlineData(0.00001f)]
+    [InlineData(4f)]
+    public void NonrectangularClipIsNotReplacedByItsBounds(float inset)
+    {
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        using var path = new GraphicsPath();
+        path.AddPolygon([new PointF(0, 0), new PointF(16, inset), new PointF(16, 16), new PointF(0, 16)]);
+        graphics.SetClip(path);
+        graphics.IntersectClip(new Rectangle(8, 0, 16, 16));
+        Assert.True(context.Commands.Last().Path!.IsCombined);
+    }
+
     private static void AssertSamePixels(Bitmap expected, Bitmap actual)
     {
         int ink = 0;

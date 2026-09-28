@@ -37,17 +37,6 @@
 1|MonoTests.System.Drawing.GraphicsTest.BeginContainer_RectF|Xunit.Sdk.XunitException
 1|MonoTests.System.Drawing.GraphicsTest.BeginContainer_Rect|Xunit.Sdk.XunitException
 1|MonoTests.System.Drawing.GraphicsTest.BeginContainer|Xunit.Sdk.XunitException
-1|MonoTests.System.Drawing.GraphicsTest.ClipBounds_Cumulative_Effects|Xunit.Sdk.XunitException
-1|MonoTests.System.Drawing.GraphicsTest.ClipBounds_Multiply|Xunit.Sdk.XunitException
-1|MonoTests.System.Drawing.GraphicsTest.ClipBounds_Rotate|Xunit.Sdk.XunitException
-1|MonoTests.System.Drawing.GraphicsTest.ClipBounds_Scale|Xunit.Sdk.XunitException
-1|MonoTests.System.Drawing.GraphicsTest.ClipBounds_Transform_Scale|Xunit.Sdk.XunitException
-1|MonoTests.System.Drawing.GraphicsTest.ClipBounds_Transform_Translation|Xunit.Sdk.XunitException
-1|MonoTests.System.Drawing.GraphicsTest.ClipBounds_Translate|Xunit.Sdk.XunitException
-1|MonoTests.System.Drawing.GraphicsTest.Clip_RotateTransform_BoundsChange|Xunit.Sdk.XunitException
-1|MonoTests.System.Drawing.GraphicsTest.Clip_ScaleTransform_NoBoundsChange|Xunit.Sdk.XunitException
-1|MonoTests.System.Drawing.GraphicsTest.Clip_TranslateTransform_BoundsChange|Xunit.Sdk.XunitException
-1|MonoTests.System.Drawing.GraphicsTest.Clip_TranslateTransform|Xunit.Sdk.EqualException
 1|MonoTests.System.Drawing.GraphicsTest.DefaultProperties|Xunit.Sdk.EqualException
 1|MonoTests.System.Drawing.GraphicsTest.DrawFillRectangle_Width_3|Xunit.Sdk.EqualException
 1|MonoTests.System.Drawing.GraphicsTest.DrawFillRectangle_Width_Default|Xunit.Sdk.EqualException
@@ -93,7 +82,6 @@
 1|MonoTests.System.Drawing.GraphicsTest.TestReleaseHdcException|Xunit.Sdk.ThrowsException
 1|MonoTests.System.Drawing.GraphicsTest.TestReleaseHdc|System.PlatformNotSupportedException
 1|MonoTests.System.Drawing.GraphicsTest.Transform_NonInvertibleMatrix|Xunit.Sdk.ThrowsException
-1|MonoTests.System.Drawing.GraphicsTest.VisibleClipBound_BigClip|Xunit.Sdk.EqualException
 1|MonoTests.System.Drawing.GraphicsTest.VisibleClipBound|Xunit.Sdk.EqualException
 1|MonoTests.System.Drawing.Imaging.BmpCodecTest.Bitmap1bitFeatures|Xunit.Sdk.EqualException
 1|MonoTests.System.Drawing.Imaging.BmpCodecTest.Bitmap24bitFeatures|Xunit.Sdk.EqualException

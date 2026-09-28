@@ -30,6 +30,15 @@ regions. Parent container clips remain separate enclosing scopes. The cumulative
 the existing exact scan engine: operand bounds are not the result bounds of a
 difference. Curved Boolean bounds retain their existing conservative policy.
 
+Intersecting two proven rectangles produces their exact rectangle (or empty set)
+before lowering. Recognition requires one filled closed four-line contour, exact
+axis alignment, a closing endpoint and all four unique corners. SIMD min/max
+intersects both axes; overflowed extents or endpoint-rounding changes retain the
+original Boolean expression.
+No tolerance-based near-rectangle classification or envelope approximation is
+allowed. Curves, shears and all other Boolean operations retain their existing
+geometry. This capture-time identity is shared by managed and native consumers.
+
 Capture adds one fixed-size matrix per current/saved clip. Same-frame clones stay
 O(1); a frame conversion visits the retained region geometry once, O(S) time and
 storage for S segments/nodes. Boolean rectangle bounds use the existing bounded
@@ -88,6 +97,22 @@ rolled forward from net10.0; CI's pinned runtime/architecture matrix remains
 separate. The earlier shared-folder execution hit its unchanged 120-second
 deadline and is not a pass. The guest-local run retained the same deadline and
 all cases. Its source-built private DLLs are not staged producer packages.
+
+Hosted Windows WARP subsequently exposed an Intersect pixel difference (368
+fully red pixels instead of 384) on both architectures, despite the independent
+local Parallels GPU pass. The exact-rectangle identity avoids routing that proven
+simple result through the general Boolean mask. Keep the unchanged 13-case
+Windows gate; this does not qualify arbitrary curved Boolean rasterization.
+Additional source regressions assert exact four-edge output and reject a small
+near-rectangle deviation, an ordinary shear, extent overflow and endpoint rounding.
+The final local Release selection passed 83 cases, zero skipped (14 seconds).
+
+The pinned official Linux x64 corpus independently improved from 3297 to 3309
+passes, with 1110 remaining known failures and 34 unchanged skips out of 4453.
+CI run 36424060755 reported exactly 12 resolved clip failures and no new failures;
+remove only those 12 obsolete x64 expectations. The separate ARM64 inventory is
+unchanged until actually measured. These remaining known failures are not waived
+or claimed fixed by the clip work.
 
 `eng/progpu-verify-windows-drawing-clips.ps1` runs independently built Microsoft
 and portable probes in separate processes on Windows x64 and ARM64. It verifies
