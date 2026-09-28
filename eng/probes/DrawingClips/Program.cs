@@ -100,6 +100,7 @@ foreach (string name in names)
     // Preserve the already-read bytes for locating any platform pixel mismatch;
     // avoid another render/readback or an image-encoder dependency in the oracle.
     File.WriteAllBytes(args[0] + "." + name + ".rgba", pixels);
+    ClipDiagnostics.Capture(name, args[0]);
     // Display units ignore PageScale: the two disjoint rectangles must remain
     // empty. Pixel units apply the same scale and retain their full overlap.
     if (name == "display" ? ink != 0 : ink == 0)
@@ -163,4 +164,10 @@ static List<object> CaptureTransforms()
         }
     }
     return result;
+}
+
+static partial class ClipDiagnostics
+{
+    public static void Capture(string name, string output) => CapturePortable(name, output);
+    static partial void CapturePortable(string name, string output);
 }

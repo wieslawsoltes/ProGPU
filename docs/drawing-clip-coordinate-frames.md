@@ -147,6 +147,16 @@ Linux x64 cases (noninvertible Multiply/Transform and zero-X/zero-Y Scale), with
 3313 passes, 1106 remaining known failures and 34 skips. Remove only those four
 measured obsolete expectations; keep ARM64 and all SVG inventories unchanged.
 
+The portable probe additionally captures Union's actual retained atlas slice and
+bounded R8 mask after its original bitmap readback. Test-only reflection inspects
+owned resources without mutating them. Because production masks intentionally
+lack CopySrc, a test-only integer `textureLoad` kernel reads their existing
+TextureBinding; no filtering, substitute rasterization or production usage change
+is introduced. The original 120-second process bound remains in force. Local
+Metal evidence matches every atlas/mask texel against independent rectangle
+membership and all 13 final bitmap receipts against Microsoft. This does not
+localize the Windows discrepancy until that platform's intermediate receipts run.
+
 The pinned official Linux x64 corpus independently improved from 3297 to 3309
 passes, with 1110 remaining known failures and 34 unchanged skips out of 4453.
 CI run 36424060755 reported exactly 12 resolved clip failures and no new failures;
