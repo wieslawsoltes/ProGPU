@@ -1,0 +1,177 @@
+namespace ProGPU.Backend;
+
+// This surface is intentionally internal until the source hosts own its input
+// and presentation adapters. It does not change GLFW or automatic modality.
+internal sealed class CocoaOwnedPopupSurface : IDisposable
+{
+    private readonly int _thread = Environment.CurrentManagedThreadId;
+    private ICocoaOwnedPopupOperations? _operations;
+    private int _leases;
+    private int _transitionDepth;
+    private bool _closeRequested;
+
+    internal CocoaOwnedPopupSurface(ICocoaOwnedPopupOperations operations)
+    {
+        ArgumentNullException.ThrowIfNull(operations);
+        _operations = operations;
+    }
+
+    internal static bool TryCreate(NativeWindowHandle owner, NativeWindowBounds bounds,
+        bool transparent, out CocoaOwnedPopupSurface? surface)
+    {
+        surface = null;
+        var operations = CocoaNativePopupWindow.TryCreateOwned(owner, bounds, transparent);
+        if (operations is null) return false;
+        surface = new(operations);
+        return true;
+    }
+
+    internal bool IsReleased => _operations is null;
+
+    internal bool Show()
+    {
+        var operations = Enter();
+        try { return operations.Show() && !_closeRequested; }
+        finally { Exit(); }
+    }
+
+    internal bool Hide()
+    {
+        var operations = Enter();
+        try { return operations.Hide() && !_closeRequested; }
+        finally { Exit(); }
+    }
+
+    internal bool SetBounds(NativeWindowBounds bounds)
+    {
+        var operations = Enter();
+        try { return operations.SetBounds(bounds) && !_closeRequested; }
+        finally { Exit(); }
+    }
+
+    internal bool TryGetGeometry(out NativeWindowGeometrySnapshot snapshot)
+    {
+        snapshot = default;
+        var operations = Enter();
+        try
+        {
+            if (!operations.TryGetGeometry(out var candidate) || _closeRequested) return false;
+            snapshot = candidate;
+            return true;
+        }
+        finally { Exit(); }
+    }
+
+    // One lease per retained presentation surface, not per draw/frame. A caller
+    // must dispose its GPU surface before releasing this native-view lease.
+    internal RenderLease AcquireRenderLease()
+    {
+        var operations = Enter();
+        try
+        {
+            var lease = new RenderLease(this, operations.Window, operations.ContentView);
+            checked { ++_leases; }
+            return lease;
+        }
+        finally { Exit(); }
+    }
+
+    public void Dispose()
+    {
+        CheckThread();
+        if (_operations is null) return;
+        _closeRequested = true;
+        DrainClose();
+    }
+
+    private ICocoaOwnedPopupOperations Enter()
+    {
+        CheckThread();
+        ObjectDisposedException.ThrowIf(_closeRequested || _operations is null, this);
+        if (_transitionDepth != 0)
+            throw new InvalidOperationException("A Cocoa popup transition is already active.");
+        var operations = _operations;
+        ++_transitionDepth;
+        try
+        {
+            if (!operations.IsCurrent)
+                throw new InvalidOperationException("The owned Cocoa popup identity changed.");
+            ObjectDisposedException.ThrowIf(_closeRequested, this);
+            return operations;
+        }
+        catch
+        {
+            Exit();
+            throw;
+        }
+    }
+
+    private void Exit()
+    {
+        --_transitionDepth;
+        DrainClose();
+    }
+
+    private void DrainClose()
+    {
+        if (!_closeRequested || _operations is null || _transitionDepth != 0) return;
+        ++_transitionDepth;
+        try
+        {
+            // Keep ownership on failure. Never release a view still borrowed by
+            // a renderer or destroy a panel during a synchronous AppKit callback.
+            if (!_operations.Hide())
+                throw new InvalidOperationException("The owned Cocoa popup could not be hidden.");
+            if (_leases != 0) return;
+            _operations.Dispose();
+            _operations = null;
+        }
+        finally { --_transitionDepth; }
+    }
+
+    private void CheckThread()
+    {
+        if (_thread != Environment.CurrentManagedThreadId)
+            throw new InvalidOperationException("Cocoa popup ownership is bound to its creating thread.");
+    }
+
+    internal sealed class RenderLease : IDisposable
+    {
+        private CocoaOwnedPopupSurface? _owner;
+        private readonly NativeWindowHandle _window;
+        private readonly nint _view;
+
+        internal RenderLease(CocoaOwnedPopupSurface owner, NativeWindowHandle window, nint view)
+        { _owner = owner; _window = window; _view = view; }
+
+        internal NativeWindowHandle Window { get { Check(); return _window; } }
+        internal nint ContentView { get { Check(); return _view; } }
+
+        private void Check()
+        {
+            ObjectDisposedException.ThrowIf(_owner is null, this);
+            _owner.CheckThread();
+        }
+
+        public void Dispose()
+        {
+            if (_owner is null) return;
+            _owner.CheckThread();
+            var owner = _owner;
+            _owner = null;
+            --owner._leases;
+            owner.DrainClose();
+        }
+    }
+}
+
+internal interface ICocoaOwnedPopupOperations : IDisposable
+{
+    NativeWindowHandle Window { get; }
+    nint ContentView { get; }
+    bool IsCurrent { get; }
+    bool Show();
+    bool Hide();
+    bool SetBounds(NativeWindowBounds bounds);
+    bool TryGetGeometry(out NativeWindowGeometrySnapshot snapshot);
+}

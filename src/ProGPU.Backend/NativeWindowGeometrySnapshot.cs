@@ -90,6 +90,19 @@ internal static class CocoaWindowGeometry
         return true;
     }
 
+    internal static bool TryMapDesktopRectangle(NativeWindowBounds bounds, CocoaMenuRect primary,
+        out CocoaMenuRect result)
+    {
+        result = default;
+        if (!IsFiniteRectangle(new(bounds.X, bounds.Y, bounds.Width, bounds.Height)) ||
+            !IsFiniteRectangle(primary)) return false;
+        var candidate = new CocoaMenuRect(primary.X + bounds.X,
+            primary.Y + primary.Height - (bounds.Y + bounds.Height), bounds.Width, bounds.Height);
+        if (!IsFiniteRectangle(candidate)) return false;
+        result = candidate;
+        return true;
+    }
+
     private static bool IsFiniteRectangle(CocoaMenuRect bounds) =>
         double.IsFinite(bounds.X) && double.IsFinite(bounds.Y) &&
         double.IsFinite(bounds.Width) && double.IsFinite(bounds.Height) &&
