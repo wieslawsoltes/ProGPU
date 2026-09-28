@@ -20,21 +20,22 @@ internal static unsafe partial class CocoaNativePopupWindow
 
         using var pool = new Pool();
         if (!TryGetOwnedPopupFrame(bounds, out var frame)) return null;
-        nint panelClass = Class("NSPanel\0"u8), viewClass = Class("NSView\0"u8);
-        if (panelClass == 0 || viewClass == 0) return null;
-        nint panel = 0, view = 0;
+        if (!EnsureOwnedPopupClasses()) return null;
+        nint panel = 0, view = 0, tracking = 0;
+        OwnedInputRegistration? registration = null;
+        var input = new CocoaPopupInputQueue();
         nint ownerView = ownerGeometry.ContentView;
         nint ownerDelegate = Send(owner.Handle, "delegate\0"u8);
         Retain(owner.Handle); Retain(ownerView); Retain(ownerDelegate);
         bool transferred = false;
         try
         {
-            panel = OwnedMessageInitPanel(Send(panelClass, "alloc\0"u8),
+            panel = OwnedMessageInitPanel(Send(s_ownedPanelClass, "alloc\0"u8),
                 Selector("initWithContentRect:styleMask:backing:defer:\0"u8), frame,
                 NonactivatingPanelStyle, 2, 0);
             if (panel == 0) return null;
             SetOwnedBool(panel, "setReleasedWhenClosed:\0"u8, false);
-            view = OwnedMessageInitView(Send(viewClass, "alloc\0"u8),
+            view = OwnedMessageInitView(Send(s_ownedViewClass, "alloc\0"u8),
                 Selector("initWithFrame:\0"u8), new(0, 0, bounds.Width, bounds.Height));
             if (view == 0) return null;
             MessageVoidArgument(panel, Selector("setContentView:\0"u8), view);
@@ -44,13 +45,25 @@ internal static unsafe partial class CocoaNativePopupWindow
             SetOwnedBool(panel, "setBecomesKeyOnlyIfNeeded:\0"u8, true);
             SetOwnedBool(panel, "setHidesOnDeactivate:\0"u8, false);
             SetOwnedBool(panel, "setAcceptsMouseMovedEvents:\0"u8, true);
+            SetOwnedBool(panel, "setIgnoresMouseEvents:\0"u8, true);
             SetOwnedBool(panel, "setOpaque:\0"u8, !transparent);
             MessageVoidArgument(panel, Selector("setBackgroundColor:\0"u8),
                 Send(Class("NSColor\0"u8), transparent ? "clearColor\0"u8 : "windowBackgroundColor\0"u8));
 
+            registration = new(panel, view, input);
+            s_ownedInputs!.Add(view, registration);
+            nint trackingClass = Class("NSTrackingArea\0"u8);
+            if (trackingClass == 0) return null;
+            tracking = OwnedInitTrackingArea(Send(trackingClass, "alloc\0"u8),
+                Selector("initWithRect:options:owner:userInfo:\0"u8), default,
+                0x01 | 0x02 | 0x80 | 0x200 | 0x400, view, 0);
+            if (tracking == 0) return null;
+            MessageVoidArgument(view, Selector("addTrackingArea:\0"u8), tracking);
+
             var operations = new OwnedOperations(owner, ownerView, ownerDelegate,
-                ownerGeometry.CocoaWindowNumber, panel, view);
-            if (!operations.TryGetGeometry(out var geometry) || geometry.ContentBounds != bounds ||
+                ownerGeometry.CocoaWindowNumber, panel, view, tracking, registration);
+            if (!GetOwnedBool(panel, "ignoresMouseEvents\0"u8) ||
+                !operations.TryGetGeometry(out var geometry) || geometry.ContentBounds != bounds ||
                 !NativePopupWindow.TryPrepareOwner(owner, operations.Window)) return null;
             transferred = true;
             return operations;
@@ -59,25 +72,31 @@ internal static unsafe partial class CocoaNativePopupWindow
         {
             if (!transferred)
             {
+                registration?.Dispose();
+                if (view != 0 && tracking != 0)
+                    MessageVoidArgument(view, Selector("removeTrackingArea:\0"u8), tracking);
                 if (panel != 0)
                 {
                     MessageVoidArgument(panel, Selector("orderOut:\0"u8), 0);
                     MessageVoid(panel, Selector("close\0"u8));
                 }
-                Release(view); Release(panel);
+                Release(tracking); Release(view); Release(panel);
                 Release(ownerDelegate); Release(ownerView); Release(owner.Handle);
             }
         }
     }
 
     private sealed class OwnedOperations(NativeWindowHandle owner, nint ownerView,
-        nint ownerDelegate, long ownerNumber, nint panel, nint view) : ICocoaOwnedPopupOperations
+        nint ownerDelegate, long ownerNumber, nint panel, nint view, nint tracking,
+        OwnedInputRegistration registration) : ICocoaOwnedPopupOperations
     {
         private bool _released;
         public NativeWindowHandle Window => new(NativeWindowKind.Cocoa, panel, 0, "NSPanel");
         public nint ContentView => view;
+        public CocoaPopupInputQueue Input => registration.Input;
 
         private bool HasPanelIdentity => !_released &&
+            OwnedObjectClass(panel) == s_ownedPanelClass && OwnedObjectClass(view) == s_ownedViewClass &&
             Send(panel, "contentView\0"u8) == view && Send(view, "window\0"u8) == panel &&
             Send(panel, "delegate\0"u8) == 0 &&
             OwnedMessageBoolArgument(panel, Selector("isKindOfClass:\0"u8), Class("NSPanel\0"u8)) != 0;
@@ -92,12 +111,25 @@ internal static unsafe partial class CocoaNativePopupWindow
             !GetOwnedBool(panel, "isFloatingPanel\0"u8) &&
             GetOwnedBool(panel, "becomesKeyOnlyIfNeeded\0"u8) &&
             !GetOwnedBool(panel, "isReleasedWhenClosed\0"u8) &&
+            !GetOwnedBool(panel, "canBecomeKeyWindow\0"u8) && !GetOwnedBool(panel, "canBecomeMainWindow\0"u8) &&
             OwnedMessageUnsigned(panel, Selector("styleMask\0"u8)) == NonactivatingPanelStyle;
 
         public bool Show()
         {
             using var pool = new Pool();
-            return IsCurrent && NativePopupWindow.TryShowOwned(owner, Window, ShowWithoutActivation) && IsCurrent;
+            if (!IsCurrent) return false;
+            bool shown = false;
+            Input.SetVisible(true);
+            try { return shown = NativePopupWindow.TryShowOwned(owner, Window, ShowWithoutActivation) && IsCurrent; }
+            finally { if (!shown) Input.SetVisible(false); }
+        }
+
+        public bool SetInputAllowed(bool allowed)
+        {
+            using var pool = new Pool();
+            if (!IsCurrent) return false;
+            SetOwnedBool(panel, "setIgnoresMouseEvents:\0"u8, !allowed);
+            return IsCurrent && GetOwnedBool(panel, "ignoresMouseEvents\0"u8) == !allowed;
         }
 
         private void ShowWithoutActivation() =>
@@ -105,6 +137,7 @@ internal static unsafe partial class CocoaNativePopupWindow
 
         public bool Hide()
         {
+            Input.SetVisible(false);
             if (!HasPanelIdentity || NativeWindowModalSession.RetainsWindow(Window)) return false;
             using var pool = new Pool();
             nint parent = Send(panel, "parentWindow\0"u8);
@@ -136,9 +169,11 @@ internal static unsafe partial class CocoaNativePopupWindow
             if (_released) return;
             if (!Hide()) throw new InvalidOperationException("The owned NSPanel cannot be retired.");
             using var pool = new Pool();
+            registration.Dispose();
+            MessageVoidArgument(view, Selector("removeTrackingArea:\0"u8), tracking);
             MessageVoid(panel, Selector("close\0"u8));
             _released = true;
-            Release(view); Release(panel);
+            Release(tracking); Release(view); Release(panel);
             Release(ownerDelegate); Release(ownerView); Release(owner.Handle);
         }
     }

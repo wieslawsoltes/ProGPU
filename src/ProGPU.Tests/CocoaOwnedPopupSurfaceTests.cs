@@ -6,6 +6,132 @@ namespace ProGPU.Tests;
 public sealed class CocoaOwnedPopupSurfaceTests
 {
     [Fact]
+    public void NativePointerCallbackDefersWindowDestructionUntilManagedRetirement()
+    {
+        var operations = new Operations();
+        var surface = new CocoaOwnedPopupSurface(operations);
+        operations.Input.BeginNativeCallback();
+        surface.Dispose();
+        Assert.False(surface.IsReleased);
+        Assert.False(surface.TryCompleteDispose());
+        Assert.Empty(operations.Events);
+        operations.Input.EndNativeCallback();
+        Assert.False(surface.IsReleased);
+        Assert.Empty(operations.Events);
+        Assert.True(surface.TryCompleteDispose());
+        Assert.Equal(new[] { "hide", "release" }, operations.Events);
+        Assert.True(surface.TryCompleteDispose());
+    }
+
+    [Fact]
+    public void LastRenderLeaseReleasedDuringNativeCallbackStillWaitsForManagedRetirement()
+    {
+        var operations = new Operations();
+        var surface = new CocoaOwnedPopupSurface(operations);
+        var lease = surface.AcquireRenderLease();
+        operations.Input.BeginNativeCallback();
+        surface.Dispose();
+        lease.Dispose();
+        Assert.Empty(operations.Events);
+        operations.Input.EndNativeCallback();
+        Assert.True(surface.TryCompleteDispose());
+        Assert.Equal(new[] { "hide", "release" }, operations.Events);
+    }
+
+    [Fact]
+    public void NativeCallbackCannotReenterSurfaceMutationOrInputDelivery()
+    {
+        var operations = new Operations();
+        using var surface = new CocoaOwnedPopupSurface(operations);
+        operations.Input.BeginNativeCallback();
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => surface.Show());
+            Assert.Throws<InvalidOperationException>(() => surface.ReadInput([], out _));
+            Assert.Throws<InvalidOperationException>(() => surface.AcquireRenderLease());
+        }
+        finally { operations.Input.EndNativeCallback(); }
+        Assert.True(surface.Show());
+    }
+
+    [Fact]
+    public void InputIsPublishedOnlyAfterNativeGateAcceptsIt()
+    {
+        var operations = new Operations();
+        using var surface = new CocoaOwnedPopupSurface(operations);
+        Assert.True(surface.Show());
+        operations.OnInputAllowed = _ => Assert.False(operations.Input.CanReceive);
+        Assert.True(surface.SetInputAllowed(true));
+        Assert.True(operations.Input.CanReceive);
+        var value = new CocoaPopupPointerEvent(CocoaPopupPointerKind.Down, 1, 2, 3, 0, 1, CocoaPopupModifiers.Shift);
+        Assert.True(operations.Input.TryWrite(value));
+        Span<CocoaPopupPointerEvent> output = stackalloc CocoaPopupPointerEvent[1];
+        Assert.Equal(1, surface.ReadInput(output, out _));
+        Assert.Equal(value, output[0]);
+    }
+
+    [Fact]
+    public void FailedNativeInputAdmissionLeavesQueueBlocked()
+    {
+        var operations = new Operations { InputAccepted = false };
+        using var surface = new CocoaOwnedPopupSurface(operations);
+        Assert.True(surface.Show());
+        Assert.False(surface.SetInputAllowed(true));
+        Assert.False(operations.Input.Enabled);
+        Assert.False(operations.Input.CanReceive);
+    }
+
+    [Fact]
+    public void DisablingStopsQueuedDeliveryBeforeCallingTheNativeGate()
+    {
+        var operations = new Operations();
+        using var surface = new CocoaOwnedPopupSurface(operations);
+        Assert.True(surface.Show());
+        Assert.True(surface.SetInputAllowed(true));
+        Assert.True(operations.Input.TryWrite(new(CocoaPopupPointerKind.Down, 1, 2, 3, 0, 1, CocoaPopupModifiers.None)));
+        operations.OnInputAllowed = _ => Assert.False(operations.Input.CanReceive);
+        operations.InputAccepted = false;
+        Assert.False(surface.SetInputAllowed(false));
+        Span<CocoaPopupPointerEvent> output = stackalloc CocoaPopupPointerEvent[1];
+        Assert.Equal(0, surface.ReadInput(output, out _));
+    }
+
+    [Fact]
+    public void FaultedQueueCannotReenableNativeInput()
+    {
+        var operations = new Operations();
+        using var surface = new CocoaOwnedPopupSurface(operations);
+        operations.Input.Fail(CocoaPopupInputFailure.NativeCallback);
+        operations.OnInputAllowed = _ => Assert.Fail("Faulted source enabled its native panel.");
+        Assert.Throws<InvalidOperationException>(() => surface.SetInputAllowed(true));
+    }
+
+    [Fact]
+    public void CloseDuringNativeInputAdmissionDoesNotReenableRetiringSurface()
+    {
+        var operations = new Operations();
+        var surface = new CocoaOwnedPopupSurface(operations);
+        operations.OnInputAllowed = _ => surface.Dispose();
+        Assert.False(surface.SetInputAllowed(true));
+        Assert.False(operations.Input.CanReceive);
+        Assert.True(surface.IsReleased);
+    }
+
+    [Fact]
+    public void RetainedRenderLeaseDoesNotKeepInputAliveAfterClose()
+    {
+        var operations = new Operations();
+        var surface = new CocoaOwnedPopupSurface(operations);
+        using var lease = surface.AcquireRenderLease();
+        Assert.True(surface.Show());
+        Assert.True(surface.SetInputAllowed(true));
+        surface.Dispose();
+        Assert.False(surface.IsReleased);
+        Assert.False(operations.Input.CanReceive);
+        Assert.Throws<ObjectDisposedException>(() => surface.ReadInput([], out _));
+    }
+
+    [Fact]
     public void HiddenSurfaceClosesExactlyOnce()
     {
         var operations = new Operations();
@@ -212,14 +338,18 @@ public sealed class CocoaOwnedPopupSurfaceTests
     {
         internal readonly List<string> Events = new();
         internal Action? OnShow, OnIdentity, OnGeometry;
+        internal Action<bool>? OnInputAllowed;
         internal bool Current = true, HideAccepted = true;
+        internal bool InputAccepted = true;
         public NativeWindowHandle Window => new(NativeWindowKind.Cocoa, 11, 0, "test-owned-panel");
         public nint ContentView => 12;
+        public CocoaPopupInputQueue Input { get; } = new();
         public bool IsCurrent { get { OnIdentity?.Invoke(); return Current; } }
+        public bool SetInputAllowed(bool allowed) { OnInputAllowed?.Invoke(allowed); return InputAccepted; }
         internal NativeWindowGeometrySnapshot Geometry => new(Window, ContentView, 13,
             new(-500, 25, 80, 60), new(-500, 25, 80, 60), 2);
-        public bool Show() { Events.Add("show"); OnShow?.Invoke(); return true; }
-        public bool Hide() { Events.Add("hide"); return HideAccepted; }
+        public bool Show() { Events.Add("show"); Input.SetVisible(true); OnShow?.Invoke(); return true; }
+        public bool Hide() { Events.Add("hide"); Input.SetVisible(false); return HideAccepted; }
         public bool SetBounds(NativeWindowBounds bounds) => true;
         public bool TryGetGeometry(out NativeWindowGeometrySnapshot snapshot)
         { OnGeometry?.Invoke(); snapshot = Geometry; return true; }

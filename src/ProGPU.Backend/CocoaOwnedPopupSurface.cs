@@ -28,6 +28,31 @@ internal sealed class CocoaOwnedPopupSurface : IDisposable
 
     internal bool IsReleased => _operations is null;
 
+    internal bool SetInputAllowed(bool allowed)
+    {
+        var operations = Enter();
+        try
+        {
+            if (allowed) operations.Input.EnsureHealthy();
+            if (!allowed) operations.Input.SetEnabled(false);
+            if (!operations.SetInputAllowed(allowed) || _closeRequested)
+            {
+                operations.Input.SetEnabled(false);
+                return false;
+            }
+            if (allowed) operations.Input.SetEnabled(true);
+            return true;
+        }
+        finally { Exit(); }
+    }
+
+    internal int ReadInput(Span<CocoaPopupPointerEvent> destination, out ulong generation)
+    {
+        var operations = Enter();
+        try { return operations.Input.Read(destination, out generation); }
+        finally { Exit(); }
+    }
+
     internal bool Show()
     {
         var operations = Enter();
@@ -81,14 +106,24 @@ internal sealed class CocoaOwnedPopupSurface : IDisposable
         CheckThread();
         if (_operations is null) return;
         _closeRequested = true;
+        _operations.Input.Close();
         DrainClose();
+    }
+
+    // Hosts retain a closing surface and call this after native event polling,
+    // just as they already defer GLFW native-window destruction across callbacks.
+    internal bool TryCompleteDispose()
+    {
+        CheckThread();
+        DrainClose();
+        return IsReleased;
     }
 
     private ICocoaOwnedPopupOperations Enter()
     {
         CheckThread();
         ObjectDisposedException.ThrowIf(_closeRequested || _operations is null, this);
-        if (_transitionDepth != 0)
+        if (_transitionDepth != 0 || _operations.Input.IsInNativeCallback)
             throw new InvalidOperationException("A Cocoa popup transition is already active.");
         var operations = _operations;
         ++_transitionDepth;
@@ -114,7 +149,7 @@ internal sealed class CocoaOwnedPopupSurface : IDisposable
 
     private void DrainClose()
     {
-        if (!_closeRequested || _operations is null || _transitionDepth != 0) return;
+        if (!_closeRequested || _operations is null || _transitionDepth != 0 || _operations.Input.IsInNativeCallback) return;
         ++_transitionDepth;
         try
         {
@@ -169,7 +204,9 @@ internal interface ICocoaOwnedPopupOperations : IDisposable
 {
     NativeWindowHandle Window { get; }
     nint ContentView { get; }
+    CocoaPopupInputQueue Input { get; }
     bool IsCurrent { get; }
+    bool SetInputAllowed(bool allowed);
     bool Show();
     bool Hide();
     bool SetBounds(NativeWindowBounds bounds);
