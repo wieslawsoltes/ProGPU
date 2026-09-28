@@ -161,6 +161,7 @@ public sealed class GraphicsClipFrameTests
         var context = new DrawingContext();
         using Graphics graphics = Graphics.FromProGpuDrawingContext(
             context, new RectangleF(0, 0, 128, 128), Matrix4x4.CreateTranslation(7, 11, 0));
+        graphics.PageUnit = GraphicsUnit.Pixel;
         graphics.PageScale = 2;
         graphics.SetClip(new Rectangle(8, 12, 16, 16));
         graphics.PageScale = 1;
@@ -171,6 +172,26 @@ public sealed class GraphicsClipFrameTests
         Assert.False(graphics.IsClipEmpty);
         graphics.ResetTransform();
         Assert.Equal(new RectangleF(16, 24, 32, 32), graphics.ClipBounds);
+    }
+
+    [Fact]
+    public void DisplayPageScaleIsRetainedButNotAppliedUntilTheUnitChanges()
+    {
+        using var bitmap = new Bitmap(64, 80);
+        using Graphics graphics = Graphics.FromImage(bitmap);
+        graphics.SetClip(new Rectangle(8, 40, 32, 24));
+        graphics.PageScale = 2;
+        PointF[] point = [new(1, 1)];
+        graphics.TransformPoints(CoordinateSpace.Device, CoordinateSpace.World, point);
+        Assert.Equal(new PointF(1, 1), point[0]);
+        Assert.Equal(2, graphics.PageScale);
+        Assert.Equal(new RectangleF(8, 40, 32, 24), graphics.ClipBounds);
+
+        graphics.PageUnit = GraphicsUnit.Pixel;
+        point[0] = new PointF(1, 1);
+        graphics.TransformPoints(CoordinateSpace.Device, CoordinateSpace.World, point);
+        Assert.Equal(new PointF(2, 2), point[0]);
+        Assert.Equal(new RectangleF(4, 20, 16, 12), graphics.ClipBounds);
     }
 
     [Fact]

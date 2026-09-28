@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -8,10 +9,12 @@ if (args.Length != 1)
     throw new ArgumentException("Expected an output JSON path.");
 
 string[] names = ["Replace", "Intersect", "Union", "Xor", "Exclude", "Complement",
-    "save", "container", "flush", "translate", "page", "rotate"];
+    "save", "container", "flush", "translate", "page", "display", "rotate"];
 var cases = new List<object>();
 foreach (string name in names)
 {
+    var elapsed = Stopwatch.StartNew();
+    Console.WriteLine($"Drawing clip {name}: begin");
     using var bitmap = new Bitmap(64, 80);
     bitmap.SetResolution(96, 96);
     float[] bounds;
@@ -51,6 +54,12 @@ foreach (string name in names)
                     break;
                 case "page":
                     graphics.ResetTransform();
+                    graphics.PageUnit = GraphicsUnit.Pixel;
+                    graphics.PageScale = 2;
+                    graphics.IntersectClip(new Rectangle(4, 20, 16, 12));
+                    break;
+                case "display":
+                    graphics.ResetTransform();
                     graphics.PageScale = 2;
                     graphics.IntersectClip(new Rectangle(4, 20, 16, 12));
                     break;
@@ -71,6 +80,7 @@ foreach (string name in names)
         graphics.FillRectangle(Brushes.Red, -128, -128, 256, 256);
     }
     byte[] pixels = new byte[64 * 80 * 4];
+    Console.WriteLine($"Drawing clip {name}: recorded at {elapsed.ElapsedMilliseconds} ms; reading pixels");
     int ink = 0;
     for (int y = 0; y < 80; y++)
     {
@@ -85,9 +95,13 @@ foreach (string name in names)
             if (pixel.ToArgb() == Color.Red.ToArgb()) ink++;
         }
     }
-    if (ink == 0) throw new InvalidOperationException($"No reference ink for {name}.");
+    // Display units ignore PageScale: the two disjoint rectangles must remain
+    // empty. Pixel units apply the same scale and retain their full overlap.
+    if (name == "display" ? ink != 0 : ink == 0)
+        throw new InvalidOperationException($"Unexpected reference ink for {name}: {ink}.");
     cases.Add(new { Name = name, Bounds = bounds, RegionBounds = regionBounds,
         Visible = visible, Ink = ink, PixelsSha256 = Convert.ToHexString(SHA256.HashData(pixels)) });
+    Console.WriteLine($"Drawing clip {name}: completed at {elapsed.ElapsedMilliseconds} ms; ink={ink}");
 }
 var assembly = typeof(Graphics).Assembly;
 using var assemblyFile = File.OpenRead(assembly.Location);

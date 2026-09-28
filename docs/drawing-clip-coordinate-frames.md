@@ -18,6 +18,11 @@ bounds and visibility use the current world frame. Unchanged-frame queries keep
 their existing direct path. A failed inversion rejects the combination before
 replacing the old clip; no epsilon or identity substitute is added.
 
+Actual Microsoft GDI+ probing also distinguishes Display from scalable page
+units: Display retains the `PageScale` property without applying it. Pixel and
+physical units apply the stored scale. The shared page mapping follows that
+policy; do not use default Display units as a scaled-pixel reference.
+
 Saved states retain both transforms. Restore and flush push the clip with its
 captured transform, including finite-universe construction for symbolic infinite
 regions. Parent container clips remain separate enclosing scopes. The cumulative
@@ -75,11 +80,24 @@ The portable 12-case comparison probe also completed, and the Microsoft referenc
 project cross-built with zero warnings/errors; its actual Windows results are a
 separate CI gate, not inferred from that build.
 
+After the Display-unit correction, the expanded local selection passed 78 cases,
+zero skipped (45 seconds). An actual Windows ARM64 guest-local diagnostic run
+matched Microsoft on all 13 cases, including exact bounds, visibility, coverage
+and every RGBA pixel. It used the installed .NET 11 preview runtime explicitly
+rolled forward from net10.0; CI's pinned runtime/architecture matrix remains
+separate. The earlier shared-folder execution hit its unchanged 120-second
+deadline and is not a pass. The guest-local run retained the same deadline and
+all cases. Its source-built private DLLs are not staged producer packages.
+
 `eng/progpu-verify-windows-drawing-clips.ps1` runs independently built Microsoft
 and portable probes in separate processes on Windows x64 and ARM64. It verifies
-assembly provenance, architecture and all 12 ordered cases, comparing exact bounds,
+assembly provenance, architecture and all 13 ordered cases, comparing exact bounds,
 visibility, red coverage and hashes of every RGBA pixel. Each process has a
 120-second bound. The Build workflow retains both receipts and all old gates.
+The Display case must be empty, while its matching Pixel case must have ink;
+every other case requires ink. The first Windows run exposed the incorrect
+Display scaling assumption in the probe and portable implementation. It remains
+failed evidence, not a qualified package producer.
 
 These source/bitmap checks do not close popup issue #197. Actual popup screenshots,
 the full unchanged native input scenario (including F10/Down), macOS/Linux UI,

@@ -974,7 +974,10 @@ public partial class Graphics :
     {
         float unitScaleX = UnitToPixelScale(PageUnit, DpiX);
         float unitScaleY = UnitToPixelScale(PageUnit, DpiY);
-        return Matrix3x2.CreateScale(unitScaleX * PageScale, unitScaleY * PageScale);
+        // GDI+ retains PageScale as state in Display units, but applies it only
+        // after selecting a scalable page unit (including Pixel).
+        float scale = PageUnit == GraphicsUnit.Display ? 1f : PageScale;
+        return Matrix3x2.CreateScale(unitScaleX * scale, unitScaleY * scale);
     }
 
     public GraphicsState Save()

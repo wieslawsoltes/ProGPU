@@ -37,13 +37,13 @@ if ($expected.Assembly -ceq $actual.Assembly -or $expected.AssemblySha256 -ceq $
     $expected.AssemblyPath -notmatch '[\\/]shared[\\/]Microsoft.WindowsDesktop.App[\\/]') {
     throw 'The reference must use the independent Microsoft Windows Desktop assembly.'
 }
-$names = @('Replace', 'Intersect', 'Union', 'Xor', 'Exclude', 'Complement', 'save', 'container', 'flush', 'translate', 'page', 'rotate')
+$names = @('Replace', 'Intersect', 'Union', 'Xor', 'Exclude', 'Complement', 'save', 'container', 'flush', 'translate', 'page', 'display', 'rotate')
 foreach ($receipt in $receipts) {
-    if ($receipt.Cases.Count -ne 12 -or ($receipt.Cases.Name -join ',') -cne ($names -join ',')) {
-        throw 'All 12 distinct drawing clip cases must execute in source order.'
+    if ($receipt.Cases.Count -ne 13 -or ($receipt.Cases.Name -join ',') -cne ($names -join ',')) {
+        throw 'All 13 distinct drawing clip cases must execute in source order.'
     }
 }
-for ($index = 0; $index -lt 12; $index++) {
+for ($index = 0; $index -lt 13; $index++) {
     $reference = $expected.Cases[$index]
     $portable = $actual.Cases[$index]
     foreach ($property in @('Bounds', 'RegionBounds', 'Visible', 'Ink', 'PixelsSha256')) {
@@ -52,4 +52,4 @@ for ($index = 0; $index -lt 12; $index++) {
         }
     }
 }
-Write-Host "Drawing clips match Microsoft: $Rid / 12 cases, exact bounds, visibility, and every pixel."
+Write-Host "Drawing clips match Microsoft: $Rid / 13 cases, exact bounds, visibility, and every pixel."

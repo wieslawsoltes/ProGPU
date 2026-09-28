@@ -5,6 +5,7 @@ Combine or translate only after mapping the old region into the current world
 frame; preserve curves, Boolean topology and caller snapshots. Restore/flush
 must reuse the captured mapping, separate from cumulative GetContextInfo state.
 Keep rectangle Boolean bounds based on surviving scans, not operand envelopes.
+Display units retain PageScale as metadata; only scalable units apply it.
 No identity inverse, epsilon rejection or text-local workaround is permitted.
 See docs/drawing-clip-coordinate-frames.md; source checks are not popup UI parity.
 
