@@ -20,6 +20,13 @@ poll. Retain initialization/dispatch retirement guards, actual geometry and
 event-specific input generations. GPU presentation surfaces release before their
 view lease, including failed shared-surface configuration. Window/input/presentation
 integration and both source hosts remain required before automatic modality.
+Owned Cocoa input uses a typed provider with one live context and scoped native
+event metadata, never a fake keyboard or current global modifiers. Preserve all
+queued edges and point/line scroll units; policy changes cancel held/capture state
+without synthetic up/clicks and invalidate copied batch tails. Cursor rectangles
+belong to the owned view, including an owned transparent hidden cursor, not global
+hide counters or the owner's GLFW cursor. Reentrant cancellation must complete
+retirement. Explicit factory/provider availability is not source UI admission.
 
 Native compute traces report owned pipeline selection and encoding/submission
 boundaries, never completion. Preserve the immutable opt-in, per-engine bound,

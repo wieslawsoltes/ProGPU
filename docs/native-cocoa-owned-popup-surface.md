@@ -106,18 +106,58 @@ releases the actual GPU surface before releasing its native-view lease. If final
 native Hide fails, the window retains retirement ownership; a spent lease must
 not prevent a subsequent context cleanup. No alternate renderer/device is created.
 
+## Pointer context and view-owned cursors
+
+`NativeWindowInput.CreateInput` selects the owned provider by actual adapter type
+before any Silk/GLFW input selection. An owned window has one live context, one
+pointer, and no fabricated keyboard: the dialog owner keeps native keyboard input.
+Context attachment is an independent native input gate. Detach blocks native
+pointer reception without losing the controller's latest enabled intent; attaching
+a replacement context reapplies that intent and an actual default view cursor.
+
+`INativePointerInputContext` provides the original double-coordinate event stream,
+scoped event modifiers, native click counts, scroll units/phases and explicit
+cancellation. Source adapters must not deliver both this stream and the equivalent
+Silk mouse stream. Scroll values are not automatically wheel notches: precise
+deltas are native view points, and non-precise deltas are line/row units. Source
+scrolling must consume these units using actual source scroll contracts, not an
+unconditional multiplication by 120 or an invented fixed row height. Original
+phases remain available for source momentum-target ownership.
+
+Managed draining uses bounded caller-owned batches and preserves all 256 queued
+records in order. Hide, input blocking and close invalidate already-copied batch
+tails as well as pending native records. They clear held state and emit Cancel,
+never a synthetic up/click. Unmatched real up is still forwarded. Cancellation,
+context disposal and native destruction are deferred across active native/input
+callbacks, including source disposal reentered from the cancellation itself.
+Input/handler failures block further reception, remain observable on subsequent
+drains, and retain the original handler exception when cancellation also fails.
+Unknown modifier bits reject before publishing a partial projection.
+
+Standard cursors use public AppKit selectors on this owned NSView's cursor
+rectangles. Diagonal frame cursors require the available public macOS API;
+unsupported shapes are not reported as another shape. Hidden mode uses an owned
+zero-alpha one-pixel bitmap cursor, not a process-global cursor hide counter.
+Cursor rectangles are discarded before their retained cursor resources retire.
+No owner GLFW cursor, global pointer warp/confinement, private AppKit selectors,
+or custom-image support is assumed.
+
+`NativePopupWindow.CreateOwnedCocoaWindow` is the explicit factory. It creates an
+uninitialized adapter and rechecks the same live source owner before hidden native
+initialization; neither source framework selects owned popups automatically yet.
+
 ## Integration still required — do not enable automatic modality
 
-The surface is internal and not selected by either source framework. Allocation
-of an NSPanel is not popup admission or application qualification. The same draft
-work must still connect:
+The surface implementation remains internal; the explicit factory is not selected
+by either source framework. An NSPanel and passing managed transport tests are not
+popup admission or application qualification. The same draft work must still connect:
 
-1. The input context/cursor adapter must consume native pointer records and
-   generations, preserve event-specific modifiers, precise scroll semantics and
-   typed source ownership/capture. Its cancellation must connect to hide, input
-   blocking and disposal. The new window's managed input-drain hook is not itself
-   a registered Silk input provider. Do not allow the GLFW input provider to claim
-   an owned panel or use an owner's cursor as an assumed popup cursor.
+1. Both source input adapters must select `NativeWindowInput` for the new window,
+   consume native pointer metadata/units, and connect Cancel/Leave to actual source
+   capture and interaction state. Existing keyboard-polling modifier readers and
+   unconditional wheel-notch scaling do not admit native popup input. Source
+   cursor services must reuse the attached context, not dispose it via a temporary
+   context. Never let GLFW claim an owned panel.
 2. The shared window/presentation lifetime path must be exercised with the owner's
    actual device in both renderer modes. The implementation is not native surface
    creation, rendering, device-loss or callback-retirement qualification.
@@ -153,8 +193,17 @@ native-callback lifetime, owner-loop wakeup, creating-thread rejection and expli
 unsupported operations. These tests use original fake native operations and do
 not load AppKit or GLFW.
 
-The backend and test-project Release builds succeeded with zero warnings and errors. Test execution
-and native UI qualification are deferred while implementation continues; CI must
+`CocoaPopupInputContextTests` adds single-context admission/replacement, full 256-
+record delivery, event modifiers without fake keyboards, exact native scroll
+units/phases, copied-tail invalidation, unmatched up, cancellation/disconnection,
+callback-retained native lifetime, overflow, persistent handler faults, unknown
+modifier rejection, cursor state and deferred explicit-factory ownership checks.
+These managed tests do not qualify actual NSCursor/NSPanel behavior, input routing
+or application presentation.
+
+The backend and test-project Release builds succeeded with zero warnings and errors.
+Focused managed input/window tests pass; full validation and native UI qualification
+remain deferred while implementation continues. CI must
 remain fully green before any eventual merge. An initial no-restore build failed
 inside NuGet's stale asset reader; an ordinary forced restore rebuilt successfully
 without changing package declarations or versions.
@@ -174,6 +223,11 @@ without changing package declarations or versions.
 - Installed Apple SDK public `NSWindow.h`, `NSPanel.h`, `NSView.h`, `NSResponder.h`,
   `NSEvent.h` and `NSTrackingArea.h` declarations were used for
   ABI signatures and enum values, not as implementation source.
+- Public SDK `NSCursor.h`, `NSBitmapImageRep.h`, `NSImage.h` and `NSView.h`
+  declarations supply cursor construction and view-scoped cursor rectangles.
+  The device-RGB name comes from AppKit's public exported constant, not a guessed
+  private value. Scroll semantics follow the SDK and
+  [Apple scrollingDeltaY](https://developer.apple.com/documentation/appkit/nsevent/scrollingdeltay).
 - Existing original ProGPU `CocoaNativePopupWindow`, `CocoaPopupConfiguration`,
   `CocoaNativeWindowGeometry`, and `CocoaWindowGeometry` supply ownership and
   coordinate contracts. Original `CocoaNativeSystemMenu` supplies the existing
