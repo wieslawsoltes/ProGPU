@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       package_run_id:
-        description: Build run containing the package under investigation
+        description: Build run containing the package under investigation (use 0 for allocation-counter)
         required: true
         type: string
       probe_set:
-        description: Independent owner query, bounded path comparisons, or full path-stage diagnosis
+        description: Independent owner/path diagnosis or package-free runtime allocation counter
         type: choice
         default: all
-        options: [all, lifetime, atlas, raster, encoder, retirement, fence, owner]
+        options: [all, lifetime, atlas, raster, encoder, retirement, fence, owner, allocation-counter]
 
 permissions:
   contents: read
@@ -20,7 +20,12 @@ permissions:
 # This deliberately reuses an earlier package. It is diagnostic evidence only,
 # never an artifact-producing Build or replacement current-head consumer gate.
 jobs:
+  allocation-counter:
+    if: inputs.probe_set == 'allocation-counter'
+    uses: ./.github/workflows/runtime-allocation-diagnostics.yml
+
   windows-path-stage:
+    if: inputs.probe_set != 'allocation-counter'
     name: Windows path-stage diagnosis (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10

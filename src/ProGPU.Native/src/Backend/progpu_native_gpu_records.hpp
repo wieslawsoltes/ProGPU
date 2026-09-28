@@ -168,6 +168,7 @@ struct gpu_clip_compose_uniforms {
     std::uint32_t first;
     std::uint32_t width;
     std::uint32_t height;
+    std::int32_t pixel_mapping[4]{};
 };
 
 struct native_path_cache_key {
@@ -276,7 +277,7 @@ static_assert(sizeof(gpu_path_record) == 32U);
 static_assert(sizeof(gpu_path_record) ==
     sizeof(progpu_native_path_segment) - 16U);
 static_assert(sizeof(gpu_clip_vertex) == 16U);
-static_assert(sizeof(gpu_clip_compose_uniforms) == 16U);
+static_assert(sizeof(gpu_clip_compose_uniforms) == 32U);
 static_assert(sizeof(gpu_glyph_record) == 32U);
 static_assert(sizeof(gpu_glyph_uniforms) == 48U);
 static_assert(sizeof(gpu_glyph_instance) == 96U);

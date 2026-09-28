@@ -23,6 +23,36 @@ env:
   PROGPU_QUALIFIED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  windows-drawing-clips:
+    name: Windows drawing clip reference (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Compare independent Microsoft and portable drawing clips
+        shell: pwsh
+        run: ./eng/progpu-verify-windows-drawing-clips.ps1 -Rid '${{ matrix.rid }}'
+      - name: Preserve exact clip reference receipts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-drawing-clips-${{ matrix.rid }}
+          path: artifacts/windows-drawing-clips/${{ matrix.rid }}/
+          if-no-files-found: error
+
   windows-path-rasterization:
     name: Windows single-path raster coverage (${{ matrix.rid }})
     strategy:

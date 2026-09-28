@@ -1,4 +1,5 @@
 #include "progpu_native.h"
+#include "../src/Backend/progpu_native_path_pixel_mapping.hpp"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 #include "../src/Geometry/progpu_native_arc.hpp"
 
@@ -15,6 +16,45 @@
 namespace {
 using point = progpu_native_point;
 using segment = progpu_native_path_segment;
+
+bool exact_pixel_mapping_checks_every_corner()
+{
+    using progpu::native::exact_path_pixel_mapping;
+    const std::array<point, 4> positions{{{4, 36}, {52, 36}, {52, 68}, {4, 68}}};
+    const std::array<point, 4> atlas{{{2, 2}, {50, 2}, {50, 34}, {2, 34}}};
+    if (!exact_path_pixel_mapping(positions, atlas)) return false;
+    auto negative = positions;
+    for (auto& p : negative) { p.x -= 100; p.y -= 100; }
+    if (!exact_path_pixel_mapping(negative, atlas)) return false;
+    for (bool change_atlas : {false, true}) {
+        for (std::size_t corner = 0; corner < 4; ++corner) {
+            for (bool x_axis : {false, true}) {
+                for (float value : {0.25F, std::numeric_limits<float>::quiet_NaN(),
+                    std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(),
+                    8388609.0F, -8388609.0F}) {
+                    auto p = positions; auto a = atlas;
+                    auto& changed = (change_atlas ? a : p)[corner];
+                    (x_axis ? changed.x : changed.y) = value;
+                    if (exact_path_pixel_mapping(p, a)) return false;
+                }
+            }
+            auto changed = atlas;
+            changed[corner].x += 1;
+            if (exact_path_pixel_mapping(positions, changed)) return false;
+        }
+    }
+    for (unsigned mode = 0; mode < 4; ++mode) {
+        auto changed = positions;
+        for (auto& p : changed) {
+            if (mode == 0) { p.x *= 2; p.y *= 2; }
+            if (mode == 1) p.x = -p.x;
+            if (mode == 2) { const auto x = p.x; p.x = -p.y; p.y = x; }
+            if (mode == 3) { p.x += 0.5F; p.y += 0.5F; }
+        }
+        if (exact_path_pixel_mapping(changed, atlas)) return false;
+    }
+    return true;
+}
 
 segment line_segment(point start, point end)
 {
@@ -477,7 +517,8 @@ int main()
             }
         }
     }
-    const std::array<std::pair<const char*, bool (*)()>, 10> tests{{
+    const std::array<std::pair<const char*, bool (*)()>, 11> tests{{
+        {"exact_pixel_mapping", exact_pixel_mapping_checks_every_corner},
         {"filled_relations", filled_relations_preserve_topology_and_shared_com_results},
         {"modes_and_boundaries", modes_and_actual_boundaries},
         {"curved_result", curved_result_matches_shared_core},

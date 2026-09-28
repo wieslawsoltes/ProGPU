@@ -125,6 +125,23 @@ public sealed class Region : MarshalByRefObject, IDisposable
     {
         ArgumentNullException.ThrowIfNull(g);
         ThrowIfDisposed();
+        // Operand envelopes are not the bounds of a difference or an empty
+        // intersection. Reuse exact rectangle scans for Boolean regions only;
+        // ordinary geometry keeps its existing bounds fast path.
+        if (_expression.Kind == RegionExpressionKind.Boolean &&
+            TryGetAxisAlignedScans(_expression, Matrix3x2.Identity, out RectangleF[] scans))
+        {
+            if (scans.Length == 0)
+            {
+                return RectangleF.Empty;
+            }
+            RectangleF result = scans[0];
+            for (int index = 1; index < scans.Length; index++)
+            {
+                result = RectangleF.Union(result, scans[index]);
+            }
+            return result;
+        }
         return TryGetBounds(_expression, out RectangleF bounds)
             ? bounds
             : RectangleF.Empty;
@@ -378,6 +395,17 @@ public sealed class Region : MarshalByRefObject, IDisposable
                 return right;
             if (right.Kind == RegionExpressionKind.Infinite)
                 return left;
+            if (TryGetExactRectangle(left, out Vector2 leftMin, out Vector2 leftMax) &&
+                TryGetExactRectangle(right, out Vector2 rightMin, out Vector2 rightMax))
+            {
+                Vector2 min = Vector2.Max(leftMin, rightMin);
+                Vector2 max = Vector2.Min(leftMax, rightMax);
+                if (max.X <= min.X || max.Y <= min.Y)
+                    return RegionExpression.Empty;
+                Vector2 size = max - min;
+                if (float.IsFinite(size.X) && float.IsFinite(size.Y) && min + size == max)
+                    return CreateRectangleExpression(new RectangleF(min.X, min.Y, size.X, size.Y));
+            }
         }
         else if (operation == PathBooleanOperation.Union)
         {
@@ -399,6 +427,65 @@ public sealed class Region : MarshalByRefObject, IDisposable
         }
 
         return RegionExpression.FromBoolean(left, right, operation);
+    }
+
+    private static bool TryGetExactRectangle(
+        RegionExpression expression, out Vector2 min, out Vector2 max)
+    {
+        min = max = default;
+        if (expression.Kind != RegionExpressionKind.Geometry ||
+            expression.Geometry!.IsCombined || expression.Geometry.Figures.Count != 1)
+        {
+            return false;
+        }
+        PathFigure figure = expression.Geometry.Figures[0];
+        if (!figure.IsFilled || !figure.IsClosed || figure.Segments.Count != 4)
+        {
+            return false;
+        }
+
+        Span<Vector2> corners = stackalloc Vector2[4];
+        Vector2 point = figure.StartPoint;
+        min = max = point;
+        for (int index = 0; index < 4; index++)
+        {
+            if (!float.IsFinite(point.X) || !float.IsFinite(point.Y) ||
+                figure.Segments[index] is not LineSegment line)
+            {
+                return false;
+            }
+            Vector2 next = line.Point;
+            // Exactly one coordinate changes: no epsilon, collapsed edge or
+            // diagonal may promote a near-rectangle to rectangular coverage.
+            if ((point.X == next.X) == (point.Y == next.Y))
+            {
+                return false;
+            }
+            corners[index] = point;
+            min = Vector2.Min(min, point);
+            max = Vector2.Max(max, point);
+            point = next;
+        }
+        if (point != figure.StartPoint || min.X >= max.X || min.Y >= max.Y)
+        {
+            return false;
+        }
+        int seen = 0;
+        foreach (Vector2 corner in corners)
+        {
+            if ((corner.X != min.X && corner.X != max.X) ||
+                (corner.Y != min.Y && corner.Y != max.Y))
+            {
+                return false;
+            }
+            int bit = 1 << ((corner.X == max.X ? 1 : 0) | (corner.Y == max.Y ? 2 : 0));
+            if ((seen & bit) != 0)
+            {
+                return false;
+            }
+            seen |= bit;
+        }
+        return seen == 15;
     }
 
     private void TransformCore(Matrix3x2 transform)

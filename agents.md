@@ -1,5 +1,27 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Exact path-atlas pixel loads require four integer corners with one identical
+atlas/device offset and a proven unit physical projection. Preserve filtering
+for fractional/DPI/viewport/late-transform mappings, gamma and alias semantics.
+Managed bounded masks restore their render origin; native clip nodes bind their
+own uniform offset during the path pass as well as composition. Share the WGSL
+helper across providers and retain cold/warm, multi-node and Windows reference
+checks. See docs/path-atlas-pixel-mapping.md; local Metal is not Windows parity.
+
+System.Drawing clips retain their capture-time world/page/container/host mapping.
+Combine or translate only after mapping the old region into the current world
+frame; preserve curves, Boolean topology and caller snapshots. Restore/flush
+must reuse the captured mapping, separate from cumulative GetContextInfo state.
+Keep rectangle Boolean bounds based on surviving scans, not operand envelopes.
+Rectangle intersection simplification requires four exact closed axis-aligned
+edges and all unique corners; never promote a near-rectangle or curve by tolerance.
+Display units retain PageScale as metadata; only scalable units apply it.
+World matrix assignment, multiplication, scale and rotation validate before
+publication; retain Matrix's original overflow arithmetic and the distinct native
+TranslateTransform acceptance policy. Do not infer finite state from Invert alone.
+No identity inverse, epsilon rejection or text-local workaround is permitted.
+See docs/drawing-clip-coordinate-frames.md; source checks are not popup UI parity.
+
 Native semantic glyph resources may share compiled outline/segment slices only
 after exact original-byte and flag equality within one validated immutable scene.
 Keep every positioned draw, style, clip and source owner; color bitmap resources

@@ -12,6 +12,56 @@ namespace ProGPU.Tests;
 
 public sealed class CompositorClipTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IntegerTranslatedUnionPreservesEveryPixelOnColdAndWarmFrames(bool clip)
+    {
+        using var window = new HeadlessWindow(64, 80);
+        window.Content = new IntegerTranslatedUnionVisual(clip);
+        for (int frame = 0; frame < 2; frame++)
+        {
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            for (int y = 0; y < 80; y++)
+            for (int x = 0; x < 64; x++)
+            {
+                // Independent membership oracle, not another rasterized path.
+                bool inside = (x >= 8 && x < 40 && y >= 40 && y < 64)
+                    || (x >= 16 && x < 48 && y >= 44 && y < 60);
+                var expected = inside ? new Vector4(255, 0, 0, 255) : new Vector4(255);
+                Assert.True(ReadPixel(pixels, window.Width, x, y) == expected,
+                    $"Union clip={clip}, frame={frame}, pixel=({x},{y}): {ReadPixel(pixels, window.Width, x, y)} != {expected}");
+            }
+        }
+    }
+
+    private sealed class IntegerTranslatedUnionVisual(bool clip) : FrameworkElement
+    {
+        private readonly PathGeometry _path = new()
+        {
+            IsCombined = true,
+            PathA = PrimitivePathGeometry.CreateRectangle(0, 0, 32, 24),
+            PathB = PrimitivePathGeometry.CreateRectangle(8, 4, 32, 16),
+            Op = 2,
+            FillRule = FillRule.Nonzero
+        };
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(0, 0, 64, 80));
+            var red = new SolidColorBrush(new Vector4(1, 0, 0, 1));
+            var transform = Matrix4x4.CreateTranslation(8, 40, 0);
+            if (clip)
+            {
+                context.PushGeometryClip(_path, transform);
+                context.DrawRectangle(red, null, new Rect(0, 0, 64, 80));
+                context.PopGeometryClip();
+            }
+            else context.DrawPath(red, null, _path, transform);
+        }
+    }
+
     [Fact]
     public void AdvancedBlendSamplingUniformLayoutCarriesRuntimeMode()
     {

@@ -1,0 +1,3 @@
+<Project>
+  <!-- Deliberately independent of ProGPU packages, analyzers and build imports. -->
+</Project>
