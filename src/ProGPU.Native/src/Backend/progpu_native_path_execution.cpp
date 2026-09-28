@@ -131,6 +131,7 @@ progpu_native_status render_paths(
     std::uint32_t rasterized_path_count = 0U;
     std::uint32_t required_atlas_size = engine->path_atlas_size;
     bool has_inline_signed_winding = false;
+    bool has_inline_path_operation = false;
 
     std::vector<gpu_path_uniforms> path_uniforms;
     std::vector<std::vector<gpu_path_uniforms>> split_leaf_uniforms;
@@ -499,6 +500,8 @@ progpu_native_status render_paths(
                         output_offset =
                             static_cast<std::uint32_t>(split_next_output);
                     } else {
+                        has_inline_path_operation =
+                            has_inline_path_operation || program.operation_kind != 0U;
                         has_inline_signed_winding =
                             has_inline_signed_winding ||
                             signed_winding_program;
@@ -1011,7 +1014,9 @@ progpu_native_status render_paths(
                 [](const auto& phase) { return !phase.empty(); });
         };
         const path_raster_pipeline_requirements required{
-            .ordinary = !path_uniforms.empty() && !has_inline_signed_winding,
+            .single_path = !path_uniforms.empty() && !has_inline_path_operation,
+            .ordinary = !path_uniforms.empty() && has_inline_path_operation &&
+                !has_inline_signed_winding,
             .inline_signed = !path_uniforms.empty() && has_inline_signed_winding,
             .split_leaf = has_work(split_leaf_uniforms),
             .split_boolean = !coverage_combine_uniforms.empty(),
@@ -1172,7 +1177,9 @@ progpu_native_status render_paths(
                 path_uniforms.size(),
                 has_inline_signed_winding
                     ? engine->path_raster_pipeline
-                    : engine->path_raster_ordinary_pipeline,
+                    : has_inline_path_operation
+                        ? engine->path_raster_ordinary_pipeline
+                        : engine->path_raster_single_path_pipeline,
                 workgroups_x,
                 workgroups_y)) {
             if (owns_encoder && encoder != nullptr) {

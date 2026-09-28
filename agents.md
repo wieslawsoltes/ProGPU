@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Single-path raster specialization requires every admitted uniform in the selected
+batch to have operation kind zero. Keep the canonical winding/sampling/packing
+algorithm and all Boolean/signed/split paths intact. Managed and both native
+providers select lazily from actual work; native retained clips follow the same
+rule. Preserve engine/cache ownership, raw GPU differential tails and complete
+package/image gates. Pipeline acquisition time is not application startup proof.
+See docs/single-path-raster-pipeline.md.
+
 Implicit Windows Font height and pixel/world point conversion use a scoped
 screen DC in the caller's current DPI context; never cache that DPI globally or
 mutate source size. Keep non-Windows 96-DPI policy, explicit Graphics/image/target
