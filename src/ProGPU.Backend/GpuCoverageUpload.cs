@@ -9,6 +9,12 @@ namespace ProGPU.Backend;
 public static unsafe class GpuCoverageUpload
 {
     public const uint CopyRowAlignment = 256;
+    // D3D12 placed texture footprints require a separate 512-byte base offset.
+    // Keep row pitch compact; this is the same placement rule as the C++ backend.
+    public const uint CopyOffsetAlignment = 512;
+
+    public static uint AlignCopyOffset(uint offset) =>
+        checked((offset + (CopyOffsetAlignment - 1)) & ~(CopyOffsetAlignment - 1));
 
     public static uint GetBytesPerRow(uint width)
     {
@@ -57,6 +63,11 @@ public static unsafe class GpuCoverageUpload
         if (bytesPerRow < width || bytesPerRow % CopyRowAlignment != 0)
         {
             throw new ArgumentOutOfRangeException(nameof(bytesPerRow));
+        }
+        if (sourceOffset % CopyOffsetAlignment != 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceOffset),
+                "Coverage copy offsets must satisfy the portable 512-byte texture placement alignment.");
         }
         if (destinationX > destination.Width ||
             width > destination.Width - destinationX)
