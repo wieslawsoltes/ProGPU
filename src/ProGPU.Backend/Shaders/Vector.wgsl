@@ -1,6 +1,6 @@
 // Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, quarter-pixel-snapped periodic dot grids, nine-neighbor affine rectangular fixed-device dot grids, derivative-mapped affine minor/major line grids, affine pattern-space hatch families, fixed 8x8 tiles, and bounded path gradients; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
 // Time complexity: O(F * 6) for a multi-family DXF/PAT hatch with F retained families and the specified six-dash maximum; path-gradient fragments test at most 128 retained boundary edges; affine rectangular fixed-device dots evaluate exactly nine neighboring lattice centers, while affine minor/major line grids evaluate two line families with fixed work; all other material and primitive paths remain O(1) per vertex or fragment under their fixed limits. Static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, the general material path derives local brush/shape gradients once per fragment, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
-// Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record.
+// Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record. Path coverage uses one integer texel load for a proven pixel translation, otherwise one filtered sample; the vertex output carries three flat integers without changing the vertex buffer layout.
 struct Brush {
     brushType: u32,
     opacity: f32,
@@ -200,6 +200,7 @@ struct VertexOutput {
     @location(7) gridIndex: f32,
     @location(8) @interpolate(flat) localStrokeMode: f32,
     @location(9) brushCoord: vec2<f32>,
+    @location(10) @interpolate(flat) pathPixelMapping: vec3<i32>,
 };
 
 fn apply_gradient_spread(t: f32, spreadMethod: u32) -> f32 {
@@ -1566,6 +1567,11 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
     output.shapeSize = inShapeSize;
     output.cornerRadius = outputCornerRadius;
     output.strokeThickness = outputStrokeThickness;
+    if (sType == 4u && input.strokeThickness == -1.0 && !useGpuTransforms && !isStatic) {
+        // The CPU proved the same exact integer offset at all four corners.
+        // A flat integer survives clipping without UV interpolation error.
+        output.pathPixelMapping = vec3<i32>(vec2<i32>(input.texCoord - input.position), 1);
+    }
     output.shapeType = select(
         f32(outputShapeType),
         f32(outputShapeType) + 1000.0,
@@ -2487,7 +2493,13 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         // and remains valid under WebGPU's uniformity analysis.
         let pathAtlasCoordDx = atlasCoordDx / pathAtlasSize;
         let pathAtlasCoordDy = atlasCoordDy / pathAtlasSize;
-        let coverage = textureSampleGrad(pathAtlasTexture, pathAtlasSampler, pathAtlasCoord, pathAtlasCoordDx, pathAtlasCoordDy).r;
+        var coverage: f32;
+        if (input.pathPixelMapping.z != 0) {
+            coverage = load_aligned_path_coverage(input.position.xy + uniforms.renderOrigin,
+                input.pathPixelMapping.xy, pathAtlasTexture);
+        } else {
+            coverage = textureSampleGrad(pathAtlasTexture, pathAtlasSampler, pathAtlasCoord, pathAtlasCoordDx, pathAtlasCoordDy).r;
+        }
         let coverageGamma = select(1.0, input.cornerRadius, input.cornerRadius > 0.0);
         let correctedCoverage = pow(coverage, coverageGamma);
         shapeAlpha = select(correctedCoverage, select(0.0, 1.0, coverage >= 0.5), aliasedEdge);

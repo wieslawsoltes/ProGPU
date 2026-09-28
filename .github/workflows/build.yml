@@ -23,6 +23,36 @@ env:
   PROGPU_QUALIFIED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  windows-drawing-clips:
+    name: Windows drawing clip reference (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Compare independent Microsoft and portable drawing clips
+        shell: pwsh
+        run: ./eng/progpu-verify-windows-drawing-clips.ps1 -Rid '${{ matrix.rid }}'
+      - name: Preserve exact clip reference receipts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-drawing-clips-${{ matrix.rid }}
+          path: artifacts/windows-drawing-clips/${{ matrix.rid }}/
+          if-no-files-found: error
+
   windows-path-rasterization:
     name: Windows single-path raster coverage (${{ matrix.rid }})
     strategy:
@@ -56,7 +86,7 @@ jobs:
           if (Test-Path -LiteralPath $evidence) { throw 'Evidence directory already exists.' }
           New-Item -ItemType Directory -Path $evidence | Out-Null
           $dll = Join-Path $env:GITHUB_WORKSPACE 'tests/ProGPU.PathRasterization.Conformance/bin/Release/net10.0/${{ matrix.rid }}/ProGPU.PathRasterization.Conformance.dll'
-          $cases = @('coverage', 'simple-first', 'boolean-first')
+          $cases = @('coverage', 'simple-first', 'boolean-first', 'linear-coverage', 'linear-first', 'curve-first')
           $completed = @()
           foreach ($case in $cases) {
             $stdout = Join-Path $evidence "$case-stdout.log"
@@ -76,7 +106,7 @@ jobs:
               Get-Content -LiteralPath $stderr
             }
           }
-          if ($completed.Count -ne 3) { throw 'All three original regression bodies must execute and pass.' }
+          if ($completed.Count -ne 6) { throw 'All six regression bodies, including the three original cases, must execute and pass.' }
           @{ executed = $completed; skipped = 0; processDeadlineSeconds = 120 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'summary.json')
       - name: Retain source GPU coverage and pipeline acquisition evidence
         if: always()
@@ -1503,7 +1533,7 @@ jobs:
           if ($IsWindows) {
             $testArgs += @(
               "--filter",
-              "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests"
+              "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests|FullyQualifiedName~GpuBufferDeviceLossTests|FullyQualifiedName~GpuCoverageUploadTests"
             )
           } elseif ($IsMacOS) {
             # macOS 26's hosted Metal compiler rejects the historical contextual

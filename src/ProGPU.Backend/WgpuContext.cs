@@ -10,6 +10,7 @@ using Silk.NET.Core.Native;
 using Silk.NET.WebGPU;
 using Silk.NET.Windowing;
 using WgpuAdapter = Silk.NET.WebGPU.Adapter;
+using WgpuBuffer = Silk.NET.WebGPU.Buffer;
 
 namespace ProGPU.Backend;
 
@@ -266,6 +267,38 @@ public unsafe class WgpuContext : IDisposable
 
     internal void NotifyTextureContentChanged() =>
         Interlocked.Increment(ref _textureContentVersion);
+
+    internal void ThrowIfDeviceLost()
+    {
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
+        if (IsDeviceLost)
+        {
+            throw new WgpuDeviceLostException(
+                "Cannot use buffers on a lost WebGPU device.");
+        }
+    }
+
+    internal WgpuBuffer* CreateBuffer(BufferDescriptor* descriptor)
+    {
+        lock (RenderLock)
+        {
+            ThrowIfDeviceLost();
+            WgpuBuffer* buffer = Api.DeviceCreateBuffer(Device, descriptor);
+            // wgpu-native can return a non-null error buffer while its error
+            // callback marks this device lost. Never publish that handle as a
+            // usable (or mapped-at-creation) buffer. Release only our reference;
+            // mapping, unmapping or destroying the error resource is unsafe.
+            if (IsDeviceLost)
+            {
+                if (buffer != null)
+                {
+                    Api.BufferRelease(buffer);
+                }
+                ThrowIfDeviceLost();
+            }
+            return buffer;
+        }
+    }
 
     public void Submit(
         nuint commandCount,

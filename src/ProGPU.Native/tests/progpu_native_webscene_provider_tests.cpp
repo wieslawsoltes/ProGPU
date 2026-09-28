@@ -7,6 +7,8 @@
 #include "progpu_native_semantic_brush_mask_scene.hpp"
 #include "progpu_native_semantic_image_scene.hpp"
 #include "progpu_native_semantic_state_mask_scene.hpp"
+#include "progpu_native_semantic_glyph_sharing_fixture.hpp"
+#include "progpu_native_path_pixel_mapping_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "progpu_native_webscene_state_mask_fixture.hpp"
@@ -3417,6 +3419,129 @@ int main(int argc, char** argv) {
     canvas_configuration.alpha_mode =
         WEBSCENE_GPU_ALPHA_MODE_PREMULTIPLIED;
     canvas_configuration.buffer_count = 3U;
+    progpu::native::tests::verify_path_pixel_mapping(
+        [&](bool clip, const auto& stream, progpu_native_scene_frame_metrics& metrics) {
+            auto* pixel_canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);
+            require(pixel_canvas != nullptr, "pixel mapping canvas creation failed");
+            std::uintptr_t handle{};
+            require(api.acquire(provider, pixel_canvas, &handle) == WEBSCENE_GPU_STATUS_SUCCESS && handle != 0U,
+                "pixel mapping texture acquisition failed");
+            auto pixel_texture = reinterpret_cast<WGPUTexture>(handle);
+            WGPUTextureViewDescriptor descriptor = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+            auto pixel_view = resolve<WGPUProcTextureCreateView>(api, provider,
+                "wgpuTextureCreateView")(pixel_texture, &descriptor);
+            require(pixel_view != nullptr, "pixel mapping view creation failed");
+            progpu_native_scene_metrics update{};
+            update.struct_size = sizeof(update);
+            require(progpu_native_engine_update_scene(engine, stream.data(), stream.size(), &update) ==
+                    PROGPU_NATIVE_STATUS_SUCCESS && update.draw_count == 2U,
+                "pixel mapping Dawn snapshot failed");
+            progpu_native_scene_frame frame{};
+            frame.struct_size = sizeof(frame);
+            frame.width = frame.height = 64U;
+            frame.dpi_scale = 1;
+            frame.target_view = reinterpret_cast<std::uintptr_t>(pixel_view);
+            frame.clear_color = {0, 0, 0, 1};
+            frame.scene_id = clip ? 0x9482U : 0x9481U;
+            frame.generation = 1U;
+            metrics.struct_size = sizeof(metrics);
+            require(progpu_native_engine_render_scene(engine, &frame, &metrics) ==
+                    PROGPU_NATIVE_STATUS_SUCCESS && metrics.command_count == 2U && metrics.submission_count == 1U,
+                "pixel mapping Dawn render failed");
+            resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(pixel_view);
+            resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(pixel_texture);
+            webscene_gpu_external_texture presented{};
+            presented.struct_size = sizeof(presented);
+            require(api.present(provider, pixel_canvas, &presented) == WEBSCENE_GPU_STATUS_SUCCESS &&
+                presented.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+                (presented.flags & WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+                "pixel mapping Dawn GPU completion failed");
+            auto surface = reinterpret_cast<IOSurfaceRef>(presented.shared_handle);
+            require(surface != nullptr && IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+                kIOReturnSuccess, "pixel mapping IOSurface lock failed");
+            const auto* data = static_cast<const std::uint8_t*>(IOSurfaceGetBaseAddress(surface));
+            const auto stride = IOSurfaceGetBytesPerRow(surface);
+            require(data != nullptr && IOSurfaceGetWidth(surface) == 64U &&
+                IOSurfaceGetHeight(surface) == 64U && stride >= 256U, "pixel mapping IOSurface storage is invalid");
+            std::vector<std::uint8_t> pixels(64U * 256U);
+            for (std::size_t row = 0; row < 64U; ++row) {
+                for (std::size_t x = 0; x < 64U; ++x) {
+                    const auto* bgra = data + row * stride + x * 4U;
+                    auto* rgba = pixels.data() + row * 256U + x * 4U;
+                    rgba[0] = bgra[2]; rgba[1] = bgra[1]; rgba[2] = bgra[0]; rgba[3] = bgra[3];
+                }
+            }
+            require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) == kIOReturnSuccess,
+                "pixel mapping IOSurface unlock failed");
+            api.release_external(provider, &presented);
+            api.destroy_canvas(provider, pixel_canvas);
+            return pixels;
+        }, require);
+    std::array<progpu_native_engine*, 2U> glyph_engines{};
+    for (auto& glyph_engine : glyph_engines) {
+        require(progpu_native_dawn_engine_create(&engine_options, &glyph_engine) ==
+                PROGPU_NATIVE_STATUS_SUCCESS && glyph_engine != nullptr,
+            "glyph-sharing Dawn engine creation failed");
+    }
+    progpu::native::tests::verify_semantic_glyph_sharing(
+        [&](bool reference, const auto& stream, std::uint64_t generation,
+            float dpi, progpu_native_scene_frame_metrics& metrics) {
+            auto* glyph_engine = glyph_engines[reference ? 1U : 0U];
+            auto* glyph_canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);
+            require(glyph_canvas != nullptr, "glyph-sharing canvas creation failed");
+            std::uintptr_t glyph_texture_handle{};
+            require(api.acquire(provider, glyph_canvas, &glyph_texture_handle) ==
+                    WEBSCENE_GPU_STATUS_SUCCESS && glyph_texture_handle != 0U,
+                "glyph-sharing texture acquisition failed");
+            auto glyph_texture = reinterpret_cast<WGPUTexture>(glyph_texture_handle);
+            WGPUTextureViewDescriptor glyph_view_descriptor = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+            auto glyph_view = resolve<WGPUProcTextureCreateView>(api, provider,
+                "wgpuTextureCreateView")(glyph_texture, &glyph_view_descriptor);
+            require(glyph_view != nullptr, "glyph-sharing target view creation failed");
+            progpu_native_scene_metrics update{};
+            update.struct_size = sizeof(update);
+            require(progpu_native_engine_update_scene(glyph_engine, stream.data(),
+                    stream.size(), &update) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                update.draw_count == 4U, "glyph-sharing Dawn snapshot failed");
+            progpu_native_scene_frame frame{};
+            frame.struct_size = sizeof(frame);
+            frame.width = 64U;
+            frame.height = 64U;
+            frame.dpi_scale = dpi;
+            frame.target_view = reinterpret_cast<std::uintptr_t>(glyph_view);
+            frame.clear_color = {0.0F, 0.0F, 0.0F, 1.0F};
+            frame.scene_id = reference ? 0x9472U : 0x9471U;
+            frame.generation = generation;
+            metrics.struct_size = sizeof(metrics);
+            require(progpu_native_engine_render_scene(glyph_engine, &frame, &metrics) ==
+                    PROGPU_NATIVE_STATUS_SUCCESS && metrics.command_count == 6U &&
+                metrics.submission_count == 1U, "glyph-sharing Dawn render failed");
+            resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(glyph_view);
+            resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(glyph_texture);
+            webscene_gpu_external_texture presented{};
+            presented.struct_size = sizeof(presented);
+            require(api.present(provider, glyph_canvas, &presented) == WEBSCENE_GPU_STATUS_SUCCESS &&
+                presented.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+                (presented.flags & WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+                "glyph-sharing Dawn GPU completion failed");
+            auto surface = reinterpret_cast<IOSurfaceRef>(presented.shared_handle);
+            require(surface != nullptr && IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+                kIOReturnSuccess, "glyph-sharing IOSurface lock failed");
+            const auto* data = static_cast<const std::uint8_t*>(IOSurfaceGetBaseAddress(surface));
+            const auto stride = IOSurfaceGetBytesPerRow(surface);
+            require(data != nullptr && IOSurfaceGetWidth(surface) == 64U &&
+                IOSurfaceGetHeight(surface) == 64U && stride >= 256U,
+                "glyph-sharing IOSurface storage is invalid");
+            std::vector<std::uint8_t> pixels(64U * 256U);
+            for (std::size_t row = 0U; row < 64U; ++row)
+                std::memcpy(pixels.data() + row * 256U, data + row * stride, 256U);
+            require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) == kIOReturnSuccess,
+                "glyph-sharing IOSurface unlock failed");
+            api.release_external(provider, &presented);
+            api.destroy_canvas(provider, glyph_canvas);
+            return pixels;
+        }, require);
+    for (auto* glyph_engine : glyph_engines) progpu_native_engine_destroy(glyph_engine);
     webscene_gpu_canvas* canvas = api.create_canvas(
         provider, &canvas_configuration, 64U, 48U);
     require(canvas != nullptr, "canvas creation failed");
@@ -3467,12 +3592,17 @@ int main(int argc, char** argv) {
         engine,
         &semantic_frame,
         &semantic_metrics);
+    // Both glyph commands already reference resource 2; resource 6 is unused.
+    // The two path resources retain distinct compiled segment offsets, so this
+    // fixture still needs two path tiles and one glyph tile. Each 12-pixel
+    // outline retains 4-pixel padding on both sides and 256-byte rows.
+    constexpr std::uint64_t mixed_coverage_bytes = 3U * 256U * 20U;
     if (semantic_status != PROGPU_NATIVE_STATUS_SUCCESS ||
         semantic_metrics.command_count != 12U ||
         semantic_metrics.draw_call_count != 9U ||
         semantic_metrics.family_switch_count != 8U ||
         semantic_metrics.submission_count != 1U ||
-        semantic_metrics.coverage_staging_bytes != 15360U ||
+        semantic_metrics.coverage_staging_bytes != mixed_coverage_bytes ||
         semantic_metrics.payload_hash == 0U) {
         std::array<char, 512U> semantic_error{};
         progpu_native_engine_get_last_error(
@@ -3496,7 +3626,7 @@ int main(int argc, char** argv) {
         semantic_metrics.draw_call_count == 9U &&
         semantic_metrics.family_switch_count == 8U &&
         semantic_metrics.submission_count == 1U &&
-        semantic_metrics.coverage_staging_bytes == 15360U &&
+        semantic_metrics.coverage_staging_bytes == mixed_coverage_bytes &&
         semantic_metrics.text_style_upload_bytes ==
             3U * sizeof(progpu_native_scene_text_style) &&
         semantic_metrics.payload_hash != 0U,

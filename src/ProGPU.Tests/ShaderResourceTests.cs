@@ -112,7 +112,29 @@ public class ShaderResourceTests
         string second = ShaderResource.Load(typeof(Shaders), "Vector.wgsl");
 
         Assert.Same(first, second);
-        Assert.Same(Shaders.VectorShader, first);
+        string helper = ShaderResource.Load(typeof(Shaders), "PathAtlasSampling.wgsl");
+        Assert.Same(helper, ShaderResource.Load(typeof(Shaders), "PathAtlasSampling.wgsl"));
+        Assert.StartsWith(helper, Shaders.VectorShader);
+        Assert.EndsWith(first, Shaders.VectorShader);
+        Assert.Single(Regex.Matches(Shaders.VectorShader, "fn load_aligned_path_coverage"));
+    }
+
+    [Fact]
+    public void NativeAndManagedPathsShareExactPixelLoadAndRetainFilteredSampling()
+    {
+        string helper = ShaderResource.Load(typeof(Shaders), "PathAtlasSampling.wgsl");
+        Assert.Contains("textureLoad(atlas", helper, StringComparison.Ordinal);
+        Assert.Contains("!useGpuTransforms && !isStatic", Shaders.VectorShader, StringComparison.Ordinal);
+        Assert.Contains("input.position.xy + uniforms.renderOrigin", Shaders.VectorShader, StringComparison.Ordinal);
+        foreach (string source in new[] { Shaders.VectorShader, ShaderResource.Load(typeof(Shaders), "ClipCompose.wgsl") })
+        {
+            Assert.Contains("load_aligned_path_coverage(", source, StringComparison.Ordinal);
+            Assert.Contains("textureSampleGrad(", source, StringComparison.Ordinal);
+        }
+        string cmake = File.ReadAllText(Path.Combine(FindRepositoryRoot().FullName,
+            "src", "ProGPU.Native", "CMakeLists.txt"));
+        Assert.Equal(2, Regex.Matches(cmake,
+            "-D(?:SECOND_)?PREFIX_INPUT=\\$\\{CMAKE_CURRENT_SOURCE_DIR\\}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl").Count);
     }
 
     [Fact]

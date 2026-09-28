@@ -363,7 +363,17 @@ public unsafe class RenderPipelineCache : IDisposable
                 Fragment = &fragmentState
             };
 
-            pipeline = _context.Api.DeviceCreateRenderPipeline(_context.Device, &desc);
+            long? diagnosticStart = ProGpuBackendDiagnostics.BeginPipelineCreation("render", key, vertexEntry, fragmentEntry);
+            bool returned = false;
+            try
+            {
+                pipeline = _context.Api.DeviceCreateRenderPipeline(_context.Device, &desc);
+                returned = true;
+            }
+            finally
+            {
+                ProGpuBackendDiagnostics.EndPipelineCreation(diagnosticStart, "render", key, returned, returned && pipeline != null);
+            }
         }
 
         SilkMarshal.Free(vsEntryPtr);
@@ -534,7 +544,18 @@ public unsafe class RenderPipelineCache : IDisposable
             }
         };
 
-        var pipeline = _context.Api.DeviceCreateComputePipeline(_context.Device, &desc);
+        long? diagnosticStart = ProGpuBackendDiagnostics.BeginPipelineCreation("compute", key, entryPoint);
+        bool returned = false;
+        ComputePipeline* pipeline = null;
+        try
+        {
+            pipeline = _context.Api.DeviceCreateComputePipeline(_context.Device, &desc);
+            returned = true;
+        }
+        finally
+        {
+            ProGpuBackendDiagnostics.EndPipelineCreation(diagnosticStart, "compute", key, returned, returned && pipeline != null);
+        }
 
         SilkMarshal.Free(entryPtr);
         SilkMarshal.Free(labelPtr);

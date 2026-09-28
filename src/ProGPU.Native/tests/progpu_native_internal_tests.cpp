@@ -1,5 +1,7 @@
 #include "progpu_native_draw_state.hpp"
 #include "progpu_native_buffer_capacity.hpp"
+#include "progpu_native_compute_trace.hpp"
+#include "progpu_native_glyph_raster_identity.hpp"
 #include "progpu_native_effect_plan.hpp"
 #include "progpu_native_geometry_analytic.hpp"
 #include "progpu_native_geometry_dash.hpp"
@@ -12,6 +14,7 @@
 #include "progpu_native_semantic_brush_tests.hpp"
 #include "progpu_native_semantic_color_glyph.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
+#include "progpu_native_semantic_glyph_identity.hpp"
 #include "progpu_native_semantic_image_tests.hpp"
 #include "progpu_native_semantic_layer_mask_tests.hpp"
 #include "progpu_native_semantic_draw_merge.hpp"
@@ -34,6 +37,7 @@
 #include <thread>
 #include <cstdio>
 #include <source_location>
+#include <unordered_map>
 
 namespace {
 
@@ -42,6 +46,143 @@ void require(bool condition, std::source_location location = std::source_locatio
         std::fprintf(stderr, "%s:%u: native internal requirement failed\n", location.file_name(), location.line());
         std::abort();
     }
+}
+
+void compute_trace_is_opt_in_bounded_and_encoding_only() {
+    using progpu::native::diagnostics::compute_trace;
+    std::FILE* output = nullptr;
+#if defined(_WIN32)
+    require(tmpfile_s(&output) == 0);
+#else
+    output = std::tmpfile();
+#endif
+    require(output != nullptr);
+    compute_trace disabled(false, output);
+    require(!disabled.enabled());
+    disabled.record(&disabled, 1U, 2U, 3U, "encoded", "glyph", 0U, 4U, 5U, 6U);
+    require(std::ftell(output) == 0L);
+    compute_trace missing_sink(true, nullptr);
+    missing_sink.record(&missing_sink, 1U, 2U, 3U, "encoded", "glyph", 0U, 4U, 5U, 6U);
+
+    compute_trace enabled(true, output);
+    require(enabled.enabled());
+    enabled.record(&enabled, 1U, 2U, 3U, "encoded", "glyph", 0U, 4U, 5U, 6U);
+    enabled.record(&enabled, 1U, 2U, 3U, "encoded-indirect", "ordered_hit_query", 31U, 0U, 0U, 0U);
+    enabled.record(&enabled, 1U, 2U, 4U, "submitted", "none", 0U, 0U, 0U, 0U);
+    for (std::uint32_t index = 3U; index < compute_trace::event_limit + 20U; ++index) {
+        enabled.record(&enabled, 1U, 2U, 4U, "encoded", "path_single", 0U, 7U, 8U, 9U);
+    }
+    require(std::fseek(output, 0L, SEEK_SET) == 0);
+    std::array<char, 512U> line{};
+    std::uint32_t count = 0U;
+    while (std::fgets(line.data(), static_cast<int>(line.size()), output) != nullptr) {
+        require(std::strstr(line.data(), "ProGPU native compute trace: engine=") != nullptr);
+        require(std::strstr(line.data(), "completed") == nullptr);
+        if (count == 0U) {
+            require(std::strstr(line.data(), "scene=1, generation=2, submissions=3") != nullptr);
+            require(std::strstr(line.data(), "event=encoded, pipeline=glyph, slot=0, groups=4/5/6") != nullptr);
+        } else if (count == 1U) {
+            require(std::strstr(line.data(), "event=encoded-indirect, pipeline=ordered_hit_query, slot=31, groups=0/0/0") != nullptr);
+        } else if (count == 2U) {
+            require(std::strstr(line.data(), "submissions=4, event=submitted, pipeline=none") != nullptr);
+        } else if (count == compute_trace::event_limit) {
+            require(std::strstr(line.data(), "truncated=1, limit=4096") != nullptr);
+        }
+        ++count;
+    }
+    require(count == compute_trace::event_limit + 1U);
+    require(std::ferror(output) == 0);
+    require(std::fclose(output) == 0);
+}
+
+void semantic_glyph_resource_identity_requires_exact_raster_bytes() {
+    using namespace progpu::native::semantic;
+    progpu_native_scene_glyph_outline outline{};
+    outline.segment_count = 1U;
+    outline.max_x = 10.0F;
+    outline.max_y = 12.0F;
+    outline.raster_scale = 1.0F;
+    outline.subpixel_x = 0.25F;
+    std::array<progpu_native_path_segment, 1U> segments{};
+    auto copied_outline = outline;
+    auto copied_segments = segments;
+    const auto key = [](const auto& value, const auto& curves) {
+        return glyph_resource_identity{0U,
+            std::as_bytes(std::span(&value, 1U)),
+            std::as_bytes(std::span(curves))};
+    };
+    const auto original = key(outline, segments);
+    const auto copy = key(copied_outline, copied_segments);
+    require(original == copy);
+    require(glyph_resource_identity_hash{}(original) ==
+        glyph_resource_identity_hash{}(copy));
+    copied_outline.subpixel_x = 0.5F;
+    require(!(original == copy));
+    copied_outline = outline;
+    copied_outline.raster_scale = 2.0F;
+    require(!(original == copy));
+    copied_outline = outline;
+    copied_outline.max_x += 1.0F;
+    require(!(original == copy));
+    copied_outline = outline;
+    copied_outline.segment_offset = 1U;
+    require(!(original == copy));
+    copied_outline = outline;
+    auto changed_bytes = std::as_writable_bytes(std::span(copied_segments));
+    changed_bytes.back() = std::byte{1U};
+    require(!(original == copy));
+
+    // A hash collision must never alias different coverage payloads. The keys
+    // remain immutable while resident in the table, just as in scene replay.
+    struct constant_hash {
+        std::size_t operator()(const glyph_resource_identity&) const noexcept {
+            return 0U;
+        }
+    };
+    std::unordered_map<glyph_resource_identity, std::uint32_t, constant_hash> table;
+    require(table.emplace(original, 7U).second);
+    require(table.emplace(copy, 9U).second);
+    require(!table.emplace(key(outline, segments), 11U).second);
+    require(table.at(original) == 7U && table.at(copy) == 9U);
+    auto different_flags = original;
+    different_flags.flags = 1U;
+    require(!(original == different_flags));
+    auto shorter = original;
+    shorter.segments = shorter.segments.first(shorter.segments.size() - 1U);
+    require(!(original == shorter));
+}
+
+void glyph_raster_identity_uses_exact_selected_bytes_not_arena_offsets() {
+    using namespace progpu::native;
+    progpu_native_glyph_outline outline{0U, 1U, 0.0F, 0.0F, 10.0F, 12.0F, 1.0F, 0.25F};
+    std::array<progpu_native_path_segment, 1U> segments{};
+    const auto original = make_glyph_raster_identity(outline, segments);
+    auto relocated = outline;
+    relocated.segment_offset = 321U;
+    auto copied_segments = segments;
+    const auto copy = make_glyph_raster_identity(relocated, copied_segments);
+    require(original == copy);
+    require(glyph_raster_identity_hash{}(original) == glyph_raster_identity_hash{}(copy));
+    for (std::size_t index = 0U; index < original.raster_bits.size(); ++index) {
+        auto changed = original;
+        changed.raster_bits[index] ^= 1U;
+        require(!(original == changed));
+    }
+    auto changed_segments = segments;
+    changed_segments[0].p2.x = 1.0F; // Even unused line control points remain exact identity.
+    const auto changed = make_glyph_raster_identity(outline, changed_segments);
+    require(!(original == changed));
+    auto shorter = original;
+    shorter.segments = shorter.segments.first(shorter.segments.size() - 1U);
+    require(!(original == shorter));
+    struct constant_hash {
+        std::size_t operator()(const glyph_raster_identity&) const noexcept { return 0U; }
+    };
+    std::unordered_map<glyph_raster_identity, std::uint32_t, constant_hash> table;
+    require(table.emplace(original, 3U).second);
+    require(table.emplace(changed, 7U).second);
+    require(!table.emplace(copy, 9U).second);
+    require(table.at(original) == 3U && table.at(changed) == 7U);
 }
 
 void native_texture_copy_staging_uses_portable_d3d12_alignment() {
@@ -1936,6 +2077,9 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_content_hashes_isolate_image_updates());
     semantic_text_style_page_is_validated_deduplicated_and_retained();
+    compute_trace_is_opt_in_bounded_and_encoding_only();
+    semantic_glyph_resource_identity_requires_exact_raster_bytes();
+    glyph_raster_identity_uses_exact_selected_bytes_not_arena_offsets();
     semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();
     gpu_records_preserve_alignment_phase_and_cache_identity();

@@ -1,5 +1,9 @@
 # Native glyph raster retention
 
+Exact duplicates inside a rebuilt batch now share first-owner coverage through
+[native glyph raster sharing](native-glyph-raster-sharing.md). Complete retained
+batch identity below still includes every original outline and segment byte.
+
 ## Blocking application and diagnosis
 
 Acceptance application: **ProGPU.Wpf.ShowcaseApp**. Action: finish the live

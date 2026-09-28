@@ -42,8 +42,14 @@ public unsafe class GpuBuffer : IDisposable
             MappedAtCreation = false
         };
 
-        BufferPtr = _context.Api.DeviceCreateBuffer(_context.Device, &desc);
-        SilkMarshal.Free(labelPtr);
+        try
+        {
+            BufferPtr = _context.CreateBuffer(&desc);
+        }
+        finally
+        {
+            SilkMarshal.Free(labelPtr);
+        }
 
         if (BufferPtr == null)
         {
@@ -214,7 +220,7 @@ public unsafe class GpuBuffer : IDisposable
             Size = copyRange.SizeBytes,
             MappedAtCreation = false
         };
-        var readbackBuffer = _context.Api.DeviceCreateBuffer(_context.Device, &readbackDesc);
+        var readbackBuffer = _context.CreateBuffer(&readbackDesc);
         if (readbackBuffer == null)
         {
             throw new InvalidOperationException("Failed to create readback buffer.");

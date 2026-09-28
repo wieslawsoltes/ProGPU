@@ -1,5 +1,6 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_path_boolean_gpu.hpp"
+#include "progpu_native_path_pixel_mapping.hpp"
 
 namespace progpu::native::execution {
 
@@ -132,6 +133,7 @@ progpu_native_status render_paths(
     std::uint32_t required_atlas_size = engine->path_atlas_size;
     bool has_inline_signed_winding = false;
     bool has_inline_path_operation = false;
+    bool has_only_linear_segments = true;
 
     std::vector<gpu_path_uniforms> path_uniforms;
     std::vector<std::vector<gpu_path_uniforms>> split_leaf_uniforms;
@@ -179,6 +181,8 @@ progpu_native_status render_paths(
                  segment_index < frame->segment_count;
                  ++segment_index) {
                 const auto& segment = frame->segments[segment_index];
+                has_only_linear_segments = has_only_linear_segments &&
+                    segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE;
                 const bool is_arc =
                     segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC;
                 const bool is_rational_quadratic = segment.kind ==
@@ -548,6 +552,7 @@ progpu_native_status render_paths(
                 const std::uint32_t brush_index = semantic_materials
                     ? engine->semantic_path_cache.brush_indices[index]
                     : static_cast<std::uint32_t>(index + 1U);
+                std::array<progpu_native_point, 4U> device_points{};
                 for (std::size_t corner = 0U; corner < 4U; ++corner) {
                     progpu::native::vector_vertex vertex{};
                     progpu::native::transform_point(
@@ -556,6 +561,7 @@ progpu_native_status render_paths(
                         local_points[corner].y,
                         vertex.position[0],
                         vertex.position[1]);
+                    device_points[corner] = {vertex.position[0], vertex.position[1]};
                     std::memcpy(
                         vertex.color,
                         &path.color,
@@ -568,6 +574,11 @@ progpu_native_status render_paths(
                     vertex.corner_radius = 1.0F;
                     vertex.shape_type = 4.0F;
                     engine->path_vertices.push_back(vertex);
+                }
+                if (frame->dpi_scale == 1.0F &&
+                    exact_path_pixel_mapping(device_points, atlas_points)) {
+                    for (std::size_t corner = 0U; corner < 4U; ++corner)
+                        engine->path_vertices[vertex_start + corner].stroke_thickness = -1.0F;
                 }
                 engine->path_indices.insert(
                     engine->path_indices.end(),
@@ -1014,7 +1025,10 @@ progpu_native_status render_paths(
                 [](const auto& phase) { return !phase.empty(); });
         };
         const path_raster_pipeline_requirements required{
-            .single_path = !path_uniforms.empty() && !has_inline_path_operation,
+            .linear_path = !path_uniforms.empty() && !has_inline_path_operation &&
+                has_only_linear_segments,
+            .single_path = !path_uniforms.empty() && !has_inline_path_operation &&
+                !has_only_linear_segments,
             .ordinary = !path_uniforms.empty() && has_inline_path_operation &&
                 !has_inline_signed_winding,
             .inline_signed = !path_uniforms.empty() && has_inline_signed_winding,
@@ -1162,8 +1176,9 @@ progpu_native_status render_paths(
                 bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine->dispatch_compute(
                 compute_pass,
+                pipeline,
                 dispatch_x,
                 dispatch_y,
                 static_cast<std::uint32_t>(uniform_count));
@@ -1179,7 +1194,9 @@ progpu_native_status render_paths(
                     ? engine->path_raster_pipeline
                     : has_inline_path_operation
                         ? engine->path_raster_ordinary_pipeline
-                        : engine->path_raster_single_path_pipeline,
+                        : has_only_linear_segments
+                            ? engine->path_raster_linear_path_pipeline
+                            : engine->path_raster_single_path_pipeline,
                 workgroups_x,
                 workgroups_y)) {
             if (owns_encoder && encoder != nullptr) {
@@ -1265,8 +1282,9 @@ progpu_native_status render_paths(
                 signed_combine_bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine->dispatch_compute(
                 row_pass,
+                engine->path_split_signed_rows_pipeline,
                 signed_sample_workgroups_x,
                 signed_sample_workgroups_y,
                 static_cast<std::uint32_t>(
@@ -1301,8 +1319,9 @@ progpu_native_status render_paths(
                 raster_bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine->dispatch_compute(
                 combine_pass,
+                engine->path_split_boolean_combine_pipeline,
                 workgroups_x,
                 workgroups_y,
                 static_cast<std::uint32_t>(
@@ -1337,8 +1356,9 @@ progpu_native_status render_paths(
                 signed_combine_bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine->dispatch_compute(
                 combine_pass,
+                engine->path_split_signed_coverage_pipeline,
                 signed_pack_workgroups_x,
                 signed_pack_workgroups_y,
                 static_cast<std::uint32_t>(

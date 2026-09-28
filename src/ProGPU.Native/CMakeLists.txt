@@ -275,11 +275,13 @@ add_custom_command(
     OUTPUT "${generated_vector_shader}"
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_VECTOR_SHADER}"
+        "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
         "-DOUTPUT=${generated_vector_shader}"
         "-DSYMBOL=vector_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_VECTOR_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Vector.wgsl shader"
     VERBATIM)
@@ -435,12 +437,14 @@ add_custom_command(
     OUTPUT "${generated_clip_compose_shader}"
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_CLIP_COMPOSE_SHADER}"
+        "-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
         "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
         "-DOUTPUT=${generated_clip_compose_shader}"
         "-DSYMBOL=clip_compose_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_CLIP_COMPOSE_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU ClipCompose.wgsl shader"
@@ -669,6 +673,8 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_semantic_update_execution.cpp
     src/Scene/progpu_native_semantic_render_execution.cpp
     src/Scene/progpu_native_semantic_replay.hpp
+    src/Scene/progpu_native_semantic_glyph_identity.hpp
+    src/Backend/progpu_native_glyph_raster_identity.hpp
     src/Scene/progpu_native_semantic_state.cpp
     src/Scene/progpu_native_semantic_state.hpp
     src/Scene/progpu_native_semantic_validation.cpp
@@ -1188,6 +1194,7 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             endif()
             add_executable(progpu_native_webscene_provider_tests
                 tests/progpu_native_webscene_provider_tests.cpp
+                tests/progpu_native_semantic_glyph_sharing_fixture.hpp
                 tests/progpu_native_semantic_advanced_blend_scene.cpp
                 tests/progpu_native_semantic_advanced_blend_scene.hpp
                 tests/progpu_native_semantic_backdrop_scene.cpp
@@ -1520,7 +1527,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     if(PROGPU_NATIVE_BUILD_WGPU_TARGET)
         add_executable(progpu_native_direct2d_webgpu_tests
-            tests/progpu_native_direct2d_webgpu_tests.cpp)
+            tests/progpu_native_direct2d_webgpu_tests.cpp
+            tests/progpu_native_semantic_glyph_sharing_fixture.hpp)
         target_compile_features(
             progpu_native_direct2d_webgpu_tests PRIVATE cxx_std_20)
         target_include_directories(
@@ -1777,6 +1785,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Backend/progpu_native_draw_state.cpp
         src/Backend/progpu_native_draw_state.hpp
         src/Backend/progpu_native_buffer_capacity.hpp
+        src/Backend/progpu_native_glyph_raster_identity.hpp
         src/Backend/progpu_native_effect_plan.cpp
         src/Backend/progpu_native_effect_plan.hpp
         src/Backend/progpu_native_geometry_analytic.hpp
@@ -1804,6 +1813,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Scene/progpu_native_semantic_effect_cache.hpp
         src/Scene/progpu_native_semantic_draw_merge.hpp
         src/Scene/progpu_native_semantic_replay.hpp
+        src/Scene/progpu_native_semantic_glyph_identity.hpp
         src/Scene/progpu_native_semantic_state.cpp
         src/Scene/progpu_native_semantic_state.hpp
         src/Scene/progpu_native_semantic_validation.hpp)

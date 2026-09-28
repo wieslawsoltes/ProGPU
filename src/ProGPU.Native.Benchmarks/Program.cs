@@ -1229,7 +1229,7 @@ else if (forceAtlasGrowth && usePathScene)
 
 if (useGlyphScene && !rerasterizeGlyphs && !forceAtlasGrowth && !useDrawState)
 {
-    GlyphRasterRetentionQualification.Run(native, nativeTarget);
+    GlyphRasterRetentionQualification.Run(native, nativeTarget, context.GlyphRasterizationPath);
 }
 
 // Compile both shader/pipeline paths before correctness or timing evidence.
@@ -1237,6 +1237,12 @@ RenderNative();
 uint coldAtlasGeneration = useGlyphScene
     ? lastNativeGlyphMetrics.AtlasGeneration
     : lastNativePathMetrics.AtlasGeneration;
+if (forceAtlasGrowth && useGlyphScene &&
+    lastNativeGlyphMetrics.RasterizedGlyphCount != (uint)nativeGlyphOutlines.Length)
+{
+    throw new InvalidOperationException(
+        "The native glyph atlas growth fixture must rasterize every distinct outline.");
+}
 RenderManaged();
 context.PollDevice(wait: true);
 
@@ -4539,7 +4545,39 @@ static (
                     $"Glyph {glyphIndex} has an empty outline.");
             }
             outlineIndex = checked((uint)outlines.Count);
-            if (!forceUniqueOutlines)
+            if (forceUniqueOutlines)
+            {
+                // Distinct arena offsets no longer prevent exact raster sharing.
+                // Tag an unused control point so the growth fixture still owns
+                // one tile per outline without changing any rendered coverage.
+                bool tagged = false;
+                var identity = new Vector2(outlineIndex + 1, 0);
+                for (int segmentIndex = checked((int)segmentOffset);
+                    segmentIndex < segments.Count; segmentIndex++)
+                {
+                    NativePathSegment segment = segments[segmentIndex];
+                    if (segment.Kind == NativePathSegmentKind.Line)
+                    {
+                        segments[segmentIndex] = new(segment.Kind,
+                            segment.P0, segment.P1, identity, segment.P3);
+                        tagged = true;
+                        break;
+                    }
+                    if (segment.Kind == NativePathSegmentKind.Quadratic)
+                    {
+                        segments[segmentIndex] = new(segment.Kind,
+                            segment.P0, segment.P1, segment.P2, identity);
+                        tagged = true;
+                        break;
+                    }
+                }
+                if (!tagged)
+                {
+                    throw new InvalidOperationException(
+                        $"Growth fixture glyph {glyphIndex} has no unused control point for exact identity.");
+                }
+            }
+            else
             {
                 outlineIndices.Add(glyphIndex, outlineIndex);
             }

@@ -1,4 +1,5 @@
 #include "progpu_native_frame_execution_common.hpp"
+#include "progpu_native_glyph_raster_identity.hpp"
 
 #if defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(_M_ARM64)
 #include <arm_neon.h>
@@ -632,6 +633,7 @@ bool rasterize_glyph_coverage_cpu(
     const std::vector<gpu_glyph_record>& records,
     const std::vector<gpu_glyph_uniforms>& uniforms,
     const std::vector<native_glyph_raster>& rasters,
+    std::span<const std::uint32_t> raster_work_indices,
     std::uint64_t coverage_size,
     std::vector<std::byte>& coverage,
     bool use_intrinsic_simd) {
@@ -641,9 +643,7 @@ bool rasterize_glyph_coverage_cpu(
         coverage.assign(static_cast<std::size_t>(coverage_size), std::byte{});
         if (use_intrinsic_simd) {
             std::uint32_t maximum_segment_count = 0U;
-            for (std::size_t glyph_index = 0U;
-                 glyph_index < rasters.size();
-                 ++glyph_index) {
+            for (const auto glyph_index : raster_work_indices) {
                 const auto& record = records[uniforms[glyph_index].glyph_index];
                 maximum_segment_count = std::max(
                     maximum_segment_count,
@@ -684,9 +684,7 @@ bool rasterize_glyph_coverage_cpu(
     } catch (const std::bad_alloc&) {
         return false;
     }
-    for (std::size_t glyph_index = 0U;
-         glyph_index < rasters.size();
-         ++glyph_index) {
+    for (const auto glyph_index : raster_work_indices) {
         const auto& uniform = uniforms[glyph_index];
         const auto& raster = rasters[glyph_index];
         const auto& record = records[uniform.glyph_index];
@@ -972,6 +970,7 @@ progpu_native_status render_glyphs(
     const bool rebuild_rasters = !compiled_payload_hit && !raster_payload_hit;
     std::vector<gpu_glyph_record> records;
     std::vector<gpu_glyph_uniforms> uniforms;
+    std::vector<std::uint32_t> raster_work_indices;
     std::uint64_t coverage_staging_bytes = 0U;
     std::uint64_t outline_upload_bytes = 0U;
     std::uint32_t rasterized_glyph_count = 0U;
@@ -990,6 +989,10 @@ progpu_native_status render_glyphs(
                 engine->glyph_raster_cache_valid = false;
                 records.reserve(frame->outline_count);
                 uniforms.reserve(frame->outline_count);
+                raster_work_indices.reserve(frame->outline_count);
+                std::unordered_map<glyph_raster_identity, std::uint32_t,
+                    glyph_raster_identity_hash> shared_rasters;
+                shared_rasters.reserve(frame->outline_count);
                 engine->glyph_rasters.clear();
                 engine->glyph_rasters.reserve(frame->outline_count);
                 for (std::size_t index = 0U;
@@ -1064,6 +1067,25 @@ progpu_native_status render_glyphs(
                     }
                     const auto width = static_cast<std::uint32_t>(width_value);
                     const auto height = static_cast<std::uint32_t>(height_value);
+                    records.push_back({
+                        static_cast<std::uint32_t>(outline.segment_offset),
+                        static_cast<std::uint32_t>(outline.segment_count),
+                        outline.min_x, outline.min_y, outline.max_x, outline.max_y,
+                        0U, 0U});
+                    const auto identity = make_glyph_raster_identity(outline,
+                        std::span(frame->segments, frame->segment_count).subspan(
+                            outline.segment_offset, outline.segment_count));
+                    const auto [entry, inserted] = shared_rasters.try_emplace(
+                        identity, static_cast<std::uint32_t>(index));
+                    if (!inserted) {
+                        // Keep one source-indexed raster descriptor and uniform
+                        // slot per outline. Only exact coverage work is shared;
+                        // original positioned glyphs, style and draw order remain.
+                        engine->glyph_rasters.push_back(engine->glyph_rasters[entry->second]);
+                        uniforms.push_back(uniforms[entry->second]);
+                        continue;
+                    }
+                    raster_work_indices.push_back(static_cast<std::uint32_t>(index));
                     while (width + 4U > required_atlas_size &&
                            required_atlas_size < native_max_atlas_size) {
                         required_atlas_size *= 2U;
@@ -1107,16 +1129,6 @@ progpu_native_status render_glyphs(
                         x_start,
                         y_start
                     });
-                    records.push_back({
-                        static_cast<std::uint32_t>(outline.segment_offset),
-                        static_cast<std::uint32_t>(outline.segment_count),
-                        outline.min_x,
-                        outline.min_y,
-                        outline.max_x,
-                        outline.max_y,
-                        0U,
-                        0U
-                    });
                     uniforms.push_back({
                         x_start,
                         y_start,
@@ -1137,7 +1149,7 @@ progpu_native_status render_glyphs(
                 }
                 coverage_staging_bytes = output_offset;
                 rasterized_glyph_count = static_cast<std::uint32_t>(
-                    engine->glyph_rasters.size());
+                    raster_work_indices.size());
                 if (retain_compiled_payload) {
                     engine->glyph_raster_outlines.resize(frame->outline_count);
                     engine->glyph_raster_segments.resize(frame->segment_count);
@@ -1399,6 +1411,7 @@ progpu_native_status render_glyphs(
                     records,
                     uniforms,
                     engine->glyph_rasters,
+                    raster_work_indices,
                     coverage_staging_bytes,
                     cpu_coverage,
                     glyph_intrinsic_simd_fallback)) {
@@ -1406,7 +1419,8 @@ progpu_native_status render_glyphs(
                     PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                     "The native CPU glyph coverage arena could not be allocated.");
             }
-            for (const auto& raster : engine->glyph_rasters) {
+            for (const auto raster_index : raster_work_indices) {
+                const auto& raster = engine->glyph_rasters[raster_index];
                 progpu::native::webgpu::image_copy_texture destination{};
                 destination.texture = engine->glyph_atlas_texture;
                 destination.origin = {raster.atlas_x, raster.atlas_y, 0U};
@@ -1582,9 +1596,7 @@ progpu_native_status render_glyphs(
             wgpuRenderPassEncoderSetPipeline(
                 render_pass,
                 engine->glyph_raster_fallback_pipeline);
-            for (std::uint32_t index = 0U;
-                 index < engine->glyph_rasters.size();
-                 ++index) {
+            for (const auto index : raster_work_indices) {
                 const std::uint32_t dynamic_offset = index * 256U;
                 wgpuRenderPassEncoderSetBindGroup(
                     render_pass,
@@ -1632,9 +1644,7 @@ progpu_native_status render_glyphs(
         wgpuComputePassEncoderSetPipeline(
             compute_pass,
             engine->glyph_raster_pipeline);
-        for (std::uint32_t index = 0U;
-             index < engine->glyph_rasters.size();
-             ++index) {
+        for (const auto index : raster_work_indices) {
             const std::uint32_t dynamic_offset = index * 256U;
             wgpuComputePassEncoderSetBindGroup(
                 compute_pass,
@@ -1643,15 +1653,17 @@ progpu_native_status render_glyphs(
                 1U,
                 &dynamic_offset);
             const auto& raster = engine->glyph_rasters[index];
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine->dispatch_compute(
                 compute_pass,
+                engine->glyph_raster_pipeline,
                 (raster.width + 63U) / 64U,
                 (raster.height + 15U) / 16U,
                 1U);
         }
         wgpuComputePassEncoderEnd(compute_pass);
         wgpuComputePassEncoderRelease(compute_pass);
-        for (const auto& raster : engine->glyph_rasters) {
+        for (const auto raster_index : raster_work_indices) {
+            const auto& raster = engine->glyph_rasters[raster_index];
             progpu::native::webgpu::image_copy_buffer source{};
             source.buffer = temporary.coverage;
             source.layout.offset = raster.output_offset;

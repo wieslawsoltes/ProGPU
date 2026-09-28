@@ -12,6 +12,7 @@
 #include "progpu_webgpu_compat.hpp"
 #include "progpu_native_engine.hpp"
 #include "progpu_native_path_boolean_gpu.hpp"
+#include "progpu_native_path_pixel_mapping.hpp"
 #include "progpu_native_pipeline.hpp"
 #include "progpu_native_replay_execution.hpp"
 #include "progpu_native_webgpu_resources.hpp"
@@ -144,10 +145,13 @@ bool rebuild_vector_clip_chain(
         ? cpu_clock::now() : cpu_clock::time_point{};
 
     try {
+        bool has_only_linear_segments = true;
         for (std::size_t index = 0U; index < chain.segment_count; ++index) {
             if (!validate_native_path_segment(chain.segments[index])) {
                 return false;
             }
+            has_only_linear_segments = has_only_linear_segments &&
+                chain.segments[index].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE;
         }
 
         std::vector<gpu_path_uniforms> path_uniforms;
@@ -492,6 +496,7 @@ bool rebuild_vector_clip_chain(
             }};
             const std::uint32_t vertex_start =
                 static_cast<std::uint32_t>(vertices.size());
+            std::array<progpu_native_point, 4U> device_points{};
             for (std::size_t corner = 0U; corner < 4U; ++corner) {
                 float logical_x = 0.0F;
                 float logical_y = 0.0F;
@@ -501,6 +506,7 @@ bool rebuild_vector_clip_chain(
                     local_points[corner].y,
                     logical_x,
                     logical_y);
+                device_points[corner] = {logical_x, logical_y};
                 gpu_clip_vertex vertex{};
                 vertex.position[0] =
                     2.0F * logical_x * dpi_scale /
@@ -525,12 +531,17 @@ bool rebuild_vector_clip_chain(
                  vertex_start,
                  vertex_start + 2U,
                  vertex_start + 3U});
-            const gpu_clip_compose_uniforms compose{
+            gpu_clip_compose_uniforms compose{
                 path.operation,
                 index == 0U ? 1U : 0U,
                 width,
                 height
             };
+            if (dpi_scale == 1.0F && exact_path_pixel_mapping(device_points, atlas_points)) {
+                compose.pixel_mapping[0] = static_cast<std::int32_t>(atlas_points[0].x - device_points[0].x);
+                compose.pixel_mapping[1] = static_cast<std::int32_t>(atlas_points[0].y - device_points[0].y);
+                compose.pixel_mapping[2] = 1;
+            }
             std::memcpy(
                 compose_uniform_bytes.data() + index * 256U,
                 &compose,
@@ -894,7 +905,10 @@ bool rebuild_vector_clip_chain(
                 [](const auto& phase) { return !phase.empty(); });
         };
         const path_raster_pipeline_requirements required{
-            .single_path = !path_uniforms.empty() && !has_inline_path_operation,
+            .linear_path = !path_uniforms.empty() && !has_inline_path_operation &&
+                has_only_linear_segments,
+            .single_path = !path_uniforms.empty() && !has_inline_path_operation &&
+                !has_only_linear_segments,
             .ordinary = !path_uniforms.empty() && has_inline_path_operation &&
                 !has_inline_signed_winding,
             .inline_signed = !path_uniforms.empty() && has_inline_signed_winding,
@@ -1037,8 +1051,9 @@ bool rebuild_vector_clip_chain(
                 bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine.dispatch_compute(
                 compute,
+                pipeline,
                 dispatch_x,
                 dispatch_y,
                 static_cast<std::uint32_t>(uniform_count));
@@ -1054,7 +1069,9 @@ bool rebuild_vector_clip_chain(
                     ? engine.path_raster_pipeline
                     : has_inline_path_operation
                         ? engine.path_raster_ordinary_pipeline
-                        : engine.path_raster_single_path_pipeline,
+                        : has_only_linear_segments
+                            ? engine.path_raster_linear_path_pipeline
+                            : engine.path_raster_single_path_pipeline,
                 workgroups_x,
                 workgroups_y)) {
             if (owns_encoder && encoder != nullptr) {
@@ -1127,8 +1144,9 @@ bool rebuild_vector_clip_chain(
                 temporary.signed_combine_bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine.dispatch_compute(
                 row_pass,
+                engine.path_split_signed_rows_pipeline,
                 signed_sample_workgroups_x,
                 signed_sample_workgroups_y,
                 static_cast<std::uint32_t>(
@@ -1160,8 +1178,9 @@ bool rebuild_vector_clip_chain(
                 temporary.bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine.dispatch_compute(
                 combine,
+                engine.path_split_boolean_combine_pipeline,
                 workgroups_x,
                 workgroups_y,
                 static_cast<std::uint32_t>(
@@ -1193,8 +1212,9 @@ bool rebuild_vector_clip_chain(
                 temporary.signed_combine_bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine.dispatch_compute(
                 combine,
+                engine.path_split_signed_coverage_pipeline,
                 signed_pack_workgroups_x,
                 signed_pack_workgroups_y,
                 static_cast<std::uint32_t>(
@@ -1245,7 +1265,11 @@ bool rebuild_vector_clip_chain(
                 }
                 return false;
             }
-            const std::uint32_t zero_offset = 0U;
+            // Path sampling now consumes this node's pixel mapping as well as
+            // composition consuming its operation. Never borrow the first
+            // node's translation for subsequent independently packed tiles.
+            const std::uint32_t path_uniform_offset =
+                static_cast<std::uint32_t>(index * 256U);
             wgpuRenderPassEncoderSetPipeline(
                 node_pass,
                 engine.clip_path_pipeline);
@@ -1254,7 +1278,7 @@ bool rebuild_vector_clip_chain(
                 0U,
                 engine.clip_path_bind_group,
                 1U,
-                &zero_offset);
+                &path_uniform_offset);
             wgpuRenderPassEncoderSetVertexBuffer(
                 node_pass,
                 0U,
