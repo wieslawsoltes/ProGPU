@@ -1,6 +1,6 @@
-// Algorithm: Sample one retained path-atlas quad into an R8 node mask, combine raw red/alpha texels with prior coverage, or compose a retained sampled mask through its shared affine/opacity contract.
+// Algorithm: Transfer one retained path-atlas quad into an R8 node mask using integer texel loads for proven pixel translations and filtered samples otherwise, combine raw red/alpha texels with prior coverage, or compose a retained sampled mask through its shared affine/opacity contract.
 // Time complexity: O(P + W*H) per changed clip node for P covered quad fragments and a W by H target-wide composition; stable retained replay performs no work in this module.
-// Space complexity: O(1) shader-private storage and at most two texture reads plus one R8 attachment write per composed pixel; the native owner retains one node and two ping-pong target-sized R8 textures.
+// Space complexity: O(1) shader-private storage and at most two texture reads plus one R8 attachment write per composed pixel; the native owner retains one node and two ping-pong target-sized R8 textures. The 32-byte compose uniform includes the optional integer mapping inside the existing 256-byte node stride.
 struct ClipVertexInput {
     @location(0) position: vec2<f32>,
     @location(1) atlasUv: vec2<f32>,
@@ -16,6 +16,7 @@ struct ClipComposeUniforms {
     first: u32,
     width: u32,
     height: u32,
+    pixelMapping: vec4<i32>,
 };
 
 @group(0) @binding(0) var clipSampler: sampler;
@@ -36,10 +37,14 @@ fn vs_path(input: ClipVertexInput) -> ClipVertexOutput {
 
 @fragment
 fn fs_path(input: ClipVertexOutput) -> @location(0) vec4<f32> {
-    let coverage = textureSample(
-        nodeOrAtlasTexture,
-        clipSampler,
-        input.atlasUv).r;
+    let dx = dpdx(input.atlasUv);
+    let dy = dpdy(input.atlasUv);
+    var coverage: f32;
+    if (compose.pixelMapping.z != 0) {
+        coverage = load_aligned_path_coverage(input.position.xy, compose.pixelMapping.xy, nodeOrAtlasTexture);
+    } else {
+        coverage = textureSampleGrad(nodeOrAtlasTexture, clipSampler, input.atlasUv, dx, dy).r;
+    }
     return vec4<f32>(coverage, 0.0, 0.0, 1.0);
 }
 

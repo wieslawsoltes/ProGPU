@@ -1,0 +1,89 @@
+# Exact path-atlas pixel mapping
+
+The Windows drawing-clip reference exposed six Union pixels whose atlas coverage
+was exactly 255 but whose intermediate R8 mask was 254. The final image preserved
+that error. Both Windows x64 and ARM64 receipts locate the loss in the atlas-to-mask
+quad draw, not in Boolean rasterization or final mask sampling. This does not
+separately prove which interpolation or sampler arithmetic introduced the loss.
+
+## Contract and paired implementation
+
+`ProGPU.Scene/PathAtlasPixelMapping.cs` is the original implementation. The native
+`Backend/progpu_native_path_pixel_mapping.hpp` ports that ProGPU-owned contract;
+no third-party implementation is included. All four actual quad corners must be
+finite integer points in the exact float integer range, with the same atlas-minus-
+device offset. Bounding boxes, matrix labels and near-integer tolerances do not
+establish this proof. Fractional phase, residual scaling, mirrors and rotations
+retain filtering. Rasterizing a scaled source can still produce an actual 1:1
+quad; the proof applies to the resulting corners, not source transform labels.
+
+Managed admission additionally requires unit DPI, the full zero-origin physical
+canvas and its unit logical projection, and no late GPU transforms. Native path
+and clip execution have full-target projections and also require unit DPI. The
+general vector vertex shader rejects static/late-transformed encodings even if
+the original vertex carried the marker. Shape 4's otherwise unused stroke field
+carries -1; it is not a hairline stroke and does not alter other shape contracts.
+
+Both native providers and the managed renderer embed the same
+`PathAtlasSampling.wgsl`. A flat integer offset and fragment position select the
+texel without interpolating UVs. Bounded managed mask passes restore their actual
+render origin before addressing; native clip passes already use full-target
+coordinates. Non-admitted paths retain their original filtered gradients. Gamma,
+edge aliasing, sample grids, Boolean topology and alpha composition are unchanged.
+Each native clip node binds its own existing 256-byte uniform offset during both
+the path pass and composition; the first node's mapping is never reused for later
+tiles. The existing multi-node MIL ellipse/rounded-clip test covers this distinction.
+
+The proof is fixed four-corner work with bounded stack state and no heap allocation.
+There is no extra crossing, readback, upload, GPU submission or pipeline. The
+vector varying gains three flat integers; native clip uniforms grow from 16 to
+32 bytes within their existing 256-byte stride. Retained generation/viewport/DPI
+invalidation and resource ownership remain unchanged. This is a pixel-correctness
+fix, not a measured performance improvement or complete application qualification.
+
+## Design references and applicability
+
+Primary references consulted before implementation:
+
+- [Skia sampling options](https://api.skia.org/structSkSamplingOptions.html),
+  [Direct2D transforms](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-transforms-overview),
+  and [Win2D image interpolation](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasImageInterpolation.htm):
+  preserve transform and sampling semantics; reject a blanket nearest-filter
+  substitution. Exact copying is admitted only where the pixel lattices coincide.
+- [WebRender architecture](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+  and [Vello scene painting](https://docs.rs/vello_api/latest/vello_api/trait.PaintScene.html):
+  retain scene-owned preparation and GPU compositing. No new CPU raster path,
+  worker job, cache identity, visibility rule or per-frame scene reconstruction.
+- [SkParagraph](https://skia.googlesource.com/skia/+/refs/heads/main/modules/skparagraph/include/Paragraph.h),
+  [Parley](https://docs.rs/parley/latest/parley/), and
+  [HarfBuzz shaping](https://harfbuzz.github.io/shaping-and-shape-plans.html):
+  shaping/layout reuse, fallback fonts, variable-font identity and hinting remain
+  outside this path-coverage transfer. Glyph placement and subpixel raster policy
+  are not modified to repair a mask sample.
+- [WGSL textureLoad](https://www.w3.org/TR/WGSL/#textureload): integer coordinates
+  address actual retained texels. The output is their existing R8 coverage, not a
+  reconstructed or clamped ideal shape.
+
+Startup/lazy pipeline creation, atlas eviction/generation and device-loss rules,
+worker preparation, culling and demand-driven upload are unchanged. Shader source
+composition occurs once at managed type initialization or native build time.
+
+## Qualification
+
+Matched managed/native admission tests reject every bad corner and axis, nonfinite
+coordinates, fractional phase, unequal offsets, scale, reflection and rotation.
+Managed and native GPU fixtures compare all channels against independent scalar
+rectangle-union membership for both direct fills and clip masks on cold/warm frames.
+The existing Windows Microsoft probe retains all 44 transform and 13 bitmap cases,
+exact pixel hashes, original process bounds and intermediate diagnostic artifacts.
+
+Passing a local Metal fixture does not qualify Windows, package consumers, popup
+applications or releases. Full Build, Svg.Skia parity, Drawing/SVG reference and
+application gates remain required before integration.
+
+Local implementation check on macOS ARM64: 316 managed shader/admission/clip/
+compositor/layer tests passed with no skips; both native libraries built, and the
+geometry utility plus full Direct2D WebGPU/MIL test passed. Native cold/warm pixel
+fixtures each retained one submission, and warm frames uploaded no coverage,
+vertices or indices. The Dawn provider fixture is included in its existing
+provider gate; that provider runtime and Windows results are not yet qualified.

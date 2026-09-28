@@ -4,6 +4,7 @@
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
 #include "progpu_native_semantic_glyph_sharing_fixture.hpp"
+#include "progpu_native_path_pixel_mapping_fixture.hpp"
 
 #include <wgpu.h>
 
@@ -1872,6 +1873,12 @@ int main(int argc, char** argv)
         release_gpu(gpu);
         return EXIT_SUCCESS;
     }
+    progpu::native::tests::verify_path_pixel_mapping(
+        [&](bool clip, const auto& stream, progpu_native_scene_frame_metrics& metrics) {
+            return render_scene(gpu, engine, nullptr, 2U, 2U, 1U, stream,
+                clip ? 0x9482U : 0x9481U, 1U, &metrics);
+        }, require);
+    phase("exact path pixel mapping passed");
     auto* glyph_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_semantic_glyph_sharing(
         [&](bool reference, const auto& stream, std::uint64_t generation,

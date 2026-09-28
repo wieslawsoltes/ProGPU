@@ -275,11 +275,13 @@ add_custom_command(
     OUTPUT "${generated_vector_shader}"
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_VECTOR_SHADER}"
+        "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
         "-DOUTPUT=${generated_vector_shader}"
         "-DSYMBOL=vector_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_VECTOR_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Vector.wgsl shader"
     VERBATIM)
@@ -435,12 +437,14 @@ add_custom_command(
     OUTPUT "${generated_clip_compose_shader}"
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_CLIP_COMPOSE_SHADER}"
+        "-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
         "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
         "-DOUTPUT=${generated_clip_compose_shader}"
         "-DSYMBOL=clip_compose_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_CLIP_COMPOSE_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU ClipCompose.wgsl shader"

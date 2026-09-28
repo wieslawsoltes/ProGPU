@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Exact path-atlas pixel loads require four integer corners with one identical
+atlas/device offset and a proven unit physical projection. Preserve filtering
+for fractional/DPI/viewport/late-transform mappings, gamma and alias semantics.
+Managed bounded masks restore their render origin; native clip nodes bind their
+own uniform offset during the path pass as well as composition. Share the WGSL
+helper across providers and retain cold/warm, multi-node and Windows reference
+checks. See docs/path-atlas-pixel-mapping.md; local Metal is not Windows parity.
+
 System.Drawing clips retain their capture-time world/page/container/host mapping.
 Combine or translate only after mapping the old region into the current world
 frame; preserve curves, Boolean topology and caller snapshots. Restore/flush

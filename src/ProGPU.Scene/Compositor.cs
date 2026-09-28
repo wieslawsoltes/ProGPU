@@ -7958,11 +7958,26 @@ SceneStateUploadComplete:
                 CollectionsMarshal.SetCount(_vectorVerticesList, originalVertexCount + 4);
                 var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 4);
                 var pathShapeType = EncodeShapeType(cmd, 4f);
+                // Only a unit physical canvas with no late transform can use
+                // these world points as device pixels. Fractional cached-source
+                // extents, explicit viewports and scaled/DPI targets keep filtering.
+                bool exactPixelMapping = !_useGpuTransformsActive
+                    && _currentDpiScale == 1f
+                    && CurrentCanvasPixelX == 0f && CurrentCanvasPixelY == 0f
+                    && CurrentCanvasPixelWidth == _currentWidth
+                    && CurrentCanvasPixelHeight == _currentHeight
+                    && _currentProjection.M11 == 2f / _currentWidth
+                    && _currentProjection.M22 == -2f / _currentHeight
+                    && PathAtlasPixelMapping.IsExact(
+                        [v0, v1, v2, v3], [uv0, uv1, uv2, uv3]);
+                // Shape 4 has no stroke. -1 transports the proven pixel-copy
+                // policy; the vertex shader disables it for any late transform.
+                float pathPixelPolicy = exactPixelMapping ? -1f : 0f;
 
-                vertexSpan[0] = new VectorVertex(v0, color, uv0, bIdx, shapeSize: cp0, cornerRadius: pathCoverageGamma, shapeType: pathShapeType);
-                vertexSpan[1] = new VectorVertex(v1, color, uv1, bIdx, shapeSize: cp1, cornerRadius: pathCoverageGamma, shapeType: pathShapeType);
-                vertexSpan[2] = new VectorVertex(v2, color, uv2, bIdx, shapeSize: cp2, cornerRadius: pathCoverageGamma, shapeType: pathShapeType);
-                vertexSpan[3] = new VectorVertex(v3, color, uv3, bIdx, shapeSize: cp3, cornerRadius: pathCoverageGamma, shapeType: pathShapeType);
+                vertexSpan[0] = new VectorVertex(v0, color, uv0, bIdx, shapeSize: cp0, cornerRadius: pathCoverageGamma, strokeThickness: pathPixelPolicy, shapeType: pathShapeType);
+                vertexSpan[1] = new VectorVertex(v1, color, uv1, bIdx, shapeSize: cp1, cornerRadius: pathCoverageGamma, strokeThickness: pathPixelPolicy, shapeType: pathShapeType);
+                vertexSpan[2] = new VectorVertex(v2, color, uv2, bIdx, shapeSize: cp2, cornerRadius: pathCoverageGamma, strokeThickness: pathPixelPolicy, shapeType: pathShapeType);
+                vertexSpan[3] = new VectorVertex(v3, color, uv3, bIdx, shapeSize: cp3, cornerRadius: pathCoverageGamma, strokeThickness: pathPixelPolicy, shapeType: pathShapeType);
 
                 int originalIndexCount = _vectorIndicesList.Count;
                 CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);

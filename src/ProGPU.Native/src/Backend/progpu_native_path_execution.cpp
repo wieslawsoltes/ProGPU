@@ -1,5 +1,6 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_path_boolean_gpu.hpp"
+#include "progpu_native_path_pixel_mapping.hpp"
 
 namespace progpu::native::execution {
 
@@ -551,6 +552,7 @@ progpu_native_status render_paths(
                 const std::uint32_t brush_index = semantic_materials
                     ? engine->semantic_path_cache.brush_indices[index]
                     : static_cast<std::uint32_t>(index + 1U);
+                std::array<progpu_native_point, 4U> device_points{};
                 for (std::size_t corner = 0U; corner < 4U; ++corner) {
                     progpu::native::vector_vertex vertex{};
                     progpu::native::transform_point(
@@ -559,6 +561,7 @@ progpu_native_status render_paths(
                         local_points[corner].y,
                         vertex.position[0],
                         vertex.position[1]);
+                    device_points[corner] = {vertex.position[0], vertex.position[1]};
                     std::memcpy(
                         vertex.color,
                         &path.color,
@@ -571,6 +574,11 @@ progpu_native_status render_paths(
                     vertex.corner_radius = 1.0F;
                     vertex.shape_type = 4.0F;
                     engine->path_vertices.push_back(vertex);
+                }
+                if (frame->dpi_scale == 1.0F &&
+                    exact_path_pixel_mapping(device_points, atlas_points)) {
+                    for (std::size_t corner = 0U; corner < 4U; ++corner)
+                        engine->path_vertices[vertex_start + corner].stroke_thickness = -1.0F;
                 }
                 engine->path_indices.insert(
                     engine->path_indices.end(),
