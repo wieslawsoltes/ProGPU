@@ -12,6 +12,7 @@
 #include "progpu_native_semantic_brush_tests.hpp"
 #include "progpu_native_semantic_color_glyph.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
+#include "progpu_native_semantic_glyph_identity.hpp"
 #include "progpu_native_semantic_image_tests.hpp"
 #include "progpu_native_semantic_layer_mask_tests.hpp"
 #include "progpu_native_semantic_draw_merge.hpp"
@@ -34,6 +35,7 @@
 #include <thread>
 #include <cstdio>
 #include <source_location>
+#include <unordered_map>
 
 namespace {
 
@@ -42,6 +44,63 @@ void require(bool condition, std::source_location location = std::source_locatio
         std::fprintf(stderr, "%s:%u: native internal requirement failed\n", location.file_name(), location.line());
         std::abort();
     }
+}
+
+void semantic_glyph_resource_identity_requires_exact_raster_bytes() {
+    using namespace progpu::native::semantic;
+    progpu_native_scene_glyph_outline outline{};
+    outline.segment_count = 1U;
+    outline.max_x = 10.0F;
+    outline.max_y = 12.0F;
+    outline.raster_scale = 1.0F;
+    outline.subpixel_x = 0.25F;
+    std::array<progpu_native_path_segment, 1U> segments{};
+    auto copied_outline = outline;
+    auto copied_segments = segments;
+    const auto key = [](const auto& value, const auto& curves) {
+        return glyph_resource_identity{0U,
+            std::as_bytes(std::span(&value, 1U)),
+            std::as_bytes(std::span(curves))};
+    };
+    const auto original = key(outline, segments);
+    const auto copy = key(copied_outline, copied_segments);
+    require(original == copy);
+    require(glyph_resource_identity_hash{}(original) ==
+        glyph_resource_identity_hash{}(copy));
+    copied_outline.subpixel_x = 0.5F;
+    require(!(original == copy));
+    copied_outline = outline;
+    copied_outline.raster_scale = 2.0F;
+    require(!(original == copy));
+    copied_outline = outline;
+    copied_outline.max_x += 1.0F;
+    require(!(original == copy));
+    copied_outline = outline;
+    copied_outline.segment_offset = 1U;
+    require(!(original == copy));
+    copied_outline = outline;
+    auto changed_bytes = std::as_writable_bytes(std::span(copied_segments));
+    changed_bytes.back() = std::byte{1U};
+    require(!(original == copy));
+
+    // A hash collision must never alias different coverage payloads. The keys
+    // remain immutable while resident in the table, just as in scene replay.
+    struct constant_hash {
+        std::size_t operator()(const glyph_resource_identity&) const noexcept {
+            return 0U;
+        }
+    };
+    std::unordered_map<glyph_resource_identity, std::uint32_t, constant_hash> table;
+    require(table.emplace(original, 7U).second);
+    require(table.emplace(copy, 9U).second);
+    require(!table.emplace(key(outline, segments), 11U).second);
+    require(table.at(original) == 7U && table.at(copy) == 9U);
+    auto different_flags = original;
+    different_flags.flags = 1U;
+    require(!(original == different_flags));
+    auto shorter = original;
+    shorter.segments = shorter.segments.first(shorter.segments.size() - 1U);
+    require(!(original == shorter));
 }
 
 void native_texture_copy_staging_uses_portable_d3d12_alignment() {
@@ -1936,6 +1995,7 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_content_hashes_isolate_image_updates());
     semantic_text_style_page_is_validated_deduplicated_and_retained();
+    semantic_glyph_resource_identity_requires_exact_raster_bytes();
     semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();
     gpu_records_preserve_alignment_phase_and_cache_identity();

@@ -669,6 +669,7 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_semantic_update_execution.cpp
     src/Scene/progpu_native_semantic_render_execution.cpp
     src/Scene/progpu_native_semantic_replay.hpp
+    src/Scene/progpu_native_semantic_glyph_identity.hpp
     src/Scene/progpu_native_semantic_state.cpp
     src/Scene/progpu_native_semantic_state.hpp
     src/Scene/progpu_native_semantic_validation.cpp
@@ -1188,6 +1189,7 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             endif()
             add_executable(progpu_native_webscene_provider_tests
                 tests/progpu_native_webscene_provider_tests.cpp
+                tests/progpu_native_semantic_glyph_sharing_fixture.hpp
                 tests/progpu_native_semantic_advanced_blend_scene.cpp
                 tests/progpu_native_semantic_advanced_blend_scene.hpp
                 tests/progpu_native_semantic_backdrop_scene.cpp
@@ -1520,7 +1522,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     if(PROGPU_NATIVE_BUILD_WGPU_TARGET)
         add_executable(progpu_native_direct2d_webgpu_tests
-            tests/progpu_native_direct2d_webgpu_tests.cpp)
+            tests/progpu_native_direct2d_webgpu_tests.cpp
+            tests/progpu_native_semantic_glyph_sharing_fixture.hpp)
         target_compile_features(
             progpu_native_direct2d_webgpu_tests PRIVATE cxx_std_20)
         target_include_directories(
@@ -1804,6 +1807,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Scene/progpu_native_semantic_effect_cache.hpp
         src/Scene/progpu_native_semantic_draw_merge.hpp
         src/Scene/progpu_native_semantic_replay.hpp
+        src/Scene/progpu_native_semantic_glyph_identity.hpp
         src/Scene/progpu_native_semantic_state.cpp
         src/Scene/progpu_native_semantic_state.hpp
         src/Scene/progpu_native_semantic_validation.hpp)

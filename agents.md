@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Native semantic glyph resources may share compiled outline/segment slices only
+after exact original-byte and flag equality within one validated immutable scene.
+Keep every positioned draw, style, clip and source owner; color bitmap resources
+remain separate. Hash collisions require byte comparison, original preflight
+budgets remain authoritative, and borrowed keys never survive compilation.
+Retain independent unpacked GPU pixel/counter controls and full provider/package
+and application gates. See docs/native-semantic-glyph-sharing.md.
+
 Single-path raster specialization requires every admitted uniform in the selected
 batch to have operation kind zero. Keep the canonical winding/sampling/packing
 algorithm and all Boolean/signed/split paths intact. Managed and both native

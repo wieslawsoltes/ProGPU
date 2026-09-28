@@ -1,6 +1,7 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_semantic_draw_execution.hpp"
 #include "progpu_native_semantic_layer_mask_resources.hpp"
+#include "progpu_native_semantic_glyph_identity.hpp"
 #include "progpu_native_3d_execution.hpp"
 #include <unordered_map>
 #include <array>
@@ -2530,6 +2531,10 @@ progpu_native_status render_scene(
             bool color = false;
         };
         std::vector<compiled_glyph_resource_layout> compiled_resources;
+        std::unordered_map<semantic::glyph_resource_identity, std::uint32_t,
+            semantic::glyph_resource_identity_hash> shared_glyph_resources;
+        std::uint64_t shared_outline_count = 0U;
+        std::uint64_t shared_segment_count = 0U;
         try {
             compiled_outlines.reserve(
                 static_cast<std::size_t>(semantic_glyph_outline_count));
@@ -2547,6 +2552,11 @@ progpu_native_status render_scene(
                 static_cast<std::size_t>(semantic_glyph_count));
             compiled_draws.reserve(semantic_glyph_draw_count);
             compiled_resources.resize(header.resource_count);
+            // At most one entry per admitted glyph draw/resource, bounded by
+            // the original preflight draw and compilation budgets. Color bitmap
+            // resources keep their existing separate ownership and packing.
+            shared_glyph_resources.reserve(std::min(
+                header.resource_count, semantic_glyph_draw_count));
             semantic_state_cursor state_cursor(
                 bytes, header, presentation.dpi_scale_x, presentation.dpi_scale_y);
             semantic_layer_target_cursor target_cursor(
@@ -2572,6 +2582,25 @@ progpu_native_status render_scene(
                 const bool color_glyphs = is_color_glyph_resource(resource);
                 auto& resource_layout =
                     compiled_resources[command.resource_index];
+                if (!resource_layout.compiled && !color_glyphs) {
+                    const semantic::glyph_resource_identity identity{
+                        resource.flags,
+                        {bytes + resource.payload_offset, resource.payload_size},
+                        {bytes + resource.auxiliary_offset, resource.auxiliary_size}};
+                    const auto [entry, inserted] = shared_glyph_resources.try_emplace(
+                        identity, command.resource_index);
+                    if (!inserted) {
+                        // Equality compares every original outline/segment byte,
+                        // including raster size, bounds and subpixel phase. The
+                        // first compiled resource owns this pack; all source draw,
+                        // style, instance, clip and owner ordering remains intact.
+                        resource_layout = compiled_resources[entry->second];
+                        shared_outline_count += resource.payload_size /
+                            sizeof(progpu_native_scene_glyph_outline);
+                        shared_segment_count += resource.auxiliary_size /
+                            sizeof(progpu_native_path_segment);
+                    }
+                }
                 if (!resource_layout.compiled) {
                     resource_layout.outline_start = compiled_outlines.size();
                     resource_layout.segment_start = compiled_segments.size();
@@ -2712,8 +2741,8 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The semantic glyph packed page could not be compiled.");
         }
-        if (compiled_outlines.size() != semantic_glyph_outline_count ||
-            compiled_segments.size() != semantic_glyph_segment_count ||
+        if (compiled_outlines.size() + shared_outline_count != semantic_glyph_outline_count ||
+            compiled_segments.size() + shared_segment_count != semantic_glyph_segment_count ||
             compiled_glyphs.size() != semantic_glyph_count ||
             compiled_style_indices.size() != semantic_glyph_count ||
             compiled_color_bitmaps.size() !=

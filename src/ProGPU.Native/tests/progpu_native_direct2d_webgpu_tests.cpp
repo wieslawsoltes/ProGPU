@@ -3,6 +3,7 @@
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
+#include "progpu_native_semantic_glyph_sharing_fixture.hpp"
 
 #include <wgpu.h>
 
@@ -709,7 +710,9 @@ struct portable_scene final {
     std::uint64_t expected_submissions = 5U,
     std::span<const std::byte> mil_scene = {},
     std::uint64_t mil_scene_id = 9011U,
-    std::uint64_t mil_generation = 1U)
+    std::uint64_t mil_generation = 1U,
+    progpu_native_scene_frame_metrics* observed_metrics = nullptr,
+    float dpi_scale = 1.0F)
 {
     WGPUTextureDescriptor texture_descriptor{};
     texture_descriptor.label = "ProGPU portable Direct2D target";
@@ -746,7 +749,7 @@ struct portable_scene final {
             frame.struct_size = sizeof(frame);
             frame.width = width;
             frame.height = height;
-            frame.dpi_scale = 1.0F;
+            frame.dpi_scale = dpi_scale;
             frame.target_view = reinterpret_cast<std::uintptr_t>(view);
             frame.clear_color = {0.0F, 0.0F, 0.0F, 1.0F};
             frame.scene_id = mil_scene_id;
@@ -795,6 +798,7 @@ struct portable_scene final {
     }
     require(render_matches,
         "portable Direct2D scene submission failed");
+    if (observed_metrics != nullptr) *observed_metrics = frame_metrics;
 
     progpu_native_gpu_memory_snapshot memory{};
     memory.struct_size = sizeof(memory);
@@ -1868,6 +1872,16 @@ int main(int argc, char** argv)
         release_gpu(gpu);
         return EXIT_SUCCESS;
     }
+    auto* glyph_reference_engine = create_engine(gpu);
+    progpu::native::tests::verify_semantic_glyph_sharing(
+        [&](bool reference, const auto& stream, std::uint64_t generation,
+            float dpi, progpu_native_scene_frame_metrics& metrics) {
+            return render_scene(gpu, reference ? glyph_reference_engine : engine,
+                nullptr, 4U, 6U, 1U, stream, reference ? 0x9472U : 0x9471U,
+                generation, &metrics, dpi);
+        }, require);
+    progpu_native_engine_destroy(glyph_reference_engine);
+    phase("semantic glyph sharing passed");
     phase("record Direct2D");
     verify_incremental_picture_backing(gpu, engine);
     verify_compatible_bitmap_uploads(gpu, engine);
