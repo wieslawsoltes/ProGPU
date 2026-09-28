@@ -1,5 +1,6 @@
 #include "progpu_native_draw_state.hpp"
 #include "progpu_native_buffer_capacity.hpp"
+#include "progpu_native_compute_trace.hpp"
 #include "progpu_native_effect_plan.hpp"
 #include "progpu_native_geometry_analytic.hpp"
 #include "progpu_native_geometry_dash.hpp"
@@ -44,6 +45,53 @@ void require(bool condition, std::source_location location = std::source_locatio
         std::fprintf(stderr, "%s:%u: native internal requirement failed\n", location.file_name(), location.line());
         std::abort();
     }
+}
+
+void compute_trace_is_opt_in_bounded_and_encoding_only() {
+    using progpu::native::diagnostics::compute_trace;
+    std::FILE* output = nullptr;
+#if defined(_WIN32)
+    require(tmpfile_s(&output) == 0);
+#else
+    output = std::tmpfile();
+#endif
+    require(output != nullptr);
+    compute_trace disabled(false, output);
+    require(!disabled.enabled());
+    disabled.record(&disabled, 1U, 2U, 3U, "encoded", "glyph", 0U, 4U, 5U, 6U);
+    require(std::ftell(output) == 0L);
+    compute_trace missing_sink(true, nullptr);
+    missing_sink.record(&missing_sink, 1U, 2U, 3U, "encoded", "glyph", 0U, 4U, 5U, 6U);
+
+    compute_trace enabled(true, output);
+    require(enabled.enabled());
+    enabled.record(&enabled, 1U, 2U, 3U, "encoded", "glyph", 0U, 4U, 5U, 6U);
+    enabled.record(&enabled, 1U, 2U, 3U, "encoded-indirect", "ordered_hit_query", 31U, 0U, 0U, 0U);
+    enabled.record(&enabled, 1U, 2U, 4U, "submitted", "none", 0U, 0U, 0U, 0U);
+    for (std::uint32_t index = 3U; index < compute_trace::event_limit + 20U; ++index) {
+        enabled.record(&enabled, 1U, 2U, 4U, "encoded", "path_single", 0U, 7U, 8U, 9U);
+    }
+    require(std::fseek(output, 0L, SEEK_SET) == 0);
+    std::array<char, 512U> line{};
+    std::uint32_t count = 0U;
+    while (std::fgets(line.data(), static_cast<int>(line.size()), output) != nullptr) {
+        require(std::strstr(line.data(), "ProGPU native compute trace: engine=") != nullptr);
+        require(std::strstr(line.data(), "completed") == nullptr);
+        if (count == 0U) {
+            require(std::strstr(line.data(), "scene=1, generation=2, submissions=3") != nullptr);
+            require(std::strstr(line.data(), "event=encoded, pipeline=glyph, slot=0, groups=4/5/6") != nullptr);
+        } else if (count == 1U) {
+            require(std::strstr(line.data(), "event=encoded-indirect, pipeline=ordered_hit_query, slot=31, groups=0/0/0") != nullptr);
+        } else if (count == 2U) {
+            require(std::strstr(line.data(), "submissions=4, event=submitted, pipeline=none") != nullptr);
+        } else if (count == compute_trace::event_limit) {
+            require(std::strstr(line.data(), "truncated=1, limit=4096") != nullptr);
+        }
+        ++count;
+    }
+    require(count == compute_trace::event_limit + 1U);
+    require(std::ferror(output) == 0);
+    require(std::fclose(output) == 0);
 }
 
 void semantic_glyph_resource_identity_requires_exact_raster_bytes() {
@@ -1995,6 +2043,7 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_content_hashes_isolate_image_updates());
     semantic_text_style_page_is_validated_deduplicated_and_retained();
+    compute_trace_is_opt_in_bounded_and_encoding_only();
     semantic_glyph_resource_identity_requires_exact_raster_bytes();
     semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();

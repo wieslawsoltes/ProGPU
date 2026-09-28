@@ -52,3 +52,10 @@ three used .NET 10.0.12 with workstation GC and returned exit 1. Each retained
 The run preserves stdout, stderr, exit status and `dotnet --info` in separate
 per-platform artifacts. This expands the independent reproduction beyond macOS;
 it is not a product-test waiver or proof of the runtime's internal cause.
+
+The macOS 26 job in Build `36449160844` subsequently reported 7,600 bytes in
+`WindowsPcmMixerUsesWideOrderIndependentSaturation`, whose assertion requires
+zero. The mixer and its measured loop were unchanged. One isolated execution of
+the original test passed on the local .NET 10.0.5 ARM64 host; this does not
+disprove the hosted .NET 10.0.12 observation or establish its cause. The original
+assertion, warmup, iterations, GC settings and retry policy remain unchanged.

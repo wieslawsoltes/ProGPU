@@ -1176,8 +1176,9 @@ progpu_native_status render_paths(
                 bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine->dispatch_compute(
                 compute_pass,
+                pipeline,
                 dispatch_x,
                 dispatch_y,
                 static_cast<std::uint32_t>(uniform_count));
@@ -1281,8 +1282,9 @@ progpu_native_status render_paths(
                 signed_combine_bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine->dispatch_compute(
                 row_pass,
+                engine->path_split_signed_rows_pipeline,
                 signed_sample_workgroups_x,
                 signed_sample_workgroups_y,
                 static_cast<std::uint32_t>(
@@ -1317,8 +1319,9 @@ progpu_native_status render_paths(
                 raster_bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine->dispatch_compute(
                 combine_pass,
+                engine->path_split_boolean_combine_pipeline,
                 workgroups_x,
                 workgroups_y,
                 static_cast<std::uint32_t>(
@@ -1353,8 +1356,9 @@ progpu_native_status render_paths(
                 signed_combine_bind_group,
                 0U,
                 nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(
+            engine->dispatch_compute(
                 combine_pass,
+                engine->path_split_signed_coverage_pipeline,
                 signed_pack_workgroups_x,
                 signed_pack_workgroups_y,
                 static_cast<std::uint32_t>(

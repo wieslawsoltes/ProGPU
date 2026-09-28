@@ -4,6 +4,7 @@
 // header and ProGPU dispatch compatibility layer have declared WGPU handles.
 #include "progpu_native.h"
 #include "progpu_native_buffer_capacity.hpp"
+#include "progpu_native_compute_trace.hpp"
 #include "progpu_native_geometry_base.hpp"
 #include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_gpu_records.hpp"
@@ -46,6 +47,7 @@ using progpu::native::native_path_raster;
 using progpu::native::vector_vertex;
 
 struct progpu_native_engine {
+    progpu::native::diagnostics::compute_trace compute_trace;
     progpu::native::gpu_memory_inventory memory_inventory;
     std::thread::id owner_thread;
     progpu::native::webgpu::dispatch webgpu_dispatch{};
@@ -586,12 +588,76 @@ struct progpu_native_engine {
         progpu::native::path_raster_resources immediate_;
     };
 
+    void trace_compute_pipeline(WGPUComputePipeline selected,
+                                const char* event,
+                                std::uint32_t x, std::uint32_t y,
+                                std::uint32_t z) noexcept {
+        if (!compute_trace.enabled()) return;
+        const std::pair<WGPUComputePipeline, const char*> pipelines[]{
+            {path_raster_pipeline, "path_signed"},
+            {path_raster_single_path_pipeline, "path_single"},
+            {path_raster_linear_path_pipeline, "path_linear"},
+            {path_raster_ordinary_pipeline, "path_boolean"},
+            {path_split_leaf_pipeline, "path_split_leaf"},
+            {path_split_signed_leaf_pipeline, "path_signed_leaf"},
+            {path_split_signed_rows_pipeline, "path_signed_rows"},
+            {path_split_signed_coverage_pipeline, "path_signed_pack"},
+            {path_split_boolean_combine_pipeline, "path_boolean_combine"},
+            {glyph_raster_pipeline, "glyph"},
+            {effect_blur_horizontal_pipeline, "blur_horizontal"},
+            {effect_blur_vertical_pipeline, "blur_vertical"},
+            {effect_drop_shadow_pipeline, "drop_shadow"},
+            {semantic_hit_test_readback_pipeline, "hit_readback"}};
+        const char* name = "unknown";
+        std::uint32_t slot = 0U;
+        if (selected != nullptr) {
+            for (const auto& [owned_pipeline, key] : pipelines) {
+                if (owned_pipeline == selected) { name = key; break; }
+            }
+            for (std::uint32_t index = 0U;
+                 index < semantic_hit_test_pipelines.size(); ++index) {
+                if (semantic_hit_test_pipelines[index] == selected) {
+                    name = "hit_query";
+                    slot = index;
+                }
+            }
+            for (std::uint32_t index = 0U;
+                 index < semantic_hit_test_ordered_pipelines.size(); ++index) {
+                if (semantic_hit_test_ordered_pipelines[index] == selected) {
+                    name = "ordered_hit_query";
+                    slot = index;
+                }
+            }
+        }
+        compute_trace.record(this, semantic_scene_id, semantic_scene_generation,
+            submission_count, event, name, slot, x, y, z);
+    }
+
+    void dispatch_compute(WGPUComputePassEncoder pass,
+                          WGPUComputePipeline selected_pipeline,
+                          std::uint32_t x, std::uint32_t y,
+                          std::uint32_t z) noexcept {
+        wgpuComputePassEncoderDispatchWorkgroups(pass, x, y, z);
+        trace_compute_pipeline(selected_pipeline, "encoded", x, y, z);
+    }
+
+    void dispatch_compute_indirect(WGPUComputePassEncoder pass,
+                                   WGPUComputePipeline selected_pipeline,
+                                   WGPUBuffer arguments,
+                                   std::uint64_t offset) noexcept {
+        wgpuComputePassEncoderDispatchWorkgroupsIndirect(pass, arguments, offset);
+        // Zeroes denote unavailable GPU-owned dimensions, not a zero-work dispatch.
+        trace_compute_pipeline(selected_pipeline, "encoded-indirect", 0U, 0U, 0U);
+    }
+
     void submit(WGPUCommandBuffer command) noexcept {
         last_submission_index = progpu::native::webgpu::submit(
             queue,
             1U,
             &command);
         ++submission_count;
+        compute_trace.record(this, semantic_scene_id, semantic_scene_generation,
+            submission_count, "submitted", "none", 0U, 0U, 0U, 0U);
 #if !defined(PROGPU_NATIVE_BROWSER)
         const auto retirement_action =
             submission_retirement.on_submission(submission_count);
