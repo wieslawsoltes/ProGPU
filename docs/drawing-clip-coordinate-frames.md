@@ -213,3 +213,25 @@ Reclassify only this fixture from an obsolete pixel difference to that exact
 expected exception. It is not a rendered-image improvement, permission to accept
 invalid scales, or a waiver of the three still-unverified recursive exceptions.
 Other resolved image inventories remain unchanged pending actual image review.
+
+The image review of run `36434879988` subsequently compared every retained actual
+PNG for eight threshold-resolved fixtures with its pinned reference. The three
+SVG-logo fixtures (`embedded-svg`, `external-svg`, and `optimizeSpeed-on-SVG`)
+restore the complete logo, reducing error from 0.249319 to 0.016705. The three
+`preserveAspectRatio` slice fixtures restore the distinct top/center/bottom crop
+and corresponding horizontal alignment: errors are 0.013991 (xMaxYMax),
+0.013842 (xMidYMid), and 0.013925 (xMinYMin), previously 0.139442–0.167559.
+Remove those six obsolete resvg entries; its measured totals are 1164 passes,
+488 threshold differences and 78 exceptions out of 1730 fixtures.
+
+The W3C `filters-example-01-b` restores the complete gray backdrop and smoother
+outer ring; `masking-path-03-b` restores the missing inner text and clip regions.
+Both were also compared with the parent PR's retained images. Errors fall from
+0.172457/0.189438 to 0.089353/0.089429, below the unchanged 0.10 threshold. Remove
+these two threshold-difference entries without claiming pixel equality: the
+filter example still lacks the reference shadow and has different text metrics,
+and the clip fixture retains text differences. W3C totals are 272 passes,
+243 threshold differences and 10 exceptions out of 525 fixtures. The earlier
+`struct-image-16-f` reclassification is an exception, not one of these eight
+rendered improvements. No thresholds or recursive-exception expectations change.
+The separate Svg.Skia parity run `36434875731` passed on the same renderer commit.

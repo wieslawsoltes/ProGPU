@@ -346,7 +346,6 @@ resvg|tests/painting/fill/rgba-0-127-0--1|0.40000633581423306
 resvg|tests/painting/fill/rgba-0-127-0-2|0.4433588111155643
 resvg|tests/painting/fill/uppercase-rgb-color|0.1992275785352734
 resvg|tests/painting/image-rendering/on-feImage|0.43521304822244561
-resvg|tests/painting/image-rendering/optimizeSpeed-on-SVG|0.24931902432034597
 resvg|tests/painting/isolation/as-property|0.15958328709022154
 resvg|tests/painting/marker/default-clip|0.61001850399573254
 resvg|tests/painting/marker/with-a-large-stroke|0.61542139649597383
@@ -397,11 +396,9 @@ resvg|tests/shapes/ellipse/negative-ry-attribute|0.39612683455877085
 resvg|tests/shapes/ellipse/percent-values|0.19796365675173994
 resvg|tests/shapes/ellipse/percent-values-missing-ry|0.27958105263408511
 resvg|tests/structure/image/embedded-jpeg-without-mime|0.59260999341682741
-resvg|tests/structure/image/embedded-svg|0.24931902432034597
 resvg|tests/structure/image/embedded-svg-without-mime|0.60598083047698093
 resvg|tests/structure/image/embedded-svgz|0.60598083047698093
 resvg|tests/structure/image/embedded-webp|0.59290097358186777
-resvg|tests/structure/image/external-svg|0.24931902432034597
 resvg|tests/structure/image/external-svgz|0.60598083047698093
 resvg|tests/structure/image/external-webp|0.59290097358186777
 resvg|tests/structure/image/nested-external-png|0.59254352581713166
@@ -412,9 +409,6 @@ resvg|tests/structure/image/no-width|0.55410787528661987
 resvg|tests/structure/image/no-width-and-height|0.59260999341682741
 resvg|tests/structure/image/no-width-and-height-on-svg|0.69502559988619894
 resvg|tests/structure/image/no-width-on-svg|0.60598083047698093
-resvg|tests/structure/image/preserveAspectRatio=xMaxYMax-slice-on-svg|0.16752530771413393
-resvg|tests/structure/image/preserveAspectRatio=xMidYMid-slice-on-svg|0.13944227226267047
-resvg|tests/structure/image/preserveAspectRatio=xMinYMin-slice-on-svg|0.16755948580631655
 resvg|tests/structure/image/width-and-height-set-to-auto|0.59260999341682741
 resvg|tests/structure/style-attribute/non-presentational-attribute|0.56568961311943344
 resvg|tests/structure/style/combined-selectors|0.37787025130697011
@@ -561,7 +555,6 @@ w3c|filters-conv-04-f|0.17352925276506828
 w3c|filters-diffuse-01-f|0.15178402782356698
 w3c|filters-displace-01-f|0.29894717568363505
 w3c|filters-displace-02-f|0.16132630182935989
-w3c|filters-example-01-b|0.17245748735834121
 w3c|filters-felem-02-f|0.22619797815128792
 w3c|filters-gauss-03-f|0.14495218010554328
 w3c|filters-image-01-b|0.51546569363386474
@@ -617,7 +610,6 @@ w3c|masking-mask-02-f|0.20078483801246597
 w3c|masking-opacity-01-b|0.26619934177381332
 w3c|masking-path-01-b|0.21593126764940232
 w3c|masking-path-02-b|0.22894498533890523
-w3c|masking-path-03-b|0.18943832840274458
 w3c|masking-path-04-b|0.20249637174510829
 w3c|masking-path-06-b|0.22290900945396336
 w3c|masking-path-07-b|0.17149785685916791
