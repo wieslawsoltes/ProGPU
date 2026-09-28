@@ -1229,7 +1229,7 @@ else if (forceAtlasGrowth && usePathScene)
 
 if (useGlyphScene && !rerasterizeGlyphs && !forceAtlasGrowth && !useDrawState)
 {
-    GlyphRasterRetentionQualification.Run(native, nativeTarget);
+    GlyphRasterRetentionQualification.Run(native, nativeTarget, context.GlyphRasterizationPath);
 }
 
 // Compile both shader/pipeline paths before correctness or timing evidence.

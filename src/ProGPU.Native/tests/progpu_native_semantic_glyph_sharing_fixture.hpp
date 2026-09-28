@@ -9,8 +9,9 @@
 
 namespace progpu::native::tests {
 
-// The reference packs all three outlines into one resource, with separate local
-// segment offsets. Resource-level sharing cannot remove any of its raster work.
+// The reference packs all three outlines into one resource. Distinct unused line
+// control points prevent exact-byte raster sharing without changing coverage;
+// both resource-level and individual-outline sharing must remain independent.
 inline bool build_semantic_glyph_sharing_fixture(bool reference,
     unsigned variant, std::uint64_t generation, std::vector<std::byte>& scene) {
     semantic_scene_builder builder(reference ? 0x9472U : 0x9471U, generation);
@@ -45,8 +46,15 @@ inline bool build_semantic_glyph_sharing_fixture(bool reference,
     }
     if (reference) {
         for (std::uint32_t index = 0U; index < 3U; ++index)
+            segments[index * 4U].p2.x = static_cast<float>(index + (variant == 9U ? 4U : 1U));
+    }
+    const bool packed = reference || variant == 9U;
+    if (packed) {
+        for (std::uint32_t index = 0U; index < 3U; ++index)
             outlines[index].segment_offset = index * 4U;
         if (!builder.add_glyph_outlines(outlines, segments, resources[0])) return fail("reference outlines");
+        if (!reference && !builder.set_resource_identity(resources[0], 0x9500U,
+                generation)) return fail("packed subject identity");
         resources.fill(resources[0]);
     } else {
         for (std::uint32_t index = 0U; index < 3U; ++index) {
@@ -62,6 +70,8 @@ inline bool build_semantic_glyph_sharing_fixture(bool reference,
     clip.clip_rect = {14.0F, 8.0F, 10.0F, 16.0F};
     std::uint32_t clip_resource{};
     if (!builder.add_state(clip, clip_resource)) return fail("clip");
+    if (!reference && packed && !builder.set_resource_identity(clip_resource,
+            0x9501U, generation)) return fail("packed clip identity");
     constexpr std::array colors{
         progpu_native_color{1.0F, 0.15F, 0.0F, 0.7F},
         progpu_native_color{0.0F, 1.0F, 0.2F, 0.6F},
@@ -73,8 +83,10 @@ inline bool build_semantic_glyph_sharing_fixture(bool reference,
         if (variant == 1U) style.color = colors[(index + 1U) % 3U];
         std::uint32_t style_index{};
         if (!builder.add_text_style(style, style_index)) return fail("style");
+        if (!reference && packed && !builder.set_resource_identity(style_index,
+                0x9500U + style_index, generation)) return fail("packed style identity");
         progpu_native_positioned_glyph glyph{
-            reference ? index : 0U, 0U,
+            packed ? index : 0U, 0U,
             {8.0F + draw * 5.0F, draw == 3U ? 30.0F : 8.0F + draw * 2.0F},
             {1.0F, 0.0F}, {0.0F, 1.0F}, colors[index], 1.0F, 0.0F, 0.0F, 0.0F};
         if (variant == 1U) glyph.position.x += 2.0F;
@@ -93,7 +105,7 @@ inline bool build_semantic_glyph_sharing_fixture(bool reference,
 template<typename Render, typename Require>
 void verify_semantic_glyph_sharing(Render render, Require require) {
     std::vector<std::uint8_t> original_pixels;
-    for (unsigned variant = 0U; variant < 9U; ++variant) {
+    for (unsigned variant = 0U; variant < 10U; ++variant) {
         const std::uint64_t generation = variant + 1U;
         const float dpi = variant == 7U ? 1.5F : 1.0F;
         std::vector<std::byte> subject, reference;
@@ -113,7 +125,7 @@ void verify_semantic_glyph_sharing(Render render, Require require) {
         require(warm.coverage_staging_bytes == 0U && warm.vertex_upload_bytes == 0U &&
             warm.index_upload_bytes == 0U && warm.text_style_upload_bytes == 0U,
             "warm glyph-sharing replay rebuilt retained resources");
-        if (variant == 0U) {
+        if (variant == 0U || variant == 9U) {
             require(cold.coverage_staging_bytes != 0U &&
                 independent.coverage_staging_bytes == cold.coverage_staging_bytes * 3U,
                 "identical glyph resources did not share actual raster coverage");

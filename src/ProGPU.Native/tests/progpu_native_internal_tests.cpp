@@ -1,6 +1,7 @@
 #include "progpu_native_draw_state.hpp"
 #include "progpu_native_buffer_capacity.hpp"
 #include "progpu_native_compute_trace.hpp"
+#include "progpu_native_glyph_raster_identity.hpp"
 #include "progpu_native_effect_plan.hpp"
 #include "progpu_native_geometry_analytic.hpp"
 #include "progpu_native_geometry_dash.hpp"
@@ -149,6 +150,39 @@ void semantic_glyph_resource_identity_requires_exact_raster_bytes() {
     auto shorter = original;
     shorter.segments = shorter.segments.first(shorter.segments.size() - 1U);
     require(!(original == shorter));
+}
+
+void glyph_raster_identity_uses_exact_selected_bytes_not_arena_offsets() {
+    using namespace progpu::native;
+    progpu_native_glyph_outline outline{0U, 1U, 0.0F, 0.0F, 10.0F, 12.0F, 1.0F, 0.25F};
+    std::array<progpu_native_path_segment, 1U> segments{};
+    const auto original = make_glyph_raster_identity(outline, segments);
+    auto relocated = outline;
+    relocated.segment_offset = 321U;
+    auto copied_segments = segments;
+    const auto copy = make_glyph_raster_identity(relocated, copied_segments);
+    require(original == copy);
+    require(glyph_raster_identity_hash{}(original) == glyph_raster_identity_hash{}(copy));
+    for (std::size_t index = 0U; index < original.raster_bits.size(); ++index) {
+        auto changed = original;
+        changed.raster_bits[index] ^= 1U;
+        require(!(original == changed));
+    }
+    auto changed_segments = segments;
+    changed_segments[0].p2.x = 1.0F; // Even unused line control points remain exact identity.
+    const auto changed = make_glyph_raster_identity(outline, changed_segments);
+    require(!(original == changed));
+    auto shorter = original;
+    shorter.segments = shorter.segments.first(shorter.segments.size() - 1U);
+    require(!(original == shorter));
+    struct constant_hash {
+        std::size_t operator()(const glyph_raster_identity&) const noexcept { return 0U; }
+    };
+    std::unordered_map<glyph_raster_identity, std::uint32_t, constant_hash> table;
+    require(table.emplace(original, 3U).second);
+    require(table.emplace(changed, 7U).second);
+    require(!table.emplace(copy, 9U).second);
+    require(table.at(original) == 3U && table.at(changed) == 7U);
 }
 
 void native_texture_copy_staging_uses_portable_d3d12_alignment() {
@@ -2045,6 +2079,7 @@ int main() {
     semantic_text_style_page_is_validated_deduplicated_and_retained();
     compute_trace_is_opt_in_bounded_and_encoding_only();
     semantic_glyph_resource_identity_requires_exact_raster_bytes();
+    glyph_raster_identity_uses_exact_selected_bytes_not_arena_offsets();
     semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();
     gpu_records_preserve_alignment_phase_and_cache_identity();
