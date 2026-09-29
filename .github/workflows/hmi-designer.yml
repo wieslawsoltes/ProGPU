@@ -11,6 +11,7 @@ on:
       - 'src/ProGPU.WinUI/Controls/TextBox.cs'
       - 'src/ProGPU.Samples/Pages/VisualDesignerPage.cs'
       - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
+      - 'src/ProGPU.Samples.Desktop/**'
       - 'samples/HmiDesigner/**'
       - 'tests/ProGPU.Hmi*/**'
       - 'docs/hmi-*.md'
@@ -28,6 +29,7 @@ on:
       - 'src/ProGPU.WinUI/Controls/TextBox.cs'
       - 'src/ProGPU.Samples/Pages/VisualDesignerPage.cs'
       - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
+      - 'src/ProGPU.Samples.Desktop/**'
       - 'samples/HmiDesigner/**'
       - 'tests/ProGPU.Hmi*/**'
       - 'docs/hmi-*.md'
@@ -72,9 +74,11 @@ jobs:
       - name: Build shared sample gallery
         if: ${{ !cancelled() }}
         run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+      # Select only the host's build TFM; do not override TargetFrameworks globally.
+      # That global override also changes restore for netstandard2.0 XAML generators.
       - name: Build the desktop gallery host
         if: ${{ !cancelled() }}
-        run: dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+        run: dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:EnableWindowsTargeting=true
       - name: Exercise actual gallery page construction without reflection JSON
         if: ${{ !cancelled() }}
         run: dotnet run --project tests/ProGPU.Hmi.GallerySmoke/ProGPU.Hmi.GallerySmoke.csproj -c Release
