@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text.Json;
 
 namespace ProGPU.Hmi.Mqtt;
@@ -48,11 +49,28 @@ public static class HmiMqttPayloadCodec
         };
         return new(value, quality, timestamp);
     }
+
+    /// <summary>Writes the fixed command envelope directly; no anonymous types, object boxing or reflection metadata.</summary>
     public static byte[] EncodeCommand(HmiValue value, DateTimeOffset createdAt)
     {
         if (!Enum.IsDefined(value.Type) || !double.IsFinite(value.Number) || value.Text == null || value.Text.Length > 4096)
             throw new InvalidDataException("Invalid command value.");
-        object scalar = value.Type switch { HmiTagType.Number => value.Number, HmiTagType.Boolean => value.Boolean, _ => value.Text };
-        return JsonSerializer.SerializeToUtf8Bytes(new { id = Guid.NewGuid().ToString("N"), timestamp = createdAt, value = scalar });
+        var buffer = new ArrayBufferWriter<byte>(256);
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("id", Guid.NewGuid().ToString("N"));
+            writer.WriteString("timestamp", createdAt);
+            switch (value.Type)
+            {
+                case HmiTagType.Number: writer.WriteNumber("value", value.Number); break;
+                case HmiTagType.Boolean: writer.WriteBoolean("value", value.Boolean); break;
+                case HmiTagType.Text: writer.WriteString("value", value.Text); break;
+            }
+            writer.WriteEndObject();
+        }
+        if (buffer.WrittenCount > MaximumPayloadBytes)
+            throw new InvalidDataException("Encoded MQTT command exceeds the 16 KiB payload budget.");
+        return buffer.WrittenSpan.ToArray();
     }
 }

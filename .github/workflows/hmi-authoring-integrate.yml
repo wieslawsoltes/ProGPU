@@ -1,0 +1,50 @@
+name: Integrate HMI authoring improvements
+on:
+  push:
+    branches: [feat/hmi-designer]
+    paths: ['eng/hmi-authoring-integrate.py']
+permissions:
+  contents: read
+jobs:
+  integrate:
+    if: github.repository == 'wieslawsoltes/ProGPU' && github.ref == 'refs/heads/feat/hmi-designer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Apply guarded integration
+        id: patch
+        run: python3 eng/hmi-authoring-integrate.py
+      - name: Commit reviewed integration paths
+        run: |
+          git diff --check
+          git add src/ProGPU.Hmi src/ProGPU.WinUI.Hmi src/ProGPU.WinUI.Hmi.Designer src/ProGPU.WinUI.Designer/DesignerSelectionService.cs
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(hmi): integrate engineering tools, alarm console and retained authoring updates'
+          git push origin HEAD:refs/heads/feat/hmi-designer
+      - name: Reflection-disabled HMI and protocol regressions
+        run: dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi/tests
+      - name: Build standalone sample
+        if: ${{ !cancelled() && steps.patch.outcome == 'success' }}
+        run: dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release
+      - name: Build gallery
+        if: ${{ !cancelled() && steps.patch.outcome == 'success' }}
+        run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+      - name: Reflection-disabled core smoke
+        if: ${{ !cancelled() && steps.patch.outcome == 'success' }}
+        run: dotnet run --project tests/ProGPU.Hmi.SerializationSmoke/ProGPU.Hmi.SerializationSmoke.csproj -c Release
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hmi-authoring-validation
+          path: artifacts/hmi
+          if-no-files-found: ignore
