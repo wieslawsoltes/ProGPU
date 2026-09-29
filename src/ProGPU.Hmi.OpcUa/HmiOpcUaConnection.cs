@@ -208,7 +208,7 @@ public sealed class HmiOpcUaConnection : IHmiConditionalWriteConnection, IHmiNod
                     if (local == null) continue;
                     string uri = local.NamespaceIndex == 0 ? "" : session.NamespaceUris.GetString(local.NamespaceIndex);
                     if (uri == null) continue;
-                    string id = new NodeId(local.Identifier).ToString();
+                    string id = new NodeId(local.Identifier, 0).ToString();
                     if (!identities.Add((uri, id))) continue;
                     if (nodes.Count == maximumResults) { truncated = true; break; }
                     string display = reference.DisplayName.Text ?? reference.BrowseName.Name ?? id;
@@ -223,6 +223,7 @@ public sealed class HmiOpcUaConnection : IHmiConditionalWriteConnection, IHmiNod
         }
         catch (ServiceResultException error) { DropSession(); throw new IOException("OPC UA browse failed: " + error.StatusCode, error); }
         catch (OperationCanceledException) { DropSession(); throw; }
+        catch (InvalidDataException) { DropSession(); throw; }
         finally
         {
             try

@@ -37,6 +37,8 @@ public static class HmiOpcUaCodec
     public static HmiValue DecodeScalar(HmiIoMapping mapping, object? value)
     {
         mapping.OpcUa.Validate(mapping.Type);
+        if (!double.IsFinite(mapping.Scale) || mapping.Scale == 0 || !double.IsFinite(mapping.Offset))
+            throw new InvalidDataException("Invalid OPC UA engineering scale or offset.");
         if (value == null || value.GetType() != ClrType(mapping.OpcUa.DataType)) throw new InvalidDataException("OPC UA scalar type mismatch.");
         if (value is bool boolean) return HmiValue.From(boolean);
         if (value is string text)

@@ -6,7 +6,7 @@ This extension adds real Modbus TCP and MQTT 5 adapters, explicit commissioning 
 
 `ProGPU.Hmi` owns inert connection profiles, tag mappings, the acquisition-session contract, write review/authorization, faceplates and state rules. It has no UI or protocol-package dependency. `ProGPU.Hmi.Modbus` implements its TCP transport with .NET networking and binary primitives. `ProGPU.Hmi.Mqtt` uses MIT-licensed MQTTnet 5.2.0.1603. Neither adapter depends on the designer.
 
-`ProGPU.WinUI.Hmi.Designer` exposes `ConnectionFactory` and `WriteAuthorizer` extension points. The standalone HMI app and shared gallery register both concrete adapters; the reusable designer does not force transport dependencies on runtime-only component consumers. All five HMI packages are registered in the normal portable release manifest, but a source change does not itself publish a NuGet release.
+`ProGPU.WinUI.Hmi.Designer` exposes `ConnectionFactory` and `WriteAuthorizer` extension points. The standalone HMI app and shared gallery register both concrete adapters; the reusable designer does not force transport dependencies on runtime-only component consumers. All six HMI packages are registered in the normal portable release manifest, but a source change does not itself publish a NuGet release.
 
 ## Commissioning in the designer
 
@@ -82,7 +82,7 @@ Templates persist in the project and can be edited in Project JSON. Explicit syn
 
 The HMI test project exercises binary codecs, real loopback Modbus TCP exchanges (fragmented replies, malformed MBAP, cancellation, lost write acknowledgements), a real in-process MQTT broker, payload quarantine, command-review/authorization behavior, faceplate identity and state priority. The normal Windows/Linux matrix builds the sample/gallery and packs the HMI libraries. Inspect actual CI results; protocol tests do not qualify a particular PLC, TLS installation or physical GPU.
 
-No OPC UA, Siemens S7, EtherNet/IP/CIP, IEC 61850/104, DNP3, industrial historian, redundancy, or PLC-program download is claimed here. `IHmiConnection` is the extension seam for additional reviewed adapters. Browser TCP/TLS access is not supplied by these native .NET adapters; use an authenticated gateway for browser deployments. Full production authorization, secure credential provisioning, network design, commissioning and independent safety are application responsibilities.
+The optional OPC UA adapter adds certificate-validated scalar reads/writes and node browsing; see [OPC UA commissioning](hmi-opcua.md). No Siemens S7, EtherNet/IP/CIP, IEC 61850/104, DNP3, industrial historian, redundancy, or PLC-program download is claimed here. `IHmiConnection` is the extension seam for additional reviewed adapters. Browser TCP/TLS access is not supplied by these native .NET adapters; use an authenticated gateway for browser deployments. Full production authorization, secure credential provisioning, network design, commissioning and independent safety are application responsibilities.
 
 ## Primary protocol references
 
@@ -90,3 +90,8 @@ No OPC UA, Siemens S7, EtherNet/IP/CIP, IEC 61850/104, DNP3, industrial historia
 - Modbus Organization, [Messaging on TCP/IP Implementation Guide V1.0b](https://www.modbus.org/file/secure/messagingimplementationguide.pdf).
 - OASIS, [MQTT 5.0 standard](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html).
 - .NET Foundation, [MQTTnet source and MIT license](https://github.com/dotnet/MQTTnet).
+
+
+## OPC UA and command-session extension
+
+The Connections pane now supports OPC UA profiles and a bounded namespace-URI-based node browser. All three adapters check reviewed connection generations under their transport gates. See [OPC UA commissioning and session-bound commands](hmi-opcua.md) for security, scalar formats, test commands and deployment boundaries.

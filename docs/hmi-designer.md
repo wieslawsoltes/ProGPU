@@ -21,7 +21,7 @@ This sample targets **ProGPU's WinUI-compatible `Microsoft.UI.Xaml` implementati
 | `ProGPU.WinUI.Designer` | Existing shared canvas, toolbox drag/drop, outline, layout inspector; new bounded journal, multi-selection commands/adorners and custom-state registration | Shared infrastructure |
 | `ProGPU.WinUI.Hmi.Designer` | HMI project sessions, workbench, binding/action inspector, data editors and local preview lifecycle | Reuses the shared designer |
 
-The core, controls, designer and two optional transport libraries are packable and inherit the repository's versioning and signing settings. Adding them to the repository does not publish packages to NuGet automatically.
+The core, controls, designer and three optional transport libraries are packable and inherit the repository's versioning and signing settings. Adding them to the repository does not publish packages to NuGet automatically.
 
 ## Authoring workflows
 
@@ -109,7 +109,7 @@ The dedicated GitHub Actions workflow builds the standalone host and gallery, ru
 
 ## Deliberate boundaries
 
-This implementation is an HMI authoring, rendering and local-runtime library, **not a commissioned SCADA or safety system**. Optional adapters support Modbus TCP and MQTT 5/TLS with the boundaries in [control integrations](hmi-control-integrations.md). It does not include OPC UA/DA, PLC downloads, distributed redundancy, durable historian storage, alarm shelving/escalation, multi-user authorization, a credential vault, tamper-evident audit storage, recursive nested symbol templates, advanced industrial connector routing, or vendor project-format interoperability. Alarm-list controls show a bounded summary, not a server-side alarm historian. Browser file pickers, deployed browser sample qualification and device-specific touch qualification are separate work.
+This implementation is an HMI authoring, rendering and local-runtime library, **not a commissioned SCADA or safety system**. Optional adapters support Modbus TCP and MQTT 5/TLS with the boundaries in [control integrations](hmi-control-integrations.md). The optional OPC UA package supplies typed scalar acquisition, bounded browsing and reviewed writes; see [OPC UA commissioning](hmi-opcua.md). It does not include OPC DA, PLC downloads, distributed redundancy, durable historian storage, alarm shelving/escalation, multi-user authorization, a credential vault, tamper-evident audit storage, recursive nested symbol templates, advanced industrial connector routing, or vendor project-format interoperability. Alarm-list controls show a bounded summary, not a server-side alarm historian. Browser file pickers, deployed browser sample qualification and device-specific touch qualification are separate work.
 
 Real equipment integration must implement authenticated transport, least-privilege authorization, server-side interlocks and validation, write confirmation/timeout semantics, reconnect quality, commissioning and independent safety functions. Do not use visual state or client-side designer locks as a safety interlock. No certification or vendor feature parity is asserted.
 

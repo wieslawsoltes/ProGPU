@@ -40,6 +40,7 @@ progpu_portable_package_ids=(
   ProGPU.WinUI.Hmi.Designer
   ProGPU.Hmi.Modbus
   ProGPU.Hmi.Mqtt
+  ProGPU.Hmi.OpcUa
   ProGPU.Xaml
   ProGPU.Xaml.Roslyn
   ProGPU.Xaml.SourceGenerator
@@ -95,6 +96,7 @@ progpu_portable_package_projects=(
   src/ProGPU.WinUI.Hmi.Designer/ProGPU.WinUI.Hmi.Designer.csproj
   src/ProGPU.Hmi.Modbus/ProGPU.Hmi.Modbus.csproj
   src/ProGPU.Hmi.Mqtt/ProGPU.Hmi.Mqtt.csproj
+  src/ProGPU.Hmi.OpcUa/ProGPU.Hmi.OpcUa.csproj
   src/ProGPU.Xaml/ProGPU.Xaml.csproj
   src/ProGPU.Xaml.Roslyn/ProGPU.Xaml.Roslyn.csproj
   src/ProGPU.Xaml.SourceGenerator/ProGPU.Xaml.SourceGenerator.csproj
@@ -150,6 +152,7 @@ progpu_portable_package_purposes=(
   "Shared-canvas HMI authoring, state rules, equipment templates and commissioning UI."
   "Strict Modbus TCP acquisition and single-attempt absolute commands."
   "MQTT 5 typed telemetry and non-retained absolute commands with strict TLS."
+  "Certificate-validated OPC UA scalar acquisition, bounded node browsing and session-bound absolute writes."
   "Framework-neutral XAML syntax, schema, diagnostics, and compiler contracts."
   "Roslyn symbol type system and structured C# emitter for the XAML compiler."
   "Incremental XAML source generator plus transitive MSBuild integration."

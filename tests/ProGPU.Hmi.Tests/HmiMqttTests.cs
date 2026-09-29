@@ -98,9 +98,13 @@ public sealed class HmiMqttTests
     [Fact]
     public async Task CredentialsNeverTravelOverPlaintextEvenWhenTcpIsAllowed()
     {
-        await using var connection = new HmiMqttConnection(Profile(1), _ => ValueTask.FromResult<HmiMqttCredentials?>(new("user", "secret")));
+        const string user = "credential-canary-user-731db5";
+        const string password = "credential-canary-password-64a9fc";
+        await using var connection = new HmiMqttConnection(Profile(1), _ => ValueTask.FromResult<HmiMqttCredentials?>(new(user, password)));
         var error = await Assert.ThrowsAsync<IOException>(async () => await connection.ConnectAsync(default));
-        Assert.DoesNotContain("secret", error.Message);
+        // Check actual credential canaries, including inner exceptions, not a common English word.
+        Assert.DoesNotContain(user, error.ToString());
+        Assert.DoesNotContain(password, error.ToString());
         Assert.Contains("TLS", error.Message);
     }
 }

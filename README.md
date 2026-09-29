@@ -1751,3 +1751,8 @@ GpuSharingInterop.COMHelper.CallUpdateSubresource(context, image.WinTexture2D, 0
 
 ### 6. Graceful Runtime Fallback
 If graphics interop is not supported by the environment (e.g. software rendering, missing drivers, or Linux configurations lacking Vulkan opaque handles), the control gracefully falls back to the **Decoupled Render-Thread Blitting Pipeline** (Phase 2). This ensures 100% functionality and visual parity across all host configurations!
+
+
+### OPC UA HMI commissioning
+
+The optional `ProGPU.Hmi.OpcUa` package adds signed/encrypted OPC UA sessions, typed scalar acquisition, bounded node browsing and session-bound reviewed writes. The shared HMI designer exposes endpoint and mapping editors plus the node browser; opening a project never connects automatically. See [OPC UA commissioning](docs/hmi-opcua.md) and [HMI control integrations](docs/hmi-control-integrations.md).

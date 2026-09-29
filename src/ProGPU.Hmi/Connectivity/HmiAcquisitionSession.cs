@@ -95,7 +95,13 @@ public sealed class HmiAcquisitionSession : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        catch (Exception error) { SetStatus(HmiConnectionState.Faulted, error.Message); }
+        catch (Exception error)
+        {
+            Interlocked.Increment(ref _failures);
+            try { await PublishQualityAsync(HmiQuality.Bad, generation, token).ConfigureAwait(false); }
+            catch (Exception qualityError) { SetStatus(HmiConnectionState.Faulted, error.Message + " Quality publication failed: " + qualityError.Message); }
+            if (Diagnostics.State != HmiConnectionState.Faulted) SetStatus(HmiConnectionState.Faulted, error.Message);
+        }
         finally
         {
             if (Diagnostics.State != HmiConnectionState.Faulted) SetStatus(HmiConnectionState.Disconnected, "Acquisition stopped");
