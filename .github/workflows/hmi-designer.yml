@@ -4,27 +4,33 @@ on:
   push:
     branches: [main, feat/hmi-designer]
     paths:
-      - 'src/ProGPU.Hmi/**'
-      - 'src/ProGPU.WinUI.Hmi/**'
-      - 'src/ProGPU.WinUI.Hmi.Designer/**'
+      - 'src/ProGPU.Hmi*/**'
+      - 'src/ProGPU.WinUI.Hmi*/**'
       - 'src/ProGPU.WinUI.Designer/**'
       - 'src/ProGPU.Samples/Pages/VisualDesignerPage.cs'
       - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
       - 'samples/HmiDesigner/**'
-      - 'tests/ProGPU.Hmi.Tests/**'
-      - 'docs/hmi-designer.md'
+      - 'tests/ProGPU.Hmi*/**'
+      - 'docs/hmi-*.md'
+      - 'Directory.Build.props'
+      - 'Directory.Build.targets'
+      - 'Directory.Packages.props'
+      - 'eng/progpu-package-list.sh'
       - '.github/workflows/hmi-designer.yml'
   pull_request:
     paths:
-      - 'src/ProGPU.Hmi/**'
-      - 'src/ProGPU.WinUI.Hmi/**'
-      - 'src/ProGPU.WinUI.Hmi.Designer/**'
+      - 'src/ProGPU.Hmi*/**'
+      - 'src/ProGPU.WinUI.Hmi*/**'
       - 'src/ProGPU.WinUI.Designer/**'
       - 'src/ProGPU.Samples/Pages/VisualDesignerPage.cs'
       - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
       - 'samples/HmiDesigner/**'
-      - 'tests/ProGPU.Hmi.Tests/**'
-      - 'docs/hmi-designer.md'
+      - 'tests/ProGPU.Hmi*/**'
+      - 'docs/hmi-*.md'
+      - 'Directory.Build.props'
+      - 'Directory.Build.targets'
+      - 'Directory.Packages.props'
+      - 'eng/progpu-package-list.sh'
       - '.github/workflows/hmi-designer.yml'
   workflow_dispatch:
 
@@ -51,16 +57,21 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Test HMI model, components and designer
+      - name: Test HMI and Modbus/MQTT integrations
         run: dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi/tests
+      - name: Test OPC UA against a real loopback server
+        if: ${{ !cancelled() }}
+        run: dotnet test tests/ProGPU.Hmi.OpcUa.Tests/ProGPU.Hmi.OpcUa.Tests.csproj -c Release --logger "trx;LogFileName=opcua.trx" --results-directory artifacts/hmi/tests
       - name: Build standalone WinUI HMI designer
+        if: ${{ !cancelled() }}
         run: dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release
       - name: Build shared sample gallery
+        if: ${{ !cancelled() }}
         run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
       - name: Pack standalone libraries
         shell: pwsh
         run: |
-          foreach ($project in @('ProGPU.Hmi', 'ProGPU.WinUI.Hmi', 'ProGPU.WinUI.Hmi.Designer')) {
+          foreach ($project in @('ProGPU.Hmi', 'ProGPU.WinUI.Hmi', 'ProGPU.WinUI.Hmi.Designer', 'ProGPU.Hmi.Modbus', 'ProGPU.Hmi.Mqtt', 'ProGPU.Hmi.OpcUa')) {
             dotnet pack "src/$project/$project.csproj" -c Release --no-build -o artifacts/hmi/packages
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }

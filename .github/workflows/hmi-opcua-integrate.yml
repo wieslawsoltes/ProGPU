@@ -26,10 +26,10 @@ jobs:
       - name: Commit exact integration paths
         run: |
           git diff --check
-          git add Directory.Packages.props samples/HmiDesigner src/ProGPU.Samples src/ProGPU.Hmi.OpcUa src/ProGPU.Hmi.Modbus src/ProGPU.Hmi.Mqtt src/ProGPU.WinUI.Hmi.Designer
+          git add src/ProGPU.Hmi.OpcUa src/ProGPU.Hmi/Connectivity/HmiAcquisitionSession.cs tests/ProGPU.Hmi.Tests/HmiMqttTests.cs eng/progpu-package-list.sh docs/hmi-control-integrations.md docs/hmi-designer.md README.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat(hmi): wire OPC UA commissioning and session-bound external commands'
+          git commit -m 'fix(hmi): validate OPC UA node formatting and retain failed-acquisition quality'
           git push origin HEAD:refs/heads/feat/hmi-designer
       - name: OPC UA scalar and real server tests
         run: dotnet test tests/ProGPU.Hmi.OpcUa.Tests/ProGPU.Hmi.OpcUa.Tests.csproj -c Release --logger "trx;LogFileName=opcua.trx" --results-directory artifacts/hmi/tests
@@ -42,6 +42,13 @@ jobs:
       - name: Build gallery
         if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
         run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+      - name: Pack all HMI libraries
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
+        shell: bash
+        run: |
+          for project in ProGPU.Hmi ProGPU.WinUI.Hmi ProGPU.WinUI.Hmi.Designer ProGPU.Hmi.Modbus ProGPU.Hmi.Mqtt ProGPU.Hmi.OpcUa; do
+            dotnet pack "src/$project/$project.csproj" -c Release --no-build -o artifacts/hmi/packages
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
