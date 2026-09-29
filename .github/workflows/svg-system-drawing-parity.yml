@@ -102,12 +102,14 @@ jobs:
         run: >-
           dotnet build eng/probes/SvgRecursion/${{ matrix.kind }}/SvgRecursion.${{ matrix.kind }}.csproj
           --configuration Release --maxcpucount:1 -r ${{ matrix.rid }}
+          -p:UseProGpuSystemDrawing=${{ matrix.kind == 'Portable' }}
           -p:SvgSourceRoot="${{ github.workspace }}/external/Svg.Skia/externals/SVG"
           -p:ProGpuSourceRoot="${{ github.workspace }}"
       - name: Capture actual recursion outcomes without reclassification
         run: >-
           dotnet run --project eng/probes/SvgRecursion/${{ matrix.kind }}/SvgRecursion.${{ matrix.kind }}.csproj
           --configuration Release --no-build --no-restore -r ${{ matrix.rid }}
+          -p:UseProGpuSystemDrawing=${{ matrix.kind == 'Portable' }}
           -- "${{ github.workspace }}/external/Svg.Skia"
           "${{ github.workspace }}/artifacts/svg-recursion/${{ matrix.kind }}-${{ matrix.rid }}"
           "${{ matrix.architecture }}"

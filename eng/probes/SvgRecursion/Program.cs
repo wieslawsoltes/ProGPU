@@ -45,8 +45,9 @@ if (args.Length == 4)
     string drawingPath = drawing.Location.Replace('\\', '/');
     if (!OperatingSystem.IsWindows() ||
         !drawingPath.Contains("/shared/Microsoft.WindowsDesktop.App/", StringComparison.Ordinal) ||
-        Convert.ToHexString(drawing.GetName().GetPublicKeyToken()!) != "B03F5F7F11D50A3A")
-        throw new InvalidOperationException("The reference did not load Microsoft Windows Desktop System.Drawing.");
+        drawing.GetName().Name != "System.Drawing.Common" || drawing.GetName().Version?.Major != 10 ||
+        Convert.ToHexString(drawing.GetName().GetPublicKeyToken()!) != "CC7B13FFCD2DDD51")
+        throw new InvalidOperationException($"The reference did not load Microsoft Windows Desktop System.Drawing: {drawing.FullName}, {drawing.Location}.");
     object fontEvidence = "Microsoft Windows Desktop font resolver";
 #else
     byte[] drawingKey = drawing.GetName().GetPublicKey() ?? [];

@@ -12,7 +12,10 @@ quality lane. Microsoft Windows Desktop System.Drawing is selected independently
 on Windows x64 and ARM64; Linux uses ProGPU. The preparation overlay changes only
 project targeting/references. No SVG.NET renderer source is patched or copied.
 The native identity gate requires the actual Microsoft Windows Desktop assembly
-path and public-key token; the portable gate requires the ProGPU provider key.
+path, .NET 10 identity and public-key token `cc7b13ffcd2ddd51`; the portable gate
+requires the ProGPU provider key. That native identity is independently recorded
+by the successful Windows drawing-clip reference (Build `36511937631`), not
+inferred from the similarly named framework `System.Drawing` assembly.
 
 Each worker records loaded assembly hashes, fixture/reference hashes, dimensions,
 process architecture and runtime before rendering. Linux registers the same
