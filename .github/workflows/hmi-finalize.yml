@@ -21,6 +21,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Apply exact-match source fixes
+        id: patch
         run: python3 eng/hmi-finalize.py
       - name: Commit only HMI integration paths
         run: |
@@ -28,13 +29,15 @@ jobs:
           git add src/ProGPU.WinUI.Hmi src/ProGPU.WinUI.Hmi.Designer
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix(hmi): preserve locked z-order and clarify unknown process state'
+          git commit -m 'fix(hmi): use read-only rich diagnostics and preserve text keyboard input'
           git push origin HEAD:refs/heads/feat/hmi-designer
       - name: Test the committed source
         run: dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi/tests
       - name: Build standalone designer
+        if: ${{ !cancelled() && steps.patch.outcome == 'success' }}
         run: dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release
       - name: Build gallery
+        if: ${{ !cancelled() && steps.patch.outcome == 'success' }}
         run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
       - uses: actions/upload-artifact@v4
         if: always()
