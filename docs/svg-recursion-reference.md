@@ -36,3 +36,27 @@ fix or a precisely justified exception-inventory correction is appropriate.
 The diagnostic was written specifically for ProGPU. Source inspection of the
 pinned SVG.NET `SvgElement.Drawing.cs` identified instance-field clip restoration
 as a possible secondary error path; no third-party implementation was incorporated.
+
+## First hosted comparison
+
+Run `36519569856` captured all three fixtures on Windows x64, Windows ARM64 and
+Linux. Both Microsoft runs reject `Graphics.ScaleTransform` with
+`System.ArgumentException`, without a timeout or process crash. Linux first
+rejects a non-finite mapping in `Region.Transform`; SVG.NET cleanup then replaces
+it with `ArgumentNullException(region)`. Therefore the observed portable exception
+is not justified by the Windows reference, and the inventory remains unchanged.
+
+The clip mapper previously materialized a float inverse before composing the
+capture/current frames. Its determinant reciprocal can overflow even when their
+relative scale is exactly two. The implementation now retains the ordinary float
+path for finite arithmetic, but directly computes the relative affine mapping in
+double when the determinant, inverse or composition overflows. Only the final
+mapping is narrowed. Singular and unrepresentable results still fail; world-matrix
+admission and original clip ownership are unchanged. Thirteen authored source
+cases cover both determinant/reciprocal overflow, shared translation, snapshot
+ownership, unchanged command state and a genuinely unrepresentable result.
+
+This repair still requires hosted execution. No exception-inventory entry or
+quality threshold is changed. The Windows checkouts have different raw SVG hashes
+from Linux; receipts now additionally hash LF-normalized decoded source text to
+check for checkout line-ending differences without changing the rendered files.

@@ -60,6 +60,8 @@ if (args.Length == 4)
     {
         fixture.Key, Width = width, Height = height,
         FixtureSha256 = HashFile(source), ReferenceSha256 = HashFile(reference),
+        SourceTextSha256 = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+            File.ReadAllText(source).Replace("\r\n", "\n", StringComparison.Ordinal)))),
         Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
         Runtime = RuntimeInformation.FrameworkDescription,
         Drawing = Describe(drawing), Svg = Describe(typeof(SvgDocument).Assembly), Fonts = fontEvidence

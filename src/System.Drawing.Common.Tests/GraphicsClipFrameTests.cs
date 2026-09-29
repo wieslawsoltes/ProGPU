@@ -298,6 +298,65 @@ public sealed class GraphicsClipFrameTests
         }
     }
 
+    [Theory]
+    [InlineData(-65, false)]
+    [InlineData(-66, false)]
+    [InlineData(-70, false)]
+    [InlineData(-65, true)]
+    [InlineData(-66, true)]
+    [InlineData(-70, true)]
+    [InlineData(65, false)]
+    [InlineData(66, false)]
+    [InlineData(70, false)]
+    [InlineData(65, true)]
+    [InlineData(66, true)]
+    [InlineData(70, true)]
+    public void RepresentableClipMappingSurvivesIntermediateInverseOverflow(int exponent, bool translated)
+    {
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        float scale = MathF.ScaleB(1, exponent);
+        var original = new Matrix3x2(scale, 0, 0, scale, translated ? 3 : 0, translated ? 5 : 0);
+        graphics.TransformElements = original;
+        using var caller = new Region(new Rectangle(2, 4, 6, 8));
+        graphics.SetClip(caller, CombineMode.Replace);
+        graphics.ScaleTransform(0.5f, 0.5f);
+        var before = graphics.TransformElements;
+        var commands = context.Commands.ToArray();
+        Assert.True(Matrix3x2.Invert(before, out Matrix3x2 inverse));
+        Assert.True(inverse.M11 == 0 || !float.IsFinite(inverse.M11)); // Exercise a broken inverse, not a normal case.
+
+        var expected = new RectangleF(4, 8, 12, 16);
+        using Region snapshot = graphics.Clip;
+        Assert.Equal(expected, snapshot.GetBounds(graphics));
+        Assert.Equal(expected, graphics.ClipBounds);
+        Assert.Equal(new RectangleF(2, 4, 6, 8), caller.GetBounds(graphics));
+        Assert.Equal(before, graphics.TransformElements);
+        Assert.Equal(commands, context.Commands);
+        Assert.Throws<ArgumentException>(() => graphics.ScaleTransform(0, 1));
+        Assert.Equal(expected, graphics.ClipBounds);
+        Assert.Equal(commands, context.Commands);
+        graphics.TransformElements = original;
+        Assert.Equal(new RectangleF(2, 4, 6, 8), graphics.ClipBounds);
+        Assert.Equal(expected, snapshot.GetBounds(graphics));
+    }
+
+    [Fact]
+    public void UnrepresentableRelativeClipMappingFailsWithoutChangingCapturedState()
+    {
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        Matrix3x2 original = Matrix3x2.CreateScale(1e20f);
+        graphics.TransformElements = original;
+        graphics.SetClip(new Rectangle(2, 4, 6, 8));
+        var commands = context.Commands.ToArray();
+        graphics.TransformElements = Matrix3x2.CreateScale(1e-20f);
+        Assert.Throws<ArgumentException>(() => { using Region clip = graphics.Clip; });
+        Assert.Equal(commands, context.Commands);
+        graphics.TransformElements = original;
+        Assert.Equal(new RectangleF(2, 4, 6, 8), graphics.ClipBounds);
+    }
+
     [Fact]
     public void ExactRectangleIntersectionRecordsItsActualFourEdges()
     {

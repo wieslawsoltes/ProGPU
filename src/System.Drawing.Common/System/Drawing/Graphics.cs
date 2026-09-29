@@ -1311,7 +1311,16 @@ public partial class Graphics :
             {
                 throw new ArgumentException("The current graphics transform is not invertible.");
             }
-            using var mapping = new Matrix(_clipDeviceTransform * deviceToWorld);
+            Matrix3x2 relative = _clipDeviceTransform * deviceToWorld;
+            if (!float.IsFinite(current.GetDeterminant()) ||
+                !IsFiniteClipMapping(deviceToWorld) || !IsFiniteClipMapping(relative))
+            {
+                // A float determinant or its reciprocal can overflow while the actual
+                // capture-to-current mapping is small and representable. Form
+                // that relative mapping directly, without a float inverse.
+                relative = ResolveClipMapping(_clipDeviceTransform, current);
+            }
+            using var mapping = new Matrix(relative);
             clip.Transform(mapping);
             return clip;
         }
@@ -1320,6 +1329,30 @@ public partial class Graphics :
             clip.Dispose();
             throw;
         }
+    }
+
+    private static bool IsFiniteClipMapping(Matrix3x2 value) =>
+        float.IsFinite(value.M11) && float.IsFinite(value.M12) &&
+        float.IsFinite(value.M21) && float.IsFinite(value.M22) &&
+        float.IsFinite(value.M31) && float.IsFinite(value.M32);
+
+    private static Matrix3x2 ResolveClipMapping(Matrix3x2 captured, Matrix3x2 current)
+    {
+        double determinant = (double)current.M11 * current.M22 - (double)current.M12 * current.M21;
+        if (determinant == 0 || !double.IsFinite(determinant))
+            throw new ArgumentException("The current graphics transform is not invertible.");
+        double x = (double)captured.M31 - current.M31;
+        double y = (double)captured.M32 - current.M32;
+        var relative = new Matrix3x2(
+            (float)(((double)captured.M11 * current.M22 - (double)captured.M12 * current.M21) / determinant),
+            (float)(((double)captured.M12 * current.M11 - (double)captured.M11 * current.M12) / determinant),
+            (float)(((double)captured.M21 * current.M22 - (double)captured.M22 * current.M21) / determinant),
+            (float)(((double)captured.M22 * current.M11 - (double)captured.M21 * current.M12) / determinant),
+            (float)((x * current.M22 - y * current.M21) / determinant),
+            (float)((y * current.M11 - x * current.M12) / determinant));
+        if (!IsFiniteClipMapping(relative))
+            throw new ArgumentException("The captured clip mapping is not representable.");
+        return relative;
     }
 
     private void ReplaceClip(
