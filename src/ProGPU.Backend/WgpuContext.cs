@@ -37,6 +37,7 @@ public unsafe class WgpuContext : IDisposable
     private const int QueuePollSubmissionInterval = 8;
     private const int DefaultMaximumDeferredQueueSubmissions = 64;
     private SharedDeviceLifetime? _sharedDeviceLifetime;
+    private CocoaOwnedPopupSurface.RenderLease? _ownedPopupSurfaceLease;
     private IWebGpuExternalDeviceLifetime? _externalDeviceLifetime;
     private WgpuDeviceResourceDomain? _deviceResourceDomain;
     public WebGPU Wgpu { get; private set; } = null!;
@@ -1003,7 +1004,7 @@ public unsafe class WgpuContext : IDisposable
             }
 
             SafeLog("[WGPUCONTEXT] Creating WebGPU Surface from window\n");
-            Surface = window.CreateWebGPUSurface(Wgpu, Instance);
+            Surface = CreateWindowPresentationSurface(window);
             SafeLog($"[WGPUCONTEXT] CreateWebGPUSurface returned Surface={(nint)Surface:X}\n");
             if (Surface == null)
             {
@@ -1374,27 +1375,55 @@ public unsafe class WgpuContext : IDisposable
 
     private void ReleasePresentationSurfaceCore(bool waitForDevice)
     {
-        if (Surface == null) return;
-        if (waitForDevice && Device != null && !IsDeviceLost) WaitIdle();
-        // Externally owned browser surfaces are opaque command-stream handles and
-        // have no native WebGPU instance to unconfigure. Exact-ABI native backends
-        // own their configuration and must tear it down through the same ABI.
-        if (Api is IWebGpuExternalSurfaceApi externalSurface &&
-            _isSurfaceConfigured &&
-            !IsDeviceLost)
+        // Check the owned view's creating thread before touching its GPU surface.
+        _ = _ownedPopupSurfaceLease?.Window;
+        if (Surface != null)
         {
-            externalSurface.UnconfigureExternalSurface(Surface);
+            if (waitForDevice && Device != null && !IsDeviceLost) WaitIdle();
+            // Externally owned browser surfaces are opaque command-stream handles and
+            // have no native WebGPU instance to unconfigure. Exact-ABI native backends
+            // own their configuration and must tear it down through the same ABI.
+            if (Api is IWebGpuExternalSurfaceApi externalSurface &&
+                _isSurfaceConfigured &&
+                !IsDeviceLost)
+            {
+                externalSurface.UnconfigureExternalSurface(Surface);
+            }
+            else if (BackendKind == WgpuBackendKind.SilkNative &&
+                     _isSurfaceConfigured &&
+                     !IsDeviceLost)
+            {
+                Wgpu.SurfaceUnconfigure(Surface);
+            }
+            Api.SurfaceRelease(Surface);
+            Surface = null;
+            _isSurfaceConfigured = false;
+            _hasSurfaceConfigurationCapabilities = false;
         }
-        else if (BackendKind == WgpuBackendKind.SilkNative &&
-                 _isSurfaceConfigured &&
-                 !IsDeviceLost)
+        var nativeViewLease = _ownedPopupSurfaceLease;
+        _ownedPopupSurfaceLease = null;
+        // Lease.Dispose relinquishes the borrow even if native Hide then fails.
+        // The IWindow retains its owned panel for a separate retirement retry;
+        // never retain a spent lease and prevent later device cleanup.
+        nativeViewLease?.Dispose();
+    }
+
+    private Surface* CreateWindowPresentationSurface(IWindow window)
+    {
+        if (Surface != null || _ownedPopupSurfaceLease is not null)
+            throw new InvalidOperationException("A presentation surface is already retained.");
+        // One lease for this actual presentation surface, never a per-frame lease
+        // or a second device. Ordinary Silk windows keep their existing path.
+        var lease = (window as CocoaPopupWindow)?.AcquireRenderLease();
+        try
         {
-            Wgpu.SurfaceUnconfigure(Surface);
+            Surface* surface = window.CreateWebGPUSurface(Wgpu, Instance);
+            if (surface == null) return null;
+            _ownedPopupSurfaceLease = lease;
+            lease = null;
+            return surface;
         }
-        Api.SurfaceRelease(Surface);
-        Surface = null;
-        _isSurfaceConfigured = false;
-        _hasSurfaceConfigurationCapabilities = false;
+        finally { lease?.Dispose(); }
     }
 
     internal static NativeInstanceExtras CreateNativeInstanceExtras(
@@ -1921,16 +1950,24 @@ public unsafe class WgpuContext : IDisposable
         _sharedDeviceLifetime = sharedDeviceLifetime;
         RenderLock = deviceOwner.RenderLock;
 
-        Surface = window.CreateWebGPUSurface(Wgpu, Instance);
-        if (Surface == null)
+        try
         {
+            Surface = CreateWindowPresentationSurface(window);
+            if (Surface == null)
+                throw new InvalidOperationException("Failed to create the shared-device WebGPU surface.");
+            ConfigureSwapChain((uint)Math.Max(1, window.FramebufferSize.X), (uint)Math.Max(1, window.FramebufferSize.Y));
+        }
+        catch
+        {
+            // Release the GPU surface before its native view and before the
+            // owner's shared-device reference, also when configuration throws.
+            ReleasePresentationSurfaceCore(waitForDevice: false);
             _sharedDeviceLifetime.Release();
             _sharedDeviceLifetime = null;
             ClearSharedDeviceReferences();
-            throw new InvalidOperationException("Failed to create the shared-device WebGPU surface.");
+            throw;
         }
 
-        ConfigureSwapChain((uint)Math.Max(1, window.FramebufferSize.X), (uint)Math.Max(1, window.FramebufferSize.Y));
         lock (_activeContexts)
         {
             if (!_activeContexts.Contains(this))

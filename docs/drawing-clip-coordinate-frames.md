@@ -1,5 +1,16 @@
 # Drawing clip coordinate frames
 
+For admitted frames whose float determinant or reciprocal overflows, clip queries
+now compute the capture-to-current affine mapping directly in double, narrowing
+only its final coefficients. Ordinary finite float arithmetic is unchanged.
+Never reject a representable relative mapping merely because an intermediate
+inverse overflows, or manufacture an identity for an unrepresentable result.
+This is shared System.Drawing capture/query ingress; both managed and native
+renderers retain the same source geometry commands, with no renderer algorithm
+change. See [recursive SVG evidence](svg-recursion-reference.md) for the independent
+Windows comparison, the confirmed recursive-scale rejection contract, and the
+remaining whole-workflow qualification of this follow-up.
+
 `Graphics.SetClip` captures geometry in the current world/page/container/host
 mapping. Later transforms change drawing coordinates, not that captured coverage.
 Combining the old region's raw coordinates with new world coordinates incorrectly

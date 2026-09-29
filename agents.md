@@ -1,5 +1,33 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Owned Cocoa popup surfaces allocate real nonactivating NSPanels, never reclassify
+GLFW objects or exchange their content views/delegates. Keep hidden creation,
+primary-screen point mapping and explicit render-view leases; close may hide but
+must not destroy a leased view or a native-session-retained panel. Reentrant close
+cannot publish a new lease or visible success. This internal lifetime primitive
+does not admit source input/presentation or automatic modality; retain those gates
+until both source hosts use the owned surface. See docs/native-cocoa-owned-popup-surface.md.
+Owned Cocoa view callbacks queue typed native-point input without calling source
+handlers. Preserve button-event identity, precise scroll units/phases and input
+generations; never replace event state with current global polling. Overflow and
+callback faults must fail before publication. Native input blocking applies only
+to the owned non-key popup, not ordinary Cocoa windows. Retire closed surfaces
+after native callbacks and renderer leases end, through the managed host drain.
+Owned Cocoa Silk windows use a dedicated native platform and exact NSPanel
+identity; never send their Handle to GLFW or let a GLFW input provider claim them.
+The source owner polls events; managed popup drains must not add another global
+poll. Retain initialization/dispatch retirement guards, actual geometry and
+event-specific input generations. GPU presentation surfaces release before their
+view lease, including failed shared-surface configuration. Window/input/presentation
+integration and both source hosts remain required before automatic modality.
+Owned Cocoa input uses a typed provider with one live context and scoped native
+event metadata, never a fake keyboard or current global modifiers. Preserve all
+queued edges and point/line scroll units; policy changes cancel held/capture state
+without synthetic up/clicks and invalidate copied batch tails. Cursor rectangles
+belong to the owned view, including an owned transparent hidden cursor, not global
+hide counters or the owner's GLFW cursor. Reentrant cancellation must complete
+retirement. Explicit factory/provider availability is not source UI admission.
+
 Native compute traces report owned pipeline selection and encoding/submission
 boundaries, never completion. Preserve the immutable opt-in, per-engine bound,
 explicit truncation and unknown GPU-owned indirect dimensions. Keep both native

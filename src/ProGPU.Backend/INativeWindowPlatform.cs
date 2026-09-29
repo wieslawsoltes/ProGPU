@@ -39,6 +39,9 @@ internal static class NativeWindowPlatformFactory
 {
     public static INativeWindowPlatform Create(IWindow window)
     {
+        if (window is CocoaPopupWindow popup)
+            return new CocoaPopupNativeWindowPlatform(popup);
+
         if (OperatingSystem.IsWindows() && window.Native?.Win32 is { } win32 && win32.Hwnd != 0)
         {
             return new Win32NativeWindowPlatform(window, win32.Hwnd);

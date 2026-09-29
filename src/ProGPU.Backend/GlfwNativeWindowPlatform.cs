@@ -11,6 +11,8 @@ internal unsafe class GlfwNativeWindowPlatform : INativeWindowPlatform
 
     public GlfwNativeWindowPlatform(IWindow window)
     {
+        if (window is CocoaPopupWindow)
+            throw new ArgumentException("An owned Cocoa popup is not a GLFW window.", nameof(window));
         Window = window;
         Glfw = Glfw.GetApi();
         GlfwWindow = (WindowHandle*)(window.Native?.Glfw ?? window.Handle);
@@ -135,6 +137,7 @@ internal unsafe class GlfwNativeWindowPlatform : INativeWindowPlatform
 
     protected static NativeWindowHandle ResolveHandle(IWindow window)
     {
+        if (window is CocoaPopupWindow popup) return popup.NativeHandle;
         var native = window.Native;
         if (native?.Win32 is { } win32 && win32.Hwnd != 0)
         {

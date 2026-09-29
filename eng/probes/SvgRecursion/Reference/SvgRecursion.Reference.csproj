@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <SvgSourceRoot Condition="'$(SvgSourceRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\..\external\Svg.Skia\externals\SVG</SvgSourceRoot>
+    <UseProGpuSystemDrawing>false</UseProGpuSystemDrawing>
+    <DefineConstants>$(DefineConstants);MICROSOFT_DRAWING_REFERENCE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Program.cs" Link="Program.cs" />
+    <ProjectReference Include="$(SvgSourceRoot)/Source/Svg.csproj"
+                      AdditionalProperties="ManagePackageVersionsCentrally=false;UseProGpuSystemDrawing=false" />
+  </ItemGroup>
+</Project>

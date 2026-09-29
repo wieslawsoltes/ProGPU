@@ -1,8 +1,39 @@
+using Silk.NET.Windowing;
+
 namespace ProGPU.Backend;
 
 /// <summary>Native ownership for an already-created, hidden popup surface.</summary>
 public static class NativePopupWindow
 {
+    /// <summary>
+    /// Creates an explicit owned Cocoa popup adapter. Initialize creates its hidden
+    /// native panel on the AppKit main thread; this method does not show or focus
+    /// it. Options must be untitled, borderless, hidden, NoAPI and host-scheduled.
+    /// Attach input through NativeWindowInput and preserve its native pointer
+    /// units/cancellation. Use the owner's shared render device and dispose the GPU
+    /// surface before the window. If disposal occurs during a callback, retain the
+    /// adapter and drain DoEvents after native polling until IsInitialized is false.
+    /// This does not enable automatic modal sessions or source-framework admission.
+    /// </summary>
+    public static IWindow CreateOwnedCocoaWindow(IWindow owner, WindowOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        if (!OperatingSystem.IsMacOS())
+            throw new PlatformNotSupportedException("Owned Cocoa popup windows require macOS.");
+        var ownerHandle = GlfwNativeWindowPlatform.ResolveWindowHandle(owner);
+        if (!owner.IsInitialized || owner.IsClosing || ownerHandle.Kind != NativeWindowKind.Cocoa || !ownerHandle.IsValid)
+            throw new InvalidOperationException("An initialized, live Cocoa owner is required.");
+        return new CocoaPopupWindow(owner, ownerHandle, options, owner.ContinueEvents, (bounds, transparent) =>
+        {
+            if (!owner.IsInitialized || owner.IsClosing ||
+                GlfwNativeWindowPlatform.ResolveWindowHandle(owner) != ownerHandle)
+                throw new InvalidOperationException("The popup's source owner changed before native initialization.");
+            if (!CocoaOwnedPopupSurface.TryCreate(ownerHandle, bounds, transparent, out var surface))
+                throw new PlatformNotSupportedException("The owned Cocoa popup could not be created for this native owner.");
+            return surface!;
+        });
+    }
+
     /// <summary>
     /// Configures same-thread Win32 top-level windows as owner and nonactivating
     /// popup, or
