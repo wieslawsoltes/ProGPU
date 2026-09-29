@@ -26,7 +26,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     private readonly StackPanel _palette = new();
     private readonly Grid _workspace = new();
     private readonly ScrollViewer _canvasScroll;
-    private readonly ScrollViewer _previewScroll = new() { Visibility = Visibility.Collapsed };
+    private readonly ScrollViewer _previewScroll = new() { Visibility = Visibility.Collapsed, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly TextBlock _status;
     private readonly TextBlock _title;
     private readonly TextBlock _selectionLabel;
@@ -324,7 +324,12 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
                 elements.Add(element);
             }
             // Locked components cannot be deleted through the shared outline's context menu.
-            foreach (var locked in original.Values.Where(e => e.IsLocked && !ids.Contains(e.Id))) elements.Add(locked.Copy());
+            for (int index = 0; index < Session.ActiveScreen.Elements.Count; index++)
+            {
+                var locked = Session.ActiveScreen.Elements[index];
+                if (locked.IsLocked && !ids.Contains(locked.Id))
+                    elements.Insert(Math.Min(index, elements.Count), locked.Copy());
+            }
             _restoreSelection = _selection.Selection.OfType<HmiControl>().Select(c => c.CaptureDefinition().Id).ToArray();
             try { Session.Edit("Edit canvas", p => p.Screens.Single(s => s.Id == Session.ActiveScreenId).Elements = elements); }
             catch { RebuildDocumentViews(); throw; }

@@ -100,7 +100,7 @@ public class HmiControl : Grid
     public void ApplyDefinition(HmiElement definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (!Enum.IsDefined(definition.Symbol) || !double.IsFinite(definition.Minimum) || !double.IsFinite(definition.Maximum) || definition.Maximum <= definition.Minimum || definition.Decimals is < 0 or > 6 ||
+        if (!Enum.IsDefined(definition.Symbol) || !double.IsFinite(definition.Minimum) || !double.IsFinite(definition.Maximum) || !double.IsFinite(definition.Maximum - definition.Minimum) || definition.Maximum <= definition.Minimum || definition.Decimals is < 0 or > 6 ||
             !float.IsFinite(definition.Width) || !float.IsFinite(definition.Height) || definition.Width is < 8 or > 16384 || definition.Height is < 8 or > 16384 || definition.Action == null)
             throw new ArgumentException("Invalid HMI component dimensions, symbol, range, precision or action.", nameof(definition));
         _batching = true;
@@ -174,6 +174,8 @@ public class HmiControl : Grid
             HmiSymbol.Valve or HmiSymbol.ToggleSwitch => IsActive ? "OPEN / ON" : "CLOSED / OFF",
             _ => Quality == HmiQuality.Good ? Value.ToString("F" + _definition.Decimals, CultureInfo.InvariantCulture) + (Unit.Length > 0 ? " " + Unit : "") : "—"
         };
+        if (Quality != HmiQuality.Good && Symbol is (HmiSymbol.Pump or HmiSymbol.Motor or HmiSymbol.Indicator or HmiSymbol.Conveyor or HmiSymbol.Valve or HmiSymbol.ToggleSwitch))
+            _value.Text = "UNKNOWN";
         _value.FontSize = Symbol == HmiSymbol.AlarmList ? 12 : Symbol == HmiSymbol.NumericDisplay ? 27 : 16;
         _command.IsHitTestVisible = CommandsEnabled && RuntimeEnabled && Quality == HmiQuality.Good;
         _inputRow.IsHitTestVisible = CommandsEnabled && RuntimeEnabled && Quality == HmiQuality.Good;
