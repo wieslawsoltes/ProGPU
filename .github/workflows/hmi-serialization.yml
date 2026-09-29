@@ -1,0 +1,40 @@
+name: HMI serialization and NativeAOT
+
+on:
+  push:
+    branches: [main, feat/hmi-designer]
+    paths: ['src/ProGPU.Hmi/**', 'tests/ProGPU.Hmi.SerializationSmoke/**', '.github/workflows/hmi-serialization.yml']
+  pull_request:
+    paths: ['src/ProGPU.Hmi/**', 'tests/ProGPU.Hmi.SerializationSmoke/**', '.github/workflows/hmi-serialization.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hmi-json-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  serialization:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Execute with reflection disabled on CoreCLR
+        run: dotnet run --project tests/ProGPU.Hmi.SerializationSmoke/ProGPU.Hmi.SerializationSmoke.csproj -c Release
+      - name: Publish real NativeAOT executable
+        run: dotnet publish tests/ProGPU.Hmi.SerializationSmoke/ProGPU.Hmi.SerializationSmoke.csproj -c Release -r ${{ matrix.rid }} -p:PublishAot=true -p:TrimmerSingleWarn=false -p:ILLinkTreatWarningsAsErrors=true -o artifacts/hmi-aot
+      - name: Execute native serialization probe
+        run: ./artifacts/hmi-aot/ProGPU.Hmi.SerializationSmoke

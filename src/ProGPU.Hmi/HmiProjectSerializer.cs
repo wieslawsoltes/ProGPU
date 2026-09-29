@@ -1,38 +1,33 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace ProGPU.Hmi;
 
 public static class HmiProjectSerializer
 {
     public const int MaximumDocumentBytes = 8 * 1024 * 1024;
-    private static readonly JsonSerializerOptions Options = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        MaxDepth = 32,
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-        Converters = { new JsonStringEnumConverter(allowIntegerValues: false) }
-    };
 
     public static string Serialize(HmiProject project)
     {
         Validate(project);
-        string json = JsonSerializer.Serialize(project, Options);
-        if (Encoding.UTF8.GetByteCount(json) > MaximumDocumentBytes) throw new InvalidDataException("The HMI project exceeds the 8 MiB document budget.");
+        string json = JsonSerializer.Serialize(project, HmiJsonContext.ProjectContext.HmiProject);
+        if (Encoding.UTF8.GetByteCount(json) > MaximumDocumentBytes)
+            throw new InvalidDataException("The HMI project exceeds the 8 MiB document budget.");
         return json;
     }
+
     public static HmiProject Deserialize(string json)
     {
         ArgumentNullException.ThrowIfNull(json);
         if (json.Length > MaximumDocumentBytes || Encoding.UTF8.GetByteCount(json) > MaximumDocumentBytes)
             throw new InvalidDataException("The HMI project exceeds the 8 MiB document budget.");
-        var project = JsonSerializer.Deserialize<HmiProject>(json, Options) ?? throw new InvalidDataException("An HMI project is required.");
+        var project = JsonSerializer.Deserialize(json, HmiJsonContext.ProjectContext.HmiProject)
+            ?? throw new InvalidDataException("An HMI project is required.");
         Validate(project);
         return project;
     }
+
     public static HmiProject Clone(HmiProject project) => Deserialize(Serialize(project));
 
     public static void Validate(HmiProject project)

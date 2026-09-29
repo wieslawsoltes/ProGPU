@@ -6,8 +6,10 @@
     <IsTestProject>true</IsTestProject>
     <IsPackable>false</IsPackable>
     <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
   <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault" Value="false" />
     <ProjectReference Include="../../src/ProGPU.Hmi.Modbus/ProGPU.Hmi.Modbus.csproj" />
     <ProjectReference Include="../../src/ProGPU.Hmi.Mqtt/ProGPU.Hmi.Mqtt.csproj" />
     <PackageReference Include="MQTTnet.Server" />
