@@ -103,13 +103,20 @@ public sealed class HmiWriteCoordinator
     }
     private async ValueTask<HmiWriteResult> CompleteAsync(HmiWriteRequest request, HmiWriteResult result)
     {
+        using var deadline = new CancellationTokenSource(_profile.TimeoutMilliseconds);
+        var auditToken = deadline.Token;
         try
         {
-            await _dispatch(() => Log("Write:" + result.Disposition, request.Tag, $"{request.Id}: {result.Detail}"), CancellationToken.None).ConfigureAwait(false);
+            await _dispatch(() =>
+            {
+                // A copied token remains safe to inspect even after the deadline source has been disposed.
+                if (auditToken.IsCancellationRequested) return;
+                Log("Write:" + result.Disposition, request.Tag, $"{request.Id}: {result.Detail}");
+            }, auditToken).AsTask().WaitAsync(auditToken).ConfigureAwait(false);
         }
         catch (Exception error)
         {
-            // A shutdown-time audit failure cannot erase or relabel the already observed transport outcome.
+            // A retired/stalled dispatcher cannot hide an already observed transport result or hold it indefinitely.
             return result with { Detail = result.Detail + " Audit publication failed: " + error.Message };
         }
         return result;
