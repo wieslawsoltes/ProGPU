@@ -13,6 +13,8 @@ on:
       - src/ProGPU.Vector/**
       - eng/SystemDrawing.SvgCorpus/**
       - eng/probes/SvgRecursion/**
+      - eng/progpu-verify-svg-recursion.py
+      - eng/tests/test_svg_recursion_reference.py
       - eng/progpu-prepare-svg-system-drawing.sh
       - eng/svg-system-drawing.Directory.Packages.props
       - eng/system-drawing-svg-known-differences.txt
@@ -32,6 +34,8 @@ on:
       - src/ProGPU.Vector/**
       - eng/SystemDrawing.SvgCorpus/**
       - eng/probes/SvgRecursion/**
+      - eng/progpu-verify-svg-recursion.py
+      - eng/tests/test_svg_recursion_reference.py
       - eng/progpu-prepare-svg-system-drawing.sh
       - eng/svg-system-drawing.Directory.Packages.props
       - eng/system-drawing-svg-known-differences.txt
@@ -120,6 +124,25 @@ jobs:
           name: svg-recursion-${{ matrix.kind }}-${{ matrix.rid }}-${{ github.sha }}
           path: artifacts/svg-recursion/**
           if-no-files-found: error
+
+  recursion-comparison:
+    name: SVG.NET recursive scale rejection versus Microsoft
+    needs: recursion-reference
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout ProGPU
+        uses: actions/checkout@v7
+      - name: Exercise verifier rejection controls
+        run: python3 -m unittest discover -s eng/tests -p test_svg_recursion_reference.py -v
+      - name: Download this run's native and portable receipts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: svg-recursion-*-${{ github.sha }}
+          path: artifacts/svg-recursion-comparison
+          merge-multiple: true
+      - name: Require all three failures to match both Windows architectures
+        run: python3 eng/progpu-verify-svg-recursion.py artifacts/svg-recursion-comparison
 
   quality:
     name: SVG.NET ${{ matrix.suite }} quality

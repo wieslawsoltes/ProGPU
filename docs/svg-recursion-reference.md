@@ -60,3 +60,35 @@ This repair still requires hosted execution. No exception-inventory entry or
 quality threshold is changed. The Windows checkouts have different raw SVG hashes
 from Linux; receipts now additionally hash LF-normalized decoded source text to
 check for checkout line-ending differences without changing the rendered files.
+
+## Confirmed rejection contract after the repair
+
+At `c776534aab5506cb52f0bfea9be43d9e98d03e3a`, run `36520358711` captured
+matching outcomes for every fixture on all three providers. The portable first
+drawing exception now comes from world-transform validation, and the final
+exception is `System.ArgumentException` at `Graphics.ScaleTransform`, just as
+on Microsoft Windows x64 and ARM64. No worker crashed or exceeded its deadline.
+LF-normalized source hashes, reference PNG hashes and dimensions match across all
+three platforms; the raw source hash differences are checkout line endings.
+
+Evidence artifacts in that run are `11012991165` (Linux), `11012856156`
+(Windows x64), and `11012821199` (Windows ARM64). The normalized source hashes are:
+
+| Fixture | Source SHA-256 |
+| --- | --- |
+| resvg recursive-2 | `cb67b2517587193fc29b1133301d600d3dded58ccf2700465d650bec6ccb6233` |
+| W3C struct-image-12-b | `d1f647202ade5a6cbfa8a033aafd4295fa37a7a06d634b45c76f3ead31e9b94f` |
+| W3C struct-use-08-b | `602c6de2c600dc5c414c010d3cb032df25ffbd5bda5c16b276fa5f3e00b3826a` |
+
+Only these three obsolete isolation-exception expectations are changed to the
+observed `System.ArgumentException`. They remain failed renders, not passing
+images. The full quality inventory still compares exact fixture/type pairs;
+pixel thresholds, difference inventories and worker deadlines are untouched.
+
+The new `progpu-verify-svg-recursion.py` CI gate requires all three ordered
+workers from both Microsoft architectures and ProGPU, matching input hashes and
+dimensions, actual provider/runtime identities, the pinned portable font pack,
+and scale rejection without an earlier masked drawing error. Missing receipts,
+crashes, timeouts, substituted providers and cleanup failures fail the gate.
+Seventeen synthetic verifier controls are authored separately; they are not renderer
+evidence. The final whole SVG and Build workflows remain required before merge.

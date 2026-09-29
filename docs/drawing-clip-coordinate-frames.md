@@ -8,7 +8,8 @@ inverse overflows, or manufacture an identity for an unrepresentable result.
 This is shared System.Drawing capture/query ingress; both managed and native
 renderers retain the same source geometry commands, with no renderer algorithm
 change. See [recursive SVG evidence](svg-recursion-reference.md) for the independent
-Windows comparison and still-pending qualification of this follow-up.
+Windows comparison, the confirmed recursive-scale rejection contract, and the
+remaining whole-workflow qualification of this follow-up.
 
 `Graphics.SetClip` captures geometry in the current world/page/container/host
 mapping. Later transforms change drawing coordinates, not that captured coverage.
