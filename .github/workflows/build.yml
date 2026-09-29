@@ -1425,6 +1425,22 @@ jobs:
           dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
           dotnet build src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
 
+      - name: Run owned Cocoa popup lifecycle contracts
+        run: >-
+          dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj
+          --configuration Release --runtime ${{ matrix.rid }} --no-build
+          --filter "FullyQualifiedName~CocoaPopup|FullyQualifiedName~CocoaOwnedPopupSurfaceTests"
+          --logger "trx;LogFileName=owned-cocoa-popup.trx"
+          --results-directory artifacts/owned-cocoa-popup
+
+      - name: Upload owned Cocoa popup lifecycle results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: owned-cocoa-popup-${{ matrix.rid }}
+          path: artifacts/owned-cocoa-popup
+          if-no-files-found: warn
+
       - name: Run X11 popup server-state contracts
         if: runner.os == 'Linux'
         shell: bash

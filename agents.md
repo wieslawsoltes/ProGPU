@@ -27,6 +27,13 @@ without synthetic up/clicks and invalidate copied batch tails. Cursor rectangles
 belong to the owned view, including an owned transparent hidden cursor, not global
 hide counters or the owner's GLFW cursor. Reentrant cancellation must complete
 retirement. Explicit factory/provider availability is not source UI admission.
+Source-scheduled Cocoa popups may create their hidden panel/view before owner
+assignment, never a fake managed parent. Bind or clear only while hidden and
+detached, preserving the panel, device and render leases; keep original fixed-owner
+factories fixed. Native input/Show require a live bound owner, and binding retains
+exact owner identity and source input intent. Failed setup requires source disposal;
+same-owner verification is nonmutating. This does not select source factories or
+admit wheel compatibility, native modal input or application rendering.
 
 Native compute traces report owned pipeline selection and encoding/submission
 boundaries, never completion. Preserve the immutable opt-in, per-engine bound,
