@@ -74,11 +74,21 @@ jobs:
       - name: Build shared sample gallery
         if: ${{ !cancelled() }}
         run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
-      # Select only the host's build TFM; do not override TargetFrameworks globally.
-      # That global override also changes restore for netstandard2.0 XAML generators.
+      - name: Verify host-only target selection preserves compiler dependencies
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $hostTargets = dotnet msbuild src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -nologo -getProperty:TargetFrameworks -p:ProGpuSamplesDesktopPortableOnly=true
+          if ($LASTEXITCODE -ne 0 -or "$hostTargets".Trim() -ne 'net10.0') { throw 'Portable desktop target selection failed.' }
+          foreach ($project in @('ProGPU.Xaml', 'ProGPU.Xaml.SourceGenerator')) {
+            $target = dotnet msbuild "src/$project/$project.csproj" -nologo -getProperty:TargetFramework -p:ProGpuSamplesDesktopPortableOnly=true
+            if ($LASTEXITCODE -ne 0 -or "$target".Trim() -ne 'netstandard2.0') { throw "$project was incorrectly retargeted." }
+          }
+      # Restore must not discover the host's optional Apple targets on portable CI.
+      # This property is consumed only by the host, unlike a global TargetFrameworks override.
       - name: Build the desktop gallery host
         if: ${{ !cancelled() }}
-        run: dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:EnableWindowsTargeting=true
+        run: dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:ProGpuSamplesDesktopPortableOnly=true
       - name: Exercise actual gallery page construction without reflection JSON
         if: ${{ !cancelled() }}
         run: dotnet run --project tests/ProGPU.Hmi.GallerySmoke/ProGPU.Hmi.GallerySmoke.csproj -c Release
