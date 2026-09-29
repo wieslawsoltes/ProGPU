@@ -6,6 +6,8 @@ namespace ProGPU.WinUI.Hmi.Designer;
 public sealed partial class HmiDesignerHost
 {
     private HmiAcquisitionSession? _acquisition;
+    private IHmiConnection? _connectedTransport;
+    private string? _connectedProfileId;
     private HmiWriteCoordinator? _writeCoordinator;
     private HmiWriteRequest? _writeRequest;
     private CancellationTokenSource? _connectionLifetime;
@@ -28,39 +30,60 @@ public sealed partial class HmiDesignerHost
     }
     private async Task ConnectHardwareAsync()
     {
+        int generation = _connectionGeneration;
         try
         {
-            if (ConnectionFactory == null) throw new InvalidOperationException("The embedding application has not registered protocol adapters.");
+            var factory = ConnectionFactory ?? throw new InvalidOperationException("The embedding application has not registered protocol adapters.");
             var project = Session.GetProject();
             var profile = FindProfile(project).Copy();
             profile.Validate(project.Tags); profile.RequireTransportPermission();
-            if (profile.Mappings.Count == 0) throw new InvalidOperationException("Configure at least one I/O mapping before connecting.");
-            StopPreview();
-            int generation = _connectionGeneration;
-            var retiring = _transportRetirements.ToArray();
-            await Task.WhenAll(retiring).ConfigureAwait(false);
+            if (profile.Mappings.Count == 0 && profile.Protocol != HmiConnectionProtocol.OpcUa)
+                throw new InvalidOperationException("Configure at least one I/O mapping before connecting.");
+            StopPreview(); generation = _connectionGeneration;
+            string revision = Session.ExportJson();
+            string screenId = Session.ActiveScreenId;
+            await Task.WhenAll(_transportRetirements.ToArray()).ConfigureAwait(false);
             await DispatchRuntimeAsync(() =>
             {
                 if (_disposed || generation != _connectionGeneration) return;
-                var connection = ConnectionFactory(profile);
-                _connectionLifetime = new CancellationTokenSource();
-                _runtime = new HmiRuntime(project, initializeGoodQuality: false);
-                _runtime.Start(allowLocalWrites: false);
-                _preview = new HmiScreenView(project, _runtime, Session.ActiveScreenId, _font) { CommandRequested = PrepareHardwareWrite };
-                _preview.Error += message => Status(message, true);
-                _previewScroll.Content = _preview;
-                _previewScroll.Visibility = Visibility.Visible; _canvasScroll.Visibility = Visibility.Collapsed;
-                _writeCoordinator = new HmiWriteCoordinator(project, profile, _runtime, connection, DispatchRuntimeAsync,
-                    (request, token) => WriteAuthorizer?.Invoke(request, token) ?? ValueTask.FromResult(false));
-                _acquisition = new HmiAcquisitionSession(connection, profile, _runtime, DispatchRuntimeAsync);
-                _acquisition.Start();
-                _pendingCommand.Text = $"LIVE {profile.Protocol}: {profile.Host}:{profile.Port} · Read-only acquisition. Every command requires review and host authorization.";
-                RefreshTables(); UpdateInspector(); Status("Connecting to " + profile.Name + " · real transport; no simulation tick source");
+                if (revision != Session.ExportJson()) throw new InvalidOperationException("The project changed during connection setup. Review its configuration and connect again.");
+                var connection = factory(profile) ?? throw new InvalidOperationException("The transport factory returned null.");
+                HmiAcquisitionSession? acquisition = null;
+                HmiScreenView? preview = null;
+                try
+                {
+                    var runtime = new HmiRuntime(project, initializeGoodQuality: false);
+                    runtime.Start(allowLocalWrites: false);
+                    preview = new HmiScreenView(project, runtime, screenId, _font) { CommandRequested = PrepareHardwareWrite };
+                    preview.Error += message => Status(message, true);
+                    var coordinator = new HmiWriteCoordinator(project, profile, runtime, connection, DispatchRuntimeAsync,
+                        (request, token) => WriteAuthorizer?.Invoke(request, token) ?? ValueTask.FromResult(false));
+                    acquisition = new HmiAcquisitionSession(connection, profile, runtime, DispatchRuntimeAsync);
+                    _connectionLifetime = new CancellationTokenSource();
+                    _connectedTransport = connection; _connectedProfileId = profile.Id;
+                    _runtime = runtime; _preview = preview; _writeCoordinator = coordinator; _acquisition = acquisition;
+                    _previewScroll.Content = preview;
+                    _previewScroll.Visibility = Visibility.Visible; _canvasScroll.Visibility = Visibility.Collapsed;
+                    acquisition.Start();
+                }
+                catch
+                {
+                    preview?.Dispose();
+                    if (acquisition == null) _transportRetirements.Add(RetireUnownedTransportAsync(connection));
+                    else if (!ReferenceEquals(acquisition, _acquisition)) _transportRetirements.Add(RetireTransportAsync(acquisition));
+                    throw;
+                }
+                _pendingCommand.Text = $"LIVE {profile.Protocol}: {profile.Host}:{profile.Port} · Read-only acquisition. Commands require review and host authorization.";
+                RefreshTables(); UpdateInspector(); Status("Connecting to " + profile.Name + " · no simulation source");
             }, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception error)
         {
-            await DispatchRuntimeAsync(() => { if (!_disposed) { StopPreview(); Status("Connection failed: " + error.Message, true); } }, CancellationToken.None).ConfigureAwait(false);
+            await DispatchRuntimeAsync(() =>
+            {
+                // A late failure from a superseded attempt cannot stop its replacement.
+                if (!_disposed && generation == _connectionGeneration) { StopPreview(); Status("Connection failed: " + error.Message, true); }
+            }, CancellationToken.None).ConfigureAwait(false);
         }
     }
     private void StopHardwareAcquisition()
@@ -68,10 +91,16 @@ public sealed partial class HmiDesignerHost
         _connectionGeneration++;
         _connectionLifetime?.Cancel(); _connectionLifetime?.Dispose(); _connectionLifetime = null;
         _writeCoordinator?.RevokeAll(); _writeCoordinator = null; _writeRequest = null;
+        _connectedTransport = null; _connectedProfileId = null;
         var acquisition = _acquisition; _acquisition = null;
         _transportRetirements.RemoveAll(t => t.IsCompleted);
         if (acquisition != null) _transportRetirements.Add(RetireTransportAsync(acquisition));
         if (_pendingCommand != null) _pendingCommand.Text = "No external command pending.";
+    }
+    private async Task RetireUnownedTransportAsync(IHmiConnection connection)
+    {
+        try { await connection.DisposeAsync().ConfigureAwait(false); }
+        catch (Exception error) { UIThread.Post(() => { if (!_disposed) Status("Transport retirement: " + error.Message, true); }); }
     }
     private async Task RetireTransportAsync(HmiAcquisitionSession acquisition)
     {
@@ -99,7 +128,7 @@ public sealed partial class HmiDesignerHost
             DiscardHardwareWrite();
             _writeRequest = _writeCoordinator.Prepare(tag, value, _operator.Text, _reason.Text);
             _pendingCommand.Text = $"REVIEW {_writeRequest.Tag}: {_writeRequest.ObservedValue} → {_writeRequest.Value} · expires {_writeRequest.ExpiresAt:HH:mm:ss} UTC · {_writeRequest.Reason}";
-            Status("Command prepared, not sent. Review it in Connections, then confirm explicitly.");
+            Status("Command prepared, not sent. Review in Connections and confirm explicitly.");
         });
     }
     private void DiscardHardwareWrite()
@@ -113,7 +142,7 @@ public sealed partial class HmiDesignerHost
         var request = _writeRequest; _writeRequest = null;
         var coordinator = _writeCoordinator; int generation = _connectionGeneration;
         var token = _connectionLifetime.Token;
-        _pendingCommand.Text = "Checking authorization and current feedback…";
+        _pendingCommand.Text = "Checking authorization, session identity and current feedback…";
         try
         {
             var result = await coordinator.ConfirmAsync(request.Id, token).ConfigureAwait(false);
@@ -124,6 +153,9 @@ public sealed partial class HmiDesignerHost
                 Status(_pendingCommand.Text, !result.Acknowledged);
             }, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception error) { UIThread.Post(() => { if (!_disposed) Status("Command processing failed: " + error.Message, true); }); }
+        catch (Exception error)
+        {
+            UIThread.Post(() => { if (!_disposed && generation == _connectionGeneration) Status("Command processing failed: " + error.Message, true); });
+        }
     }
 }

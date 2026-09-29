@@ -1,0 +1,50 @@
+name: HMI OPC UA integration validation
+on:
+  push:
+    branches: [feat/hmi-designer]
+    paths: ['eng/hmi-opcua-integrate.py']
+permissions:
+  contents: read
+jobs:
+  integrate:
+    if: github.repository == 'wieslawsoltes/ProGPU' && github.ref == 'refs/heads/feat/hmi-designer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Apply guarded integration edits
+        id: apply
+        run: python3 eng/hmi-opcua-integrate.py
+      - name: Commit exact integration paths
+        run: |
+          git diff --check
+          git add Directory.Packages.props samples/HmiDesigner src/ProGPU.Samples src/ProGPU.Hmi.OpcUa src/ProGPU.Hmi.Modbus src/ProGPU.Hmi.Mqtt src/ProGPU.WinUI.Hmi.Designer
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(hmi): wire OPC UA commissioning and session-bound external commands'
+          git push origin HEAD:refs/heads/feat/hmi-designer
+      - name: OPC UA scalar and real server tests
+        run: dotnet test tests/ProGPU.Hmi.OpcUa.Tests/ProGPU.Hmi.OpcUa.Tests.csproj -c Release --logger "trx;LogFileName=opcua.trx" --results-directory artifacts/hmi/tests
+      - name: HMI and existing protocol regression tests
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
+        run: dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi/tests
+      - name: Build standalone designer
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
+        run: dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release
+      - name: Build gallery
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
+        run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hmi-opcua-integration
+          path: artifacts/hmi
+          if-no-files-found: ignore
