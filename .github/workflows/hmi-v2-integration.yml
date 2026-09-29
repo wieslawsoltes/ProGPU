@@ -2,7 +2,7 @@ name: HMI v2 integration validation
 on:
   push:
     branches: [feat/hmi-designer]
-    paths: ['eng/hmi-v2-integrate.py']
+    paths: ['eng/hmi-v2-integrate.py', '.github/workflows/hmi-v2-integration.yml']
 permissions:
   contents: read
 jobs:
@@ -22,7 +22,17 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Apply guarded integration
         id: integrate
-        run: python3 eng/hmi-v2-integrate.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('eng/hmi-v2-integrate.py')
+          source = path.read_text(encoding='utf-8')
+          before = chr(39) + chr(34) + 'Stop before editing.'
+          after = chr(39) + 'Stop before editing.'
+          assert source.count(before) == 2, 'Expected the two help-string match guards'
+          source = source.replace(before, after)
+          exec(compile(source, str(path), 'exec'))
+          PY
       - name: Commit integrated sources
         run: |
           git diff --check
