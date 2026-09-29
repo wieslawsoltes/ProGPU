@@ -1,0 +1,36 @@
+name: HMI authoring workspace
+on:
+  push:
+    branches: [feat/hmi-designer]
+    paths: ['.github/workflows/hmi-workspace.yml']
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore focused authoring dependency closure
+        run: dotnet restore tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj
+      - name: Create isolated offline workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/workspace/source artifacts/workspace/sdk artifacts/workspace/packages
+          git ls-files -z | tar --null -T - --exclude='*.ttf' --exclude='*.otf' --exclude='*.woff*' --exclude='external/*' -cf - | tar -xf - -C artifacts/workspace/source
+          sdkroot=$(dirname "$(readlink -f "$(command -v dotnet)")")
+          cp "$sdkroot/dotnet" artifacts/workspace/sdk/
+          cp -a "$sdkroot/host" "$sdkroot/packs" "$sdkroot/shared" artifacts/workspace/sdk/
+          mkdir -p artifacts/workspace/sdk/sdk
+          cp -a "$sdkroot/sdk/$(dotnet --version)" artifacts/workspace/sdk/sdk/
+          cp -a ~/.nuget/packages/. artifacts/workspace/packages/
+          tar -czf artifacts/hmi-workspace.tar.gz -C artifacts/workspace .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hmi-authoring-workspace
+          path: artifacts/hmi-workspace.tar.gz
+          retention-days: 1
