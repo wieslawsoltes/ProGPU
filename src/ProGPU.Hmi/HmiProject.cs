@@ -66,6 +66,8 @@ public sealed class HmiElement
     public string FaceplateInstanceId { get; set; } = "";
     public string FaceplateSourceId { get; set; } = "";
     public string FaceplatePrefix { get; set; } = "";
+    public float FaceplateSourceX { get; set; }
+    public float FaceplateSourceY { get; set; }
 
     public HmiElement Copy(bool newIdentity = false) => new()
     {
@@ -79,6 +81,8 @@ public sealed class HmiElement
         FaceplateTemplateId = newIdentity ? "" : FaceplateTemplateId,
         FaceplateInstanceId = newIdentity ? "" : FaceplateInstanceId,
         FaceplateSourceId = newIdentity ? "" : FaceplateSourceId,
-        FaceplatePrefix = newIdentity ? "" : FaceplatePrefix
+        FaceplatePrefix = newIdentity ? "" : FaceplatePrefix,
+        FaceplateSourceX = newIdentity ? 0 : FaceplateSourceX,
+        FaceplateSourceY = newIdentity ? 0 : FaceplateSourceY
     };
 }

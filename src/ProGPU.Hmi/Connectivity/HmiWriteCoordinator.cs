@@ -61,7 +61,7 @@ public sealed class HmiWriteCoordinator
         {
             token.ThrowIfCancellationRequested();
             if (_clock.GetUtcNow() >= request.ExpiresAt) throw new InvalidOperationException("Confirmation expired.");
-            if (_authorize == null || !await _authorize(request, token).ConfigureAwait(false))
+            if (_authorize == null || !await _authorize(request, token).AsTask().WaitAsync(token).ConfigureAwait(false))
                 throw new InvalidOperationException("Host authorization denied the command.");
             await _dispatch(() =>
             {

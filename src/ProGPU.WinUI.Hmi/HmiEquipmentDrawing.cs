@@ -34,6 +34,7 @@ internal static class HmiEquipmentDrawing
     };
     internal static void Draw(DrawingContext dc, HmiSymbol symbol, float width, float top, float bottom, float fraction, Brush status, float phase)
     {
+        if (width < 48 || bottom - top < 32) return;
         float left = width * 0.15f, right = width * 0.85f;
         float height = Math.Max(8, bottom - top);
         float cy = (top + bottom) / 2;
@@ -107,7 +108,7 @@ internal static class HmiEquipmentDrawing
                 break;
         }
     }
-    private static void Polyline(DrawingContext dc, Pen pen, params Vector2[] points)
+    private static void Polyline(DrawingContext dc, Pen pen, params ReadOnlySpan<Vector2> points)
     {
         for (int i = 1; i < points.Length; i++) dc.DrawLine(pen, points[i - 1], points[i]);
     }

@@ -137,7 +137,7 @@ public sealed class HmiModbusConnection : IHmiConnection
             return new(HmiWriteDisposition.DeviceAcknowledged, "Controller acknowledged the absolute write; await independent process feedback.");
         }
         catch (HmiModbusException error) { return new(HmiWriteDisposition.Rejected, error.Message); }
-        catch (Exception error) when (error is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
+        catch (Exception error) when (error is IOException or InvalidDataException or SocketException or OperationCanceledException or ObjectDisposedException)
         {
             if (entered) CloseStream();
             return new(transmissionStarted ? HmiWriteDisposition.Indeterminate : HmiWriteDisposition.NotSent,

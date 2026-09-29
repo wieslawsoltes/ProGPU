@@ -162,7 +162,7 @@ public sealed class HmiMqttConnection : IHmiConnection
             await _serial.WaitAsync(timeout.Token).ConfigureAwait(false); entered = true;
             if (!IsConnected) return new(HmiWriteDisposition.NotSent, "MQTT is disconnected; commands are not queued.");
             var message = new MqttApplicationMessageBuilder().WithTopic(mapping.CommandTopic).WithPayload(payload)
-                .WithAtLeastOnceQoS().WithRetainFlag(false).Build();
+                .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce).WithRetainFlag(false).Build();
             timeout.Token.ThrowIfCancellationRequested(); started = true;
             var result = await _client!.PublishAsync(message, timeout.Token).ConfigureAwait(false);
             return (int)result.ReasonCode >= 128

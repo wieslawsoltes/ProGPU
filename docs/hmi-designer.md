@@ -21,15 +21,15 @@ This sample targets **ProGPU's WinUI-compatible `Microsoft.UI.Xaml` implementati
 | `ProGPU.WinUI.Designer` | Existing shared canvas, toolbox drag/drop, outline, layout inspector; new bounded journal, multi-selection commands/adorners and custom-state registration | Shared infrastructure |
 | `ProGPU.WinUI.Hmi.Designer` | HMI project sessions, workbench, binding/action inspector, data editors and local preview lifecycle | Reuses the shared designer |
 
-The three new libraries are packable and inherit the repository's versioning and signing settings. Adding them to the repository does not publish packages to NuGet automatically.
+The core, controls, designer and two optional transport libraries are packable and inherit the repository's versioning and signing settings. Adding them to the repository does not publish packages to NuGet automatically.
 
 ## Authoring workflows
 
 The **Screens** pane creates, duplicates, names and switches screens. The inspector with no selection edits project name, screen name, dimensions and start-screen ID. Screen deletion refuses to remove the final screen or a screen still referenced by navigation actions.
 
-The searchable **Components** pane offers 20 symbol types: tank, pump, valve, motor, pipe, conveyor, gauge, bar graph, numeric display/input, indicator, trend, alarm banner/list, command button, toggle, navigation button, recipe button, label and rectangle. Drag an item using the shared `ToolboxItem`, or click **+** to insert it. The original two-screen water-treatment project demonstrates linked tags, trends, navigation, alarms and recipes.
+The searchable **Components** pane offers 28 symbol types: tank, pump, valve, motor, pipe, conveyor, gauge, bar graph, numeric display/input, indicator, trend, alarm banner/list, command button, toggle, navigation button, recipe button, label and rectangle. Drag an item using the shared `ToolboxItem`, or click **+** to insert it. The original two-screen water-treatment project demonstrates linked tags, trends, navigation, alarms and recipes.
 
-The shared `DesignerCanvas` owns dragging, resize handles, grid/snapping, pointer-centered zoom and panning. The shared logical outline treats composite HMI controls as atomic components rather than exposing their private label/input visuals. Ctrl-click or **Select all** builds a selection set. Toolbar commands align all six edges/centers, distribute horizontally/vertically, move forward/back, group/ungroup and lock/unlock. Group selection and movement preserve individual component identities. Groups are flat authoring groups, not nested reusable symbol definitions.
+The shared `DesignerCanvas` owns dragging, resize handles, grid/snapping, pointer-centered zoom and panning. The shared logical outline treats composite HMI controls as atomic components rather than exposing their private label/input visuals. Ctrl-click or **Select all** builds a selection set. Toolbar commands align all six edges/centers, distribute horizontally/vertically, move forward/back, group/ungroup and lock/unlock. Group selection and movement preserve individual component identities. Groups are flat authoring groups. The Faceplates tab provides typed reusable equipment compositions with explicit master synchronization; recursive nested templates remain outside this implementation.
 
 `Ctrl+C/X/V/D` copies, cuts, pastes and duplicates. The clipboard is a detached model snapshot; pasted elements get fresh identities and independent group IDs. `Delete` removes unlocked elements. Arrows nudge one unit; Shift+arrows nudge ten. `Ctrl+Z/Y` undo and redo. Text-input focus retains ordinary text-editing keys. Locking protects design manipulation; it is not runtime authorization.
 
@@ -72,15 +72,15 @@ runtime.AdvanceSimulation(TimeSpan.FromMilliseconds(100));
 // screen.Dispose(); runtime.Stop();
 ```
 
-`HmiControlCatalog.Items` describes all 20 insertable symbols. `HmiControlCatalog.Create` creates configured controls. Strongly typed classes are provided for tank, pump, valve, motor, gauge, trend, alarm list and numeric display; `HmiControl(HmiSymbol)` covers every symbol. Common display values use dependency properties (`Value`, `Label`, `Unit`, `Quality`, `IsActive`). `ApplyDefinition` and `CaptureDefinition` exchange detached design configuration, not event handlers or live telemetry.
+`HmiControlCatalog.Items` describes all 28 insertable symbols. `HmiControlCatalog.Create` creates configured controls. Strongly typed classes are provided for tank, pump, valve, motor, gauge, trend, alarm list and numeric display; `HmiControl(HmiSymbol)` covers every symbol. Common display values use dependency properties (`Value`, `Label`, `Unit`, `Quality`, `IsActive`). `ApplyDefinition` and `CaptureDefinition` exchange detached design configuration, not event handlers or live telemetry.
 
 `HmiDesignerRegistration.Register()` is an optional bridge. It registers factories, configuration copying and atomic logical-tree policy in the shared designer registry. Runtime controls never reference the designer assembly. Third-party controls can use the same registration overload without changing HMI internals.
 
 ## Runtime semantics and performance
 
-The runtime has a **single owner thread**. Acquisition adapters must marshal completed batches onto that thread. `IHmiTagSource` is a read-adapter seam, not a built-in industrial protocol driver. Samples have typed values, quality and source timestamps. Publishing validates the whole batch first and rejects unknown tags, malformed quality, future timestamps and per-tag time reversal. Effective stale quality is computed from each tag's configured timeout.
+The runtime has a **single owner thread**. Acquisition adapters must marshal completed batches onto that thread. `IHmiTagSource` is the read-adapter seam. Optional `ProGPU.Hmi.Modbus` and `ProGPU.Hmi.Mqtt` packages provide real transports; see [control integrations](hmi-control-integrations.md). Samples have typed values, quality and source timestamps. Publishing validates the whole batch first and rejects unknown tags, malformed quality, future timestamps and per-tag time reversal. Effective stale quality is computed from each tag's configured timeout.
 
-Local writes require a running runtime, explicit local-write permission, a writable destination, good quality, matching value type and an in-range value. The sample's **Run** command explicitly enables local simulation writes. The reusable runtime defaults to read-only. No write is forwarded to a transport.
+Local writes require a running runtime, explicit local-write permission, a writable destination, good quality, matching value type and an in-range value. The sample's **Run** command explicitly enables local simulation writes. The reusable runtime defaults to read-only. Local simulation writes are never forwarded to a transport. Live acquisition uses a separate, explicitly authorized and reviewed external-command coordinator.
 
 Alarm state distinguishes active, returned and acknowledged conditions. Acknowledgement does not clear an active condition. Bad/stale quality preserves an existing active alarm and reports unknown quality instead of silently returning it to normal. Delay timing is based on the runtime clock. The bounded audit journal records local commands and lifecycle operations; it is not a durable, tamper-evident compliance log.
 
@@ -109,6 +109,11 @@ The dedicated GitHub Actions workflow builds the standalone host and gallery, ru
 
 ## Deliberate boundaries
 
-This implementation is an HMI authoring, rendering and local-runtime library, **not a commissioned SCADA or safety system**. It does not include built-in OPC UA/DA, Modbus or MQTT drivers, PLC downloads, distributed redundancy, durable historian storage, alarm shelving/escalation, multi-user authorization, a credential vault, tamper-evident audit storage, nested symbol templates, advanced industrial connector routing, or vendor project-format interoperability. Alarm-list controls show a bounded summary, not a server-side alarm historian. Browser file pickers, deployed browser sample qualification and device-specific touch qualification are separate work.
+This implementation is an HMI authoring, rendering and local-runtime library, **not a commissioned SCADA or safety system**. Optional adapters support Modbus TCP and MQTT 5/TLS with the boundaries in [control integrations](hmi-control-integrations.md). It does not include OPC UA/DA, PLC downloads, distributed redundancy, durable historian storage, alarm shelving/escalation, multi-user authorization, a credential vault, tamper-evident audit storage, recursive nested symbol templates, advanced industrial connector routing, or vendor project-format interoperability. Alarm-list controls show a bounded summary, not a server-side alarm historian. Browser file pickers, deployed browser sample qualification and device-specific touch qualification are separate work.
 
 Real equipment integration must implement authenticated transport, least-privilege authorization, server-side interlocks and validation, write confirmation/timeout semantics, reconnect quality, commissioning and independent safety functions. Do not use visual state or client-side designer locks as a safety interlock. No certification or vendor feature parity is asserted.
+
+
+## Equipment and commissioning extension
+
+Connections edits endpoint profiles and typed I/O mappings, starts explicit read-only acquisition, and reviews single-use external write requests. Faceplates captures and instantiates equipment masters with typed slots. States edits priority-based equipment conditions. New symbols include heat exchangers, filters, compressors, fans, heaters, thermometers, boilers and cooling towers. See [the integration guide](hmi-control-integrations.md) for protocol details, security boundaries and tests.

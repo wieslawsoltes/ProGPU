@@ -44,8 +44,8 @@ public static class HmiFaceplates
             {
                 var current = group.ToArray();
                 var first = current.FirstOrDefault(e => template.Elements.Any(source => source.Id == e.FaceplateSourceId)) ?? current[0];
-                var source = template.Elements.SingleOrDefault(e => e.Id == first.FaceplateSourceId);
-                float x = first.X - (source?.X ?? 0), y = first.Y - (source?.Y ?? 0);
+                // Original master-local coordinates retain the instance origin across master geometry edits.
+                float x = first.X - first.FaceplateSourceX, y = first.Y - first.FaceplateSourceY;
                 string prefix = first.FaceplatePrefix;
                 EnsureSlots(project, template, prefix);
                 var identities = current.ToDictionary(e => e.FaceplateSourceId, e => e.Id, StringComparer.Ordinal);
@@ -67,6 +67,7 @@ public static class HmiFaceplates
     {
         element.FaceplateTemplateId = ""; element.FaceplateInstanceId = "";
         element.FaceplateSourceId = ""; element.FaceplatePrefix = "";
+        element.FaceplateSourceX = 0; element.FaceplateSourceY = 0;
     }
     public static void ValidateLibrary(HmiProject project)
     {
@@ -78,14 +79,23 @@ public static class HmiFaceplates
                 string.IsNullOrWhiteSpace(template.Name) || template.Name.Length > 256 || template.Revision < 1 ||
                 template.Elements is not { Count: > 0 and <= 1000 } || template.Slots is not { Count: <= 256 })
                 throw new InvalidDataException("Invalid faceplate template identity or component/slot budget.");
+            if (template.Slots.Any(t => t == null) || template.Elements.Any(e => e == null || e.Action == null || e.Action.Target == null || e.States == null ||
+                e.Tag == null || e.VisibilityTag == null || e.EnabledTag == null || e.FaceplateTemplateId == null || e.FaceplateInstanceId == null ||
+                e.States.Any(s => s == null || s.Tag == null)))
+                throw new InvalidDataException("Faceplate contains null elements, slots, state rules, actions or bindings.");
             // Reuse normal graph validation, replacing slot tokens with a concrete isolated tag namespace.
             var validation = new HmiProject { StartScreenId = "template", Name = template.Name };
-            validation.Screens.AddRange(project.Screens.Where(s => s.Id != "template").Select(s => new HmiScreen { Id = s.Id, Name = s.Name }));
+            // External navigation is checked against the real project below; do not inflate the synthetic screen budget.
             validation.Tags = template.Slots.Select(t => CloneTag(t, t.Name)).ToList();
             var elements = template.Elements.Select(e => e.Copy()).ToList();
             foreach (var element in elements)
             {
                 if (element.FaceplateTemplateId.Length > 0 || element.FaceplateInstanceId.Length > 0) throw new InvalidDataException("Nested faceplates are not admitted.");
+                if (element.Action.Kind == HmiActionKind.Navigate)
+                {
+                    if (!project.Screens.Any(s => s.Id == element.Action.Target)) throw new InvalidDataException("Faceplate navigation target does not exist.");
+                    element.Action = new HmiAction(); // Validation-only clone; the real template keeps its action.
+                }
                 ReplaceBindings(element, token => token.StartsWith('$') ? token[1..] : throw new InvalidDataException("Faceplate tag bindings must use $slot names."));
             }
             validation.Screens.Add(new HmiScreen { Id = "template", Name = template.Name, Width = template.Width, Height = template.Height, Elements = elements });
@@ -115,6 +125,7 @@ public static class HmiFaceplates
             element.Name = prefix + "." + source.Name; element.Group = instance;
             element.FaceplateTemplateId = template.Id; element.FaceplateInstanceId = instance;
             element.FaceplateSourceId = source.Id; element.FaceplatePrefix = prefix;
+            element.FaceplateSourceX = source.X; element.FaceplateSourceY = source.Y;
             ReplaceBindings(element, token => prefix + "." + token.TrimStart('$'));
             return element;
         }).ToList();

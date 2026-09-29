@@ -82,7 +82,7 @@ public sealed class HmiAcquisitionSession : IAsyncDisposable
                     await Task.Delay(TimeSpan.FromMilliseconds(_profile.PollMilliseconds), _clock, token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
-                catch (Exception error) when (error is IOException or System.Net.Sockets.SocketException or System.Security.Authentication.AuthenticationException or InvalidOperationException or ArgumentException or OperationCanceledException)
+                catch (Exception error) when (error is IOException or InvalidDataException or System.Net.Sockets.SocketException or System.Security.Authentication.AuthenticationException or InvalidOperationException or ArgumentException or OperationCanceledException)
                 {
                     Interlocked.Increment(ref _failures);
                     SetStatus(HmiConnectionState.Reconnecting, error.Message, watch.Elapsed.TotalMilliseconds);

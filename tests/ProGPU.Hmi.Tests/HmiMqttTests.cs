@@ -67,7 +67,7 @@ public sealed class HmiMqttTests
             publisher.ApplicationMessageReceivedAsync += args => { command.TrySetResult(args.ApplicationMessage); return Task.CompletedTask; };
             await publisher.SubscribeAsync(new MqttClientFactory().CreateSubscribeOptionsBuilder().WithTopicFilter("plant/pressure/set").Build());
             await using var connection = new HmiMqttConnection(Profile(port)); await connection.ConnectAsync(default);
-            await publisher.PublishAsync(new MqttApplicationMessageBuilder().WithTopic("plant/pressure").WithPayload("4.5").WithAtLeastOnceQoS().Build());
+            await publisher.PublishAsync(new MqttApplicationMessageBuilder().WithTopic("plant/pressure").WithPayload("4.5").WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce).Build());
             Assert.Equal(4.5, (await WaitForSample(connection))["pressure"].Value.Number);
             var result = await connection.WriteAsync("pressure", HmiValue.From(6d), default);
             Assert.Equal(HmiWriteDisposition.BrokerAcknowledged, result.Disposition);
@@ -88,7 +88,7 @@ public sealed class HmiMqttTests
         {
             using var publisher = new MqttClientFactory().CreateMqttClient();
             await publisher.ConnectAsync(new MqttClientOptionsBuilder().WithTcpServer("127.0.0.1", port).Build());
-            await publisher.PublishAsync(new MqttApplicationMessageBuilder().WithTopic("plant/pressure").WithPayload("88").WithRetainFlag().WithAtLeastOnceQoS().Build());
+            await publisher.PublishAsync(new MqttApplicationMessageBuilder().WithTopic("plant/pressure").WithPayload("88").WithRetainFlag().WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce).Build());
             await using var connection = new HmiMqttConnection(Profile(port)); await connection.ConnectAsync(default);
             Assert.Equal(HmiQuality.Bad, (await WaitForSample(connection))["pressure"].Quality);
             Assert.True(connection.RejectedMessages > 0);
