@@ -62,6 +62,7 @@ public sealed partial class HmiDesignerHost
     public void AdvancePreview(TimeSpan elapsed)
     {
         if (_runtime == null) throw new InvalidOperationException("Run simulation first.");
+        if (_acquisition != null) throw new InvalidOperationException("Simulation ticks are disabled during live acquisition.");
         _runtime.AdvanceSimulation(elapsed);
     }
     private void TogglePause()
@@ -72,6 +73,7 @@ public sealed partial class HmiDesignerHost
     }
     public void StopPreview()
     {
+        StopHardwareAcquisition();
         Interlocked.Increment(ref _generation);
         _timer?.Dispose(); _timer = null;
         Volatile.Write(ref _pendingGeneration, 0);

@@ -106,6 +106,7 @@ public static class HmiProjectSerializer
                 }
             }
         }
+        HmiProjectExtensions.Validate(project);
         var alarmIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var alarm in project.Alarms)
         {

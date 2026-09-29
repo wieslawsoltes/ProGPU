@@ -25,13 +25,14 @@ internal static class HmiDrawing
     private static readonly Pen Needle = new(Text, 3);
 
     internal static void Draw(DrawingContext dc, HmiSymbol symbol, Vector2 size, double value, double min, double max,
-        bool active, HmiQuality quality, IReadOnlyList<HmiTagSample> history, bool alarm, float phase)
+        bool active, HmiQuality quality, IReadOnlyList<HmiTagSample> history, bool alarm, float phase, HmiVisualTone tone = HmiVisualTone.Normal)
     {
         float w = size.X, h = size.Y;
         if (!float.IsFinite(w) || !float.IsFinite(h) || w < 8 || h < 8) return;
         float fraction = max > min ? (float)Math.Clamp((value - min) / (max - min), 0, 1) : 0;
         Brush status = quality == HmiQuality.Good ? active ? Active : Muted : Warning;
-        Pen statusLine = active && quality == HmiQuality.Good ? ActiveLine : InactiveLine;
+        status = HmiEquipmentDrawing.ToneBrush(quality == HmiQuality.Good ? tone : HmiVisualTone.Unknown, status);
+        Pen statusLine = HmiEquipmentDrawing.TonePen(quality == HmiQuality.Good ? tone : HmiVisualTone.Unknown, active && quality == HmiQuality.Good ? ActiveLine : InactiveLine);
         if (symbol is not HmiSymbol.Label and not HmiSymbol.Pipe)
         {
             dc.FillRoundedRectangle(Border, new Rect(0, 0, w, h), 7);
@@ -124,6 +125,7 @@ internal static class HmiDrawing
                 dc.FillRoundedRectangle(Accent, new Rect(0, h - 4, w, 4), 2);
                 break;
         }
+        HmiEquipmentDrawing.Draw(dc, symbol, w, top, bottom, fraction, status, active && quality == HmiQuality.Good ? phase : 0);
         if (quality != HmiQuality.Good) dc.FillRoundedRectangle(Warning, new Rect(0, h - 3, w, 3), 1);
     }
     private static void Trend(DrawingContext dc, IReadOnlyList<HmiTagSample> samples, float width, float top, float bottom, double min, double max)

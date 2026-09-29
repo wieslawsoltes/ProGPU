@@ -15,6 +15,12 @@ public static class VisualDesignerPage
         tabs.Items.Add(new PivotItem("Visual UI", CreateVisualDesigner()));
         var hmi = new HmiDesignerHost(null, AppState._font)
         {
+            ConnectionFactory = profile => profile.Protocol switch
+            {
+                ProGPU.Hmi.HmiConnectionProtocol.ModbusTcp => new ProGPU.Hmi.Modbus.HmiModbusConnection(profile),
+                ProGPU.Hmi.HmiConnectionProtocol.Mqtt => new ProGPU.Hmi.Mqtt.HmiMqttConnection(profile),
+                _ => throw new NotSupportedException("Protocol not registered.")
+            },
             GetDpiScale = () => (float)DisplayScaleResolver.ResolveWindowDisplayScale(AppState._window)
         };
         tabs.Items.Add(new PivotItem("HMI", hmi));

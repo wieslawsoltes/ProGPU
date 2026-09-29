@@ -79,11 +79,14 @@ public sealed partial class HmiDesignerHost
             Status("CSV exported into the diagnostics pane; select/copy the text to save it.");
         }));
         tabs.Items.Add(new PivotItem("Runtime / audit", TablePane(monitorTools, _monitor)));
+        tabs.Items.Add(new PivotItem("Connections", BuildConnectionsPane()));
+        tabs.Items.Add(new PivotItem("Faceplates", BuildFaceplatesPane()));
+        tabs.Items.Add(new PivotItem("States", BuildStateRulesPane()));
         tabs.Items.Add(new PivotItem("Help", new ScrollViewer { Content = Text(
             "GETTING STARTED\nChoose Components and drag a symbol to the canvas, or press its + button. Select components to edit HMI properties and tag bindings.\n\n" +
             "LAYOUT\nDrag to move; use the shared resize handles. Ctrl-click or Select all for multiple selection. Align, distribute, group, reorder and lock from the toolbar.\nCtrl+C/X/V/D copy, cut, paste and duplicate. Delete removes unlocked selections. Arrow keys nudge; Shift moves 10 units. Ctrl+Z/Y undo/redo.\nMiddle-drag pans. Ctrl+wheel zooms at the pointer. Fit frames the active screen.\n\n" +
             "DATA\nTags, alarms and recipe values are editable in the tables. Bindings are case-sensitive. Numbers use an invariant decimal point.\nVisibility and enable bindings require Boolean tags. Commands are None, ToggleTag, WriteTag, Navigate, AcknowledgeAlarms and ApplyRecipe.\nDeleting referenced tags/screens/recipes is rejected. Rename tags in the table to update all references atomically.\n\n" +
-            "PREVIEW\nRun starts a separate local simulation. Pause/Resume and Step control deterministic time. Operating controls never edits the design document.\nAcknowledge does not clear active conditions. Invalid/stale quality blocks writes and cannot silently clear an alarm.\nStop before editing. No PLC, OPC UA or MQTT transport is connected. These samples are not a safety controller.\n\n" +
+            "PREVIEW\nRun starts a separate local simulation. Pause/Resume and Step control deterministic time. Operating controls never edits the design document.\nAcknowledge does not clear active conditions. Invalid/stale quality blocks writes and cannot silently clear an alarm.\nStop before editing. Simulation has no equipment connection. Connections starts explicit Modbus TCP or MQTT acquisition. These samples are not a safety controller.\n\n" +
             "FILES\nEnter a desktop file path and use Open/Save. Unsaved destructive changes require a second explicit click.\nProject JSON supports round-trip editing and validation. Save uses a same-directory temporary file followed by replacement.\nSee docs/hmi-designer.md for embedding, package structure, tests and integration boundaries.", 12) }));
         return area;
     }
@@ -96,6 +99,7 @@ public sealed partial class HmiDesignerHost
     private void RefreshTables()
     {
         if (_tags == null) return;
+        RefreshConnectionTables(); RefreshFaceplateList(); RefreshStateTable();
         _tags.ClearItems(); _alarms.ClearItems(); _recipes.ClearItems();
         foreach (var tag in Session.Document.Tags)
         {
@@ -203,7 +207,7 @@ public sealed partial class HmiDesignerHost
     private void RefreshMonitor()
     {
         if (_runtime == null) { _monitor.Text = "Simulation is stopped. No process connection is active."; return; }
-        _monitor.Text = $"LOCAL SIMULATION\nLogical time: {_runtime.Now:O}\nTags: {_runtime.TagNames.Count}\nCommands: {(_runtime.AllowLocalWrites ? "local writes enabled" : "read-only")}\n\nALARMS\n" +
+        _monitor.Text = (_acquisition == null ? "LOCAL SIMULATION\n" : "LIVE ACQUISITION\n" + _acquisition.Diagnostics + "\n") + $"RUNTIME\nLogical time: {_runtime.Now:O}\nTags: {_runtime.TagNames.Count}\nCommands: {(_runtime.AllowLocalWrites ? "local writes enabled" : "read-only")}\n\nALARMS\n" +
             string.Join("\n", _runtime.Alarms.Select(a => $"{a.Definition.Id}: {(a.IsActive ? "ACTIVE" : "normal")} / {(a.IsAcknowledged ? "ACK" : "UNACK")} / {(a.IsQualityUnknown ? "UNKNOWN QUALITY" : "good quality")}")) +
             "\n\nAUDIT (most recent 100 entries)\n" + string.Join("\n", _runtime.Audit.TakeLast(100).Select(e => $"{e.Timestamp:O} · {e.Operation} · {e.Target} · {e.Detail}"));
     }

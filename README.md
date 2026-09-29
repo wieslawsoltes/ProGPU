@@ -9,6 +9,19 @@ Native hosts can explicitly select a WebGPU backend before instance creation wit
 [native backend selection](docs/native-backend-selection.md) for the typed API,
 `WGPU_BACKEND` alias, shared-device rules and qualification limits.
 
+## HMI designer and control-system integrations
+
+The [HMI workbench](docs/hmi-designer.md) reuses the existing designer canvas and ships
+standalone controls, typed tags, alarms, recipes, linked equipment faceplates and
+priority-based equipment states. Run `dotnet run --project samples/HmiDesigner -c Release`
+or open **Visual Designer → HMI** in the sample gallery.
+
+The [control integration guide](docs/hmi-control-integrations.md) covers real Modbus TCP
+and MQTT 5/TLS adapters, editable connection/mapping profiles, explicit read-only
+commissioning and single-use write confirmations. Opening a project never connects to
+an endpoint. External writes additionally require a host-provided authorization policy;
+broker/controller acknowledgements are distinguished from actual process feedback.
+
 ## NuGet Packages
 
 ProGPU runtime packages are built from `eng/progpu-package-list.sh` by the

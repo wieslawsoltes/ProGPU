@@ -8,6 +8,9 @@
     <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/ProGPU.Hmi.Modbus/ProGPU.Hmi.Modbus.csproj" />
+    <ProjectReference Include="../../src/ProGPU.Hmi.Mqtt/ProGPU.Hmi.Mqtt.csproj" />
+    <PackageReference Include="MQTTnet.Server" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

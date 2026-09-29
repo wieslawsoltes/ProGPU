@@ -8,6 +8,14 @@ public static class HmiControlCatalog
 {
     public static IReadOnlyList<HmiControlDescriptor> Items { get; } = Array.AsReadOnly(new HmiControlDescriptor[]
     {
+        new(HmiSymbol.HeatExchanger, "Heat exchanger", "Equipment", 220, 170),
+        new(HmiSymbol.Filter, "Process filter", "Equipment", 170, 170),
+        new(HmiSymbol.Compressor, "Compressor", "Equipment", 200, 175),
+        new(HmiSymbol.Fan, "Ventilation fan", "Equipment", 170, 175),
+        new(HmiSymbol.Heater, "Process heater", "Equipment", 180, 150),
+        new(HmiSymbol.Thermometer, "Thermometer", "Equipment", 150, 245),
+        new(HmiSymbol.Boiler, "Steam boiler", "Equipment", 205, 245),
+        new(HmiSymbol.CoolingTower, "Cooling tower", "Equipment", 215, 235),
         new(HmiSymbol.Tank, "Storage tank", "Process", 200, 270),
         new(HmiSymbol.Pump, "Centrifugal pump", "Process", 170, 155),
         new(HmiSymbol.Valve, "Isolation valve", "Process", 135, 135),
@@ -34,6 +42,14 @@ public static class HmiControlCatalog
         var descriptor = Items.Single(d => d.Symbol == symbol);
         var control = symbol switch
         {
+            HmiSymbol.HeatExchanger => (HmiControl)new HmiHeatExchanger(),
+            HmiSymbol.Filter => (HmiControl)new HmiFilter(),
+            HmiSymbol.Compressor => (HmiControl)new HmiCompressor(),
+            HmiSymbol.Fan => (HmiControl)new HmiFan(),
+            HmiSymbol.Heater => (HmiControl)new HmiHeater(),
+            HmiSymbol.Thermometer => (HmiControl)new HmiThermometer(),
+            HmiSymbol.Boiler => (HmiControl)new HmiBoiler(),
+            HmiSymbol.CoolingTower => (HmiControl)new HmiCoolingTower(),
             HmiSymbol.Tank => (HmiControl)new HmiTank(),
             HmiSymbol.Pump => new HmiPump(),
             HmiSymbol.Valve => new HmiValve(),

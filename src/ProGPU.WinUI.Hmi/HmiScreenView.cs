@@ -18,6 +18,7 @@ public sealed class HmiScreenView : Grid, IDisposable
     private bool _disposed;
     public string ScreenId { get; private set; } = "";
     public IReadOnlyCollection<HmiControl> Controls => _definitions.Keys;
+    public Action<HmiElement, HmiValue?>? CommandRequested { get; set; }
     public event Action<string>? Error;
     public event Action<string>? ScreenChanged;
 
@@ -48,13 +49,23 @@ public sealed class HmiScreenView : Grid, IDisposable
             control.ApplyDefinition(definition);
             _definitions.Add(control, definition);
             _surface.Children.Add(control);
-            foreach (var tag in new[] { definition.Tag, definition.VisibilityTag, definition.EnabledTag }.Where(t => t.Length > 0).Distinct())
+            foreach (var tag in new[] { definition.Tag, definition.VisibilityTag, definition.EnabledTag }.Concat(definition.States.Select(s => s.Tag)).Where(t => t.Length > 0).Distinct())
             {
                 if (!_bindings.TryGetValue(tag, out var list)) _bindings.Add(tag, list = []);
                 list.Add(control);
             }
-            control.Invoked += sender => Execute(() => _runtime.Execute(_definitions[sender].Action));
-            control.ValueSubmitted += (sender, value) => Execute(() => _runtime.Write(_definitions[sender].Tag, value));
+            control.Invoked += sender => Execute(() =>
+            {
+                var element = _definitions[sender];
+                if (CommandRequested != null && element.Action.Kind is not (HmiActionKind.None or HmiActionKind.Navigate or HmiActionKind.AcknowledgeAlarms))
+                    CommandRequested(element.Copy(), null);
+                else _runtime.Execute(element.Action);
+            });
+            control.ValueSubmitted += (sender, value) => Execute(() =>
+            {
+                if (CommandRequested != null) CommandRequested(_definitions[sender].Copy(), value);
+                else _runtime.Write(_definitions[sender].Tag, value);
+            });
             control.InputRejected += message => Error?.Invoke(message);
             if (definition.Symbol is HmiSymbol.AlarmBanner or HmiSymbol.AlarmList) _alarmControls.Add(control);
             Refresh(control);
@@ -88,6 +99,7 @@ public sealed class HmiScreenView : Grid, IDisposable
             enabled = _runtime.TryRead(definition.EnabledTag, out var condition) && condition.Quality == HmiQuality.Good && condition.Value.AsBoolean();
         control.RuntimeEnabled = enabled;
         control.CommandsEnabled = _runtime.IsRunning;
+        control.UpdateState(HmiStateEvaluator.Evaluate(definition.States, tag => _runtime.TryRead(tag, out var sample) ? sample : null));
         if (_runtime.TryRead(definition.Tag, out var sample))
             control.UpdateSample(sample, _runtime.GetHistory(definition.Tag), (_runtime.Now.ToUnixTimeMilliseconds() % 1000) / 1000f);
     }

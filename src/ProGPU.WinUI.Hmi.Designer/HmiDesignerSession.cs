@@ -103,10 +103,16 @@ public sealed class HmiDesignerSession
             p.Tags.Single(t => t.Name == oldName).Name = newName;
             foreach (var element in p.Screens.SelectMany(s => s.Elements))
             {
+                foreach (var rule in element.States) if (rule.Tag == oldName) rule.Tag = newName;
                 if (element.Tag == oldName) element.Tag = newName;
                 if (element.VisibilityTag == oldName) element.VisibilityTag = newName;
                 if (element.EnabledTag == oldName) element.EnabledTag = newName;
                 if (element.Action.Kind is (HmiActionKind.ToggleTag or HmiActionKind.WriteTag) && element.Action.Target == oldName) element.Action.Target = newName;
+            }
+            foreach (var mapping in p.Connections.SelectMany(c => c.Mappings))
+            {
+                if (mapping.Tag == oldName) mapping.Tag = newName;
+                if (mapping.InterlockTag == oldName) mapping.InterlockTag = newName;
             }
             foreach (var alarm in p.Alarms) if (alarm.Tag == oldName) alarm.Tag = newName;
             foreach (var recipe in p.Recipes)

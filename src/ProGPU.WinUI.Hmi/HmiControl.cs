@@ -16,6 +16,18 @@ public class HmiControl : Grid
     public static readonly DependencyProperty UnitProperty = DependencyProperty.Register(nameof(Unit), typeof(string), typeof(HmiControl), new PropertyMetadata("", OnDisplayChanged) { AffectsRender = true });
     public static readonly DependencyProperty QualityProperty = DependencyProperty.Register(nameof(Quality), typeof(HmiQuality), typeof(HmiControl), new PropertyMetadata(HmiQuality.Good, OnDisplayChanged) { AffectsRender = true });
     public static readonly DependencyProperty IsActiveProperty = DependencyProperty.Register(nameof(IsActive), typeof(bool), typeof(HmiControl), new PropertyMetadata(false, OnDisplayChanged) { AffectsRender = true });
+    public static readonly DependencyProperty VisualToneProperty = DependencyProperty.Register(nameof(VisualTone), typeof(HmiVisualTone), typeof(HmiControl), new PropertyMetadata(HmiVisualTone.Normal, OnDisplayChanged) { AffectsRender = true });
+    public static readonly DependencyProperty StateTextProperty = DependencyProperty.Register(nameof(StateText), typeof(string), typeof(HmiControl), new PropertyMetadata("", OnDisplayChanged) { AffectsRender = true });
+    public HmiVisualTone VisualTone { get => (HmiVisualTone)(GetValue(VisualToneProperty) ?? HmiVisualTone.Normal); set => SetValue(VisualToneProperty, value); }
+    public string StateText { get => (string)(GetValue(StateTextProperty) ?? ""); set => SetValue(StateTextProperty, value ?? ""); }
+    public void UpdateState(HmiVisualState state)
+    {
+        if (VisualTone == state.Tone && StateText == state.Text) return;
+        _batching = true;
+        try { VisualTone = state.Tone; StateText = state.Text; }
+        finally { _batching = false; }
+        UpdateDisplay();
+    }
     private HmiElement _definition;
     private readonly TextBlock _label;
     private readonly TextBlock _value;
@@ -144,7 +156,7 @@ public class HmiControl : Grid
         }
         finally { _batching = false; }
         if (changed) UpdateDisplay();
-        if (Symbol == HmiSymbol.Trend || IsActive && Symbol is (HmiSymbol.Pump or HmiSymbol.Motor or HmiSymbol.Pipe or HmiSymbol.Conveyor)) Invalidate();
+        if (Symbol == HmiSymbol.Trend || IsActive && Symbol is (HmiSymbol.Pump or HmiSymbol.Motor or HmiSymbol.Pipe or HmiSymbol.Conveyor or HmiSymbol.Fan)) Invalidate();
     }
     public void UpdateAlarms(IReadOnlyList<HmiAlarmState> alarms)
     {
@@ -164,7 +176,8 @@ public class HmiControl : Grid
     {
         if (_label == null || _input == null) return;
         _label.Text = Label;
-        _quality.Text = Quality == HmiQuality.Good ? "" : Quality.ToString().ToUpperInvariant();
+        _quality.Text = Quality == HmiQuality.Good ? StateText : Quality.ToString().ToUpperInvariant();
+        _quality.Foreground = HmiEquipmentDrawing.ToneBrush(VisualTone, HmiDrawing.Warning);
         _value.Text = Symbol switch
         {
             HmiSymbol.Label => _textValue ?? "",
@@ -184,7 +197,7 @@ public class HmiControl : Grid
     }
     public override void OnRender(DrawingContext context)
     {
-        HmiDrawing.Draw(context, Symbol, Size, Value, _definition.Minimum, _definition.Maximum, IsActive, Quality, _history, _hasAlarm, _phase);
+        HmiDrawing.Draw(context, Symbol, Size, Value, _definition.Minimum, _definition.Maximum, IsActive, Quality, _history, _hasAlarm, _phase, VisualTone);
         base.OnRender(context);
     }
 }

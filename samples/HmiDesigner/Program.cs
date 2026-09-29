@@ -19,7 +19,12 @@ public sealed class HmiApplication : Application
 {
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        var designer = new HmiDesignerHost();
+        var designer = new HmiDesignerHost { ConnectionFactory = profile => profile.Protocol switch
+            {
+                ProGPU.Hmi.HmiConnectionProtocol.ModbusTcp => new ProGPU.Hmi.Modbus.HmiModbusConnection(profile),
+                ProGPU.Hmi.HmiConnectionProtocol.Mqtt => new ProGPU.Hmi.Mqtt.HmiMqttConnection(profile),
+                _ => throw new NotSupportedException("Protocol not registered.")
+            } };
         var window = new Window { Title = "ProGPU HMI Designer · Local simulation", Width = 1600, Height = 1000, Content = designer };
         window.Activate();
         UIThread.Post(designer.Fit);

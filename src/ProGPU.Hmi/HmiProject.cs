@@ -9,6 +9,8 @@ public sealed class HmiProject
     public List<HmiTagDefinition> Tags { get; set; } = [];
     public List<HmiAlarmDefinition> Alarms { get; set; } = [];
     public List<HmiRecipe> Recipes { get; set; } = [];
+    public List<HmiConnectionProfile> Connections { get; set; } = [];
+    public List<HmiFaceplateTemplate> Faceplates { get; set; } = [];
 }
 
 public sealed class HmiScreen
@@ -24,7 +26,8 @@ public enum HmiSymbol
 {
     Label, NumericDisplay, NumericInput, Indicator, PushButton, ToggleSwitch,
     Tank, Pump, Valve, Motor, Pipe, Conveyor, Gauge, BarGraph, Trend,
-    AlarmBanner, AlarmList, NavigationButton, RecipeButton, Rectangle
+    AlarmBanner, AlarmList, NavigationButton, RecipeButton, Rectangle,
+    HeatExchanger, Filter, Compressor, Fan, Heater, Thermometer, Boiler, CoolingTower
 }
 
 public enum HmiActionKind { None, ToggleTag, WriteTag, Navigate, AcknowledgeAlarms, ApplyRecipe }
@@ -58,6 +61,11 @@ public sealed class HmiElement
     public bool IsHidden { get; set; }
     public string Group { get; set; } = "";
     public HmiAction Action { get; set; } = new();
+    public List<HmiStateRule> States { get; set; } = [];
+    public string FaceplateTemplateId { get; set; } = "";
+    public string FaceplateInstanceId { get; set; } = "";
+    public string FaceplateSourceId { get; set; } = "";
+    public string FaceplatePrefix { get; set; } = "";
 
     public HmiElement Copy(bool newIdentity = false) => new()
     {
@@ -66,6 +74,11 @@ public sealed class HmiElement
         Label = Label, Unit = Unit, Tag = Tag, VisibilityTag = VisibilityTag, EnabledTag = EnabledTag,
         Minimum = Minimum, Maximum = Maximum, Decimals = Decimals, IsLocked = IsLocked,
         IsHidden = IsHidden, Group = Group,
-        Action = new HmiAction { Kind = Action.Kind, Target = Action.Target, Value = Action.Value }
+        Action = new HmiAction { Kind = Action.Kind, Target = Action.Target, Value = Action.Value },
+        States = States.Select(s => s.Copy()).ToList(),
+        FaceplateTemplateId = newIdentity ? "" : FaceplateTemplateId,
+        FaceplateInstanceId = newIdentity ? "" : FaceplateInstanceId,
+        FaceplateSourceId = newIdentity ? "" : FaceplateSourceId,
+        FaceplatePrefix = newIdentity ? "" : FaceplatePrefix
     };
 }

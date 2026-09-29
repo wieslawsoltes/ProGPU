@@ -27,6 +27,14 @@ public static class HmiDesignerRegistration
             Register<HmiTrend>(HmiSymbol.Trend, () => new HmiTrend());
             Register<HmiAlarmList>(HmiSymbol.AlarmList, () => new HmiAlarmList());
             Register<HmiNumericDisplay>(HmiSymbol.NumericDisplay, () => new HmiNumericDisplay());
+            Register<HmiHeatExchanger>(HmiSymbol.HeatExchanger, () => new HmiHeatExchanger());
+            Register<HmiFilter>(HmiSymbol.Filter, () => new HmiFilter());
+            Register<HmiCompressor>(HmiSymbol.Compressor, () => new HmiCompressor());
+            Register<HmiFan>(HmiSymbol.Fan, () => new HmiFan());
+            Register<HmiHeater>(HmiSymbol.Heater, () => new HmiHeater());
+            Register<HmiThermometer>(HmiSymbol.Thermometer, () => new HmiThermometer());
+            Register<HmiBoiler>(HmiSymbol.Boiler, () => new HmiBoiler());
+            Register<HmiCoolingTower>(HmiSymbol.CoolingTower, () => new HmiCoolingTower());
             _registered = true;
         }
     }

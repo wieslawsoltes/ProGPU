@@ -29,7 +29,7 @@ public sealed class HmiRuntime
     public event Action? AlarmsChanged;
     public event Action<string>? NavigationRequested;
 
-    public HmiRuntime(HmiProject project, DateTimeOffset? startTime = null, int historyCapacity = 600)
+    public HmiRuntime(HmiProject project, DateTimeOffset? startTime = null, int historyCapacity = 600, bool initializeGoodQuality = true)
     {
         if (historyCapacity is < 1 or > 10000) throw new ArgumentOutOfRangeException(nameof(historyCapacity));
         _project = HmiProjectSerializer.Clone(project);
@@ -39,11 +39,11 @@ public sealed class HmiRuntime
         int capacity = Math.Min(historyCapacity, 1_000_000 / Math.Max(1, _definitions.Count));
         foreach (var tag in _project.Tags)
         {
-            var sample = new HmiTagSample(tag.InitialValue, HmiQuality.Good, Now);
+            var sample = new HmiTagSample(tag.InitialValue, initializeGoodQuality ? HmiQuality.Good : HmiQuality.Uncertain, initializeGoodQuality ? Now : DateTimeOffset.MinValue);
             _samples.Add(tag.Name, sample);
-            _effectiveQuality.Add(tag.Name, HmiQuality.Good);
+            _effectiveQuality.Add(tag.Name, sample.Quality);
             var history = new HmiHistory<HmiTagSample>(capacity);
-            history.Add(sample);
+            if (initializeGoodQuality) history.Add(sample);
             _history.Add(tag.Name, history);
         }
         _alarms = _project.Alarms.Select(a => new HmiAlarmState(a)).ToList();
@@ -130,7 +130,7 @@ public sealed class HmiRuntime
     }
     public void Acknowledge(string? alarmId = null)
     {
-        RequireCommandPermission();
+        if (!IsRunning) throw new InvalidOperationException("Run the local alarm session before acknowledging.");
         if (alarmId != null && !_alarms.Any(a => a.Definition.Id == alarmId)) throw new KeyNotFoundException("Unknown alarm ID.");
         bool changed = false;
         foreach (var alarm in _alarms)
