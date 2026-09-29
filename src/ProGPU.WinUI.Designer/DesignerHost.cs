@@ -1062,7 +1062,11 @@ public class DesignerHost : Grid
                 Canvas.SetTop(clone, top + 20f);
             }
 
-            if (original is Button origButton && clone is Button cloneButton)
+            if (DesignerElementRegistry.IsAtomic(original))
+            {
+                // The registered factory/state copier owns this component's private visual tree.
+            }
+            else if (original is Button origButton && clone is Button cloneButton)
             {
                 cloneButton.Content = CloneContent(origButton.Content);
             }
@@ -1165,7 +1169,11 @@ public class DesignerHost : Grid
             Canvas.SetLeft(clone, left);
             Canvas.SetTop(clone, top);
 
-            if (original is Button origButton && clone is Button cloneButton)
+            if (DesignerElementRegistry.IsAtomic(original))
+            {
+                // The registered factory/state copier owns this component's private visual tree.
+            }
+            else if (original is Button origButton && clone is Button cloneButton)
             {
                 cloneButton.Content = CloneContent(origButton.Content);
             }

@@ -24,7 +24,7 @@ public sealed class HmiAlarmState
     public DateTimeOffset? ActivatedAt { get; private set; }
     public DateTimeOffset? ReturnedAt { get; private set; }
     public DateTimeOffset? AcknowledgedAt { get; private set; }
-    public bool NeedsAttention => IsActive || !IsAcknowledged;
+    public bool NeedsAttention => IsActive || !IsAcknowledged || IsQualityUnknown;
     private DateTimeOffset? _pendingSince;
 
     internal HmiAlarmState(HmiAlarmDefinition definition) => Definition = definition;
@@ -42,8 +42,8 @@ public sealed class HmiAlarmState
         double value = sample.Value.AsNumber();
         bool condition = Definition.Condition switch
         {
-            HmiAlarmCondition.High => IsActive ? value > Definition.Limit - Definition.Deadband : value >= Definition.Limit,
-            HmiAlarmCondition.Low => IsActive ? value < Definition.Limit + Definition.Deadband : value <= Definition.Limit,
+            HmiAlarmCondition.High => IsActive ? value >= Definition.Limit - Definition.Deadband : value >= Definition.Limit,
+            HmiAlarmCondition.Low => IsActive ? value <= Definition.Limit + Definition.Deadband : value <= Definition.Limit,
             HmiAlarmCondition.IsTrue => sample.Value.AsBoolean(),
             HmiAlarmCondition.IsFalse => !sample.Value.AsBoolean(),
             _ => false

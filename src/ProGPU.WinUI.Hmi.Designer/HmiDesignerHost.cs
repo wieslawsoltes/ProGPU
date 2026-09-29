@@ -157,7 +157,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         _outline.SelectionChanged += element => _canvas.SelectElement(element);
         _outline.CanvasModifying += OnCanvasModifying;
         _outline.CanvasModified += OnCanvasModified;
-        _outline.ModeChanged += _ => { _canvas.IsLogicalMode = true; Status("HMI components expose their logical design tree, not internal visuals."); };
+        _outline.ModeChanged += _ => { _outline.IsLogicalMode = true; _canvas.IsLogicalMode = true; Status("HMI components expose their logical design tree, not internal visuals."); };
         Session.Changed += OnSessionChanged;
         Session.ScreenChanged += OnScreenChanged;
         Unloaded += (_, _) => StopPreview();
@@ -317,6 +317,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
             foreach (var control in controls)
             {
                 var element = control.CaptureDefinition();
+                element.IsHidden = control.Visibility != Visibility.Visible;
                 if (original.TryGetValue(element.Id, out var saved) && saved.IsLocked)
                 { element = saved.Copy(); control.ApplyDefinition(element); }
                 if (!ids.Add(element.Id)) { element = element.Copy(newIdentity: true); ids.Add(element.Id); }
@@ -327,6 +328,8 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
             _restoreSelection = _selection.Selection.OfType<HmiControl>().Select(c => c.CaptureDefinition().Id).ToArray();
             try { Session.Edit("Edit canvas", p => p.Screens.Single(s => s.Id == Session.ActiveScreenId).Elements = elements); }
             catch { RebuildDocumentViews(); throw; }
+            // Reconcile even no-op/rejected mutations (for example deleting a locked item in the shared outline).
+            RebuildDocumentViews();
             UpdateInspector();
             _multiAdorner.Invalidate();
         });

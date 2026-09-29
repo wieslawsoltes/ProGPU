@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using ProGPU.Hmi;
 using ProGPU.Scene;
 using ProGPU.Text;
@@ -45,7 +46,7 @@ public class HmiControl : Grid
     public HmiSymbol Symbol => _definition.Symbol;
     public string TagName => _definition.Tag;
     public bool IsDesignLocked => _definition.IsLocked;
-    public TtfFont? Font
+    public new TtfFont? Font
     {
         get => _font;
         set

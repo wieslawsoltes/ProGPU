@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -48,7 +49,7 @@ public static class HmiProjectSerializer
             Text(tag.Name, "Tag name");
             Require(tags.TryAdd(tag.Name, tag), $"Duplicate tag: {tag.Name}.");
             Require(Enum.IsDefined(tag.Type) && Enum.IsDefined(tag.Simulation), "Unknown tag or simulation type.");
-            Require(double.IsFinite(tag.Minimum) && double.IsFinite(tag.Maximum) && tag.Minimum < tag.Maximum, $"Invalid range for {tag.Name}.");
+            Require(double.IsFinite(tag.Minimum) && double.IsFinite(tag.Maximum) && double.IsFinite(tag.Maximum - tag.Minimum) && tag.Minimum < tag.Maximum, $"Invalid range for {tag.Name}.");
             Require(tag.StaleAfterMilliseconds is >= 100 and <= 86_400_000, "Tag stale timeout must be 100–86400000 ms.");
             Require(double.IsFinite(tag.PeriodSeconds) && tag.PeriodSeconds >= 0.1 && tag.PeriodSeconds <= 86_400, "Simulation period must be 0.1–86400 seconds.");
             Require(tag.Simulation != HmiSimulationKind.Toggle || tag.Type == HmiTagType.Boolean, "Toggle simulation requires a Boolean tag.");
@@ -88,7 +89,7 @@ public static class HmiProjectSerializer
                 Require(Enum.IsDefined(element.Symbol), "Unknown HMI symbol.");
                 Require(float.IsFinite(element.X) && float.IsFinite(element.Y) && Math.Abs(element.X) <= 32768 && Math.Abs(element.Y) <= 32768, "Invalid element position.");
                 Require(float.IsFinite(element.Width) && float.IsFinite(element.Height) && element.Width is >= 8 and <= 16384 && element.Height is >= 8 and <= 16384, "Element dimensions must be 8–16384.");
-                Require(double.IsFinite(element.Minimum) && double.IsFinite(element.Maximum) && element.Minimum < element.Maximum && element.Decimals is >= 0 and <= 6, "Invalid component range or precision.");
+                Require(double.IsFinite(element.Minimum) && double.IsFinite(element.Maximum) && double.IsFinite(element.Maximum - element.Minimum) && element.Minimum < element.Maximum && element.Decimals is >= 0 and <= 6, "Invalid component range or precision.");
                 Text(element.Name, "Element name"); Text(element.Label, "Label", true); Text(element.Unit, "Unit", true); Text(element.Group, "Group", true);
                 Binding(element.Tag, tags, false); Binding(element.VisibilityTag, tags, true); Binding(element.EnabledTag, tags, true);
                 Require(element.Action != null && Enum.IsDefined(element.Action.Kind), "Invalid action.");
@@ -131,7 +132,7 @@ public static class HmiProjectSerializer
         Require(!boolean || tag!.Type == HmiTagType.Boolean, "Visibility/enabled bindings require Boolean tags.");
     }
     private static void Text(string value, string name, bool empty = false) => Require(value != null && value.Length <= 4096 && (empty || !string.IsNullOrWhiteSpace(value)), $"Invalid {name}.");
-    private static void Require(bool condition, string message)
+    private static void Require([DoesNotReturnIf(false)] bool condition, string message)
     {
         if (!condition) throw new InvalidDataException(message);
     }

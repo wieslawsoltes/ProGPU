@@ -106,7 +106,7 @@ public sealed class HmiDesignerSession
                 if (element.Tag == oldName) element.Tag = newName;
                 if (element.VisibilityTag == oldName) element.VisibilityTag = newName;
                 if (element.EnabledTag == oldName) element.EnabledTag = newName;
-                if (element.Action.Kind is HmiActionKind.ToggleTag or HmiActionKind.WriteTag && element.Action.Target == oldName) element.Action.Target = newName;
+                if (element.Action.Kind is (HmiActionKind.ToggleTag or HmiActionKind.WriteTag) && element.Action.Target == oldName) element.Action.Target = newName;
             }
             foreach (var alarm in p.Alarms) if (alarm.Tag == oldName) alarm.Tag = newName;
             foreach (var recipe in p.Recipes)

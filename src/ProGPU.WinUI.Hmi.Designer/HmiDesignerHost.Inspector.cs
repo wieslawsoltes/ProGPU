@@ -23,6 +23,8 @@ public sealed partial class HmiDesignerHost
     private void UpdateInspector()
     {
         if (_rebuilding || _disposed) return;
+        _outline.IsHitTestVisible = !IsPreviewing;
+        _palette.IsHitTestVisible = !IsPreviewing;
         _properties.ClearItems();
         var selection = _selection.Selection.OfType<HmiControl>().ToArray();
         _selectionLabel.Text = selection.Length == 0 ? "Screen properties" : $"{selection.Length} selected · {selection[0].Label}";

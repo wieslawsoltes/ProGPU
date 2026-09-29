@@ -15,8 +15,13 @@ public sealed class DesignerMultiSelectionAdorner : Control, IDisposable
     {
         _canvas = canvas; _selection = selection;
         IsHitTestVisible = false;
-        Width = 32768; Height = 32768;
         selection.SelectionChanged += Invalidate;
+    }
+    protected override Vector2 MeasureOverride(Vector2 availableSize)
+    {
+        float width = _canvas.DesignSurface.Width;
+        float height = _canvas.DesignSurface.Height;
+        return new Vector2(float.IsFinite(width) ? width : 1280, float.IsFinite(height) ? height : 720);
     }
     public override void OnRender(DrawingContext context)
     {
