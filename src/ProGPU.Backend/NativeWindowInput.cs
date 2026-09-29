@@ -7,6 +7,42 @@ namespace ProGPU.Backend;
 public static class NativeWindowInput
 {
     /// <summary>
+    /// Sets mouse pass-through on the actual owned provider. This is independent
+    /// of enabled state: enabling an input-transparent popup must not admit input.
+    /// Requires an initialized live window; rejection requires caller cleanup.
+    /// </summary>
+    public static unsafe void SetInputTransparent(IWindow window, bool transparent)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        if (window is CocoaPopupWindow popup)
+        {
+            if (!popup.SetInputTransparent(transparent))
+                throw new PlatformNotSupportedException("The owned popup rejected mouse pass-through.");
+            return;
+        }
+
+        if (!window.IsInitialized || window.IsClosing)
+            throw new InvalidOperationException("Mouse pass-through requires a live initialized window.");
+        var native = (Silk.NET.GLFW.WindowHandle*)(window.Native?.Glfw ?? IntPtr.Zero);
+        if (native == null)
+            throw new PlatformNotSupportedException("The window provider has no mouse pass-through contract.");
+        try
+        {
+            // GLFW 3.4's public attribute is absent from Silk's generated enum.
+            const int mousePassthrough = 0x0002000D;
+            var glfw = Silk.NET.GLFW.GlfwProvider.GLFW.Value;
+            glfw.SetWindowAttrib(native, (Silk.NET.GLFW.WindowAttributeSetter)mousePassthrough, transparent);
+            if (glfw.GetWindowAttrib(native, (Silk.NET.GLFW.WindowAttributeGetter)mousePassthrough) != transparent)
+                throw new PlatformNotSupportedException("The native host rejected mouse pass-through.");
+        }
+        catch (Exception exception) when (exception is DllNotFoundException or EntryPointNotFoundException
+            or BadImageFormatException or Silk.NET.GLFW.GlfwException or TypeInitializationException)
+        {
+            throw new PlatformNotSupportedException("The active windowing backend does not provide mouse pass-through.", exception);
+        }
+    }
+
+    /// <summary>
     /// An owned popup has one live input context. Dispose it before replacing it.
     /// Other window providers retain Silk's existing input selection.
     /// </summary>

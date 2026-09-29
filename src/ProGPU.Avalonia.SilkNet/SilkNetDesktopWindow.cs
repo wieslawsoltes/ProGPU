@@ -816,9 +816,7 @@ public sealed class WindowImpl :
         if (window is null || !window.IsInitialized)
             return;
 
-        _platform.Monitors.SetMousePassthrough(
-            window.Handle,
-            !isHitTestVisible);
+        NativeWindowInput.SetInputTransparent(window, !isHitTestVisible);
     }
 #endif
 
