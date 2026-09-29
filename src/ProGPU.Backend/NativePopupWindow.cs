@@ -179,7 +179,7 @@ public static class NativePopupWindow
         {
             try
             {
-                if (popup.IsInitialized && !popup.IsClosing && popup.Native?.Glfw == (nint)native)
+                if (popup.IsInitialized && popup.Native?.Glfw == (nint)native)
                     glfw.SetWindowAttrib(native, Silk.NET.GLFW.WindowAttributeSetter.FocusOnShow, previous);
             }
             catch (Exception cleanup) when (failure is not null)
