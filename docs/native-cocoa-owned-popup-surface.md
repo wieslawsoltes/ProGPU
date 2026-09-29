@@ -300,6 +300,26 @@ test RIDs and the full test suite. Backend and test-project compilation passed
 with zero warnings/errors; runtime execution and real native UI qualification
 remain separate. These APIs do not select source factories or scroll policy.
 
+## Provider-owned mouse pass-through
+
+`NativeWindowInput.SetInputTransparent` takes the actual initialized `IWindow`,
+never an opaque handle. Owned panels combine independent enabled/transparency
+intent with live owner and input-context admission. Enabling a transparent panel,
+replacing input, rebinding an owner or reopening cannot make it receive pointers.
+Blocking cancels pressed state through the existing input generation; it neither
+synthesizes a release/click nor delivers a stale copied batch tail. Native rejection
+is an error requiring source cleanup, not successful pass-through.
+
+GLFW providers require an actual `Native.Glfw` identity and read back the requested
+[mouse pass-through attribute](https://www.glfw.org/docs/3.4/window_guide.html#GLFW_MOUSE_PASSTHROUGH_attrib).
+ProGPU's Avalonia 11 host uses this same API instead of its monitor helper's opaque
+handle cast. This confirms provider configuration, not desktop click routing.
+Twelve authored managed cases cover combined policies, replacement/reopen/owner
+binding, cancellation, rejection, unsupported providers and lifecycle/thread
+boundaries in the existing early CocoaPopup group and full test suite. Source
+factory selection, precision-scroll compatibility and real native UI checks remain
+separate requirements.
+
 ## Primary contracts and provenance
 
 - [Apple NSPanel worksWhenModal](https://developer.apple.com/documentation/appkit/nspanel/workswhenmodal):

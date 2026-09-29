@@ -152,6 +152,12 @@ all compute/raster/SIMD/scalar routes and the raster zero-staging contract. Shar
 coverage never merges source draws, owners or paints. See
 docs/native-glyph-raster-sharing.md; original application gates remain required.
 
+Mouse pass-through uses the actual IWindow provider, never an opaque GLFW cast.
+Owned popup transparency is independent of enabled state and remains effective
+across input-context replacement, owner binding and reopening. Retain generation
+cancellation and reject failed native configuration; provider readback does not
+qualify desktop click routing or select source factories/scroll policy.
+
 Styled native digit substitution changes only the scratch-owned scalar code point,
 never its original UTF-16 index or length. Apply it before script, fallback,
 line breaking and shaping. Generic styled paragraphs resolve bidi on substituted

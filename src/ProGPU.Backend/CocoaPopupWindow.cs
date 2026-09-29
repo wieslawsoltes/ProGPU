@@ -22,7 +22,7 @@ internal sealed class CocoaPopupWindow : IWindow
     private NativeWindowGeometrySnapshot _geometry;
     private Vector2D<int> _position, _size, _framebufferSize;
     private bool _initialized, _initializing, _visible, _closing, _disposeRequested;
-    private bool _retiring, _bindingOwner, _showingOwned, _inputAllowed = true;
+    private bool _retiring, _bindingOwner, _showingOwned, _inputTransparent, _inputAllowed = true;
     private int _dispatchDepth;
     private ulong _geometryVersion;
     private double _lastUpdate, _lastRender;
@@ -85,7 +85,7 @@ internal sealed class CocoaPopupWindow : IWindow
         _inputContext = context;
         try
         {
-            if (!RequireSurface().SetInputAllowed(_inputAllowed && Owner.IsValid))
+            if (!RequireSurface().SetInputAllowed(_inputAllowed && !_inputTransparent && Owner.IsValid))
                 throw new InvalidOperationException("The owned popup rejected input context admission.");
             context.ObservePolicyChange();
             return context;
@@ -140,7 +140,20 @@ internal sealed class CocoaPopupWindow : IWindow
     {
         CheckUsable();
         _inputAllowed = allowed;
-        try { return RequireSurface().SetInputAllowed(allowed && Owner.IsValid && _inputContext is { AcceptsInput: true }); }
+        return ApplyInputPolicy();
+    }
+
+    internal bool SetInputTransparent(bool transparent)
+    {
+        CheckUsable();
+        if (!_initialized) throw new InvalidOperationException("Initialize the owned popup before setting mouse pass-through.");
+        _inputTransparent = transparent;
+        return ApplyInputPolicy();
+    }
+
+    private bool ApplyInputPolicy()
+    {
+        try { return RequireSurface().SetInputAllowed(_inputAllowed && !_inputTransparent && Owner.IsValid && _inputContext is { AcceptsInput: true }); }
         finally { _inputContext?.ObservePolicyChange(); }
     }
 
@@ -163,7 +176,7 @@ internal sealed class CocoaPopupWindow : IWindow
         {
             var surface = RequireSurface();
             accepted = surface.BindOwner(owner) && !_closing && !_disposeRequested &&
-                surface.SetInputAllowed(owner.IsValid && _inputAllowed && _inputContext is { AcceptsInput: true });
+                surface.SetInputAllowed(owner.IsValid && _inputAllowed && !_inputTransparent && _inputContext is { AcceptsInput: true });
             if (accepted && !_closing && !_disposeRequested) Owner = owner;
         }
         catch (Exception failure) { bindingFailure = failure; throw; }

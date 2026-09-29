@@ -113,19 +113,6 @@ internal sealed unsafe class SilkNetMonitorProvider
             (WindowHandle*)handle,
             WindowAttributeGetter.Hovered);
 
-    internal void SetMousePassthrough(
-        IntPtr handle,
-        bool enabled)
-    {
-        // GLFW 3.4's public GLFW_MOUSE_PASSTHROUGH attribute. Silk.NET
-        // 2.23 ships GLFW 3.4 but its generated enum predates this value.
-        const int glfwMousePassthrough = 0x0002000D;
-        _glfw.SetWindowAttrib(
-            (WindowHandle*)handle,
-            (WindowAttributeSetter)glfwMousePassthrough,
-            enabled);
-    }
-
     private void OnMonitorChanged(
         Silk.NET.GLFW.Monitor* monitor,
         ConnectedState state)
