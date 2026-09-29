@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      NUGET_PACKAGES: ${{ runner.temp }}/hmi-packages
+      NUGET_PACKAGES: /tmp/progpu-hmi-packages
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
