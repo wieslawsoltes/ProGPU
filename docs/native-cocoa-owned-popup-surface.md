@@ -180,6 +180,26 @@ These factories are still explicit, unselected building blocks. Source framework
 factory/input integration, real native owner lifetime and rendering qualification
 below remain required; this API does not choose a wheel compatibility policy.
 
+### Source-host retirement completion
+
+`NativeWindowLifetime.TryDispose` requests disposal and reports whether the native
+ownership has actually ended. For an owned popup it returns false during active
+initialization/native/managed callbacks or while the view is renderer-leased.
+The source host retains that exact `IWindow` as a retirement participant and
+retries after its existing native poll and GPU-surface cleanup, on the creating
+thread. It must not unregister the retirement participant merely because Dispose
+returned, and must retain ownership on an exception for an explicit retry. The
+helper does not poll events, spin, move callbacks, hide exceptions or release a
+borrowed renderer lease. Other window providers keep their original Dispose
+semantics; no native handle, property or input-provider probe identifies them.
+
+`CocoaPopupRetirementTests` supplies twelve managed cases for both factories,
+uninitialized windows, render leases, native/input/initialization callbacks,
+failed-hide retry, thread ownership, null rejection and unchanged foreign-provider
+behavior. They run in the existing early owned-popup group on every test RID.
+Source-host retirement queue integration and actual AppKit/session/render lifetime
+qualification remain required before either source factory is enabled.
+
 ## Integration still required — do not enable automatic modality
 
 The surface implementation remains internal; the explicit factory is not selected

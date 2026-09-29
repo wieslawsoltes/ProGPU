@@ -34,6 +34,11 @@ factories fixed. Native input/Show require a live bound owner, and binding retai
 exact owner identity and source input intent. Failed setup requires source disposal;
 same-owner verification is nonmutating. This does not select source factories or
 admit wheel compatibility, native modal input or application rendering.
+Source hosts use provider-aware native retirement completion, retaining the exact
+window after a deferred or failed disposal until a creating-thread retry completes.
+Never treat a returned Dispose call as proof that an owned panel/view was released,
+poll native events inside retirement, or infer provider identity from handles.
+The completion helper does not itself connect either source host's retirement queue.
 
 Native compute traces report owned pipeline selection and encoding/submission
 boundaries, never completion. Preserve the immutable opt-in, per-engine bound,
