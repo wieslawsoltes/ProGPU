@@ -5,6 +5,9 @@ on:
     paths: ['.github/workflows/hmi-workspace.yml']
 permissions:
   contents: read
+concurrency:
+  group: hmi-authoring-workspace
+  cancel-in-progress: true
 jobs:
   prepare:
     runs-on: ubuntu-latest
@@ -21,10 +24,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/workspace/source artifacts/workspace/sdk artifacts/workspace/packages
-          git ls-files -z | tar --null -T - --exclude='*.ttf' --exclude='*.otf' --exclude='*.woff*' --exclude='external/*' -cf - | tar -xf - -C artifacts/workspace/source
+          git ls-files -z | tar --exclude='*.ttf' --exclude='*.otf' --exclude='*.woff*' --exclude='external/*' --null -T - -cf - | tar -xf - -C artifacts/workspace/source
           sdkroot=$(dirname "$(readlink -f "$(command -v dotnet)")")
           cp "$sdkroot/dotnet" artifacts/workspace/sdk/
-          cp -a "$sdkroot/host" "$sdkroot/packs" "$sdkroot/shared" artifacts/workspace/sdk/
+          for category in host/fxr shared/Microsoft.NETCore.App shared/Microsoft.AspNetCore.App packs/Microsoft.NETCore.App.Ref packs/Microsoft.AspNetCore.App.Ref packs/Microsoft.NETCore.App.Host.linux-x64; do
+            mkdir -p "artifacts/workspace/sdk/$category"
+            cp -a "$sdkroot/$category"/10.* "artifacts/workspace/sdk/$category/"
+          done
           mkdir -p artifacts/workspace/sdk/sdk
           cp -a "$sdkroot/sdk/$(dotnet --version)" artifacts/workspace/sdk/sdk/
           cp -a ~/.nuget/packages/. artifacts/workspace/packages/
