@@ -19,6 +19,7 @@ public sealed partial class HmiDesignerHost
                 ? found : HmiControlCatalog.Create(element.Symbol);
             if (!HmiElementComparer.Equals(control.CaptureDefinition(), element)) control.ApplyDefinition(element);
             if (!ReferenceEquals(control.Font, _font)) control.Font = _font;
+            control.ColorScheme = ColorScheme;
             control.IsHitTestVisible = false; control.CommandsEnabled = false;
             if (tags.TryGetValue(element.Tag, out var tag)) control.UpdateSample(new HmiTagSample(tag.InitialValue, HmiQuality.Good, DateTimeOffset.UnixEpoch));
             desired.Add(control);

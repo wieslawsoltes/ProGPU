@@ -26,7 +26,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     private readonly StackPanel _palette = new();
     private readonly Grid _workspace = new();
     private readonly ScrollViewer _canvasScroll;
-    private readonly ScrollViewer _previewScroll = new() { Visibility = Visibility.Collapsed, HorizontalScrollMode = ScrollMode.Enabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private readonly HmiRuntimeViewport _previewViewport = new() { Visibility = Visibility.Collapsed, Margin = new Thickness(16) };
     private readonly TextBlock _status;
     private readonly TextBlock _title;
     private readonly TextBlock _selectionLabel;
@@ -55,6 +55,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     public HmiDesignerHost(HmiProject? project, TtfFont? font = null)
     {
         _font = font ?? PopupService.DefaultFont;
+        _canvas.RulerFont = _font;
         HmiDesignerRegistration.Register();
         Session = new HmiDesignerSession(project);
         _selection = new DesignerSelectionService(_canvas) { CanEdit = e => e is HmiControl { IsDesignLocked: false } && !IsPreviewing };
@@ -71,51 +72,13 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         RowDefinitions.Add(GridLength.Auto);
         RowDefinitions.Add(GridLength.Auto);
 
-        var header = new StackPanel { Padding = new Thickness(10, 8, 10, 4) };
-        header.AddChild(_title);
-        var files = Toolbar();
-        files.AddChild(Command("New", () => ConfirmReplace("new", () => Session.Open(new HmiProject { Screens = [new HmiScreen { Id = "overview", Name = "Overview" }] }))));
-        files.AddChild(Command("Demo", () => ConfirmReplace("demo", () => Session.Open(HmiDemoProject.Create()))));
-        files.AddChild(_filePath);
-        files.AddChild(Command("Open", () => ConfirmReplace("open:" + _filePath.Text, () => _ = OpenFileAsync(_filePath.Text))));
-        files.AddChild(Command("Save", () => _ = SaveFileAsync(_filePath.Text)));
-        files.AddChild(Command("Undo", () => DesignCommand(Session.Undo)));
-        files.AddChild(Command("Redo", () => DesignCommand(Session.Redo)));
-        files.AddChild(Command("Run / Stop", () => { if (IsPreviewing) StopPreview(); else StartPreview(); }));
-        files.AddChild(Command("Pause / Resume", TogglePause));
-        files.AddChild(Command("Step 100 ms", () => AdvancePreview(TimeSpan.FromMilliseconds(100))));
-        files.AddChild(Command("Data panels", ToggleDataPanels));
-        header.AddChild(files);
-        var edit = Toolbar();
-        edit.AddChild(Command("Select all", () => DesignCommand(_selection.SelectAll)));
-        edit.AddChild(Command("Copy", CopySelection));
-        edit.AddChild(Command("Paste", () => PasteSelection()));
-        edit.AddChild(Command("Duplicate", () => { CopySelection(); PasteSelection(); }));
-        edit.AddChild(Command("Delete", () => DesignCommand(_selection.Delete)));
-        edit.AddChild(Command("Group", () => GroupSelection(true)));
-        edit.AddChild(Command("Ungroup", () => GroupSelection(false)));
-        edit.AddChild(Command("Lock / Unlock", ToggleLock));
-        foreach (var alignment in Enum.GetValues<DesignerAlignment>())
-        {
-            var current = alignment;
-            edit.AddChild(Command(current.ToString(), () => DesignCommand(() => _selection.Align(current))));
-        }
-        edit.AddChild(Command("Space X", () => DesignCommand(() => _selection.Distribute(true))));
-        edit.AddChild(Command("Space Y", () => DesignCommand(() => _selection.Distribute(false))));
-        edit.AddChild(Command("Front", () => DesignCommand(() => _selection.Reorder(true))));
-        edit.AddChild(Command("Back", () => DesignCommand(() => _selection.Reorder(false))));
-        edit.AddChild(Command("Fit", Fit));
-        edit.AddChild(Command("−", () => Zoom(0.8f)));
-        edit.AddChild(Command("+", () => Zoom(1.25f)));
-        edit.AddChild(Command("Grid", () => { _canvas.ShowGridLines = !_canvas.ShowGridLines; _canvas.Invalidate(); }));
-        edit.AddChild(Command("Snap", () => { _canvas.GridSnappingEnabled = !_canvas.GridSnappingEnabled; Status($"Grid snapping {(_canvas.GridSnappingEnabled ? "on" : "off")}"); }));
-        header.AddChild(edit);
+        var header = BuildStudioHeader();
         AddChild(header); SetRow(header, 0);
 
-        var leftSplit = new ResponsiveSplitView { OpenPaneLength = 235, CompactModeThreshold = 950, PanePlacement = PanePlacement.Left, IsPaneScrollEnabled = false };
-        var rightSplit = new ResponsiveSplitView { OpenPaneLength = 295, CompactModeThreshold = 760, PanePlacement = PanePlacement.Right, IsPaneScrollEnabled = false };
+        var leftSplit = new ResponsiveSplitView { OpenPaneLength = 264, CompactModeThreshold = 950, PanePlacement = PanePlacement.Left, IsPaneScrollEnabled = false };
+        var rightSplit = new ResponsiveSplitView { OpenPaneLength = 284, CompactModeThreshold = 760, PanePlacement = PanePlacement.Right, IsPaneScrollEnabled = false };
         leftSplit.MainContent = rightSplit;
-        var left = new Pivot { Font = _font };
+        var left = _libraryTabs = new Pivot { Font = _font };
         var screens = new StackPanel { Padding = new Thickness(8) };
         var screenTools = Toolbar();
         screenTools.AddChild(Command("Add", () => DesignCommand(Session.AddScreen)));
@@ -131,24 +94,26 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         toolbox.AddChild(toolsScroll); SetRow(toolsScroll, 1);
         left.Items.Add(new PivotItem("Components", toolbox));
         left.Items.Add(new PivotItem("Outline", _outline));
+        left.SelectedIndex = 1;
         leftSplit.PaneContent = left;
-        var inspector = new Pivot { Font = _font };
+        var inspector = new Pivot { Font = _font, Margin = new Thickness(30, 0, 0, 0) };
         var properties = new Grid(); properties.RowDefinitions.Add(GridLength.Auto); properties.RowDefinitions.Add(GridLength.Star(1));
         properties.AddChild(_selectionLabel); properties.AddChild(_properties); SetRow(_properties, 1);
         inspector.Items.Add(new PivotItem("HMI", properties));
         inspector.Items.Add(new PivotItem("Layout", _layout));
         rightSplit.PaneContent = inspector;
         rightSplit.MainContent = _workspace;
-        _canvasScroll = new ScrollViewer { Content = _canvas, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
-        _workspace.AddChild(_canvasScroll); _workspace.AddChild(_previewScroll);
+        _canvasScroll = new ScrollViewer { Content = _canvas, VerticalScrollMode = ScrollMode.Disabled, HorizontalScrollMode = ScrollMode.Disabled, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+        _workspace.AddChild(_canvasScroll); _workspace.AddChild(_previewViewport);
         AddChild(leftSplit); SetRow(leftSplit, 1);
-        _dataArea = BuildDataArea(); _dataArea.Height = 245;
+        _dataArea = BuildDataArea(); _dataArea.Height = 190;
         AddChild(_dataArea); SetRow(_dataArea, 2);
         _status.Margin = new Thickness(12, 5, 12, 5);
         AddChild(_status); SetRow(_status, 3);
 
         _multiAdorner = new DesignerMultiSelectionAdorner(_canvas, _selection);
         _canvas.AdornerSurface.Children.Add(_multiAdorner);
+        _canvas.ViewportChanged += UpdateStudioState;
         _canvas.CanvasModifying += OnCanvasModifying;
         _canvas.CanvasModified += OnCanvasModified;
         _canvas.SelectionChanged += OnCanvasSelectionChanged;
@@ -163,10 +128,11 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         Unloaded += (_, _) => StopPreview();
         BuildPalette("");
         RebuildDocumentViews();
+        InitializeStudio();
     }
 
     private TextBlock Text(string text, float size = 12) => new() { Text = text, Font = _font, FontSize = size, Foreground = new ThemeResourceBrush("TextPrimary"), Margin = new Thickness(4) };
-    private TextBox Input(string placeholder, float width) => new() { PlaceholderText = placeholder, Font = _font, FontSize = 12, Width = width, Height = 30, Margin = new Thickness(3) };
+    private TextBox Input(string placeholder, float width) => new() { PlaceholderText = placeholder, PlaceholderForeground = new ThemeResourceBrush("TextSecondary"), Font = _font, FontSize = 12, Width = width, Height = 30, Margin = new Thickness(3) };
     private static WrapPanel Toolbar() => new() { Orientation = Orientation.Horizontal };
     private Button Command(string text, Action action)
     {
@@ -190,6 +156,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     private void Status(string message, bool error = false)
     {
         _status.Text = message;
+        UpdateStudioState();
         _status.Foreground = new ThemeResourceBrush(error ? "SystemAccentColor" : "TextSecondary");
         if (error) Error?.Invoke(message);
     }
@@ -212,18 +179,38 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     }
     private void BuildPalette(string search)
     {
-        _palette.Children.Clear();
-        string? category = null;
-        foreach (var descriptor in HmiControlCatalog.Items.Where(d => (d.Name + " " + d.Category).Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)))
+        _paletteQuery = search;
+        _palette.Children.Clear(); _paletteIcons.Clear();
+        var items = HmiControlCatalog.Items.Where(d => (d.Name + " " + d.Category + " " + d.Symbol).Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
+        _paletteSummary = Text($"{items.Length} COMPONENTS  /  Drag to place", 10);
+        _paletteSummary.Foreground = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Muted);
+        _palette.AddChild(_paletteSummary);
+        foreach (var group in items.GroupBy(d => d.Category))
         {
-            if (category != descriptor.Category) { category = descriptor.Category; _palette.AddChild(Text(category.ToUpperInvariant(), 10)); }
-            var row = new Grid(); row.ColumnDefinitions.Add(GridLength.Star(1)); row.ColumnDefinitions.Add(new GridLength(35));
-            var item = new ToolboxItem(HmiDesignerRegistration.ToolboxKey(descriptor.Symbol), descriptor.Name, "", _font);
-            row.AddChild(item);
-            var symbol = descriptor.Symbol;
-            var add = Command("+", () => AddComponent(symbol)); row.AddChild(add); SetColumn(add, 1);
-            _palette.AddChild(row);
+            var category = Text(group.Key.ToUpperInvariant(), 10);
+            category.Margin = new Thickness(10, 16, 6, 5);
+            category.Foreground = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Muted);
+            _palette.AddChild(category);
+            foreach (var descriptor in group)
+            {
+                var row = new Grid { Height = 54, Margin = new Thickness(6, 2, 16, 2), HorizontalAlignment = HorizontalAlignment.Stretch };
+                row.ColumnDefinitions.Add(GridLength.Star(1)); row.ColumnDefinitions.Add(new GridLength(32));
+                var glyph = new HmiSymbolIcon { Symbol = descriptor.Symbol, ColorScheme = ColorScheme, Width = 38, Height = 38, Margin = new Thickness(2, 4) };
+                _paletteIcons.Add(glyph);
+                var content = new Grid(); content.ColumnDefinitions.Add(new GridLength(46)); content.ColumnDefinitions.Add(GridLength.Star(1));
+                var caption = Text(descriptor.Name, 11); caption.VerticalAlignment = VerticalAlignment.Center;
+                caption.TextWrapping = TextWrapping.NoWrap; caption.TextTrimming = TextTrimming.CharacterEllipsis;
+                content.AddChild(glyph); content.AddChild(caption); SetColumn(caption, 1);
+                var item = new ToolboxItem(HmiDesignerRegistration.ToolboxKey(descriptor.Symbol), descriptor.Name, "", _font)
+                { Child = content, Padding = new Thickness(3, 0), Margin = new Thickness(1), Height = 50 };
+                row.AddChild(item);
+                var symbol = descriptor.Symbol;
+                var add = Command("+", () => AddComponent(symbol)); row.AddChild(add); SetColumn(add, 1);
+                ToolTipService.SetToolTip(add, "Insert " + descriptor.Name);
+                _palette.AddChild(row);
+            }
         }
+        if (items.Length == 0) _palette.AddChild(Text("No matching components. Try a type or category name.", 12));
     }
     public void AddComponent(HmiSymbol symbol, float x = 60, float y = 80)
     {
@@ -249,6 +236,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
             _selection.Select(null);
             var screen = Session.ActiveScreen;
             _canvas.DesignSurface.Width = screen.Width; _canvas.DesignSurface.Height = screen.Height;
+            _canvas.DocumentSize = new Vector2(screen.Width, screen.Height);
             ReconcileCanvas(screen);
             var selectedIds = selected.ToHashSet(StringComparer.Ordinal);
             foreach (var control in _canvas.DesignSurface.Children.OfType<HmiControl>())
@@ -261,7 +249,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
                 string id = item.Id;
                 _screenList.AddChild(Command((id == Session.ActiveScreenId ? "● " : "") + item.Name, () => DesignCommand(() => Session.SelectScreen(id))));
             }
-            _title.Text = "HMI DESIGNER / " + Session.Document.Name + (Session.IsDirty ? "  • unsaved" : "");
+            _title.Text = Session.Document.Name + (Session.IsDirty ? "  • unsaved" : "");
             RefreshTables();
             _canvas.InvalidateMeasure(); _canvas.Invalidate(); _multiAdorner.Invalidate();
         }
@@ -348,6 +336,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     {
         _canvas.ZoomScale = Math.Clamp(_canvas.ZoomScale * factor, 0.15f, 4);
         _canvas.ApplyTransforms(); _canvas.Invalidate();
+        UpdateStudioState();
         Status($"Zoom {_canvas.ZoomScale:P0}");
     }
     public void CopySelection()
@@ -427,6 +416,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         Session.Changed -= OnSessionChanged; Session.ScreenChanged -= OnScreenChanged;
         _canvas.CanvasModifying -= OnCanvasModifying; _canvas.CanvasModified -= OnCanvasModified; _canvas.SelectionChanged -= OnCanvasSelectionChanged;
         _selection.SelectionChanged -= UpdateInspector;
+        _canvas.ViewportChanged -= UpdateStudioState;
         _multiAdorner.Dispose();
         _alarmConsole.Dispose();
     }

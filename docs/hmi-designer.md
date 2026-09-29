@@ -27,7 +27,7 @@ The core, controls, designer and three optional transport libraries are packable
 
 The **Screens** pane creates, duplicates, names and switches screens. The inspector with no selection edits project name, screen name, dimensions and start-screen ID. Screen deletion refuses to remove the final screen or a screen still referenced by navigation actions.
 
-The searchable **Components** pane offers 28 symbol types: tank, pump, valve, motor, pipe, conveyor, gauge, bar graph, numeric display/input, indicator, trend, alarm banner/list, command button, toggle, navigation button, recipe button, label and rectangle. Drag an item using the shared `ToolboxItem`, or click **+** to insert it. The original two-screen water-treatment project demonstrates linked tags, trends, navigation, alarms and recipes.
+The searchable **Components** pane offers 40 symbol types: tank, pump, valve, motor, pipe, conveyor, gauge, bar graph, numeric display/input, indicator, trend, alarm banner/list, command button, toggle, navigation button, recipe button, label and rectangle. Drag an item using the shared `ToolboxItem`, or click **+** to insert it. The original two-screen water-treatment project demonstrates linked tags, trends, navigation, alarms and recipes.
 
 The shared `DesignerCanvas` owns dragging, resize handles, grid/snapping, pointer-centered zoom and panning. The shared logical outline treats composite HMI controls as atomic components rather than exposing their private label/input visuals. Ctrl-click or **Select all** builds a selection set. Toolbar commands align all six edges/centers, distribute horizontally/vertically, move forward/back, group/ungroup and lock/unlock. Group selection and movement preserve individual component identities. Groups are flat authoring groups. The Faceplates tab provides typed reusable equipment compositions with explicit master synchronization; recursive nested templates remain outside this implementation.
 
@@ -72,7 +72,7 @@ runtime.AdvanceSimulation(TimeSpan.FromMilliseconds(100));
 // screen.Dispose(); runtime.Stop();
 ```
 
-`HmiControlCatalog.Items` describes all 28 insertable symbols. `HmiControlCatalog.Create` creates configured controls. Strongly typed classes are provided for tank, pump, valve, motor, gauge, trend, alarm list and numeric display; `HmiControl(HmiSymbol)` covers every symbol. Common display values use dependency properties (`Value`, `Label`, `Unit`, `Quality`, `IsActive`). `ApplyDefinition` and `CaptureDefinition` exchange detached design configuration, not event handlers or live telemetry.
+`HmiControlCatalog.Items` describes all 40 insertable symbols. `HmiControlCatalog.Create` creates configured controls. Strongly typed classes are provided for tank, pump, valve, motor, gauge, trend, alarm list and numeric display; `HmiControl(HmiSymbol)` covers every symbol. Common display values use dependency properties (`Value`, `Label`, `Unit`, `Quality`, `IsActive`). `ApplyDefinition` and `CaptureDefinition` exchange detached design configuration, not event handlers or live telemetry.
 
 `HmiDesignerRegistration.Register()` is an optional bridge. It registers factories, configuration copying and atomic logical-tree policy in the shared designer registry. Runtime controls never reference the designer assembly. Third-party controls can use the same registration overload without changing HMI internals.
 
@@ -117,3 +117,8 @@ Real equipment integration must implement authenticated transport, least-privile
 ## Equipment and commissioning extension
 
 Connections edits endpoint profiles and typed I/O mappings, starts explicit read-only acquisition, and reviews single-use external write requests. Faceplates captures and instantiates equipment masters with typed slots. States edits priority-based equipment conditions. New symbols include heat exchangers, filters, compressors, fans, heaters, thermometers, boilers and cooling towers. See [the integration guide](hmi-control-integrations.md) for protocol details, security boundaries and tests.
+
+
+## Process studio appearance
+
+The standalone app and gallery open the Northwater process studio example. [The visual studio guide](hmi-visual-studio.md) covers the 40-symbol renderer, palette selection, orientation, dynamic captions, compact menu layout, rulers, runtime scaling, source-generated JSON and executable pixel/input probes.

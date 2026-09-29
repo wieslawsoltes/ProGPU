@@ -81,7 +81,7 @@ public sealed class HmiEquipmentTests
     {
         HmiControl[] controls = [new HmiHeatExchanger(), new HmiFilter(), new HmiCompressor(), new HmiFan(), new HmiHeater(), new HmiThermometer(), new HmiBoiler(), new HmiCoolingTower()];
         Assert.Equal(8, controls.Select(c => c.Symbol).Distinct().Count());
-        Assert.Equal(28, HmiControlCatalog.Items.Count);
+        Assert.Equal(Enum.GetValues<HmiSymbol>().Length, HmiControlCatalog.Items.Count);
         foreach (var control in controls)
         {
             control.UpdateState(new HmiVisualState(HmiVisualTone.Maintenance, "ISOLATED"));

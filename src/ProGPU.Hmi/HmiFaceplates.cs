@@ -79,7 +79,7 @@ public static class HmiFaceplates
                 string.IsNullOrWhiteSpace(template.Name) || template.Name.Length > 256 || template.Revision < 1 ||
                 template.Elements is not { Count: > 0 and <= 1000 } || template.Slots is not { Count: <= 256 })
                 throw new InvalidDataException("Invalid faceplate template identity or component/slot budget.");
-            if (template.Slots.Any(t => t == null) || template.Elements.Any(e => e == null || e.Action == null || e.Action.Target == null || e.States == null ||
+            if (template.Slots.Any(t => t == null) || template.Elements.Any(e => e == null || e.Action == null || e.Action.Target == null || e.States == null || e.Appearance == null ||
                 e.Tag == null || e.VisibilityTag == null || e.EnabledTag == null || e.FaceplateTemplateId == null || e.FaceplateInstanceId == null ||
                 e.States.Any(s => s == null || s.Tag == null)))
                 throw new InvalidDataException("Faceplate contains null elements, slots, state rules, actions or bindings.");

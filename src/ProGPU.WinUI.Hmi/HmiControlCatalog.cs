@@ -8,6 +8,18 @@ public static class HmiControlCatalog
 {
     public static IReadOnlyList<HmiControlDescriptor> Items { get; } = Array.AsReadOnly(new HmiControlDescriptor[]
     {
+        new(HmiSymbol.ControlValve, "Modulating valve", "Valves", 190, 190),
+        new(HmiSymbol.CheckValve, "Check valve", "Valves", 175, 145),
+        new(HmiSymbol.ButterflyValve, "Butterfly valve", "Valves", 170, 155),
+        new(HmiSymbol.Agitator, "Agitated vessel", "Vessels", 220, 265),
+        new(HmiSymbol.Silo, "Storage silo", "Vessels", 195, 275),
+        new(HmiSymbol.Hopper, "Feed hopper", "Vessels", 205, 240),
+        new(HmiSymbol.Separator, "Process separator", "Vessels", 210, 240),
+        new(HmiSymbol.Reactor, "Jacketed reactor", "Vessels", 235, 280),
+        new(HmiSymbol.FlowMeter, "Flow meter", "Instruments", 230, 155),
+        new(HmiSymbol.Strainer, "Y-strainer", "Valves", 195, 150),
+        new(HmiSymbol.PressureTransmitter, "Pressure transmitter", "Instruments", 180, 190),
+        new(HmiSymbol.LevelTransmitter, "Level transmitter", "Instruments", 180, 210),
         new(HmiSymbol.HeatExchanger, "Heat exchanger", "Equipment", 220, 170),
         new(HmiSymbol.Filter, "Process filter", "Equipment", 170, 170),
         new(HmiSymbol.Compressor, "Compressor", "Equipment", 200, 175),
@@ -42,6 +54,18 @@ public static class HmiControlCatalog
         var descriptor = Items.Single(d => d.Symbol == symbol);
         var control = symbol switch
         {
+            HmiSymbol.ControlValve => (HmiControl)new HmiControlValve(),
+            HmiSymbol.CheckValve => (HmiControl)new HmiCheckValve(),
+            HmiSymbol.ButterflyValve => (HmiControl)new HmiButterflyValve(),
+            HmiSymbol.Agitator => (HmiControl)new HmiAgitator(),
+            HmiSymbol.Silo => (HmiControl)new HmiSilo(),
+            HmiSymbol.Hopper => (HmiControl)new HmiHopper(),
+            HmiSymbol.Separator => (HmiControl)new HmiSeparator(),
+            HmiSymbol.Reactor => (HmiControl)new HmiReactor(),
+            HmiSymbol.FlowMeter => (HmiControl)new HmiFlowMeter(),
+            HmiSymbol.Strainer => (HmiControl)new HmiStrainer(),
+            HmiSymbol.PressureTransmitter => (HmiControl)new HmiPressureTransmitter(),
+            HmiSymbol.LevelTransmitter => (HmiControl)new HmiLevelTransmitter(),
             HmiSymbol.HeatExchanger => (HmiControl)new HmiHeatExchanger(),
             HmiSymbol.Filter => (HmiControl)new HmiFilter(),
             HmiSymbol.Compressor => (HmiControl)new HmiCompressor(),

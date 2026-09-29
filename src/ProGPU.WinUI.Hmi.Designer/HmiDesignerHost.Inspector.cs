@@ -23,6 +23,7 @@ public sealed partial class HmiDesignerHost
     private void UpdateInspector()
     {
         if (_rebuilding || _disposed) return;
+        UpdateStudioState();
         _alarmConsole?.AttachRuntime(_runtime);
         _outline.IsHitTestVisible = !IsPreviewing;
         _palette.IsHitTestVisible = !IsPreviewing;
@@ -56,6 +57,15 @@ public sealed partial class HmiDesignerHost
         }
         ElementProperty("Name", model.Name, (e, v) => e.Name = v);
         ElementProperty("Label", model.Label, (e, v) => e.Label = v);
+        ElementProperty("Presentation", model.Appearance.Presentation.ToString(), (e, v) => e.Appearance.Presentation = Choice<HmiPresentation>(v));
+        ElementProperty("Show tag name", model.Appearance.ShowTagName.ToString(), (e, v) => e.Appearance.ShowTagName = Boolean(v));
+        ElementProperty("Show range", model.Appearance.ShowEngineeringRange.ToString(), (e, v) => e.Appearance.ShowEngineeringRange = Boolean(v));
+        ElementProperty("Show ports", model.Appearance.ShowConnectionPorts.ToString(), (e, v) => e.Appearance.ShowConnectionPorts = Boolean(v));
+        ElementProperty("Show value", model.Appearance.ShowValue.ToString(), (e, v) => e.Appearance.ShowValue = Boolean(v));
+        ElementProperty("Symbol quarter turns", model.Appearance.QuarterTurns.ToString(Invariant), (e, v) => e.Appearance.QuarterTurns = Integer(v));
+        ElementProperty("Mirror symbol X", model.Appearance.MirrorHorizontal.ToString(), (e, v) => e.Appearance.MirrorHorizontal = Boolean(v));
+        ElementProperty("Mirror symbol Y", model.Appearance.MirrorVertical.ToString(), (e, v) => e.Appearance.MirrorVertical = Boolean(v));
+        ElementProperty("Animate flow", model.Appearance.AnimateFlow.ToString(), (e, v) => e.Appearance.AnimateFlow = Boolean(v));
         ElementProperty("Unit", model.Unit, (e, v) => e.Unit = v);
         ElementProperty("Value tag", model.Tag, (e, v) => e.Tag = v.Trim());
         ElementProperty("Visibility tag", model.VisibilityTag, (e, v) => e.VisibilityTag = v.Trim());

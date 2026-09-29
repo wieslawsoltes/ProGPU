@@ -27,7 +27,8 @@ public enum HmiSymbol
     Label, NumericDisplay, NumericInput, Indicator, PushButton, ToggleSwitch,
     Tank, Pump, Valve, Motor, Pipe, Conveyor, Gauge, BarGraph, Trend,
     AlarmBanner, AlarmList, NavigationButton, RecipeButton, Rectangle,
-    HeatExchanger, Filter, Compressor, Fan, Heater, Thermometer, Boiler, CoolingTower
+    HeatExchanger, Filter, Compressor, Fan, Heater, Thermometer, Boiler, CoolingTower,
+    ControlValve, CheckValve, ButterflyValve, Agitator, Silo, Hopper, Separator, Reactor, FlowMeter, Strainer, PressureTransmitter, LevelTransmitter
 }
 
 public enum HmiActionKind { None, ToggleTag, WriteTag, Navigate, AcknowledgeAlarms, ApplyRecipe }
@@ -63,6 +64,7 @@ public sealed class HmiElement
     public HmiAction Action { get; set; } = new();
     public List<HmiStateRule> States { get; set; } = [];
     public HmiTrendOptions Trend { get; set; } = new();
+    public HmiAppearance Appearance { get; set; } = new();
     public string FaceplateTemplateId { get; set; } = "";
     public string FaceplateInstanceId { get; set; } = "";
     public string FaceplateSourceId { get; set; } = "";
@@ -79,7 +81,7 @@ public sealed class HmiElement
         IsHidden = IsHidden, Group = Group,
         Action = new HmiAction { Kind = Action.Kind, Target = Action.Target, Value = Action.Value },
         States = States.Select(s => s.Copy()).ToList(),
-        Trend = Trend.Copy(),
+        Trend = Trend.Copy(), Appearance = Appearance.Copy(),
         FaceplateTemplateId = newIdentity ? "" : FaceplateTemplateId,
         FaceplateInstanceId = newIdentity ? "" : FaceplateInstanceId,
         FaceplateSourceId = newIdentity ? "" : FaceplateSourceId,

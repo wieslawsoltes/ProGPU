@@ -47,7 +47,7 @@ public sealed class HmiAuthoringPolishTests
     public void StaticEquipmentDoesNotAllocateHiddenOperatorEditors()
     {
         var tank = new HmiTank();
-        Assert.Equal(3, tank.Children.Count);
+        Assert.Equal(5, tank.Children.Count);
         Assert.DoesNotContain(tank.Children, child => child is Button or TextBox or Grid);
         var definition = tank.CaptureDefinition();
         definition.Action.Kind = HmiActionKind.ToggleTag;
@@ -56,7 +56,7 @@ public sealed class HmiAuthoringPolishTests
         Assert.Single(tank.Children.OfType<Button>());
         definition.Action.Kind = HmiActionKind.None;
         tank.ApplyDefinition(definition);
-        Assert.Equal(3, tank.Children.Count);
+        Assert.Equal(5, tank.Children.Count);
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public sealed class HmiAuthoringPolishTests
         host.AddComponent(HmiSymbol.Gauge);
         string before = host.Session.ExportJson();
         var report = host.AnalyzeProject();
-        var issue = Assert.Single(report.Diagnostics.Where(d => d.Code == "HMI2001"));
+        var issue = Assert.Single(report.Diagnostics, d => d.Code == "HMI2001");
         host.SelectComponent(issue.ScreenId, issue.ElementId);
         Assert.Equal(issue.ElementId, Assert.IsAssignableFrom<HmiControl>(host.WorkspaceCanvas.SelectedElement).ElementId);
         Assert.Equal(before, host.Session.ExportJson());

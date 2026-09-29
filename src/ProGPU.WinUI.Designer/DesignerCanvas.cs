@@ -36,6 +36,22 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
 {
     public new Brush? Background { get; set; }
     public bool HasHitTestBackground => Background != null;
+    private Vector2? _documentSize;
+    /// <summary>Optional fixed logical artboard extent, independent of viewport and zoom. Null preserves responsive layout.</summary>
+    public Vector2? DocumentSize
+    {
+        get => _documentSize;
+        set
+        {
+            if (value is { } size && (!float.IsFinite(size.X) || !float.IsFinite(size.Y) || size.X <= 0 || size.Y <= 0))
+                throw new ArgumentOutOfRangeException(nameof(value));
+            if (_documentSize == value) return;
+            _documentSize = value;
+            InvalidateMeasure(); Invalidate();
+        }
+    }
+    /// <summary>Optional artboard fill drawn before the shared grid and snapping guides.</summary>
+    public Brush? DocumentBackground { get; set; }
     public Canvas DesignSurface { get; }
     public Canvas AdornerSurface { get; }
 
@@ -105,6 +121,7 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
     }
 
     private readonly RTree<FrameworkElement> _spatialIndex = new RTree<FrameworkElement>();
+    private readonly Dictionary<FrameworkElement, int> _spatialPaintOrder = new();
     private List<(FrameworkElement Element, Rect Rect)>? _cachedSnapElements;
 
     // Pointer movement state
@@ -185,6 +202,8 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
 
     public List<(FrameworkElement Element, Rect Rect)>? CachedSnapElements => _cachedSnapElements;
 
+    public event Action? ViewportChanged;
+
     public void ApplyTransforms()
     {
         Matrix4x4 scale = Matrix4x4.CreateScale(ZoomScale, ZoomScale, 1.0f);
@@ -193,6 +212,7 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
 
         DesignSurface.Transform = transform;
         AdornerSurface.Transform = transform;
+        ViewportChanged?.Invoke();
     }
 
     public void SelectElement(FrameworkElement? element)
@@ -212,8 +232,9 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
             // Force a measure & arrange layout pass on DesignSurface so the element's actual position is fully computed
             float surfaceW = !float.IsFinite(Size.X) ? 2000f : Size.X;
             float surfaceH = !float.IsFinite(Size.Y) ? 2000f : Size.Y;
-            DesignSurface.Measure(new Vector2(surfaceW, surfaceH));
-            DesignSurface.Arrange(new Rect(Vector2.Zero, new Vector2(surfaceW, surfaceH)));
+            var extent = DocumentSize ?? new Vector2(surfaceW, surfaceH);
+            DesignSurface.Measure(extent);
+            DesignSurface.Arrange(new Rect(Vector2.Zero, extent));
 
             _selectionAdorner = new SelectionAdorner(_selectedElement, this);
             AdornerSurface.Children.Add(_selectionAdorner);
@@ -240,8 +261,9 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
         
         float surfaceW = ViewportWidth ?? w;
         
-        DesignSurface.Measure(new Vector2(surfaceW, h));
-        AdornerSurface.Measure(new Vector2(surfaceW, h));
+        var extent = DocumentSize ?? new Vector2(surfaceW, h);
+        DesignSurface.Measure(extent);
+        AdornerSurface.Measure(extent);
         
         return new Vector2(w, h);
     }
@@ -251,7 +273,9 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
         float surfaceW = ViewportWidth ?? arrangeRect.Width;
         float leftOffset = ViewportWidth.HasValue ? (arrangeRect.Width - ViewportWidth.Value) / 2f : 0f;
         
-        Rect surfaceRect = new Rect(arrangeRect.X + leftOffset, arrangeRect.Y, surfaceW, arrangeRect.Height);
+        var extent = DocumentSize ?? new Vector2(surfaceW, arrangeRect.Height);
+        if (DocumentSize.HasValue) leftOffset = 0;
+        Rect surfaceRect = new Rect(arrangeRect.X + leftOffset, arrangeRect.Y, extent.X, extent.Y);
         
         DesignSurface.Arrange(surfaceRect);
         _selectionAdorner?.UpdatePositionAndSize();
@@ -323,8 +347,9 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
             }
         }
 
-        // Sort hitElements by visual depth descending (deepest/leaf-most first)
-        hitElements.Sort((a, b) => GetVisualDepth(b).CompareTo(GetVisualDepth(a)));
+        // R-tree enumeration is not painter order. Keep logical leaf priority, then
+        // select the last rendered sibling for equally deep overlapping elements.
+        hitElements.Sort(CompareHitOrder);
 
         if (hitElements.Count > 0)
         {
@@ -494,11 +519,7 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
             RebuildSpatialIndex();
             var hoverCandidates = _spatialIndex.Query(logicalPos);
 
-            hoverCandidates.Sort((a, b) => {
-                int depthA = GetVisualDepth(a);
-                int depthB = GetVisualDepth(b);
-                return depthB.CompareTo(depthA); // Query deepest leaf node first
-            });
+            hoverCandidates.Sort(CompareHitOrder);
 
             foreach (var child in hoverCandidates)
             {
@@ -661,8 +682,15 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
     private void RebuildSpatialIndex()
     {
         var entries = new List<RTreeEntry<FrameworkElement>>();
+        _spatialPaintOrder.Clear();
         AddToSpatialIndexRecursive(DesignSurface, entries);
         _spatialIndex.Rebuild(entries);
+    }
+
+    private int CompareHitOrder(FrameworkElement first, FrameworkElement second)
+    {
+        int depth = GetVisualDepth(second).CompareTo(GetVisualDepth(first));
+        return depth != 0 ? depth : _spatialPaintOrder[second].CompareTo(_spatialPaintOrder[first]);
     }
 
     private void AddToSpatialIndexRecursive(FrameworkElement parent, List<RTreeEntry<FrameworkElement>> entries)
@@ -682,6 +710,7 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
                     var transform = child.TransformToVisual(DesignSurface);
                     Rect transformedBounds = transform.TransformBounds(localBounds);
 
+                    _spatialPaintOrder[child] = entries.Count;
                     entries.Add(new RTreeEntry<FrameworkElement>(transformedBounds, child));
 
                     AddToSpatialIndexRecursive(child, entries);
@@ -705,6 +734,7 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
                         var transform = fe.TransformToVisual(DesignSurface);
                         Rect transformedBounds = transform.TransformBounds(localBounds);
 
+                        _spatialPaintOrder[fe] = entries.Count;
                         entries.Add(new RTreeEntry<FrameworkElement>(transformedBounds, fe));
 
                         AddToSpatialIndexRecursive(fe, entries);
@@ -1246,6 +1276,12 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
             {
                 dpiScale = (float)DisplayScaleResolver.ResolveWindowDisplayScale(activeWindow.SilkWindow);
             }
+        }
+
+        if (DocumentSize is { } document && DocumentBackground != null)
+        {
+            context.DrawRectangle(DocumentBackground, null,
+                new Rect(PanOffset.X, PanOffset.Y, document.X * ZoomScale, document.Y * ZoomScale));
         }
 
         // 1. Grid Background (Scaled & Panned)

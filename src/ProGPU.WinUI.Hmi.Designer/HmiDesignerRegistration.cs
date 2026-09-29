@@ -35,6 +35,18 @@ public static class HmiDesignerRegistration
             Register<HmiThermometer>(HmiSymbol.Thermometer, () => new HmiThermometer());
             Register<HmiBoiler>(HmiSymbol.Boiler, () => new HmiBoiler());
             Register<HmiCoolingTower>(HmiSymbol.CoolingTower, () => new HmiCoolingTower());
+            Register<HmiControlValve>(HmiSymbol.ControlValve, () => new HmiControlValve());
+            Register<HmiCheckValve>(HmiSymbol.CheckValve, () => new HmiCheckValve());
+            Register<HmiButterflyValve>(HmiSymbol.ButterflyValve, () => new HmiButterflyValve());
+            Register<HmiAgitator>(HmiSymbol.Agitator, () => new HmiAgitator());
+            Register<HmiSilo>(HmiSymbol.Silo, () => new HmiSilo());
+            Register<HmiHopper>(HmiSymbol.Hopper, () => new HmiHopper());
+            Register<HmiSeparator>(HmiSymbol.Separator, () => new HmiSeparator());
+            Register<HmiReactor>(HmiSymbol.Reactor, () => new HmiReactor());
+            Register<HmiFlowMeter>(HmiSymbol.FlowMeter, () => new HmiFlowMeter());
+            Register<HmiStrainer>(HmiSymbol.Strainer, () => new HmiStrainer());
+            Register<HmiPressureTransmitter>(HmiSymbol.PressureTransmitter, () => new HmiPressureTransmitter());
+            Register<HmiLevelTransmitter>(HmiSymbol.LevelTransmitter, () => new HmiLevelTransmitter());
             _registered = true;
         }
     }
@@ -52,6 +64,7 @@ public static class HmiDesignerRegistration
     {
         target.ApplyDefinition(source.CaptureDefinition());
         target.Font = source.Font;
+        target.ColorScheme = source.ColorScheme;
         target.CommandsEnabled = false;
     }
 }

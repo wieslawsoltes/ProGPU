@@ -18,6 +18,15 @@ public static class HmiElementComparer
             left.FaceplateSourceX != right.FaceplateSourceX || left.FaceplateSourceY != right.FaceplateSourceY ||
             left.Action.Kind != right.Action.Kind || left.Action.Target != right.Action.Target || left.Action.Value != right.Action.Value ||
             left.Trend.WindowSeconds != right.Trend.WindowSeconds || left.Trend.MaximumGapSeconds != right.Trend.MaximumGapSeconds ||
+            left.Appearance.Presentation != right.Appearance.Presentation ||
+            left.Appearance.ShowTagName != right.Appearance.ShowTagName ||
+            left.Appearance.ShowEngineeringRange != right.Appearance.ShowEngineeringRange ||
+            left.Appearance.ShowConnectionPorts != right.Appearance.ShowConnectionPorts ||
+            left.Appearance.AnimateFlow != right.Appearance.AnimateFlow ||
+            left.Appearance.ShowValue != right.Appearance.ShowValue ||
+            left.Appearance.QuarterTurns != right.Appearance.QuarterTurns ||
+            left.Appearance.MirrorHorizontal != right.Appearance.MirrorHorizontal ||
+            left.Appearance.MirrorVertical != right.Appearance.MirrorVertical ||
             left.States.Count != right.States.Count) return false;
         for (int i = 0; i < left.States.Count; i++)
         {

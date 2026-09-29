@@ -19,7 +19,7 @@ public sealed class HmiApplication : Application
 {
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        var designer = new HmiDesignerHost { ConnectionFactory = profile => profile.Protocol switch
+        var designer = new HmiDesignerHost(ProGPU.Hmi.HmiShowcaseProject.Create()) { ConnectionFactory = profile => profile.Protocol switch
             {
                 ProGPU.Hmi.HmiConnectionProtocol.ModbusTcp => new ProGPU.Hmi.Modbus.HmiModbusConnection(profile),
                 ProGPU.Hmi.HmiConnectionProtocol.Mqtt => new ProGPU.Hmi.Mqtt.HmiMqttConnection(profile),

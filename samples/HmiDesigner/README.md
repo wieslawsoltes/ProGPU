@@ -6,10 +6,12 @@ A complete HMI-design workbench hosted by ProGPU's cross-platform WinUI-compatib
 dotnet run --project samples/HmiDesigner/HmiDesigner.csproj -c Release
 ```
 
-The original water-treatment project opens in design mode. Choose **Components**, drag a symbol or press **+**, and edit its tags and actions in the **HMI** inspector. Use **Run / Stop** for a separate local simulation, **Pause / Resume** to pause time, and **Step 100 ms** to inspect transitions.
+The Northwater treatment-train project opens in design mode. File → Water treatment sample retains the earlier demo. Choose **Components**, drag a symbol or press **+**, and edit its tags and actions in the **HMI** inspector. Use **Run / Stop** for a separate local simulation, **Pause / Resume** to pause time, and **Step 100 ms** to inspect transitions.
 
 The lower tabs edit tags, alarms, recipes and versioned project JSON. The **Help** tab documents keyboard shortcuts and the main workflows. Enter a desktop file path in the top bar to open or save `.hmi.json` projects.
 
 No equipment, network driver or PLC endpoint is connected. This is an authoring and simulation sample, not a safety system.
 
 See [HMI architecture, component APIs and validation](../../docs/hmi-designer.md).
+
+Use **View** for Light, Dark or High-contrast palettes, rulers, data-panel sizing and runtime fit/1:1. The HMI inspector edits per-symbol rotation, mirroring, caption/range visibility and optional flow animation. See [visual studio architecture and validation](../../docs/hmi-visual-studio.md).

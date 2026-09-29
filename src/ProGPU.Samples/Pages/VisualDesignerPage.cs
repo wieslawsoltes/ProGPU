@@ -13,7 +13,7 @@ public static class VisualDesignerPage
     {
         var tabs = new Pivot { Font = AppState._font, Margin = new Thickness(8) };
         tabs.Items.Add(new PivotItem("Visual UI", CreateVisualDesigner()));
-        var hmi = new HmiDesignerHost(null, AppState._font)
+        var hmi = new HmiDesignerHost(ProGPU.Hmi.HmiShowcaseProject.Create(), AppState._font)
         {
             ConnectionFactory = profile => profile.Protocol switch
             {

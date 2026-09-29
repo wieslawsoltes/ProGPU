@@ -16,6 +16,18 @@ public sealed class HmiScreenView : Grid, IDisposable
     private readonly List<HmiControl> _alarmControls = [];
     private readonly TtfFont? _font;
     private bool _disposed;
+    private HmiColorScheme _colorScheme;
+    public HmiColorScheme ColorScheme
+    {
+        get => _colorScheme;
+        set
+        {
+            if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value));
+            _colorScheme = value;
+            Background = HmiThemeResources.GetReference(value, HmiBrushRole.Surface);
+            foreach (var control in _definitions.Keys) control.ColorScheme = value;
+        }
+    }
     public string ScreenId { get; private set; } = "";
     public IReadOnlyCollection<HmiControl> Controls => _definitions.Keys;
     public Action<HmiElement, HmiValue?>? CommandRequested { get; set; }
@@ -40,12 +52,13 @@ public sealed class HmiScreenView : Grid, IDisposable
         var screen = _project.Screens.SingleOrDefault(s => s.Id == screenId) ?? throw new ArgumentException("Unknown HMI screen.", nameof(screenId));
         _surface.Children.Clear(); _bindings.Clear(); _definitions.Clear(); _alarmControls.Clear();
         ScreenId = screenId;
+        Background = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Surface);
         Width = _surface.Width = screen.Width;
         Height = _surface.Height = screen.Height;
         foreach (var definition in screen.Elements)
         {
             var control = HmiControlCatalog.Create(definition.Symbol);
-            control.Font = _font;
+            control.Font = _font; control.ColorScheme = ColorScheme;
             control.ApplyDefinition(definition);
             _definitions.Add(control, definition);
             _surface.Children.Add(control);

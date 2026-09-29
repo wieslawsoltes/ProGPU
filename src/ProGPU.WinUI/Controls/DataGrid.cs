@@ -1306,6 +1306,10 @@ public class DataGrid : Control
         UpdateCellEditorLayout();
     }
 
+    private Brush GetScopedBrush(string key) =>
+        XamlResourceResolver.ResolveTheme(null, this, key, ActualTheme, ActualThemeFamily) as Brush
+        ?? ThemeManager.GetBrush(key, ActualTheme, ActualThemeFamily);
+
     public override void OnRender(DrawingContext context)
     {
         var activeFont = GetActiveFont();
@@ -1313,16 +1317,16 @@ public class DataGrid : Control
 
         // 1. Draw DataGrid outer card background & border
         Pen outerPen = IsKeyboardFocusVisualVisible
-            ? new Pen(BorderBrush ?? ThemeManager.GetBrush("SystemAccentColor"), 2f) // Glowing Segoe Blue active focus ring
-            : new Pen(BorderBrush ?? ThemeManager.GetBrush("ControlBorder"), 1f); // Thin outline
+            ? new Pen(BorderBrush ?? GetScopedBrush("SystemAccentColor"), 2f) // Glowing Segoe Blue active focus ring
+            : new Pen(BorderBrush ?? GetScopedBrush("ControlBorder"), 1f); // Thin outline
 
-        var bg = Background ?? ThemeManager.GetBrush("CardBackground");
+        var bg = Background ?? GetScopedBrush("CardBackground");
         context.DrawRectangle(bg, outerPen, new Rect(Vector2.Zero, Size));
 
         // 2. Draw Column Headers
         float runningX = Padding.Left;
-        Brush headerBg = ThemeManager.GetBrush("HeaderBackground"); // Fluent Header plate
-        Pen colBorder = new Pen(ThemeManager.GetBrush("ControlBorder"), 1f);
+        Brush headerBg = GetScopedBrush("HeaderBackground"); // Fluent Header plate
+        Pen colBorder = new Pen(GetScopedBrush("ControlBorder"), 1f);
 
         context.DrawRectangle(headerBg, null, new Rect(0, 0, Size.X, _headerHeight));
 
@@ -1344,7 +1348,7 @@ public class DataGrid : Control
                 col.Header,
                 activeFont,
                 FontSize,
-                ThemeManager.GetBrush("TextPrimary"),
+                GetScopedBrush("TextPrimary"),
                 new Vector2(headerTextBounds.X, textY),
                 Matrix4x4.Identity,
                 headerTextBounds,
@@ -1360,7 +1364,7 @@ public class DataGrid : Control
                 float sortX = LogicalToPhysicalX(runningX + 12f + headerTextW);
                 float sortY = _headerHeight * 0.5f;
                 float direction = col.IsAscending ? -1f : 1f;
-                var sortPen = new Pen(ThemeManager.GetBrush("SystemAccentColor"), 1.5f);
+                var sortPen = new Pen(GetScopedBrush("SystemAccentColor"), 1.5f);
                 context.DrawLine(sortPen, new Vector2(sortX - 3f, sortY - direction * 1.5f), new Vector2(sortX, sortY + direction * 1.5f));
                 context.DrawLine(sortPen, new Vector2(sortX, sortY + direction * 1.5f), new Vector2(sortX + 3f, sortY - direction * 1.5f));
             }
@@ -1370,7 +1374,7 @@ public class DataGrid : Control
             {
                 float separatorX = runningX + col.ActualWidth;
                 context.DrawRectangle(
-                    ThemeManager.GetBrush("SystemAccentColor"),
+                    GetScopedBrush("SystemAccentColor"),
                     null,
                     LogicalToPhysical(new Rect(separatorX - 1f, 0f, 2f, _headerHeight)));
             }
@@ -1402,15 +1406,15 @@ public class DataGrid : Control
                 Brush? rowBg = null;
                 if (r == SelectedIndex)
                 {
-                    rowBg = SelectionBackground ?? ThemeManager.GetBrush("SelectionHighlight"); // Premium selection
+                    rowBg = SelectionBackground ?? GetScopedBrush("SelectionHighlight"); // Premium selection
                 }
                 else if (r == _hoveredRowIndex)
                 {
-                    rowBg = ThemeManager.GetBrush("ControlBackgroundHover"); // Hover state row highlight
+                    rowBg = GetScopedBrush("ControlBackgroundHover"); // Hover state row highlight
                 }
                 else if (r % 2 == 1)
                 {
-                    rowBg = ThemeManager.GetBrush("ControlBackground"); // Subtle alternate rows
+                    rowBg = GetScopedBrush("ControlBackground"); // Subtle alternate rows
                 }
 
                 Rect rowRect = new Rect(
@@ -1434,7 +1438,7 @@ public class DataGrid : Control
                 if (r == SelectedIndex && ShowSelectionIndicator)
                 {
                     Rect selectionStripe = LogicalToPhysical(new Rect(0f, rowY + 2f, 3f, currentRowHeight - 4f));
-                    context.DrawRectangle(ThemeManager.GetBrush("SystemAccentColor"), null, selectionStripe);
+                    context.DrawRectangle(GetScopedBrush("SystemAccentColor"), null, selectionStripe);
                 }
 
                 // Draw cell text grid columns
@@ -1466,8 +1470,8 @@ public class DataGrid : Control
                             activeFont,
                             FontSize,
                             r == SelectedIndex
-                                ? SelectionForeground ?? ThemeManager.GetBrush("TextPrimary")
-                                : ThemeManager.GetBrush("TextPrimary"),
+                                ? SelectionForeground ?? GetScopedBrush("TextPrimary")
+                                : GetScopedBrush("TextPrimary"),
                             new Vector2(cellTextBounds.X, cellTextY),
                             Matrix4x4.Identity,
                             cellTextBounds,
@@ -1483,7 +1487,7 @@ public class DataGrid : Control
                 // Draw thin grid lines
                 if (ShowRowGridLines)
                 {
-                    context.DrawRectangle(null, new Pen(ThemeManager.GetBrush("ControlBorder"), 0.5f), new Rect(0, rowY, Size.X, currentRowHeight));
+                    context.DrawRectangle(null, new Pen(GetScopedBrush("ControlBorder"), 0.5f), new Rect(0, rowY, Size.X, currentRowHeight));
                 }
 
                 if (rowSizes != null && r == endRow && r + 1 < _itemsSource.Count &&
@@ -1514,14 +1518,14 @@ public class DataGrid : Control
 
             // Draw track (subtle translucent backdrop line)
             Brush trackBg = (_isPointerOverScrollbar || _isDraggingScroll) 
-                ? ThemeManager.GetBrush("ControlBackgroundHover") 
-                : ThemeManager.GetBrush("ControlBackground");
+                ? GetScopedBrush("ControlBackgroundHover")
+                : GetScopedBrush("ControlBackground");
             context.DrawRectangle(trackBg, null, trackRect);
 
             // Draw thumb (glassmorphic capsule)
             Brush thumbBg = (_isPointerOverScrollbar || _isDraggingScroll)
-                ? ThemeManager.GetBrush("ScrollbarThumbHover")
-                : ThemeManager.GetBrush("ScrollbarThumb");
+                ? GetScopedBrush("ScrollbarThumbHover")
+                : GetScopedBrush("ScrollbarThumb");
             
             context.DrawRoundedRectangle(thumbBg, null, thumbRect, scrollbarWidth / 2f);
         }

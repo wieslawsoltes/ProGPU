@@ -22,6 +22,16 @@ commissioning and single-use write confirmations. Opening a project never connec
 an endpoint. External writes additionally require a host-provided authorization policy;
 broker/controller acknowledgements are distinguished from actual process feedback.
 
+## HMI process studio
+
+The [HMI designer](docs/hmi-designer.md) reuses the shared WinUI authoring canvas and exposes **40 retained-vector components**, light/dark/high-contrast palettes, typed faceplates, state rules, alarms, trends, and explicit Modbus TCP, MQTT and OPC UA commissioning.
+
+```sh
+dotnet run --project samples/HmiDesigner/HmiDesigner.csproj -c Release
+```
+
+The shared gallery exposes the same workbench in **Visual Designer → HMI**. The [visual studio guide](docs/hmi-visual-studio.md) documents appearance, layout, real framebuffer/input tests, and the reflection-disabled JSON regression. Industrial commands remain separately reviewed and host-authorized; opening a project never connects to equipment.
+
 ## NuGet Packages
 
 ProGPU runtime packages are built from `eng/progpu-package-list.sh` by the

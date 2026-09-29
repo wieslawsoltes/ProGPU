@@ -32,6 +32,7 @@ internal sealed partial class HmiJsonContext : JsonSerializerContext
             new JsonStringEnumConverter<HmiQuality>(allowIntegerValues: false),
             new JsonStringEnumConverter<HmiSimulationKind>(allowIntegerValues: false),
             new JsonStringEnumConverter<HmiSymbol>(allowIntegerValues: false),
+            new JsonStringEnumConverter<HmiPresentation>(allowIntegerValues: false),
             new JsonStringEnumConverter<HmiActionKind>(allowIntegerValues: false),
             new JsonStringEnumConverter<HmiAlarmCondition>(allowIntegerValues: false),
             new JsonStringEnumConverter<HmiAlarmSeverity>(allowIntegerValues: false),

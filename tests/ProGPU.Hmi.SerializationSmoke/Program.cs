@@ -6,7 +6,8 @@ if (JsonSerializer.IsReflectionEnabledByDefault)
 
 var project = HmiDemoProject.Create();
 foreach (var symbol in Enum.GetValues<HmiSymbol>())
-    project.Screens[0].Elements.Add(new HmiElement { Symbol = symbol, Label = "Zażółć / 控制 / محطة" });
+    project.Screens[0].Elements.Add(new HmiElement { Symbol = symbol, Label = "Zażółć / 控制 / محطة",
+        Appearance = new() { QuarterTurns = 3, MirrorHorizontal = true, Presentation = HmiPresentation.Process, ShowEngineeringRange = false } });
 project.Connections.Add(new HmiConnectionProfile
 {
     Protocol = HmiConnectionProtocol.OpcUa,

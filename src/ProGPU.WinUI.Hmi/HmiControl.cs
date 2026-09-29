@@ -9,7 +9,7 @@ using ProGPU.Text;
 namespace ProGPU.WinUI.Hmi;
 
 /// <summary>Retained HMI visual with lazily created operator input; independent of the designer assembly.</summary>
-public class HmiControl : Grid
+public partial class HmiControl : Grid
 {
     public static readonly DependencyProperty ValueProperty = DependencyProperty.Register(nameof(Value), typeof(double), typeof(HmiControl), new PropertyMetadata(0d, OnDisplayChanged) { AffectsRender = true });
     public static readonly DependencyProperty LabelProperty = DependencyProperty.Register(nameof(Label), typeof(string), typeof(HmiControl), new PropertyMetadata("Component", OnDisplayChanged) { AffectsRender = true });
@@ -105,6 +105,8 @@ public class HmiControl : Grid
         if (_input != null) _input.Font = Font;
         if (_applyLabel != null) _applyLabel.Font = Font;
         if (_trendAxis != null) _trendAxis.Font = Font;
+        if (_tagCaption != null) _tagCaption.Font = Font;
+        if (_rangeCaption != null) _rangeCaption.Font = Font;
     }
 
     public void ApplyDefinition(HmiElement definition)
@@ -113,9 +115,10 @@ public class HmiControl : Grid
         if (!Enum.IsDefined(definition.Symbol) || !double.IsFinite(definition.Minimum) || !double.IsFinite(definition.Maximum) ||
             !double.IsFinite(definition.Maximum - definition.Minimum) || definition.Maximum <= definition.Minimum || definition.Decimals is < 0 or > 6 ||
             !float.IsFinite(definition.X) || !float.IsFinite(definition.Y) || !float.IsFinite(definition.Width) || !float.IsFinite(definition.Height) ||
-            definition.Width is < 8 or > 16384 || definition.Height is < 8 or > 16384 || definition.Action == null || definition.Trend == null)
+            definition.Width is < 8 or > 16384 || definition.Height is < 8 or > 16384 || definition.Action == null || definition.Trend == null || definition.Appearance == null)
             throw new ArgumentException("Invalid HMI component geometry, symbol, range, precision, trend or action.", nameof(definition));
         definition.Trend.Validate();
+        definition.Appearance.Validate();
         bool differentInput = _definition.Id != definition.Id || _definition.Tag != definition.Tag || _definition.Symbol != definition.Symbol;
         var copy = definition.Copy();
         _batching = true;
@@ -144,7 +147,7 @@ public class HmiControl : Grid
         bool actionable = !numeric && (_definition.Action.Kind != HmiActionKind.None || Symbol is HmiSymbol.PushButton or HmiSymbol.ToggleSwitch or HmiSymbol.NavigationButton or HmiSymbol.RecipeButton);
         if (actionable && _command == null)
         {
-            _command = new Button { Background = HmiDrawing.Transparent, BorderBrush = HmiDrawing.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+            _command = new HmiCommandOverlay();
             _command.Click += (_, _) => { if (CanInteract) Invoked?.Invoke(this); };
             AddChild(_command);
         }
@@ -237,7 +240,8 @@ public class HmiControl : Grid
         finally { _batching = false; }
         if (changed) UpdateDisplay();
         if (Symbol == HmiSymbol.Trend) { UpdateTrendAxis(); Invalidate(); }
-        else if (IsActive && Quality == HmiQuality.Good && Symbol is HmiSymbol.Pump or HmiSymbol.Motor or HmiSymbol.Pipe or HmiSymbol.Conveyor or HmiSymbol.Fan) Invalidate();
+        else if (_definition.Appearance.AnimateFlow && IsActive && Quality == HmiQuality.Good &&
+            (HmiSymbolTraits.IsRotating(Symbol) || Symbol is HmiSymbol.Pipe or HmiSymbol.Conveyor)) Invalidate();
     }
 
     public void UpdateAlarms(IReadOnlyList<HmiAlarmState> alarms)
@@ -269,8 +273,8 @@ public class HmiControl : Grid
             HmiSymbol.Label => unknown ? "UNKNOWN" : _textValue ?? "",
             HmiSymbol.AlarmBanner or HmiSymbol.AlarmList => _alarmSummary,
             HmiSymbol.PushButton or HmiSymbol.NavigationButton or HmiSymbol.RecipeButton or HmiSymbol.Rectangle or HmiSymbol.Pipe => "",
-            HmiSymbol.Pump or HmiSymbol.Motor or HmiSymbol.Indicator or HmiSymbol.Conveyor or HmiSymbol.Fan or HmiSymbol.Compressor => unknown ? "UNKNOWN" : IsActive ? "RUNNING" : "STOPPED",
-            HmiSymbol.Valve or HmiSymbol.ToggleSwitch => unknown ? "UNKNOWN" : IsActive ? "OPEN / ON" : "CLOSED / OFF",
+            HmiSymbol.Pump or HmiSymbol.Motor or HmiSymbol.Indicator or HmiSymbol.Conveyor or HmiSymbol.Fan or HmiSymbol.Compressor or HmiSymbol.Agitator => unknown ? "UNKNOWN" : IsActive ? "RUNNING" : "STOPPED",
+            HmiSymbol.Valve or HmiSymbol.CheckValve or HmiSymbol.ButterflyValve or HmiSymbol.ToggleSwitch => unknown ? "UNKNOWN" : IsActive ? "OPEN / ON" : "CLOSED / OFF",
             _ => unknown ? "—" : Value.ToString("F" + _definition.Decimals, CultureInfo.InvariantCulture) + (Unit.Length > 0 ? " " + Unit : "")
         };
         SetText(_value, display);
@@ -280,6 +284,7 @@ public class HmiControl : Grid
         if (_inputRow != null) _inputRow.IsHitTestVisible = CanInteract;
         if (_input != null) _input.IsEnabled = CanInteract;
         UpdateInputText();
+        UpdatePresentation();
         Invalidate();
     }
 
@@ -295,17 +300,20 @@ public class HmiControl : Grid
     private void UpdateTrendAxis()
     {
         if (_trendAxis == null) return;
+        if (_history.Count < 2) { SetText(_trendAxis, "NO HISTORY"); return; }
         var start = HmiTrendDrawing.WindowStart(_trendNow, _definition.Trend.WindowSeconds);
-        SetText(_trendAxis, $"{start:HH:mm:ss} — {_trendNow:HH:mm:ss}");
+        // A compact trend reserves a separate value column. Do not let its time labels
+        // extend into that column, even on hosts with different font metrics.
+        SetText(_trendAxis, Width < 320 ? _trendNow.ToString("HH:mm:ss", CultureInfo.InvariantCulture) : $"{start:HH:mm:ss} — {_trendNow:HH:mm:ss}");
     }
 
     public override void OnRender(DrawingContext context)
     {
         bool active = IsActive && Quality == HmiQuality.Good && VisualTone != HmiVisualTone.Unknown;
         HmiDrawing.Draw(context, Symbol, Size, Value, _definition.Minimum, _definition.Maximum, active, Quality,
-            Symbol == HmiSymbol.Trend ? Array.Empty<HmiTagSample>() : _history, _hasAlarm, _phase, VisualTone);
+            Symbol == HmiSymbol.Trend ? Array.Empty<HmiTagSample>() : _history, _hasAlarm, _phase, VisualTone, _definition.Appearance, ColorScheme);
         if (Symbol == HmiSymbol.Trend && _trendBuckets != null)
-            HmiTrendDrawing.Draw(context, Size, _history, _trendNow, _definition.Trend, _definition.Minimum, _definition.Maximum, _trendBuckets);
+            HmiTrendDrawing.Draw(context, Size, _history, _trendNow, _definition.Trend, _definition.Minimum, _definition.Maximum, _trendBuckets, ColorScheme);
         base.OnRender(context);
     }
 }

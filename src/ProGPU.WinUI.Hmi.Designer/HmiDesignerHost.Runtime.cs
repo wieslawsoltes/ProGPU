@@ -24,8 +24,8 @@ public sealed partial class HmiDesignerHost
             _runtime.Start(allowLocalWrites);
             _preview = new HmiScreenView(project, _runtime, Session.ActiveScreenId, _font);
             _preview.Error += message => Status(message, true);
-            _previewScroll.Content = _preview;
-            _previewScroll.Visibility = Visibility.Visible;
+            _previewViewport.Screen = _preview;
+            _previewViewport.Visibility = Visibility.Visible;
             _canvasScroll.Visibility = Visibility.Collapsed;
             _paused = false;
             RefreshTables(); UpdateInspector(); RefreshMonitor();
@@ -79,8 +79,8 @@ public sealed partial class HmiDesignerHost
         Volatile.Write(ref _pendingGeneration, 0);
         _preview?.Dispose(); _preview = null;
         _runtime?.Stop(); _runtime = null;
-        _previewScroll.Content = null;
-        _previewScroll.Visibility = Visibility.Collapsed;
+        _previewViewport.Screen = null;
+        _previewViewport.Visibility = Visibility.Collapsed;
         _canvasScroll.Visibility = Visibility.Visible;
         if (!_disposed && _tags != null)
         {

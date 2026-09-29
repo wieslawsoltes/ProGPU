@@ -62,8 +62,8 @@ public sealed partial class HmiDesignerHost
                     _connectionLifetime = new CancellationTokenSource();
                     _connectedTransport = connection; _connectedProfileId = profile.Id;
                     _runtime = runtime; _preview = preview; _writeCoordinator = coordinator; _acquisition = acquisition;
-                    _previewScroll.Content = preview;
-                    _previewScroll.Visibility = Visibility.Visible; _canvasScroll.Visibility = Visibility.Collapsed;
+                    _previewViewport.Screen = preview;
+                    _previewViewport.Visibility = Visibility.Visible; _canvasScroll.Visibility = Visibility.Collapsed;
                     acquisition.Start();
                 }
                 catch

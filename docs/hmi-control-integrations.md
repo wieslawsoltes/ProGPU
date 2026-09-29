@@ -70,7 +70,7 @@ Commands are non-retained QoS1 JSON envelopes with a generated `id`, creation `t
 
 ## Equipment components, state rules and faceplates
 
-The catalog now contains **28** components. Heat exchanger, filter, compressor, fan, heater, thermometer, boiler and cooling tower have distinct retained-vector drawings and standalone typed controls. Common equipment visuals expose `VisualTone` and `StateText` dependency properties in addition to value, quality and activity.
+The catalog now contains **40** components. Heat exchanger, filter, compressor, fan, heater, thermometer, boiler and cooling tower have distinct retained-vector drawings and standalone typed controls. Common equipment visuals expose `VisualTone` and `StateText` dependency properties in addition to value, quality and activity.
 
 The **States** table edits component rules: typed tag, condition, threshold, tone, text and priority. The highest matching priority wins; missing/bad/stale state telemetry overrides ordinary status with UNKNOWN QUALITY. Rule evaluation is declarative and does not execute scripts. The runtime's tag index includes all state dependencies.
 
@@ -95,3 +95,8 @@ The optional OPC UA adapter adds certificate-validated scalar reads/writes and n
 ## OPC UA and command-session extension
 
 The Connections pane now supports OPC UA profiles and a bounded namespace-URI-based node browser. All three adapters check reviewed connection generations under their transport gates. See [OPC UA commissioning and session-bound commands](hmi-opcua.md) for security, scalar formats, test commands and deployment boundaries.
+
+
+## Visual authoring extension
+
+Control valve, check valve, butterfly valve, agitator, silo, hopper, separator, reactor, flow meter, strainer, pressure transmitter and level transmitter extend the catalog to 40 types. They reuse the same retained symbol drawing in the toolbox and runtime. Appearance never authorizes an external command. See [process studio visuals](hmi-visual-studio.md).

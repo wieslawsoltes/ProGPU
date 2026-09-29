@@ -59,6 +59,25 @@ public sealed class DesignerSelectionService
             }
         }
     });
+    /// <summary>Match editable selections to the primary selection without changing the primary or locked controls.</summary>
+    public void MatchSize(bool width, bool height)
+    {
+        if ((!width && !height) || _selection.Count < 2) return;
+        var primary = _canvas.SelectedElement != null && _selection.Contains(_canvas.SelectedElement)
+            ? _canvas.SelectedElement : _selection[^1];
+        float targetWidth = Width(primary), targetHeight = Height(primary);
+        if (!float.IsFinite(targetWidth) || !float.IsFinite(targetHeight) || targetWidth <= 0 || targetHeight <= 0)
+            throw new InvalidOperationException("The primary selection must have finite positive dimensions.");
+        Edit(items =>
+        {
+            foreach (var element in items)
+            {
+                if (element == primary) continue;
+                if (width) element.Width = targetWidth;
+                if (height) element.Height = targetHeight;
+            }
+        });
+    }
     public void Distribute(bool horizontal) => Edit(items =>
     {
         if (items.Length < 3) return;
