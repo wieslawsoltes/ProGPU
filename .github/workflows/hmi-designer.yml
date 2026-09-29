@@ -7,6 +7,8 @@ on:
       - 'src/ProGPU.Hmi*/**'
       - 'src/ProGPU.WinUI.Hmi*/**'
       - 'src/ProGPU.WinUI.Designer/**'
+      - 'src/ProGPU.WinUI/Controls/DataGrid.cs'
+      - 'src/ProGPU.WinUI/Controls/TextBox.cs'
       - 'src/ProGPU.Samples/Pages/VisualDesignerPage.cs'
       - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
       - 'samples/HmiDesigner/**'
@@ -22,6 +24,8 @@ on:
       - 'src/ProGPU.Hmi*/**'
       - 'src/ProGPU.WinUI.Hmi*/**'
       - 'src/ProGPU.WinUI.Designer/**'
+      - 'src/ProGPU.WinUI/Controls/DataGrid.cs'
+      - 'src/ProGPU.WinUI/Controls/TextBox.cs'
       - 'src/ProGPU.Samples/Pages/VisualDesignerPage.cs'
       - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
       - 'samples/HmiDesigner/**'
@@ -68,6 +72,9 @@ jobs:
       - name: Build shared sample gallery
         if: ${{ !cancelled() }}
         run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+      - name: Build the desktop gallery host
+        if: ${{ !cancelled() }}
+        run: dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
       - name: Exercise actual gallery page construction without reflection JSON
         if: ${{ !cancelled() }}
         run: dotnet run --project tests/ProGPU.Hmi.GallerySmoke/ProGPU.Hmi.GallerySmoke.csproj -c Release

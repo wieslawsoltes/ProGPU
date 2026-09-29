@@ -32,9 +32,24 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Record source revision
+        shell: bash
+        run: mkdir -p artifacts/hmi-validation && git rev-parse HEAD > artifacts/hmi-validation/commit.txt
       - name: Execute with reflection disabled on CoreCLR
-        run: dotnet run --project tests/ProGPU.Hmi.SerializationSmoke/ProGPU.Hmi.SerializationSmoke.csproj -c Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/ProGPU.Hmi.SerializationSmoke/ProGPU.Hmi.SerializationSmoke.csproj -c Release | tee artifacts/hmi-validation/coreclr.log
       - name: Publish real NativeAOT executable
         run: dotnet publish tests/ProGPU.Hmi.SerializationSmoke/ProGPU.Hmi.SerializationSmoke.csproj -c Release -r ${{ matrix.rid }} -p:PublishAot=true -p:TrimmerSingleWarn=false -p:ILLinkTreatWarningsAsErrors=true -o artifacts/hmi-aot
       - name: Execute native serialization probe
-        run: ./artifacts/hmi-aot/ProGPU.Hmi.SerializationSmoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./artifacts/hmi-aot/ProGPU.Hmi.SerializationSmoke | tee artifacts/hmi-validation/native-aot.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hmi-serialization-${{ matrix.rid }}
+          path: artifacts/hmi-validation
+          retention-days: 14
