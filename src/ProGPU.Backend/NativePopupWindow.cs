@@ -6,6 +6,39 @@ namespace ProGPU.Backend;
 public static class NativePopupWindow
 {
     /// <summary>
+    /// Creates a source-scheduled Cocoa popup whose hidden panel and render view
+    /// may exist before its owner is known. No native input or Show is admitted
+    /// until a live owner is bound with TryBindCocoaOwner. The callback must wake
+    /// the actual source dispatcher; this adapter does not poll native events.
+    /// Options and render-view retirement requirements match CreateOwnedCocoaWindow.
+    /// </summary>
+    public static IWindow CreateCocoaPopupWindow(WindowOptions options, Action wakeHost)
+    {
+        ArgumentNullException.ThrowIfNull(wakeHost);
+        if (!OperatingSystem.IsMacOS())
+            throw new PlatformNotSupportedException("Owned Cocoa popup windows require macOS.");
+        return new CocoaPopupWindow(options, wakeHost, (bounds, transparent) =>
+        {
+            if (!CocoaOwnedPopupSurface.TryCreateUnbound(bounds, transparent, out var surface))
+                throw new PlatformNotSupportedException("The hidden Cocoa popup could not be created.");
+            return surface!;
+        });
+    }
+
+    /// <summary>
+    /// Binds or clears an initialized, hidden source-scheduled Cocoa popup's
+    /// native owner without replacing its panel, view or rendering device. Empty
+    /// ownership forbids Show/input. A rejected or throwing native setup requires
+    /// the source host to dispose the rejected popup. The fixed-owner factory
+    /// accepts only its original owner. Other window providers are not adopted.
+    /// </summary>
+    public static bool TryBindCocoaOwner(IWindow popup, NativeWindowHandle owner)
+    {
+        ArgumentNullException.ThrowIfNull(popup);
+        return popup is CocoaPopupWindow window && window.BindOwner(owner);
+    }
+
+    /// <summary>
     /// Creates an explicit owned Cocoa popup adapter. Initialize creates its hidden
     /// native panel on the AppKit main thread; this method does not show or focus
     /// it. Options must be untitled, borderless, hidden, NoAPI and host-scheduled.

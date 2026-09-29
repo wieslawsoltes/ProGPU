@@ -146,6 +146,40 @@ or custom-image support is assumed.
 uninitialized adapter and rechecks the same live source owner before hidden native
 initialization; neither source framework selects owned popups automatically yet.
 
+### Source-scheduled creation before owner assignment
+
+`NativePopupWindow.CreateCocoaPopupWindow` is the separate source-dispatcher
+factory for hosts such as Forms that materialize a hidden dropdown before its
+owner is known. Its required wake callback belongs to the actual source dispatcher;
+it does not invent a Silk parent, poll AppKit, or adopt a foreign native window.
+Initialization requires available AppKit classes and the main-thread application
+contract, and allocates the same real hidden NSPanel and owned view. Geometry,
+cursor/input-context creation and a render-view lease are available before binding,
+but native pointer reception and Show remain blocked. The original fixed-owner
+factory keeps its managed parent, wake callback and fixed-owner restriction.
+
+`TryBindCocoaOwner` (also the typed platform's `SetParent`) binds, rebinds or clears
+an initialized hidden source-scheduled popup. A retained owner lease checks the
+actual application window, content view, delegate and native window number.
+The popup must remain hidden, detached and outside native-session retention;
+preparation does not attach a child window, since AppKit attachment can show it.
+Input is disabled before native owner mutation and resumes only for a valid owner,
+the existing source input intent and a live input context. Same-owner verification
+is nonmutating and may run while visible. Different-owner binding is rejected
+during visibility, initialization, nested transitions and native callbacks.
+
+Changing owners does not replace the panel, view, render lease or GPU device.
+A pre-owner standalone rendering context remains standalone; native ownership
+does not authorize silently moving resources to the later owner's device. Source
+hosts must hide before changing owners and dispose a popup after rejected or
+throwing native setup. Disposal during binding cannot publish success or destroy
+a renderer-leased view. Cleanup preserves the original binding failure and keeps
+failed native retirement available for an explicit retry.
+
+These factories are still explicit, unselected building blocks. Source framework
+factory/input integration, real native owner lifetime and rendering qualification
+below remain required; this API does not choose a wheel compatibility policy.
+
 ## Integration still required — do not enable automatic modality
 
 The surface implementation remains internal; the explicit factory is not selected
@@ -200,6 +234,19 @@ callback-retained native lifetime, overflow, persistent handler faults, unknown
 modifier rejection, cursor state and deferred explicit-factory ownership checks.
 These managed tests do not qualify actual NSCursor/NSPanel behavior, input routing
 or application presentation.
+
+`CocoaPopupOwnerBindingTests` adds deferred source-scheduled creation, ownerless
+geometry/render leases, late binding/rebinding/clearing, fixed-owner compatibility,
+visible same-owner verification, persistent disabled intent, absent/replaced input
+contexts, invalid owners, rejected native gates, disposal and failed retirement,
+copied input-tail cancellation, nested/thread/native-callback rejection and foreign
+provider isolation. These tests use managed native-operation doubles; hosted CI,
+not local runtime execution, supplies their execution evidence.
+The Build workflow runs the complete managed owned-popup lifecycle/input group
+immediately after test compilation on every test RID, including Windows, before
+the longer GPU suites. Original full tests and all native/package gates remain.
+The owner-binding backend and test-project Release compilations passed locally
+with zero warnings/errors; execution and real native qualification are separate.
 
 The backend and test-project Release builds succeeded with zero warnings and errors.
 Focused managed input/window tests pass; full validation and native UI qualification

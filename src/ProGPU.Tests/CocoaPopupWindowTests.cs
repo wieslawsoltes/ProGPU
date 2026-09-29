@@ -330,7 +330,22 @@ public sealed class CocoaPopupWindowTests
         Assert.False(platform.SupportsManagedResize);
     }
 
-    internal static CocoaPopupWindow Create(Operations operations, Action? wakeOwner = null, Action? onCreate = null)
+    internal static CocoaPopupWindow Create(Operations operations, Action? wakeOwner = null, Action? onCreate = null,
+        bool sourceScheduled = false)
+    {
+        CocoaOwnedPopupSurface CreateSurface(NativeWindowBounds bounds, bool transparent)
+        {
+            operations.Bounds = bounds;
+            onCreate?.Invoke();
+            return new(operations);
+        }
+        return sourceScheduled
+            ? new(Options(), wakeOwner ?? (() => { }), CreateSurface)
+            : new(new Parent(), new(NativeWindowKind.Cocoa, 1, 0, "NSWindow"), Options(),
+                wakeOwner ?? (() => { }), CreateSurface);
+    }
+
+    internal static WindowOptions Options()
     {
         var options = WindowOptions.Default;
         options.API = GraphicsAPI.None;
@@ -342,13 +357,7 @@ public sealed class CocoaPopupWindowTests
         options.Position = new(-200, 30);
         options.Size = new(20, 10);
         options.FramesPerSecond = options.UpdatesPerSecond = 0;
-        return new(new Parent(), new(NativeWindowKind.Cocoa, 1, 0, "NSWindow"), options,
-            wakeOwner ?? (() => { }), (bounds, _) =>
-            {
-                operations.Bounds = bounds;
-                onCreate?.Invoke();
-                return new(operations);
-            });
+        return options;
     }
 
     private sealed class Parent : IWindowHost
@@ -362,6 +371,17 @@ public sealed class CocoaPopupWindowTests
         public nint ContentView => 3;
         public CocoaPopupInputQueue Input { get; } = new();
         public bool IsCurrent => true;
+        public bool OwnerAccepted = true;
+        public Action? OnBindOwner;
+        public List<NativeWindowHandle> OwnerRequests { get; } = [];
+        public bool BindOwner(NativeWindowHandle owner)
+        {
+            OwnerRequests.Add(owner);
+            OnBindOwner?.Invoke();
+            return OwnerAccepted;
+        }
+        public List<bool> InputRequests { get; } = [];
+        public Func<bool, bool>? InputAdmission;
         public bool HideAccepted = true, BoundsAccepted = true;
         public bool CursorAccepted = true;
         public List<(Silk.NET.Input.StandardCursor Cursor, bool Hidden)> CursorRequests { get; } = [];
@@ -372,7 +392,11 @@ public sealed class CocoaPopupWindowTests
         {
             set => Geometry = Geometry with { ContentBounds = value, FrameBounds = value };
         }
-        public bool SetInputAllowed(bool allowed) => true;
+        public bool SetInputAllowed(bool allowed)
+        {
+            InputRequests.Add(allowed);
+            return InputAdmission?.Invoke(allowed) ?? true;
+        }
         public bool SupportsCursor(Silk.NET.Input.StandardCursor cursor) => CursorAccepted;
         public bool SetCursor(Silk.NET.Input.StandardCursor cursor, bool hidden)
         {
