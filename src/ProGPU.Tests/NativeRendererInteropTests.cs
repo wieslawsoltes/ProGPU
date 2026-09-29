@@ -4696,10 +4696,9 @@ public class NativeRendererInteropTests
         {
             success &= Build(destination, auxiliary, in mask, out _);
         }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.True(success);
-        Assert.Equal(
-            0L,
-            GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(0L, allocated);
 
         Span<byte> invalidAuxiliary = stackalloc byte[auxiliary.Length];
         auxiliary.CopyTo(invalidAuxiliary);

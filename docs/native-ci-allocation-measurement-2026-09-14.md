@@ -1,5 +1,19 @@
 # Native image-effect allocation measurement
 
+## Boolean vector-mask measurement boundary, 2026-09-29
+
+Build `36543489551`, macOS job `109324228538`, at
+`5b2acd00d599fbe3562bdef85288f846292265c5` passed all 131 owned-popup contracts
+but reported 4,168 bytes in
+`SemanticSceneBuilderWritesBooleanVectorMaskWithoutAllocation(sampleGrid: 4)`.
+The other two sample grids passed. This fixture still called `Assert.True`
+before its final allocation reading. The reading now immediately follows the
+same 10,000 builder calls, before either assertion. All payload validation,
+three sample-grid cases, original warmup and exact zero-byte threshold remain.
+This excludes assertion execution from measurement; it does not establish the
+source of the observed delta or attribute it to the independent runtime report.
+Fresh whole exact-head CI is required; the failed producer is not qualified.
+
 Build run `34786219474`, Linux job `103802076430`, at `45147156` reports
 4,576 passing tests, seven skips and one failure:
 `SemanticImageEffectBuildsWithoutAllocation` measured 720 bytes against its
