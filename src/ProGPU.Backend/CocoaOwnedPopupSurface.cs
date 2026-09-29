@@ -30,6 +30,15 @@ internal sealed class CocoaOwnedPopupSurface : IDisposable
         return true;
     }
 
+    internal static bool TryCreateUnbound(NativeWindowBounds bounds, bool transparent, out CocoaOwnedPopupSurface? surface)
+    {
+        surface = null;
+        var operations = CocoaNativePopupWindow.TryCreateUnbound(bounds, transparent);
+        if (operations is null) return false;
+        surface = new(operations);
+        return true;
+    }
+
     internal bool IsReleased => _operations is null;
     internal ulong InputGeneration { get { CheckThread(); return _input.Generation; } }
     internal bool IsInNativeCallback { get { CheckThread(); return _input.IsInNativeCallback; } }
@@ -63,6 +72,19 @@ internal sealed class CocoaOwnedPopupSurface : IDisposable
             }
             if (allowed) operations.Input.SetEnabled(true);
             return true;
+        }
+        finally { Exit(); }
+    }
+
+    internal bool BindOwner(NativeWindowHandle owner)
+    {
+        var operations = Enter();
+        try
+        {
+            operations.Input.EnsureHealthy();
+            operations.Input.SetEnabled(false);
+            if (!operations.SetInputAllowed(false) || _closeRequested) return false;
+            return operations.BindOwner(owner) && !_closeRequested;
         }
         finally { Exit(); }
     }
@@ -227,6 +249,7 @@ internal interface ICocoaOwnedPopupOperations : IDisposable
     nint ContentView { get; }
     CocoaPopupInputQueue Input { get; }
     bool IsCurrent { get; }
+    bool BindOwner(NativeWindowHandle owner);
     bool SetInputAllowed(bool allowed);
     bool Show();
     bool Hide();

@@ -345,6 +345,7 @@ public sealed class CocoaOwnedPopupSurfaceTests
         public nint ContentView => 12;
         public CocoaPopupInputQueue Input { get; } = new();
         public bool IsCurrent { get { OnIdentity?.Invoke(); return Current; } }
+        public bool BindOwner(NativeWindowHandle owner) => true;
         public bool SetInputAllowed(bool allowed) { OnInputAllowed?.Invoke(allowed); return InputAccepted; }
         public bool SupportsCursor(Silk.NET.Input.StandardCursor cursor) => true;
         public bool SetCursor(Silk.NET.Input.StandardCursor cursor, bool hidden) => true;

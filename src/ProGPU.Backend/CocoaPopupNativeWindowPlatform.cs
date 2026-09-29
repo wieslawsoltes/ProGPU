@@ -26,8 +26,7 @@ internal sealed class CocoaPopupNativeWindowPlatform(CocoaPopupWindow window) : 
     public bool SetOpacity(double value) => false;
     public bool SetZOrder(NativeWindowZOrder value) => false;
     public bool SetShowInTaskbar(bool value) => !value;
-    public bool SetParent(NativeWindowHandle parent) =>
-        parent == window.Owner && window.TryGetGeometry(out _);
+    public bool SetParent(NativeWindowHandle parent) => window.BindOwner(parent);
     public bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum) => false;
     public bool SetClientAreaExtension(bool enabled, double titleBarHeight) => !enabled;
     public bool SetTheme(NativeWindowTheme theme) => false;

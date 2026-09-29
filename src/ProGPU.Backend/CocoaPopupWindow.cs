@@ -12,7 +12,8 @@ namespace ProGPU.Backend;
 internal sealed class CocoaPopupWindow : IWindow
 {
     private readonly int _thread = Environment.CurrentManagedThreadId;
-    private readonly Action _wakeOwner;
+    private readonly Action _wakeHost;
+    private readonly bool _allowOwnerBinding;
     private readonly Func<NativeWindowBounds, bool, CocoaOwnedPopupSurface> _create;
     private readonly NativeView _native;
     private readonly long _start = Stopwatch.GetTimestamp();
@@ -21,7 +22,7 @@ internal sealed class CocoaPopupWindow : IWindow
     private NativeWindowGeometrySnapshot _geometry;
     private Vector2D<int> _position, _size, _framebufferSize;
     private bool _initialized, _initializing, _visible, _closing, _disposeRequested;
-    private bool _retiring, _inputAllowed = true;
+    private bool _retiring, _bindingOwner, _inputAllowed = true;
     private int _dispatchDepth;
     private ulong _geometryVersion;
     private double _lastUpdate, _lastRender;
@@ -29,11 +30,19 @@ internal sealed class CocoaPopupWindow : IWindow
 
     internal CocoaPopupWindow(IWindowHost parent, NativeWindowHandle owner, WindowOptions options,
         Action wakeOwner, Func<NativeWindowBounds, bool, CocoaOwnedPopupSurface> create)
+        : this(parent, owner, options, wakeOwner, create, allowOwnerBinding: false) { }
+
+    internal CocoaPopupWindow(WindowOptions options, Action wakeHost,
+        Func<NativeWindowBounds, bool, CocoaOwnedPopupSurface> create)
+        : this(null, NativeWindowHandle.Empty, options, wakeHost, create, allowOwnerBinding: true) { }
+
+    private CocoaPopupWindow(IWindowHost? parent, NativeWindowHandle owner, WindowOptions options,
+        Action wakeHost, Func<NativeWindowBounds, bool, CocoaOwnedPopupSurface> create, bool allowOwnerBinding)
     {
-        ArgumentNullException.ThrowIfNull(parent);
-        ArgumentNullException.ThrowIfNull(wakeOwner);
+        if (!allowOwnerBinding) ArgumentNullException.ThrowIfNull(parent);
+        ArgumentNullException.ThrowIfNull(wakeHost);
         ArgumentNullException.ThrowIfNull(create);
-        if (owner.Kind != NativeWindowKind.Cocoa || !owner.IsValid || owner.Display != 0)
+        if (!allowOwnerBinding && (owner.Kind != NativeWindowKind.Cocoa || !owner.IsValid || owner.Display != 0))
             throw new ArgumentException("A live Cocoa owner is required.", nameof(owner));
         if (options.API.API != ContextAPI.None || options.IsVisible || options.TopMost ||
             options.WindowState != WindowState.Normal || options.WindowBorder != WindowBorder.Hidden ||
@@ -42,19 +51,22 @@ internal sealed class CocoaPopupWindow : IWindow
             options.FramesPerSecond != 0 || options.UpdatesPerSecond != 0)
             throw new NotSupportedException("Owned Cocoa popups require hidden, untitled, borderless, nonactivating NoAPI options.");
         ValidateSize(options.Size);
-        Parent = parent;
+        // A source-dispatcher-owned popup has no inferred Silk parent. Native
+        // owner handles do not authorize inventing a managed IWindowHost.
+        Parent = parent!;
         Owner = owner;
+        _allowOwnerBinding = allowOwnerBinding;
         TransparentFramebuffer = options.TransparentFramebuffer;
         _position = options.Position;
         _size = options.Size;
         _vsync = options.VSync;
         _eventDriven = options.IsEventDriven;
-        _wakeOwner = wakeOwner;
+        _wakeHost = wakeHost;
         _create = create;
         _native = new(this);
     }
 
-    internal NativeWindowHandle Owner { get; }
+    internal NativeWindowHandle Owner { get; private set; }
     internal NativeWindowHandle NativeHandle =>
         _surface is { IsReleased: false } ? _geometry.Window : NativeWindowHandle.Empty;
     internal bool IsReleased => _disposeRequested && !_initializing && (_surface is null || _surface.IsReleased);
@@ -73,7 +85,7 @@ internal sealed class CocoaPopupWindow : IWindow
         _inputContext = context;
         try
         {
-            if (!RequireSurface().SetInputAllowed(_inputAllowed))
+            if (!RequireSurface().SetInputAllowed(_inputAllowed && Owner.IsValid))
                 throw new InvalidOperationException("The owned popup rejected input context admission.");
             context.ObservePolicyChange();
             return context;
@@ -128,8 +140,52 @@ internal sealed class CocoaPopupWindow : IWindow
     {
         CheckUsable();
         _inputAllowed = allowed;
-        try { return RequireSurface().SetInputAllowed(allowed && _inputContext is { AcceptsInput: true }); }
+        try { return RequireSurface().SetInputAllowed(allowed && Owner.IsValid && _inputContext is { AcceptsInput: true }); }
         finally { _inputContext?.ObservePolicyChange(); }
+    }
+
+    internal bool BindOwner(NativeWindowHandle owner)
+    {
+        CheckUsable();
+        if (_bindingOwner || _initializing)
+            throw new InvalidOperationException("Popup ownership cannot change during an active native transition.");
+        if (!_initialized || owner != NativeWindowHandle.Empty &&
+            (owner.Kind != NativeWindowKind.Cocoa || !owner.IsValid || owner.Display != 0)) return false;
+        if (owner == Owner) return TryGetGeometry(out _);
+        // The original owner-scheduled factory retains its fixed managed parent
+        // and wake callback. Only explicit source-scheduled popups may rebind.
+        if (_visible || !_allowOwnerBinding) return false;
+        _bindingOwner = true;
+        ++_dispatchDepth;
+        bool accepted = false;
+        Exception? bindingFailure = null;
+        try
+        {
+            var surface = RequireSurface();
+            accepted = surface.BindOwner(owner) && !_closing && !_disposeRequested &&
+                surface.SetInputAllowed(owner.IsValid && _inputAllowed && _inputContext is { AcceptsInput: true });
+            if (accepted && !_closing && !_disposeRequested) Owner = owner;
+        }
+        catch (Exception failure) { bindingFailure = failure; throw; }
+        finally
+        {
+            try { _inputContext?.ObservePolicyChange(); }
+            catch (Exception cleanup) when (bindingFailure is not null)
+            {
+                bindingFailure.Data["PopupOwnerCancellation"] = cleanup;
+            }
+            catch (Exception cleanup) { bindingFailure = cleanup; throw; }
+            finally
+            {
+                _bindingOwner = false;
+                try { EndDispatch(); }
+                catch (Exception cleanup) when (bindingFailure is not null)
+                {
+                    bindingFailure.Data["PopupOwnerRetirement"] = cleanup;
+                }
+            }
+        }
+        return accepted && !_closing && !_disposeRequested;
     }
 
     internal bool TryGetGeometry(out NativeWindowGeometrySnapshot snapshot)
@@ -167,6 +223,8 @@ internal sealed class CocoaPopupWindow : IWindow
         {
             CheckUsable();
             if (_visible == value) return;
+            if (value && !Owner.IsValid)
+                throw new InvalidOperationException("Bind a live source owner before showing this popup.");
             var surface = RequireSurface();
             bool accepted = value ? surface.Show() : surface.Hide();
             if (!accepted || _closing || _disposeRequested)
@@ -386,7 +444,7 @@ internal sealed class CocoaPopupWindow : IWindow
         finally { _retiring = false; }
     }
 
-    public void ContinueEvents() { CheckThread(); if (!_disposeRequested) _wakeOwner(); }
+    public void ContinueEvents() { CheckThread(); if (!_disposeRequested) _wakeHost(); }
     public void Focus() => throw new NotSupportedException("Keyboard focus stays with the source popup owner.");
     public void Reset() => throw new NotSupportedException("Create a new owned popup after disposal.");
     public void Run(Action onFrame) => throw new NotSupportedException("The source owner runs the native loop.");
