@@ -114,6 +114,7 @@ public sealed class CocoaPopupInputContextTests
         Assert.Equal(NativePointerScrollUnit.Lines, output[1].ScrollUnit);
         Assert.Equal(2u, output[0].ScrollPhase);
         Assert.Equal(8u, output[0].MomentumPhase);
+        Assert.Equal(NativePointerScrollProtocol.AppKit, output[0].ScrollProtocol);
         Assert.Equal(NativePointerModifiers.Control | NativePointerModifiers.Alt | NativePointerModifiers.CapsLock |
             NativePointerModifiers.NumericPad | NativePointerModifiers.Help | NativePointerModifiers.Function, output[0].Modifiers);
     }

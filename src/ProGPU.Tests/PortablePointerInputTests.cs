@@ -9,6 +9,7 @@ public sealed class PortablePointerInputTests
     public void CoordinateCopiesRetainOriginalNativeIdentityAndScrollMetadata()
     {
         var input = new PortablePointerInput(PortablePointerEventKind.Scroll,
+            PortablePointerScrollProtocol.AppKit,
             -100.125, 27.75, 891.12345, -1, 0,
             PortablePointerModifiers.Super | PortablePointerModifiers.CapsLock,
             0.125, -0.375, PortablePointerScrollUnit.Points, 4, 8);
@@ -20,6 +21,7 @@ public sealed class PortablePointerInputTests
         Assert.Equal(input.ScrollUnit, mapped.ScrollUnit);
         Assert.Equal(input.ScrollPhase, mapped.ScrollPhase);
         Assert.Equal(input.MomentumPhase, mapped.MomentumPhase);
+        Assert.Equal(PortablePointerScrollProtocol.AppKit, mapped.ScrollProtocol);
         Assert.Equal((-100.125, 27.75, 0.125, -0.375), (input.X, input.Y, input.ScrollX, input.ScrollY));
     }
 
@@ -48,6 +50,30 @@ public sealed class PortablePointerInputTests
         Assert.Throws<ArgumentException>(() => new PortablePointerInput(PortablePointerEventKind.Cancel, 0, 0, 0, -1, 1, 0));
         Assert.Throws<ArgumentException>(() => new PortablePointerInput(PortablePointerEventKind.Move, 0, 0, 0, -1, 0, 0, scrollPhase: 4));
         Assert.Throws<ArgumentOutOfRangeException>(() => new PortablePointerInput(PortablePointerEventKind.Scroll, 0, 0, 0, -1, 0, 0, scrollUnit: (PortablePointerScrollUnit)2));
+    }
+
+    [Fact]
+    public void OriginalConstructorKeepsItsIdentityAndDoesNotInferAPhaseProtocol()
+    {
+        Type[] originalSignature = { typeof(PortablePointerEventKind), typeof(double), typeof(double),
+            typeof(double), typeof(int), typeof(int), typeof(PortablePointerModifiers), typeof(double), typeof(double),
+            typeof(PortablePointerScrollUnit), typeof(uint), typeof(uint) };
+        var constructor = typeof(PortablePointerInput).GetConstructor(originalSignature);
+        Assert.NotNull(constructor);
+        var packet = (PortablePointerInput)constructor.Invoke(new object[] { PortablePointerEventKind.Scroll,
+            1d, 2d, 3d, -1, 0, PortablePointerModifiers.None, 4d, 5d, PortablePointerScrollUnit.Points, 1u, 0u });
+        Assert.Equal(PortablePointerScrollProtocol.Unspecified, packet.ScrollProtocol);
+        Assert.Equal(1u, packet.ScrollPhase);
+        Assert.Equal(PortablePointerScrollProtocol.Unspecified, packet.WithCoordinates(4, 5, 6, 7).ScrollProtocol);
+    }
+
+    [Fact]
+    public void InvalidProtocolCannotPublishInputOrChangeAnExistingPacket()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PortablePointerInput(PortablePointerEventKind.Scroll,
+            (PortablePointerScrollProtocol)2, 0, 0, 0, -1, 0, 0));
+        Assert.Throws<ArgumentException>(() => new PortablePointerInput(PortablePointerEventKind.Move,
+            PortablePointerScrollProtocol.AppKit, 0, 0, 0, -1, 0, 0));
     }
 
     [Fact]

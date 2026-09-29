@@ -2,6 +2,7 @@ namespace ProGPU.Wpf.Interop;
 
 public enum PortablePointerEventKind { Move, Drag, Down, Up, Enter, Leave, Scroll, Cancel }
 public enum PortablePointerScrollUnit { Lines, Points }
+public enum PortablePointerScrollProtocol { Unspecified, AppKit }
 
 [Flags]
 public enum PortablePointerModifiers
@@ -24,6 +25,16 @@ public sealed class PortablePointerInput
         double scrollX = 0, double scrollY = 0,
         PortablePointerScrollUnit scrollUnit = PortablePointerScrollUnit.Lines,
         uint scrollPhase = 0, uint momentumPhase = 0)
+        : this(kind, PortablePointerScrollProtocol.Unspecified, x, y, timestamp, button, clickCount,
+            modifiers, scrollX, scrollY, scrollUnit, scrollPhase, momentumPhase)
+    {
+    }
+
+    public PortablePointerInput(PortablePointerEventKind kind, PortablePointerScrollProtocol scrollProtocol,
+        double x, double y, double timestamp, int button, int clickCount, PortablePointerModifiers modifiers,
+        double scrollX = 0, double scrollY = 0,
+        PortablePointerScrollUnit scrollUnit = PortablePointerScrollUnit.Lines,
+        uint scrollPhase = 0, uint momentumPhase = 0)
     {
         if (kind is < PortablePointerEventKind.Move or > PortablePointerEventKind.Cancel)
             throw new ArgumentOutOfRangeException(nameof(kind));
@@ -40,14 +51,18 @@ public sealed class PortablePointerInput
             throw new ArgumentException("Scroll deltas must be finite.");
         if (scrollUnit is not (PortablePointerScrollUnit.Lines or PortablePointerScrollUnit.Points))
             throw new ArgumentOutOfRangeException(nameof(scrollUnit));
+        if (scrollProtocol is not (PortablePointerScrollProtocol.Unspecified or PortablePointerScrollProtocol.AppKit))
+            throw new ArgumentOutOfRangeException(nameof(scrollProtocol));
         if (kind != PortablePointerEventKind.Scroll &&
-            (scrollX != 0 || scrollY != 0 || scrollUnit != PortablePointerScrollUnit.Lines || scrollPhase != 0 || momentumPhase != 0))
+            (scrollX != 0 || scrollY != 0 || scrollUnit != PortablePointerScrollUnit.Lines || scrollPhase != 0 || momentumPhase != 0 ||
+             scrollProtocol != PortablePointerScrollProtocol.Unspecified))
             throw new ArgumentException("Only scroll events can carry scroll metadata.");
 
         Kind = kind; X = x; Y = y; Timestamp = timestamp;
         Button = button; ClickCount = clickCount; Modifiers = modifiers;
         ScrollX = scrollX; ScrollY = scrollY; ScrollUnit = scrollUnit;
         ScrollPhase = scrollPhase; MomentumPhase = momentumPhase;
+        ScrollProtocol = scrollProtocol;
     }
 
     public PortablePointerEventKind Kind { get; }
@@ -62,9 +77,10 @@ public sealed class PortablePointerInput
     public PortablePointerScrollUnit ScrollUnit { get; }
     public uint ScrollPhase { get; }
     public uint MomentumPhase { get; }
+    public PortablePointerScrollProtocol ScrollProtocol { get; }
 
     public PortablePointerInput WithCoordinates(double x, double y, double scrollX, double scrollY) =>
-        new(Kind, x, y, Timestamp, Button, ClickCount, Modifiers,
+        new(Kind, ScrollProtocol, x, y, Timestamp, Button, ClickCount, Modifiers,
             scrollX, scrollY, ScrollUnit, ScrollPhase, MomentumPhase);
 }
 

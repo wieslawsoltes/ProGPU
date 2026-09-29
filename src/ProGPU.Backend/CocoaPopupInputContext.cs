@@ -256,7 +256,11 @@ internal sealed class CocoaPopupInputContext : IInputContext, INativePointerInpu
         ((value.Modifiers & CocoaPopupModifiers.Function) != 0 ? NativePointerModifiers.Function : 0),
         value.ScrollX, value.ScrollY,
         value.PreciseScroll ? NativePointerScrollUnit.Points : NativePointerScrollUnit.Lines,
-        value.ScrollPhase, value.MomentumPhase);
+        value.ScrollPhase, value.MomentumPhase)
+        {
+            ScrollProtocol = value.Kind == CocoaPopupPointerKind.Scroll
+                ? NativePointerScrollProtocol.AppKit : NativePointerScrollProtocol.Unspecified
+        };
 
     private static MouseButton MapButton(int button) => button switch
     {

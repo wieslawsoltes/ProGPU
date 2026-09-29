@@ -19,6 +19,7 @@ public static class NativeWindowInput
 
 public enum NativePointerEventKind { Move, Drag, Down, Up, Enter, Leave, Scroll, Cancel }
 public enum NativePointerScrollUnit { Lines, Points }
+public enum NativePointerScrollProtocol { Unspecified, AppKit }
 [Flags]
 public enum NativePointerModifiers
 {
@@ -37,7 +38,12 @@ public readonly record struct NativePointerEvent(
     int Button, int ClickCount, NativePointerModifiers Modifiers,
     double ScrollX = 0, double ScrollY = 0,
     NativePointerScrollUnit ScrollUnit = NativePointerScrollUnit.Lines,
-    uint ScrollPhase = 0, uint MomentumPhase = 0);
+    uint ScrollPhase = 0, uint MomentumPhase = 0)
+{
+    // Non-positional to retain the original constructor and deconstruction ABI.
+    // Raw phase values alone do not establish their platform semantics.
+    public NativePointerScrollProtocol ScrollProtocol { get; init; }
+}
 
 /// <summary>
 /// Optional lossless pointer transport beside Silk's float mouse events. Source
