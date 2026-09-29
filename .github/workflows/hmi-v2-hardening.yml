@@ -1,0 +1,47 @@
+name: HMI integration hardening
+on:
+  push:
+    branches: [feat/hmi-designer]
+    paths: ['eng/hmi-v2-harden.py', '.github/workflows/hmi-v2-hardening.yml']
+permissions:
+  contents: read
+jobs:
+  harden:
+    if: github.repository == 'wieslawsoltes/ProGPU' && github.ref == 'refs/heads/feat/hmi-designer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Apply exact source corrections
+        id: patch
+        run: python3 eng/hmi-v2-harden.py
+      - name: Commit corrected source
+        run: |
+          git diff --check
+          git add src tests/ProGPU.Hmi.Tests docs/hmi-designer.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(hmi): harden command cancellation, protocol framing and faceplate synchronization'
+          git push origin HEAD:refs/heads/feat/hmi-designer
+      - name: Test HMI and real loopback protocols
+        run: dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi/tests
+      - name: Build standalone sample
+        if: ${{ !cancelled() && steps.patch.outcome == 'success' }}
+        run: dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release
+      - name: Build shared gallery
+        if: ${{ !cancelled() && steps.patch.outcome == 'success' }}
+        run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hmi-hardening-tests
+          path: artifacts/hmi
+          if-no-files-found: ignore
