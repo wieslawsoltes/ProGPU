@@ -275,6 +275,31 @@ remain fully green before any eventual merge. An initial no-restore build failed
 inside NuGet's stale asset reader; an ordinary forced restore rebuilt successfully
 without changing package declarations or versions.
 
+## Typed source popup admission
+
+`NativePopupWindow.TryPrepareOwner` and `TryShowOwned` also accept the actual
+`IWindow`. Owned Cocoa panels bind their retained source owner and hold their
+dispatch lifetime around the source Show callback. A missing/different owner,
+changed view identity, disposal or failure to remain visible cannot publish
+success. Owner rebinding and nested display admission are rejected during that
+callback; retirement failures cannot replace its original error. Other providers
+retain the original native-handle ownership checks.
+
+The source callback prepares rendering and then calls
+`NativePopupWindow.ShowWithoutActivation`. Owned panels use their checked native
+visibility; GLFW windows temporarily disable FocusOnShow using only an actual
+`Native.Glfw` identity. An opaque window Handle is never a GLFW pointer. Restoration
+checks the same live provider identity and preserves original callback errors.
+Visibility alone is not ownership admission; callers dispose rejected setups.
+
+Eighteen authored managed cases cover hidden binding/reopen, invalid and changed
+owners, callback ordering/reentrancy, deferred disposal/render leases, original
+failure preservation, changed view identity, foreign-provider rejection and
+thread affinity. They join the existing early CocoaPopup CI group on all three
+test RIDs and the full test suite. Backend and test-project compilation passed
+with zero warnings/errors; runtime execution and real native UI qualification
+remain separate. These APIs do not select source factories or scroll policy.
+
 ## Primary contracts and provenance
 
 - [Apple NSPanel worksWhenModal](https://developer.apple.com/documentation/appkit/nspanel/workswhenmodal):

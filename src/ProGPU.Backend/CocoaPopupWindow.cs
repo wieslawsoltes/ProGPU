@@ -22,7 +22,7 @@ internal sealed class CocoaPopupWindow : IWindow
     private NativeWindowGeometrySnapshot _geometry;
     private Vector2D<int> _position, _size, _framebufferSize;
     private bool _initialized, _initializing, _visible, _closing, _disposeRequested;
-    private bool _retiring, _bindingOwner, _inputAllowed = true;
+    private bool _retiring, _bindingOwner, _showingOwned, _inputAllowed = true;
     private int _dispatchDepth;
     private ulong _geometryVersion;
     private double _lastUpdate, _lastRender;
@@ -147,7 +147,7 @@ internal sealed class CocoaPopupWindow : IWindow
     internal bool BindOwner(NativeWindowHandle owner)
     {
         CheckUsable();
-        if (_bindingOwner || _initializing)
+        if (_bindingOwner || _showingOwned || _initializing)
             throw new InvalidOperationException("Popup ownership cannot change during an active native transition.");
         if (!_initialized || owner != NativeWindowHandle.Empty &&
             (owner.Kind != NativeWindowKind.Cocoa || !owner.IsValid || owner.Display != 0)) return false;
@@ -186,6 +186,33 @@ internal sealed class CocoaPopupWindow : IWindow
             }
         }
         return accepted && !_closing && !_disposeRequested;
+    }
+
+    internal bool ShowOwned(NativeWindowHandle owner, Action show)
+    {
+        CheckUsable();
+        if (_showingOwned || _bindingOwner || _initializing)
+            throw new InvalidOperationException("Popup display cannot reenter an active native transition.");
+        if (!owner.IsValid || owner != Owner || _visible || !TryGetGeometry(out _))
+            return false;
+        _showingOwned = true;
+        ++_dispatchDepth;
+        Exception? failure = null;
+        try
+        {
+            show();
+            return !_closing && !_disposeRequested && _visible && owner == Owner && TryGetGeometry(out _);
+        }
+        catch (Exception exception) { failure = exception; throw; }
+        finally
+        {
+            _showingOwned = false;
+            try { EndDispatch(); }
+            catch (Exception cleanup) when (failure is not null)
+            {
+                failure.Data["PopupShowRetirement"] = cleanup;
+            }
+        }
     }
 
     internal bool TryGetGeometry(out NativeWindowGeometrySnapshot snapshot)

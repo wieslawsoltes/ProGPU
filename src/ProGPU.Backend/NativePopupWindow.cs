@@ -117,6 +117,78 @@ public static class NativePopupWindow
         return TryConfigureOwner(owner, popup);
     }
 
+    /// <summary>
+    /// Prepares the actual popup provider while hidden. Owned Cocoa panels bind
+    /// their retained source owner; other providers keep native-handle admission.
+    /// A rejected or throwing setup requires caller disposal, never a fallback.
+    /// </summary>
+    public static bool TryPrepareOwner(NativeWindowHandle owner, IWindow popup)
+    {
+        ArgumentNullException.ThrowIfNull(popup);
+        if (popup is CocoaPopupWindow owned)
+            return owner.IsValid && !owned.IsVisible && owned.BindOwner(owner);
+        return TryPrepareOwner(owner, GlfwNativeWindowPlatform.ResolveWindowHandle(popup));
+    }
+
+    /// <summary>
+    /// Shows through the actual provider, retaining an owned panel across the
+    /// source callback. The callback must call ShowWithoutActivation after any
+    /// source renderer preparation. It must not change ownership or reenter Show.
+    /// False or an exception requires caller disposal. No native events are polled.
+    /// </summary>
+    public static bool TryShowOwned(NativeWindowHandle owner, IWindow popup, Action showWithoutActivation)
+    {
+        ArgumentNullException.ThrowIfNull(popup);
+        ArgumentNullException.ThrowIfNull(showWithoutActivation);
+        return popup is CocoaPopupWindow owned
+            ? owned.ShowOwned(owner, showWithoutActivation)
+            : TryShowOwned(owner, GlfwNativeWindowPlatform.ResolveWindowHandle(popup), showWithoutActivation);
+    }
+
+    /// <summary>
+    /// Uses the owned panel's checked visibility or a live GLFW provider's
+    /// nonactivating visibility. Call only inside admitted TryShowOwned setup;
+    /// this operation alone does not establish ordinary native popup ownership.
+    /// </summary>
+    public static unsafe void ShowWithoutActivation(IWindow popup)
+    {
+        ArgumentNullException.ThrowIfNull(popup);
+        if (popup is CocoaPopupWindow owned)
+        {
+            owned.IsVisible = true;
+            return;
+        }
+
+        if (!popup.IsInitialized || popup.IsClosing)
+            throw new InvalidOperationException("Popup display requires a live initialized window.");
+        var native = (Silk.NET.GLFW.WindowHandle*)(popup.Native?.Glfw ?? IntPtr.Zero);
+        if (native == null)
+            throw new PlatformNotSupportedException("The window provider has no nonactivating visibility contract.");
+        var glfw = Silk.NET.GLFW.GlfwProvider.GLFW.Value;
+        bool previous = glfw.GetWindowAttrib(native, Silk.NET.GLFW.WindowAttributeGetter.FocusOnShow);
+        Exception? failure = null;
+        try
+        {
+            glfw.SetWindowAttrib(native, Silk.NET.GLFW.WindowAttributeSetter.FocusOnShow, false);
+            if (glfw.GetWindowAttrib(native, Silk.NET.GLFW.WindowAttributeGetter.FocusOnShow))
+                throw new PlatformNotSupportedException("The native host rejected nonactivating visibility.");
+            popup.IsVisible = true;
+        }
+        catch (Exception exception) { failure = exception; throw; }
+        finally
+        {
+            try
+            {
+                if (popup.IsInitialized && popup.Native?.Glfw == (nint)native)
+                    glfw.SetWindowAttrib(native, Silk.NET.GLFW.WindowAttributeSetter.FocusOnShow, previous);
+            }
+            catch (Exception cleanup) when (failure is not null)
+            {
+                failure.Data["PopupVisibilityRestoration"] = cleanup;
+            }
+        }
+    }
+
     /// <summary>Shows an admitted popup through the host's nonactivating operation.
     /// Cocoa revalidates the live hidden host, attaches (which orders it in), then
     /// verifies ownership around the callback. False or an exception requires

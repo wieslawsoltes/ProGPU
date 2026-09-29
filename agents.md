@@ -39,6 +39,11 @@ window after a deferred or failed disposal until a creating-thread retry complet
 Never treat a returned Dispose call as proof that an owned panel/view was released,
 poll native events inside retirement, or infer provider identity from handles.
 The completion helper does not itself connect either source host's retirement queue.
+Source popup preparation/display uses the actual IWindow provider; owned Cocoa
+Show retains dispatch ownership around the source callback and rejects rebinding,
+recursive admission, changed identity or disposed/hidden success. Shared visibility
+uses only Native.Glfw for GLFW, never an opaque Handle. Preserve original errors
+through restoration/retirement and keep source factory/input qualification separate.
 
 Native compute traces report owned pipeline selection and encoding/submission
 boundaries, never completion. Preserve the immutable opt-in, per-engine bound,
