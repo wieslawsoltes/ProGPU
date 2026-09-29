@@ -1,0 +1,89 @@
+name: Integrate validated HMI visuals
+on:
+  push:
+    branches: [feat/hmi-designer]
+    paths: ['.github/workflows/hmi-visual-integrate.yml', 'eng/hmi-visual-payload.*', 'eng/hmi-visual-apply.py']
+permissions:
+  contents: read
+jobs:
+  integrate:
+    if: github.repository == 'wieslawsoltes/ProGPU' && github.ref == 'refs/heads/feat/hmi-designer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      PROGPU_WGPU_BACKEND: vulkan
+      XDG_RUNTIME_DIR: /tmp
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Apply and commit the exact validated source
+        id: apply
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 eng/hmi-visual-apply.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(hmi): redesign 40 retained equipment visuals and professional designer studio'
+          git push origin HEAD:refs/heads/feat/hmi-designer
+          mkdir -p artifacts/hmi-validation
+          git rev-parse HEAD | tee artifacts/hmi-validation/commit.txt
+      - name: Reflection-disabled HMI regression tests
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
+        run: dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi-validation/tests
+      - name: Real OPC UA server regression tests
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
+        run: dotnet test tests/ProGPU.Hmi.OpcUa.Tests/ProGPU.Hmi.OpcUa.Tests.csproj -c Release --logger "trx;LogFileName=opcua.trx" --results-directory artifacts/hmi-validation/tests
+      - name: Reflection-disabled serialization smoke
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
+        run: dotnet run --project tests/ProGPU.Hmi.SerializationSmoke/ProGPU.Hmi.SerializationSmoke.csproj -c Release
+      - name: Build standalone and actual desktop gallery
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release
+          dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+          dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+          dotnet run --project tests/ProGPU.Hmi.GallerySmoke/ProGPU.Hmi.GallerySmoke.csproj -c Release
+      - name: NativeAOT serialization smoke
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish tests/ProGPU.Hmi.SerializationSmoke/ProGPU.Hmi.SerializationSmoke.csproj -c Release -r linux-x64 -p:PublishAot=true -p:TreatWarningsAsErrors=true -o artifacts/hmi-aot
+          artifacts/hmi-aot/ProGPU.Hmi.SerializationSmoke
+      - name: Install software Vulkan and render the real retained UI
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers libvulkan1 fonts-dejavu-core
+          export VK_ICD_FILENAMES=$(find /usr/share/vulkan/icd.d -name '*lvp*json' -print -quit)
+          test -n "$VK_ICD_FILENAMES"
+          dotnet build tests/ProGPU.Hmi.VisualSmoke/ProGPU.Hmi.VisualSmoke.csproj -c Release
+          for palette in Light Dark HighContrast; do
+            timeout 180s dotnet run --project tests/ProGPU.Hmi.VisualSmoke/ProGPU.Hmi.VisualSmoke.csproj -c Release --no-build -- /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf artifacts/hmi-validation/visuals "$palette" | tee "artifacts/hmi-validation/$palette.log"
+          done
+      - name: Pack HMI libraries
+        if: ${{ !cancelled() && steps.apply.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in ProGPU.Hmi ProGPU.WinUI.Hmi ProGPU.WinUI.Hmi.Designer ProGPU.Hmi.Modbus ProGPU.Hmi.Mqtt ProGPU.Hmi.OpcUa; do
+            dotnet pack "src/$project/$project.csproj" -c Release --no-build -o artifacts/hmi-validation/packages
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hmi-visual-integration-validation
+          path: artifacts/hmi-validation
+          retention-days: 14
