@@ -1,0 +1,28 @@
+name: Finalize HMI integration
+on:
+  push:
+    branches: [feat/hmi-designer]
+    paths: ['eng/hmi-finalize.py']
+permissions:
+  contents: read
+jobs:
+  source-fixes:
+    if: github.repository == 'wieslawsoltes/ProGPU' && github.ref == 'refs/heads/feat/hmi-designer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Apply exact-match source fixes
+        run: python3 eng/hmi-finalize.py
+      - name: Commit only the HMI integration paths
+        run: |
+          git diff --check
+          git add src/ProGPU.Hmi src/ProGPU.WinUI.Hmi src/ProGPU.WinUI.Hmi.Designer src/ProGPU.WinUI.Designer/DesignerHost.cs src/ProGPU.WinUI.Designer/DesignerMultiSelectionAdorner.cs src/ProGPU.Samples/Pages/VisualDesignerPage.cs
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(hmi): harden shared cloning, quality transitions and designer lifecycle'
+          git push origin HEAD:refs/heads/feat/hmi-designer
