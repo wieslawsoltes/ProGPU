@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml;
 using ProGPU.WinUI.Designer;
 
 namespace ProGPU.WinUI.Hmi.Designer;
