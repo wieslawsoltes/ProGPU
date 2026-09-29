@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,7 +57,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Test HMI and Modbus/MQTT integrations
+      - name: Test reflection-disabled HMI and Modbus/MQTT integrations
         run: dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi/tests
       - name: Test OPC UA against a real loopback server
         if: ${{ !cancelled() }}
@@ -68,6 +68,9 @@ jobs:
       - name: Build shared sample gallery
         if: ${{ !cancelled() }}
         run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+      - name: Exercise actual gallery page construction without reflection JSON
+        if: ${{ !cancelled() }}
+        run: dotnet run --project tests/ProGPU.Hmi.GallerySmoke/ProGPU.Hmi.GallerySmoke.csproj -c Release
       - name: Pack standalone libraries
         shell: pwsh
         run: |
