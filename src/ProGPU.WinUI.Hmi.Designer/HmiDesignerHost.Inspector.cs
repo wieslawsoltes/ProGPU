@@ -23,6 +23,7 @@ public sealed partial class HmiDesignerHost
     private void UpdateInspector()
     {
         if (_rebuilding || _disposed) return;
+        _alarmConsole?.AttachRuntime(_runtime);
         _outline.IsHitTestVisible = !IsPreviewing;
         _palette.IsHitTestVisible = !IsPreviewing;
         RefreshStateTable();
@@ -62,6 +63,11 @@ public sealed partial class HmiDesignerHost
         ElementProperty("Minimum", Format(model.Minimum), (e, v) => e.Minimum = Number(v));
         ElementProperty("Maximum", Format(model.Maximum), (e, v) => e.Maximum = Number(v));
         ElementProperty("Decimals", model.Decimals.ToString(Invariant), (e, v) => e.Decimals = Integer(v));
+        if (model.Symbol == HmiSymbol.Trend)
+        {
+            ElementProperty("Trend window (s)", Format(model.Trend.WindowSeconds), (e, v) => e.Trend.WindowSeconds = Number(v));
+            ElementProperty("Maximum gap (s)", Format(model.Trend.MaximumGapSeconds), (e, v) => e.Trend.MaximumGapSeconds = Number(v));
+        }
         ElementProperty("Hidden", model.IsHidden.ToString(), (e, v) => e.IsHidden = Boolean(v));
         ElementProperty("Group", model.Group, (e, v) => e.Group = v);
         ElementProperty("X", Format(model.X), (e, v) => e.X = Coordinate(v));

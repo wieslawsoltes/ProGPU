@@ -247,18 +247,12 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
             _restoreSelection = [];
             _canvas.SelectElement(null);
             _selection.Select(null);
-            _canvas.DesignSurface.Children.Clear();
             var screen = Session.ActiveScreen;
             _canvas.DesignSurface.Width = screen.Width; _canvas.DesignSurface.Height = screen.Height;
-            foreach (var element in screen.Elements)
-            {
-                var control = HmiControlCatalog.Create(element.Symbol);
-                control.Font = _font; control.ApplyDefinition(element); control.IsHitTestVisible = false;
-                if (Session.Document.Tags.SingleOrDefault(t => t.Name == element.Tag) is { } tag)
-                    control.UpdateSample(new HmiTagSample(tag.InitialValue, HmiQuality.Good, DateTimeOffset.UnixEpoch));
-                _canvas.DesignSurface.Children.Add(control);
-                if (selected.Contains(element.Id)) _selection.Select(control, additive: true);
-            }
+            ReconcileCanvas(screen);
+            var selectedIds = selected.ToHashSet(StringComparer.Ordinal);
+            foreach (var control in _canvas.DesignSurface.Children.OfType<HmiControl>())
+                if (selectedIds.Contains(control.ElementId)) _selection.Select(control, additive: true);
             _canvas.SelectElement(_selection.Selection.LastOrDefault());
             _outline.RootElement = _canvas.DesignSurface; _outline.SelectedElement = _canvas.SelectedElement; _outline.RefreshTree();
             _screenList.Children.Clear();
@@ -277,6 +271,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     private void OnSessionChanged()
     {
         _discardConfirmation = null;
+        MarkEngineeringDirty();
         RebuildDocumentViews();
     }
     private void OnScreenChanged() { RebuildDocumentViews(); Fit(); }
@@ -301,7 +296,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         {
             var original = Session.ActiveScreen.Elements.ToDictionary(e => e.Id);
             var controls = _canvas.DesignSurface.Children.OfType<HmiControl>().ToArray();
-            if (_canvas.SelectedElement is HmiControl primary && _gestureStart != null && _gestureStart.TryGetValue(primary.CaptureDefinition().Id, out var before))
+            if (!_selection.IsExecutingCommand && _canvas.SelectedElement is HmiControl primary && _gestureStart != null && _gestureStart.TryGetValue(primary.CaptureDefinition().Id, out var before))
             {
                 float dx = Canvas.GetLeft(primary) - before.X, dy = Canvas.GetTop(primary) - before.Y;
                 foreach (var other in _selection.Selection.OfType<HmiControl>().Where(c => c != primary && !c.IsDesignLocked))
@@ -331,10 +326,11 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
                     elements.Insert(Math.Min(index, elements.Count), locked.Copy());
             }
             _restoreSelection = _selection.Selection.OfType<HmiControl>().Select(c => c.CaptureDefinition().Id).ToArray();
+            string previousRevision = Session.ExportJson();
             try { Session.Edit("Edit canvas", p => p.Screens.Single(s => s.Id == Session.ActiveScreenId).Elements = elements); }
             catch { RebuildDocumentViews(); throw; }
-            // Reconcile even no-op/rejected mutations (for example deleting a locked item in the shared outline).
-            RebuildDocumentViews();
+            // Changed documents were already reconciled by Session.Changed; no-op locked edits still need restoration.
+            if (ReferenceEquals(previousRevision, Session.ExportJson())) RebuildDocumentViews();
             UpdateInspector();
             _multiAdorner.Invalidate();
         });
@@ -432,5 +428,6 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         _canvas.CanvasModifying -= OnCanvasModifying; _canvas.CanvasModified -= OnCanvasModified; _canvas.SelectionChanged -= OnCanvasSelectionChanged;
         _selection.SelectionChanged -= UpdateInspector;
         _multiAdorner.Dispose();
+        _alarmConsole.Dispose();
     }
 }

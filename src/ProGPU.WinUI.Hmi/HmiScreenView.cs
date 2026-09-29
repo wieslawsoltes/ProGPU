@@ -101,7 +101,7 @@ public sealed class HmiScreenView : Grid, IDisposable
         control.CommandsEnabled = _runtime.IsRunning;
         control.UpdateState(HmiStateEvaluator.Evaluate(definition.States, tag => _runtime.TryRead(tag, out var sample) ? sample : null));
         if (_runtime.TryRead(definition.Tag, out var sample))
-            control.UpdateSample(sample, _runtime.GetHistory(definition.Tag), (_runtime.Now.ToUnixTimeMilliseconds() % 1000) / 1000f);
+            control.UpdateSample(sample, _runtime.GetHistory(definition.Tag), (_runtime.Now.ToUnixTimeMilliseconds() % 1000) / 1000f, now: _runtime.Now);
     }
     private void OnAlarmsChanged()
     {

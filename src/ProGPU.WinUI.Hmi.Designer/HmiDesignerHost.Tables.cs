@@ -82,6 +82,8 @@ public sealed partial class HmiDesignerHost
         tabs.Items.Add(new PivotItem("Connections", BuildConnectionsPane()));
         tabs.Items.Add(new PivotItem("Faceplates", BuildFaceplatesPane()));
         tabs.Items.Add(new PivotItem("States", BuildStateRulesPane()));
+        tabs.Items.Add(new PivotItem("Engineering", BuildEngineeringPane()));
+        tabs.Items.Add(new PivotItem("Alarm console", BuildAlarmConsolePane()));
         tabs.Items.Add(new PivotItem("Help", new ScrollViewer { Content = Text(
             "GETTING STARTED\nChoose Components and drag a symbol to the canvas, or press its + button. Select components to edit HMI properties and tag bindings.\n\n" +
             "LAYOUT\nDrag to move; use the shared resize handles. Ctrl-click or Select all for multiple selection. Align, distribute, group, reorder and lock from the toolbar.\nCtrl+C/X/V/D copy, cut, paste and duplicate. Delete removes unlocked selections. Arrow keys nudge; Shift moves 10 units. Ctrl+Z/Y undo/redo.\nMiddle-drag pans. Ctrl+wheel zooms at the pointer. Fit frames the active screen.\n\n" +

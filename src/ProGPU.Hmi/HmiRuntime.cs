@@ -8,7 +8,7 @@ namespace ProGPU.Hmi;
 /// Single-owner runtime. Marshal acquisition batches to its owning UI/application thread.
 /// Commands affect local memory only; there is deliberately no implicit PLC write transport.
 /// </summary>
-public sealed class HmiRuntime
+public sealed partial class HmiRuntime
 {
     private readonly HmiProject _project;
     private readonly Dictionary<string, HmiTagDefinition> _definitions;
@@ -106,7 +106,12 @@ public sealed class HmiRuntime
         foreach (var name in _definitions.Keys)
         {
             var quality = Read(name).Quality;
-            if (quality != _effectiveQuality[name]) { _effectiveQuality[name] = quality; changed.Add(name); }
+            if (quality != _effectiveQuality[name])
+            {
+                if (quality == HmiQuality.Stale) _history[name].Add(_samples[name] with { Quality = HmiQuality.Stale });
+                _effectiveQuality[name] = quality;
+                changed.Add(name);
+            }
         }
         EvaluateAlarms();
         if (changed.Count > 0) TagsChanged?.Invoke(changed.ToArray());
@@ -134,7 +139,11 @@ public sealed class HmiRuntime
         if (alarmId != null && !_alarms.Any(a => a.Definition.Id == alarmId)) throw new KeyNotFoundException("Unknown alarm ID.");
         bool changed = false;
         foreach (var alarm in _alarms)
-            if ((alarmId == null || alarm.Definition.Id == alarmId) && alarm.Acknowledge(Now)) changed = true;
+            if ((alarmId == null || alarm.Definition.Id == alarmId) && alarm.Acknowledge(Now))
+            {
+                AddAlarmEvent(alarm, HmiAlarmEventKind.Acknowledged);
+                changed = true;
+            }
         if (changed)
         {
             Record("Acknowledge", alarmId ?? "All alarms", "Local acknowledgement; does not clear active conditions");
@@ -206,7 +215,15 @@ public sealed class HmiRuntime
     private void EvaluateAlarms()
     {
         bool changed = false;
-        foreach (var alarm in _alarms) changed |= alarm.Evaluate(Read(alarm.Definition.Tag), Now);
+        foreach (var alarm in _alarms)
+        {
+            bool active = alarm.IsActive, unknown = alarm.IsQualityUnknown;
+            if (alarm.Evaluate(Read(alarm.Definition.Tag), Now))
+            {
+                TrackAlarmEvaluation(alarm, active, unknown);
+                changed = true;
+            }
+        }
         if (changed) AlarmsChanged?.Invoke();
     }
     private void Record(string operation, string target, string detail) => _audit.Add(new(Now, operation, target, detail));

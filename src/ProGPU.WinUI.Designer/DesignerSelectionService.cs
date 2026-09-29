@@ -12,6 +12,7 @@ public sealed class DesignerSelectionService
     private readonly DesignerCanvas _canvas;
     private readonly List<FrameworkElement> _selection = [];
     public IReadOnlyList<FrameworkElement> Selection => _selection;
+    public bool IsExecutingCommand { get; private set; }
     public Func<FrameworkElement, bool> CanEdit { get; set; } = _ => true;
     public event Action? SelectionChanged;
     public DesignerSelectionService(DesignerCanvas canvas) => _canvas = canvas;
@@ -90,11 +91,16 @@ public sealed class DesignerSelectionService
     {
         var items = _selection.Where(CanEdit).ToArray();
         if (items.Length == 0) return;
-        _canvas.NotifyCanvasModifying();
-        action(items);
-        _canvas.UpdateSelectionAdorner();
-        _canvas.Invalidate();
-        _canvas.NotifyCanvasModified();
+        IsExecutingCommand = true;
+        try
+        {
+            _canvas.NotifyCanvasModifying();
+            action(items);
+            _canvas.UpdateSelectionAdorner();
+            _canvas.Invalidate();
+            _canvas.NotifyCanvasModified();
+        }
+        finally { IsExecutingCommand = false; }
     }
     private static float Width(FrameworkElement element) => float.IsFinite(element.Width) ? element.Width : element.Size.X;
     private static float Height(FrameworkElement element) => float.IsFinite(element.Height) ? element.Height : element.Size.Y;

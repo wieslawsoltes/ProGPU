@@ -82,6 +82,8 @@ public static class HmiProjectSerializer
                 Require(element != null, "Null element."); Text(element.Id, "Element ID");
                 Require(ids.Add(element.Id), $"Duplicate element ID: {element.Id}.");
                 Require(Enum.IsDefined(element.Symbol), "Unknown HMI symbol.");
+                Require(element.Trend != null, "Null trend settings.");
+                element.Trend.Validate();
                 Require(float.IsFinite(element.X) && float.IsFinite(element.Y) && Math.Abs(element.X) <= 32768 && Math.Abs(element.Y) <= 32768, "Invalid element position.");
                 Require(float.IsFinite(element.Width) && float.IsFinite(element.Height) && element.Width is >= 8 and <= 16384 && element.Height is >= 8 and <= 16384, "Element dimensions must be 8–16384.");
                 Require(double.IsFinite(element.Minimum) && double.IsFinite(element.Maximum) && double.IsFinite(element.Maximum - element.Minimum) && element.Minimum < element.Maximum && element.Decimals is >= 0 and <= 6, "Invalid component range or precision.");
