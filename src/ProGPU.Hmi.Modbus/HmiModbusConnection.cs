@@ -7,7 +7,7 @@ namespace ProGPU.Hmi.Modbus;
 /// Modbus TCP client: FC01/02/03/04 reads, FC05/06/10 absolute writes.
 /// One in-flight request per stream; strict MBAP/length/function/echo validation and no write retries.
 /// </summary>
-public sealed class HmiModbusConnection : IHmiConnection
+public sealed class HmiModbusConnection : IHmiConditionalWriteConnection
 {
     private sealed record ReadBlock(HmiModbusArea Area, int Address, int Count, HmiIoMapping[] Mappings);
     private readonly HmiConnectionProfile _profile;
@@ -18,6 +18,8 @@ public sealed class HmiModbusConnection : IHmiConnection
     private TcpClient? _client;
     private NetworkStream? _stream;
     private ushort _transaction;
+    private long _generation;
+    public long ConnectionGeneration => Interlocked.Read(ref _generation);
     private bool _disposed;
     public bool IsConnected => !_disposed && _stream != null;
 
@@ -44,6 +46,7 @@ public sealed class HmiModbusConnection : IHmiConnection
             {
                 await client.ConnectAsync(_profile.Host, _profile.Port, timeout.Token).ConfigureAwait(false);
                 _client = client; _stream = client.GetStream();
+                Interlocked.Increment(ref _generation);
             }
             catch { client.Dispose(); throw; }
         }
@@ -93,7 +96,11 @@ public sealed class HmiModbusConnection : IHmiConnection
         catch { CloseStream(); throw; }
         finally { _serial.Release(); }
     }
-    public async ValueTask<HmiWriteResult> WriteAsync(string tag, HmiValue value, CancellationToken cancellationToken)
+    public ValueTask<HmiWriteResult> WriteAsync(string tag, HmiValue value, CancellationToken cancellationToken)
+        => WriteCoreAsync(tag, value, null, cancellationToken);
+    public ValueTask<HmiWriteResult> WriteAsync(string tag, HmiValue value, long expectedConnectionGeneration, CancellationToken cancellationToken)
+        => WriteCoreAsync(tag, value, expectedConnectionGeneration, cancellationToken);
+    private async ValueTask<HmiWriteResult> WriteCoreAsync(string tag, HmiValue value, long? expectedConnectionGeneration, CancellationToken cancellationToken)
     {
         var mapping = _profile.Mappings.SingleOrDefault(m => m.Tag == tag && m.Writable);
         if (mapping == null || value.Type != mapping.Type) return new(HmiWriteDisposition.NotSent, "Unknown, read-only or type-incompatible destination.");
@@ -129,6 +136,8 @@ public sealed class HmiModbusConnection : IHmiConnection
         {
             await _serial.WaitAsync(timeout.Token).ConfigureAwait(false); entered = true;
             if (_disposed || _stream == null) return new(HmiWriteDisposition.NotSent, "Not connected.");
+            if (expectedConnectionGeneration.HasValue && expectedConnectionGeneration.Value != ConnectionGeneration)
+                return new(HmiWriteDisposition.NotSent, "Modbus session changed after command review.");
             timeout.Token.ThrowIfCancellationRequested();
             transmissionStarted = true;
             byte[] reply = await ExchangeAsync(request, timeout.Token).ConfigureAwait(false);
@@ -174,7 +183,7 @@ public sealed class HmiModbusConnection : IHmiConnection
         source.CancelAfter(_profile.TimeoutMilliseconds);
         return source;
     }
-    private void CloseStream() { _stream?.Dispose(); _stream = null; _client?.Dispose(); _client = null; }
+    private void CloseStream() { if (_stream != null) Interlocked.Increment(ref _generation); _stream?.Dispose(); _stream = null; _client?.Dispose(); _client = null; }
     private static void Put(byte[] bytes, int offset, int value) => BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(offset), checked((ushort)value));
     private static ReadBlock[] Plan(IEnumerable<HmiIoMapping> mappings)
     {

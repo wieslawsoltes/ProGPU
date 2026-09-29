@@ -23,6 +23,7 @@ public sealed class HmiApplication : Application
             {
                 ProGPU.Hmi.HmiConnectionProtocol.ModbusTcp => new ProGPU.Hmi.Modbus.HmiModbusConnection(profile),
                 ProGPU.Hmi.HmiConnectionProtocol.Mqtt => new ProGPU.Hmi.Mqtt.HmiMqttConnection(profile),
+                ProGPU.Hmi.HmiConnectionProtocol.OpcUa => new ProGPU.Hmi.OpcUa.HmiOpcUaConnection(profile),
                 _ => throw new NotSupportedException("Protocol not registered.")
             } };
         var window = new Window { Title = "ProGPU HMI Designer · Local simulation", Width = 1600, Height = 1000, Content = designer };

@@ -18,6 +18,7 @@
                       Condition="'$(ProGpuSamplesMobile)' != 'true'" />
     <ProjectReference Include="..\ProGPU.Hmi.Modbus\ProGPU.Hmi.Modbus.csproj" Condition="'$(ProGpuSamplesMobile)' != 'true'" />
     <ProjectReference Include="..\ProGPU.Hmi.Mqtt\ProGPU.Hmi.Mqtt.csproj" Condition="'$(ProGpuSamplesMobile)' != 'true'" />
+    <ProjectReference Include="..\ProGPU.Hmi.OpcUa\ProGPU.Hmi.OpcUa.csproj" Condition="'$(ProGpuSamplesMobile)' != 'true'" />
     <ProjectReference Include="..\ProGPU.WinUI.Hmi.Designer\ProGPU.WinUI.Hmi.Designer.csproj"
                       Condition="'$(ProGpuSamplesMobile)' != 'true'" />
     <ProjectReference Include="..\ProGPU.Voxel\ProGPU.Voxel.csproj" />

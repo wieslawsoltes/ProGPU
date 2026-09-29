@@ -12,7 +12,7 @@ public sealed record HmiMqttCredentials(string UserName, string Password);
 /// MQTTnet-backed MQTT 5 adapter. Exact-topic subscriptions, clean sessions, strict TLS,
 /// typed bounded latest-value telemetry, non-retained QoS1 absolute commands, no offline command replay.
 /// </summary>
-public sealed class HmiMqttConnection : IHmiConnection
+public sealed class HmiMqttConnection : IHmiConditionalWriteConnection
 {
     private readonly HmiConnectionProfile _profile;
     private readonly Func<CancellationToken, ValueTask<HmiMqttCredentials?>>? _credentials;
@@ -25,7 +25,8 @@ public sealed class HmiMqttConnection : IHmiConnection
     private readonly Dictionary<string, HmiIoMapping[]> _topics;
     private IMqttClient? _client;
     private bool _disposed;
-    private long _rejected, _coalesced;
+    private long _rejected, _coalesced, _generation;
+    public long ConnectionGeneration => Interlocked.Read(ref _generation);
     public bool IsConnected => !_disposed && _client?.IsConnected == true;
     public long RejectedMessages => Interlocked.Read(ref _rejected);
     public long CoalescedSamples => Interlocked.Read(ref _coalesced);
@@ -51,6 +52,7 @@ public sealed class HmiMqttConnection : IHmiConnection
             var factory = new MqttClientFactory();
             var client = factory.CreateMqttClient();
             _client = client;
+            Interlocked.Increment(ref _generation);
             client.ApplicationMessageReceivedAsync += args => Receive(client, args);
             var options = new MqttClientOptionsBuilder()
                 .WithTcpServer(_profile.Host, _profile.Port)
@@ -150,7 +152,11 @@ public sealed class HmiMqttConnection : IHmiConnection
             return ValueTask.FromResult(batch);
         }
     }
-    public async ValueTask<HmiWriteResult> WriteAsync(string tag, HmiValue value, CancellationToken cancellationToken)
+    public ValueTask<HmiWriteResult> WriteAsync(string tag, HmiValue value, CancellationToken cancellationToken)
+        => WriteCoreAsync(tag, value, null, cancellationToken);
+    public ValueTask<HmiWriteResult> WriteAsync(string tag, HmiValue value, long expectedConnectionGeneration, CancellationToken cancellationToken)
+        => WriteCoreAsync(tag, value, expectedConnectionGeneration, cancellationToken);
+    private async ValueTask<HmiWriteResult> WriteCoreAsync(string tag, HmiValue value, long? expectedConnectionGeneration, CancellationToken cancellationToken)
     {
         var mapping = _profile.Mappings.SingleOrDefault(m => m.Tag == tag && m.Writable);
         if (mapping == null || value.Type != mapping.Type) return new(HmiWriteDisposition.NotSent, "No writable matching topic mapping.");
@@ -161,6 +167,8 @@ public sealed class HmiMqttConnection : IHmiConnection
             var payload = HmiMqttPayloadCodec.EncodeCommand(value, _clock.GetUtcNow());
             await _serial.WaitAsync(timeout.Token).ConfigureAwait(false); entered = true;
             if (!IsConnected) return new(HmiWriteDisposition.NotSent, "MQTT is disconnected; commands are not queued.");
+            if (expectedConnectionGeneration.HasValue && expectedConnectionGeneration.Value != ConnectionGeneration)
+                return new(HmiWriteDisposition.NotSent, "MQTT session changed after command review.");
             var message = new MqttApplicationMessageBuilder().WithTopic(mapping.CommandTopic).WithPayload(payload)
                 .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce).WithRetainFlag(false).Build();
             timeout.Token.ThrowIfCancellationRequested(); started = true;
@@ -187,6 +195,7 @@ public sealed class HmiMqttConnection : IHmiConnection
     {
         IMqttClient? client;
         lock (_bufferGate) { client = _client; _client = null; _pending.Clear(); }
+        if (client != null) Interlocked.Increment(ref _generation);
         client?.Dispose();
     }
     private CancellationTokenSource Timeout(CancellationToken token)

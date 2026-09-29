@@ -19,6 +19,7 @@ public static class VisualDesignerPage
             {
                 ProGPU.Hmi.HmiConnectionProtocol.ModbusTcp => new ProGPU.Hmi.Modbus.HmiModbusConnection(profile),
                 ProGPU.Hmi.HmiConnectionProtocol.Mqtt => new ProGPU.Hmi.Mqtt.HmiMqttConnection(profile),
+                ProGPU.Hmi.HmiConnectionProtocol.OpcUa => new ProGPU.Hmi.OpcUa.HmiOpcUaConnection(profile),
                 _ => throw new NotSupportedException("Protocol not registered.")
             },
             GetDpiScale = () => (float)DisplayScaleResolver.ResolveWindowDisplayScale(AppState._window)

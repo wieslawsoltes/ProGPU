@@ -25,7 +25,7 @@ public static class HmiOpcUaCodec
         // Receipt time cannot repair missing or future source timestamps.
         var source = value.SourceTimestamp;
         DateTimeOffset timestamp;
-        if (source == DateTime.MinValue) { timestamp = DateTimeOffset.MinValue; quality = HmiQuality.Uncertain; }
+        if (source == DateTime.MinValue) { timestamp = DateTimeOffset.MinValue; if (quality == HmiQuality.Good) quality = HmiQuality.Uncertain; }
         else
         {
             timestamp = new DateTimeOffset(DateTime.SpecifyKind(source, DateTimeKind.Utc));

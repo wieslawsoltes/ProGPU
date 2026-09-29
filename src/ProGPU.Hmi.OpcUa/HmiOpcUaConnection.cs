@@ -8,7 +8,7 @@ namespace ProGPU.Hmi.OpcUa;
 /// Explicit OPC UA client with one serialized service operation, bounded reads/browse and no write retries.
 /// Application configuration and user identities are supplied out-of-band; project files carry neither secrets nor trust decisions.
 /// </summary>
-public sealed class HmiOpcUaConnection : IHmiConnection, IHmiNodeBrowser, IHmiConnectionGeneration
+public sealed class HmiOpcUaConnection : IHmiConditionalWriteConnection, IHmiNodeBrowser, IHmiConnectionGeneration
 {
     private readonly HmiConnectionProfile _profile;
     private readonly Func<CancellationToken, ValueTask<ApplicationConfiguration>> _configurationFactory;
@@ -131,7 +131,11 @@ public sealed class HmiOpcUaConnection : IHmiConnection, IHmiNodeBrowser, IHmiCo
         finally { _operation.Release(); }
     }
 
-    public async ValueTask<HmiWriteResult> WriteAsync(string tag, HmiValue value, CancellationToken cancellationToken)
+    public ValueTask<HmiWriteResult> WriteAsync(string tag, HmiValue value, CancellationToken cancellationToken)
+        => WriteCoreAsync(tag, value, null, cancellationToken);
+    public ValueTask<HmiWriteResult> WriteAsync(string tag, HmiValue value, long expectedConnectionGeneration, CancellationToken cancellationToken)
+        => WriteCoreAsync(tag, value, expectedConnectionGeneration, cancellationToken);
+    private async ValueTask<HmiWriteResult> WriteCoreAsync(string tag, HmiValue value, long? expectedConnectionGeneration, CancellationToken cancellationToken)
     {
         var mapping = _profile.Mappings.SingleOrDefault(m => m.Tag == tag && m.Writable);
         if (mapping == null) return new(HmiWriteDisposition.NotSent, "No writable OPC UA mapping.");
@@ -145,6 +149,8 @@ public sealed class HmiOpcUaConnection : IHmiConnection, IHmiNodeBrowser, IHmiCo
             await _operation.WaitAsync(timeout.Token).ConfigureAwait(false);
             acquired = true;
             var session = RequireSession();
+            if (expectedConnectionGeneration.HasValue && expectedConnectionGeneration.Value != ConnectionGeneration)
+                return new(HmiWriteDisposition.NotSent, "OPC UA session changed after command review.");
             var node = HmiOpcUaCodec.Resolve(mapping.OpcUa, session.NamespaceUris);
             var requests = new WriteValueCollection
             {
