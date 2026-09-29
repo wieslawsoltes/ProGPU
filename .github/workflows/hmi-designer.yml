@@ -1,0 +1,73 @@
+name: HMI designer
+
+on:
+  push:
+    branches: [main, feat/hmi-designer]
+    paths:
+      - 'src/ProGPU.Hmi/**'
+      - 'src/ProGPU.WinUI.Hmi/**'
+      - 'src/ProGPU.WinUI.Hmi.Designer/**'
+      - 'src/ProGPU.WinUI.Designer/**'
+      - 'src/ProGPU.Samples/Pages/VisualDesignerPage.cs'
+      - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
+      - 'samples/HmiDesigner/**'
+      - 'tests/ProGPU.Hmi.Tests/**'
+      - 'docs/hmi-designer.md'
+      - '.github/workflows/hmi-designer.yml'
+  pull_request:
+    paths:
+      - 'src/ProGPU.Hmi/**'
+      - 'src/ProGPU.WinUI.Hmi/**'
+      - 'src/ProGPU.WinUI.Hmi.Designer/**'
+      - 'src/ProGPU.WinUI.Designer/**'
+      - 'src/ProGPU.Samples/Pages/VisualDesignerPage.cs'
+      - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
+      - 'samples/HmiDesigner/**'
+      - 'tests/ProGPU.Hmi.Tests/**'
+      - 'docs/hmi-designer.md'
+      - '.github/workflows/hmi-designer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hmi-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build, test and pack (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test HMI model, components and designer
+        run: dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi/tests
+      - name: Build standalone WinUI HMI designer
+        run: dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release
+      - name: Build shared sample gallery
+        run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+      - name: Pack standalone libraries
+        shell: pwsh
+        run: |
+          foreach ($project in @('ProGPU.Hmi', 'ProGPU.WinUI.Hmi', 'ProGPU.WinUI.Hmi.Designer')) {
+            dotnet pack "src/$project/$project.csproj" -c Release --no-build -o artifacts/hmi/packages
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Upload packages and test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hmi-${{ matrix.os }}
+          path: artifacts/hmi
+          if-no-files-found: ignore
