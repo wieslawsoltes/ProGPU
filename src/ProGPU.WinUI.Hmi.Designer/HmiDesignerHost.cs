@@ -84,7 +84,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         files.AddChild(Command("Run / Stop", () => { if (IsPreviewing) StopPreview(); else StartPreview(); }));
         files.AddChild(Command("Pause / Resume", TogglePause));
         files.AddChild(Command("Step 100 ms", () => AdvancePreview(TimeSpan.FromMilliseconds(100))));
-        files.AddChild(Command("Data panels", () => _dataArea.Visibility = _dataArea.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible));
+        files.AddChild(Command("Data panels", ToggleDataPanels));
         header.AddChild(files);
         var edit = Toolbar();
         edit.AddChild(Command("Select all", () => DesignCommand(_selection.SelectAll)));
@@ -401,7 +401,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     public override void OnKeyDown(KeyRoutedEventArgs e)
     {
         for (var focused = InputSystem.FocusedElement; focused != null; focused = focused.Parent as FrameworkElement)
-            if (focused is TextBox or PasswordBox or VirtualizedCodeEditor) { base.OnKeyDown(e); return; }
+            if (focused is TextBox or RichEditBox or PasswordBox or VirtualizedCodeEditor) { base.OnKeyDown(e); return; }
         if (IsPreviewing) { base.OnKeyDown(e); return; }
         bool control = InputSystem.Current.IsControlPressed;
         float step = InputSystem.Current.IsShiftPressed ? 10 : 1;

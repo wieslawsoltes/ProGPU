@@ -9,7 +9,7 @@ public sealed partial class HmiDesignerHost
     private DataGrid _tags = null!;
     private DataGrid _alarms = null!;
     private DataGrid _recipes = null!;
-    private TextBox _monitor = null!;
+    private RichEditBox _monitor = null!;
 
     private Grid BuildDataArea()
     {
@@ -67,7 +67,7 @@ public sealed partial class HmiDesignerHost
         tabs.Items.Add(new PivotItem("Project JSON", TablePane(jsonTools, _json)));
         _json.Text = Session.ExportJson();
 
-        _monitor = new TextBox { Font = _font, FontSize = 11, AcceptsReturn = true, IsReadOnly = true };
+        _monitor = new RichEditBox { Font = _font, FontSize = 11, AcceptsReturn = true, IsReadOnly = true };
         var monitorTools = Toolbar(); var historyTag = Input("History tag (for CSV export)", 240);
         monitorTools.AddChild(Command("Refresh diagnostics", RefreshMonitor));
         monitorTools.AddChild(Command("Acknowledge all", () => { if (_runtime == null) throw new InvalidOperationException("Run simulation first."); _runtime.Acknowledge(); RefreshMonitor(); }));
