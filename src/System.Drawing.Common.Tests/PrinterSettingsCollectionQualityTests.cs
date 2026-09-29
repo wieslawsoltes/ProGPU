@@ -2,6 +2,8 @@ using System.Collections;
 using System.ComponentModel;
 using System.Drawing.Printing;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 using Xunit;
 
@@ -180,22 +182,65 @@ public sealed class PrinterSettingsCollectionQualityTests
     [Fact]
     public void WarmedPageDeviceSelectionReadsAllocateNothing()
     {
+        (long allocated, int total) = MeasureIsolatedPageDeviceSelection(allocateControl: false);
+
+        Assert.Equal(100_000 * (300 + (int)PrinterResolutionKind.High), total);
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void PageDeviceSelectionAllocationMeasurementDetectsEscapingObjects()
+    {
+        (long allocated, int total) = MeasureIsolatedPageDeviceSelection(allocateControl: true);
+
+        Assert.Equal(100_000 * (300 + (int)PrinterResolutionKind.High), total);
+        Assert.True(allocated >= 100_000 * IntPtr.Size,
+            "The measurement must detect every deliberately escaping allocation.");
+    }
+
+    private static object? s_pageSelectionAllocationControl;
+
+    private static (long Allocated, int Total) MeasureIsolatedPageDeviceSelection(bool allocateControl)
+    {
         var settings = new PageSettings
         {
             PaperSource = new PaperSource { RawKind = 300 },
             PrinterResolution = new PrinterResolution { Kind = PrinterResolutionKind.High }
         };
+
+        (long Allocated, int Total) result = (-1, 0);
+        ExceptionDispatchInfo? failure = null;
+        // Construct settings, worker and delegate off the measured thread. Keep
+        // the original two warmup reads and every measured iteration, with GC
+        // enabled and no retries or allowance for a nonzero result.
+        var worker = new Thread(() =>
+        {
+            try { result = MeasurePageDeviceSelection(settings, allocateControl); }
+            catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+        }) { IsBackground = true };
+        worker.Start();
+        Assert.True(worker.Join(TimeSpan.FromSeconds(30)), "The page device selection measurement did not finish.");
+        failure?.Throw();
+        return result;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (long Allocated, int Total) MeasurePageDeviceSelection(PageSettings settings, bool allocateControl)
+    {
         _ = settings.PaperSource;
         _ = settings.PrinterResolution;
 
         long before = GC.GetAllocatedBytesForCurrentThread();
+        int total = 0;
         for (int index = 0; index < 100_000; index++)
         {
-            _ = settings.PaperSource.RawKind;
-            _ = settings.PrinterResolution.Kind;
+            if (allocateControl)
+                Volatile.Write(ref s_pageSelectionAllocationControl, new object());
+            total += settings.PaperSource.RawKind;
+            total += (int)settings.PrinterResolution.Kind;
         }
 
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        return (GC.GetAllocatedBytesForCurrentThread() - before, total);
     }
 
     [Fact]
