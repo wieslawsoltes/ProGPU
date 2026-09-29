@@ -12,6 +12,8 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      NUGET_PACKAGES: ${{ runner.temp }}/hmi-packages
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -33,10 +35,26 @@ jobs:
           done
           mkdir -p artifacts/workspace/sdk/sdk
           cp -a "$sdkroot/sdk/$(dotnet --version)" artifacts/workspace/sdk/sdk/
-          cp -a ~/.nuget/packages/. artifacts/workspace/packages/
+          cp -a "$NUGET_PACKAGES"/. artifacts/workspace/packages/
           tar -czf artifacts/hmi-workspace.tar.gz -C artifacts/workspace .
+          split -b 200M artifacts/hmi-workspace.tar.gz artifacts/hmi-workspace-
       - uses: actions/upload-artifact@v4
         with:
-          name: hmi-authoring-workspace
-          path: artifacts/hmi-workspace.tar.gz
+          name: hmi-workspace-aa
+          path: artifacts/hmi-workspace-aa
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hmi-workspace-ab
+          path: artifacts/hmi-workspace-ab
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hmi-workspace-ac
+          path: artifacts/hmi-workspace-ac
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hmi-workspace-ad
+          path: artifacts/hmi-workspace-ad
           retention-days: 1
