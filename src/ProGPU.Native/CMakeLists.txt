@@ -923,7 +923,8 @@ if(PROGPU_NATIVE_FONT_HINTING)
         src/Text/Font/progpu_native_hinted_font.cpp
         src/Text/Font/progpu_native_hinted_font_cache.cpp
         src/Text/Font/progpu_native_hinted_gpos.cpp
-        src/Text/Font/progpu_native_hinted_run_metrics.cpp)
+        src/Text/Font/progpu_native_hinted_run_metrics.cpp
+        src/Text/Font/progpu_native_hinted_shaper.cpp)
     target_compile_definitions(progpu_native_text PUBLIC PROGPU_NATIVE_FONT_HINTING=1)
     target_link_libraries(progpu_native_text PRIVATE progpu_native_freetype Threads::Threads ${CMAKE_DL_LIBS})
 endif()
@@ -1878,6 +1879,33 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     progpu_native_enable_sanitizers(progpu_native_device_kern_tests)
     add_test(NAME progpu_native_device_kern_tests COMMAND progpu_native_device_kern_tests)
     set_tests_properties(progpu_native_device_kern_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_device_space_tests
+        tests/progpu_native_device_space_tests.cpp)
+    target_compile_features(progpu_native_device_space_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_device_space_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_device_space_tests)
+    progpu_native_enable_sanitizers(progpu_native_device_space_tests)
+    add_test(NAME progpu_native_device_space_tests COMMAND progpu_native_device_space_tests)
+    set_tests_properties(progpu_native_device_space_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_device_mark_tests
+        tests/progpu_native_device_mark_tests.cpp)
+    target_compile_features(progpu_native_device_mark_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_device_mark_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_device_mark_tests)
+    progpu_native_enable_sanitizers(progpu_native_device_mark_tests)
+    add_test(NAME progpu_native_device_mark_tests COMMAND progpu_native_device_mark_tests)
+    set_tests_properties(progpu_native_device_mark_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_device_arabic_stretch_tests
+        tests/progpu_native_device_arabic_stretch_tests.cpp)
+    target_compile_features(progpu_native_device_arabic_stretch_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_device_arabic_stretch_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_device_arabic_stretch_tests)
+    progpu_native_enable_sanitizers(progpu_native_device_arabic_stretch_tests)
+    add_test(NAME progpu_native_device_arabic_stretch_tests COMMAND progpu_native_device_arabic_stretch_tests)
+    set_tests_properties(progpu_native_device_arabic_stretch_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_hinted_transport_tests
         tests/progpu_native_hinted_transport_tests.cpp)

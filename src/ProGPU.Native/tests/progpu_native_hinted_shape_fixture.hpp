@@ -48,8 +48,8 @@ inline std::vector<std::byte> make_hinted_shape_font() {
         const auto record = 12U + index * 16U;
         const auto offset = read32(record + 8U);
         const auto length = read32(record + 12U);
-        table value{read32(record), bytes(original.begin() + offset,
-            original.begin() + offset + length)};
+        table value{read32(record), bytes(original.begin() + static_cast<std::ptrdiff_t>(offset),
+            original.begin() + static_cast<std::ptrdiff_t>(offset + length))};
         if (value.tag == 0x68656164U) put32(value.data, 8U, 0U);
         if (value.tag == 0x636D6170U) {
             for (const auto character : {32U, 46U, 48U})

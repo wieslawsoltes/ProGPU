@@ -1620,7 +1620,7 @@ static bool verify_open_type_shape_result_core(
         input,
         options,
         expected,
-        fragment_glyph_storage.first(requirements.glyph_capacity),
+        device == nullptr ? fragment_glyph_storage.first(requirements.glyph_capacity) : fragment_glyph_storage,
         scratch,
         plan,
         error,
@@ -3232,8 +3232,8 @@ static bool shape_open_type_run_core(
             input,
             options,
             glyph_storage.first(glyph_count),
-            scratch.verification->glyphs.first(
-                requirements.verification_glyph_capacity),
+            device == nullptr ? scratch.verification->glyphs.first(
+                requirements.verification_glyph_capacity) : scratch.verification->glyphs,
             scratch,
             error,
             plan,
@@ -3261,7 +3261,7 @@ bool detail::try_shape_device_open_type_run(const sfnt_font_view& font, std::spa
 
 bool detail::device_shape_uses_arabic_stretch(const open_type_shape_run_options& options) noexcept {
     return uses_arabic_joining(effective_unicode_script(options)) &&
-        is_run_feature_enabled(options, open_type_tag::from_chars('s', 't', 'c', 'h'));
+        is_run_feature_enabled(options, stretch_feature);
 }
 
 bool try_verify_open_type_shape_result(const sfnt_font_view& font, std::span<const unicode_scalar> input,

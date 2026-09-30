@@ -414,17 +414,21 @@ including after font/context retirement, and reject copied unrelated owners and
 unsupported execution policies. Hosted native CI, not local builds or execution,
 must qualify these controls on every target.
 
-This executor is not yet connected to original post-GSUB metric initialization,
-space/mark fallback geometry, the Latin fast path or ordinary source layout.
-Private preparation now supplies two additional required stages, but source
-orchestration still must call them in the right order:
+The private device-run executor shares the original shaping pipeline through
+normalization, initial mapping, GSUB, default ignorables and complex preprocessing.
+Its preparation seam captures the final substituted descriptors before initial
+metrics, mark zeroing, fallback geometry or GPOS. Original public design-unit
+entrypoints and ordinary source-layout defaults remain unchanged:
 
 - `initialize_hinted_run_metrics` checks all original ordered glyph IDs and
   coordinate domains before any write; publishes captured horizontal advances,
   or negative vertical advances and original horizontal/vertical bearing-derived
   origin shifts, with SIMD/reference copies. It preserves source indices, styles,
   flags and complete caller tails, rejecting immutable-generation aliases and a
-  later invalid descriptor. It performs no font execution, shaping or GPU work.
+  later invalid descriptor. The explicit source-prefix overload leaves trailing
+  auxiliary capture descriptors and complete output tails untouched; the original
+  overload still initializes the entire captured batch. It performs no font
+  execution, shaping or GPU work.
   These are initial metrics before mark zeroing, space fallback or GPOS, never a
   replacement for already-positioned advances. Vertical bearings follow the
   [public FreeType slot contract](https://freetype.org/freetype2/docs/reference/ft2-glyph_retrieval.html);
@@ -434,8 +438,7 @@ orchestration still must call them in the right order:
   uses checked SIMD/reference device additions, retains dependency flags and
   rejects a failed pair before publication. Original design-unit clamping,
   subtable coverage behavior and public calls stay unchanged; earlier successful
-  pairs are not rolled back on a later failure. Figure/punctuation spaces, mark
-  geometry and Arabic stretch still require their device-frame contracts.
+  pairs are not rolled back on a later failure.
 
 Feature-value GPOS dispatch now propagates the private frame through both whole-
 lookup and original half-open per-cluster ranges, without changing GSUB dispatch
@@ -444,6 +447,57 @@ ranges, retained owned metrics on both interpreters/after retirement, every
 direction, late failure/aliases/tails, and separate raw kerning-format/policy/
 overflow cases. The existing full CTest runs retain all prior tests and include
 the new independent kerning executable; no local tests were run.
+
+### Owned native shaping generation
+
+`try_shape_context_hinted` is an explicit private native factory. It borrows the
+selected immutable primary/fallback source under the existing context use lease
+and stages the complete run before publishing an immutable `hinted_shaped_run`.
+The previous result remains owned and unchanged on capture, projection or any
+later shaping failure. The retained result owns final positioned glyphs, normalized
+coordinates, the captured batch and a descriptor index for every final draw.
+It does not retain the mutable context or enable a source Display capability.
+
+Preparation captures every original post-GSUB ID in order, including repeats,
+then only the auxiliary descriptors required by missing figure/punctuation spaces
+actually present in that run. Both roles retain their own slot even if their IDs
+match. Figure space selects the first present digit; punctuation selects period,
+querying comma only when period is absent. Unused glyphs are never loaded merely
+to fill a metric candidate list. Initial metrics use only the source prefix;
+GPOS contour anchors and mark bounds read the same captured original slots.
+
+Em-fraction space fallback projects the original integer design policy once.
+Narrow space halves its existing device advance. Figure/punctuation advances and
+fallback mark bearings, extents and original horizontal advance come from the
+capture, not a second projected design width. The shared mark walker preserves
+original recategorization, ligature components, stacking and dependency flags;
+only its original UPM gap is projected. Device arithmetic rejects signed32
+overflow rather than applying the legacy design-unit clamp.
+
+RTL/BTT reversal carries descriptor indices with source glyphs. Arabic stretch
+caches captured unpositioned advances in caller-owned run scratch, preflights
+generated offsets and copies/reverses original descriptors with every expanded
+glyph. Original run ordering, action/copy policy and 256-per-run/1,048,576-glyph
+bounds remain authoritative. No final advance replacement, ID-based owner lookup
+or second capture of already positioned output is permitted.
+
+The existing requested unsafe-boundary verifier uses independent fragment capture
+owners, preserving the parent generation and exact original comparison algorithm.
+This opt-in verification is not source prefix shaping for caret placement.
+The new standalone space, mark and stretch controls remain independent CTest
+cases alongside all original tests. Actual context controls retain both interpreter
+policies, source/descriptor identity, failure publication and post-context lifetime.
+An original authored font adds [GSUB](https://learn.microsoft.com/en-us/typography/opentype/spec/gsub)
+and [common layout tables](https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2)
+to the existing instruction-fault fixture: substitution avoids a pre-GSUB faulty
+glyph, and GPOS adjusts the captured valid descriptor. Hosted exact-head CI must
+qualify these controls; no local font/build/test/VM execution was performed.
+
+This private single-font run does not complete styled paragraph composition,
+fitting, continuation, interaction, either raster consumer, generated C/managed
+transport for shaped generations or WPF source Display admission. Those consumers
+must retain one fully formatted generation with original UTF-16, bidi, font/style
+and draw identities. Windows source/UI and full native package gates remain open.
 
 The original normalized instance check uses public
 [fvar](https://learn.microsoft.com/en-us/typography/opentype/spec/fvar) and

@@ -3,6 +3,9 @@
 #include "progpu_native_hinted_transport_controls.hpp"
 #include "progpu_native_hinted_gpos.hpp"
 #include "progpu_native_hinted_run_metrics.hpp"
+#include "progpu_native_hinted_shaper.hpp"
+#include "progpu_native_hinted_shape_fixture.hpp"
+#include "../src/Text/Shaping/progpu_native_open_type_device_shaper_internal.hpp"
 
 #include <array>
 #include <cstring>
@@ -17,6 +20,153 @@ struct batch_owner final {
 };
 
 #if defined(PROGPU_NATIVE_FONT_HINTING)
+void verify_owned_shaping(const progpu::native::text::hinted_font_configuration& configuration) {
+    using namespace progpu::native::text;
+    using tests::transport_require;
+    struct context_owner final {
+        progpu_native_text_context* value = nullptr;
+        ~context_owner() { progpu_native_text_context_destroy(value); }
+    } context;
+    const auto bytes = progpu::native::tests::make_hinted_shape_font();
+    transport_require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
+        reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size(), 0U,
+        nullptr, 0U, &context.value) == PROGPU_NATIVE_STATUS_SUCCESS);
+    const auto source = select_context_font_source(context.value, 0U);
+    const auto latin = open_type_tag::from_chars('l', 'a', 't', 'n');
+    const auto liga = open_type_tag::from_chars('l', 'i', 'g', 'a');
+    const auto kern = open_type_tag::from_chars('k', 'e', 'r', 'n');
+    const std::array features{liga, kern};
+    const std::array<unicode_scalar, 3U> input{unicode_scalar{0x42U, 0U, 1U},
+        unicode_scalar{0x41U, 1U, 1U}, unicode_scalar{0x42U, 2U, 1U}};
+    std::shared_ptr<const hinted_shaped_run> retained;
+    hinted_shape_error error{};
+    for (const auto policy : {hinted_projection_policy::automatic, hinted_projection_policy::scalar_reference,
+        hinted_projection_policy::intrinsic_simd}) {
+        for (const auto direction : {shaping_direction::left_to_right, shaping_direction::right_to_left,
+            shaping_direction::top_to_bottom, shaping_direction::bottom_to_top}) {
+            auto options = open_type_shape_run_options{};
+            options.script = latin; options.direction = direction; options.requested_features = features;
+            for (const bool ranged : {false, true}) {
+                const std::array values{shaping_feature{kern, 0U, 0U, 0xFFFFFFFFU}, shaping_feature{kern, 1U, 1U, 2U}};
+                options.feature_settings = ranged ? std::span<const shaping_feature>(values) : std::span<const shaping_feature>{};
+                transport_require(try_shape_context_hinted(context.value, 0U, configuration, input, options, retained, error, policy));
+                transport_require(retained->source_descriptor_count == 3U && retained->batch->glyphs.size() == 3U &&
+                    retained->glyphs.size() == 3U && retained->descriptor_indices.size() == 3U &&
+                    retained->batch->identity->source == source && retained->batch->identity->policy == configuration.policy &&
+                    retained->batch->identity->x_pixels_per_em_26_6 == configuration.x_pixels_per_em_26_6 &&
+                    retained->normalized_coordinates.empty());
+                const std::array<hinted_design_vector, 2U> design{{{3, 0}, {12, 0}}};
+                std::array<hinted_outline_point, 2U> projected{};
+                transport_require(project_hinted_design_vectors(*retained->batch, design, projected,
+                    hinted_projection_policy::scalar_reference).error == hinted_projection_error::none);
+                const bool vertical = direction == shaping_direction::top_to_bottom || direction == shaping_direction::bottom_to_top;
+                const bool backward = direction == shaping_direction::right_to_left || direction == shaping_direction::bottom_to_top;
+                for (std::size_t index = 0U; index < 3U; ++index) {
+                    const auto original = backward ? 2U - index : index;
+                    const auto& raw = retained->batch->glyphs[original];
+                    const auto& glyph = retained->glyphs[index];
+                    const bool positioned = !ranged || original == 1U;
+                    const auto advance_x = (vertical ? 0L : raw.advance_x_26_6) + (positioned ? projected[1U].x_26_6 : 0L);
+                    const auto offset_x = (vertical ? raw.vertical_bearing_x_26_6 - raw.horizontal_bearing_x_26_6 : 0L) +
+                        (positioned ? projected[0U].x_26_6 : 0L);
+                    transport_require(raw.glyph_index == 1U && glyph.glyph_id == 1U &&
+                        glyph.code_point == input[original].code_point && glyph.cluster == static_cast<std::int32_t>(original) &&
+                        retained->descriptor_indices[index] == original && glyph.advance_x == advance_x && glyph.offset_x == offset_x &&
+                        glyph.advance_y == (vertical ? -raw.vertical_advance_26_6 : raw.advance_y_26_6) &&
+                        glyph.offset_y == (vertical ? -raw.horizontal_bearing_y_26_6 - raw.vertical_bearing_y_26_6 : 0L));
+                }
+                const auto unverified = retained;
+                options.buffer_flags = shaping_buffer_flags::verify;
+                transport_require(try_shape_context_hinted(context.value, 0U, configuration, input, options, retained, error, policy));
+                transport_require(retained->batch->glyphs.size() == 3U && retained->source_descriptor_count == 3U &&
+                    retained->descriptor_indices == unverified->descriptor_indices &&
+                    std::memcmp(retained->glyphs.data(), unverified->glyphs.data(), 3U * sizeof(shaping_glyph)) == 0 &&
+                    unverified->batch->glyphs.size() == 3U);
+                options.buffer_flags = shaping_buffer_flags::none;
+            }
+            options.feature_settings = {};
+            const std::array<unicode_scalar, 3U> spaces{unicode_scalar{0x41U, 0U, 1U},
+                unicode_scalar{0x2007U, 1U, 1U}, unicode_scalar{0x2008U, 2U, 1U}};
+            transport_require(try_shape_context_hinted(context.value, 0U, configuration, spaces, options, retained, error, policy));
+            transport_require(retained->source_descriptor_count == 3U && retained->batch->glyphs.size() == 5U &&
+                retained->figure_descriptor_start == 3U && retained->figure_descriptor_count == 1U &&
+                retained->punctuation_descriptor_start == 4U && retained->punctuation_descriptor_count == 1U);
+            for (const auto& glyph : retained->batch->glyphs) transport_require(glyph.glyph_index == 1U);
+            const bool backward = direction == shaping_direction::right_to_left || direction == shaping_direction::bottom_to_top;
+            for (std::size_t index = 0U; index < 3U; ++index) {
+                const auto original = backward ? 2U - index : index;
+                transport_require(retained->descriptor_indices[index] == original && retained->glyphs[index].code_point == spaces[original].code_point);
+            }
+        }
+    }
+    auto options = open_type_shape_run_options{};
+    options.script = latin; options.requested_features = features;
+    const auto saved = retained;
+    const std::array only_kern{kern};
+    options.requested_features = only_kern; // Fault glyph B is no longer substituted before capture.
+    transport_require(!try_shape_context_hinted(context.value, 0U, configuration, input, options, retained, error) &&
+        error.capture == hinted_font_error::hinting_failed && retained == saved);
+    options.requested_features = features;
+    transport_require(!try_shape_context_hinted(context.value, 99U, configuration, input, options, retained, error) &&
+        error.shaping == font_error::invalid_argument && retained == saved);
+    transport_require(!try_shape_context_hinted(context.value, 0U, configuration, input, options, retained, error,
+        hinted_projection_policy::gpu_shader) && error.projection == hinted_projection_error::unsupported_policy && retained == saved);
+    const std::array<std::int16_t, 1U> invalid_normalized{1};
+    options.normalized_coordinates = invalid_normalized;
+    transport_require(!try_shape_context_hinted(context.value, 0U, configuration, input, options, retained, error) &&
+        error.projection == hinted_projection_error::unsupported_frame && retained == saved);
+    options.normalized_coordinates = std::span<const std::int16_t>(static_cast<const std::int16_t*>(nullptr), 1U);
+    transport_require(!try_shape_context_hinted(context.value, 0U, configuration, input, options, retained, error) &&
+        error.shaping == font_error::invalid_argument && retained == saved);
+    options.normalized_coordinates = {};
+    std::shared_ptr<const hinted_shaped_run> empty_shape;
+    transport_require(try_shape_context_hinted(context.value, 0U, configuration,
+        std::span<const unicode_scalar>{}, options, empty_shape, error) &&
+        empty_shape->batch != nullptr && empty_shape->batch->glyphs.empty() &&
+        empty_shape->glyphs.empty() && empty_shape->descriptor_indices.empty() &&
+        empty_shape->source_descriptor_count == 0U && retained == saved);
+    auto late_bytes = bytes;
+    sfnt_font_view late_font{};
+    sfnt_table_view late_gpos{};
+    transport_require(sfnt_font_view::try_create(late_bytes, 0U, late_font) &&
+        late_font.try_get_table(open_type_tag::from_chars('G', 'P', 'O', 'S'), late_gpos));
+    const auto gpos_offset = static_cast<std::size_t>(late_gpos.bytes.data() - late_bytes.data());
+    // Add an unknown ValueFormat bit, failing only during GPOS after capture.
+    // Flipping the directory checksum's same high bit preserves the whole
+    // font checksum modulo 2^32, including the original head adjustment.
+    late_bytes[gpos_offset + 60U] = std::byte{0x80U};
+    const auto table_count = (std::to_integer<std::uint32_t>(late_bytes[4U]) << 8U) |
+        std::to_integer<std::uint32_t>(late_bytes[5U]);
+    for (std::size_t index = 0U; index < table_count; ++index) {
+        const auto record = 12U + index * 16U;
+        if (late_bytes[record] == std::byte{0x47U} && late_bytes[record + 1U] == std::byte{0x50U} &&
+            late_bytes[record + 2U] == std::byte{0x4FU} && late_bytes[record + 3U] == std::byte{0x53U})
+            late_bytes[record + 4U] ^= std::byte{0x80U};
+    }
+    context_owner late_context;
+    transport_require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
+        reinterpret_cast<const std::uint8_t*>(late_bytes.data()), late_bytes.size(), 0U,
+        nullptr, 0U, &late_context.value) == PROGPU_NATIVE_STATUS_SUCCESS);
+    transport_require(!try_shape_context_hinted(late_context.value, 0U, configuration, input, options, retained, error) &&
+        error.shaping != font_error::none && error.capture == hinted_font_error::none &&
+        error.projection == hinted_projection_error::none && retained == saved);
+    const std::array only_stretch{open_type_tag::from_chars('s', 't', 'c', 'h')};
+    options.requested_features = only_stretch;
+    transport_require(!detail::device_shape_uses_arabic_stretch(options));
+    options.script = open_type_tag::from_chars('a', 'r', 'a', 'b');
+    transport_require(detail::device_shape_uses_arabic_stretch(options));
+    const std::array<unicode_scalar, 1U> only_a{unicode_scalar{0x41U, 0U, 1U}};
+    transport_require(try_shape_context_hinted(context.value, 0U, configuration, only_a, options, retained, error));
+    transport_require(retained->source_descriptor_count == 1U && retained->batch->glyphs.size() == 1U &&
+        retained->glyphs.capacity() < 257U); // No selected stch lookup: no blanket expansion reservation.
+    progpu_native_text_context_destroy(context.value);
+    context.value = nullptr;
+    transport_require(retained->batch->identity->source == source && retained->batch->identity->source->bytes == bytes);
+    tests::verify_hinted_transport(*saved->batch);
+    tests::verify_hinted_transport(*retained->batch);
+    transport_require(saved->batch->glyphs.size() == 5U && saved->descriptor_indices.size() == 3U);
+}
+
 void verify_owned_run_metrics(const progpu::native::text::hinted_glyph_batch& batch) {
     using namespace progpu::native::text;
     using tests::transport_require;
@@ -213,6 +363,9 @@ int main()
         const std::array<std::uint32_t, 3> ids{1U, 1U, 0U};
         hinted_font_error error = hinted_font_error::none;
         batch_owner public_batch;
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+        std::shared_ptr<const hinted_shaped_run> owned_shape;
+#endif
         for (const auto policy : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
             context_owner context;
             transport_require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
@@ -242,6 +395,19 @@ int main()
             transport_require(retained->identity->source == source && retained->identity->policy == policy);
             verify_owned_gpos_frame(*retained);
             verify_owned_run_metrics(*retained);
+            verify_owned_shaping(configuration);
+            const std::array<unicode_scalar, 2U> repeated_a{unicode_scalar{0x41U, 0U, 1U}, unicode_scalar{0x41U, 1U, 1U}};
+            auto shape_options = open_type_shape_run_options{};
+            shape_options.script = open_type_tag::from_chars('l', 'a', 't', 'n');
+            hinted_shape_error shape_error{};
+            transport_require(try_shape_context_hinted(context.value, 0U, configuration, repeated_a,
+                shape_options, owned_shape, shape_error) && owned_shape->batch->glyphs.size() == 2U &&
+                owned_shape->descriptor_indices == std::vector<std::uint32_t>{0U, 1U});
+            const auto saved_shape = owned_shape;
+            const std::array<unicode_scalar, 2U> faulty_shape{unicode_scalar{0x41U, 0U, 1U}, unicode_scalar{0x42U, 1U, 1U}};
+            transport_require(!try_shape_context_hinted(context.value, 0U, configuration, faulty_shape,
+                shape_options, owned_shape, shape_error) && shape_error.capture == hinted_font_error::hinting_failed &&
+                owned_shape == saved_shape);
             const auto saved = retained;
             transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,
                 ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) == PROGPU_NATIVE_STATUS_SUCCESS);
@@ -289,6 +455,9 @@ int main()
         verify_owned_gpos_frame(*retained);
         verify_owned_run_metrics(*retained);
         verify_public_batch(public_batch.value, *retained);
+        tests::verify_hinted_transport(*owned_shape->batch);
+        transport_require(owned_shape->glyphs.size() == 2U && owned_shape->batch->glyphs.size() == 2U &&
+            owned_shape->descriptor_indices == std::vector<std::uint32_t>{0U, 1U});
 #endif
         std::cout << "native hinted context ownership controls passed\n";
         return 0;
