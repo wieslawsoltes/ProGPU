@@ -231,7 +231,8 @@ void shaping_input_aliases() {
     auto run = run_for(retained);
     run.shaping_input.reserve(512U);
     for (std::uint32_t index = 0U; index < 8U; ++index)
-        run.shaping_input.push_back({0x41U + index, index, 1U, 0U, 0U, default_script});
+        run.shaping_input.push_back({0x41U + index, index, 1U, 0U, 0U,
+            open_type_tag::from_chars('D', 'F', 'L', 'T')});
     for (std::size_t index = 0U; index < run.glyphs.size(); ++index) {
         const auto source = static_cast<std::uint32_t>(run.glyphs.size() - 1U - index);
         run.glyphs[index].code_point = run.shaping_input[source].code_point;
