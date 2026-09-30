@@ -240,4 +240,11 @@ bool hinted_batch_output_aliases(const hinted_glyph_batch& batch,
     return !range(values, output[0]) || aliases_batch(output, batch);
 }
 
+bool hinted_batch_output_aliases(const hinted_glyph_batch& batch,
+    std::span<std::byte> values) noexcept
+{
+    std::array<memory_range, 1> output{};
+    return !range(values, output[0]) || aliases_batch(output, batch);
+}
+
 } // namespace progpu::native::text

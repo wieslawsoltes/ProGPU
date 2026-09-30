@@ -2,6 +2,7 @@
 #include "progpu_native_hint_fault_fixture.hpp"
 #include "progpu_native_hinted_transport_controls.hpp"
 #include "progpu_native_hinted_gpos.hpp"
+#include "progpu_native_hinted_run_metrics.hpp"
 
 #include <array>
 #include <cstring>
@@ -16,6 +17,74 @@ struct batch_owner final {
 };
 
 #if defined(PROGPU_NATIVE_FONT_HINTING)
+void verify_owned_run_metrics(const progpu::native::text::hinted_glyph_batch& batch) {
+    using namespace progpu::native::text;
+    using tests::transport_require;
+    transport_require(!batch.glyphs.empty());
+    sfnt_font_view font{};
+    transport_require(sfnt_font_view::try_create(batch.identity->source->bytes,
+        batch.identity->source->face_index, font));
+    for (const auto policy : {hinted_projection_policy::automatic, hinted_projection_policy::intrinsic_simd,
+        hinted_projection_policy::scalar_reference}) {
+        for (const auto direction : {shaping_direction::left_to_right, shaping_direction::right_to_left,
+            shaping_direction::top_to_bottom, shaping_direction::bottom_to_top}) {
+            std::vector<shaping_glyph> glyphs(batch.glyphs.size() + 1U);
+            for (std::size_t index = 0U; index < batch.glyphs.size(); ++index)
+                glyphs[index] = {batch.glyphs[index].glyph_index, static_cast<std::uint32_t>(0x41U + index),
+                    static_cast<std::int32_t>(index), shaping_glyph_flags::unsafe_to_break, 77, 78, 79, 80};
+            glyphs.back() = {0xFFFFFFFFU, 92U, -91, shaping_glyph_flags::unsafe_to_concat, -93, -94, -95, -96};
+            auto expected = glyphs;
+            const bool vertical = direction == shaping_direction::top_to_bottom || direction == shaping_direction::bottom_to_top;
+            for (std::size_t index = 0U; index < batch.glyphs.size(); ++index) {
+                const auto& retained = batch.glyphs[index];
+                expected[index].advance_x = vertical ? 0 : static_cast<std::int32_t>(retained.advance_x_26_6);
+                expected[index].advance_y = static_cast<std::int32_t>(vertical ? -retained.vertical_advance_26_6 : retained.advance_y_26_6);
+                expected[index].offset_x = static_cast<std::int32_t>(vertical ? retained.vertical_bearing_x_26_6 - retained.horizontal_bearing_x_26_6 : 0);
+                expected[index].offset_y = static_cast<std::int32_t>(vertical ? -retained.horizontal_bearing_y_26_6 - retained.vertical_bearing_y_26_6 : 0);
+            }
+            const auto result = initialize_hinted_run_metrics(batch, font, direction, glyphs, policy);
+            transport_require(result.error == hinted_projection_error::none && result.frame.owner == &batch &&
+                std::memcmp(glyphs.data(), expected.data(), glyphs.size() * sizeof(glyphs[0])) == 0);
+            transport_require(initialize_hinted_run_metrics(batch, font, direction,
+                std::span<shaping_glyph>(glyphs).first(batch.glyphs.size() - 1U), policy).error ==
+                hinted_projection_error::insufficient_capacity);
+            glyphs[batch.glyphs.size() - 1U].glyph_id = 0xFFFFFFFFU;
+            const auto before = glyphs;
+            transport_require(initialize_hinted_run_metrics(batch, font, direction, glyphs, policy).error ==
+                hinted_projection_error::unsupported_frame &&
+                std::memcmp(glyphs.data(), before.data(), glyphs.size() * sizeof(glyphs[0])) == 0);
+        }
+    }
+    std::vector<shaping_glyph> glyphs(batch.glyphs.size());
+    for (std::size_t index = 0U; index < glyphs.size(); ++index) glyphs[index].glyph_id = batch.glyphs[index].glyph_index;
+    const auto unchanged = glyphs;
+    transport_require(initialize_hinted_run_metrics(batch, font, shaping_direction::unspecified, glyphs).error ==
+        hinted_projection_error::invalid_argument &&
+        std::memcmp(glyphs.data(), unchanged.data(), glyphs.size() * sizeof(glyphs[0])) == 0);
+    transport_require(initialize_hinted_run_metrics(batch, font, shaping_direction::left_to_right, glyphs,
+        hinted_projection_policy::gpu_shader).error == hinted_projection_error::unsupported_policy);
+    auto invalid = batch;
+    invalid.glyphs.back().vertical_advance_26_6 = std::numeric_limits<std::int32_t>::min();
+    transport_require(initialize_hinted_run_metrics(invalid, font, shaping_direction::top_to_bottom, glyphs).error ==
+        hinted_projection_error::unsupported_frame &&
+        std::memcmp(glyphs.data(), unchanged.data(), glyphs.size() * sizeof(glyphs[0])) == 0);
+    if constexpr (sizeof(long) > sizeof(std::int32_t)) {
+        invalid = batch;
+        invalid.glyphs.back().advance_x_26_6 = std::numeric_limits<long>::max();
+        transport_require(initialize_hinted_run_metrics(invalid, font, shaping_direction::left_to_right, glyphs).error ==
+            hinted_projection_error::unsupported_frame &&
+            std::memcmp(glyphs.data(), unchanged.data(), glyphs.size() * sizeof(glyphs[0])) == 0);
+    }
+    auto empty = batch;
+    empty.glyphs.clear();
+    transport_require(initialize_hinted_run_metrics(empty, font, shaping_direction::left_to_right, glyphs).error ==
+        hinted_projection_error::none &&
+        std::memcmp(glyphs.data(), unchanged.data(), glyphs.size() * sizeof(glyphs[0])) == 0);
+    transport_require(initialize_hinted_run_metrics(batch, font, shaping_direction::left_to_right,
+        std::span<shaping_glyph>(reinterpret_cast<shaping_glyph*>(const_cast<hinted_glyph*>(batch.glyphs.data())),
+            batch.glyphs.size())).error == hinted_projection_error::invalid_argument);
+}
+
 void verify_owned_gpos_frame(const progpu::native::text::hinted_glyph_batch& batch) {
     using namespace progpu::native::text;
     using tests::transport_require;
@@ -72,6 +141,14 @@ void verify_owned_gpos_frame(const progpu::native::text::hinted_glyph_batch& bat
     sfnt_font_view unrelated{};
     transport_require(sfnt_font_view::try_create(copy, batch.identity->source->face_index, unrelated, &parse_error));
     transport_require(bind_hinted_gpos_frame(batch, unrelated).error == hinted_projection_error::invalid_argument);
+    const std::array<std::int16_t, 1> invalid_normalized{1};
+    transport_require(bind_hinted_gpos_frame(batch, font, hinted_projection_policy::automatic,
+        invalid_normalized).error == hinted_projection_error::unsupported_frame);
+    auto invalid_axes = std::make_shared<hinted_font_identity>(*batch.identity);
+    invalid_axes->variation_coordinates_16_16 = {1};
+    auto mismatched = batch;
+    mismatched.identity = invalid_axes;
+    transport_require(bind_hinted_gpos_frame(mismatched, font).error == hinted_projection_error::unsupported_frame);
     for (const auto policy : {hinted_projection_policy::native_compute, hinted_projection_policy::gpu_shader,
         static_cast<hinted_projection_policy>(0xFFFFFFFFU)}) {
         const auto rejected = bind_hinted_gpos_frame(batch, font, policy);
@@ -164,6 +241,7 @@ int main()
             transport_require(capture_context_hinted(context.value, 0U, configuration, ids, retained, error));
             transport_require(retained->identity->source == source && retained->identity->policy == policy);
             verify_owned_gpos_frame(*retained);
+            verify_owned_run_metrics(*retained);
             const auto saved = retained;
             transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,
                 ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) == PROGPU_NATIVE_STATUS_SUCCESS);
@@ -209,6 +287,7 @@ int main()
 #if defined(PROGPU_NATIVE_FONT_HINTING)
         tests::verify_hinted_transport(*retained); // both contexts and native faces have retired
         verify_owned_gpos_frame(*retained);
+        verify_owned_run_metrics(*retained);
         verify_public_batch(public_batch.value, *retained);
 #endif
         std::cout << "native hinted context ownership controls passed\n";

@@ -1,5 +1,6 @@
 #include "progpu_native_text.hpp"
 #include "../src/Text/Shaping/progpu_native_open_type_gpos_internal.hpp"
+#include "../src/Text/Shaping/progpu_native_open_type_feature_values_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -2491,6 +2492,28 @@ void open_type_gpos_single_and_pair_adjustments_are_bounded() {
         require(device_gpos::try_apply_device_gpos_lookup(gpos, 0U,
             std::span<shaping_glyph>(glyphs).first(1U), options, frame, applied, &error));
         require(applied && glyphs[0].offset_x == 7 && glyphs[0].advance_x == 6);
+        const auto feature_tag = open_type_tag::from_chars('k', 'e', 'r', 'n');
+        const std::array features{feature_tag};
+        const std::array values{shaping_feature{feature_tag, 0U, 0U, 0xFFFFFFFFU},
+            shaping_feature{feature_tag, 1U, 1U, 2U}};
+        auto run_options = open_type_shape_run_options{};
+        run_options.requested_features = features;
+        run_options.feature_settings = values;
+        const auto resolution = progpu::native::text::feature_detail::lookup_feature_resolution{feature_tag, true, false};
+        glyphs = {shaping_glyph{5U, 0, 0, shaping_glyph_flags::none, 10},
+            shaping_glyph{5U, 0U, 1, shaping_glyph_flags::none, 10},
+            shaping_glyph{5U, 0U, 2, shaping_glyph_flags::none, 10}};
+        require(progpu::native::text::feature_detail::apply_gpos_lookup_with_feature_values(
+            gpos, run_options, 0U, glyphs, options, &error, &resolution, &frame));
+        require(glyphs[0].advance_x == 10 && glyphs[0].offset_x == 0 &&
+            glyphs[1].advance_x == 6 && glyphs[1].offset_x == 6 &&
+            glyphs[2].advance_x == 10 && glyphs[2].offset_x == 0);
+        run_options.feature_settings = {};
+        require(progpu::native::text::feature_detail::apply_gpos_lookup_with_feature_values(
+            gpos, run_options, 0U, glyphs, options, &error, &resolution, &frame));
+        require(glyphs[0].advance_x == 6 && glyphs[1].advance_x == 2 && glyphs[2].advance_x == 6);
+        // Restore the original single-glyph overflow and projection controls.
+        glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10, 0, 1, 0}};
         glyphs[0].offset_x = std::numeric_limits<std::int32_t>::max();
         const auto before = glyphs;
         require(!device_gpos::try_apply_device_gpos_lookup(gpos, 0U,
@@ -2897,7 +2920,7 @@ void open_type_gpos_attachments_are_caller_owned_and_resolved() {
                 write_u16(cursive, 20U, flags);
                 require(open_type_layout_table_view::try_create(cursive, gpos, &error));
                 glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 50, 60, 1, 2},
-                    shaping_glyph{6U, 1U, 0, shaping_glyph_flags::none, 70, 80, 3, 4}};
+                    shaping_glyph{6U, 1U, 1, shaping_glyph_flags::none, 70, 80, 3, 4}};
                 auto expected = glyphs;
                 // Independent unpacked coordinates: exit (16,30), entry (4,9).
                 switch (direction) {
@@ -7260,12 +7283,26 @@ void open_type_gpos_device_and_variation_deltas_are_applied() {
     auto combined_options = open_type_gpos_apply_options{};
     combined_options.font = &combined_font;
     combined_options.normalized_coordinates = normalized;
-    const auto combined_frame = make_gpos_control_frame(combined_font, device_control,
+    auto combined_frame = make_gpos_control_frame(combined_font, device_control,
         device_gpos::gpos_arithmetic_path::scalar_reference);
+    combined_frame.normalized_coordinates = normalized;
     glyphs[0] = shaping_glyph{3U, 0U, 0, shaping_glyph_flags::none, 500};
     require(device_gpos::try_apply_device_gpos_lookup(gpos, 0U, glyphs,
         combined_options, combined_frame, applied, &error));
     require(applied && glyphs[0].advance_x == 554 && device_control.last_design[1].x == 27);
+    const auto before_mismatch = glyphs;
+    const std::array<std::int16_t, 2U> other_coordinates{8192, 8193};
+    combined_options.normalized_coordinates = other_coordinates;
+    require(!device_gpos::try_apply_device_gpos_lookup(gpos, 0U, glyphs,
+        combined_options, combined_frame, applied, &error) && !applied &&
+        error == font_error::invalid_argument &&
+        std::memcmp(glyphs.data(), before_mismatch.data(), sizeof(glyphs)) == 0);
+    combined_options.normalized_coordinates = std::span<const std::int16_t>(
+        static_cast<const std::int16_t*>(nullptr), normalized.size());
+    require(!device_gpos::try_apply_device_gpos_lookup(gpos, 0U, glyphs,
+        combined_options, combined_frame, applied, &error) && !applied &&
+        error == font_error::invalid_argument &&
+        std::memcmp(glyphs.data(), before_mismatch.data(), sizeof(glyphs)) == 0);
 
     // PairPos format 1 Device offsets are relative to the containing PairSet,
     // while format 2 offsets are relative to the PairPos subtable.

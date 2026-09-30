@@ -22,6 +22,8 @@ hinted_transport_error get_hinted_batch_counts(const hinted_glyph_batch& batch,
 // Full output-capacity guard shared with native design-vector projection.
 bool hinted_batch_output_aliases(const hinted_glyph_batch& batch,
     std::span<hinted_outline_point> output) noexcept;
+bool hinted_batch_output_aliases(const hinted_glyph_batch& batch,
+    std::span<std::byte> output) noexcept;
 
 // One retained generation, one atomic preflight, no allocation or font/GPU work.
 // Tags share the point offsets. Contour ends remain glyph-local original indices.

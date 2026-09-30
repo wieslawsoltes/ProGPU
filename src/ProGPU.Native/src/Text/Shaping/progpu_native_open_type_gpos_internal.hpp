@@ -17,6 +17,8 @@ struct gpos_device_frame final {
     const void* owner = nullptr;
     std::uint16_t pixels_per_em_x = 0U;
     std::uint16_t pixels_per_em_y = 0U;
+    // Same instance as retained outlines; borrowed for the synchronous run.
+    std::span<const std::int16_t> normalized_coordinates{};
     gpos_arithmetic_path arithmetic_path = gpos_arithmetic_path::intrinsic_simd;
     bool (*project_design)(const void*, const std::array<gpos_metric_vector, 2>&,
         std::array<gpos_metric_vector, 2>&) noexcept = nullptr;

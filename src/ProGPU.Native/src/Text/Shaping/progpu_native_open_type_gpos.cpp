@@ -1676,9 +1676,27 @@ bool bind_device_options(const open_type_gpos_apply_options& base, const gpos_de
 {
     applied = false;
     if (device.font == nullptr || device.owner == nullptr || device.project_design == nullptr ||
-        device.contour_point == nullptr || base.font != device.font) {
+        device.contour_point == nullptr || base.font != device.font ||
+        base.normalized_coordinates.size() != device.normalized_coordinates.size()) {
         set_error(error, font_error::invalid_argument);
         return false;
+    }
+    const auto valid_coordinates = [](std::span<const std::int16_t> coordinates) noexcept {
+        const auto start = reinterpret_cast<std::uintptr_t>(coordinates.data());
+        constexpr auto maximum = std::numeric_limits<std::uintptr_t>::max();
+        return coordinates.size() <= maximum / sizeof(std::int16_t) &&
+            (coordinates.empty() || (coordinates.data() != nullptr && start % alignof(std::int16_t) == 0U)) &&
+            coordinates.size_bytes() <= maximum - start;
+    };
+    if (!valid_coordinates(base.normalized_coordinates) || !valid_coordinates(device.normalized_coordinates)) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    for (std::size_t index = 0U; index < base.normalized_coordinates.size(); ++index) {
+        if (base.normalized_coordinates[index] != device.normalized_coordinates[index]) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
     }
     if (device.arithmetic_path != gpos_arithmetic_path::intrinsic_simd &&
         device.arithmetic_path != gpos_arithmetic_path::scalar_reference) {

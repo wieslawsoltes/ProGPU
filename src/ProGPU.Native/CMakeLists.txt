@@ -922,7 +922,8 @@ if(PROGPU_NATIVE_FONT_HINTING)
     target_sources(progpu_native_text PRIVATE
         src/Text/Font/progpu_native_hinted_font.cpp
         src/Text/Font/progpu_native_hinted_font_cache.cpp
-        src/Text/Font/progpu_native_hinted_gpos.cpp)
+        src/Text/Font/progpu_native_hinted_gpos.cpp
+        src/Text/Font/progpu_native_hinted_run_metrics.cpp)
     target_compile_definitions(progpu_native_text PUBLIC PROGPU_NATIVE_FONT_HINTING=1)
     target_link_libraries(progpu_native_text PRIVATE progpu_native_freetype Threads::Threads ${CMAKE_DL_LIBS})
 endif()
@@ -1868,6 +1869,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     progpu_native_enable_sanitizers(progpu_native_font_device_metrics_tests)
     add_test(NAME progpu_native_font_device_metrics_tests COMMAND progpu_native_font_device_metrics_tests)
     set_tests_properties(progpu_native_font_device_metrics_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_device_kern_tests
+        tests/progpu_native_device_kern_tests.cpp)
+    target_compile_features(progpu_native_device_kern_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_device_kern_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_device_kern_tests)
+    progpu_native_enable_sanitizers(progpu_native_device_kern_tests)
+    add_test(NAME progpu_native_device_kern_tests COMMAND progpu_native_device_kern_tests)
+    set_tests_properties(progpu_native_device_kern_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_hinted_transport_tests
         tests/progpu_native_hinted_transport_tests.cpp)

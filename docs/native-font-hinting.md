@@ -378,6 +378,12 @@ original SFNT view. `bind_hinted_gpos_frame` checks immutable byte-owner identit
 collection face and units per em, selects the existing SIMD or explicit scalar
 projection, and retains actual captured ppem rather than caller estimates. The
 caller must keep both borrowed objects alive throughout the synchronous pass.
+The frame also borrows the same immutable normalized-coordinate span for the
+whole pass. Binding requires every original fvar axis in both raw signed16.16
+and normalized F2Dot14 form, checks the existing native fvar/avar normalization,
+and rejects missing/different axes. Device GPOS admission rejects a different
+normalized span's values or count before glyph publication. This source-instance
+check does not yet qualify actual variable-font hint/layout parity.
 Public GPOS options, entrypoints and their design-unit behavior remain unchanged;
 the device frame is an explicit private capability, not automatic Display admission.
 
@@ -409,9 +415,40 @@ unsupported execution policies. Hosted native CI, not local builds or execution,
 must qualify these controls on every target.
 
 This executor is not yet connected to original post-GSUB metric initialization,
-legacy kerning, space/mark fallback geometry, the Latin fast path or ordinary
-source layout. Original hinted variation axes must also be paired with the
-shaper's normalized coordinates before source admission. Complete retained
+space/mark fallback geometry, the Latin fast path or ordinary source layout.
+Private preparation now supplies two additional required stages, but source
+orchestration still must call them in the right order:
+
+- `initialize_hinted_run_metrics` checks all original ordered glyph IDs and
+  coordinate domains before any write; publishes captured horizontal advances,
+  or negative vertical advances and original horizontal/vertical bearing-derived
+  origin shifts, with SIMD/reference copies. It preserves source indices, styles,
+  flags and complete caller tails, rejecting immutable-generation aliases and a
+  later invalid descriptor. It performs no font execution, shaping or GPU work.
+  These are initial metrics before mark zeroing, space fallback or GPOS, never a
+  replacement for already-positioned advances. Vertical bearings follow the
+  [public FreeType slot contract](https://freetype.org/freetype2/docs/reference/ft2-glyph_retrieval.html);
+  private synthesized metrics are not source vertical-writing admission.
+- Private device kerning shares the original legacy subtable/pair walker. It
+  projects the complete raw design delta before the original ordered pair split,
+  uses checked SIMD/reference device additions, retains dependency flags and
+  rejects a failed pair before publication. Original design-unit clamping,
+  subtable coverage behavior and public calls stay unchanged; earlier successful
+  pairs are not rolled back on a later failure. Figure/punctuation spaces, mark
+  geometry and Arabic stretch still require their device-frame contracts.
+
+Feature-value GPOS dispatch now propagates the private frame through both whole-
+lookup and original half-open per-cluster ranges, without changing GSUB dispatch
+or ordinary shaping defaults. Authored controls cover selected/unselected cluster
+ranges, retained owned metrics on both interpreters/after retirement, every
+direction, late failure/aliases/tails, and separate raw kerning-format/policy/
+overflow cases. The existing full CTest runs retain all prior tests and include
+the new independent kerning executable; no local tests were run.
+
+The original normalized instance check uses public
+[fvar](https://learn.microsoft.com/en-us/typography/opentype/spec/fvar) and
+[avar](https://learn.microsoft.com/en-us/typography/opentype/spec/avar) contracts,
+not external implementation code. Complete retained
 formatting, fitting, interaction and both raster providers must consume that same
 generation; independent Windows Display/UI and full package gates remain open.
 
