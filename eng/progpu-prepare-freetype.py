@@ -128,8 +128,12 @@ def fresh_workspace(value):
     if not requested.is_absolute() or requested.is_symlink():
         raise ValueError("FreeType requires an explicit nonsymlink absolute workspace")
     workspace = requested.resolve()
+    if workspace != requested.absolute():
+        raise ValueError("FreeType workspace must be canonical, without symlink/junction ancestors")
     if workspace == Path(workspace.anchor) or workspace == Path.home() or workspace.is_relative_to(ROOT):
         raise ValueError("FreeType source/build must remain outside the ProGPU repository/home/root")
+    if any((parent / ".git").exists() for parent in (workspace, *workspace.parents)):
+        raise ValueError("FreeType source/build must remain outside every Git working tree")
     if workspace.exists() and (not workspace.is_dir() or any(workspace.iterdir())):
         raise ValueError("FreeType requires a fresh empty workspace; existing data is never overwritten")
     workspace.mkdir(parents=True, exist_ok=True)

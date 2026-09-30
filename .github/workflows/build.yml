@@ -1412,6 +1412,10 @@ jobs:
             libxcb-present0 \
             libxkbcommon0
 
+      - name: Verify isolated font-hinting dependency admission controls
+        if: runner.os == 'Linux'
+        run: python3 -m unittest discover -s eng/tests -p test_prepare_freetype.py -v
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:

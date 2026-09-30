@@ -29,6 +29,12 @@ based in part on the work of the FreeType Project. Runtime/package integration m
 carry these notices and the credit, rather than assuming build-time provenance is
 redistribution completeness.
 
+The preparation controls run inside the existing Linux Build job. They do not
+build FreeType or establish interpreter capabilities. The dependency producer must
+later execute its real signed-source build and font tests on every packaged RID.
+Library version alone is not actual dependency identity; native integration must
+also keep FreeType symbols private to the owning renderer and reject interposition.
+
 ## Remaining integration
 
 Dependency preparation is not hinted-font execution or application qualification.

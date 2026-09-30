@@ -169,16 +169,25 @@ class FreeTypeProvenanceTests(unittest.TestCase):
             target = root / "target"
             target.mkdir()
             alias = root / "alias"
-            try:
-                alias.symlink_to(target, target_is_directory=True)
-            except OSError as error:
-                # Windows callers still exercise all nonsymlink admission cases;
-                # this is a privilege-dependent filesystem construction only.
-                self.assertIsInstance(error, OSError)
-            else:
-                with self.assertRaises(ValueError):
-                    PREPARE.fresh_workspace(str(alias))
+            alias.symlink_to(target, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                PREPARE.fresh_workspace(str(alias))
             self.assertEqual([], list(target.iterdir()))
+
+    def test_ancestor_alias_and_another_git_tree_are_not_external_workspaces(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            target = root / "target"
+            target.mkdir()
+            alias = root / "alias"
+            alias.symlink_to(target, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                PREPARE.fresh_workspace(str(alias / "child"))
+            self.assertFalse((target / "child").exists())
+            (target / ".git").mkdir()
+            with self.assertRaises(ValueError):
+                PREPARE.fresh_workspace(str(target / "child"))
+            self.assertFalse((target / "child").exists())
 
 
 if __name__ == "__main__":
