@@ -1,0 +1,23 @@
+name: HMI DCS source snapshot
+on:
+  push:
+    branches: [feat/hmi-designer]
+    paths: ['.github/workflows/hmi-dcs-source.yml']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive tracked source with revision provenance
+        run: |
+          mkdir -p /tmp/hmi-dcs-source
+          git rev-parse HEAD > /tmp/hmi-dcs-source/commit.txt
+          git archive --format=tar.gz HEAD > /tmp/hmi-dcs-source/source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hmi-dcs-source
+          path: /tmp/hmi-dcs-source
+          retention-days: 3
