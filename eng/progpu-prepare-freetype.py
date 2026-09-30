@@ -19,7 +19,7 @@ RID_MACHINES = {
     "osx-x64": ("mach", 0x01000007), "osx-arm64": ("mach", 0x0100000C),
     "win-x64": ("coff", 0x8664), "win-arm64": ("coff", 0xAA64),
 }
-BIGOBJ_CLASS = bytes.fromhex("c7a1bad1eebaa94baf20faf66aa4dcbb8")
+BIGOBJ_CLASS = bytes.fromhex("c7a1bad1eebaa94baf20faf66aa4dcb8")
 LEGAL_FILES = ("LICENSE.TXT", "docs/FTL.TXT", "docs/GPLv2.TXT",
                "src/bdf/README", "src/pcf/README")
 LEGAL_PREFIXES = ("src/gzip/zlib.h", "src/base/fthash.c",

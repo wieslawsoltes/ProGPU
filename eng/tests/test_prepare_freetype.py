@@ -4,6 +4,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+import uuid
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "progpu-prepare-freetype.py"
@@ -45,7 +46,9 @@ def coff(machine, big=False):
         data = bytearray(56)
         data[:4] = b"\0\0\xff\xff"
         struct.pack_into("<HH", data, 4, 2, machine)
-        data[12:28] = PREPARE.BIGOBJ_CLASS
+        # Independent wire identity from the Windows BIGOBJ contract, rather
+        # than building a fixture from the parser's potentially wrong value.
+        data[12:28] = uuid.UUID("d1baa1c7-baee-4ba9-af20-faf66aa4dcb8").bytes_le
     else:
         data = bytearray(60)
         struct.pack_into("<HH", data, 0, machine, 1)
@@ -68,6 +71,12 @@ class FreeTypeArchiveTests(unittest.TestCase):
         for big in (False, True):
             with self.subTest(big=big), self.assertRaises(ValueError):
                 PREPARE.verify_archive(archive(("a.obj/", coff(0xA641, big))), "win-arm64")
+
+    def test_bigobj_wrong_class_cannot_be_admitted_by_architecture_alone(self):
+        payload = bytearray(coff(0xAA64, True))
+        payload[12] ^= 1
+        with self.assertRaisesRegex(ValueError, "Unexpected anonymous/import"):
+            PREPARE.verify_archive(archive(("a.obj/", payload)), "win-arm64")
 
     def test_elf_mach_and_coff_architectures_do_not_substitute_for_each_other(self):
         for payload in (elf(183), mach(0x0100000C)):
