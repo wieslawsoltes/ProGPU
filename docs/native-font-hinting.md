@@ -371,6 +371,50 @@ Windows Display comparisons are still unqualified.
 
 ## Architecture research and decisions
 
+### Native device-frame positioning
+
+The private GPOS executor can now borrow one retained hinted batch and its exact
+original SFNT view. `bind_hinted_gpos_frame` checks immutable byte-owner identity,
+collection face and units per em, selects the existing SIMD or explicit scalar
+projection, and retains actual captured ppem rather than caller estimates. The
+caller must keep both borrowed objects alive throughout the synchronous pass.
+Public GPOS options, entrypoints and their design-unit behavior remain unchanged;
+the device frame is an explicit private capability, not automatic Display admission.
+
+Value records combine design coordinates and VariationIndex deltas before one
+projection. Packed Device corrections remain exact integer pixels converted to
+26.6 after projection, never a rounded design-unit round trip. Anchor format 1
+projects original coordinates; format 2 reads the original source descriptor's
+hinted contour point with phase removed and verifies its glyph ID; format 3 keeps
+design/variation and pixel corrections separate. Nested/contextual and extension
+lookups carry the same frame through the existing native lookup walker. These
+contracts follow the public [OpenType GPOS specification](https://learn.microsoft.com/en-us/typography/opentype/spec/gpos);
+no external positioning implementation was imported.
+
+Independent four-lane additions use SSE2/ARM64 NEON with checked signed32
+overflow, paired with an explicit scalar-reference policy. Pair and cursive
+operations stage both affected glyphs before publishing them. Attachment graph
+recurrences remain dependent native work, but the device resolver rejects
+overflow instead of invoking the legacy resolver's signed32 clamp. Callers still
+need whole-run scratch before immutable generation publication: an unsuccessful
+later lookup or graph node does not roll back earlier successful work.
+
+Authored controls retain the original design-unit tests and add both arithmetic
+policies, all anchor formats, packed pixel corrections, pre-projection variation
+sums, nested lookup propagation, pair failure atomicity, all four cursive
+directions and both attachment flags, cycles, overflow and untouched tails.
+Owned-context controls use the real hinted generation under both interpreters,
+including after font/context retirement, and reject copied unrelated owners and
+unsupported execution policies. Hosted native CI, not local builds or execution,
+must qualify these controls on every target.
+
+This executor is not yet connected to original post-GSUB metric initialization,
+legacy kerning, space/mark fallback geometry, the Latin fast path or ordinary
+source layout. Original hinted variation axes must also be paired with the
+shaper's normalized coordinates before source admission. Complete retained
+formatting, fitting, interaction and both raster providers must consume that same
+generation; independent Windows Display/UI and full package gates remain open.
+
 Only public contracts/design notes were used; foreign implementation structure is
 not copied. [Skia's shaped-text model](https://docs.skia.org/docs/dev/design/text_shaper/)
 and [Win2D retained text layout](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm)

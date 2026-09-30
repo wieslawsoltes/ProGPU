@@ -921,7 +921,8 @@ target_link_libraries(progpu_native_text PUBLIC progpu_native_compression)
 if(PROGPU_NATIVE_FONT_HINTING)
     target_sources(progpu_native_text PRIVATE
         src/Text/Font/progpu_native_hinted_font.cpp
-        src/Text/Font/progpu_native_hinted_font_cache.cpp)
+        src/Text/Font/progpu_native_hinted_font_cache.cpp
+        src/Text/Font/progpu_native_hinted_gpos.cpp)
     target_compile_definitions(progpu_native_text PUBLIC PROGPU_NATIVE_FONT_HINTING=1)
     target_link_libraries(progpu_native_text PRIVATE progpu_native_freetype Threads::Threads ${CMAKE_DL_LIBS})
 endif()

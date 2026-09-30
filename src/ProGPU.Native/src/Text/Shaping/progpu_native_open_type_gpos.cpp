@@ -2,11 +2,18 @@
 #include "progpu_native_open_type_gpos_internal.hpp"
 
 #include <bit>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <span>
+#include <cstring>
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#elif defined(__SSE2__) || defined(_M_X64)
+#include <emmintrin.h>
+#endif
 
 // Direct native port of ProGPU-owned raw GPOS execution and attachment
 // resolution in OpenTypeTextShaper.cs at checkpoint e4d836b2.
@@ -24,6 +31,43 @@ struct value_adjustment final {
     std::int32_t advance_x = 0;
     std::int32_t advance_y = 0;
 };
+
+bool checked_i32(std::int64_t value, std::int32_t& output) noexcept {
+    if (value < std::numeric_limits<std::int32_t>::min() || value > std::numeric_limits<std::int32_t>::max()) return false;
+    output = static_cast<std::int32_t>(value);
+    return true;
+}
+
+bool add_device_values(const std::array<std::int32_t, 4>& left,
+    const std::array<std::int32_t, 4>& right, detail::gpos_arithmetic_path path,
+    std::array<std::int32_t, 4>& output) noexcept {
+    if (path == detail::gpos_arithmetic_path::scalar_reference) {
+        std::array<std::int32_t, 4> candidate{};
+        for (std::size_t index = 0U; index < candidate.size(); ++index)
+            if (!checked_i32(static_cast<std::int64_t>(left[index]) + right[index], candidate[index])) return false;
+        output = candidate;
+        return true;
+    }
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const auto a = vld1q_s32(left.data());
+    const auto b = vld1q_s32(right.data());
+    const auto sum = vaddq_s32(a, b);
+    const auto overflow = vbicq_s32(veorq_s32(sum, a), veorq_s32(a, b));
+    if (vminvq_s32(overflow) < 0) return false;
+    vst1q_s32(output.data(), sum);
+    return true;
+#elif defined(__SSE2__) || defined(_M_X64)
+    const auto a = _mm_loadu_si128(reinterpret_cast<const __m128i*>(left.data()));
+    const auto b = _mm_loadu_si128(reinterpret_cast<const __m128i*>(right.data()));
+    const auto sum = _mm_add_epi32(a, b);
+    const auto overflow = _mm_andnot_si128(_mm_xor_si128(a, b), _mm_xor_si128(sum, a));
+    if (_mm_movemask_ps(_mm_castsi128_ps(overflow)) != 0) return false;
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(output.data()), sum);
+    return true;
+#else
+    return false;
+#endif
+}
 
 void set_error(font_error* error, font_error value) noexcept {
     if (error != nullptr) {
@@ -162,9 +206,11 @@ bool read_device_delta(
     std::size_t parent,
     std::uint16_t relative,
     std::uint16_t pixels_per_em,
-    const open_type_gpos_apply_options& options,
-    std::int32_t& delta) noexcept {
+    const detail::gpos_execution_options& options,
+    std::int32_t& delta,
+    std::int32_t& device_delta) noexcept {
     delta = 0;
+    device_delta = 0;
     if (relative == 0U) {
         return true;
     }
@@ -176,20 +222,27 @@ bool read_device_delta(
     const std::uint16_t second = read_u16(table, device + 2U);
     const std::uint16_t format = read_u16(table, device + 4U);
     if (format == 0x8000U) {
-        if (options.font == nullptr) {
+        if (options.base.font == nullptr) {
             return true;
         }
         float variation = 0.0F;
         bool uses_store = false;
-        if (!options.font->try_get_layout_variation(
+        if (!options.base.font->try_get_layout_variation(
                 first,
                 second,
-                options.normalized_coordinates,
+                options.base.normalized_coordinates,
                 variation,
                 uses_store)) {
             return false;
         }
         if (uses_store) {
+            if (options.device != nullptr) {
+                const auto rounded = std::round(static_cast<double>(variation));
+                if (!std::isfinite(rounded) || rounded < std::numeric_limits<std::int32_t>::min() ||
+                    rounded > std::numeric_limits<std::int32_t>::max()) return false;
+                delta = static_cast<std::int32_t>(rounded);
+                return true;
+            }
             delta = static_cast<std::int32_t>(std::lround(variation));
         }
         return true;
@@ -207,7 +260,7 @@ bool read_device_delta(
         return false;
     }
     if (pixels_per_em < first || pixels_per_em > second ||
-        options.font == nullptr || pixels_per_em == 0U) {
+        options.base.font == nullptr || pixels_per_em == 0U) {
         return true;
     }
     const std::uint32_t value_index = pixels_per_em - first;
@@ -224,8 +277,12 @@ bool read_device_delta(
     if ((pixels & sign) != 0) {
         pixels -= 1 << bits;
     }
+    if (options.device != nullptr) {
+        device_delta = pixels * 64;
+        return true;
+    }
     sfnt_header_metrics header{};
-    if (!options.font->try_get_header_metrics(header) ||
+    if (!options.base.font->try_get_header_metrics(header) ||
         header.units_per_em == 0U) {
         return false;
     }
@@ -240,7 +297,7 @@ bool parse_value_record(
     std::size_t parent,
     std::size_t offset,
     std::uint16_t format,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     value_adjustment& result) noexcept {
     result = {};
     if ((format & 0xFF00U) != 0U ||
@@ -258,6 +315,7 @@ bool parse_value_record(
     read_value(0x0002U, result.offset_y);
     read_value(0x0004U, result.advance_x);
     read_value(0x0008U, result.advance_y);
+    value_adjustment pixels{};
     for (std::uint16_t bit = 0x0010U; bit <= 0x0080U; bit <<= 1U) {
         if ((format & bit) == 0U) {
             continue;
@@ -265,42 +323,74 @@ bool parse_value_record(
         const std::uint16_t relative = read_u16(table, cursor);
         cursor += 2U;
         std::int32_t delta = 0;
+        std::int32_t device_delta = 0;
         const bool horizontal = bit == 0x0010U || bit == 0x0040U;
         if (!read_device_delta(
                 table,
                 parent,
                 relative,
-                horizontal ? options.pixels_per_em_x
-                           : options.pixels_per_em_y,
+                horizontal ? options.base.pixels_per_em_x
+                           : options.base.pixels_per_em_y,
                 options,
-                delta)) {
+                delta,
+                device_delta)) {
             return false;
         }
+        const auto add_design = [&](std::int32_t& value) noexcept {
+            if (options.device != nullptr) return checked_i32(static_cast<std::int64_t>(value) + delta, value);
+            value += delta;
+            return true;
+        };
         if (bit == 0x0010U) {
-            result.offset_x += delta;
+            if (!add_design(result.offset_x)) return false;
+            pixels.offset_x = device_delta;
         } else if (bit == 0x0020U) {
-            result.offset_y += delta;
+            if (!add_design(result.offset_y)) return false;
+            pixels.offset_y = device_delta;
         } else if (bit == 0x0040U) {
-            result.advance_x += delta;
+            if (!add_design(result.advance_x)) return false;
+            pixels.advance_x = device_delta;
         } else {
-            result.advance_y += delta;
+            if (!add_design(result.advance_y)) return false;
+            pixels.advance_y = device_delta;
         }
+    }
+    if (options.device != nullptr) {
+        const std::array<detail::gpos_metric_vector, 2> input{{
+            {result.offset_x, result.offset_y}, {result.advance_x, result.advance_y}}};
+        std::array<detail::gpos_metric_vector, 2> projected{};
+        if (!options.device->project_design(options.device->owner, input, projected)) return false;
+        std::array<std::int32_t, 4> values{};
+        if (!add_device_values({projected[0].x, projected[0].y, projected[1].x, projected[1].y},
+            {pixels.offset_x, pixels.offset_y, pixels.advance_x, pixels.advance_y}, options.device->arithmetic_path, values)) return false;
+        result = {values[0], values[1], values[2], values[3]};
     }
     return true;
 }
 
-void apply_value(shaping_glyph& glyph, const value_adjustment& value) noexcept {
+bool apply_value(shaping_glyph& glyph, const value_adjustment& value, const detail::gpos_device_frame* device) noexcept {
+    if (device != nullptr) {
+        std::array<std::int32_t, 4> values{};
+        if (!add_device_values({glyph.offset_x, glyph.offset_y, glyph.advance_x, glyph.advance_y},
+            {value.offset_x, value.offset_y, value.advance_x, value.advance_y}, device->arithmetic_path, values)) return false;
+        glyph.offset_x = values[0];
+        glyph.offset_y = values[1];
+        glyph.advance_x = values[2];
+        glyph.advance_y = values[3];
+        return true;
+    }
     glyph.offset_x += value.offset_x;
     glyph.offset_y += value.offset_y;
     glyph.advance_x += value.advance_x;
     glyph.advance_y += value.advance_y;
+    return true;
 }
 
 void mark_positioned(
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     std::size_t index) noexcept {
-    if (index < options.attachments.size()) {
-        options.attachments[index].reserved2 = 1U;
+    if (index < options.base.attachments.size()) {
+        options.base.attachments[index].reserved2 = 1U;
     }
 }
 
@@ -385,7 +475,9 @@ std::size_t previous_eligible(
 bool parse_anchor(
     std::span<const std::byte> table,
     std::size_t offset,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
+    std::size_t descriptor_index,
+    std::uint32_t glyph_id,
     std::int32_t& x,
     std::int32_t& y) noexcept {
     x = 0;
@@ -401,6 +493,16 @@ bool parse_anchor(
     }
     x = read_i16(table, offset + 2U);
     y = read_i16(table, offset + 4U);
+    if (format == 2U && options.device != nullptr) {
+        detail::gpos_metric_vector point{};
+        if (!options.device->contour_point(options.device->owner, descriptor_index, glyph_id,
+            read_u16(table, offset + 6U), point)) return false;
+        x = point.x;
+        y = point.y;
+        return true;
+    }
+    std::int32_t x_pixels = 0;
+    std::int32_t y_pixels = 0;
     if (format == 3U) {
         std::int32_t x_delta = 0;
         std::int32_t y_delta = 0;
@@ -408,20 +510,37 @@ bool parse_anchor(
                 table,
                 offset,
                 read_u16(table, offset + 6U),
-                options.pixels_per_em_x,
+                options.base.pixels_per_em_x,
                 options,
-                x_delta) ||
+                x_delta,
+                x_pixels) ||
             !read_device_delta(
                 table,
                 offset,
                 read_u16(table, offset + 8U),
-                options.pixels_per_em_y,
+                options.base.pixels_per_em_y,
                 options,
-                y_delta)) {
+                y_delta,
+                y_pixels)) {
             return false;
         }
-        x += x_delta;
-        y += y_delta;
+        if (options.device != nullptr) {
+            if (!checked_i32(static_cast<std::int64_t>(x) + x_delta, x) ||
+                !checked_i32(static_cast<std::int64_t>(y) + y_delta, y)) return false;
+        } else {
+            x += x_delta;
+            y += y_delta;
+        }
+    }
+    if (options.device != nullptr) {
+        const std::array<detail::gpos_metric_vector, 2> input{{{x, y}, {0, 0}}};
+        std::array<detail::gpos_metric_vector, 2> projected{};
+        if (!options.device->project_design(options.device->owner, input, projected)) return false;
+        std::array<std::int32_t, 4> values{};
+        if (!add_device_values({projected[0].x, projected[0].y, 0, 0}, {x_pixels, y_pixels, 0, 0},
+            options.device->arithmetic_path, values)) return false;
+        x = values[0];
+        y = values[1];
     }
     return true;
 }
@@ -433,7 +552,7 @@ apply_result apply_cursive(
     std::size_t position,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gpos_apply_options& options) noexcept {
+    const detail::gpos_execution_options& options) noexcept {
     if (!can_read(table, subtable, 6U) ||
         read_u16(table, subtable) != 1U) {
         return apply_result::malformed;
@@ -469,7 +588,7 @@ apply_result apply_cursive(
         position,
         lookup_flags,
         mark_filtering_set,
-        options.gdef,
+        options.base.gdef,
         false);
     if (previous >= glyphs.size()) {
         return apply_result::no_match;
@@ -495,15 +614,60 @@ apply_result apply_cursive(
     if (exit_relative == 0U ||
         !try_add(subtable, entry_relative, entry_offset) ||
         !try_add(subtable, exit_relative, exit_offset) ||
-        !parse_anchor(table, entry_offset, options, entry_x, entry_y) ||
-        !parse_anchor(table, exit_offset, options, exit_x, exit_y)) {
+        !parse_anchor(table, entry_offset, options, position, glyphs[position].glyph_id, entry_x, entry_y) ||
+        !parse_anchor(table, exit_offset, options, previous, glyphs[previous].glyph_id, exit_x, exit_y)) {
         return apply_result::malformed;
     }
     shaping_glyph& first = glyphs[previous];
     shaping_glyph& current = glyphs[position];
-    const bool horizontal = options.direction == shaping_direction::left_to_right ||
-        options.direction == shaping_direction::right_to_left;
-    switch (options.direction) {
+    const bool horizontal = options.base.direction == shaping_direction::left_to_right ||
+        options.base.direction == shaping_direction::right_to_left;
+    if (options.device != nullptr) {
+        auto first_candidate = first;
+        auto current_candidate = current;
+        const auto add = [](std::int32_t& output, std::int32_t left, std::int64_t right) noexcept {
+            return checked_i32(static_cast<std::int64_t>(left) + right, output);
+        };
+        switch (options.base.direction) {
+        case shaping_direction::left_to_right: {
+            const auto delta = static_cast<std::int64_t>(entry_x) + current.offset_x;
+            if (!add(first_candidate.advance_x, exit_x, first.offset_x) ||
+                !add(current_candidate.advance_x, current.advance_x, -delta) ||
+                !add(current_candidate.offset_x, current.offset_x, -delta)) return apply_result::malformed;
+            break;
+        }
+        case shaping_direction::right_to_left: {
+            const auto delta = static_cast<std::int64_t>(exit_x) + first.offset_x;
+            if (!add(first_candidate.advance_x, first.advance_x, -delta) ||
+                !add(first_candidate.offset_x, first.offset_x, -delta) ||
+                !add(current_candidate.advance_x, entry_x, current.offset_x)) return apply_result::malformed;
+            break;
+        }
+        case shaping_direction::top_to_bottom: {
+            const auto delta = static_cast<std::int64_t>(entry_y) + current.offset_y;
+            if (!add(first_candidate.advance_y, exit_y, first.offset_y) ||
+                !add(current_candidate.advance_y, current.advance_y, -delta) ||
+                !add(current_candidate.offset_y, current.offset_y, -delta)) return apply_result::malformed;
+            break;
+        }
+        case shaping_direction::bottom_to_top: {
+            const auto delta = static_cast<std::int64_t>(exit_y) + first.offset_y;
+            if (!add(first_candidate.advance_y, first.advance_y, -delta) ||
+                !add(first_candidate.offset_y, first.offset_y, -delta)) return apply_result::malformed;
+            current_candidate.advance_y = entry_y;
+            break;
+        }
+        default: return apply_result::malformed;
+        }
+        const bool reverse = (lookup_flags & 0x0001U) != 0U;
+        const auto cross = horizontal ?
+            (reverse ? static_cast<std::int64_t>(entry_y) - exit_y : static_cast<std::int64_t>(exit_y) - entry_y) :
+            (reverse ? static_cast<std::int64_t>(entry_x) - exit_x : static_cast<std::int64_t>(exit_x) - entry_x);
+        auto& child_candidate = reverse ? first_candidate : current_candidate;
+        if (!checked_i32(cross, horizontal ? child_candidate.offset_y : child_candidate.offset_x)) return apply_result::malformed;
+        first = first_candidate;
+        current = current_candidate;
+    } else switch (options.base.direction) {
         case shaping_direction::left_to_right: {
             first.advance_x = exit_x + first.offset_x;
             const std::int32_t delta = entry_x + current.offset_x;
@@ -538,23 +702,23 @@ apply_result apply_cursive(
     const bool right_to_left = (lookup_flags & 0x0001U) != 0U;
     const std::size_t child = right_to_left ? previous : position;
     const std::size_t parent = right_to_left ? position : previous;
-    options.attachments[child].target = static_cast<std::int32_t>(parent);
-    options.attachments[child].kind = horizontal
+    options.base.attachments[child].target = static_cast<std::int32_t>(parent);
+    options.base.attachments[child].kind = horizontal
         ? shaping_attachment_kind::cursive_horizontal
         : shaping_attachment_kind::cursive_vertical;
-    if (horizontal) {
+    if (horizontal && options.device == nullptr) {
         glyphs[child].offset_y = right_to_left
             ? entry_y - exit_y
             : exit_y - entry_y;
-    } else {
+    } else if (options.device == nullptr) {
         glyphs[child].offset_x = right_to_left
             ? entry_x - exit_x
             : exit_x - entry_x;
     }
-    if (options.attachments[parent].target == static_cast<std::int32_t>(child) &&
-        options.attachments[parent].kind == options.attachments[child].kind) {
-        options.attachments[parent].target = -1;
-        options.attachments[parent].kind = shaping_attachment_kind::none;
+    if (options.base.attachments[parent].target == static_cast<std::int32_t>(child) &&
+        options.base.attachments[parent].kind == options.base.attachments[child].kind) {
+        options.base.attachments[parent].target = -1;
+        options.base.attachments[parent].kind = shaping_attachment_kind::none;
         if (horizontal) {
             glyphs[parent].offset_y = 0;
         } else {
@@ -628,7 +792,7 @@ apply_result attach_mark(
     std::int32_t target_coverage_index,
     std::size_t target_anchor_base,
     std::size_t target_records,
-    const open_type_gpos_apply_options& options) noexcept {
+    const detail::gpos_execution_options& options) noexcept {
     const std::uint16_t mark_count = read_u16(table, header.mark_array);
     if (static_cast<std::uint32_t>(header.mark_coverage_index) >= mark_count ||
         !can_read(table, header.mark_array + 2U,
@@ -665,20 +829,27 @@ apply_result attach_mark(
     std::int32_t target_y = 0;
     if (!try_add(header.mark_array, mark_anchor_relative, mark_anchor) ||
         !try_add(target_anchor_base, target_anchor_relative, target_anchor) ||
-        !parse_anchor(table, mark_anchor, options, mark_x, mark_y) ||
+        !parse_anchor(table, mark_anchor, options, mark_index, glyphs[mark_index].glyph_id, mark_x, mark_y) ||
         !parse_anchor(
-            table, target_anchor, options, target_x, target_y)) {
+            table, target_anchor, options, target_index, glyphs[target_index].glyph_id, target_x, target_y)) {
         return apply_result::malformed;
     }
-    glyphs[mark_index].offset_x = target_x - mark_x;
-    glyphs[mark_index].offset_y = target_y - mark_y;
+    if (options.device != nullptr) {
+        auto candidate = glyphs[mark_index];
+        if (!checked_i32(static_cast<std::int64_t>(target_x) - mark_x, candidate.offset_x) ||
+            !checked_i32(static_cast<std::int64_t>(target_y) - mark_y, candidate.offset_y)) return apply_result::malformed;
+        glyphs[mark_index] = candidate;
+    } else {
+        glyphs[mark_index].offset_x = target_x - mark_x;
+        glyphs[mark_index].offset_y = target_y - mark_y;
+    }
     detail::mark_gpos_dependency(
         glyphs,
         mark_index < target_index ? mark_index : target_index,
         mark_index < target_index ? target_index : mark_index);
-    options.attachments[mark_index].target =
+    options.base.attachments[mark_index].target =
         static_cast<std::int32_t>(target_index);
-    options.attachments[mark_index].kind = shaping_attachment_kind::mark;
+    options.base.attachments[mark_index].kind = shaping_attachment_kind::mark;
     mark_positioned(options, mark_index);
     return apply_result::applied;
 }
@@ -688,7 +859,7 @@ apply_result apply_single(
     std::size_t subtable,
     std::span<shaping_glyph> glyphs,
     std::size_t position,
-    const open_type_gpos_apply_options& options) noexcept {
+    const detail::gpos_execution_options& options) noexcept {
     if (!can_read(table, subtable, 6U)) {
         return apply_result::malformed;
     }
@@ -732,7 +903,7 @@ apply_result apply_single(
             table, subtable, value_offset, value_format, options, value)) {
         return apply_result::malformed;
     }
-    apply_value(glyphs[position], value);
+    if (!apply_value(glyphs[position], value, options.device)) return apply_result::malformed;
     mark_positioned(options, position);
     return apply_result::applied;
 }
@@ -744,7 +915,7 @@ apply_result apply_pair(
     std::size_t position,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gpos_apply_options& options) noexcept {
+    const detail::gpos_execution_options& options) noexcept {
     if (!can_read(table, subtable, 10U)) {
         return apply_result::malformed;
     }
@@ -775,7 +946,7 @@ apply_result apply_pair(
         position + 1U,
         lookup_flags,
         mark_filtering_set,
-        options.gdef);
+        options.base.gdef);
     if (second >= glyphs.size()) {
         return apply_result::no_match;
     }
@@ -879,8 +1050,16 @@ apply_result apply_pair(
             value2)) {
         return apply_result::malformed;
     }
-    apply_value(glyphs[position], value1);
-    apply_value(glyphs[second], value2);
+    if (options.device != nullptr) {
+        auto first_candidate = glyphs[position];
+        auto second_candidate = glyphs[second];
+        if (!apply_value(first_candidate, value1, options.device) || !apply_value(second_candidate, value2, options.device)) return apply_result::malformed;
+        glyphs[position] = first_candidate;
+        glyphs[second] = second_candidate;
+    } else {
+        (void)apply_value(glyphs[position], value1, nullptr);
+        (void)apply_value(glyphs[second], value2, nullptr);
+    }
     mark_positioned(options, position);
     mark_positioned(options, second);
     detail::mark_gpos_dependency(glyphs, position, second);
@@ -895,7 +1074,7 @@ apply_result apply_mark_to_base_or_mark(
     std::size_t mark_index,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gpos_apply_options& options) noexcept {
+    const detail::gpos_execution_options& options) noexcept {
     mark_attachment_header header{};
     const apply_result header_result = parse_mark_attachment_header(
         table,
@@ -910,13 +1089,13 @@ apply_result apply_mark_to_base_or_mark(
         mark_index,
         lookup_flags,
         mark_filtering_set,
-        options.gdef,
+        options.base.gdef,
         type == 4U);
     if (target >= glyphs.size()) {
         return apply_result::no_match;
     }
-    if (options.gdef != nullptr) {
-        const auto target_class = options.gdef->glyph_class(
+    if (options.base.gdef != nullptr) {
+        const auto target_class = options.base.gdef->glyph_class(
             static_cast<std::uint16_t>(glyphs[target].glyph_id));
         if ((type == 4U && target_class != open_type_glyph_class::base &&
                 target_class != open_type_glyph_class::unclassified) ||
@@ -924,12 +1103,12 @@ apply_result apply_mark_to_base_or_mark(
             return apply_result::no_match;
         }
     }
-    if (type == 6U && mark_index < options.attachments.size() &&
-        target < options.attachments.size()) {
+    if (type == 6U && mark_index < options.base.attachments.size() &&
+        target < options.base.attachments.size()) {
         const std::uint8_t first_component =
-            options.attachments[mark_index].reserved1;
+            options.base.attachments[mark_index].reserved1;
         const std::uint8_t second_component =
-            options.attachments[target].reserved1;
+            options.base.attachments[target].reserved1;
         if (first_component != 0xFFU && second_component != 0xFFU &&
             first_component != second_component) {
             return apply_result::no_match;
@@ -963,7 +1142,7 @@ apply_result apply_mark_to_ligature(
     std::size_t mark_index,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gpos_apply_options& options) noexcept {
+    const detail::gpos_execution_options& options) noexcept {
     mark_attachment_header header{};
     const apply_result header_result = parse_mark_attachment_header(
         table,
@@ -978,13 +1157,13 @@ apply_result apply_mark_to_ligature(
         mark_index,
         lookup_flags,
         mark_filtering_set,
-        options.gdef,
+        options.base.gdef,
         true);
     if (target >= glyphs.size()) {
         return apply_result::no_match;
     }
-    if (options.gdef != nullptr &&
-        options.gdef->glyph_class(
+    if (options.base.gdef != nullptr &&
+        options.base.gdef->glyph_class(
             static_cast<std::uint16_t>(glyphs[target].glyph_id)) !=
             open_type_glyph_class::ligature) {
         return apply_result::no_match;
@@ -1015,17 +1194,17 @@ apply_result apply_mark_to_ligature(
         return apply_result::malformed;
     }
     std::uint16_t component = component_count - 1U;
-    if (mark_index < options.attachments.size()) {
+    if (mark_index < options.base.attachments.size()) {
         const std::uint8_t explicit_component =
-            options.attachments[mark_index].reserved1;
+            options.base.attachments[mark_index].reserved1;
         if (explicit_component != 0xFFU) {
             component = std::min<std::uint16_t>(
                 explicit_component,
                 component_count - 1U);
-        } else if (target < options.attachments.size() &&
-            options.attachments[target].reserved0 != 0U) {
+        } else if (target < options.base.attachments.size() &&
+            options.base.attachments[target].reserved0 != 0U) {
             component = std::min<std::uint16_t>(
-                options.attachments[target].reserved0 - 1U,
+                options.base.attachments[target].reserved0 - 1U,
                 component_count - 1U);
         }
     }
@@ -1049,7 +1228,7 @@ apply_result apply_lookup_at(
     std::uint16_t lookup_index,
     std::span<shaping_glyph> glyphs,
     std::size_t position,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     std::uint32_t depth) noexcept;
 
 
@@ -1062,10 +1241,10 @@ apply_result apply_subtable(
     std::size_t position,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     std::uint32_t depth) noexcept {
     if (type >= 3U && type <= 6U &&
-        options.attachments.size() != glyphs.size()) {
+        options.base.attachments.size() != glyphs.size()) {
         return apply_result::invalid_argument;
     }
     if (type == 9U) {
@@ -1157,7 +1336,7 @@ apply_result apply_lookup_at(
     std::uint16_t lookup_index,
     std::span<shaping_glyph> glyphs,
     std::size_t position,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     std::uint32_t depth) noexcept {
     if (depth >= maximum_lookup_nesting_depth || position >= glyphs.size()) {
         return apply_result::no_match;
@@ -1170,11 +1349,11 @@ apply_result apply_lookup_at(
             glyphs[position],
             lookup.flags,
             lookup.mark_filtering_set,
-            options.gdef)) {
+            options.base.gdef)) {
         return apply_result::no_match;
     }
     if (lookup.type >= 3U && lookup.type <= 6U &&
-        options.attachments.size() != glyphs.size()) {
+        options.base.attachments.size() != glyphs.size()) {
         return apply_result::invalid_argument;
     }
     for (std::uint16_t index = 0U; index < lookup.subtable_count; ++index) {
@@ -1217,7 +1396,8 @@ bool resolve_attachment(
     std::span<const shaping_attachment> attachments,
     shaping_direction direction,
     std::span<std::uint8_t> states,
-    std::uint32_t depth) noexcept {
+    std::uint32_t depth,
+    bool strict) noexcept {
     if (states[index] == 2U) {
         return true;
     }
@@ -1230,14 +1410,19 @@ bool resolve_attachment(
         static_cast<std::size_t>(attachment.target) < glyphs.size()) {
         const std::size_t target = static_cast<std::size_t>(attachment.target);
         if (!resolve_attachment(
-                target, glyphs, attachments, direction, states, depth + 1U)) {
+                target, glyphs, attachments, direction, states, depth + 1U, strict)) {
             return false;
         }
         shaping_glyph& glyph = glyphs[index];
         const shaping_glyph& parent = glyphs[target];
+        auto candidate = glyph;
+        const auto add = [strict](std::int32_t& left, std::int64_t right) noexcept {
+            if (strict) return checked_i32(static_cast<std::int64_t>(left) + right, left);
+            left = add_clamped(left, right);
+            return true;
+        };
         if (attachment.kind == shaping_attachment_kind::mark) {
-            glyph.offset_x = add_clamped(glyph.offset_x, parent.offset_x);
-            glyph.offset_y = add_clamped(glyph.offset_y, parent.offset_y);
+            if (!add(candidate.offset_x, parent.offset_x) || !add(candidate.offset_y, parent.offset_y)) return false;
             const bool forward = direction == shaping_direction::left_to_right ||
                 direction == shaping_direction::top_to_bottom;
             if (target < index) {
@@ -1245,29 +1430,26 @@ bool resolve_attachment(
                 const std::size_t end = forward ? index : index + 1U;
                 const std::int64_t sign = forward ? -1 : 1;
                 for (std::size_t advance = start; advance < end; ++advance) {
-                    glyph.offset_x = add_clamped(
-                        glyph.offset_x, sign * glyphs[advance].advance_x);
-                    glyph.offset_y = add_clamped(
-                        glyph.offset_y, sign * glyphs[advance].advance_y);
+                    if (!add(candidate.offset_x, sign * glyphs[advance].advance_x) ||
+                        !add(candidate.offset_y, sign * glyphs[advance].advance_y)) return false;
                 }
             } else if (target > index) {
                 const std::size_t start = forward ? index : index + 1U;
                 const std::size_t end = forward ? target : target + 1U;
                 const std::int64_t sign = forward ? 1 : -1;
                 for (std::size_t advance = start; advance < end; ++advance) {
-                    glyph.offset_x = add_clamped(
-                        glyph.offset_x, sign * glyphs[advance].advance_x);
-                    glyph.offset_y = add_clamped(
-                        glyph.offset_y, sign * glyphs[advance].advance_y);
+                    if (!add(candidate.offset_x, sign * glyphs[advance].advance_x) ||
+                        !add(candidate.offset_y, sign * glyphs[advance].advance_y)) return false;
                 }
             }
         } else if (attachment.kind ==
             shaping_attachment_kind::cursive_vertical) {
-            glyph.offset_x = add_clamped(glyph.offset_x, parent.offset_x);
+            if (!add(candidate.offset_x, parent.offset_x)) return false;
         } else if (attachment.kind ==
             shaping_attachment_kind::cursive_horizontal) {
-            glyph.offset_y = add_clamped(glyph.offset_y, parent.offset_y);
+            if (!add(candidate.offset_y, parent.offset_y)) return false;
         }
+        glyph = candidate;
     }
     states[index] = 2U;
     return true;
@@ -1280,17 +1462,17 @@ detail::gpos_apply_result detail::apply_gpos_lookup_at(
     std::uint16_t lookup_index,
     std::span<shaping_glyph> glyphs,
     std::size_t position,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     std::uint32_t depth) noexcept {
     return apply_lookup_at(
         gpos, lookup_index, glyphs, position, options, depth);
 }
 
-bool try_apply_open_type_gpos_lookup(
+bool detail::try_apply_gpos_lookup(
     const open_type_layout_table_view& gpos,
     std::uint16_t lookup_index,
     std::span<shaping_glyph> glyphs,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     bool& applied,
     font_error* error) noexcept {
     applied = false;
@@ -1303,20 +1485,20 @@ bool try_apply_open_type_gpos_lookup(
         return true;
     }
     if (lookup.type >= 3U && lookup.type <= 6U &&
-        options.attachments.size() != glyphs.size()) {
+        options.base.attachments.size() != glyphs.size()) {
         set_error(error, font_error::invalid_argument);
         return false;
     }
     for (std::size_t position = 0U; position < glyphs.size(); ++position) {
-        if (options.lookup_digest != nullptr &&
+        if (options.base.lookup_digest != nullptr &&
             glyphs[position].glyph_id <= 0xFFFFU &&
-            !options.lookup_digest->may_have(static_cast<std::uint16_t>(
+            !options.base.lookup_digest->may_have(static_cast<std::uint16_t>(
                 glyphs[position].glyph_id))) {
             continue;
         }
-        if (options.lookup_coverage != nullptr &&
+        if (options.base.lookup_coverage != nullptr &&
             glyphs[position].glyph_id <= 0xFFFFU &&
-            options.lookup_coverage->find(static_cast<std::uint16_t>(
+            options.base.lookup_coverage->find(static_cast<std::uint16_t>(
                 glyphs[position].glyph_id)) < 0) {
             continue;
         }
@@ -1324,21 +1506,21 @@ bool try_apply_open_type_gpos_lookup(
                 glyphs[position],
                 lookup.flags,
                 lookup.mark_filtering_set,
-                options.gdef)) {
+                options.base.gdef)) {
             continue;
         }
         for (std::uint16_t index = 0U; index < lookup.subtable_count; ++index) {
-            if (options.lookup_context_subtables.size() ==
+            if (options.base.lookup_context_subtables.size() ==
                     lookup.subtable_count) {
                 const auto& context =
-                    options.lookup_context_subtables[index];
+                    options.base.lookup_context_subtables[index];
                 const std::uint64_t first_input =
                     static_cast<std::uint64_t>(context.coverage_offset) +
                     context.backtrack_count;
                 if (glyphs[position].glyph_id <= 0xFFFFU &&
                     context.input_count != 0U &&
-                    first_input < options.lookup_context_coverages.size()) {
-                    const auto& coverage = options.lookup_context_coverages[
+                    first_input < options.base.lookup_context_coverages.size()) {
+                    const auto& coverage = options.base.lookup_context_coverages[
                         static_cast<std::size_t>(first_input)];
                     const auto glyph = static_cast<std::uint16_t>(
                         glyphs[position].glyph_id);
@@ -1381,12 +1563,12 @@ bool try_apply_open_type_gpos_lookup(
     return true;
 }
 
-bool try_apply_open_type_gpos_lookup_at(
+bool detail::try_apply_gpos_lookup_at(
     const open_type_layout_table_view& gpos,
     std::uint16_t lookup_index,
     std::span<shaping_glyph> glyphs,
     std::uint32_t position,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     bool& applied,
     font_error* error) noexcept {
     applied = false;
@@ -1394,9 +1576,9 @@ bool try_apply_open_type_gpos_lookup_at(
         set_error(error, font_error::invalid_argument);
         return false;
     }
-    if (options.lookup_coverage != nullptr &&
+    if (options.base.lookup_coverage != nullptr &&
         glyphs[position].glyph_id <= 0xFFFFU &&
-        options.lookup_coverage->find(static_cast<std::uint16_t>(
+        options.base.lookup_coverage->find(static_cast<std::uint16_t>(
             glyphs[position].glyph_id)) < 0) {
         set_error(error, font_error::none);
         return true;
@@ -1440,7 +1622,8 @@ bool try_resolve_open_type_attachments(
                 attachments,
                 direction,
                 state_scratch,
-                0U)) {
+                0U,
+                false)) {
             set_error(error, font_error::invalid_face);
             return false;
         }
@@ -1448,5 +1631,92 @@ bool try_resolve_open_type_attachments(
     set_error(error, font_error::none);
     return true;
 }
+
+bool try_apply_open_type_gpos_lookup(const open_type_layout_table_view& gpos,
+    std::uint16_t lookup_index, std::span<shaping_glyph> glyphs,
+    const open_type_gpos_apply_options& options, bool& applied, font_error* error) noexcept
+{
+    return detail::try_apply_gpos_lookup(gpos, lookup_index, glyphs, {options, nullptr}, applied, error);
+}
+
+bool try_apply_open_type_gpos_lookup_at(const open_type_layout_table_view& gpos,
+    std::uint16_t lookup_index, std::span<shaping_glyph> glyphs, std::uint32_t position,
+    const open_type_gpos_apply_options& options, bool& applied, font_error* error) noexcept
+{
+    return detail::try_apply_gpos_lookup_at(gpos, lookup_index, glyphs, position, {options, nullptr}, applied, error);
+}
+
+namespace detail {
+bool try_resolve_device_gpos_attachments(std::span<shaping_glyph> glyphs,
+    std::span<const shaping_attachment> attachments, shaping_direction direction,
+    std::span<std::uint8_t> states, font_error* error) noexcept
+{
+    if (attachments.size() != glyphs.size() ||
+        (direction != shaping_direction::left_to_right && direction != shaping_direction::right_to_left &&
+         direction != shaping_direction::top_to_bottom && direction != shaping_direction::bottom_to_top)) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    if (states.size() < glyphs.size()) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    for (std::size_t index = 0U; index < glyphs.size(); ++index) states[index] = 0U;
+    for (std::size_t index = 0U; index < glyphs.size(); ++index)
+        if (!resolve_attachment(index, glyphs, attachments, direction, states, 0U, true)) {
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+    set_error(error, font_error::none);
+    return true;
+}
+namespace {
+bool bind_device_options(const open_type_gpos_apply_options& base, const gpos_device_frame& device,
+    gpos_execution_options& options, bool& applied, font_error* error) noexcept
+{
+    applied = false;
+    if (device.font == nullptr || device.owner == nullptr || device.project_design == nullptr ||
+        device.contour_point == nullptr || base.font != device.font) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    if (device.arithmetic_path != gpos_arithmetic_path::intrinsic_simd &&
+        device.arithmetic_path != gpos_arithmetic_path::scalar_reference) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+#if !defined(__aarch64__) && !defined(_M_ARM64) && !defined(__SSE2__) && !defined(_M_X64)
+    if (device.arithmetic_path == gpos_arithmetic_path::intrinsic_simd) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+#endif
+    options = {base, &device};
+    options.base.pixels_per_em_x = device.pixels_per_em_x;
+    options.base.pixels_per_em_y = device.pixels_per_em_y;
+    return true;
+}
+} // namespace
+
+bool try_apply_device_gpos_lookup(const open_type_layout_table_view& gpos,
+    std::uint16_t lookup_index, std::span<shaping_glyph> glyphs,
+    const open_type_gpos_apply_options& base, const gpos_device_frame& device,
+    bool& applied, font_error* error) noexcept
+{
+    gpos_execution_options options{};
+    return bind_device_options(base, device, options, applied, error) &&
+        try_apply_gpos_lookup(gpos, lookup_index, glyphs, options, applied, error);
+}
+
+bool try_apply_device_gpos_lookup_at(const open_type_layout_table_view& gpos,
+    std::uint16_t lookup_index, std::span<shaping_glyph> glyphs, std::uint32_t position,
+    const open_type_gpos_apply_options& base, const gpos_device_frame& device,
+    bool& applied, font_error* error) noexcept
+{
+    gpos_execution_options options{};
+    return bind_device_options(base, device, options, applied, error) &&
+        try_apply_gpos_lookup_at(gpos, lookup_index, glyphs, position, options, applied, error);
+}
+} // namespace detail
 
 } // namespace progpu::native::text

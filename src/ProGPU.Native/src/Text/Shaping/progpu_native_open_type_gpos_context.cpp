@@ -162,7 +162,7 @@ apply_result apply_position_records(
     std::size_t position,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     std::uint32_t depth) noexcept {
     if (!can_read(table, records,
             static_cast<std::size_t>(record_count) * 4U)) {
@@ -182,7 +182,7 @@ apply_result apply_position_records(
             sequence_index,
             lookup_flags,
             mark_filtering_set,
-            options.gdef);
+            options.base.gdef);
         if (target >= glyphs.size()) {
             return apply_result::no_match;
         }
@@ -212,7 +212,7 @@ apply_result apply_context_format3(
     std::size_t position,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     std::uint32_t depth) noexcept {
     if (!can_read(table, subtable, 6U) || read_u16(table, subtable) != 3U) {
         return apply_result::malformed;
@@ -234,7 +234,7 @@ apply_result apply_context_format3(
                 match + 1U,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.base.gdef);
             if (match >= glyphs.size()) {
                 return apply_result::no_match;
             }
@@ -277,7 +277,7 @@ apply_result apply_context_format1_or2(
     std::size_t position,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     std::uint32_t depth) noexcept {
     const std::size_t header_size = format == 1U ? 6U : 8U;
     if (!can_read(table, subtable, header_size)) {
@@ -365,7 +365,7 @@ apply_result apply_context_format1_or2(
                 match + 1U,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.base.gdef);
             if (match >= glyphs.size()) {
                 matches = false;
                 break;
@@ -410,7 +410,7 @@ apply_result apply_chain_context_format1_or2(
     std::size_t position,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     std::uint32_t depth) noexcept {
     const std::size_t header_size = format == 1U ? 6U : 12U;
     if (!can_read(table, subtable, header_size)) {
@@ -549,7 +549,7 @@ apply_result apply_chain_context_format1_or2(
                 match,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.base.gdef);
             if (match >= glyphs.size()) {
                 matches = false;
                 break;
@@ -576,7 +576,7 @@ apply_result apply_chain_context_format1_or2(
                 match + 1U,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.base.gdef);
             if (match >= glyphs.size()) {
                 matches = false;
                 break;
@@ -603,7 +603,7 @@ apply_result apply_chain_context_format1_or2(
                 match + 1U,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.base.gdef);
             if (match >= glyphs.size()) {
                 matches = false;
                 break;
@@ -648,7 +648,7 @@ apply_result apply_chain_context_format3(
     std::size_t position,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     std::uint32_t depth) noexcept {
     if (!can_read(table, subtable, 4U) || read_u16(table, subtable) != 3U) {
         return apply_result::malformed;
@@ -701,7 +701,7 @@ apply_result apply_chain_context_format3(
             match,
             lookup_flags,
             mark_filtering_set,
-            options.gdef);
+            options.base.gdef);
         if (match >= glyphs.size()) {
             return apply_result::no_match;
         }
@@ -729,7 +729,7 @@ apply_result apply_chain_context_format3(
                 match + 1U,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.base.gdef);
             if (match >= glyphs.size()) {
                 return apply_result::no_match;
             }
@@ -756,7 +756,7 @@ apply_result apply_chain_context_format3(
             match + 1U,
             lookup_flags,
             mark_filtering_set,
-            options.gdef);
+            options.base.gdef);
         if (match >= glyphs.size()) {
             return apply_result::no_match;
         }
@@ -801,7 +801,7 @@ detail::gpos_apply_result detail::apply_gpos_context_subtable(
     std::size_t position,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gpos_apply_options& options,
+    const detail::gpos_execution_options& options,
     std::uint32_t depth) noexcept {
     if (!can_read(table, subtable, 2U)) {
         return apply_result::malformed;
