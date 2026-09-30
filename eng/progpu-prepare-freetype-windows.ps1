@@ -21,9 +21,15 @@ $ToolComponent = if ($Rid -eq 'win-arm64') {
     'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
 }
 $VsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-$VsInstall = (& $VsWhere -latest -products * -requires $ToolComponent -property installationPath |
-    Select-Object -First 1)
-if ($LASTEXITCODE -ne 0 -or -not $VsInstall) { throw 'The requested Visual Studio C tools are missing.' }
+# Fully drain the native process before checking its exit code. A downstream
+# Select-Object -First can stop the producer early and preserve an unrelated
+# LASTEXITCODE from an earlier CI step instead of the actual query result.
+$VsOutput = & $VsWhere -latest -products * -requires $ToolComponent -property installationPath
+$VsExitCode = $LASTEXITCODE
+$VsInstall = $VsOutput | Select-Object -First 1
+if ($VsExitCode -ne 0 -or -not $VsInstall -or -not (Test-Path $VsInstall -PathType Container)) {
+    throw "The requested Visual Studio C tools are missing (component=$ToolComponent, exit=$VsExitCode, result=$VsOutput)."
+}
 Import-Module (Join-Path $VsInstall 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
 Enter-VsDevShell -VsInstallPath $VsInstall -SkipAutomaticLocation `
     -DevCmdArguments "-arch=$TargetArchitecture -host_arch=$HostArchitecture" | Out-Null
