@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -416,6 +417,26 @@ void write_u16(
     std::span<std::byte> destination,
     std::size_t offset,
     std::uint16_t value);
+
+void write_i16(
+    std::span<std::byte> destination,
+    std::size_t offset,
+    std::int16_t value);
+
+struct table_data final {
+    open_type_tag tag{};
+    std::vector<std::byte> bytes{};
+};
+
+std::vector<std::byte> make_font(
+    std::size_t face_offset = 0U,
+    std::size_t glyph_size = 22U,
+    std::size_t second_glyph_size = 0U,
+    bool include_variations = false,
+    bool include_axis_mapping = false,
+    bool include_glyph_variations = false,
+    std::span<const table_data> extra_tables = {},
+    std::span<const std::byte> cmap_override = {});
 
 void unicode_contract_and_strict_decoders_are_transactional() {
     static_assert(sizeof(shaping_feature) == 16U);
@@ -2880,6 +2901,8 @@ void open_type_gpos_attachments_are_caller_owned_and_resolved() {
                 auto expected = glyphs;
                 // Independent unpacked coordinates: exit (16,30), entry (4,9).
                 switch (direction) {
+                case shaping_direction::unspecified:
+                    require(false); break;
                 case shaping_direction::left_to_right:
                     expected[0].advance_x = 17; expected[1].advance_x = 63; expected[1].offset_x = -4; break;
                 case shaping_direction::right_to_left:
@@ -3719,11 +3742,6 @@ void woff1_normalization_is_bounded_and_transactional() {
     require(error == font_error::unsupported_container);
 }
 
-struct table_data final {
-    open_type_tag tag{};
-    std::vector<std::byte> bytes{};
-};
-
 std::vector<std::byte> make_cmap() {
     std::vector<std::byte> result(80U);
     write_u16(result, 2U, 2U);
@@ -4236,14 +4254,14 @@ std::vector<std::byte> make_cff2_table() {
 }
 
 std::vector<std::byte> make_font(
-    std::size_t face_offset = 0U,
-    std::size_t glyph_size = 22U,
-    std::size_t second_glyph_size = 0U,
-    bool include_variations = false,
-    bool include_axis_mapping = false,
-    bool include_glyph_variations = false,
-    std::span<const table_data> extra_tables = {},
-    std::span<const std::byte> cmap_override = {}) {
+    std::size_t face_offset,
+    std::size_t glyph_size,
+    std::size_t second_glyph_size,
+    bool include_variations,
+    bool include_axis_mapping,
+    bool include_glyph_variations,
+    std::span<const table_data> extra_tables,
+    std::span<const std::byte> cmap_override) {
     std::vector<table_data> tables{};
     table_data head{open_type_tag::from_chars('h', 'e', 'a', 'd'),
         std::vector<std::byte>(54U)};
