@@ -116,6 +116,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         _multiAdorner = new DesignerMultiSelectionAdorner(_canvas, _selection);
         _canvas.AdornerSurface.Children.Add(_multiAdorner);
         InitializeRouteEditing();
+        InitializeCanvasAuthoring();
         _canvas.CaptionDoubleTapped = HandleCaptionDoubleTap;
         _canvas.ViewportChanged += UpdateStudioState;
         _canvas.CanvasModifying += OnCanvasModifying;
@@ -188,9 +189,9 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     private void BuildPalette(string search)
     {
         _paletteQuery = search;
-        _palette.Children.Clear(); _paletteIcons.Clear();
+        _palette.Children.Clear(); _paletteIcons.Clear(); _paletteDrawIcons.Clear(); _palettePlacementButtons.Clear();
         var items = HmiControlCatalog.Items.Where(d => (d.Name + " " + d.Category + " " + d.Symbol).Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
-        _paletteSummary = Text($"{items.Length} COMPONENTS  /  Drag to place", 10);
+        _paletteSummary = Text($"{items.Length} COMPONENTS  /  Drag, draw or insert", 10);
         _paletteSummary.Foreground = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Muted);
         _palette.AddChild(_paletteSummary);
         foreach (var group in items.GroupBy(d => d.Category))
@@ -201,19 +202,33 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
             _palette.AddChild(category);
             foreach (var descriptor in group)
             {
-                var row = new Grid { Height = 54, Margin = new Thickness(6, 2, 16, 2), HorizontalAlignment = HorizontalAlignment.Stretch };
-                row.ColumnDefinitions.Add(GridLength.Star(1)); row.ColumnDefinitions.Add(new GridLength(32));
+                // Match the bounded library/search content, leaving the responsive pane and scroll gutter clear.
+                var row = new Grid { Width = 210, Height = 54, Margin = new Thickness(6, 2, 16, 2), HorizontalAlignment = HorizontalAlignment.Left };
+                row.ColumnDefinitions.Add(GridLength.Star(1)); row.ColumnDefinitions.Add(new GridLength(30)); row.ColumnDefinitions.Add(new GridLength(30));
                 var glyph = new HmiSymbolIcon { Symbol = descriptor.Symbol, ColorScheme = ColorScheme, Width = 38, Height = 38, Margin = new Thickness(2, 4) };
                 _paletteIcons.Add(glyph);
                 var content = new Grid(); content.ColumnDefinitions.Add(new GridLength(46)); content.ColumnDefinitions.Add(GridLength.Star(1));
                 var caption = Text(descriptor.Name, 11); caption.VerticalAlignment = VerticalAlignment.Center;
-                caption.TextWrapping = TextWrapping.NoWrap; caption.TextTrimming = TextTrimming.CharacterEllipsis;
+                caption.WidthConstraint = 84; caption.Width = 84; caption.Height = 36;
+                caption.ClipBounds = new ProGPU.Scene.Rect(0, 0, 84, 36);
+                caption.TextWrapping = TextWrapping.Wrap; caption.MaxLines = 2; caption.TextTrimming = TextTrimming.CharacterEllipsis;
                 content.AddChild(glyph); content.AddChild(caption); SetColumn(caption, 1);
                 var item = new ToolboxItem(HmiDesignerRegistration.ToolboxKey(descriptor.Symbol), descriptor.Name, "", _font)
                 { Child = content, Padding = new Thickness(3, 0), Margin = new Thickness(1), Height = 50 };
+                ToolTipService.SetToolTip(item, descriptor.Name + " · Drag onto the canvas");
                 row.AddChild(item);
                 var symbol = descriptor.Symbol;
-                var add = Command("+", () => AddComponent(symbol)); row.AddChild(add); SetColumn(add, 1);
+                var drawIcon = new HmiCommandIcon("Draw") { ColorScheme = ColorScheme };
+                _paletteDrawIcons.Add(drawIcon);
+                var draw = Command("", () => BeginComponentPlacement(symbol));
+                draw.VerticalAlignment = VerticalAlignment.Center;
+                draw.Content = drawIcon; draw.Padding = new Thickness(4); draw.Name = "HmiDraw" + symbol;
+                ToolTipService.SetToolTip(draw, "Draw " + descriptor.Name + " at the exact size on the canvas");
+                row.AddChild(draw); SetColumn(draw, 1);
+                var add = Command("+", () => AddComponent(symbol)); add.Name = "HmiInsert" + symbol; add.VerticalAlignment = VerticalAlignment.Center;
+                row.AddChild(add); SetColumn(add, 2);
+                _palettePlacementButtons.Add(draw); _palettePlacementButtons.Add(add);
+                draw.IsEnabled = add.IsEnabled = !IsPreviewing;
                 ToolTipService.SetToolTip(add, "Insert " + descriptor.Name);
                 _palette.AddChild(row);
             }
@@ -224,8 +239,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     {
         DesignCommand(() =>
         {
-            var control = HmiControlCatalog.Create(symbol);
-            var element = control.CaptureDefinition();
+            var element = HmiControlCatalog.CreateDefinition(symbol);
             element.X = x; element.Y = y;
             element.Name = symbol + "_" + (Session.ActiveScreen.Elements.Count + 1);
             _restoreSelection = [element.Id];
@@ -266,6 +280,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     }
     private void OnSessionChanged()
     {
+        CancelCanvasAuthoring();
         CancelLabelEdit();
         CancelRouteEdit();
         _selectedWaypointIndex = -1;
@@ -274,10 +289,10 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         MarkEngineeringDirty();
         RebuildDocumentViews();
     }
-    private void OnScreenChanged() { CancelLabelEdit(); CancelRouteEdit(); CancelDiagramConnection(); SelectDiagramLink(null); RebuildDocumentViews(); Fit(); }
+    private void OnScreenChanged() { CancelCanvasAuthoring(); CancelLabelEdit(); CancelRouteEdit(); CancelDiagramConnection(); SelectDiagramLink(null); RebuildDocumentViews(); Fit(); }
     private void OnCanvasSelectionChanged()
     {
-        if (_rebuilding) return;
+        if (_rebuilding || _applyingAreaSelection) return;
         _selection.Select(_canvas.SelectedElement, InputSystem.Current.IsControlPressed);
         if (_canvas.SelectedElement is HmiControl selected && selected.CaptureDefinition().Group is { Length: > 0 } group && !InputSystem.Current.IsControlPressed)
             foreach (var control in _canvas.DesignSurface.Children.OfType<HmiControl>())
@@ -287,6 +302,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     }
     private void OnCanvasModifying()
     {
+        CancelCanvasAuthoring();
         CancelLabelEdit();
         if (!_rebuilding && !IsPreviewing) _gestureStart = _canvas.DesignSurface.Children.OfType<HmiControl>().ToDictionary(c => c.CaptureDefinition().Id, c => c.CaptureDefinition());
     }
@@ -295,7 +311,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         CancelLabelEdit();
         // Wheel zoom also raises this shared notification. A route gesture owns its
         // detached preview until release; do not replace it with the committed model.
-        if (_rebuilding || IsPreviewing || _waypointGesture != null) return;
+        if (_rebuilding || IsPreviewing || _waypointGesture != null || _canvasBox != null) return;
         Guard(() =>
         {
             var original = Session.ActiveScreen.Elements.ToDictionary(e => e.Id);
@@ -430,6 +446,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         float step = InputSystem.Current.IsShiftPressed ? 10 : 1;
         Action? action = e.Key switch
         {
+            Silk.NET.Input.Key.V when !control => CancelCanvasAuthoring,
             Silk.NET.Input.Key.F2 => () => BeginLabelEdit(),
             Silk.NET.Input.Key.Z when control => Session.Undo,
             Silk.NET.Input.Key.Y when control => Session.Redo,
@@ -441,7 +458,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
             Silk.NET.Input.Key.X when control => () => { CopySelection(); _selection.Delete(); },
             Silk.NET.Input.Key.D when control => () => { CopySelection(); PasteSelection(); },
             Silk.NET.Input.Key.Delete => DeleteDesignSelection,
-            Silk.NET.Input.Key.Escape => () => { CancelRouteEdit(); CancelDiagramConnection(); },
+            Silk.NET.Input.Key.Escape => () => { CancelCanvasAuthoring(); CancelRouteEdit(); CancelDiagramConnection(); },
             Silk.NET.Input.Key.Left => () => NudgeDesignSelection(-step, 0),
             Silk.NET.Input.Key.Right => () => NudgeDesignSelection(step, 0),
             Silk.NET.Input.Key.Up => () => NudgeDesignSelection(0, -step),
@@ -454,7 +471,10 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     public void Dispose()
     {
         if (_disposed) return;
-        CancelLabelEdit(); StopPreview(); _disposed = true;
+        CancelCanvasAuthoring(); CancelLabelEdit(); StopPreview(); _disposed = true;
+        _canvas.AuthoringPointerPressed = null; _canvas.AuthoringPointerMoved = null;
+        _canvas.AuthoringPointerReleased = null; _canvas.AuthoringPointerCanceled = null;
+        _canvas.ViewportChanged -= OnAuthoringViewportChanged;
         _canvas.CaptionDoubleTapped = null;
         Session.Changed -= OnSessionChanged; Session.ScreenChanged -= OnScreenChanged;
         _canvas.CanvasModifying -= OnCanvasModifying; _canvas.CanvasModified -= OnCanvasModified; _canvas.SelectionChanged -= OnCanvasSelectionChanged;

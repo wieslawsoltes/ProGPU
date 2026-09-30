@@ -87,7 +87,7 @@ public sealed partial class HmiDesignerHost
     private void EditSelectedGraphics(string description, Action<HmiElement> edit)
     {
         if (!HasEditableGraphics) throw new InvalidOperationException("Select visible, unlocked components and stop preview before formatting.");
-        CancelLabelEdit(); CancelRouteEdit(); CancelDiagramConnection();
+        CancelCanvasAuthoring(); CancelLabelEdit(); CancelRouteEdit(); CancelDiagramConnection();
         var ids = _selection.Selection.OfType<HmiControl>().Select(c => c.ElementId).ToHashSet(StringComparer.Ordinal);
         Session.Edit(description, project =>
         {

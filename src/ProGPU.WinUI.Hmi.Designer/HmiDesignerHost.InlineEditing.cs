@@ -31,7 +31,7 @@ public sealed partial class HmiDesignerHost
             throw new InvalidOperationException("Show and unlock the selected component before editing its caption.");
         var bounds = control.CaptionBounds;
         if (bounds.Width < 8 || bounds.Height < 8) throw new InvalidOperationException("Enlarge this component to expose its caption.");
-        CancelLabelEdit(); CancelRouteEdit(); CancelDiagramConnection();
+        CancelCanvasAuthoring(); CancelLabelEdit(); CancelRouteEdit(); CancelDiagramConnection();
         _canvas.SelectElement(control);
         _selection.Select(control);
         _labelEpoch++;
@@ -145,7 +145,7 @@ public sealed partial class HmiDesignerHost
 
     private void HandleCaptionDoubleTap(DoubleTappedRoutedEventArgs args)
     {
-        if (IsPreviewing || IsEditingRoute || IsConnectingDiagram || IsEditingLabel || _canvas.IsInteractionMode) return;
+        if (IsPreviewing || IsPlacingComponent || IsSelectingArea || IsEditingRoute || IsConnectingDiagram || IsEditingLabel || _canvas.IsInteractionMode) return;
         var position = args.GetPosition(_canvas);
         float x = ((float)position.X - _canvas.PanOffset.X) / _canvas.ZoomScale;
         float y = ((float)position.Y - _canvas.PanOffset.Y) / _canvas.ZoomScale;

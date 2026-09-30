@@ -22,6 +22,8 @@ internal sealed class HmiCommandIcon : Control
         void Box(float x, float y, float w, float h) { L(x, y, x + w, y); L(x + w, y, x + w, y + h); L(x + w, y + h, x, y + h); L(x, y + h, x, y); }
         switch (_kind)
         {
+            case "Select": L(3, 2, 3, 15); L(3, 2, 14, 10); L(14, 10, 9, 11); L(9, 11, 12, 16); L(9, 11, 3, 15); break;
+            case "Draw": L(2, 7, 2, 16); L(2, 16, 12, 16); L(5, 10, 13, 2); L(13, 2, 16, 5); L(16, 5, 8, 13); L(8, 13, 4, 14); L(4, 14, 5, 10); L(11, 4, 14, 7); break;
             case "Save": Box(3, 2, 12, 14); Box(6, 3, 6, 4); Box(6, 11, 6, 5); break;
             case "Undo": L(3, 6, 13, 6); L(13, 6, 15, 9); L(15, 9, 15, 14); L(3, 6, 7, 2); L(3, 6, 7, 10); break;
             case "Redo": L(3, 6, 15, 6); L(3, 6, 2, 9); L(2, 9, 2, 14); L(15, 6, 11, 2); L(15, 6, 11, 10); break;

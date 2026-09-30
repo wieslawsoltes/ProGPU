@@ -22,6 +22,10 @@ internal sealed class HmiDesignerCanvas : DesignerCanvas
     internal Func<PointerRoutedEventArgs, bool>? RoutePointerMoved { get; set; }
     internal Func<PointerRoutedEventArgs, bool>? RoutePointerReleased { get; set; }
     internal Action<PointerRoutedEventArgs>? RoutePointerCanceled { get; set; }
+    internal Func<PointerRoutedEventArgs, bool>? AuthoringPointerPressed { get; set; }
+    internal Func<PointerRoutedEventArgs, bool>? AuthoringPointerMoved { get; set; }
+    internal Func<PointerRoutedEventArgs, bool>? AuthoringPointerReleased { get; set; }
+    internal Action<PointerRoutedEventArgs>? AuthoringPointerCanceled { get; set; }
     internal Action<DoubleTappedRoutedEventArgs>? CaptionDoubleTapped { get; set; }
     public override void OnDoubleTapped(DoubleTappedRoutedEventArgs e)
     {
@@ -32,6 +36,7 @@ internal sealed class HmiDesignerCanvas : DesignerCanvas
 
     public override void OnPointerPressed(PointerRoutedEventArgs e)
     {
+        if (AuthoringPointerPressed?.Invoke(e) == true) { e.Handled = true; return; }
         if (RoutePointerPressed?.Invoke(e) == true) { e.Handled = true; return; }
         if (!IsInteractionMode && e.IsLeftButtonPressed && !e.IsMiddleButtonPressed && !e.IsRightButtonPressed)
         {
@@ -58,6 +63,7 @@ internal sealed class HmiDesignerCanvas : DesignerCanvas
 
     public override void OnPointerMoved(PointerRoutedEventArgs e)
     {
+        if (AuthoringPointerMoved?.Invoke(e) == true) { e.Handled = true; return; }
         if (RoutePointerMoved?.Invoke(e) == true) { e.Handled = true; return; }
         if (SelectedElement is HmiControl { IsDesignLocked: true } && e.IsLeftButtonPressed && !e.IsMiddleButtonPressed) return;
         base.OnPointerMoved(e);
@@ -67,16 +73,19 @@ internal sealed class HmiDesignerCanvas : DesignerCanvas
 
     public override void OnPointerReleased(PointerRoutedEventArgs e)
     {
+        if (AuthoringPointerReleased?.Invoke(e) == true) { e.Handled = true; return; }
         if (RoutePointerReleased?.Invoke(e) == true) { e.Handled = true; return; }
         base.OnPointerReleased(e);
     }
     public override void OnPointerCanceled(PointerRoutedEventArgs e)
     {
+        AuthoringPointerCanceled?.Invoke(e);
         RoutePointerCanceled?.Invoke(e);
         base.OnPointerCanceled(e);
     }
     public override void OnPointerCaptureLost(PointerRoutedEventArgs e)
     {
+        AuthoringPointerCanceled?.Invoke(e);
         RoutePointerCanceled?.Invoke(e);
         base.OnPointerCaptureLost(e);
     }

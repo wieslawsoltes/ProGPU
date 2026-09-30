@@ -23,7 +23,7 @@ public sealed partial class HmiDesignerHost
     /// <summary>Start an explicit authoring gesture. This never connects an acquisition endpoint or submits a command.</summary>
     public void BeginDiagramConnection()
     {
-        CancelLabelEdit();
+        CancelCanvasAuthoring(); CancelLabelEdit();
         DesignCommand(() =>
         {
             CancelRouteEdit();
@@ -156,6 +156,7 @@ public sealed partial class HmiDesignerHost
 
     private void OnModelSelectionChanged()
     {
+        if (!_rebuilding && !_applyingAreaSelection && _canvasBox != null) CancelCanvasAuthoring();
         if (!_rebuilding && _labelGesture != null && (_selection.Selection.Count != 1 || !ReferenceEquals(_selection.Selection[0], _labelGesture.Control))) CancelLabelEdit();
         if (!_selectingLink && !_rebuilding && _selection.Selection.Count > 0)
         { CancelRouteEdit(); _selectedWaypointIndex = -1; _selectedLinkId = null; DiagramLayer.SelectedLinkId = null; }

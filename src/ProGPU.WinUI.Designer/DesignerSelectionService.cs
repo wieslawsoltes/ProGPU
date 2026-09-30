@@ -26,6 +26,37 @@ public sealed class DesignerSelectionService
         }
         SelectionChanged?.Invoke();
     }
+    /// <summary>Apply a complete region query with a single notification; never toggle items one by one.</summary>
+    public void SelectRange(IEnumerable<FrameworkElement> elements, DesignerSelectionOperation operation = DesignerSelectionOperation.Replace)
+    {
+        ArgumentNullException.ThrowIfNull(elements);
+        if (!Enum.IsDefined(operation)) throw new ArgumentOutOfRangeException(nameof(operation));
+        // Enumerate and validate first: a throwing source must not partially change selection.
+        var admitted = new List<FrameworkElement>();
+        var seen = new HashSet<FrameworkElement>();
+        foreach (var element in elements)
+        {
+            ArgumentNullException.ThrowIfNull(element);
+            if (element == _canvas.DesignSurface || DesignerElementRegistry.IsDecoration(element)) continue;
+            bool attached = false;
+            for (var owner = element.Parent; owner != null; owner = owner.Parent)
+                if (ReferenceEquals(owner, _canvas.DesignSurface)) { attached = true; break; }
+            if (!attached) throw new ArgumentException("Selection contains a component from another canvas.", nameof(elements));
+            if (seen.Add(element)) admitted.Add(element);
+        }
+        var next = operation == DesignerSelectionOperation.Replace ? admitted : new List<FrameworkElement>(_selection);
+        if (operation != DesignerSelectionOperation.Replace)
+            foreach (var element in admitted)
+            {
+                bool present = next.Contains(element);
+                if (operation == DesignerSelectionOperation.Remove || operation == DesignerSelectionOperation.Toggle && present) next.Remove(element);
+                else if (!present) next.Add(element);
+            }
+        if (_selection.SequenceEqual(next)) return;
+        _selection.Clear(); _selection.AddRange(next);
+        SelectionChanged?.Invoke();
+    }
+
     public void SelectAll()
     {
         _selection.Clear();

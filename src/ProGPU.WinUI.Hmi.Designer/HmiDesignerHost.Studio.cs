@@ -93,6 +93,8 @@ public sealed partial class HmiDesignerHost
             ("Edit caption in place (F2)", () => BeginLabelEdit()),
             ("Copy graphic format", CopyGraphicFormat), ("Paste graphic format", PasteGraphicFormat),
             ("Undo", () => DesignCommand(Session.Undo)), ("Redo", () => DesignCommand(Session.Redo)),
+            ("Selection tool (V)", CancelCanvasAuthoring),
+            ("Draw last component", () => BeginComponentPlacement(_lastPlacementSymbol)),
             ("Select all", () => DesignCommand(_selection.SelectAll)), ("Copy", CopySelection),
             ("Cut", () => DesignCommand(() => { CopySelection(); _selection.Delete(); })),
             ("Paste", PasteSelection), ("Duplicate", () => { CopySelection(); PasteSelection(); }),
@@ -151,6 +153,10 @@ public sealed partial class HmiDesignerHost
         tools.AddChild(StudioButton("Undo", "Undo", () => DesignCommand(Session.Undo), () => !IsPreviewing && Session.CanUndo));
         tools.AddChild(StudioButton("Redo", "Redo", () => DesignCommand(Session.Redo), () => !IsPreviewing && Session.CanRedo));
         tools.AddChild(StudioSeparator());
+        _selectionToolButton = StudioButton("Select", "Selection tool (V). Drag empty canvas: window/crossing. Shift adds; Ctrl toggles; Ctrl+Shift removes.", CancelCanvasAuthoring, () => !IsPreviewing);
+        _placementToolButton = StudioButton("Draw", "Draw the selected component type, or the last used type. Shift preserves its aspect ratio; Alt bypasses grid snapping.",
+            () => BeginComponentPlacement((_selection.Selection.LastOrDefault() as HmiControl)?.Symbol ?? _lastPlacementSymbol), () => !IsPreviewing);
+        tools.AddChild(_selectionToolButton); tools.AddChild(_placementToolButton);
         tools.AddChild(StudioButton("Duplicate", "Duplicate selection", () => { CopySelection(); PasteSelection(); }, () => !IsPreviewing && _selection.Selection.Count > 0));
         tools.AddChild(StudioButton("Delete", "Delete selection", () => DesignCommand(DeleteDesignSelection), () => !IsPreviewing && (_selection.Selection.Count > 0 || SelectedLinkId != null)));
         tools.AddChild(StudioSeparator());
@@ -287,6 +293,7 @@ public sealed partial class HmiDesignerHost
             foreach (var item in menu.Items) item.RequestedTheme = RequestedTheme;
         if (_preview != null) _preview.ColorScheme = ColorScheme;
         RefreshGraphicInspector();
+        ApplyAuthoringTheme();
         InvalidateStudioTree(this);
         _canvas.Invalidate(); Invalidate();
     }
@@ -305,6 +312,15 @@ public sealed partial class HmiDesignerHost
         {
             _linkToolButton.BorderBrush = HmiThemeResources.GetReference(ColorScheme, IsConnectingDiagram ? HmiBrushRole.Accent : HmiBrushRole.Border);
             _linkToolButton.BorderThickness = new Thickness(IsConnectingDiagram ? 2 : 1);
+        }
+        foreach (var button in _palettePlacementButtons) button.IsEnabled = !IsPreviewing;
+        SetToolState(_selectionToolButton, !IsPlacingComponent && !IsConnectingDiagram && !IsEditingRoute);
+        SetToolState(_placementToolButton, IsPlacingComponent);
+        void SetToolState(Button? button, bool active)
+        {
+            if (button == null) return;
+            button.BorderBrush = HmiThemeResources.GetReference(ColorScheme, active ? HmiBrushRole.Accent : HmiBrushRole.Border);
+            button.BorderThickness = new Thickness(active ? 2 : 1);
         }
         bool live = _acquisition != null;
         _modeLabel!.Text = live ? "LIVE  ·  READ ONLY*" : IsPreviewing ? "SIMULATION  ·  LOCAL" : "DESIGN  ·  OFFLINE";
