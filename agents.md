@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Local source visibility is independent of opacity and presentation attachment.
+Carry Visible/Hidden/Collapsed through typed state and native snapshot transport;
+exclude ordinary hidden subtrees before cache/mask/input admission. Explicit
+BitmapCacheBrush capture still omits outer root state, not descendant visibility.
+Keep transparent-visible and empty-own-point-region semantics, shared source
+records, sorted atomic replacement and existing visible-mask restrictions intact.
+See docs/source-visual-visibility.md; source coverage is not desktop qualification.
+
 Owned Cocoa popup surfaces allocate real nonactivating NSPanels, never reclassify
 GLFW objects or exchange their content views/delegates. Keep hidden creation,
 primary-screen point mapping and explicit render-view leases; close may hide but
