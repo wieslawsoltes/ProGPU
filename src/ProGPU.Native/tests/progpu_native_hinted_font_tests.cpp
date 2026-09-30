@@ -1,5 +1,6 @@
 #include "progpu_native_hinted_font.hpp"
 #include "progpu_native_hint_fault_fixture.hpp"
+#include "progpu_native_hinted_transport_controls.hpp"
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -122,6 +123,7 @@ void verify(const std::vector<std::byte>& original)
             require(batch->identity->policy == policy && batch->identity->x_pixels_per_em_26_6 == ppem * 64U);
             require(batch->glyphs[0] == batch->glyphs[5] && batch->glyphs[1] == batch->glyphs[4]);
             require(batch->glyphs[2].points.empty() && batch->glyphs[2].advance_x_26_6 > 0);
+            tests::verify_hinted_transport(*batch);
             configure_reference(reference, configuration);
             for (std::size_t index = 0U; index < ids.size(); ++index) {
                 require(FT_Load_Glyph(reference.face, ids[index],
@@ -221,6 +223,7 @@ void verify(const std::vector<std::byte>& original)
                 }
             }
             font.reset();
+            tests::verify_hinted_transport(*saved);
             phase_font.reset();
             require(saved->identity->original_bytes == original && saved->glyphs == repeated->glyphs);
         }
@@ -291,7 +294,7 @@ int main(int argc, char** argv)
         verify(read_font(argv[1]));
         verify_native_hint_fault();
         std::cout << "{\"glyphBatchControls\":true,\"nativeHintsObserved\":true,"
-                     "\"slotDifferential\":true,\"nativeFaultAtomicity\":true}\n";
+                     "\"slotDifferential\":true,\"nativeFaultAtomicity\":true,\"fixedWidthTransport\":true}\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

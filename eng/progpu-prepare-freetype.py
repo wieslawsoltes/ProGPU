@@ -224,8 +224,13 @@ def prepare(args):
                                     if args.rid.startswith("win-") else "progpu_native_hinted_font_tests")
     glyph_probe = json.loads(run([str(glyph_executable), str(test_font)]).stdout)
     if glyph_probe != {"glyphBatchControls": True, "nativeHintsObserved": True,
-                      "slotDifferential": True, "nativeFaultAtomicity": True}:
+                      "slotDifferential": True, "nativeFaultAtomicity": True, "fixedWidthTransport": True}:
         raise ValueError("Native hinted-font batch controls returned unexpected evidence")
+    transport_executable = probe_build / ("progpu_native_hinted_transport_tests.exe"
+                                        if args.rid.startswith("win-") else "progpu_native_hinted_transport_tests")
+    transport_probe = json.loads(run([str(transport_executable)]).stdout)
+    if transport_probe != {"fixedWidthTransport": True, "exactIntegerDifferential": True, "atomicTailControls": True}:
+        raise ValueError("Native hinted-font transport controls returned unexpected evidence")
     if hashlib.sha256(test_font.read_bytes()).hexdigest() != test_font_hash:
         raise ValueError("The hinted-font control input changed during execution")
     legal = install / "share/progpu-freetype/licenses"
@@ -249,7 +254,8 @@ def prepare(args):
                 "configure": configure, "compiler": run([args.cc, "--version"]).stdout.strip()
                 if not args.rid.startswith("win-") else args.cc,
                 "probeConfigure": probe_configure, "publicApiProbe": probe,
-                "glyphProbe": glyph_probe, "testFont": {"path": str(test_font), "sha256": test_font_hash},
+                "glyphProbe": glyph_probe, "transportProbe": transport_probe,
+                "testFont": {"path": str(test_font), "sha256": test_font_hash},
                 "qualification": "signed-source-static-architecture-library-policy-and-private-glyph-batches"}
     (install / "progpu-freetype.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps({"rid": args.rid, "manifest": str(install / "progpu-freetype.json"),

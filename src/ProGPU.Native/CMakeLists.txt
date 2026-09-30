@@ -774,6 +774,7 @@ progpu_native_enable_sanitizers(progpu_native_image)
 
 add_library(progpu_native_text STATIC
     "${generated_unicode_normalization_source}"
+    src/Text/Font/progpu_native_hinted_transport.cpp
     src/Text/progpu_native_unicode.cpp
     src/Text/Unicode/progpu_native_unicode_category.cpp
     src/Text/Unicode/progpu_native_unicode_directional.cpp
@@ -1858,6 +1859,17 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     progpu_native_enable_sanitizers(progpu_native_font_device_metrics_tests)
     add_test(NAME progpu_native_font_device_metrics_tests COMMAND progpu_native_font_device_metrics_tests)
     set_tests_properties(progpu_native_font_device_metrics_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_transport_tests
+        tests/progpu_native_hinted_transport_tests.cpp)
+    target_compile_features(progpu_native_hinted_transport_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_hinted_transport_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Font")
+    target_link_libraries(progpu_native_hinted_transport_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_transport_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_transport_tests)
+    add_test(NAME progpu_native_hinted_transport_tests COMMAND progpu_native_hinted_transport_tests)
+    set_tests_properties(progpu_native_hinted_transport_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_text_device_advances_tests
         tests/progpu_native_text_device_advances_tests.cpp

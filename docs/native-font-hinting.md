@@ -82,11 +82,41 @@ must preserve the earlier batch through repeated later-glyph faults and recover 
 following valid capture. No production fault hook or error-ignoring flag is added.
 Variable-instance controls remain required alongside subsequent integration.
 
-The adapter is currently built by the isolated producer, not linked into the
+The fixed-width transport helper is now compiled into the real native text core
+as well as the isolated producer. It copies an already retained generation into
+caller-owned glyph, signed 64-bit point, tag and signed 32-bit contour buffers.
+All 14 metrics, descriptor order/repeats, flags, high tag bits and glyph-local
+contour ends remain exact. Requirements validate complete contour topology and uint32
+aggregate bounds before publication; buffer preflight rejects misalignment,
+overflow, output overlap including unused capacity, and aliases with any retained
+batch/font storage. Status and selected execution path return by value so they
+cannot overwrite caller tails or source bytes through an aliased output reference.
+On failure all caller buffers and requirement counts remain unchanged.
+
+Automatic transport bulk-copies native 64-bit coordinate pairs, or uses exact
+signed 32-to-64 SIMD widening on Windows. Contour widening uses independent
+eight-lane NEON/SSE2 blocks with a bounded tail. Forced SIMD and scalar reference
+paths are explicit; unsupported forced SIMD fails rather than silently falling
+back. The CPU-owned boundary transfer performs no font execution, GPU work or
+allocation. Its prefix offsets and contour ordering are genuinely dependent;
+coverage rasterization stays on the existing GPU paths. Time is O(G + P + C),
+with O(1) auxiliary space, excluding the caller-owned outputs.
+
+Focused hosted controls exercise every length zero through 17 on all paths,
+signed native-long extremes, exact metrics/tags/flags, repeats/non-ink descriptors,
+short buffers, later invalid topology, aliases and all successful/failure tails.
+The same transfer controls also consume actual host-font batches for both hint
+policies, including after adapter disposal. They run in ordinary native CTest
+and in the isolated six-RID producer, which requires explicit transport evidence
+in its receipt. These controls are authored, not locally executed. The C records
+do not yet have exported entrypoints, generated managed bindings or source
+capability admission; they are not a completed public font ABI.
+
+The adapter itself is still built by the isolated producer, not linked into the
 product text context or either renderer. Next steps must connect its selected
 immutable generation through the existing context use lease and bounded cache,
-retain original shaping identities, add atomic fixed-width C/managed transport
-and untouched caller-tail tests, and share its output across actual consumers.
+retain original shaping identities, expose leased C/managed batch transport with
+generated wire bindings, and share its output across actual consumers.
 No sampled width, isolated suffix reshape, per-glyph managed crossing, bitmap
 substitution or Ideal coercion admits source Display mode.
 

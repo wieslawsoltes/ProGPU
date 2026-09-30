@@ -26,11 +26,16 @@ configure_font_target(progpu_font_dependency_probe)
 
 set(native_root "${CMAKE_CURRENT_LIST_DIR}/../../src/ProGPU.Native")
 add_library(progpu_native_hinted_font STATIC
-    "${native_root}/src/Text/Font/progpu_native_hinted_font.cpp")
-target_include_directories(progpu_native_hinted_font PUBLIC "${native_root}/src/Text/Font")
+    "${native_root}/src/Text/Font/progpu_native_hinted_font.cpp"
+    "${native_root}/src/Text/Font/progpu_native_hinted_transport.cpp")
+target_include_directories(progpu_native_hinted_font PUBLIC "${native_root}/src/Text/Font" "${native_root}/include")
 target_link_libraries(progpu_native_hinted_font PRIVATE Threads::Threads)
 configure_font_target(progpu_native_hinted_font)
 add_executable(progpu_native_hinted_font_tests
     "${native_root}/tests/progpu_native_hinted_font_tests.cpp")
 target_link_libraries(progpu_native_hinted_font_tests PRIVATE progpu_native_hinted_font)
 configure_font_target(progpu_native_hinted_font_tests)
+add_executable(progpu_native_hinted_transport_tests
+    "${native_root}/tests/progpu_native_hinted_transport_tests.cpp")
+target_link_libraries(progpu_native_hinted_transport_tests PRIVATE progpu_native_hinted_font)
+configure_font_target(progpu_native_hinted_transport_tests)

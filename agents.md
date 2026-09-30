@@ -140,6 +140,11 @@ The private C++ adapter and isolated controls do not admit source Display, CFF,
 color/bitmap fonts, named instances or product rendering. Context leases, bounded
 caches, fixed-width atomic transport, shared layout/interaction/raster generation
 and independent Windows/package gates remain required. See docs/native-font-hinting.md.
+Hinted generation transport validates every glyph and complete buffer capacities
+before any write. Preserve exact signed fixed-point metrics, native-long widening,
+tag bits and glyph-local contour indices; reject overlap with retained font/batch
+storage even in unused tails. Status/path return by value, never through aliased
+caller outputs. This core helper does not export a font ABI or admit source Display.
 
 Retained DrawingTextLayout painting and interaction must share one original
 formatted generation. Own exact glyph/font runs and interaction geometry; do not
