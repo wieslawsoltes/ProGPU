@@ -48,8 +48,8 @@
       <_ProGpuFontRequiredArg Condition="'$(ProGpuNativeRequireFontHinting)' == 'true'">--require</_ProGpuFontRequiredArg>
       <ProGpuNativePython Condition="'$(ProGpuNativePython)' == '' and '$(OS)' == 'Windows_NT'">python</ProGpuNativePython>
       <ProGpuNativePython Condition="'$(ProGpuNativePython)' == ''">python3</ProGpuNativePython>
-      <_ProGpuFontVerifier>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../eng/progpu-verify-freetype.py'))</_ProGpuFontVerifier>
-      <_ProGpuFontRuntimeRoot>$([System.IO.Path]::GetFullPath('$(ProGpuNativeRuntimeRoot)'))</_ProGpuFontRuntimeRoot>
+      <_ProGpuFontVerifier>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '../../eng/progpu-verify-freetype.py'))</_ProGpuFontVerifier>
+      <_ProGpuFontRuntimeRoot>$([MSBuild]::NormalizePath('$(ProGpuNativeRuntimeRoot)'))</_ProGpuFontRuntimeRoot>
     </PropertyGroup>
     <ItemGroup>
       <_ProGpuFontAssets Include="$(ProGpuNativeRuntimeRoot)/runtimes/*/native/sdk/progpu-native-font-dependency.json;
