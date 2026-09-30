@@ -1,4 +1,5 @@
 using System.Numerics;
+using ProGPU.Hmi;
 using Microsoft.UI.Xaml.Controls;
 
 namespace ProGPU.WinUI.Hmi.Designer;
@@ -11,9 +12,26 @@ public sealed partial class HmiDesignerHost
         float left, top, right, bottom;
         if (selected.Length == 0)
         {
-            if (SelectedLinkId == null || !DiagramLayer.Routes.TryGetValue(SelectedLinkId, out var route) || route.Points.Count < 2) { Fit(); return; }
-            left = route.Points.Min(p => p.X) - 12; right = route.Points.Max(p => p.X) + 12;
-            top = route.Points.Min(p => p.Y) - 12; bottom = route.Points.Max(p => p.Y) + 12;
+            if (SelectedLinkId == null) { Fit(); return; }
+            var link = Session.ActiveScreen.Links.SingleOrDefault(l => l.Id == SelectedLinkId);
+            if (link == null) { Fit(); return; }
+            var points = new List<HmiPoint>();
+            if (DiagramLayer.Routes.TryGetValue(SelectedLinkId, out var route)) points.AddRange(route.Points);
+            points.AddRange(_waypointGesture?.Points ?? link.Waypoints);
+            if (route?.Status != HmiRouteStatus.Success)
+            {
+                // A blocked route has no invented line geometry. Frame its pins and
+                // endpoint controls so a misplaced pin or tiny terminal can be repaired.
+                foreach (var endpoint in new[] { link.Source, link.Target })
+                {
+                    var element = Session.ActiveScreen.Elements.Single(e => e.Id == endpoint.ElementId);
+                    points.Add(new(element.X, element.Y));
+                    points.Add(new(element.X + element.Width, element.Y + element.Height));
+                }
+            }
+            if (points.Count == 0) { Fit(); return; }
+            left = points.Min(p => p.X) - 12; right = points.Max(p => p.X) + 12;
+            top = points.Min(p => p.Y) - 12; bottom = points.Max(p => p.Y) + 12;
         }
         else
         {

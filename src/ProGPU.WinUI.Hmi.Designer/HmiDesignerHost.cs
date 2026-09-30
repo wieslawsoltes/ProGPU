@@ -113,6 +113,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
 
         _multiAdorner = new DesignerMultiSelectionAdorner(_canvas, _selection);
         _canvas.AdornerSurface.Children.Add(_multiAdorner);
+        InitializeRouteEditing();
         _canvas.ViewportChanged += UpdateStudioState;
         _canvas.CanvasModifying += OnCanvasModifying;
         _canvas.CanvasModified += OnCanvasModified;
@@ -262,12 +263,14 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     }
     private void OnSessionChanged()
     {
+        CancelRouteEdit();
+        _selectedWaypointIndex = -1;
         CancelDiagramConnection();
         _discardConfirmation = null;
         MarkEngineeringDirty();
         RebuildDocumentViews();
     }
-    private void OnScreenChanged() { CancelDiagramConnection(); SelectDiagramLink(null); RebuildDocumentViews(); Fit(); }
+    private void OnScreenChanged() { CancelRouteEdit(); CancelDiagramConnection(); SelectDiagramLink(null); RebuildDocumentViews(); Fit(); }
     private void OnCanvasSelectionChanged()
     {
         if (_rebuilding) return;
@@ -284,7 +287,9 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     }
     private void OnCanvasModified()
     {
-        if (_rebuilding || IsPreviewing) return;
+        // Wheel zoom also raises this shared notification. A route gesture owns its
+        // detached preview until release; do not replace it with the committed model.
+        if (_rebuilding || IsPreviewing || _waypointGesture != null) return;
         Guard(() =>
         {
             var original = Session.ActiveScreen.Elements.ToDictionary(e => e.Id);
@@ -379,7 +384,11 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
             }).ToList();
             _restoreSelection = elements.Select(e => e.Id).ToArray();
             var links = HmiDiagram.CopyInternalLinks(_clipboardLinks, identities);
-            foreach (var link in links) link.IsLocked = false;
+            foreach (var link in links)
+            {
+                link.IsLocked = false;
+                link.Waypoints = HmiRouteWaypoints.Translate(link.Waypoints, 20, 20);
+            }
             Session.Edit("Paste components and internal links", p =>
             {
                 var screen = p.Screens.Single(s => s.Id == Session.ActiveScreenId);
@@ -420,15 +429,16 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
             Silk.NET.Input.Key.A when control => _selection.SelectAll,
             Silk.NET.Input.Key.C when control => CopySelection,
             Silk.NET.Input.Key.V when control => PasteSelection,
+            Silk.NET.Input.Key.L when control && InputSystem.Current.IsShiftPressed => BeginWaypointPlacement,
             Silk.NET.Input.Key.L when control => BeginDiagramConnection,
             Silk.NET.Input.Key.X when control => () => { CopySelection(); _selection.Delete(); },
             Silk.NET.Input.Key.D when control => () => { CopySelection(); PasteSelection(); },
             Silk.NET.Input.Key.Delete => DeleteDesignSelection,
-            Silk.NET.Input.Key.Escape => CancelDiagramConnection,
-            Silk.NET.Input.Key.Left => () => _selection.Translate(-step, 0),
-            Silk.NET.Input.Key.Right => () => _selection.Translate(step, 0),
-            Silk.NET.Input.Key.Up => () => _selection.Translate(0, -step),
-            Silk.NET.Input.Key.Down => () => _selection.Translate(0, step),
+            Silk.NET.Input.Key.Escape => () => { CancelRouteEdit(); CancelDiagramConnection(); },
+            Silk.NET.Input.Key.Left => () => NudgeDesignSelection(-step, 0),
+            Silk.NET.Input.Key.Right => () => NudgeDesignSelection(step, 0),
+            Silk.NET.Input.Key.Up => () => NudgeDesignSelection(0, -step),
+            Silk.NET.Input.Key.Down => () => NudgeDesignSelection(0, step),
             _ => null
         };
         if (action != null) { Guard(action); e.Handled = true; return; }
@@ -442,6 +452,8 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         _canvas.CanvasModifying -= OnCanvasModifying; _canvas.CanvasModified -= OnCanvasModified; _canvas.SelectionChanged -= OnCanvasSelectionChanged;
         _selection.SelectionChanged -= OnModelSelectionChanged;
         _canvas.PortPicked = null; _canvas.LinkPicked = null; _canvas.GeometryPreviewChanged = null;
+        _canvas.RoutePointerPressed = null; _canvas.RoutePointerMoved = null;
+        _canvas.RoutePointerReleased = null; _canvas.RoutePointerCanceled = null;
         DiagramLayer.Clear();
         _canvas.ViewportChanged -= UpdateStudioState;
         _multiAdorner.Dispose();

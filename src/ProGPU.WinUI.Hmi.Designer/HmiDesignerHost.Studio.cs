@@ -116,6 +116,9 @@ public sealed partial class HmiDesignerHost
         tools.AddChild(StudioMenu("Diagram", [
             ("Connect nozzles (click two ports)", BeginDiagramConnection),
             ("Cancel nozzle connection (Escape)", CancelDiagramConnection),
+            ("Add waypoint to selected link", BeginWaypointPlacement),
+            ("Remove selected waypoint (Delete)", RemoveSelectedWaypoint),
+            ("Clear waypoints / automatic route", ClearSelectedWaypoints),
             ("Reverse selected link", ReverseSelectedLink),
             ("Delete selected link", DeleteSelectedLink),
             ("Show / hide nozzles", () => DiagramLayer.ShowPortHandles = !DiagramLayer.ShowPortHandles)
@@ -284,6 +287,7 @@ public sealed partial class HmiDesignerHost
     private void UpdateStudioState()
     {
         if (!_studioInitialized) return;
+        RefreshWaypointAdorner();
         foreach (var command in _studioCommands) command.Button.IsEnabled = command.Enabled();
         if (_linkToolButton != null)
         {

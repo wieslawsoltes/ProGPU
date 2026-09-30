@@ -25,6 +25,7 @@ public sealed partial class HmiDesignerHost
     {
         DesignCommand(() =>
         {
+            CancelRouteEdit();
             if (!_canvas.IsConnecting) _restorePorts = DiagramLayer.ShowPortHandles;
             _pendingLinkSource = null;
             DiagramLayer.PendingPort = null;
@@ -96,6 +97,8 @@ public sealed partial class HmiDesignerHost
         if (id != null && !Session.ActiveScreen.Links.Any(l => l.Id == id)) throw new ArgumentException("Unknown diagram link.", nameof(id));
         if (IsPreviewing) return;
         if (id == _selectedLinkId) return;
+        CancelRouteEdit();
+        _selectedWaypointIndex = -1;
         _selectingLink = true;
         try
         {
@@ -107,7 +110,11 @@ public sealed partial class HmiDesignerHost
         UpdateInspector();
     }
 
-    public void ReverseSelectedLink() => EditSelectedLink("Reverse diagram link", link => (link.Source, link.Target) = (link.Target, link.Source));
+    public void ReverseSelectedLink() => EditSelectedLink("Reverse diagram link", link =>
+    {
+        (link.Source, link.Target) = (link.Target, link.Source);
+        link.Waypoints.Reverse();
+    });
 
     public void DeleteSelectedLink()
     {
@@ -125,7 +132,8 @@ public sealed partial class HmiDesignerHost
 
     private void DeleteDesignSelection()
     {
-        if (_selectedLinkId != null) DeleteSelectedLink();
+        if (_selectedLinkId != null && _selectedWaypointIndex >= 0) RemoveSelectedWaypoint();
+        else if (_selectedLinkId != null) DeleteSelectedLink();
         else _selection.Delete();
     }
 
@@ -148,7 +156,7 @@ public sealed partial class HmiDesignerHost
     private void OnModelSelectionChanged()
     {
         if (!_selectingLink && !_rebuilding && _selection.Selection.Count > 0)
-        { _selectedLinkId = null; DiagramLayer.SelectedLinkId = null; }
+        { CancelRouteEdit(); _selectedWaypointIndex = -1; _selectedLinkId = null; DiagramLayer.SelectedLinkId = null; }
         UpdateInspector();
     }
 
@@ -180,7 +188,10 @@ public sealed partial class HmiDesignerHost
         };
         var tools = Toolbar();
         tools.AddChild(Command("Connect nozzles", BeginDiagramConnection));
-        tools.AddChild(Command("Cancel", CancelDiagramConnection));
+        tools.AddChild(Command("Add waypoint", BeginWaypointPlacement));
+        tools.AddChild(Command("Remove pin", RemoveSelectedWaypoint));
+        tools.AddChild(Command("Auto route", ClearSelectedWaypoints));
+        tools.AddChild(Command("Cancel", () => { CancelRouteEdit(); CancelDiagramConnection(); }));
         tools.AddChild(Command("Reverse", ReverseSelectedLink));
         tools.AddChild(Command("Delete", DeleteSelectedLink));
         tools.AddChild(Command("Lock / unlock", () => EditSelectedLink("Toggle link lock", link => link.IsLocked = !link.IsLocked, allowLocked: true)));
@@ -238,6 +249,7 @@ public sealed partial class HmiDesignerHost
             LinkProperty("Direction arrow", link.ShowDirection.ToString(), (l, v) => l.ShowDirection = Boolean(v));
             LinkProperty("Hidden", link.IsHidden.ToString(), (l, v) => l.IsHidden = Boolean(v));
         }
+        BuildWaypointInspector(link);
         var route = DiagramLayer.Routes.GetValueOrDefault(link.Id);
         ReadOnlyProperty("Routing", route?.Diagnostic ?? "Hidden");
         if (route?.Status == HmiRouteStatus.Success) ReadOnlyProperty("Route length", Format(route.Length));

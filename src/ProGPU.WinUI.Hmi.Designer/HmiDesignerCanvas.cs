@@ -17,10 +17,15 @@ internal sealed class HmiDesignerCanvas : DesignerCanvas
     internal Action<HmiLinkEndpoint>? PortPicked { get; set; }
     internal Action<string?>? LinkPicked { get; set; }
     internal Action? GeometryPreviewChanged { get; set; }
+    internal Func<PointerRoutedEventArgs, bool>? RoutePointerPressed { get; set; }
+    internal Func<PointerRoutedEventArgs, bool>? RoutePointerMoved { get; set; }
+    internal Func<PointerRoutedEventArgs, bool>? RoutePointerReleased { get; set; }
+    internal Action<PointerRoutedEventArgs>? RoutePointerCanceled { get; set; }
     public HmiDesignerCanvas() => DesignSurface.Children.Add(DiagramLayer);
 
     public override void OnPointerPressed(PointerRoutedEventArgs e)
     {
+        if (RoutePointerPressed?.Invoke(e) == true) { e.Handled = true; return; }
         if (!IsInteractionMode && e.IsLeftButtonPressed && !e.IsMiddleButtonPressed && !e.IsRightButtonPressed)
         {
             var logical = (e.Position - PanOffset) / ZoomScale;
@@ -46,10 +51,27 @@ internal sealed class HmiDesignerCanvas : DesignerCanvas
 
     public override void OnPointerMoved(PointerRoutedEventArgs e)
     {
+        if (RoutePointerMoved?.Invoke(e) == true) { e.Handled = true; return; }
         if (SelectedElement is HmiControl { IsDesignLocked: true } && e.IsLeftButtonPressed && !e.IsMiddleButtonPressed) return;
         base.OnPointerMoved(e);
         if (!IsInteractionMode && !IsConnecting && e.IsLeftButtonPressed && !e.IsMiddleButtonPressed)
             GeometryPreviewChanged?.Invoke();
+    }
+
+    public override void OnPointerReleased(PointerRoutedEventArgs e)
+    {
+        if (RoutePointerReleased?.Invoke(e) == true) { e.Handled = true; return; }
+        base.OnPointerReleased(e);
+    }
+    public override void OnPointerCanceled(PointerRoutedEventArgs e)
+    {
+        RoutePointerCanceled?.Invoke(e);
+        base.OnPointerCanceled(e);
+    }
+    public override void OnPointerCaptureLost(PointerRoutedEventArgs e)
+    {
+        RoutePointerCanceled?.Invoke(e);
+        base.OnPointerCaptureLost(e);
     }
 
     public override void OnRender(DrawingContext context)

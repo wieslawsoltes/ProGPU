@@ -23,6 +23,7 @@ public sealed partial class HmiDesignerHost
     private void UpdateInspector()
     {
         if (_rebuilding || _disposed) return;
+        RefreshWaypointAdorner();
         UpdateStudioState();
         _alarmConsole?.AttachRuntime(_runtime);
         _outline.IsHitTestVisible = !IsPreviewing;

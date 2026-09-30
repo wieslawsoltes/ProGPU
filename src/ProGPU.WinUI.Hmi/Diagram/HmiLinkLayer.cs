@@ -18,7 +18,7 @@ public sealed class HmiLinkLayer : Control
         internal readonly HmiDiagramLink Model = model;
         internal readonly HmiRouteTerminal Source = source;
         internal readonly HmiRouteTerminal Target = target;
-        internal readonly HmiRouteResult Route = route;
+        internal HmiRouteResult Route = route;
         internal HmiQuality Quality = HmiQuality.Good;
         internal bool Active;
         internal bool Visible = true;
@@ -95,8 +95,9 @@ public sealed class HmiLinkLayer : Control
             if (!routable) route = HmiRouteResult.Unavailable(HmiRouteStatus.BlockedTerminal, "Enlarge the endpoint component to expose a routable glyph.");
             else if (_entries.TryGetValue(link.Id, out var old) && old.Source == source && old.Target == target &&
                 old.Model.Clearance == link.Clearance && old.Model.Thickness == link.Thickness &&
+                old.Model.Waypoints.SequenceEqual(link.Waypoints) && ownedObstacles.Length <= HmiOrthogonalRouter.MaximumObstacles &&
                 old.Route.Status == HmiRouteStatus.Success && !changed.Any(o => Crosses(old.Route, o.Bounds.Inflate(RoutingPadding(link))))) route = old.Route;
-            else { route = HmiOrthogonalRouter.Route(source, target, ownedObstacles, RoutingPadding(link)); RoutingPasses++; }
+            else { route = HmiOrthogonalRouter.Route(source, target, ownedObstacles, link.Waypoints, RoutingPadding(link)); RoutingPasses++; }
             var entry = new Entry(link, source, target, route);
             ConfigurePens(entry); Refresh(entry);
             entries.Add(link.Id, entry);
@@ -110,6 +111,31 @@ public sealed class HmiLinkLayer : Control
         _routes.Clear(); foreach (var pair in entries) _routes.Add(pair.Key, pair.Value.Route);
         Width = screen.Width; Height = screen.Height;
         Invalidate();
+    }
+
+    /// <summary>
+    /// Update one owned routing snapshot during a gesture without copying the screen or rebuilding
+    /// equipment. The authoring owner commits separately; SetScreen restores document state on cancel.
+    /// </summary>
+    public HmiRouteResult PreviewWaypoints(string id, IReadOnlyList<HmiPoint> waypoints)
+    {
+        HmiRouteWaypoints.Validate(waypoints);
+        if (!_entries.TryGetValue(id, out var entry)) throw new ArgumentException("The diagram link is not visible.", nameof(id));
+        if (entry.Model.IsLocked) throw new InvalidOperationException("Unlock the diagram link before editing its route.");
+        if (entry.Model.Waypoints.SequenceEqual(waypoints)) return entry.Route;
+        var pins = waypoints.ToList();
+        var obstacles = _obstacles;
+        if (!obstacles.Any(o => o.ElementId == entry.Source.ElementId)) obstacles = [.. obstacles, new(entry.Source.ElementId, entry.Source.Bounds)];
+        if (!obstacles.Any(o => o.ElementId == entry.Target.ElementId)) obstacles = [.. obstacles, new(entry.Target.ElementId, entry.Target.Bounds)];
+        var route = HmiPortLayout.HasRoutableGlyph(_elements[entry.Source.ElementId]) && HmiPortLayout.HasRoutableGlyph(_elements[entry.Target.ElementId])
+            ? HmiOrthogonalRouter.Route(entry.Source, entry.Target, obstacles, pins, RoutingPadding(entry.Model))
+            : HmiRouteResult.Unavailable(HmiRouteStatus.BlockedTerminal, "Enlarge the endpoint component to expose a routable glyph.");
+        entry.Model.Waypoints = pins;
+        entry.Route = route;
+        _routes[id] = route;
+        RoutingPasses++;
+        Invalidate();
+        return route;
     }
 
     public void RefreshTags(IReadOnlyList<string>? tags = null)

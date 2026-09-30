@@ -15,17 +15,25 @@ project.Connections.Add(new HmiConnectionProfile
 });
 var diagram = HmiShowcaseProject.Create().Screens[0];
 diagram.Id = "diagram-probe";
+diagram.Links[0].Waypoints = [new(300, 120), new(500, 120)];
 project.Screens.Add(diagram);
 string expected = HmiProjectSerializer.Serialize(project);
 var copy = HmiProjectSerializer.Clone(project);
 if (HmiProjectSerializer.Serialize(copy) != expected) throw new InvalidOperationException("Generated project round-trip changed configuration.");
 if (copy.Screens[^1].Links.Count != 3 || copy.Screens[^1].Links[0].Source.ElementId != diagram.Links[0].Source.ElementId)
     throw new InvalidOperationException("Generated JSON lost semantic diagram topology.");
+if (!copy.Screens[^1].Links[0].Waypoints.SequenceEqual(diagram.Links[0].Waypoints))
+    throw new InvalidOperationException("Generated JSON lost ordered route waypoints.");
 var sourceBounds = new HmiRouteBox(0, 0, 100, 100);
 var targetBounds = new HmiRouteBox(300, 0, 400, 100);
 var route = HmiOrthogonalRouter.Route(new("source", new(100, 50), HmiPortDirection.Right, sourceBounds),
     new("target", new(300, 50), HmiPortDirection.Left, targetBounds), [new("source", sourceBounds), new("target", targetBounds)]);
 if (route.Status != HmiRouteStatus.Success || route.Points.Count != 2) throw new InvalidOperationException("Native diagram routing probe failed.");
+var pins = new HmiPoint[] { new(150, -60), new(250, -60) };
+var constrained = HmiOrthogonalRouter.Route(new("source", new(100, 50), HmiPortDirection.Right, sourceBounds),
+    new("target", new(300, 50), HmiPortDirection.Left, targetBounds), [new("source", sourceBounds), new("target", targetBounds)], pins);
+if (constrained.Status != HmiRouteStatus.Success || !pins.All(p => constrained.Points.Contains(p)))
+    throw new InvalidOperationException("Native ordered-waypoint routing probe failed.");
 var runtime = new HmiRuntime(copy, DateTimeOffset.UnixEpoch);
 runtime.Start(allowLocalWrites: true);
 runtime.AdvanceSimulation(TimeSpan.FromMilliseconds(100));
@@ -39,4 +47,4 @@ try
         throw new InvalidOperationException("Generated file round-trip changed configuration.");
 }
 finally { if (File.Exists(file)) File.Delete(file); }
-Console.WriteLine($"PASS: reflection-disabled project graph, {Enum.GetValues<HmiSymbol>().Length} symbols, semantic links, Unicode, OPC UA profiles, runtime, recipes and async persistence.");
+Console.WriteLine($"PASS: reflection-disabled project graph, {Enum.GetValues<HmiSymbol>().Length} symbols, ordered route pins, semantic links, Unicode, OPC UA profiles, runtime, recipes and async persistence.");

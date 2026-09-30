@@ -26,7 +26,7 @@ Nozzle names are stable identifiers such as `inlet`, `outlet`, `shell-inlet`, `s
 
 ## Document and reusable APIs
 
-`HmiScreen.Links` owns a list of `HmiDiagramLink`. Each link owns detached source and target `HmiLinkEndpoint` objects. Generated JSON metadata includes this closed graph and a typed string-enum converter for `HmiLinkKind`. Older version-1 documents without `links` receive independent empty lists. Computed bend points are not persisted as if they were topology.
+`HmiScreen.Links` owns a list of `HmiDiagramLink`. Each link owns detached source and target `HmiLinkEndpoint` objects. Generated JSON metadata includes this closed graph and a typed string-enum converter for `HmiLinkKind`. Older version-1 documents without `links` receive independent empty lists. Computed bend points are not persisted as if they were topology. `HmiDiagramLink.Waypoints` stores up to 16 explicit ordered document-space constraints; the router preserves their exact positions while avoiding equipment. See [route editing](hmi-route-editing.md) for drag handles, cancellation, history and bounded search.
 
 ```csharp
 using ProGPU.Hmi;
@@ -62,13 +62,13 @@ designer.Dispose();
 
 ## Routing and bounded work
 
-The UI-independent `HmiOrthogonalRouter` is an original deterministic rectilinear visibility-grid A* implementation. Its grid contains all admitted inflated obstacle boundaries and both nozzle escape points. Search state retains arrival axis to penalize bends. Nozzle leads preserve their required departure/arrival direction, including a collinear reversal; simplification cannot erase that constraint.
+The UI-independent `HmiOrthogonalRouter` is an original deterministic rectilinear visibility-grid A* implementation. Its grid contains all admitted inflated obstacle boundaries and both nozzle escape points. Search state retains arrival axis to penalize bends and the next waypoint index to preserve global constraint order. It does not select independent greedy routes between pins. Nozzle leads preserve their required departure/arrival direction, including a collinear reversal; simplification cannot erase that constraint.
 
 The limits are explicit: **256 links per screen, 128 visible routing obstacles, and 1024 simplified points per route**. Obstacles include equipment glyphs and instrument/cards, excluding labels, drawing panels and passive pipe artwork; a pipe used as an endpoint is added as an owned obstacle. A document may still contain more controls than this routing budget, but a link cannot silently route through omitted obstacles. Over-budget scenes return `CapacityExceeded`; blocked nozzle escapes return `BlockedTerminal`; unavailable paths return `NoRoute`. These results contain no invented successful path. The editor shows diagnostics and endpoint failure marks.
 
 The graph uses pooled, bounded search scratch. With `n` admitted obstacles its visibility grid has `O(n²)` nodes; A* queue work depends on the visited grid. This is dependent, edit-time graph search, not a GPU rasterization workload or a simulation-step operation. It creates no rendering device, shader pipeline, worker pool or framebuffer readback. Routing is synchronous and not a hard-real-time scheduling guarantee.
 
-Successful geometry is retained across telemetry, quality, palette, name and style-only changes. Endpoint changes and obstacles intersecting an existing route invalidate that route; an unrelated edit leaves it intact. Removing an unrelated obstacle may leave a still-valid, nonminimal route rather than needlessly perturbing the drawing. Rendering emits bounded retained lines, elbow fills, dashes and direction marks; feedback updates never run the router.
+Successful geometry is retained across telemetry, quality, palette, name and style-only changes. Endpoint changes and obstacles intersecting an existing route invalidate that route; an unrelated edit leaves it intact. Route reuse rechecks the full visible-obstacle admission budget even when the new obstacles do not touch the cached line. Removing an unrelated obstacle may leave a still-valid, nonminimal route rather than needlessly perturbing the drawing. Rendering emits bounded retained lines, elbow fills, dashes and direction marks; feedback updates never run the router.
 
 Clearance is additional space outside a conservative stroke/direction-marker envelope. The routing calculation accounts for the stroke and arrow envelope before testing obstacles. These are visual layout distances, not engineering pipe separation or a safety clearance.
 
@@ -95,7 +95,7 @@ The renderer's exact software/physical adapter and test source revision must acc
 
 ## Remaining diagram boundaries
 
-This is automatic same-screen orthogonal routing, not a plant-design or electrical CAD system. Manually pinned waypoints, editable segment handles, semantic branch/junction objects, crossover bridges, wire numbering, pipe specifications, cross-screen connectors and physics are not implemented here. Flat faceplate templates do not yet store their own internal link graph; links between instantiated equipment live on the screen, and template changes that would invalidate a referenced nozzle are rejected by document validation. Commissioning, industrial historian persistence, redundancy and vendor protocol qualification remain separate concerns.
+This is automatic same-screen orthogonal routing, not a plant-design or electrical CAD system. Ordered manually pinned waypoints, on-canvas insertion/dragging and exact coordinate editing are implemented in [route editing](hmi-route-editing.md). Editable whole-segment handles, semantic branch/junction objects, crossover bridges, wire numbering, pipe specifications, cross-screen connectors and physics are not implemented here. Flat faceplate templates do not yet store their own internal link graph; links between instantiated equipment live on the screen, and template changes that would invalidate a referenced nozzle are rejected by document validation. Commissioning, industrial historian persistence, redundancy and vendor protocol qualification remain separate concerns.
 
 ## References
 

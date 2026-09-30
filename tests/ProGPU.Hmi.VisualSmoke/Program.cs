@@ -246,6 +246,7 @@ foreach (var scheme in schemes)
     window.Content = null;
     Console.WriteLine($"{scheme}: independent line style, active/stopped/unknown pixels and blocked terminal checks passed.");
 }
+foreach (var scheme in schemes) HmiRouteEditingProbe.Run(window, font, args[1], scheme);
 Console.WriteLine($"PASS: actual ProGPU component, semantic diagram, designer and runtime readback with reflection JSON disabled ({elapsed.Elapsed}).");
 
 static IEnumerable<Visual> Descendants(Visual visual)

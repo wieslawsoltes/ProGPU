@@ -110,3 +110,7 @@ The visual probe uses the real ProGPU retained compositor, native WebGPU and an 
 Run Light, Dark and HighContrast as separate invocations to isolate native scene/device lifetime. The `HMI visual and pointer regression` workflow uses Mesa's software Vulkan adapter on Linux and uploads PNGs/logs; the ordinary HMI matrix checks Windows/Linux/macOS builds, protocol tests and gallery construction. All stages fail on errors; a skipped or queued workflow is not a passing result.
 
 Physical Apple Metal/Retina, Windows DirectX, touch hardware, real PLC interoperability, complete accessibility conformance and production commissioning still require their own qualification. Same-screen semantic nozzle routing is documented in [diagram connections](hmi-diagram-connections.md); it is not an engineering pipe solver. Flat faceplates are not recursive vendor templates, and appearance does not weaken external command review/authorization.
+
+## Pinned routing
+
+[Ordered route editing](hmi-route-editing.md) extends semantic diagram links with exact persistent pins, numbered canvas handles, drag previews, atomic undo and explicit blocked-pin recovery. It uses the same retained adorner layer, palettes and native input ownership as the existing designer.

@@ -14,13 +14,15 @@ public sealed class HmiDiagramLink
     public bool ShowDirection { get; set; } = true;
     public bool IsHidden { get; set; }
     public bool IsLocked { get; set; }
+    /// <summary>Ordered document-space routing constraints. Empty means fully automatic routing.</summary>
+    public List<HmiPoint> Waypoints { get; set; } = [];
 
     public HmiDiagramLink Copy(bool newIdentity = false) => new()
     {
         Id = newIdentity ? Guid.NewGuid().ToString("N") : Id, Name = Name,
         Source = Source.Copy(), Target = Target.Copy(), Kind = Kind, ActivityTag = ActivityTag,
         Thickness = Thickness, Clearance = Clearance, ShowDirection = ShowDirection,
-        IsHidden = IsHidden, IsLocked = IsLocked
+        IsHidden = IsHidden, IsLocked = IsLocked, Waypoints = [.. Waypoints]
     };
 }
 
