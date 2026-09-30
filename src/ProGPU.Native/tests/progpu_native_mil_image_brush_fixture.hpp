@@ -83,10 +83,12 @@ struct mil_image_brush_fixture_options {
     std::array<double, 4U> source_bounds{10.0, 20.0, 20.0, 10.0};
     bool hit_test_index{};
     bool empty_source{};
+    std::span<const progpu_native_mil_visual_visibility> visual_visibilities{};
 };
 
 inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
-    const mil_image_brush_fixture_options& options, std::uint64_t scene_id) {
+    const mil_image_brush_fixture_options& options, std::uint64_t scene_id,
+    progpu_native_mil_scene_metrics* metrics = nullptr) {
     using mil::command;
     using mil_clip_fixture_detail::append;
     using mil_clip_fixture_detail::packet;
@@ -387,6 +389,9 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
     mil_clip_channel channel(raw);
     if (progpu_native_mil_channel_apply(raw, batch.data(), batch.size(), nullptr)
         != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
+    if (!options.visual_visibilities.empty() &&
+        progpu_native_mil_channel_set_visual_visibilities(raw, options.visual_visibilities.data(),
+            options.visual_visibilities.size()) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
     if (options.visual_mask && !options.missing_visual_bounds &&
         progpu_native_mil_channel_set_visual_cache_bounds(raw, 1U, 8.0, 8.0, 48.0, 48.0)
             != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
@@ -416,7 +421,7 @@ inline bool build_mil_image_brush_fixture(std::vector<std::byte>& scene,
             nullptr, 0U, &written, nullptr, &result) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
     scene.resize(written);
     return progpu_native_mil_channel_build_scene_with_request(raw, &request,
-        scene.data(), scene.size(), &written, nullptr, &result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
+        scene.data(), scene.size(), &written, metrics, &result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
         written == scene.size();
 }
 

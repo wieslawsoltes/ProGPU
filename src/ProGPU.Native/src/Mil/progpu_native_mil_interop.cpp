@@ -53,6 +53,8 @@ void write_scene_metrics(
 
 static_assert(sizeof(progpu_native_mil_scene_build_request) == 64U);
 static_assert(sizeof(progpu_native_mil_scene_build_result) == 32U);
+static_assert(sizeof(progpu_native_mil_visual_visibility) == 8U);
+static_assert(offsetof(progpu_native_mil_visual_visibility, visibility) == 4U);
 
 } // namespace
 
@@ -334,6 +336,17 @@ progpu_native_mil_channel_set_point_hit_rectangles(
         reinterpret_cast<std::uintptr_t>(rectangles) % alignof(progpu_native_mil_point_hit_rectangle) != 0U)
         return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
     return to_abi(channel->state.set_point_hit_rectangles({rectangles, count}));
+}
+
+progpu_native_mil_status
+progpu_native_mil_channel_set_visual_visibilities(
+    progpu_native_mil_channel* channel,
+    const progpu_native_mil_visual_visibility* visibilities,
+    size_t count) {
+    if (channel == nullptr || (count != 0U && visibilities == nullptr) ||
+        reinterpret_cast<std::uintptr_t>(visibilities) % alignof(progpu_native_mil_visual_visibility) != 0U)
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    return to_abi(channel->state.set_visual_visibilities({visibilities, count}));
 }
 
 progpu_native_mil_status
