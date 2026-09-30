@@ -253,6 +253,9 @@ def prepare(args):
         "(www.freetype.org). All rights reserved.\n"
         "FreeType 2.14.3 is consumed under the FreeType License (FTL); preserve "
         "the included original and contributed-component notices.\n", encoding="utf-8")
+    headers = [{"path": str(path.relative_to(install / "include/freetype2")).replace(os.sep, "/"),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+               for path in sorted((install / "include/freetype2").rglob("*")) if path.is_file()]
     manifest = {"schemaVersion": 1, "rid": args.rid, "pin": pin, "library": str(library),
                 "sha256": hashlib.sha256(payload).hexdigest(), "verifiedObjects": count,
                 "include": str(install / "include/freetype2"), "notices": receipts,
@@ -261,6 +264,8 @@ def prepare(args):
                 "probeConfigure": probe_configure, "publicApiProbe": probe,
                 "glyphProbe": glyph_probe, "transportProbe": transport_probe,
                 "cacheProbe": cache_probe,
+                "headers": headers,
+                "creditSha256": hashlib.sha256((legal / "NOTICE.txt").read_bytes()).hexdigest(),
                 "testFont": {"path": str(test_font), "sha256": test_font_hash},
                 "qualification": "signed-source-static-architecture-library-policy-and-private-glyph-batches"}
     (install / "progpu-freetype.json").write_text(json.dumps(manifest, indent=2) + "\n")
