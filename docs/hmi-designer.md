@@ -109,7 +109,7 @@ The dedicated GitHub Actions workflow builds the standalone host and gallery, ru
 
 ## Deliberate boundaries
 
-This implementation is an HMI authoring, rendering and local-runtime library, **not a commissioned SCADA or safety system**. Optional adapters support Modbus TCP and MQTT 5/TLS with the boundaries in [control integrations](hmi-control-integrations.md). The optional OPC UA package supplies typed scalar acquisition, bounded browsing and reviewed writes; see [OPC UA commissioning](hmi-opcua.md). It does not include OPC DA, PLC downloads, distributed redundancy, durable historian storage, alarm shelving/escalation, multi-user authorization, a credential vault, tamper-evident audit storage, recursive nested symbol templates, advanced industrial connector routing, or vendor project-format interoperability. Alarm-list controls show a bounded summary, not a server-side alarm historian. Browser file pickers, deployed browser sample qualification and device-specific touch qualification are separate work.
+This implementation is an HMI authoring, rendering and local-runtime library, **not a commissioned SCADA or safety system**. Optional adapters support Modbus TCP and MQTT 5/TLS with the boundaries in [control integrations](hmi-control-integrations.md). The optional OPC UA package supplies typed scalar acquisition, bounded browsing and reviewed writes; see [OPC UA commissioning](hmi-opcua.md). It does not include OPC DA, PLC downloads, distributed redundancy, durable historian storage, alarm shelving/escalation, multi-user authorization, a credential vault, tamper-evident audit storage, recursive nested symbol templates, engineering pipe specifications or electrical circuit solving, or vendor project-format interoperability. Alarm-list controls show a bounded summary, not a server-side alarm historian. Browser file pickers, deployed browser sample qualification and device-specific touch qualification are separate work.
 
 Real equipment integration must implement authenticated transport, least-privilege authorization, server-side interlocks and validation, write confirmation/timeout semantics, reconnect quality, commissioning and independent safety functions. Do not use visual state or client-side designer locks as a safety interlock. No certification or vendor feature parity is asserted.
 
@@ -122,3 +122,7 @@ Connections edits endpoint profiles and typed I/O mappings, starts explicit read
 ## Process studio appearance
 
 The standalone app and gallery open the Northwater process studio example. [The visual studio guide](hmi-visual-studio.md) covers the 40-symbol renderer, palette selection, orientation, dynamic captions, compact menu layout, rulers, runtime scaling, source-generated JSON and executable pixel/input probes.
+
+## Semantic diagram editing
+
+The [diagram connections guide](hmi-diagram-connections.md) covers stable nozzle topology, orthogonal routing, card/process attachment rules, line feedback and diagnostics, copy/undo behavior and bounded work. The Northwater sample uses actual routed connections between its process equipment. Diagram links are separate from network connection profiles and never submit control commands.

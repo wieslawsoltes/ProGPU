@@ -11,6 +11,7 @@ public sealed class HmiScreenView : Grid, IDisposable
     private readonly HmiProject _project;
     private readonly HmiRuntime _runtime;
     private readonly Canvas _surface = new();
+    public HmiLinkLayer DiagramLayer { get; } = new();
     private readonly Dictionary<string, List<HmiControl>> _bindings = new(StringComparer.Ordinal);
     private readonly Dictionary<HmiControl, HmiElement> _definitions = [];
     private readonly List<HmiControl> _alarmControls = [];
@@ -24,6 +25,7 @@ public sealed class HmiScreenView : Grid, IDisposable
         {
             if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value));
             _colorScheme = value;
+            DiagramLayer.ColorScheme = value;
             Background = HmiThemeResources.GetReference(value, HmiBrushRole.Surface);
             foreach (var control in _definitions.Keys) control.ColorScheme = value;
         }
@@ -39,6 +41,8 @@ public sealed class HmiScreenView : Grid, IDisposable
         _project = HmiProjectSerializer.Clone(project);
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _font = font ?? PopupService.DefaultFont;
+        DiagramLayer.ReadSample = tag => _runtime.TryRead(tag, out var sample) ? sample : null;
+        AddChild(DiagramLayer);
         AddChild(_surface);
         LoadScreen(screenId ?? project.StartScreenId);
         _runtime.TagsChanged += OnTagsChanged;
@@ -55,6 +59,7 @@ public sealed class HmiScreenView : Grid, IDisposable
         Background = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Surface);
         Width = _surface.Width = screen.Width;
         Height = _surface.Height = screen.Height;
+        DiagramLayer.SetScreen(screen);
         foreach (var definition in screen.Elements)
         {
             var control = HmiControlCatalog.Create(definition.Symbol);
@@ -91,6 +96,7 @@ public sealed class HmiScreenView : Grid, IDisposable
     {
         if (_disposed) return;
         foreach (var control in _definitions.Keys) Refresh(control);
+        DiagramLayer.RefreshTags();
         OnAlarmsChanged();
     }
     private void OnTagsChanged(IReadOnlyList<string> tags)
@@ -99,6 +105,7 @@ public sealed class HmiScreenView : Grid, IDisposable
         var affected = new HashSet<HmiControl>();
         foreach (var tag in tags) if (_bindings.TryGetValue(tag, out var controls)) foreach (var control in controls) affected.Add(control);
         foreach (var control in affected) Refresh(control);
+        DiagramLayer.RefreshTags(tags);
     }
     private void Refresh(HmiControl control)
     {
@@ -107,6 +114,7 @@ public sealed class HmiScreenView : Grid, IDisposable
         if (definition.VisibilityTag.Length > 0)
             visible &= _runtime.TryRead(definition.VisibilityTag, out var visibility) && visibility.Quality == HmiQuality.Good && visibility.Value.AsBoolean();
         control.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        DiagramLayer.SetElementVisible(definition.Id, visible);
         bool enabled = true;
         if (definition.EnabledTag.Length > 0)
             enabled = _runtime.TryRead(definition.EnabledTag, out var condition) && condition.Quality == HmiQuality.Good && condition.Value.AsBoolean();
@@ -135,5 +143,6 @@ public sealed class HmiScreenView : Grid, IDisposable
         _runtime.NavigationRequested -= LoadScreen;
         _bindings.Clear(); _definitions.Clear(); _alarmControls.Clear();
         _surface.Children.Clear();
+        DiagramLayer.Clear();
     }
 }

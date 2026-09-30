@@ -36,6 +36,7 @@ public sealed partial class HmiDesignerHost
         _multiAdorner.Invalidate();
         if (selection.Length == 0)
         {
+            if (BuildLinkInspector()) return;
             var screen = Session.ActiveScreen;
             ProjectProperty("Project name", Session.Document.Name, (p, v) => p.Name = v);
             ProjectProperty("Screen name", screen.Name, (p, v) => p.Screens.Single(s => s.Id == screen.Id).Name = v);

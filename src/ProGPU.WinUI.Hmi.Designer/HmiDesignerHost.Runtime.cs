@@ -74,6 +74,7 @@ public sealed partial class HmiDesignerHost
     public void StopPreview()
     {
         StopHardwareAcquisition();
+        CancelDiagramConnection();
         Interlocked.Increment(ref _generation);
         _timer?.Dispose(); _timer = null;
         Volatile.Write(ref _pendingGeneration, 0);

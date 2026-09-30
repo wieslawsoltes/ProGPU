@@ -12,6 +12,8 @@ public sealed partial class HmiDesignerHost
         var existing = _canvas.DesignSurface.Children.OfType<HmiControl>()
             .GroupBy(c => c.ElementId, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         var tags = Session.Document.Tags.ToDictionary(t => t.Name, StringComparer.Ordinal);
+        DiagramLayer.ReadSample = name => tags.TryGetValue(name, out var tag) ? new HmiTagSample(tag.InitialValue, HmiQuality.Good, DateTimeOffset.UnixEpoch) : null;
+        DiagramLayer.SetScreen(screen);
         var desired = new List<HmiControl>(screen.Elements.Count);
         foreach (var element in screen.Elements)
         {
@@ -26,13 +28,19 @@ public sealed partial class HmiDesignerHost
         }
         var retained = desired.ToHashSet();
         foreach (var previous in _canvas.DesignSurface.Children.OfType<FrameworkElement>().ToArray())
-            if (previous is not HmiControl control || !retained.Contains(control)) _canvas.DesignSurface.Children.Remove(previous);
+            if (!ReferenceEquals(previous, DiagramLayer) && (previous is not HmiControl control || !retained.Contains(control)))
+                _canvas.DesignSurface.Children.Remove(previous);
+        if (_canvas.DesignSurface.Children.Count == 0 || !ReferenceEquals(_canvas.DesignSurface.Children[0], DiagramLayer))
+        {
+            _canvas.DesignSurface.Children.Remove(DiagramLayer);
+            _canvas.DesignSurface.Children.Insert(0, DiagramLayer);
+        }
         for (int index = 0; index < desired.Count; index++)
         {
             var control = desired[index];
-            if (index < _canvas.DesignSurface.Children.Count && ReferenceEquals(_canvas.DesignSurface.Children[index], control)) continue;
+            if (index + 1 < _canvas.DesignSurface.Children.Count && ReferenceEquals(_canvas.DesignSurface.Children[index + 1], control)) continue;
             _canvas.DesignSurface.Children.Remove(control);
-            _canvas.DesignSurface.Children.Insert(index, control);
+            _canvas.DesignSurface.Children.Insert(index + 1, control);
         }
     }
 }

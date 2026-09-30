@@ -79,6 +79,7 @@ public sealed partial class HmiDesignerHost
             Status("CSV exported into the diagnostics pane; select/copy the text to save it.");
         }));
         tabs.Items.Add(new PivotItem("Runtime / audit", TablePane(monitorTools, _monitor)));
+        tabs.Items.Add(new PivotItem("Diagram", BuildDiagramPane()));
         tabs.Items.Add(new PivotItem("Connections", BuildConnectionsPane()));
         tabs.Items.Add(new PivotItem("Faceplates", BuildFaceplatesPane()));
         tabs.Items.Add(new PivotItem("States", BuildStateRulesPane()));
@@ -101,6 +102,7 @@ public sealed partial class HmiDesignerHost
     private void RefreshTables()
     {
         if (_tags == null) return;
+        RefreshDiagramTable();
         RefreshConnectionTables(); RefreshFaceplateList(); RefreshStateTable();
         _tags.ClearItems(); _alarms.ClearItems(); _recipes.ClearItems();
         foreach (var tag in Session.Document.Tags)

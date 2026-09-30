@@ -12,6 +12,32 @@ namespace ProGPU.WinUI.Hmi.Designer;
 internal sealed class HmiDesignerCanvas : DesignerCanvas
 {
     internal HmiColorScheme ColorScheme { get; set; }
+    internal HmiLinkLayer DiagramLayer { get; } = new();
+    internal bool IsConnecting { get; set; }
+    internal Action<HmiLinkEndpoint>? PortPicked { get; set; }
+    internal Action<string?>? LinkPicked { get; set; }
+    internal Action? GeometryPreviewChanged { get; set; }
+    public HmiDesignerCanvas() => DesignSurface.Children.Add(DiagramLayer);
+
+    public override void OnPointerPressed(PointerRoutedEventArgs e)
+    {
+        if (!IsInteractionMode && e.IsLeftButtonPressed && !e.IsMiddleButtonPressed && !e.IsRightButtonPressed)
+        {
+            var logical = (e.Position - PanOffset) / ZoomScale;
+            var point = new HmiPoint(logical.X, logical.Y);
+            if (IsConnecting)
+            {
+                var endpoint = DiagramLayer.HitPort(point, 10 / ZoomScale);
+                if (endpoint != null) PortPicked?.Invoke(endpoint);
+                e.Handled = true;
+                return;
+            }
+            string? link = DiagramLayer.HitLink(point, 6 / ZoomScale);
+            LinkPicked?.Invoke(link);
+            if (link != null) { e.Handled = true; return; }
+        }
+        base.OnPointerPressed(e);
+    }
     internal TtfFont? RulerFont { get; set; }
     internal bool ShowRulers { get; set; } = true;
     private static readonly Pen LightBorder = new(HmiThemeResources.GetBrush(HmiColorScheme.Light, HmiBrushRole.Border), 1);
@@ -22,6 +48,8 @@ internal sealed class HmiDesignerCanvas : DesignerCanvas
     {
         if (SelectedElement is HmiControl { IsDesignLocked: true } && e.IsLeftButtonPressed && !e.IsMiddleButtonPressed) return;
         base.OnPointerMoved(e);
+        if (!IsInteractionMode && !IsConnecting && e.IsLeftButtonPressed && !e.IsMiddleButtonPressed)
+            GeometryPreviewChanged?.Invoke();
     }
 
     public override void OnRender(DrawingContext context)

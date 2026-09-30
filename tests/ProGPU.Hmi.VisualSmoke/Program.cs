@@ -154,11 +154,99 @@ foreach (var scheme in schemes)
         throw new InvalidOperationException("The shared designer's geometric hit test missed the transformed equipment; selected=" + host.WorkspaceCanvas.SelectedElement?.GetType().Name + " / " + (host.WorkspaceCanvas.SelectedElement as HmiControl)?.Label);
     host.ZoomToSelection(); window.Render(0);
     window.SaveScreenshot(Path.Combine(args[1], "selection-" + scheme.ToString().ToLowerInvariant() + ".png"));
+    host.Fit(); window.Render(0);
+    string beforeConnection = host.Session.ExportJson();
+    int originalLinks = host.Session.GetProject().Screens[0].Links.Count;
+    if (originalLinks != 3 || host.DiagramLayer.Routes.Values.Any(r => r.Status != HmiRouteStatus.Success))
+        throw new InvalidOperationException("The showcase semantic connections did not route.");
+    var screen = host.Session.GetProject().Screens[0];
+    var from = screen.Elements.Single(e => e.Symbol == HmiSymbol.Filter);
+    var to = screen.Elements.Single(e => e.Symbol == HmiSymbol.Tank);
+    host.BeginDiagramConnection(); window.Render(0);
+    void ClickDocument(HmiPoint logical)
+    {
+        var target = host.WorkspaceCanvas.DesignSurface.TransformToVisual(host).TransformPoint(new Vector2(logical.X, logical.Y));
+        InputSystem.InjectMouseMove(target); InputSystem.InjectMouseDown(MouseButton.Left); InputSystem.InjectMouseUp(MouseButton.Left);
+    }
+    ClickDocument(HmiPortLayout.Resolve(from, "outlet").Point);
+    if (!host.IsConnectingDiagram || host.Session.GetProject().Screens[0].Links.Count != originalLinks)
+        throw new InvalidOperationException("First nozzle click must remain an uncommitted authoring gesture.");
+    window.Render(0);
+    ClickDocument(HmiPortLayout.Resolve(to, "inlet").Point);
+    if (host.IsConnectingDiagram || host.Session.GetProject().Screens[0].Links.Count != originalLinks + 1 || host.SelectedLinkId == null)
+        throw new InvalidOperationException("The actual two-nozzle pointer gesture did not commit its diagram connection.");
+    string created = host.SelectedLinkId;
+    var createdRoute = host.DiagramLayer.Routes[created];
+    if (createdRoute.Status != HmiRouteStatus.Success) throw new InvalidOperationException(createdRoute.Diagnostic);
+    host.SelectDiagramLink(null); window.Render(0);
+    bool picked = false;
+    for (int i = 1; i < createdRoute.Points.Count; i++)
+    {
+        var first = createdRoute.Points[i - 1]; var last = createdRoute.Points[i];
+        var middle = new HmiPoint((first.X + last.X) / 2, (first.Y + last.Y) / 2);
+        if (host.DiagramLayer.HitLink(middle, 3) != created) continue;
+        ClickDocument(middle); picked = host.SelectedLinkId == created;
+        if (picked) break;
+    }
+    if (!picked) throw new InvalidOperationException("Actual pointer picking did not select the routed link.");
+    host.SetDataPanelsVisible(true);
+    var tabs = Descendants(host).OfType<Pivot>().Single(p => p.Items.Any(i => i.Header?.ToString() == "Diagram"));
+    tabs.SelectedIndex = tabs.Items.ToList().FindIndex(i => i.Header?.ToString() == "Diagram");
+    window.Render(1); host.Fit(); window.Render(0);
+    window.SaveScreenshot(Path.Combine(args[1], "diagram-" + scheme.ToString().ToLowerInvariant() + ".png"));
+    host.Session.Undo();
+    if (host.Session.ExportJson() != beforeConnection) throw new InvalidOperationException("Undo did not restore the pre-gesture diagram and equipment.");
+    Console.WriteLine($"{scheme}: semantic nozzle creation, rendered link selection and atomic undo passed.");
     InputSystem.Current = new WindowInputState();
     window.Content = null;
     Console.WriteLine($"{scheme}: fitted runtime command, overlap selection and zoom-to-selection passed at {elapsed.Elapsed}.");
 }
-Console.WriteLine($"PASS: actual ProGPU component, designer and runtime readback with reflection JSON disabled ({elapsed.Elapsed}).");
+// Independent feedback/style/failure atlas: actual runtime views, not renderer stubs.
+window.Resize(1600, 720);
+foreach (var scheme in schemes)
+{
+    var sheet = new Canvas { Background = HmiThemeResources.GetBrush(scheme, HmiBrushRole.Workspace) };
+    var examples = new[] {
+        ("Process / running", HmiLinkKind.Process, HmiQuality.Good, true),
+        ("Signal / telemetry", HmiLinkKind.Signal, HmiQuality.Good, true),
+        ("Electrical / state", HmiLinkKind.Electrical, HmiQuality.Good, true),
+        ("Stopped / false", HmiLinkKind.Process, HmiQuality.Good, false),
+        ("Unknown / bad feedback", HmiLinkKind.Process, HmiQuality.Bad, true),
+        ("Blocked / overlapping equipment", HmiLinkKind.Process, HmiQuality.Good, true) };
+    var views = new List<HmiScreenView>();
+    int index = 0;
+    foreach (var (name, kind, quality, active) in examples)
+    {
+        var project = new HmiProject { StartScreenId = "overview", Tags = [new() { Name = "Running", Type = HmiTagType.Boolean, InitialValue = HmiValue.From(active) }],
+            Screens = [new() { Id = "overview", Width = 510, Height = 310, Elements = [
+                new() { Id = "valve", Symbol = HmiSymbol.Valve, Label = "XV-101", X = 24, Y = 65, Width = 125, Height = 190, Tag = "Running" },
+                new() { Id = "pump", Symbol = HmiSymbol.Pump, Label = "P-201", X = index == 5 ? 115 : 355, Y = 65, Width = 125, Height = 190, Tag = "Running" }],
+                Links = [new() { Id = "line", Source = new() { ElementId = "valve", PortId = "outlet" }, Target = new() { ElementId = "pump", PortId = "inlet" }, ActivityTag = "Running", Kind = kind }] }] };
+        if (index == 2) foreach (var element in project.Screens[0].Elements) element.Appearance.Presentation = HmiPresentation.Card;
+        var runtime = new HmiRuntime(project, at);
+        if (quality != HmiQuality.Good) runtime.Publish(new Dictionary<string, HmiTagSample> { ["Running"] = new(HmiValue.From(active), quality, at) }, at);
+        var view = new HmiScreenView(project, runtime, font: font) { ColorScheme = scheme };
+        var label = new TextBlock { Text = name, Font = font, FontSize = 16, Foreground = HmiThemeResources.GetBrush(scheme, HmiBrushRole.Text) };
+        Canvas.SetLeft(label, 26 + index % 3 * 530); Canvas.SetTop(label, 16 + index / 3 * 350); sheet.Children.Add(label);
+        Canvas.SetLeft(view, 12 + index % 3 * 530); Canvas.SetTop(view, 48 + index / 3 * 350); sheet.Children.Add(view); views.Add(view);
+        if (index < 5 && view.DiagramLayer.Routes["line"].Status != HmiRouteStatus.Success)
+            throw new InvalidOperationException("A feedback/style fixture did not route.");
+        if (index == 5 && view.DiagramLayer.Routes["line"].Status != HmiRouteStatus.BlockedTerminal)
+            throw new InvalidOperationException("Overlapping equipment was misleadingly rendered as a routed connection.");
+        index++;
+    }
+    window.Content = sheet; window.Render(0); window.Render(0);
+    var pixels = window.ReadPixels();
+    // Crop only the inter-equipment line region; captions/equipment must not make these comparisons pass.
+    string LinkHash(int tile) => Convert.ToHexString(SHA256.HashData(Crop(pixels, 1600, 192 + tile % 3 * 530, 150 + tile / 3 * 350, 120, 95)));
+    if (LinkHash(0) == LinkHash(3) || LinkHash(0) == LinkHash(4) || LinkHash(0) == LinkHash(1) || LinkHash(1) == LinkHash(2))
+        throw new InvalidOperationException("Line style or quality did not change the actual connection pixels.");
+    window.SaveScreenshot(Path.Combine(args[1], "links-" + scheme.ToString().ToLowerInvariant() + ".png"));
+    foreach (var view in views) view.Dispose();
+    window.Content = null;
+    Console.WriteLine($"{scheme}: independent line style, active/stopped/unknown pixels and blocked terminal checks passed.");
+}
+Console.WriteLine($"PASS: actual ProGPU component, semantic diagram, designer and runtime readback with reflection JSON disabled ({elapsed.Elapsed}).");
 
 static IEnumerable<Visual> Descendants(Visual visual)
 {

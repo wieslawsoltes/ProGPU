@@ -159,7 +159,7 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
 
     public new void AddChild(Visual child)
     {
-        if (child is FrameworkElement fe)
+        if (child is FrameworkElement fe && !DesignerElementRegistry.IsDecoration(fe))
         {
             if (IsInteractionMode)
             {
@@ -217,6 +217,7 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
 
     public void SelectElement(FrameworkElement? element)
     {
+        if (element != null && DesignerElementRegistry.IsDecoration(element)) return;
         if (_selectedElement == element) return;
 
         if (_selectionAdorner != null)
@@ -723,7 +724,7 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
             {
                 foreach (var child in container.Children)
                 {
-                    if (child is FrameworkElement fe && fe.IsVisible && !fe.IsCollapsed)
+                    if (child is FrameworkElement fe && !DesignerElementRegistry.IsDecoration(fe) && fe.IsVisible && !fe.IsCollapsed)
                     {
                         float w = float.IsNaN(fe.Width) ? fe.Size.X : fe.Width;
                         float h = float.IsNaN(fe.Height) ? fe.Size.Y : fe.Height;
@@ -908,7 +909,7 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
             {
                 foreach (var child in container.Children)
                 {
-                    if (child is FrameworkElement fe)
+                    if (child is FrameworkElement fe && !DesignerElementRegistry.IsDecoration(fe))
                     {
                         results.Add(fe);
                         GetAllElementsRecursive(fe, results);
@@ -1230,6 +1231,7 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
 
     private void SetDesignedSubtreeHitTesting(Visual visual, bool enabled)
     {
+        if (visual is FrameworkElement decoration && DesignerElementRegistry.IsDecoration(decoration)) return;
         if (visual is FrameworkElement element)
         {
             if (enabled)

@@ -16,19 +16,7 @@ internal static class HmiSymbolRenderer
         float phase = 0, bool ports = true, int quarterTurns = 0, bool mirrorHorizontal = false, bool mirrorVertical = false)
     {
         if (bounds.Width < 4 || bounds.Height < 4 || !float.IsFinite(bounds.Width) || !float.IsFinite(bounds.Height)) return;
-        float aspect = symbol switch
-        {
-            HmiSymbol.Pipe => 5,
-            HmiSymbol.Conveyor or HmiSymbol.HeatExchanger => 1.8f,
-            HmiSymbol.Valve or HmiSymbol.ControlValve or HmiSymbol.CheckValve or HmiSymbol.ButterflyValve => 1.35f,
-            HmiSymbol.Tank or HmiSymbol.Silo or HmiSymbol.Thermometer => 0.75f,
-            HmiSymbol.BarGraph or HmiSymbol.ToggleSwitch or HmiSymbol.Trend => 2,
-            _ => 1.1f
-        };
-        if ((quarterTurns & 1) != 0) aspect = 1 / aspect;
-        float fittedWidth = symbol == HmiSymbol.Pipe ? bounds.Width : Math.Min(bounds.Width, bounds.Height * aspect);
-        float fittedHeight = symbol == HmiSymbol.Pipe ? bounds.Height : fittedWidth / aspect;
-        bounds = new Rect(bounds.X + (bounds.Width - fittedWidth) / 2, bounds.Y + (bounds.Height - fittedHeight) / 2, fittedWidth, fittedHeight);
+        bounds = HmiPortLayout.FitGlyph(symbol, bounds, quarterTurns);
         float fraction = maximum > minimum ? (float)Math.Clamp((value - minimum) / (maximum - minimum), 0, 1) : 0;
         var g = new Painter(context, bounds, palette, ports, quarterTurns, mirrorHorizontal, mirrorVertical);
         Brush signal = palette.Status(tone, active, unknown);
@@ -335,13 +323,7 @@ internal static class HmiSymbolRenderer
     private readonly ref struct Painter(DrawingContext context, Rect bounds, HmiPalette palette,
         bool showPorts, int quarterTurns, bool mirrorHorizontal, bool mirrorVertical)
     {
-        private Vector2 P(float x, float y)
-        {
-            if (mirrorHorizontal) x = 100 - x;
-            if (mirrorVertical) y = 100 - y;
-            (x, y) = (quarterTurns & 3) switch { 1 => (100 - y, x), 2 => (100 - x, 100 - y), 3 => (y, 100 - x), _ => (x, y) };
-            return new(bounds.X + x * bounds.Width * 0.01f, bounds.Y + y * bounds.Height * 0.01f);
-        }
+        private Vector2 P(float x, float y) => HmiPortLayout.TransformPoint(x, y, bounds, quarterTurns, mirrorHorizontal, mirrorVertical);
         internal void L(Pen pen, float x1, float y1, float x2, float y2) => context.DrawLine(pen, P(x1, y1), P(x2, y2));
         internal void Poly(Pen pen, params ReadOnlySpan<Vector2> points)
         {

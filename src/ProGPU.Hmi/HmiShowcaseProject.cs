@@ -26,8 +26,6 @@ public static class HmiShowcaseProject
         Add(HmiSymbol.NumericDisplay, "DISCHARGE PRESSURE", 325, 110, 285, 116, "Line.Pressure", "bar", 10);
         Add(HmiSymbol.NumericDisplay, "PROCESS FLOW", 626, 110, 285, 116, "Line.Flow", "m³/h", 200);
         Add(HmiSymbol.NumericDisplay, "SPEED DEMAND", 927, 110, 329, 116, "Pump.Setpoint", "%");
-        // Pipe is behind the vessel/equipment layer. The rendering does not imply engineering routing or an interlock.
-        Add(HmiSymbol.Pipe, "", 161, 367, 883, 28, "Valve.Open").Appearance.ShowTagName = false;
         Add(HmiSymbol.Tank, "TK-101 / BUFFER", 35, 251, 226, 282, "Tank.Level", "%");
         Add(HmiSymbol.Valve, "XV-101 / ISOLATION", 300, 273, 186, 218, "Valve.Open").Action = new() { Kind = HmiActionKind.ToggleTag, Target = "Valve.Open" };
         Add(HmiSymbol.Pump, "P-101 / TRANSFER", 520, 273, 205, 218, "Pump.Running");
@@ -38,6 +36,19 @@ public static class HmiShowcaseProject
         Add(HmiSymbol.Trend, "BUFFER LEVEL / RECENT HISTORY", 24, 579, 741, 198, "Tank.Level", "%");
         Add(HmiSymbol.AlarmBanner, "PROCESS NOTIFICATIONS", 787, 579, 469, 102);
         Add(HmiSymbol.NavigationButton, "Operations & alarm console", 787, 702, 469, 64).Action = new() { Kind = HmiActionKind.Navigate, Target = "operations" };
+        // Directed semantic connections follow actual equipment nozzles; they do not model pressure or interlocks.
+        var tank = screen.Elements.Single(e => e.Symbol == HmiSymbol.Tank);
+        var valve = screen.Elements.Single(e => e.Symbol == HmiSymbol.Valve);
+        var pump = screen.Elements.Single(e => e.Symbol == HmiSymbol.Pump);
+        var filter = screen.Elements.Single(e => e.Symbol == HmiSymbol.Filter);
+        void Link(string name, HmiElement from, HmiElement to, string feedback) => screen.Links.Add(new()
+        {
+            Name = name, Source = new() { ElementId = from.Id, PortId = "outlet" },
+            Target = new() { ElementId = to.Id, PortId = "inlet" }, ActivityTag = feedback
+        });
+        Link("Feed / isolation", tank, valve, "Valve.Open");
+        Link("Isolation / transfer", valve, pump, "Pump.Running");
+        Link("Transfer / polishing", pump, filter, "Pump.Running");
         HmiProjectSerializer.Validate(project);
         return project;
     }

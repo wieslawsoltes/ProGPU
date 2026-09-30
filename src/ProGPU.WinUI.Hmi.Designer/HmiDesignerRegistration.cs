@@ -14,6 +14,7 @@ public static class HmiDesignerRegistration
         lock (Gate)
         {
             if (_registered) return;
+            DesignerElementRegistry.RegisterDecoration<HmiLinkLayer>();
             foreach (var item in HmiControlCatalog.Items)
             {
                 var symbol = item.Symbol;

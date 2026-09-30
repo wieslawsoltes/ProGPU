@@ -103,6 +103,7 @@ public static class HmiProjectSerializer
                 }
             }
         }
+        foreach (var screen in project.Screens) HmiDiagram.Validate(screen, tags);
         HmiProjectExtensions.Validate(project);
         var alarmIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var alarm in project.Alarms)

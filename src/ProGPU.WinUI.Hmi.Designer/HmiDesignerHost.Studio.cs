@@ -93,7 +93,7 @@ public sealed partial class HmiDesignerHost
             ("Select all", () => DesignCommand(_selection.SelectAll)), ("Copy", CopySelection),
             ("Cut", () => DesignCommand(() => { CopySelection(); _selection.Delete(); })),
             ("Paste", PasteSelection), ("Duplicate", () => { CopySelection(); PasteSelection(); }),
-            ("Delete selection", () => DesignCommand(_selection.Delete)),
+            ("Delete selection", () => DesignCommand(DeleteDesignSelection)),
             ("Group selection", () => GroupSelection(true)), ("Ungroup selection", () => GroupSelection(false)),
             ("Lock / unlock selection", ToggleLock)
         ]));
@@ -113,6 +113,13 @@ public sealed partial class HmiDesignerHost
             ("Send to back", () => DesignCommand(() => _selection.Reorder(false)))
         ]);
         tools.AddChild(StudioMenu("Arrange", arrange));
+        tools.AddChild(StudioMenu("Diagram", [
+            ("Connect nozzles (click two ports)", BeginDiagramConnection),
+            ("Cancel nozzle connection (Escape)", CancelDiagramConnection),
+            ("Reverse selected link", ReverseSelectedLink),
+            ("Delete selected link", DeleteSelectedLink),
+            ("Show / hide nozzles", () => DiagramLayer.ShowPortHandles = !DiagramLayer.ShowPortHandles)
+        ]));
         tools.AddChild(StudioMenu("View", [
             ("Fit screen", Fit), ("Zoom to selection", ZoomToSelection), ("Zoom in", () => Zoom(1.25f)), ("Zoom out", () => Zoom(0.8f)),
             ("Toggle design grid", ToggleDesignGrid), ("Toggle snapping", ToggleDesignSnap),
@@ -131,11 +138,17 @@ public sealed partial class HmiDesignerHost
         tools.AddChild(StudioButton("Redo", "Redo", () => DesignCommand(Session.Redo), () => !IsPreviewing && Session.CanRedo));
         tools.AddChild(StudioSeparator());
         tools.AddChild(StudioButton("Duplicate", "Duplicate selection", () => { CopySelection(); PasteSelection(); }, () => !IsPreviewing && _selection.Selection.Count > 0));
-        tools.AddChild(StudioButton("Delete", "Delete selection", () => DesignCommand(_selection.Delete), () => !IsPreviewing && _selection.Selection.Count > 0));
+        tools.AddChild(StudioButton("Delete", "Delete selection", () => DesignCommand(DeleteDesignSelection), () => !IsPreviewing && (_selection.Selection.Count > 0 || SelectedLinkId != null)));
         tools.AddChild(StudioSeparator());
         tools.AddChild(StudioButton("Fit", "Fit screen", Fit));
         tools.AddChild(StudioButton("Minus", "Zoom out", () => Zoom(0.8f)));
         tools.AddChild(StudioButton("Plus", "Zoom in", () => Zoom(1.25f)));
+        _linkToolButton = StudioButton("Link", "Connect two equipment nozzles (Ctrl+L)", () =>
+        {
+            if (IsConnectingDiagram) { CancelDiagramConnection(); UpdateStudioState(); }
+            else BeginDiagramConnection();
+        }, () => !IsPreviewing);
+        tools.AddChild(_linkToolButton);
         tools.AddChild(StudioButton("Grid", "Toggle grid", ToggleDesignGrid));
         tools.AddChild(StudioButton("Snap", "Toggle snapping", ToggleDesignSnap));
         tools.AddChild(StudioButton("Panels", "Show / hide data panels", ToggleDataPanels));
@@ -239,6 +252,7 @@ public sealed partial class HmiDesignerHost
         _workspace.Background = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Workspace);
         _canvas.Background = HmiThemeResources.GetBrush(ColorScheme, HmiBrushRole.Workspace);
         _canvas.ColorScheme = ColorScheme;
+        DiagramLayer.ColorScheme = ColorScheme;
         _canvas.DesignSurface.Background = null;
         _canvas.DocumentBackground = HmiThemeResources.GetBrush(ColorScheme, HmiBrushRole.Surface);
         foreach (var (element, role) in _studioSurfaces)
@@ -271,6 +285,11 @@ public sealed partial class HmiDesignerHost
     {
         if (!_studioInitialized) return;
         foreach (var command in _studioCommands) command.Button.IsEnabled = command.Enabled();
+        if (_linkToolButton != null)
+        {
+            _linkToolButton.BorderBrush = HmiThemeResources.GetReference(ColorScheme, IsConnectingDiagram ? HmiBrushRole.Accent : HmiBrushRole.Border);
+            _linkToolButton.BorderThickness = new Thickness(IsConnectingDiagram ? 2 : 1);
+        }
         bool live = _acquisition != null;
         _modeLabel!.Text = live ? "LIVE  ·  READ ONLY*" : IsPreviewing ? "SIMULATION  ·  LOCAL" : "DESIGN  ·  OFFLINE";
         ToolTipService.SetToolTip(_modeLabel, live ? "Acquisition is live. External commands require separate review and authenticated host authorization." : "No equipment connection is created by opening a project.");

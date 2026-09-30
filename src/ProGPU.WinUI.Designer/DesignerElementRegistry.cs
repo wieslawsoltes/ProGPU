@@ -16,6 +16,18 @@ public static class DesignerElementRegistry
     private static readonly Dictionary<Type, Func<FrameworkElement>> FactoriesByType = new();
     private static readonly Dictionary<Type, Action<FrameworkElement, FrameworkElement>> StateCopiers = new();
     private static readonly HashSet<Type> AtomicTypes = new();
+    private static readonly HashSet<Type> DecorationTypes = new();
+
+    /// <summary>Exclude a retained background/guide layer from model selection, cloning and logical enumeration.</summary>
+    public static void RegisterDecoration<TElement>() where TElement : FrameworkElement
+    {
+        lock (Gate) { DecorationTypes.Add(typeof(TElement)); AtomicTypes.Add(typeof(TElement)); }
+    }
+    public static bool IsDecoration(FrameworkElement element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        lock (Gate) return DecorationTypes.Contains(element.GetType());
+    }
 
     static DesignerElementRegistry()
     {
@@ -161,25 +173,25 @@ public static class DesignerElementRegistry
         if (IsAtomic(parent)) yield break;
         if (parent is Panel panel)
         {
-            foreach (var child in panel.Children) if (child is FrameworkElement element) yield return element;
+            foreach (var child in panel.Children) if (child is FrameworkElement element && !IsDecoration(element)) yield return element;
             yield break;
         }
-        if (parent is Border { Child: FrameworkElement borderChild }) { yield return borderChild; yield break; }
+        if (parent is Border { Child: FrameworkElement borderChild }) { if (!IsDecoration(borderChild)) yield return borderChild; yield break; }
         if (parent is SplitView splitView)
         {
-            if (splitView.Pane is FrameworkElement pane) yield return pane;
-            if (splitView.Content is FrameworkElement content) yield return content;
+            if (splitView.Pane is FrameworkElement pane && !IsDecoration(pane)) yield return pane;
+            if (splitView.Content is FrameworkElement content && !IsDecoration(content)) yield return content;
             yield break;
         }
         if (parent is ContentControl contentControl && parent is not Button and not CheckBox and not RadioButton and not ToggleSwitch and not ComboBox &&
-            contentControl.Content is FrameworkElement contentChild) yield return contentChild;
+            contentControl.Content is FrameworkElement contentChild && !IsDecoration(contentChild)) yield return contentChild;
     }
 
     public static bool IsLogicalChild(FrameworkElement parent, FrameworkElement child)
     {
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentNullException.ThrowIfNull(child);
-        if (IsAtomic(parent)) return false;
+        if (IsAtomic(parent) || IsDecoration(child)) return false;
         if (parent is Panel panel) return panel.Children.Contains(child);
         if (parent is Border border) return border.Child == child;
         if (parent is SplitView splitView) return splitView.Pane == child || splitView.Content == child;

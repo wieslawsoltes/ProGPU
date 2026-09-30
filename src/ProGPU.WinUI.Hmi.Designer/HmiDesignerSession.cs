@@ -75,10 +75,12 @@ public sealed class HmiDesignerSession
         Edit("Duplicate screen", p =>
         {
             var screen = p.Screens.Single(s => s.Id == source);
+            var elements = screen.Elements.Select(e => e.Copy(newIdentity: true)).ToList();
+            var identities = screen.Elements.Select((e, i) => (e.Id, NewId: elements[i].Id)).ToDictionary(e => e.Id, e => e.NewId, StringComparer.Ordinal);
             p.Screens.Add(new HmiScreen
             {
                 Id = id, Name = screen.Name + " copy", Width = screen.Width, Height = screen.Height,
-                Elements = screen.Elements.Select(e => e.Copy(newIdentity: true)).ToList()
+                Elements = elements, Links = HmiDiagram.CopyInternalLinks(screen.Links, identities)
             });
         });
         SelectScreen(id);
@@ -114,6 +116,7 @@ public sealed class HmiDesignerSession
                 if (mapping.Tag == oldName) mapping.Tag = newName;
                 if (mapping.InterlockTag == oldName) mapping.InterlockTag = newName;
             }
+            foreach (var link in p.Screens.SelectMany(s => s.Links)) if (link.ActivityTag == oldName) link.ActivityTag = newName;
             foreach (var alarm in p.Alarms) if (alarm.Tag == oldName) alarm.Tag = newName;
             foreach (var recipe in p.Recipes)
                 if (recipe.Values.Remove(oldName, out var value)) recipe.Values.Add(newName, value);

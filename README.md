@@ -24,7 +24,7 @@ broker/controller acknowledgements are distinguished from actual process feedbac
 
 ## HMI process studio
 
-The [HMI designer](docs/hmi-designer.md) reuses the shared WinUI authoring canvas and exposes **40 retained-vector components**, light/dark/high-contrast palettes, typed faceplates, state rules, alarms, trends, and explicit Modbus TCP, MQTT and OPC UA commissioning.
+The [HMI designer](docs/hmi-designer.md) reuses the shared WinUI authoring canvas and exposes **40 retained-vector components**, light/dark/high-contrast palettes, typed faceplates, state rules, alarms, trends, [semantic nozzle routing](docs/hmi-diagram-connections.md), and explicit Modbus TCP, MQTT and OPC UA commissioning.
 
 ```sh
 dotnet run --project samples/HmiDesigner/HmiDesigner.csproj -c Release

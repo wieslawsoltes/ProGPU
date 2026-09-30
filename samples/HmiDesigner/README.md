@@ -15,3 +15,5 @@ No equipment, network driver or PLC endpoint is connected. This is an authoring 
 See [HMI architecture, component APIs and validation](../../docs/hmi-designer.md).
 
 Use **View** for Light, Dark or High-contrast palettes, rulers, data-panel sizing and runtime fit/1:1. The HMI inspector edits per-symbol rotation, mirroring, caption/range visibility and optional flow animation. See [visual studio architecture and validation](../../docs/hmi-visual-studio.md).
+
+Use **Diagram → Connect nozzles** or **Ctrl+L** to create a semantic connection with two nozzle clicks. Select a line or its Diagram row for properties; Escape cancels an unfinished connection. Diagram feedback is read-only and does not create a hardware transport or command. See [semantic connections and routing](../../docs/hmi-diagram-connections.md).

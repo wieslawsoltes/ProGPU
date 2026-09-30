@@ -20,6 +20,7 @@ public sealed class HmiScreen
     public float Width { get; set; } = 1280;
     public float Height { get; set; } = 720;
     public List<HmiElement> Elements { get; set; } = [];
+    public List<HmiDiagramLink> Links { get; set; } = [];
 }
 
 public enum HmiSymbol

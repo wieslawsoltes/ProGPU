@@ -117,7 +117,10 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         _canvas.CanvasModifying += OnCanvasModifying;
         _canvas.CanvasModified += OnCanvasModified;
         _canvas.SelectionChanged += OnCanvasSelectionChanged;
-        _selection.SelectionChanged += UpdateInspector;
+        _selection.SelectionChanged += OnModelSelectionChanged;
+        _canvas.PortPicked = endpoint => Guard(() => PickDiagramPort(endpoint));
+        _canvas.LinkPicked = SelectDiagramLink;
+        _canvas.GeometryPreviewChanged = PreviewDiagramGeometry;
         _layout.PropertyChanged += OnCanvasModified;
         _outline.SelectionChanged += element => _canvas.SelectElement(element);
         _outline.CanvasModifying += OnCanvasModifying;
@@ -162,6 +165,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     }
     private void DesignCommand(Action action)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (IsPreviewing) throw new InvalidOperationException("Stop simulation before changing the design.");
         action();
     }
@@ -258,11 +262,12 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     }
     private void OnSessionChanged()
     {
+        CancelDiagramConnection();
         _discardConfirmation = null;
         MarkEngineeringDirty();
         RebuildDocumentViews();
     }
-    private void OnScreenChanged() { RebuildDocumentViews(); Fit(); }
+    private void OnScreenChanged() { CancelDiagramConnection(); SelectDiagramLink(null); RebuildDocumentViews(); Fit(); }
     private void OnCanvasSelectionChanged()
     {
         if (_rebuilding) return;
@@ -315,7 +320,15 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
             }
             _restoreSelection = _selection.Selection.OfType<HmiControl>().Select(c => c.CaptureDefinition().Id).ToArray();
             string previousRevision = Session.ExportJson();
-            try { Session.Edit("Edit canvas", p => p.Screens.Single(s => s.Id == Session.ActiveScreenId).Elements = elements); }
+            try
+            {
+                Session.Edit("Edit canvas", p =>
+                {
+                    var screen = p.Screens.Single(s => s.Id == Session.ActiveScreenId);
+                    screen.Elements = elements;
+                    HmiDiagram.RemoveDanglingLinks(screen);
+                });
+            }
             catch { RebuildDocumentViews(); throw; }
             // Changed documents were already reconciled by Session.Changed; no-op locked edits still need restoration.
             if (ReferenceEquals(previousRevision, Session.ExportJson())) RebuildDocumentViews();
@@ -342,7 +355,9 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     public void CopySelection()
     {
         _clipboard = _selection.Selection.OfType<HmiControl>().Select(c => c.CaptureDefinition()).ToList();
-        Status($"Copied {_clipboard.Count} component(s).");
+        var identities = _clipboard.ToDictionary(e => e.Id, e => e.Id, StringComparer.Ordinal);
+        _clipboardLinks = Session.ActiveScreen.Links.Where(l => identities.ContainsKey(l.Source.ElementId) && identities.ContainsKey(l.Target.ElementId)).Select(l => l.Copy()).ToList();
+        Status($"Copied {_clipboard.Count} component(s) and {_clipboardLinks.Count} internal link(s).");
     }
     public void PasteSelection()
     {
@@ -350,9 +365,11 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         {
             if (_clipboard.Count == 0) return;
             var groups = new Dictionary<string, string>(StringComparer.Ordinal);
+            var identities = new Dictionary<string, string>(StringComparer.Ordinal);
             var elements = _clipboard.Select(source =>
             {
                 var copy = source.Copy(newIdentity: true); copy.X += 20; copy.Y += 20; copy.IsLocked = false; copy.Name += " copy";
+                identities.Add(source.Id, copy.Id);
                 if (copy.Group.Length > 0)
                 {
                     if (!groups.TryGetValue(copy.Group, out var id)) groups[copy.Group] = id = Guid.NewGuid().ToString("N");
@@ -361,7 +378,13 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
                 return copy;
             }).ToList();
             _restoreSelection = elements.Select(e => e.Id).ToArray();
-            Session.Edit("Paste components", p => p.Screens.Single(s => s.Id == Session.ActiveScreenId).Elements.AddRange(elements));
+            var links = HmiDiagram.CopyInternalLinks(_clipboardLinks, identities);
+            foreach (var link in links) link.IsLocked = false;
+            Session.Edit("Paste components and internal links", p =>
+            {
+                var screen = p.Screens.Single(s => s.Id == Session.ActiveScreenId);
+                screen.Elements.AddRange(elements); screen.Links.AddRange(links);
+            });
         });
     }
     private void GroupSelection(bool grouped)
@@ -397,9 +420,11 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
             Silk.NET.Input.Key.A when control => _selection.SelectAll,
             Silk.NET.Input.Key.C when control => CopySelection,
             Silk.NET.Input.Key.V when control => PasteSelection,
+            Silk.NET.Input.Key.L when control => BeginDiagramConnection,
             Silk.NET.Input.Key.X when control => () => { CopySelection(); _selection.Delete(); },
             Silk.NET.Input.Key.D when control => () => { CopySelection(); PasteSelection(); },
-            Silk.NET.Input.Key.Delete => _selection.Delete,
+            Silk.NET.Input.Key.Delete => DeleteDesignSelection,
+            Silk.NET.Input.Key.Escape => CancelDiagramConnection,
             Silk.NET.Input.Key.Left => () => _selection.Translate(-step, 0),
             Silk.NET.Input.Key.Right => () => _selection.Translate(step, 0),
             Silk.NET.Input.Key.Up => () => _selection.Translate(0, -step),
@@ -415,7 +440,9 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         StopPreview(); _disposed = true;
         Session.Changed -= OnSessionChanged; Session.ScreenChanged -= OnScreenChanged;
         _canvas.CanvasModifying -= OnCanvasModifying; _canvas.CanvasModified -= OnCanvasModified; _canvas.SelectionChanged -= OnCanvasSelectionChanged;
-        _selection.SelectionChanged -= UpdateInspector;
+        _selection.SelectionChanged -= OnModelSelectionChanged;
+        _canvas.PortPicked = null; _canvas.LinkPicked = null; _canvas.GeometryPreviewChanged = null;
+        DiagramLayer.Clear();
         _canvas.ViewportChanged -= UpdateStudioState;
         _multiAdorner.Dispose();
         _alarmConsole.Dispose();

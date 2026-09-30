@@ -19,7 +19,7 @@ public sealed class DesignerSelectionService
     public void Select(FrameworkElement? element, bool additive = false)
     {
         if (!additive) _selection.Clear();
-        if (element != null && element != _canvas.DesignSurface)
+        if (element != null && element != _canvas.DesignSurface && !DesignerElementRegistry.IsDecoration(element))
         {
             if (additive && _selection.Contains(element)) _selection.Remove(element);
             else _selection.Add(element);
@@ -29,7 +29,7 @@ public sealed class DesignerSelectionService
     public void SelectAll()
     {
         _selection.Clear();
-        _selection.AddRange(_canvas.DesignSurface.Children.OfType<FrameworkElement>());
+        _selection.AddRange(_canvas.DesignSurface.Children.OfType<FrameworkElement>().Where(e => !DesignerElementRegistry.IsDecoration(e)));
         SelectionChanged?.Invoke();
     }
     public void Translate(float x, float y) => Edit(items =>

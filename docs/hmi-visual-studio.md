@@ -30,7 +30,7 @@ Unknown quality is not equivalent to stopped equipment. Bad/stale data produces 
 | --- | --- |
 | `Presentation` | Automatic equipment/instrument presentation, unframed process or card. |
 | `ShowTagName`, `ShowEngineeringRange`, `ShowValue` | Independent caption, range and readout visibility. Quality warnings are not suppressed by hiding an ordinary readout. |
-| `ShowConnectionPorts` | Hide or show the equipment's visual ports. These are not semantic routed connections. |
+| `ShowConnectionPorts` | Hide or show glyph nozzle decoration. Same-screen semantic topology is stored separately in `HmiScreen.Links`; see [diagram connections](hmi-diagram-connections.md). |
 | `QuarterTurns` | 0–3 clockwise quarter-turns of the equipment geometry. Text stays upright. |
 | `MirrorHorizontal`, `MirrorVertical` | Mirror local geometry before rotating it. |
 | `AnimateFlow` | Explicit opt-in to decorative flow/rotation animation. Default is false. |
@@ -109,4 +109,4 @@ The visual probe uses the real ProGPU retained compositor, native WebGPU and an 
 
 Run Light, Dark and HighContrast as separate invocations to isolate native scene/device lifetime. The `HMI visual and pointer regression` workflow uses Mesa's software Vulkan adapter on Linux and uploads PNGs/logs; the ordinary HMI matrix checks Windows/Linux/macOS builds, protocol tests and gallery construction. All stages fail on errors; a skipped or queued workflow is not a passing result.
 
-Physical Apple Metal/Retina, Windows DirectX, touch hardware, real PLC interoperability, complete accessibility conformance and production commissioning still require their own qualification. Decorative ports are not an industrial pipe-routing engine, flat faceplates are not recursive vendor templates, and appearance does not weaken external command review/authorization.
+Physical Apple Metal/Retina, Windows DirectX, touch hardware, real PLC interoperability, complete accessibility conformance and production commissioning still require their own qualification. Same-screen semantic nozzle routing is documented in [diagram connections](hmi-diagram-connections.md); it is not an engineering pipe solver. Flat faceplates are not recursive vendor templates, and appearance does not weaken external command review/authorization.

@@ -28,6 +28,7 @@ internal sealed partial class HmiJsonContext : JsonSerializerContext
         // without JsonStringEnumConverter's runtime MakeGenericType path.
         Converters =
         {
+            new JsonStringEnumConverter<HmiLinkKind>(allowIntegerValues: false),
             new JsonStringEnumConverter<HmiTagType>(allowIntegerValues: false),
             new JsonStringEnumConverter<HmiQuality>(allowIntegerValues: false),
             new JsonStringEnumConverter<HmiSimulationKind>(allowIntegerValues: false),

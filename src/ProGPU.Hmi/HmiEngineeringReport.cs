@@ -1,7 +1,7 @@
 namespace ProGPU.Hmi;
 
 public enum HmiDiagnosticSeverity { Information, Warning, Error }
-public enum HmiTagReferenceKind { Value, Visibility, Enabled, State, Command, Alarm, Recipe, Acquisition, Permissive, Faceplate }
+public enum HmiTagReferenceKind { Value, Visibility, Enabled, State, Command, Alarm, Recipe, Acquisition, Permissive, Faceplate, Diagram }
 
 public sealed record HmiDiagnostic(HmiDiagnosticSeverity Severity, string Code, string Message,
     string ScreenId = "", string ElementId = "", string Tag = "");
@@ -51,6 +51,8 @@ public static class HmiProjectAnalyzer
         foreach (var screen in project.Screens)
         {
             if (!reached.Contains(screen.Id)) Issue(HmiDiagnosticSeverity.Information, "HMI1001", "Screen is not reachable from the start screen through configured navigation actions.", screen.Id);
+            foreach (var link in screen.Links)
+                Reference(link.ActivityTag, HmiTagReferenceKind.Diagram, link.Name, screen.Id);
             var names = new HashSet<string>(StringComparer.Ordinal);
             foreach (var element in screen.Elements)
             {
