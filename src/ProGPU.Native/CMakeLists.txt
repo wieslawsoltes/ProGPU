@@ -781,6 +781,7 @@ add_library(progpu_native_text STATIC
     src/Text/Font/progpu_native_hinted_text_layout.cpp
     src/Text/Font/progpu_native_hinted_outline.cpp
     src/Text/Font/progpu_native_hinted_glyph_frame.cpp
+    src/Text/Interop/progpu_native_hinted_paragraph_interaction.cpp
     src/Text/progpu_native_unicode.cpp
     src/Text/Unicode/progpu_native_unicode_category.cpp
     src/Text/Unicode/progpu_native_unicode_directional.cpp
@@ -2026,6 +2027,17 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     progpu_native_enable_sanitizers(progpu_native_text_cluster_breaks_tests)
     add_test(NAME progpu_native_text_cluster_breaks_tests COMMAND progpu_native_text_cluster_breaks_tests)
     set_tests_properties(progpu_native_text_cluster_breaks_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_paragraph_tests
+        tests/progpu_native_hinted_paragraph_tests.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(progpu_native_hinted_paragraph_tests PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_hinted_paragraph_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_hinted_paragraph_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_paragraph_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_paragraph_tests)
+    add_test(NAME progpu_native_hinted_paragraph_tests COMMAND progpu_native_hinted_paragraph_tests)
+    set_tests_properties(progpu_native_hinted_paragraph_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_text_shaping_showcase_tests
         tests/progpu_native_text_shaping_showcase_tests.cpp

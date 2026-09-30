@@ -570,6 +570,51 @@ independent unpacked slots, large ink offsets, both directions, fractional logic
 units, aliases and actual owned hinted runs. This is native fitting evidence when
 executed, not source Display/UI or loaded public-layout ABI qualification.
 
+### Original styled paragraph and measured interaction ownership
+
+The private `try_layout_context_hinted_paragraph` opt-in now connects the original
+paragraph producer to owned hinted runs. The existing producer still selects
+source styles/fonts, digit substitution and source/glyph bidi policy, scripts,
+graphemes, run boundaries, features, hard breaks and justification classes. Its
+original logical restoration records each exact run/glyph/descriptor owner;
+neither a second shaping pipeline nor a glyph-ID lookup substitutes for it.
+Existing public paragraph entrypoints retain their original behavior.
+
+Each style requires explicit device configuration and source ascent/descent.
+Original source scale remains identity metadata; the measured writer converts
+device 26.6 metrics only by logical-units-per-physical-pixel divided by 64.
+The snapshot owns original request scalars/context/features/axes, admitted scalars,
+font sources, styles, full shaped runs and formatting metadata. Its request
+pointers refer only to its own storage, and copying/moving the snapshot is disabled.
+Line limits may truncate positioned output, not the retained original paragraph.
+Safe complete input/old-generation capacity alias preflight precedes diagnostic
+writes, and a failed operation cannot replace the published snapshot.
+
+An internal metadata sink captures actual line pen origins and L1-adjusted bidi
+levels during the original measured writer's visual emission. Logical shaping
+levels remain separate. Interaction uses those actual retained levels and origins,
+not independently resolved bidi, reconstructed ink positions or reshaped prefixes.
+Original scalar ranges define explicit cluster ends, capped at the producer's
+actual BK/NL/CR/LF boundaries, including admitted CRLF pairs; source code points
+and UTF-16 identity are not rewritten. The private interaction factory owns this
+same paragraph and uses the original measured-advance box/caret builder, including
+its measured row frames. No font object, context or mutable caller array is borrowed.
+
+Authored CPU controls retain both interpreters, explicit mixed-font/style metrics,
+source/glyph bidi policies, contextual digits, fractional device sizes/phases,
+wrapping/alignment/justification, hard boundaries and maximum-line truncation.
+Separate original writer/visual-group references check every output field, actual
+trailing-space L1 levels and RTL pen origins. Ink-offset, caller mutation,
+retirement, invalid policy, alias and untouched-tail controls remain independent.
+These controls have not been executed locally and require exact-head hosted CI.
+
+This seam admits horizontal, untrimmed styled paragraphs only. Tabs, objects,
+vertical writing, synthetic collapse, exclusions, floats and continuations remain
+explicitly outside it. It does not manufacture empty hard-row carets, expose a
+public formatted-generation ABI or qualify source Display/editor admission.
+Complete mixed-style GPU frames, loaded package consumers and independent Windows
+text/UI comparisons remain required.
+
 ### Shared native renderer outline records
 
 `write_hinted_run_outlines` converts the same retained batch into the actual
@@ -577,8 +622,9 @@ executed, not source Display/UI or loaded public-layout ABI qualification.
 consumed by the shared native glyph executor in both renderer providers. It keeps
 one source-indexed outline slice per ink descriptor and explicit source/positioned
 maps. Repeated IDs stay separate; auxiliary space descriptors are not source
-draws, and no-ink slots retain an explicit sentinel. Actual renderer submission
-wiring remains required; producing these records alone is not rendered output.
+draws, and no-ink slots retain an explicit sentinel. The private owned-frame
+consumer below connects actual renderer submission; records alone are not rendered
+output or complete source-host wiring.
 
 Original quadratic contour/implicit-point handling reuses the native TrueType
 writer. Explicit mixed cubic contours preserve the existing native cubic record

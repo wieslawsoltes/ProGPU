@@ -1,5 +1,6 @@
 #include "progpu_native_text.hpp"
 #include "progpu_native_text_layout_origin_internal.hpp"
+#include "progpu_native_text_layout_retained_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -25,6 +26,15 @@ void set_error(font_error* error, font_error value) noexcept {
     if (error != nullptr) {
         *error = value;
     }
+}
+
+template<class T>
+bool valid_retained_metadata_span(std::span<T> values) noexcept {
+    constexpr auto maximum = std::numeric_limits<std::uintptr_t>::max();
+    const auto begin = reinterpret_cast<std::uintptr_t>(values.data());
+    return values.size() <= maximum / sizeof(T) &&
+        (values.empty() || (values.data() != nullptr && begin % alignof(T) == 0U)) &&
+        values.size() * sizeof(T) <= maximum - begin;
 }
 
 bool valid_options(const text_layout_options& options) noexcept {
@@ -921,9 +931,16 @@ static bool layout_measured_core(
     std::span<positioned_text_glyph> positioned_glyphs, std::span<positioned_text_line> lines,
     std::uint32_t& glyph_count, std::uint32_t& line_count,
     std::span<const text_justification_class> classes,
-    std::span<const text_item_metrics> item_metrics, bool continues, font_error* error) noexcept {
+    std::span<const text_item_metrics> item_metrics, bool continues, font_error* error,
+    const text_layout_retained_metadata* retained = nullptr) noexcept {
     glyph_count = 0U;
     line_count = 0U;
+    if (retained != nullptr && (options.trimming != text_trimming::none ||
+        !valid_retained_metadata_span(retained->positioned_bidi_levels) ||
+        !valid_retained_metadata_span(retained->line_origins))) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
     if (!item_metrics.empty()) {
         text_item_metrics maximum{};
         if (item_metrics.size() != logical_glyphs.size() ||
@@ -969,7 +986,10 @@ static bool layout_measured_core(
         }
         return false;
     }
-    if ((tabs.interval > 0.0F && advance_scratch.size() < requirements.glyph_capacity) ||
+    if ((retained != nullptr &&
+            (retained->positioned_bidi_levels.size() < requirements.glyph_capacity ||
+             retained->line_origins.size() < requirements.line_capacity)) ||
+        (tabs.interval > 0.0F && advance_scratch.size() < requirements.glyph_capacity) ||
         scratch.visual_groups.size() < requirements.glyph_capacity ||
         scratch.visual_indices.size() < requirements.glyph_capacity ||
         positioned_glyphs.size() < requirements.glyph_capacity ||
@@ -1073,6 +1093,7 @@ static bool layout_measured_core(
         const bool leading_sign = should_trim && options.collapse_width >= 0.0F && (paragraph_level & 1) != 0;
         float cursor_x = detail::text_line_pen_origin(leading_sign, sign_width,
             expansion > 0.0F && (paragraph_level & 1) != 0, trailing_width);
+        const float initial_cursor_x = cursor_x;
         float cursor_y = baseline;
         float distributed = 0.0F;
         std::size_t remaining_opportunities = opportunities;
@@ -1085,6 +1106,9 @@ static bool layout_measured_core(
                 std::numeric_limits<std::uint32_t>::max(), options.ellipsis_glyph_id,
                 sign_cluster, 0.0F, baseline, sign_width, 0.0F};
         }
+        std::size_t retained_group = 0U;
+        std::uint32_t retained_group_end = retained != nullptr && visual_count != 0U
+            ? scratch.visual_groups[0].glyph_count : 0U;
         for (std::uint32_t visual_index = 0U;
             visual_index < visual_count;
             ++visual_index) {
@@ -1099,6 +1123,16 @@ static bool layout_measured_core(
                     expansion / static_cast<float>(opportunities);
                 metrics[0] += extra;
                 distributed += extra;
+            }
+            if (retained != nullptr) {
+                // The existing producer left these groups in the exact L2
+                // order used by visual_indices, with L1 already applied.
+                // Advance once at a group boundary inside the original emit
+                // loop; no independent reorder or bidi reconstruction.
+                if (visual_index == retained_group_end) {
+                    retained_group_end += scratch.visual_groups[++retained_group].glyph_count;
+                }
+                retained->positioned_bidi_levels[output_cursor] = scratch.visual_groups[retained_group].bidi_level;
             }
             positioned_glyphs[output_cursor++] = positioned_text_glyph{
                 static_cast<std::uint32_t>(source_index),
@@ -1124,6 +1158,8 @@ static bool layout_measured_core(
             : 0.0F);
         const float alignment_shift = line_alignment_shift(
             options, output_width);
+        if (retained != nullptr) retained->line_origins[line_count] = alignment_shift > 0.0F
+            ? initial_cursor_x + alignment_shift : initial_cursor_x;
         for (std::size_t index = output_start;
             alignment_shift > 0.0F && index < output_cursor;
             ++index) {
@@ -1169,6 +1205,20 @@ bool try_layout_measured_logical_shaped_text(
     std::span<const text_item_metrics> metrics, font_error* error) noexcept {
     return layout_measured_core(glyphs, breaks, levels, scales, paragraph_level, options,
         tabs, advances, scratch, positioned, lines, glyph_count, line_count, classes, metrics, false, error);
+}
+
+bool try_layout_measured_logical_shaped_text_retained(
+    std::span<const shaping_glyph> glyphs, std::span<const text_line_break_kind> breaks,
+    std::span<const std::int8_t> levels, std::span<const float> scales,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    std::span<float> advances, text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned, std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count, std::uint32_t& line_count,
+    std::span<const text_justification_class> classes,
+    std::span<const text_item_metrics> metrics, text_layout_retained_metadata retained,
+    font_error* error) noexcept {
+    return layout_measured_core(glyphs, breaks, levels, scales, paragraph_level, options,
+        tabs, advances, scratch, positioned, lines, glyph_count, line_count, classes, metrics, false, error, &retained);
 }
 
 static bool layout_exclusion_band_core(std::span<const shaping_glyph> glyphs,
