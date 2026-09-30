@@ -217,6 +217,14 @@ bool hinted_font::try_create(std::shared_ptr<const owned_font_source> source,
         size.width = static_cast<FT_Long>(configuration.x_pixels_per_em_26_6);
         size.height = static_cast<FT_Long>(configuration.y_pixels_per_em_26_6);
         if (FT_Request_Size(value->face, &size) != 0) return fail(hinted_font_error::invalid_argument, error);
+        if (value->face->size == nullptr || value->face->units_per_EM == 0U ||
+            value->face->size->metrics.x_scale <= 0 || value->face->size->metrics.y_scale <= 0)
+            return fail(hinted_font_error::invalid_font, error);
+        const auto& metrics = value->face->size->metrics;
+        identity->device_frame = {value->face->units_per_EM, metrics.x_ppem, metrics.y_ppem,
+            metrics.x_scale, metrics.y_scale, metrics.ascender, metrics.descender,
+            metrics.height, metrics.max_advance, value->face->ascender, value->face->descender,
+            value->face->height, value->face->max_advance_width};
         FT_Vector phase{static_cast<FT_Pos>(configuration.x_phase_26_6),
             static_cast<FT_Pos>(configuration.y_phase_26_6)};
         FT_Set_Transform(value->face, nullptr, &phase);

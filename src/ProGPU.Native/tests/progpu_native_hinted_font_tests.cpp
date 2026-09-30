@@ -65,6 +65,20 @@ void configure_reference(reference_owner& owner, const hinted_font_configuration
     FT_Set_Transform(owner.face, nullptr, &phase);
 }
 
+void compare_frame(const hinted_font_identity& identity, FT_Face face)
+{
+    require(face != nullptr && face->size != nullptr);
+    const auto& actual = identity.device_frame;
+    const auto& expected = face->size->metrics;
+    require(actual.units_per_em == face->units_per_EM && actual.x_pixels_per_em == expected.x_ppem &&
+        actual.y_pixels_per_em == expected.y_ppem);
+    require(actual.x_scale_16_16 == expected.x_scale && actual.y_scale_16_16 == expected.y_scale &&
+        actual.driver_ascender_26_6 == expected.ascender && actual.driver_descender_26_6 == expected.descender &&
+        actual.driver_height_26_6 == expected.height && actual.driver_maximum_advance_26_6 == expected.max_advance);
+    require(actual.design_ascender == face->ascender && actual.design_descender == face->descender &&
+        actual.design_height == face->height && actual.design_maximum_advance == face->max_advance_width);
+}
+
 void compare_slot(const hinted_glyph& glyph, FT_GlyphSlot slot)
 {
     require(glyph.glyph_index == slot->glyph_index);
@@ -125,6 +139,7 @@ void verify(const std::vector<std::byte>& original)
             require(batch->glyphs[2].points.empty() && batch->glyphs[2].advance_x_26_6 > 0);
             tests::verify_hinted_transport(*batch);
             configure_reference(reference, configuration);
+            compare_frame(*batch->identity, reference.face);
             for (std::size_t index = 0U; index < ids.size(); ++index) {
                 require(FT_Load_Glyph(reference.face, ids[index],
                     FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT | FT_LOAD_PEDANTIC | FT_LOAD_TARGET_NORMAL) == 0);
@@ -215,6 +230,7 @@ void verify(const std::vector<std::byte>& original)
             require(phased->identity != saved->identity && phased->identity->x_phase_26_6 == 19U &&
                 phased->identity->y_phase_26_6 == 37U);
             require(phased->identity->source == saved->identity->source);
+            require(phased->identity->device_frame == saved->identity->device_frame);
             for (std::size_t glyph = 0U; glyph < ids.size(); ++glyph) {
                 require(phased->glyphs[glyph].advance_x_26_6 == saved->glyphs[glyph].advance_x_26_6);
                 require(phased->glyphs[glyph].points.size() == saved->glyphs[glyph].points.size());
@@ -226,6 +242,7 @@ void verify(const std::vector<std::byte>& original)
             font.reset();
             tests::verify_hinted_transport(*saved);
             phase_font.reset();
+            compare_frame(*saved->identity, reference.face);
             require(saved->identity->source->bytes == original && saved->glyphs == repeated->glyphs);
         }
     }
@@ -239,6 +256,9 @@ void verify(const std::vector<std::byte>& original)
     require(fractional_batch->identity->x_pixels_per_em_26_6 == fractional.x_pixels_per_em_26_6 &&
         fractional_batch->identity->y_pixels_per_em_26_6 == fractional.y_pixels_per_em_26_6);
     configure_reference(reference, fractional);
+    compare_frame(*fractional_batch->identity, reference.face);
+    require(fractional_batch->identity->device_frame.x_scale_16_16 !=
+        fractional_batch->identity->device_frame.y_scale_16_16);
     for (std::size_t index = 0U; index < ids.size(); ++index) {
         require(FT_Load_Glyph(reference.face, ids[index],
             FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT | FT_LOAD_PEDANTIC | FT_LOAD_TARGET_NORMAL) == 0);
@@ -295,7 +315,8 @@ int main(int argc, char** argv)
         verify(read_font(argv[1]));
         verify_native_hint_fault();
         std::cout << "{\"glyphBatchControls\":true,\"nativeHintsObserved\":true,"
-                     "\"slotDifferential\":true,\"nativeFaultAtomicity\":true,\"fixedWidthTransport\":true}\n";
+                     "\"slotDifferential\":true,\"nativeFaultAtomicity\":true,\"fixedWidthTransport\":true,"
+                     "\"actualDeviceFrame\":true}\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

@@ -64,6 +64,18 @@ native hint fault or allocation failure leaves the candidate unpublished and the
 previous batch unchanged; descriptors and input order, including repeated glyphs,
 remain intact.
 
+Each identity also retains the actual selected native size frame: units per em,
+integer x/y ppem, exact x/y 16.16 scales, driver-wide 26.6 metrics and separate
+design-unit face metrics. These values come from the selected face after variation
+and size setup, not an em/UPM approximation. The public
+[FreeType size contract](https://freetype.org/freetype2/docs/reference/ft2-sizing_and_scaling.html)
+distinguishes rounded ppem, device scales and historically rounded global metrics;
+the latter are not exact glyph bounds or an application line-height policy.
+Independent face controls compare every field for both interpreters, nonuniform
+fractional sizes, phase changes and retained snapshots after adapter disposal.
+The producer receipt requires these controls on every RID. Capturing this frame
+does not yet connect hinted shaping, fitting, interaction or GPU rasterization.
+
 The producer builds this original adapter and executes focused controls against
 the host's actual Arial (Windows/macOS) or DejaVu Sans (Linux), without packaging
 those fonts. Controls compare every retained metric/point/tag/contour/flag to a

@@ -165,7 +165,8 @@ def validate_install(value, rid):
     probes = {"publicApiProbe": {"version": pin["version"], "interpreters": [35, 40],
                                 "independentPolicies": True, "invalidPolicyRejected": True},
               "glyphProbe": {"glyphBatchControls": True, "nativeHintsObserved": True,
-                             "slotDifferential": True, "nativeFaultAtomicity": True, "fixedWidthTransport": True},
+                             "slotDifferential": True, "nativeFaultAtomicity": True, "fixedWidthTransport": True,
+                             "actualDeviceFrame": True},
               "transportProbe": {"fixedWidthTransport": True, "exactIntegerDifferential": True, "atomicTailControls": True},
               "cacheProbe": {"boundedOwnedCache": True, "exactGenerationReuse": True, "nativeFaultAtomicity": True}}
     if any(not exact_json(receipt.get(key), expected) for key, expected in probes.items()):

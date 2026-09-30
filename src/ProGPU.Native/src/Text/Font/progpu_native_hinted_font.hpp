@@ -38,6 +38,26 @@ struct hinted_font_configuration final {
     std::span<const std::int32_t> variation_coordinates_16_16{};
 };
 
+// Actual selected native size, not requested em / UPM or rounded ppem inferred
+// by a caller. Raw driver-wide metrics are metadata, not glyph ink or a source
+// line-height policy. Keep design-unit values separate from 26.6 device values.
+struct hinted_font_device_frame final {
+    std::uint32_t units_per_em = 0U;
+    std::uint32_t x_pixels_per_em = 0U;
+    std::uint32_t y_pixels_per_em = 0U;
+    long x_scale_16_16 = 0;
+    long y_scale_16_16 = 0;
+    long driver_ascender_26_6 = 0;
+    long driver_descender_26_6 = 0;
+    long driver_height_26_6 = 0;
+    long driver_maximum_advance_26_6 = 0;
+    std::int32_t design_ascender = 0;
+    std::int32_t design_descender = 0;
+    std::int32_t design_height = 0;
+    std::int32_t design_maximum_advance = 0;
+    bool operator==(const hinted_font_device_frame&) const = default;
+};
+
 struct hinted_font_identity final {
     std::shared_ptr<const owned_font_source> source{};
     std::vector<std::int32_t> variation_coordinates_16_16{};
@@ -46,6 +66,7 @@ struct hinted_font_identity final {
     font_hint_policy policy = font_hint_policy::truetype_40;
     std::uint32_t x_phase_26_6 = 0U;
     std::uint32_t y_phase_26_6 = 0U;
+    hinted_font_device_frame device_frame{};
 };
 
 // Private C++ representation, not a wire record. The native dependency's exact
