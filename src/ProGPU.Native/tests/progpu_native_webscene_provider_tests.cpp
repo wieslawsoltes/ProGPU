@@ -13,6 +13,9 @@
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "progpu_native_webscene_state_mask_fixture.hpp"
 #include "progpu_native_webscene_state_mask_media_fixture.hpp"
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+#include "progpu_native_hinted_glyph_rendering_fixture.hpp"
+#endif
 #include "webscene_gpu_provider.h"
 
 #include <webgpu.h>
@@ -3127,6 +3130,50 @@ void verify_direct2d_scene(IOSurfaceRef surface) {
 
 } // namespace
 
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+namespace {
+// Same canvas presentation/GPU_COMPLETE/IOSurface storage contract as the
+// original glyph-sharing fixture. No extra queue wait, copy or global poll.
+template<class Draw>
+std::vector<std::uint8_t> render_hinted_glyphs(const provider_api& api,
+    webscene_gpu_provider* provider, const webscene_gpu_canvas_configuration& configuration,
+    progpu_native_engine* engine, Draw draw) {
+    auto* canvas = api.create_canvas(provider, &configuration, 64U, 64U);
+    require(canvas != nullptr, "hinted Dawn canvas creation failed");
+    std::uintptr_t handle{};
+    require(api.acquire(provider, canvas, &handle) == WEBSCENE_GPU_STATUS_SUCCESS && handle != 0U,
+        "hinted Dawn canvas texture acquisition failed");
+    auto texture = reinterpret_cast<WGPUTexture>(handle);
+    WGPUTextureViewDescriptor descriptor = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+    auto view = resolve<WGPUProcTextureCreateView>(api, provider, "wgpuTextureCreateView")(texture, &descriptor);
+    require(view != nullptr, "hinted Dawn canvas view creation failed");
+    draw(engine, reinterpret_cast<std::uintptr_t>(view));
+    resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(view);
+    resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(texture);
+    webscene_gpu_external_texture presented{};
+    presented.struct_size = sizeof(presented);
+    require(api.present(provider, canvas, &presented) == WEBSCENE_GPU_STATUS_SUCCESS &&
+        presented.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (presented.flags & WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "hinted Dawn canvas GPU completion failed");
+    auto surface = reinterpret_cast<IOSurfaceRef>(presented.shared_handle);
+    require(surface != nullptr && IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) == kIOReturnSuccess,
+        "hinted Dawn IOSurface lock failed");
+    const auto* data = static_cast<const std::uint8_t*>(IOSurfaceGetBaseAddress(surface));
+    const auto stride = IOSurfaceGetBytesPerRow(surface);
+    require(data != nullptr && IOSurfaceGetWidth(surface) == 64U && IOSurfaceGetHeight(surface) == 64U &&
+        stride >= 256U, "hinted Dawn IOSurface storage changed");
+    std::vector<std::uint8_t> pixels(64U * 256U);
+    for (std::size_t row = 0U; row < 64U; ++row) std::memcpy(pixels.data() + row * 256U, data + row * stride, 256U);
+    require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) == kIOReturnSuccess,
+        "hinted Dawn IOSurface unlock failed");
+    api.release_external(provider, &presented);
+    api.destroy_canvas(provider, canvas);
+    return pixels;
+}
+} // namespace
+#endif
+
 int main(int argc, char** argv) {
     require(argc == 2 || argc == 3,
         "usage: test PROVIDER_DYLIB [CAPTURE_PPM]");
@@ -3542,6 +3589,19 @@ int main(int argc, char** argv) {
             return pixels;
         }, require);
     for (auto* glyph_engine : glyph_engines) progpu_native_engine_destroy(glyph_engine);
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+    std::array<progpu_native_engine*, 2U> hinted_engines{};
+    for (auto& hinted_engine : hinted_engines) {
+        require(progpu_native_dawn_engine_create(&engine_options, &hinted_engine) ==
+            PROGPU_NATIVE_STATUS_SUCCESS && hinted_engine != nullptr, "hinted real Dawn engine creation failed");
+    }
+    progpu::native::tests::verify_hinted_glyph_rendering(
+        [&](bool reference, float, auto draw) {
+            return render_hinted_glyphs(api, provider, canvas_configuration,
+                hinted_engines[reference ? 1U : 0U], draw);
+        }, require);
+    for (auto* hinted_engine : hinted_engines) progpu_native_engine_destroy(hinted_engine);
+#endif
     webscene_gpu_canvas* canvas = api.create_canvas(
         provider, &canvas_configuration, 64U, 48U);
     require(canvas != nullptr, "canvas creation failed");

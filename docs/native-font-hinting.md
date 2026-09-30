@@ -633,6 +633,25 @@ used/spare-capacity aliases. Actual GPU execution through both providers, packag
 consumers, source formatting/interaction and independent Windows gates remain
 required. These new controls have not been executed locally.
 
+The existing wgpu-native Direct2D, Dawn macOS Webscene and Dawn Windows Direct2D
+differential harnesses now add explicit-dependency hinted controls. An actual
+font/context produces the retained run/layout/frame before context retirement;
+the real renderer consumes it and the harness retains its original actual
+completion/readback path. A separate unpacked reference directly emits the
+authored four-point contours and calls the original measured writer, bypassing
+the outline/frame adapters. Both policies retain phase, RTL/DPI, repeated source
+draws, no-ink output, exact full pixels and every renderer metrics field.
+
+Matched dedicated engines keep subject/reference histories comparable. Each call
+advances the engine-owned cumulative submission count once and advances the
+provider's actual queue token; those identities are not equated and neither means
+completion. Flags/revision zero remain deliberate, so repeated frames still
+upload instances and do not qualify atlas retention or warm zero allocation.
+These authored controls are additive, keep all original gates/deadlines and
+require their own whole successful exact-head CI. They exercise CPU-core font
+ownership plus the actual loaded renderer, not loaded public font-ABI/package or
+source Windows text/UI qualification.
+
 The original paragraph cluster-break projection is also shared privately between
 wire and native scalars without changing its body or the original paragraph input.
 It retains source preflight, last-scalar boundary selection, same-cluster grouping

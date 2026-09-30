@@ -946,6 +946,20 @@ endif()
 progpu_native_enable_warnings(progpu_native_text)
 progpu_native_enable_sanitizers(progpu_native_text)
 
+function(progpu_native_enable_hinted_glyph_fixture target)
+    if(PROGPU_NATIVE_FONT_HINTING)
+        # The private adapter is hidden in each product. Compile its original
+        # crossing into this real-provider harness, retaining all existing
+        # completion/readback controls and exercising the exported renderer.
+        target_sources(${target} PRIVATE
+            tests/progpu_native_hinted_glyph_rendering_fixture.hpp
+            src/Backend/progpu_native_hinted_glyph_execution.cpp
+            src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+        target_compile_definitions(${target} PRIVATE PROGPU_NATIVE_BUILD=1)
+        target_link_libraries(${target} PRIVATE progpu_native_text)
+    endif()
+endfunction()
+
 add_library(progpu_native_scene_builder STATIC
     src/Scene/Builder/progpu_native_scene_builder.cpp
     src/Scene/Builder/progpu_native_scene_builder_serialization.cpp
@@ -1177,6 +1191,8 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                 d2d1
                 ole32
                 windowscodecs)
+            progpu_native_enable_hinted_glyph_fixture(
+                progpu_native_direct2d_differential_tests)
             progpu_native_enable_warnings(
                 progpu_native_direct2d_differential_tests)
             progpu_native_enable_sanitizers(
@@ -1250,6 +1266,8 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                 progpu_native_scene_builder
                 "${PROGPU_NATIVE_IOSURFACE_FRAMEWORK}"
                 "${CMAKE_DL_LIBS}")
+            progpu_native_enable_hinted_glyph_fixture(
+                progpu_native_webscene_provider_tests)
             progpu_native_enable_warnings(
                 progpu_native_webscene_provider_tests)
             progpu_native_enable_sanitizers(
@@ -1559,6 +1577,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             progpu_native
             progpu_native_direct2d_core
             "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
+        progpu_native_enable_hinted_glyph_fixture(
+            progpu_native_direct2d_webgpu_tests)
         progpu_native_enable_warnings(
             progpu_native_direct2d_webgpu_tests)
         progpu_native_enable_sanitizers(
