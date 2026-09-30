@@ -63,6 +63,14 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Record source and SDK provenance
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/hmi | Out-Null
+          git rev-parse HEAD | Out-File artifacts/hmi/commit.txt -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet --info | Out-File artifacts/hmi/dotnet-info.txt -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test reflection-disabled HMI and Modbus/MQTT integrations
         run: dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi/tests
       - name: Test OPC UA against a real loopback server
@@ -92,10 +100,11 @@ jobs:
       - name: Exercise actual gallery page construction without reflection JSON
         if: ${{ !cancelled() }}
         run: dotnet run --project tests/ProGPU.Hmi.GallerySmoke/ProGPU.Hmi.GallerySmoke.csproj -c Release
-      - name: Pack standalone libraries
+      # The HMI designer consumes the new shared authoring APIs; retain a matching shared package.
+      - name: Pack HMI libraries and shared designer services
         shell: pwsh
         run: |
-          foreach ($project in @('ProGPU.Hmi', 'ProGPU.WinUI.Hmi', 'ProGPU.WinUI.Hmi.Designer', 'ProGPU.Hmi.Modbus', 'ProGPU.Hmi.Mqtt', 'ProGPU.Hmi.OpcUa')) {
+          foreach ($project in @('ProGPU.WinUI.Designer', 'ProGPU.Hmi', 'ProGPU.WinUI.Hmi', 'ProGPU.WinUI.Hmi.Designer', 'ProGPU.Hmi.Modbus', 'ProGPU.Hmi.Mqtt', 'ProGPU.Hmi.OpcUa')) {
             dotnet pack "src/$project/$project.csproj" -c Release --no-build -o artifacts/hmi/packages
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
