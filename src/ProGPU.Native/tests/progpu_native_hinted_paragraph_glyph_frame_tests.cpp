@@ -216,7 +216,16 @@ void verify_unpacked(const hinted_paragraph_glyph_frame& packed) {
     }
     require(source_start == packed.source_outline_indices().size() && run_start == packed.run_outline_indices().size());
     require(outline_start == packed.outlines().size() && segment_start == packed.segments().size());
-    require(packed.outline_owners().size() == outline_start && no_ink != 0U && auxiliary != 0U && repeated_ids != 0U);
+    if (packed.outline_owners().size() != outline_start || no_ink == 0U || auxiliary == 0U || repeated_ids == 0U) {
+        std::cerr << "paragraph frame inventory policy=" << static_cast<unsigned int>(paragraph.runs.front().generation->batch->identity->policy)
+            << " scalars=" << paragraph.source_input.size() << " maxlines=" << paragraph.layout.maximum_lines
+            << " owners=" << packed.outline_owners().size() << " outlines=" << outline_start << " noink=" << no_ink
+            << " auxiliary=" << auxiliary << " repeated_ids=" << repeated_ids << '\n';
+    }
+    require(packed.outline_owners().size() == outline_start);
+    require(no_ink != 0U);
+    require(auxiliary != 0U);
+    require(repeated_ids != 0U);
     std::size_t draw = 0U;
     for (std::size_t positioned = 0U; positioned < paragraph.glyphs.size(); ++positioned) {
         const auto& original = paragraph.glyphs[positioned];
@@ -290,6 +299,15 @@ void actual_paragraph_controls() {
         // lookup, must own both draws even though final glyph IDs are equal.
         source.input[5].code_point = 0x202EU; source.input[6].code_point = 'A';
         source.input[7].code_point = 'B'; source.input[8].code_point = 0x202CU;
+        // Original default-ignorable processing maps RLO/PDF to this font's
+        // ink-bearing space glyph. They are not empty-outline fixtures. Keep
+        // a genuine unmapped Ω record outside the override, with its actual
+        // source range and second style, to exercise no-ink exclusion too.
+        const auto source_end = source.input.back().input_index + source.input.back().input_length;
+        source.input.push_back({0x03A9U, source_end, 1U, 0U, 0U, 0U});
+        ++source.styles[1].scalar_count;
+        source.shaping.input = source.input.data();
+        source.shaping.input_count = static_cast<std::uint32_t>(source.input.size());
         const auto rtl = source.paragraph();
         const auto rtl_raw = snapshot_raw(*rtl);
         const auto rtl_frame = pack(rtl, target(), std::span(colors).first(2U));
