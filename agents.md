@@ -129,6 +129,18 @@ Device pixels are not design units, ink bounds or hinted variable-instance
 metrics. Do not infer Display admission, interpolate absent records or add a
 per-glyph crossing. See docs/native-font-device-advances.md.
 
+Native hinted-font batches own original immutable bytes and exact face, device-em,
+phase, interpreter and explicit variation identity. Capture advances, all metrics
+and complete outline metadata from one glyph load before its mutable slot changes;
+preserve every original ID and publish only whole successful batches. Native faces
+end before memory-font bytes, and snapshots survive adapter disposal. Keep the
+signed external dependency isolated and its actual static architecture verified;
+never import foreign implementation or infer loaded ownership from a version.
+The private C++ adapter and isolated controls do not admit source Display, CFF,
+color/bitmap fonts, named instances or product rendering. Context leases, bounded
+caches, fixed-width atomic transport, shared layout/interaction/raster generation
+and independent Windows/package gates remain required. See docs/native-font-hinting.md.
+
 Retained DrawingTextLayout painting and interaction must share one original
 formatted generation. Own exact glyph/font runs and interaction geometry; do not
 reshape prefixes for carets or borrow mutable Font/StringFormat state. Keep

@@ -73,7 +73,7 @@ and bounded tail, invalid configuration publication, phase translation and empty
 repeated batches. The receipt records the actual test-font hash. These controls
 also cover concurrent captures from one live owner and a nonuniform fractional
 device-em request, without disposing the owner during a borrowed operation.
-are adapter/dependency evidence, not an independent Windows Display oracle or
+These controls are adapter/dependency evidence, not an independent Windows Display oracle or
 GPU/application qualification. Variable-instance and native hint-failure injection
 controls remain required alongside subsequent integration.
 

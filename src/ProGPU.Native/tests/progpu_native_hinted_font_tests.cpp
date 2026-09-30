@@ -99,7 +99,8 @@ void verify(const std::vector<std::byte>& original)
     const auto space = FT_Get_Char_Index(reference.face, static_cast<FT_ULong>(' '));
     require(a != 0U && m != 0U && space != 0U);
     const std::array<std::uint32_t, 8> ids{a, m, space, 0U, m, a, m, space};
-    bool actual_hint_difference = false;
+    bool actual_outline_hint_difference = false;
+    bool actual_advance_hint_difference = false;
     for (const auto policy : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
         for (const std::uint32_t ppem : {12U, 13U, 14U, 17U}) {
             hinted_font_configuration configuration{ppem * 64U, ppem * 64U, policy, 0U, 0U, {}};
@@ -122,11 +123,11 @@ void verify(const std::vector<std::byte>& original)
                 compare_slot(batch->glyphs[index], reference.face->glyph);
                 require(FT_Load_Glyph(reference.face, ids[index], FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING) == 0);
                 const auto slot = reference.face->glyph;
-                actual_hint_difference |= batch->glyphs[index].advance_x_26_6 != slot->advance.x;
+                actual_advance_hint_difference |= batch->glyphs[index].advance_x_26_6 != slot->advance.x;
                 require(slot->outline.n_points >= 0 && batch->glyphs[index].points.size() ==
                     static_cast<std::size_t>(slot->outline.n_points));
                 for (std::size_t point = 0U; point < batch->glyphs[index].points.size(); ++point)
-                    actual_hint_difference |= batch->glyphs[index].points[point].x_26_6 != slot->outline.points[point].x ||
+                    actual_outline_hint_difference |= batch->glyphs[index].points[point].x_26_6 != slot->outline.points[point].x ||
                         batch->glyphs[index].points[point].y_26_6 != slot->outline.points[point].y;
             }
             const auto saved = batch;
@@ -229,7 +230,8 @@ void verify(const std::vector<std::byte>& original)
             FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT | FT_LOAD_PEDANTIC | FT_LOAD_TARGET_NORMAL) == 0);
         compare_slot(fractional_batch->glyphs[index], reference.face->glyph);
     }
-    require(actual_hint_difference); // an unhinted/Ideal substitute cannot pass the fixture
+    // Width rounding alone cannot stand in for real hinted outline changes.
+    require(actual_outline_hint_difference && actual_advance_hint_difference);
 }
 
 } // namespace
