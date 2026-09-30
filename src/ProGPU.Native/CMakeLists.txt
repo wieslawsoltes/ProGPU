@@ -625,6 +625,8 @@ set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_path_boolean_gpu.hpp
     src/Backend/progpu_native_path_execution.cpp
     src/Backend/progpu_native_glyph_execution.cpp
+    src/Backend/progpu_native_hinted_glyph_execution.cpp
+    src/Backend/progpu_native_hinted_glyph_execution.hpp
     src/Backend/progpu_native_texture_execution.cpp
     src/Backend/progpu_native_pipeline.cpp
     src/Backend/progpu_native_pipeline.hpp
@@ -778,6 +780,7 @@ add_library(progpu_native_text STATIC
     src/Text/Font/progpu_native_hinted_transport.cpp
     src/Text/Font/progpu_native_hinted_text_layout.cpp
     src/Text/Font/progpu_native_hinted_outline.cpp
+    src/Text/Font/progpu_native_hinted_glyph_frame.cpp
     src/Text/progpu_native_unicode.cpp
     src/Text/Unicode/progpu_native_unicode_category.cpp
     src/Text/Unicode/progpu_native_unicode_directional.cpp
@@ -1982,6 +1985,27 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     progpu_native_enable_sanitizers(progpu_native_hinted_outline_tests)
     add_test(NAME progpu_native_hinted_outline_tests COMMAND progpu_native_hinted_outline_tests)
     set_tests_properties(progpu_native_hinted_outline_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_glyph_frame_tests
+        tests/progpu_native_hinted_glyph_frame_tests.cpp)
+    target_compile_features(progpu_native_hinted_glyph_frame_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_hinted_glyph_frame_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Font")
+    target_link_libraries(progpu_native_hinted_glyph_frame_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_glyph_frame_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_glyph_frame_tests)
+    add_test(NAME progpu_native_hinted_glyph_frame_tests COMMAND progpu_native_hinted_glyph_frame_tests)
+    set_tests_properties(progpu_native_hinted_glyph_frame_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_text_cluster_breaks_tests
+        tests/progpu_native_text_cluster_breaks_tests.cpp)
+    target_compile_features(progpu_native_text_cluster_breaks_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_text_cluster_breaks_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    progpu_native_enable_warnings(progpu_native_text_cluster_breaks_tests)
+    progpu_native_enable_sanitizers(progpu_native_text_cluster_breaks_tests)
+    add_test(NAME progpu_native_text_cluster_breaks_tests COMMAND progpu_native_text_cluster_breaks_tests)
+    set_tests_properties(progpu_native_text_cluster_breaks_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_text_shaping_showcase_tests
         tests/progpu_native_text_shaping_showcase_tests.cpp

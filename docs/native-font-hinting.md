@@ -459,6 +459,11 @@ and stages the complete run before publishing an immutable `hinted_shaped_run`.
 The previous result remains owned and unchanged on capture, projection or any
 later shaping failure. The retained result owns final positioned glyphs, normalized
 coordinates, the captured batch and a descriptor index for every final draw.
+It also owns the exact admitted scalar input and shapes from that owned copy,
+preserving source indices/lengths, script and scalar metadata after caller mutation
+or context retirement. Admitted substituted scalars are not the original
+pre-substitution source or a replacement for its selected source/glyph bidi policy.
+Every transfer, fitting and outline alias walk includes the full input capacity.
 It does not retain the mutable context or enable a source Display capability.
 
 Preparation captures every original post-GSUB ID in order, including repeats,
@@ -595,6 +600,46 @@ raster parity. Authored quadratic/cubic/winding and original-writer differential
 controls retain scalar/SIMD comparisons, duplicate slots, all tails, later invalid
 topology/policy/precision and spare-capacity aliases. Both real raster consumers,
 atlas retention, full package/image and independent Windows gates remain open.
+
+### Owned glyph frame and original renderer consumer
+
+`try_create_hinted_glyph_frame` now owns the exact retained layout/run and all
+shared-renderer outline, segment and positioned-draw arrays. It verifies the
+original logical restoration and source/descriptor maps, preserves visual draw
+order and repeated source slots, and omits only explicit no-ink descriptors.
+Auxiliary capture slots never become draws. Captured outline points remain Y-up;
+fitted positions are already Y-down, with one explicit logical origin and no
+second phase, snap or glyph-ID-based owner substitution.
+
+The explicit target uses actual physical dimensions, view and DPI. Its stored
+logical-units-per-pixel value must equal the literal float reciprocal of DPI,
+and the product must be exactly one. Product equality alone can admit a wrong
+adjacent float, so both checks are required. Finite target/projection checks and
+complete input/previous-frame capacity alias checks precede atomic publication.
+This is an explicit identity-basis/solid-color frame, not source style, arbitrary
+transform, Display admission or independent physical-pixel parity.
+
+The private `render_hinted_glyph_frame` adapter is compiled into both real native
+providers and calls their existing `progpu_native_engine_render_glyphs` exactly
+once. It keeps the CPU frame alive through that call; the original executor owns
+GPU uploads and submission-retained resources. Status and staged metrics return
+by value, with no successful metrics published after failure. No extra poll,
+wait, readback or submission is added; submission metrics do not mean completion.
+
+Authored CPU controls compare independent unpacked phase/position/map records,
+scalar/SIMD paths, RTL/repeated draws, no-ink/auxiliary roles, fractional and
+adversarial adjacent-float DPI, lifetime retirement, later invalid inputs and
+used/spare-capacity aliases. Actual GPU execution through both providers, package
+consumers, source formatting/interaction and independent Windows gates remain
+required. These new controls have not been executed locally.
+
+The original paragraph cluster-break projection is also shared privately between
+wire and native scalars without changing its body or the original paragraph input.
+It retains source preflight, last-scalar boundary selection, same-cluster grouping
+and caller tails. Its outputs are private scratch: a late invalid glyph group
+can leave an earlier prefix written, not a public atomic-generation guarantee.
+Independent header-only controls retain that exact legacy behavior. This seam
+does not infer bidi, cluster ends or source metrics for a hinted paragraph.
 
 The original normalized instance check uses public
 [fvar](https://learn.microsoft.com/en-us/typography/opentype/spec/fvar) and
