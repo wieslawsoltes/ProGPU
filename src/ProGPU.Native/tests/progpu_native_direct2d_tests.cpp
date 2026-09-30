@@ -204,8 +204,9 @@ void full_target_clear_regressions(
         require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) !=
                 PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && bytes == before && result.written_bytes == 0U &&
             result.failure_callback_index == (variant < 3U ? 2U : 1U) &&
-            result.failure_reason == (variant < 3U ? PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_OPERATION
-                                                   : PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_INVALID_VALUE),
+            result.failure_reason == static_cast<std::uint32_t>(variant < 3U
+                ? PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_OPERATION
+                : PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_INVALID_VALUE),
             "clear changed the first failure index/reason or published a partial scene");
         progpu_native_direct2d_scene_recorder_destroy(recorder);
     }
