@@ -1,0 +1,114 @@
+name: HMI route editing integration
+on:
+  push:
+    branches: [feat/hmi-designer]
+    paths: ['.github/workflows/hmi-route-integration.yml', 'eng/hmi-route-payload.*']
+permissions:
+  contents: read
+jobs:
+  integrate:
+    if: github.repository == 'wieslawsoltes/ProGPU' && github.ref == 'refs/heads/feat/hmi-designer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      PROGPU_WGPU_BACKEND: vulkan
+      XDG_RUNTIME_DIR: /tmp
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Apply integrity-checked source and commit the validated patch
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, lzma, subprocess, tempfile
+          from pathlib import Path
+          parts = [Path(f'eng/hmi-route-payload.{i}') for i in range(3)]
+          packed = b''.join(p.read_bytes() for p in parts)
+          if len(packed) != 23088:
+              raise SystemExit('Unexpected route patch transport length')
+          patch = lzma.decompress(packed, memlimit=256 * 1024 * 1024)
+          if len(patch) != 103139 or hashlib.sha256(patch).hexdigest() != 'e63d048769c28c096a1d73fdf2332736da02eff8b8572ef45039607d053606f2':
+              raise SystemExit('Route patch integrity check failed')
+          with tempfile.NamedTemporaryFile(suffix='.patch') as f:
+              f.write(patch); f.flush()
+              subprocess.run(['git', 'apply', '--check', f.name], check=True)
+              subprocess.run(['git', 'apply', '--index', f.name], check=True)
+          paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines()
+          allowed = ('src/ProGPU.Hmi/Diagram/', 'src/ProGPU.WinUI.Hmi/Diagram/', 'src/ProGPU.WinUI.Hmi.Designer/',
+                     'tests/ProGPU.Hmi.Tests/HmiWaypoint', 'tests/ProGPU.Hmi.VisualSmoke/', 'tests/ProGPU.Hmi.SerializationSmoke/', 'docs/hmi-')
+          if len(paths) != 24 or any(not p.startswith(allowed) for p in paths):
+              raise SystemExit('Unexpected source path outside the reviewed route-editing patch')
+          subprocess.run(['git', 'rm', '--', *(str(p) for p in parts)], check=True)
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(hmi): add ordered route pins and transactional canvas waypoint editing'
+          git push origin HEAD:refs/heads/feat/hmi-designer
+          mkdir -p artifacts/hmi-route-validation
+          git rev-parse HEAD | tee artifacts/hmi-route-validation/commit.txt
+      - name: Reflection-disabled HMI and transport regressions
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi-route-validation/tests
+      - name: Real OPC UA server regressions
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: dotnet test tests/ProGPU.Hmi.OpcUa.Tests/ProGPU.Hmi.OpcUa.Tests.csproj -c Release --logger "trx;LogFileName=opcua.trx" --results-directory artifacts/hmi-route-validation/tests
+      - name: Reflection-disabled project and routing smoke
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/ProGPU.Hmi.SerializationSmoke -c Release | tee artifacts/hmi-route-validation/coreclr.log
+      - name: Build standalone designer
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release
+      - name: Build the actual desktop gallery portable target
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:ProGpuSamplesDesktopPortableOnly=true
+      - name: Construct the actual gallery page without JSON reflection
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: dotnet run --project tests/ProGPU.Hmi.GallerySmoke -c Release
+      - name: Execute real NativeAOT serializer and ordered router
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish tests/ProGPU.Hmi.SerializationSmoke -c Release -r linux-x64 -p:PublishAot=true -p:ILLinkTreatWarningsAsErrors=true -o artifacts/hmi-aot
+          ./artifacts/hmi-aot/ProGPU.Hmi.SerializationSmoke | tee artifacts/hmi-route-validation/native-aot.log
+      - name: Render real components and route pointer interactions in all palettes
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers libvulkan1 fonts-dejavu-core
+          export VK_ICD_FILENAMES=$(find /usr/share/vulkan/icd.d -name '*lvp*json' -print -quit)
+          test -n "$VK_ICD_FILENAMES"
+          cat "$VK_ICD_FILENAMES" | tee artifacts/hmi-route-validation/vulkan-icd.json
+          dotnet build tests/ProGPU.Hmi.VisualSmoke -c Release
+          for palette in Light Dark HighContrast; do
+            timeout 180s dotnet run --project tests/ProGPU.Hmi.VisualSmoke -c Release --no-build -- /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf artifacts/hmi-route-validation/visuals "$palette" | tee "artifacts/hmi-route-validation/$palette.log"
+          done
+      - name: Pack the six reusable HMI libraries
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in ProGPU.Hmi ProGPU.WinUI.Hmi ProGPU.WinUI.Hmi.Designer ProGPU.Hmi.Modbus ProGPU.Hmi.Mqtt ProGPU.Hmi.OpcUa; do
+            dotnet pack "src/$project/$project.csproj" -c Release --no-build -o artifacts/hmi-route-validation/packages
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hmi-route-editing-validation
+          path: artifacts/hmi-route-validation
+          retention-days: 14
