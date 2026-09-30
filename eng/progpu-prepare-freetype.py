@@ -256,7 +256,9 @@ def prepare(args):
         "the included original and contributed-component notices.\n", encoding="utf-8")
     headers = [{"path": str(path.relative_to(install / "include/freetype2")).replace(os.sep, "/"),
                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-               for path in sorted((install / "include/freetype2").rglob("*")) if path.is_file()]
+               for path in sorted((install / "include/freetype2").rglob("*"),
+                                  key=lambda path: path.relative_to(install / "include/freetype2").as_posix())
+               if path.is_file()]
     manifest = {"schemaVersion": 1, "rid": args.rid, "pin": pin, "library": str(library),
                 "sha256": hashlib.sha256(payload).hexdigest(), "verifiedObjects": count,
                 "include": str(install / "include/freetype2"), "notices": receipts,

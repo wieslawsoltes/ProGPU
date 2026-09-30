@@ -42,7 +42,9 @@ def digest(path):
 
 def inventory(root):
     result = []
-    for path in sorted(root.rglob("*")):
+    # Receipts cross producer/consumer hosts. Path ordering case-folds on
+    # Windows; compare exact relative POSIX strings on every host instead.
+    for path in sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix()):
         if path.is_symlink():
             raise ValueError("Dependency inventory contains a symlink")
         if path.is_file():

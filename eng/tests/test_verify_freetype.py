@@ -1,7 +1,7 @@
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import struct
 import tempfile
 import unittest
@@ -12,6 +12,44 @@ SPEC = importlib.util.spec_from_file_location("verify_freetype", SCRIPT)
 VERIFY = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFY)
 PIN = json.loads(VERIFY.PREPARE.PIN.read_text())
+
+
+class FontInventoryOrderingTests(unittest.TestCase):
+    def test_mixed_case_receipt_order_is_exact_under_both_path_semantics(self):
+        # Exact-run Windows receipts sorted docs/include before LICENSE/NOTICE;
+        # package admission on Linux sorted uppercase first. These original
+        # in-memory paths exercise both host comparators without a Windows VM.
+        names = ("docs__FTL.TXT.txt", "docs__GPLv2.TXT.txt",
+                 "include__freetype__internal__fthash.h.txt", "LICENSE.TXT.txt", "NOTICE.txt")
+        expected_names = ("LICENSE.TXT.txt", "NOTICE.txt", "docs__FTL.TXT.txt",
+                          "docs__GPLv2.TXT.txt", "include__freetype__internal__fthash.h.txt")
+        payloads = {name: ("Original owned notice fixture: " + name).encode() for name in names}
+        expected = [{"path": name, "sha256": hashlib.sha256(payloads[name]).hexdigest()}
+                    for name in expected_names]
+
+        class BorrowedPath:
+            def __init__(self, value): self.value = value
+            def __lt__(self, other): return self.value < other.value
+            def relative_to(self, root): return self.value.relative_to(root.value)
+            def is_symlink(self): return False
+            def is_file(self): return True
+            def read_bytes(self): return payloads[self.value.name]
+
+        class BorrowedRoot:
+            def __init__(self, flavor):
+                self.value = flavor("original-notices")
+                self.paths = [BorrowedPath(self.value / name) for name in reversed(names)]
+            def rglob(self, pattern):
+                if pattern != "*": raise AssertionError("Unexpected fixture inventory pattern")
+                return iter(self.paths)
+
+        native_orders = []
+        for flavor in (PurePosixPath, PureWindowsPath):
+            root = BorrowedRoot(flavor)
+            native_orders.append([path.value.name for path in sorted(root.paths)])
+            with self.subTest(flavor=flavor.__name__):
+                self.assertEqual(expected, VERIFY.inventory(root))
+        self.assertNotEqual(native_orders[0], native_orders[1])
 
 
 class FontInstallationAdmissionTests(unittest.TestCase):
@@ -223,6 +261,35 @@ class FontInstallationAdmissionTests(unittest.TestCase):
         credit = Path(result["notices"]) / "NOTICE.txt"
         credit.write_text("missing original credit")
         with self.assertRaisesRegex(ValueError, "notices"): VERIFY.validate_staged(str(destination), "linux-x64")
+
+    def test_staged_notice_receipt_still_requires_exact_order_names_hashes_and_count(self):
+        destination = self.workspace / "package/runtimes/linux-x64/native"
+        destination.mkdir(parents=True)
+        result = VERIFY.stage_install(str(self.manifest), "linux-x64", str(destination))
+        marker = Path(result["metadata"])
+        original = json.loads(marker.read_text())
+        for alteration in ("order", "case", "hash", "missing", "duplicate"):
+            metadata = json.loads(json.dumps(original))
+            notices = metadata["notices"]
+            if alteration == "order": notices.reverse()
+            if alteration == "case": notices[0]["path"] = notices[0]["path"].lower()
+            if alteration == "hash": notices[0]["sha256"] = "0" * 64
+            if alteration == "missing": notices.pop()
+            if alteration == "duplicate": notices.append(dict(notices[0]))
+            marker.write_text(json.dumps(metadata))
+            with self.subTest(alteration=alteration), self.assertRaisesRegex(ValueError, "notices"):
+                VERIFY.validate_staged(str(destination), "linux-x64")
+        marker.write_text(json.dumps(original))
+        legal = Path(result["notices"])
+        extra = legal / "undeclared.txt"
+        extra.write_text("Original undeclared fixture")
+        with self.assertRaisesRegex(ValueError, "notices"):
+            VERIFY.validate_staged(str(destination), "linux-x64")
+        extra.unlink()
+        missing = legal / original["notices"][0]["path"]
+        missing.unlink()
+        with self.assertRaisesRegex(ValueError, "notices"):
+            VERIFY.validate_staged(str(destination), "linux-x64")
 
     def test_partial_six_rid_package_never_qualifies(self):
         package = self.workspace / "package"
