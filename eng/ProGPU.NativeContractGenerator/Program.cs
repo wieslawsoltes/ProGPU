@@ -215,6 +215,7 @@ static string MapType(string nativeType) => nativeType switch
         "uint8_t" => "byte",
         "int8_t" => "sbyte",
     "int32_t" => "int",
+    "int64_t" => "long",
     "int16_t" => "short",
     "size_t" => "nuint",
     "uintptr_t" => "nuint",

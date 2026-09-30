@@ -1,0 +1,38 @@
+name: Native contract generation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - eng/ProGPU.NativeContractGenerator/**
+      - eng/progpu-generate-native-contract.sh
+      - src/ProGPU.Native/include/**
+      - .github/workflows/native-contract-generation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Generate authoritative managed contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./eng/progpu-generate-native-contract.sh
+          git rev-parse HEAD > src/ProGPU.Backend.Native/Generated/generator-head.txt
+          sha256sum src/ProGPU.Native/include/progpu_native_text_hinting.h > src/ProGPU.Backend.Native/Generated/hinting-header.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: progpu-managed-native-contracts
+          path: src/ProGPU.Backend.Native/Generated/
+          if-no-files-found: error

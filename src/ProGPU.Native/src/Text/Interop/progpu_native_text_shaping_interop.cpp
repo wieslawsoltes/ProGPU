@@ -3,6 +3,7 @@
 #include "progpu_native_text_flow.h"
 #include "progpu_native_text.hpp"
 #include "progpu_native_text_font_source.hpp"
+#include "../Font/progpu_native_hinted_transport.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "../Font/progpu_native_hinted_font_cache.hpp"
 #endif
@@ -33,6 +34,10 @@ struct progpu_native_text_owned_font final {
     std::shared_ptr<const progpu::native::text::owned_font_source> source{};
     progpu::native::text::sfnt_font_view font{};
     std::uint64_t identity = 0U;
+};
+
+struct progpu_native_hinted_batch final {
+    std::shared_ptr<const progpu::native::text::hinted_glyph_batch> generation{};
 };
 
 struct progpu_native_text_plan_entry final {
@@ -351,6 +356,43 @@ bool has_aligned_pointer(const T* pointer, std::uint32_t count) noexcept {
     return count == 0U ||
         (pointer != nullptr &&
             reinterpret_cast<std::uintptr_t>(pointer) % alignof(T) == 0U);
+}
+
+template<class T>
+bool valid_hinted_buffer(const T* pointer, std::uint32_t count) noexcept {
+    if (!has_aligned_pointer(pointer, count)) return false;
+    const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+    return static_cast<std::uint64_t>(count) <=
+        (std::numeric_limits<std::uintptr_t>::max() - address) / sizeof(T);
+}
+
+bool hinted_publication_aliases_context(progpu_native_hinted_batch** output,
+    const progpu_native_text_context& context) noexcept {
+    const auto overlaps = [output](const void* data, std::size_t bytes) noexcept {
+        return byte_ranges_overlap(output, sizeof(*output), data, bytes);
+    };
+    if (overlaps(&context, sizeof(context)) ||
+        overlaps(context.fallback_fonts.data(), context.fallback_fonts.capacity() * sizeof(progpu_native_text_owned_font)) ||
+        overlaps(context.normalization_bytes.data(), context.normalization_bytes.capacity())) return true;
+    for (std::size_t index = 0U; index < context.font_count(); ++index) {
+        const auto source = context.source_at(index);
+        if (source != nullptr && (overlaps(source.get(), sizeof(*source)) ||
+            overlaps(source->bytes.data(), source->bytes.size()))) return true;
+    }
+    return false;
+}
+
+progpu_native_status hinted_status(progpu::native::text::hinted_font_error error) noexcept {
+    using progpu::native::text::hinted_font_error;
+    switch (error) {
+    case hinted_font_error::none: return PROGPU_NATIVE_STATUS_SUCCESS;
+    case hinted_font_error::invalid_argument:
+    case hinted_font_error::invalid_font: return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    case hinted_font_error::unsupported_font:
+    case hinted_font_error::dependency_unavailable: return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    case hinted_font_error::resource_exhausted: return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    default: return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
 }
 
 bool valid_scalar(std::uint32_t value) noexcept {
@@ -3603,5 +3645,73 @@ progpu_native_status progpu_native_text_context_layout_collapsed_flow_paragraph(
         glyphs, glyph_capacity, lines, line_capacity, scratch, scratch_size, result, nullptr,
         wrapping, collapse_width);
 }
+
+progpu_native_status progpu_native_text_context_capture_hinted_batch(
+    progpu_native_text_context* context, const progpu_native_hinted_font_request* request,
+    const std::int32_t* variation_coordinates_16_16, const std::uint32_t* glyph_indices,
+    std::uint32_t glyph_count, progpu_native_hinted_batch** batch) {
+    if (!valid_hinted_buffer(context, 1U) || !valid_hinted_buffer(request, 1U) ||
+        !valid_hinted_buffer(batch, 1U) || request->abi_version != PROGPU_NATIVE_ABI_VERSION ||
+        request->struct_size != sizeof(*request) || request->reserved != 0U ||
+        request->x_pixels_per_em_26_6 == 0U || request->y_pixels_per_em_26_6 == 0U ||
+        request->x_pixels_per_em_26_6 > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) ||
+        request->y_pixels_per_em_26_6 > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) ||
+        request->x_phase_26_6 >= 64U || request->y_phase_26_6 >= 64U ||
+        (request->interpreter != 35U && request->interpreter != 40U) || request->variation_count > 65535U ||
+        !valid_hinted_buffer(variation_coordinates_16_16, request->variation_count) ||
+        !valid_hinted_buffer(glyph_indices, glyph_count) ||
+        byte_ranges_overlap(batch, sizeof(*batch), request, sizeof(*request)) ||
+        byte_ranges_overlap(batch, sizeof(*batch), variation_coordinates_16_16,
+            static_cast<std::uint64_t>(request->variation_count) * sizeof(std::int32_t)) ||
+        byte_ranges_overlap(batch, sizeof(*batch), glyph_indices,
+            static_cast<std::uint64_t>(glyph_count) * sizeof(std::uint32_t)) ||
+        hinted_publication_aliases_context(batch, *context)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    const progpu::native::text::hinted_font_configuration configuration{
+        request->x_pixels_per_em_26_6, request->y_pixels_per_em_26_6,
+        static_cast<progpu::native::text::font_hint_policy>(request->interpreter),
+        request->x_phase_26_6, request->y_phase_26_6,
+        {variation_coordinates_16_16, request->variation_count}};
+    try {
+        auto candidate = std::make_unique<progpu_native_hinted_batch>();
+        progpu::native::text::hinted_font_error error{};
+        if (!progpu::native::text::capture_context_hinted(context, request->font_index,
+            configuration, {glyph_indices, glyph_count}, candidate->generation, error)) return hinted_status(error);
+        *batch = candidate.release();
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
+}
+
+progpu_native_status progpu_native_hinted_batch_get_counts(
+    const progpu_native_hinted_batch* batch, progpu_native_hinted_batch_counts* counts) {
+    if (!valid_hinted_buffer(batch, 1U) || !valid_hinted_buffer(counts, 1U) ||
+        batch->generation == nullptr || byte_ranges_overlap(batch, sizeof(*batch), counts, sizeof(*counts)))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    return progpu::native::text::get_hinted_batch_counts(*batch->generation, *counts) ==
+        progpu::native::text::hinted_transport_error::none ? PROGPU_NATIVE_STATUS_SUCCESS : PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+}
+
+progpu_native_status progpu_native_hinted_batch_copy(
+    const progpu_native_hinted_batch* batch, progpu_native_hinted_glyph* glyphs, std::uint32_t glyph_capacity,
+    progpu_native_hinted_point* points, std::uint32_t point_capacity, std::uint8_t* tags, std::uint32_t tag_capacity,
+    std::int32_t* contour_ends, std::uint32_t contour_capacity) {
+    if (!valid_hinted_buffer(batch, 1U) || batch->generation == nullptr ||
+        !valid_hinted_buffer(glyphs, glyph_capacity) || !valid_hinted_buffer(points, point_capacity) ||
+        !valid_hinted_buffer(tags, tag_capacity) || !valid_hinted_buffer(contour_ends, contour_capacity) ||
+        byte_ranges_overlap(batch, sizeof(*batch), glyphs, static_cast<std::uint64_t>(glyph_capacity) * sizeof(*glyphs)) ||
+        byte_ranges_overlap(batch, sizeof(*batch), points, static_cast<std::uint64_t>(point_capacity) * sizeof(*points)) ||
+        byte_ranges_overlap(batch, sizeof(*batch), tags, tag_capacity) ||
+        byte_ranges_overlap(batch, sizeof(*batch), contour_ends, static_cast<std::uint64_t>(contour_capacity) * sizeof(*contour_ends)))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    const auto copied = progpu::native::text::copy_hinted_batch(*batch->generation,
+        {glyphs, glyph_capacity}, {points, point_capacity}, {tags, tag_capacity}, {contour_ends, contour_capacity},
+        progpu::native::text::hinted_transport_policy::automatic);
+    return copied ? PROGPU_NATIVE_STATUS_SUCCESS : PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+}
+
+void progpu_native_hinted_batch_destroy(progpu_native_hinted_batch* batch) { delete batch; }
 
 } // extern "C"

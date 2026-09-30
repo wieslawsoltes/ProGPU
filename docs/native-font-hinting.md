@@ -153,7 +153,8 @@ An absent dependency fails explicitly without replacing the caller's prior batch
 New ordinary CTest controls exercise both interpreters, actual context/fallback
 growth, native-fault atomicity, warm reuse, eviction and transport after context
 retirement. They test the static text core, not a loaded shared product font ABI.
-No C entrypoint, generated managed consumer or source Display admission is added.
+The additive retained C entrypoints described below do not change source Display
+admission or ordinary shaping.
 
 Dependency symbols remain hidden at linkage: ELF uses the exact archive names
 with `--exclude-libs`; Apple uses the absolute archive with `-load_hidden`.
@@ -212,12 +213,48 @@ The same transfer controls also consume actual host-font batches for both hint
 policies, including after adapter disposal. They run in ordinary native CTest
 and in the isolated six-RID producer, which requires explicit transport evidence
 in its receipt. These controls are authored, not locally executed. The C records
-do not yet have exported entrypoints, generated managed bindings or source
-capability admission; they are not a completed public font ABI.
+now have additive retained entrypoints. Generated managed consumers and source
+capability admission still require the same generation contract.
+
+## Retained C generation ownership
+
+`progpu_native_text_context_capture_hinted_batch` borrows one exclusive live
+context use lease, one explicit request and the complete original-order glyph-ID
+batch. It publishes an independently owned immutable handle only after native
+capture succeeds. Failure leaves the prior handle unchanged; the caller remains
+responsible for releasing any earlier handle after a successful replacement.
+Device-em, fractional phases, interpreter 35/40 and every original-order 16.16
+variation coordinate remain exact. Unknown ABI/size/reserved/policy values,
+misalignment, overflow and publication aliases with input/context/font storage
+reject before native execution. An unavailable build returns Unsupported, not
+Ideal or a bitmap. Original `fvar` axis count is bounded by its uint16 wire field.
+
+The handle retains its generation through later cache mutations, eviction and
+context destruction. Counts and atomic copy operate only on that immutable
+generation; callers own a use lease that excludes concurrent handle destruction.
+Copy reuses the fixed-width bulk/SIMD transport, including full-capacity overlap,
+source/handle alias rejection and untouched success/failure tails. It performs no
+allocation, font execution or GPU work. Null destruction is permitted. Capture
+adds one owned handle allocation, including a warm generation hit; no per-glyph
+managed crossing or performance claim follows from cache reuse.
+
+Ordinary context CTest controls now exercise the actual C capture/count/copy/
+destroy boundary for both interpreters, later native instruction faults, invalid
+request/output aliases, insufficient/overlapping output buffers, raw scalar
+reference equality and snapshots after context destruction. Both renderer export
+allowlists retain the four additive symbols. Browser/default builds expose the
+same boundary but explicitly reject unavailable capture. These controls are
+authored; actual shared-library and package consumers remain required.
+
+The existing managed contract generator adds exact `int64_t` -> `long` support
+and owns marked hinting records. A read-only hosted generation workflow emits
+the original generator outputs with exact producer commit and input-header hash;
+no local build or handwritten generated output is used. The generated file must
+be imported and verified before managed consumers are admitted.
 
 The adapter is now explicitly linkable into the product text context and both
 renderers through the bounded cache. Next steps must retain original shaping
-identities, expose leased C/managed batch transport with generated wire bindings,
+identities, connect leased managed batch transport with generated wire bindings,
 and share its output across actual consumers. Linking alone does not prove that
 either renderer or a source application has consumed a hinted generation.
 No sampled width, isolated suffix reshape, per-glyph managed crossing, bitmap

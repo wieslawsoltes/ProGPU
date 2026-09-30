@@ -158,6 +158,12 @@ caches stay lazy and unpublished native failures retain prior generations. SDK
 staging must match the actual product configuration and preserve fresh notices;
 partial dependency packages require all six verified architectures. This private
 linkage does not admit source Display or qualify a loaded shared font ABI.
+Retained hinted C batch handles own one immutable generation independent of
+context/cache retirement. Capture borrows the original exclusive context lease;
+counts/copy borrow a separate handle lease excluding destroy. Reject input/output
+and retained-handle aliases before publication, preserve exact signed fixed-point
+records and every caller tail, and never execute fonts while copying. Absent
+dependencies remain explicit Unsupported; additive C exports do not admit Display.
 
 Retained DrawingTextLayout painting and interaction must share one original
 formatted generation. Own exact glyph/font runs and interaction geometry; do not
