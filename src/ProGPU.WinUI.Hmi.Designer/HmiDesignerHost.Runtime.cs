@@ -73,6 +73,7 @@ public sealed partial class HmiDesignerHost
     }
     public void StopPreview()
     {
+        CancelLabelEdit();
         StopHardwareAcquisition();
         CancelRouteEdit();
         CancelDiagramConnection();

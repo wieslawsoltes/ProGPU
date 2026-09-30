@@ -21,7 +21,7 @@ internal static class HmiProjectExtensions
                 Math.Abs(element.FaceplateSourceX) > 32768 || Math.Abs(element.FaceplateSourceY) > 32768)
                 throw new InvalidDataException("Invalid faceplate master-local coordinates.");
             if (element.Appearance == null) throw new InvalidDataException("Component appearance is required.");
-            element.Appearance.Validate();
+            element.Appearance.ValidateForRange(element.Minimum, element.Maximum);
             if (element.States is not { Count: <= 32 }) throw new InvalidDataException("A component supports at most 32 state rules.");
             if (element.FaceplateTemplateId == null || element.FaceplateInstanceId == null || element.FaceplateSourceId == null || element.FaceplatePrefix == null ||
                 element.FaceplateTemplateId.Length > 128 || element.FaceplateInstanceId.Length > 128 || element.FaceplateSourceId.Length > 128 || element.FaceplatePrefix.Length > 128 ||

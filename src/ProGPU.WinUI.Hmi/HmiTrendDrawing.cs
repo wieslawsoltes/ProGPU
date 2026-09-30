@@ -12,11 +12,11 @@ internal static class HmiTrendDrawing
 
     internal static void Draw(DrawingContext context, Vector2 size, IReadOnlyList<HmiTagSample> samples,
         DateTimeOffset end, HmiTrendOptions options, double minimum, double maximum, HmiTrendBucket[] scratch,
-        HmiColorScheme colorScheme = HmiColorScheme.Light)
+        HmiColorScheme colorScheme = HmiColorScheme.Light, HmiAppearance? appearance = null)
     {
         if (size.X < 48 || size.Y < 80 || maximum <= minimum) return;
-        var palette = HmiPalette.Get(colorScheme);
-        float left = 16, right = size.X - 16, top = 40, bottom = size.Y - 38;
+        var palette = HmiPalette.Get(colorScheme, appearance?.GraphicStyle ?? HmiGraphicStyle.Process);
+        float left = 16, right = size.X - 16, top = Math.Max(40, 16 + (appearance?.CaptionFontSize ?? 0) * 1.35f), bottom = size.Y - 38;
         if (bottom <= top) return;
         for (int i = 0; i <= 4; i++)
         {

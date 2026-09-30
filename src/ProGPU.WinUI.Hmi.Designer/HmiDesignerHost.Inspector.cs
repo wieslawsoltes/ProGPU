@@ -25,6 +25,7 @@ public sealed partial class HmiDesignerHost
         if (_rebuilding || _disposed) return;
         RefreshWaypointAdorner();
         UpdateStudioState();
+        RefreshGraphicInspector();
         _alarmConsole?.AttachRuntime(_runtime);
         _outline.IsHitTestVisible = !IsPreviewing;
         _palette.IsHitTestVisible = !IsPreviewing;
@@ -59,6 +60,24 @@ public sealed partial class HmiDesignerHost
         }
         ElementProperty("Name", model.Name, (e, v) => e.Name = v);
         ElementProperty("Label", model.Label, (e, v) => e.Label = v);
+        ReadOnlyProperty("In-place editing", "F2 / double-click caption · Enter applies · Escape cancels");
+        ElementProperty("Graphic convention", model.Appearance.GraphicStyle.ToString(), (e, v) => e.Appearance.GraphicStyle = Choice<HmiGraphicStyle>(v));
+        ElementProperty("Caption size (0=auto)", Format(model.Appearance.CaptionFontSize), (e, v) => e.Appearance.CaptionFontSize = Coordinate(v));
+        ElementProperty("Caption alignment", model.Appearance.CaptionAlignment.ToString(), (e, v) => e.Appearance.CaptionAlignment = Choice<HmiCaptionAlignment>(v));
+        if (HmiSymbolTraits.IsInstrument(model.Symbol))
+        {
+            ElementProperty("Instrument function", model.Appearance.InstrumentCode, (e, v) => e.Appearance.InstrumentCode = v);
+            ElementProperty("Loop identity", model.Appearance.InstrumentLoop, (e, v) => e.Appearance.InstrumentLoop = v);
+            ElementProperty("Instrument location", model.Appearance.InstrumentLocation.ToString(), (e, v) => e.Appearance.InstrumentLocation = Choice<HmiInstrumentLocation>(v));
+        }
+        if (!HmiSymbolTraits.IsBinary(model.Symbol) && !HmiSymbolTraits.IsSchematicSymbol(model.Symbol))
+            ElementProperty("Display band (low;high)", model.Appearance.NormalMinimum is { } low ? Format(low) + ";" + Format(model.Appearance.NormalMaximum!.Value) : "", (e, v) =>
+            {
+                if (string.IsNullOrWhiteSpace(v)) { e.Appearance.NormalMinimum = null; e.Appearance.NormalMaximum = null; return; }
+                var values = v.Split(';');
+                if (values.Length != 2) throw new FormatException("Enter low;high, or leave empty. This is a visual reference, not an alarm limit.");
+                e.Appearance.NormalMinimum = Number(values[0]); e.Appearance.NormalMaximum = Number(values[1]);
+            });
         ElementProperty("Presentation", model.Appearance.Presentation.ToString(), (e, v) => e.Appearance.Presentation = Choice<HmiPresentation>(v));
         ElementProperty("Show tag name", model.Appearance.ShowTagName.ToString(), (e, v) => e.Appearance.ShowTagName = Boolean(v));
         ElementProperty("Show range", model.Appearance.ShowEngineeringRange.ToString(), (e, v) => e.Appearance.ShowEngineeringRange = Boolean(v));

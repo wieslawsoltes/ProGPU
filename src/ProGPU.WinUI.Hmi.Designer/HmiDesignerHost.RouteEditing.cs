@@ -37,7 +37,7 @@ public sealed partial class HmiDesignerHost
     public void BeginWaypointPlacement() => DesignCommand(() =>
     {
         RequireEditableRoute();
-        CancelDiagramConnection(); CancelRouteEdit();
+        CancelLabelEdit(); CancelDiagramConnection(); CancelRouteEdit();
         _placingWaypoint = true;
         Status("Add waypoint: click where the route must pass. Pins are ordered along the current route. Escape cancels.");
     });
@@ -99,7 +99,7 @@ public sealed partial class HmiDesignerHost
     {
         var link = RequireEditableRoute();
         if ((uint)index >= (uint)link.Waypoints.Count) throw new ArgumentOutOfRangeException(nameof(index));
-        CancelDiagramConnection(); CancelRouteEdit();
+        CancelLabelEdit(); CancelDiagramConnection(); CancelRouteEdit();
         _selectedWaypointIndex = index;
         _waypointGesture = new(Session.ExportJson(), Session.ActiveScreenId, link.Id, index, [.. link.Waypoints]);
         UpdateInspector();

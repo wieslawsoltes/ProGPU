@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Globalization;
 using ProGPU.Text;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Input;
 using ProGPU.Hmi;
 using ProGPU.Scene;
 using ProGPU.Vector;
@@ -21,6 +22,12 @@ internal sealed class HmiDesignerCanvas : DesignerCanvas
     internal Func<PointerRoutedEventArgs, bool>? RoutePointerMoved { get; set; }
     internal Func<PointerRoutedEventArgs, bool>? RoutePointerReleased { get; set; }
     internal Action<PointerRoutedEventArgs>? RoutePointerCanceled { get; set; }
+    internal Action<DoubleTappedRoutedEventArgs>? CaptionDoubleTapped { get; set; }
+    public override void OnDoubleTapped(DoubleTappedRoutedEventArgs e)
+    {
+        CaptionDoubleTapped?.Invoke(e);
+        if (!e.Handled) base.OnDoubleTapped(e);
+    }
     public HmiDesignerCanvas() => DesignSurface.Children.Add(DiagramLayer);
 
     public override void OnPointerPressed(PointerRoutedEventArgs e)

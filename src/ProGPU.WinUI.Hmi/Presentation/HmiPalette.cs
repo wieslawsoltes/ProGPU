@@ -17,6 +17,9 @@ internal sealed class HmiPalette
     internal static readonly HmiPalette Contrast = new(true, 0x000000, 0x000000, 0x151515, 0x000000,
         0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x00FFFF, 0x75FFB0, 0xFFFF00, 0xFF91A4, 0xDFC0FF);
 
+    private static readonly HmiPalette[] Neutral = [new(Light, false), new(Dark, false), new(Contrast, false)];
+    private static readonly HmiPalette[] LineArt = [new(Light, true), new(Dark, true), new(Contrast, true)];
+    internal HmiGraphicStyle GraphicStyle { get; }
     internal bool HighContrast { get; }
     internal Brush Surface { get; }
     internal Brush Workspace { get; }
@@ -53,6 +56,27 @@ internal sealed class HmiPalette
         AccentLine = new Pen(Accent, 2.2f); RunningLine = new Pen(Running, 2.2f);
         WarningLine = new Pen(Warning, 2.2f); FaultLine = new Pen(Fault, 2.2f);
         MaintenanceLine = new Pen(Maintenance, 2.2f);
+    }
+
+    private HmiPalette(HmiPalette source, bool schematic)
+    {
+        GraphicStyle = schematic ? HmiGraphicStyle.Schematic : HmiGraphicStyle.HighPerformance;
+        HighContrast = source.HighContrast;
+        Surface = source.Surface; Workspace = source.Workspace;
+        Body = schematic ? source.Surface : source.Body;
+        Highlight = schematic ? source.Surface : source.Highlight;
+        Edge = source.Edge; Text = source.Text; Muted = source.Muted; Track = source.Track;
+        Accent = source.Muted; Running = source.Text;
+        Warning = source.Warning; Fault = source.Fault; Maintenance = source.Maintenance;
+        Outline = source.Outline; Fine = source.Fine; Grid = source.Grid; Strong = source.Strong;
+        AccentLine = source.Outline; RunningLine = source.Strong;
+        WarningLine = source.WarningLine; FaultLine = source.FaultLine; MaintenanceLine = source.MaintenanceLine;
+    }
+
+    internal static HmiPalette Get(HmiColorScheme scheme, HmiGraphicStyle style)
+    {
+        if (!Enum.IsDefined(scheme) || !Enum.IsDefined(style)) throw new ArgumentOutOfRangeException(nameof(style));
+        return style switch { HmiGraphicStyle.HighPerformance => Neutral[(int)scheme], HmiGraphicStyle.Schematic => LineArt[(int)scheme], _ => Get(scheme) };
     }
 
     internal static HmiPalette Get(HmiColorScheme scheme) => scheme switch

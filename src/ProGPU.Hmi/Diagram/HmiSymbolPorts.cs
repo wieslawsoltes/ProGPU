@@ -44,8 +44,18 @@ public static class HmiSymbolPorts
     private static readonly IReadOnlyList<HmiSymbolPort> Transmitter = Ports(
         P("process", "Process connection", 50, 94, HmiPortDirection.Bottom));
 
+    private static readonly IReadOnlyList<HmiSymbolPort> Instrument = Ports(P("signal", "Signal", 50, 95, HmiPortDirection.Bottom));
+    private static readonly IReadOnlyList<HmiSymbolPort> Electrical = Ports(
+        P("a", "Terminal A", 4, 50, HmiPortDirection.Left), P("b", "Terminal B", 96, 50, HmiPortDirection.Right));
+    private static readonly IReadOnlyList<HmiSymbolPort> Transformer = Ports(
+        P("primary", "Primary", 4, 50, HmiPortDirection.Left), P("secondary", "Secondary", 96, 50, HmiPortDirection.Right));
+    private static readonly IReadOnlyList<HmiSymbolPort> Earth = Ports(P("pe", "Protective conductor", 50, 5, HmiPortDirection.Top));
+
     public static IReadOnlyList<HmiSymbolPort> GetPorts(HmiSymbol symbol) => symbol switch
     {
+        HmiSymbol.InstrumentBubble or HmiSymbol.ControlFunction => Instrument,
+        HmiSymbol.NormallyOpenContact or HmiSymbol.NormallyClosedContact or HmiSymbol.RelayCoil or HmiSymbol.CircuitBreaker => Electrical,
+        HmiSymbol.Transformer => Transformer, HmiSymbol.ProtectiveEarth => Earth,
         HmiSymbol.Tank => Tank, HmiSymbol.Pump => Pump,
         HmiSymbol.Valve or HmiSymbol.ControlValve or HmiSymbol.CheckValve or HmiSymbol.ButterflyValve => Valve,
         HmiSymbol.Pipe => Pipe, HmiSymbol.HeatExchanger => Exchanger, HmiSymbol.Filter => Filter,

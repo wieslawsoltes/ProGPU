@@ -4,6 +4,9 @@ using ProGPU.Hmi;
 if (JsonSerializer.IsReflectionEnabledByDefault)
     throw new InvalidOperationException("The regression probe must run with reflection serialization disabled.");
 
+var conventions = HmiConventionsProject.Create();
+if (HmiProjectSerializer.Serialize(HmiProjectSerializer.Clone(conventions)) != HmiProjectSerializer.Serialize(conventions))
+    throw new InvalidOperationException("Generated graphic conventions, instrument identifiers or normal-band metadata changed.");
 var project = HmiDemoProject.Create();
 foreach (var symbol in Enum.GetValues<HmiSymbol>())
     project.Screens[0].Elements.Add(new HmiElement { Symbol = symbol, Label = "Zażółć / 控制 / محطة",

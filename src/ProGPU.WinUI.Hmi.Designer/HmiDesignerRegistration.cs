@@ -48,6 +48,14 @@ public static class HmiDesignerRegistration
             Register<HmiStrainer>(HmiSymbol.Strainer, () => new HmiStrainer());
             Register<HmiPressureTransmitter>(HmiSymbol.PressureTransmitter, () => new HmiPressureTransmitter());
             Register<HmiLevelTransmitter>(HmiSymbol.LevelTransmitter, () => new HmiLevelTransmitter());
+            Register<HmiInstrumentBubble>(HmiSymbol.InstrumentBubble, () => new HmiInstrumentBubble());
+            Register<HmiControlFunction>(HmiSymbol.ControlFunction, () => new HmiControlFunction());
+            Register<HmiNormallyOpenContact>(HmiSymbol.NormallyOpenContact, () => new HmiNormallyOpenContact());
+            Register<HmiNormallyClosedContact>(HmiSymbol.NormallyClosedContact, () => new HmiNormallyClosedContact());
+            Register<HmiRelayCoil>(HmiSymbol.RelayCoil, () => new HmiRelayCoil());
+            Register<HmiCircuitBreaker>(HmiSymbol.CircuitBreaker, () => new HmiCircuitBreaker());
+            Register<HmiTransformer>(HmiSymbol.Transformer, () => new HmiTransformer());
+            Register<HmiProtectiveEarth>(HmiSymbol.ProtectiveEarth, () => new HmiProtectiveEarth());
             _registered = true;
         }
     }
@@ -56,8 +64,7 @@ public static class HmiDesignerRegistration
         DesignerElementRegistry.Register(ToolboxKey(symbol), () =>
         {
             var control = factory();
-            var descriptor = HmiControlCatalog.Items.Single(d => d.Symbol == symbol);
-            control.ApplyDefinition(new HmiElement { Symbol = symbol, Name = descriptor.Name, Label = descriptor.Name, Width = descriptor.Width, Height = descriptor.Height });
+            control.ApplyDefinition(HmiControlCatalog.CreateDefinition(symbol));
             return control;
         }, (T source, T target) => Copy(source, target), isAtomic: true);
     }

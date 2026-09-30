@@ -23,6 +23,11 @@ public partial class HmiControl
     }
 
     public HmiAppearance Appearance => _definition.Appearance.Copy();
+    public Rect CaptionBounds => HmiVisualLayout.Calculate(Symbol, Math.Max(0, float.IsFinite(Width) ? Width : Size.X),
+        Math.Max(0, float.IsFinite(Height) ? Height : Size.Y), _definition.Appearance).Header;
+    public float CaptionFontSize => _label.FontSize;
+    private TextBlock? _instrumentCode;
+    private TextBlock? _instrumentLoop;
 
     private static void OnPresentationChanged(DependencyObject owner, DependencyPropertyChangedEventArgs args)
     {
@@ -46,7 +51,7 @@ public partial class HmiControl
         RequestedTheme = ColorScheme == HmiColorScheme.Light ? ElementTheme.Light : ElementTheme.Dark;
         _label.Foreground = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Text);
         _value.Foreground = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Text);
-        _quality.Foreground = HmiThemeResources.StatusReference(ColorScheme, VisualTone, IsActive, Quality != HmiQuality.Good || VisualTone == HmiVisualTone.Unknown);
+        _quality.Foreground = HmiThemeResources.StatusReference(ColorScheme, VisualTone, IsActive, Quality != HmiQuality.Good || VisualTone == HmiVisualTone.Unknown, _definition.Appearance.GraphicStyle);
         _tagCaption!.Foreground = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Muted);
         _rangeCaption!.Foreground = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Muted);
         _tagCaption.Font = Font; _rangeCaption.Font = Font;
@@ -89,8 +94,12 @@ public partial class HmiControl
         Place(_label, l.Header);
         Place(_tagCaption, l.Tag, TagName.Length > 0);
         Place(_value, l.Value, Symbol != HmiSymbol.NumericInput && _definition.Appearance.ShowValue);
-        Place(_rangeCaption!, l.Range);
+        Place(_rangeCaption!, l.Range, !_definition.Appearance.NormalMinimum.HasValue);
         _label.FontSize = Symbol == HmiSymbol.Label ? size.Y < 40 ? 11 : 20 : HmiSymbolTraits.IsCommand(Symbol) ? 13 : 12;
+        if (_definition.Appearance.CaptionFontSize > 0) _label.FontSize = _definition.Appearance.CaptionFontSize;
+        _label.TextAlignment = _definition.Appearance.CaptionAlignment switch
+        { HmiCaptionAlignment.Center => TextAlignment.Center, HmiCaptionAlignment.End => TextAlignment.Right, _ => TextAlignment.Left };
+        UpdateInstrumentAnnotation(l.Glyph);
         _value.FontSize = Symbol is HmiSymbol.AlarmList or HmiSymbol.AlarmBanner or HmiSymbol.Trend ? 12 :
             Symbol == HmiSymbol.NumericDisplay ? Math.Clamp(size.Y * 0.26f, 18, 34) : HmiSymbolTraits.IsBinary(Symbol) ? 12 : 17;
         _value.HorizontalAlignment = HorizontalAlignment.Left;
@@ -119,6 +128,30 @@ public partial class HmiControl
             _trendAxis.Foreground = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Muted);
             Place(_trendAxis, new Rect(12, Math.Max(0, size.Y - 26), Math.Max(0, size.X / 2 - 20), 18));
         }
+    }
+
+    private void UpdateInstrumentAnnotation(Rect glyph)
+    {
+        bool instrument = HmiSymbolTraits.IsInstrument(Symbol);
+        if (!instrument)
+        {
+            if (_instrumentCode != null) { _instrumentCode.Visibility = Visibility.Collapsed; _instrumentLoop!.Visibility = Visibility.Collapsed; }
+            return;
+        }
+        if (_instrumentCode == null)
+        {
+            _instrumentCode = new TextBlock { IsHitTestVisible = false, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            _instrumentLoop = new TextBlock { IsHitTestVisible = false, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            AddChild(_instrumentCode); AddChild(_instrumentLoop);
+        }
+        var b = HmiPortLayout.FitGlyph(Symbol, glyph, _definition.Appearance.QuarterTurns);
+        _instrumentCode.Font = Font; _instrumentLoop!.Font = Font;
+        _instrumentCode.Foreground = _instrumentLoop.Foreground = HmiThemeResources.GetReference(ColorScheme, HmiBrushRole.Text);
+        _instrumentCode.FontSize = _instrumentLoop.FontSize = Math.Clamp(b.Height * .13f, 8, 16);
+        SetText(_instrumentCode, _definition.Appearance.InstrumentCode);
+        SetText(_instrumentLoop!, _definition.Appearance.InstrumentLoop);
+        Place(_instrumentCode, new(b.X + b.Width * .23f, b.Y + b.Height * .27f, b.Width * .54f, b.Height * .20f), b.Height >= 28);
+        Place(_instrumentLoop!, new(b.X + b.Width * .23f, b.Y + b.Height * .54f, b.Width * .54f, b.Height * .20f), b.Height >= 28);
     }
 
     private static void Place(FrameworkElement element, Rect rectangle, bool show = true)

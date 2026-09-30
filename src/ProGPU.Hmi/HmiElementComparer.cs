@@ -19,6 +19,14 @@ public static class HmiElementComparer
             left.Action.Kind != right.Action.Kind || left.Action.Target != right.Action.Target || left.Action.Value != right.Action.Value ||
             left.Trend.WindowSeconds != right.Trend.WindowSeconds || left.Trend.MaximumGapSeconds != right.Trend.MaximumGapSeconds ||
             left.Appearance.Presentation != right.Appearance.Presentation ||
+            left.Appearance.GraphicStyle != right.Appearance.GraphicStyle ||
+            left.Appearance.CaptionFontSize != right.Appearance.CaptionFontSize ||
+            left.Appearance.CaptionAlignment != right.Appearance.CaptionAlignment ||
+            left.Appearance.InstrumentCode != right.Appearance.InstrumentCode ||
+            left.Appearance.InstrumentLoop != right.Appearance.InstrumentLoop ||
+            left.Appearance.InstrumentLocation != right.Appearance.InstrumentLocation ||
+            left.Appearance.NormalMinimum != right.Appearance.NormalMinimum ||
+            left.Appearance.NormalMaximum != right.Appearance.NormalMaximum ||
             left.Appearance.ShowTagName != right.Appearance.ShowTagName ||
             left.Appearance.ShowEngineeringRange != right.Appearance.ShowEngineeringRange ||
             left.Appearance.ShowConnectionPorts != right.Appearance.ShowConnectionPorts ||

@@ -17,8 +17,12 @@ public readonly record struct HmiVisualLayout(Rect Header, Rect Tag, Rect Glyph,
             return new(px, py, Math.Clamp(w, 0, width - px), Math.Clamp(h, 0, height - py));
         }
         if (symbol == HmiSymbol.Label)
-            return new(R(8, 3, width - 16, Math.Min(27, height - 6)), default, default,
-                R(8, 34, width - 16, height - 39), default, R(width - 16, 4, 10, 10));
+        {
+            float caption = appearance.CaptionFontSize > 0 ? appearance.CaptionFontSize * 1.35f : 27;
+            return new(R(8, 3, width - 16, Math.Min(caption, height - 6)), default, default,
+                appearance.ShowValue ? R(8, caption + 7, width - 16, height - caption - 12) : default,
+                default, R(width - 16, 4, 10, 10));
+        }
         if (symbol == HmiSymbol.Pipe)
             return new(height >= 40 ? R(8, 0, width - 25, 16) : default, default,
                 R(1, height >= 40 ? 14 : 1, width - 2, height >= 40 ? height - 15 : height - 2),
@@ -28,19 +32,20 @@ public readonly record struct HmiVisualLayout(Rect Header, Rect Tag, Rect Glyph,
         float inset = Math.Min(12, width * 0.06f);
         float content = Math.Max(0, width - 2 * inset);
         if (HmiSymbolTraits.IsCommand(symbol))
-            return new(R(inset, (height - 22) / 2, content - 32, 22), default,
+            return new(R(inset, (height - Math.Max(22, appearance.CaptionFontSize * 1.35f)) / 2, content - 32, Math.Max(22, appearance.CaptionFontSize * 1.35f)), default,
                 R(width - 34, (height - 26) / 2, 24, 26), default, default, R(width - 14, 3, 10, 10));
         if (symbol == HmiSymbol.ToggleSwitch)
             return new(R(inset, 7, content - 67, 18), default, R(width - 77, 10, 65, height - 20),
                 R(inset, height - 25, content - 67, 17), default, R(width - 14, 2, 10, 10));
         bool tag = appearance.ShowTagName && height >= 125;
         bool range = appearance.ShowValue && appearance.ShowEngineeringRange && !HmiSymbolTraits.IsBinary(symbol) && height >= 140 && symbol != HmiSymbol.Rectangle;
-        float top = tag ? 46 : 31;
+        float captionHeight = Math.Max(19, appearance.CaptionFontSize * 1.35f);
+        float top = 12 + captionHeight + (tag ? 19 : 0);
         float rangeHeight = range ? 18 : 0;
-        float valueHeight = symbol == HmiSymbol.NumericDisplay ? Math.Min(42, height * 0.34f) : 22;
+        float valueHeight = !appearance.ShowValue ? 0 : symbol == HmiSymbol.NumericDisplay ? Math.Min(42, height * 0.34f) : 22;
         float valueY = height - 9 - rangeHeight - valueHeight;
-        var header = R(inset, 8, content - 16,  19);
-        var tagRect = tag ? R(inset, 29, content - 10, 14) : default;
+        var header = R(inset, 8, content - 16, captionHeight);
+        var tagRect = tag ? R(inset, 10 + captionHeight, content - 10, 14) : default;
         var quality = R(width - 20, 10, 10, 10);
         var glyph = R(inset + 4, top, content - 8, Math.Max(0, valueY - top - 6));
         var value = R(inset, valueY, content, valueHeight);
@@ -65,7 +70,7 @@ public readonly record struct HmiVisualLayout(Rect Header, Rect Tag, Rect Glyph,
         else if (symbol == HmiSymbol.Trend)
         {
             tagRect = default;
-            glyph = R(inset, 36, content, Math.Max(0, height - 72));
+            glyph = R(inset, Math.Max(36, top), content, Math.Max(0, height - Math.Max(36, top) - 36));
             value = R(width - Math.Min(160, content / 2) - inset, height - 26, Math.Min(160, content / 2), 18);
             rangeRect = default;
         }

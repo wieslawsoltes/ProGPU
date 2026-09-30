@@ -11,6 +11,9 @@ public static class HmiPortLayout
     {
         float aspect = symbol switch
         {
+            HmiSymbol.InstrumentBubble or HmiSymbol.ControlFunction => 1,
+            HmiSymbol.NormallyOpenContact or HmiSymbol.NormallyClosedContact or HmiSymbol.RelayCoil => 2,
+            HmiSymbol.ProtectiveEarth => 1,
             HmiSymbol.Pipe => 5,
             HmiSymbol.Conveyor or HmiSymbol.HeatExchanger => 1.8f,
             HmiSymbol.Valve or HmiSymbol.ControlValve or HmiSymbol.CheckValve or HmiSymbol.ButterflyValve => 1.35f,

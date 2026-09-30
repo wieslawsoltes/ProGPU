@@ -14,12 +14,12 @@ public static class HmiThemeResources
     {
         internal readonly ResourceDictionary Resources = new();
         internal readonly Dictionary<HmiBrushRole, ThemeResourceBrush> Brushes = [];
-        internal References(HmiColorScheme scheme)
+        internal References(HmiColorScheme scheme, HmiGraphicStyle style)
         {
             foreach (var role in Enum.GetValues<HmiBrushRole>())
             {
                 string key = "Hmi." + role;
-                Resources[key] = GetBrush(scheme, role);
+                Resources[key] = GetBrush(scheme, role, style);
                 Brushes.Add(role, new ThemeResourceBrush(Resources, key));
             }
         }
@@ -27,19 +27,23 @@ public static class HmiThemeResources
     private static readonly ConditionalWeakTable<HmiPalette, References> ReferenceCache = new();
 
     /// <summary>Use for WinUI dependency properties so resource provenance is retained by the framework theme map.</summary>
-    public static ThemeResourceBrush GetReference(HmiColorScheme scheme, HmiBrushRole role)
+    public static ThemeResourceBrush GetReference(HmiColorScheme scheme, HmiBrushRole role) => GetReference(scheme, role, HmiGraphicStyle.Process);
+
+    public static ThemeResourceBrush GetReference(HmiColorScheme scheme, HmiBrushRole role, HmiGraphicStyle style)
     {
-        var palette = HmiPalette.Get(scheme);
+        var palette = HmiPalette.Get(scheme, style);
         if (!Enum.IsDefined(role)) throw new ArgumentOutOfRangeException(nameof(role));
         if (!ReferenceCache.TryGetValue(palette, out var references))
-            references = ReferenceCache.GetValue(palette, _ => new References(scheme));
+            references = ReferenceCache.GetValue(palette, _ => new References(scheme, style));
         return references.Brushes[role];
     }
 
     /// <summary>Use only for retained drawing and palette resource definitions, not to replace WinUI theme bindings.</summary>
-    public static Brush GetBrush(HmiColorScheme scheme, HmiBrushRole role)
+    public static Brush GetBrush(HmiColorScheme scheme, HmiBrushRole role) => GetBrush(scheme, role, HmiGraphicStyle.Process);
+
+    public static Brush GetBrush(HmiColorScheme scheme, HmiBrushRole role, HmiGraphicStyle style)
     {
-        var p = HmiPalette.Get(scheme);
+        var p = HmiPalette.Get(scheme, style);
         return role switch
         {
             HmiBrushRole.Surface => p.Surface, HmiBrushRole.Workspace => p.Workspace,
@@ -51,7 +55,7 @@ public static class HmiThemeResources
             _ => throw new ArgumentOutOfRangeException(nameof(role))
         };
     }
-    internal static ThemeResourceBrush StatusReference(HmiColorScheme scheme, HmiVisualTone tone, bool active, bool unknown) =>
+    internal static ThemeResourceBrush StatusReference(HmiColorScheme scheme, HmiVisualTone tone, bool active, bool unknown, HmiGraphicStyle style = HmiGraphicStyle.Process) =>
         GetReference(scheme, unknown ? HmiBrushRole.Warning : tone switch
         {
             HmiVisualTone.Fault => HmiBrushRole.Fault,
@@ -59,5 +63,5 @@ public static class HmiThemeResources
             HmiVisualTone.Maintenance => HmiBrushRole.Maintenance,
             HmiVisualTone.Running => HmiBrushRole.Running,
             _ => active ? HmiBrushRole.Running : HmiBrushRole.Muted
-        });
+        }, style);
 }

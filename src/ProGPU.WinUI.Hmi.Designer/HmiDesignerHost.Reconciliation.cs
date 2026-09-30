@@ -14,6 +14,7 @@ public sealed partial class HmiDesignerHost
         var tags = Session.Document.Tags.ToDictionary(t => t.Name, StringComparer.Ordinal);
         DiagramLayer.ReadSample = name => tags.TryGetValue(name, out var tag) ? new HmiTagSample(tag.InitialValue, HmiQuality.Good, DateTimeOffset.UnixEpoch) : null;
         DiagramLayer.SetScreen(screen);
+        HmiTagSample? ReadInitial(string name) => tags.TryGetValue(name, out var tag) ? new(tag.InitialValue, HmiQuality.Good, DateTimeOffset.UnixEpoch) : null;
         var desired = new List<HmiControl>(screen.Elements.Count);
         foreach (var element in screen.Elements)
         {
@@ -24,6 +25,7 @@ public sealed partial class HmiDesignerHost
             control.ColorScheme = ColorScheme;
             control.IsHitTestVisible = false; control.CommandsEnabled = false;
             if (tags.TryGetValue(element.Tag, out var tag)) control.UpdateSample(new HmiTagSample(tag.InitialValue, HmiQuality.Good, DateTimeOffset.UnixEpoch));
+            control.UpdateState(HmiStateEvaluator.Evaluate(element.States, ReadInitial));
             desired.Add(control);
         }
         var retained = desired.ToHashSet();

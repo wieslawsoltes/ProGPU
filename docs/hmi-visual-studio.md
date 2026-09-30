@@ -16,7 +16,7 @@ The fixed-height header separates project identity and operating mode from comma
 
 ## Component vocabulary
 
-There are 40 insertable component types. The 12 additions are control valve, check valve, butterfly valve, agitator, silo, hopper, separator, reactor, flow meter, strainer, pressure transmitter and level transmitter. Every new type has a standalone `HmiControl` subclass and an atomic shared-designer registration.
+There are now 48 insertable component types; the eight instrument/electrical additions and graphic profiles are covered by [graphic conventions](hmi-graphic-conventions.md). The preceding 12 process additions were control valve, check valve, butterfly valve, agitator, silo, hopper, separator, reactor, flow meter, strainer, pressure transmitter and level transmitter. Every new type has a standalone `HmiControl` subclass and an atomic shared-designer registration.
 
 Equipment has a neutral mechanical silhouette, readable ports and a separate operating-state signal. Instruments retain framed readouts and engineering ranges. Pumps and motors no longer share the same generic circular picture; valves have distinct bodies/actuators; vessels, separators, filters and heat exchangers have purpose-specific geometry. The catalog, toolbox and runtime consume one bounded retained-vector implementation.
 
@@ -114,3 +114,7 @@ Physical Apple Metal/Retina, Windows DirectX, touch hardware, real PLC interoper
 ## Pinned routing
 
 [Ordered route editing](hmi-route-editing.md) extends semantic diagram links with exact persistent pins, numbered canvas handles, drag previews, atomic undo and explicit blocked-pin recovery. It uses the same retained adorner layer, palettes and native input ownership as the existing designer.
+
+## Graphic conventions and direct editing
+
+The [graphic conventions guide](hmi-graphic-conventions.md) documents the 48-symbol library, Process/HighPerformance/Schematic profiles, instrument annotations, operating-reference bands, contextual formatting and native F2/double-click caption editing. These conventions are not complete ISA/ISO/IEC certification.

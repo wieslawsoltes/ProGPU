@@ -9,11 +9,11 @@ namespace ProGPU.WinUI.Hmi;
 /// One resolution-independent equipment vocabulary for runtime controls and designer thumbnails.
 /// Geometry is emitted into the host's retained DrawingContext; no bitmap, foreign canvas or GPU device is created.
 /// </summary>
-internal static class HmiSymbolRenderer
+internal static partial class HmiSymbolRenderer
 {
     internal static void DrawGlyph(DrawingContext context, HmiSymbol symbol, Rect bounds, HmiPalette palette,
         double value, double minimum, double maximum, bool active, bool unknown, HmiVisualTone tone,
-        float phase = 0, bool ports = true, int quarterTurns = 0, bool mirrorHorizontal = false, bool mirrorVertical = false)
+        float phase = 0, bool ports = true, int quarterTurns = 0, bool mirrorHorizontal = false, bool mirrorVertical = false, HmiInstrumentLocation instrumentLocation = HmiInstrumentLocation.Field)
     {
         if (bounds.Width < 4 || bounds.Height < 4 || !float.IsFinite(bounds.Width) || !float.IsFinite(bounds.Height)) return;
         bounds = HmiPortLayout.FitGlyph(symbol, bounds, quarterTurns);
@@ -24,6 +24,11 @@ internal static class HmiSymbolRenderer
         Brush fluid = unknown ? palette.Track : palette.Accent;
         Pen fluidLine = unknown ? palette.Outline : palette.AccentLine;
         phase = active && !unknown && float.IsFinite(phase) ? phase - MathF.Floor(phase) : 0;
+        if (HmiSymbolTraits.IsSchematicSymbol(symbol))
+        {
+            DrawSchematic(g, symbol, palette, instrumentLocation);
+            return;
+        }
         switch (symbol)
         {
             case HmiSymbol.Tank:
@@ -354,6 +359,10 @@ internal static class HmiSymbolRenderer
                 context.DrawLine(pen, last, point); last = point;
             }
         }
+        internal void UprightLine(Pen pen, float x1, float y1, float x2, float y2) => context.DrawLine(pen,
+            new(bounds.X + x1 * bounds.Width * .01f, bounds.Y + y1 * bounds.Height * .01f),
+            new(bounds.X + x2 * bounds.Width * .01f, bounds.Y + y2 * bounds.Height * .01f));
+        internal void Lead(float x1, float y1, float x2, float y2) { if (showPorts) L(palette.Outline, x1, y1, x2, y2); }
         internal void Port(float x1, float y1, float x2, float y2)
         {
             if (!showPorts) return;

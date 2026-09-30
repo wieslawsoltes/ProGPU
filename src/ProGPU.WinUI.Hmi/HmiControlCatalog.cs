@@ -8,6 +8,14 @@ public static class HmiControlCatalog
 {
     public static IReadOnlyList<HmiControlDescriptor> Items { get; } = Array.AsReadOnly(new HmiControlDescriptor[]
     {
+        new(HmiSymbol.InstrumentBubble, "Instrument bubble", "Instrumentation", 180, 190),
+        new(HmiSymbol.ControlFunction, "Shared control function", "Instrumentation", 180, 190),
+        new(HmiSymbol.NormallyOpenContact, "Normally open contact", "Electrical", 200, 145),
+        new(HmiSymbol.NormallyClosedContact, "Normally closed contact", "Electrical", 200, 145),
+        new(HmiSymbol.RelayCoil, "Relay coil", "Electrical", 200, 145),
+        new(HmiSymbol.CircuitBreaker, "Circuit breaker", "Electrical", 180, 160),
+        new(HmiSymbol.Transformer, "Transformer", "Electrical", 200, 175),
+        new(HmiSymbol.ProtectiveEarth, "Protective earth", "Electrical", 150, 145),
         new(HmiSymbol.ControlValve, "Modulating valve", "Valves", 190, 190),
         new(HmiSymbol.CheckValve, "Check valve", "Valves", 175, 145),
         new(HmiSymbol.ButterflyValve, "Butterfly valve", "Valves", 170, 155),
@@ -51,7 +59,6 @@ public static class HmiControlCatalog
     });
     public static HmiControl Create(HmiSymbol symbol)
     {
-        var descriptor = Items.Single(d => d.Symbol == symbol);
         var control = symbol switch
         {
             HmiSymbol.ControlValve => (HmiControl)new HmiControlValve(),
@@ -82,9 +89,36 @@ public static class HmiControlCatalog
             HmiSymbol.Trend => new HmiTrend(),
             HmiSymbol.AlarmList => new HmiAlarmList(),
             HmiSymbol.NumericDisplay => new HmiNumericDisplay(),
+            HmiSymbol.InstrumentBubble => new HmiInstrumentBubble(),
+            HmiSymbol.ControlFunction => new HmiControlFunction(),
+            HmiSymbol.NormallyOpenContact => new HmiNormallyOpenContact(),
+            HmiSymbol.NormallyClosedContact => new HmiNormallyClosedContact(),
+            HmiSymbol.RelayCoil => new HmiRelayCoil(),
+            HmiSymbol.CircuitBreaker => new HmiCircuitBreaker(),
+            HmiSymbol.Transformer => new HmiTransformer(),
+            HmiSymbol.ProtectiveEarth => new HmiProtectiveEarth(),
             _ => new HmiControl(symbol)
         };
-        control.ApplyDefinition(new HmiElement { Symbol = symbol, Name = descriptor.Name, Label = descriptor.Name, Width = descriptor.Width, Height = descriptor.Height });
+        control.ApplyDefinition(CreateDefinition(symbol));
         return control;
+    }
+
+    /// <summary>Detached insertion defaults shared by the designer and standalone consumers; creates no UI objects.</summary>
+    public static HmiElement CreateDefinition(HmiSymbol symbol)
+    {
+        var descriptor = Items.Single(d => d.Symbol == symbol);
+        var definition = new HmiElement { Symbol = symbol, Name = descriptor.Name, Label = descriptor.Name, Width = descriptor.Width, Height = descriptor.Height };
+        if (HmiSymbolTraits.IsSchematicSymbol(symbol))
+        {
+            definition.Appearance.GraphicStyle = HmiGraphicStyle.Schematic;
+            definition.Appearance.ShowValue = false;
+            definition.Appearance.ShowEngineeringRange = false;
+            if (HmiSymbolTraits.IsInstrument(symbol))
+            {
+                definition.Appearance.InstrumentCode = symbol == HmiSymbol.ControlFunction ? "FIC" : "PT";
+                definition.Appearance.InstrumentLoop = "101";
+            }
+        }
+        return definition;
     }
 }

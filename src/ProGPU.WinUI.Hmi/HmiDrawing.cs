@@ -21,11 +21,11 @@ internal static class HmiDrawing
 
     internal static void Draw(DrawingContext context, HmiSymbol symbol, Vector2 size, double value, double min, double max,
         bool active, HmiQuality quality, IReadOnlyList<HmiTagSample> history, bool alarm, float phase,
-        HmiVisualTone tone = HmiVisualTone.Normal, HmiAppearance? appearance = null, HmiColorScheme colorScheme = HmiColorScheme.Light)
+        HmiVisualTone tone = HmiVisualTone.Normal, HmiAppearance? appearance = null, HmiColorScheme colorScheme = HmiColorScheme.Light, bool hasStateCaption = false)
     {
         if (!float.IsFinite(size.X) || !float.IsFinite(size.Y) || size.X < 8 || size.Y < 8) return;
         appearance ??= DefaultAppearance;
-        var p = HmiPalette.Get(colorScheme);
+        var p = HmiPalette.Get(colorScheme, appearance.GraphicStyle);
         bool unknown = quality != HmiQuality.Good || tone == HmiVisualTone.Unknown;
         bool signalActive = active && HmiSymbolTraits.IsBinary(symbol);
         bool card = HmiSymbolTraits.IsCard(symbol, appearance.Presentation);
@@ -40,8 +40,10 @@ internal static class HmiDrawing
         {
             HmiSymbolRenderer.DrawGlyph(context, symbol, layout.Glyph, p, value, min, max, active && !unknown, unknown,
                 alarm && symbol is (HmiSymbol.AlarmBanner or HmiSymbol.AlarmList) ? HmiVisualTone.Fault : tone,
-                appearance.AnimateFlow ? phase : 0, appearance.ShowConnectionPorts, appearance.QuarterTurns, appearance.MirrorHorizontal, appearance.MirrorVertical);
+                appearance.AnimateFlow ? phase : 0, appearance.ShowConnectionPorts, appearance.QuarterTurns, appearance.MirrorHorizontal, appearance.MirrorVertical, appearance.InstrumentLocation);
         }
+        if (!unknown && !hasStateCaption && appearance.NormalMinimum is { } normalLow && appearance.NormalMaximum is { } normalHigh && layout.Range.Width > 0)
+            HmiOperatingBandRenderer.Draw(context, layout.Range, p, value, min, max, normalLow, normalHigh, unknown);
         if (symbol is HmiSymbol.AlarmBanner or HmiSymbol.AlarmList)
             context.FillRoundedRectangle(alarm ? p.Fault : p.Track, new Rect(0, 6, 3, size.Y - 12), 1);
         else if (symbol == HmiSymbol.Rectangle)

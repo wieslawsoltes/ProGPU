@@ -97,8 +97,10 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         left.SelectedIndex = 1;
         leftSplit.PaneContent = left;
         var inspector = new Pivot { Font = _font, Margin = new Thickness(30, 0, 0, 0) };
-        var properties = new Grid(); properties.RowDefinitions.Add(GridLength.Auto); properties.RowDefinitions.Add(GridLength.Star(1));
-        properties.AddChild(_selectionLabel); properties.AddChild(_properties); SetRow(_properties, 1);
+        var properties = new Grid(); properties.RowDefinitions.Add(GridLength.Auto); properties.RowDefinitions.Add(GridLength.Auto); properties.RowDefinitions.Add(GridLength.Star(1));
+        properties.AddChild(_selectionLabel);
+        var quickProperties = BuildGraphicInspector(); properties.AddChild(quickProperties); SetRow(quickProperties, 1);
+        properties.AddChild(_properties); SetRow(_properties, 2);
         inspector.Items.Add(new PivotItem("HMI", properties));
         inspector.Items.Add(new PivotItem("Layout", _layout));
         rightSplit.PaneContent = inspector;
@@ -114,6 +116,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         _multiAdorner = new DesignerMultiSelectionAdorner(_canvas, _selection);
         _canvas.AdornerSurface.Children.Add(_multiAdorner);
         InitializeRouteEditing();
+        _canvas.CaptionDoubleTapped = HandleCaptionDoubleTap;
         _canvas.ViewportChanged += UpdateStudioState;
         _canvas.CanvasModifying += OnCanvasModifying;
         _canvas.CanvasModified += OnCanvasModified;
@@ -263,6 +266,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     }
     private void OnSessionChanged()
     {
+        CancelLabelEdit();
         CancelRouteEdit();
         _selectedWaypointIndex = -1;
         CancelDiagramConnection();
@@ -270,7 +274,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         MarkEngineeringDirty();
         RebuildDocumentViews();
     }
-    private void OnScreenChanged() { CancelRouteEdit(); CancelDiagramConnection(); SelectDiagramLink(null); RebuildDocumentViews(); Fit(); }
+    private void OnScreenChanged() { CancelLabelEdit(); CancelRouteEdit(); CancelDiagramConnection(); SelectDiagramLink(null); RebuildDocumentViews(); Fit(); }
     private void OnCanvasSelectionChanged()
     {
         if (_rebuilding) return;
@@ -283,10 +287,12 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     }
     private void OnCanvasModifying()
     {
+        CancelLabelEdit();
         if (!_rebuilding && !IsPreviewing) _gestureStart = _canvas.DesignSurface.Children.OfType<HmiControl>().ToDictionary(c => c.CaptureDefinition().Id, c => c.CaptureDefinition());
     }
     private void OnCanvasModified()
     {
+        CancelLabelEdit();
         // Wheel zoom also raises this shared notification. A route gesture owns its
         // detached preview until release; do not replace it with the committed model.
         if (_rebuilding || IsPreviewing || _waypointGesture != null) return;
@@ -424,6 +430,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         float step = InputSystem.Current.IsShiftPressed ? 10 : 1;
         Action? action = e.Key switch
         {
+            Silk.NET.Input.Key.F2 => () => BeginLabelEdit(),
             Silk.NET.Input.Key.Z when control => Session.Undo,
             Silk.NET.Input.Key.Y when control => Session.Redo,
             Silk.NET.Input.Key.A when control => _selection.SelectAll,
@@ -447,7 +454,8 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
     public void Dispose()
     {
         if (_disposed) return;
-        StopPreview(); _disposed = true;
+        CancelLabelEdit(); StopPreview(); _disposed = true;
+        _canvas.CaptionDoubleTapped = null;
         Session.Changed -= OnSessionChanged; Session.ScreenChanged -= OnScreenChanged;
         _canvas.CanvasModifying -= OnCanvasModifying; _canvas.CanvasModified -= OnCanvasModified; _canvas.SelectionChanged -= OnCanvasSelectionChanged;
         _selection.SelectionChanged -= OnModelSelectionChanged;

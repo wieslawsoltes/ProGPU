@@ -126,3 +126,7 @@ The standalone app and gallery open the Northwater process studio example. [The 
 ## Semantic diagram editing
 
 The [diagram connections guide](hmi-diagram-connections.md) covers stable nozzle topology, orthogonal routing, card/process attachment rules, line feedback and diagnostics, copy/undo behavior and bounded work. The Northwater sample uses actual routed connections between its process equipment. Diagram links are separate from network connection profiles and never submit control commands.
+
+## Graphic conventions and direct editing
+
+The [graphic conventions guide](hmi-graphic-conventions.md) documents the 48-symbol library, Process/HighPerformance/Schematic profiles, instrument annotations, operating-reference bands, contextual formatting and native F2/double-click caption editing. These conventions are not complete ISA/ISO/IEC certification.

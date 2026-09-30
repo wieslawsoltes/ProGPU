@@ -83,12 +83,15 @@ public sealed partial class HmiDesignerHost
         tools.AddChild(StudioMenu("File", [
             ("New project", () => ConfirmReplace("new", () => Session.Open(new HmiProject { Screens = [new HmiScreen { Id = "overview", Name = "Overview" }] }))),
             ("Water treatment sample", () => ConfirmReplace("demo", () => Session.Open(HmiDemoProject.Create()))),
+            ("Graphics convention sample", () => ConfirmReplace("conventions-demo", () => Session.Open(HmiConventionsProject.Create()))),
             ("Process studio sample", () => ConfirmReplace("studio-demo", () => Session.Open(HmiShowcaseProject.Create()))),
             ("Open / save location…", ToggleFileLocation),
             ("Save project", () => { if (string.IsNullOrWhiteSpace(_filePath.Text)) ToggleFileLocation(); else _ = SaveFileAsync(_filePath.Text); }),
             ("Validate project", () => { HmiProjectSerializer.Validate(Session.GetProject()); Status("The current project is valid."); })
         ]));
         tools.AddChild(StudioMenu("Edit", [
+            ("Edit caption in place (F2)", () => BeginLabelEdit()),
+            ("Copy graphic format", CopyGraphicFormat), ("Paste graphic format", PasteGraphicFormat),
             ("Undo", () => DesignCommand(Session.Undo)), ("Redo", () => DesignCommand(Session.Redo)),
             ("Select all", () => DesignCommand(_selection.SelectAll)), ("Copy", CopySelection),
             ("Cut", () => DesignCommand(() => { CopySelection(); _selection.Delete(); })),
@@ -123,10 +126,18 @@ public sealed partial class HmiDesignerHost
             ("Delete selected link", DeleteSelectedLink),
             ("Show / hide nozzles", () => DiagramLayer.ShowPortHandles = !DiagramLayer.ShowPortHandles)
         ]));
+        tools.AddChild(StudioMenu("Format", [
+            ("Process graphics", () => SetGraphicStyle(HmiGraphicStyle.Process)),
+            ("High-performance graphics", () => SetGraphicStyle(HmiGraphicStyle.HighPerformance)),
+            ("Schematic graphics", () => SetGraphicStyle(HmiGraphicStyle.Schematic)),
+            ("Rotate glyph clockwise", RotateSelectedGraphics), ("Mirror glyph horizontally", MirrorSelectedGraphics),
+            ("Copy visual format", CopyGraphicFormat), ("Paste visual format", PasteGraphicFormat)
+        ]));
         tools.AddChild(StudioMenu("View", [
             ("Fit screen", Fit), ("Zoom to selection", ZoomToSelection), ("Zoom in", () => Zoom(1.25f)), ("Zoom out", () => Zoom(0.8f)),
             ("Toggle design grid", ToggleDesignGrid), ("Toggle snapping", ToggleDesignSnap),
             ("Toggle rulers", () => { _canvas.ShowRulers = !_canvas.ShowRulers; _canvas.Invalidate(); }),
+            ("Preview initial state (read only)", () => StartPreview(allowLocalWrites: false, automaticTicks: false)),
             ("Toggle runtime fit / 1:1", () => _previewViewport.FitToViewport = !_previewViewport.FitToViewport),
             ("Toggle data panels", ToggleDataPanels),
             ("Compact data panels", () => SetDataPanelHeight(190)),
@@ -275,6 +286,7 @@ public sealed partial class HmiDesignerHost
         foreach (var menu in _studioMenus)
             foreach (var item in menu.Items) item.RequestedTheme = RequestedTheme;
         if (_preview != null) _preview.ColorScheme = ColorScheme;
+        RefreshGraphicInspector();
         InvalidateStudioTree(this);
         _canvas.Invalidate(); Invalidate();
     }

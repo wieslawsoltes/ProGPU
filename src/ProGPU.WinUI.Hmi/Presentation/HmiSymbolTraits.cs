@@ -5,6 +5,11 @@ namespace ProGPU.WinUI.Hmi;
 /// <summary>Shared layout/preview classification, not inferred from enum ordinals or translated names.</summary>
 public static class HmiSymbolTraits
 {
+    public static bool IsInstrument(HmiSymbol symbol) => symbol is HmiSymbol.InstrumentBubble or HmiSymbol.ControlFunction;
+    public static bool IsElectrical(HmiSymbol symbol) => symbol is HmiSymbol.NormallyOpenContact or HmiSymbol.NormallyClosedContact or
+        HmiSymbol.RelayCoil or HmiSymbol.CircuitBreaker or HmiSymbol.Transformer or HmiSymbol.ProtectiveEarth;
+    public static bool IsSchematicSymbol(HmiSymbol symbol) => IsInstrument(symbol) || IsElectrical(symbol);
+
     public static bool IsEquipment(HmiSymbol symbol) => symbol is
         HmiSymbol.Tank or HmiSymbol.Pump or HmiSymbol.Valve or HmiSymbol.Motor or HmiSymbol.Pipe or
         HmiSymbol.Conveyor or HmiSymbol.HeatExchanger or HmiSymbol.Filter or HmiSymbol.Compressor or
@@ -26,6 +31,6 @@ public static class HmiSymbolTraits
     {
         HmiPresentation.Card => symbol != HmiSymbol.Label,
         HmiPresentation.Process => false,
-        _ => !IsEquipment(symbol) && symbol != HmiSymbol.Label
+        _ => !IsEquipment(symbol) && !IsSchematicSymbol(symbol) && symbol != HmiSymbol.Label
     };
 }

@@ -85,6 +85,7 @@ public partial class HmiControl : Grid
     public HmiControl(HmiSymbol symbol)
     {
         _definition = new HmiElement { Symbol = symbol, Label = symbol.ToString(), Name = symbol.ToString(), Width = 180, Height = symbol == HmiSymbol.Pipe ? 44 : 130 };
+        if (HmiSymbolTraits.IsSchematicSymbol(symbol)) _definition = HmiControlCatalog.CreateDefinition(symbol);
         _label = new TextBlock { FontSize = 12, Margin = new Thickness(10, 8, 10, 0), VerticalAlignment = VerticalAlignment.Top, Foreground = HmiDrawing.Text, IsHitTestVisible = false };
         _value = new TextBlock { FontSize = 17, Margin = new Thickness(10, 0, 10, 8), VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Center, Foreground = HmiDrawing.Text, IsHitTestVisible = false };
         _quality = new TextBlock { FontSize = 10, Margin = new Thickness(10, 26, 10, 0), VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Right, Foreground = HmiDrawing.Warning, IsHitTestVisible = false };
@@ -102,6 +103,8 @@ public partial class HmiControl : Grid
     private void UpdateFonts()
     {
         _label.Font = Font; _value.Font = Font; _quality.Font = Font;
+        if (_instrumentCode != null) _instrumentCode.Font = Font;
+        if (_instrumentLoop != null) _instrumentLoop.Font = Font;
         if (_input != null) _input.Font = Font;
         if (_applyLabel != null) _applyLabel.Font = Font;
         if (_trendAxis != null) _trendAxis.Font = Font;
@@ -118,7 +121,7 @@ public partial class HmiControl : Grid
             definition.Width is < 8 or > 16384 || definition.Height is < 8 or > 16384 || definition.Action == null || definition.Trend == null || definition.Appearance == null)
             throw new ArgumentException("Invalid HMI component geometry, symbol, range, precision, trend or action.", nameof(definition));
         definition.Trend.Validate();
-        definition.Appearance.Validate();
+        definition.Appearance.ValidateForRange(definition.Minimum, definition.Maximum);
         bool differentInput = _definition.Id != definition.Id || _definition.Tag != definition.Tag || _definition.Symbol != definition.Symbol;
         var copy = definition.Copy();
         _batching = true;
@@ -311,9 +314,9 @@ public partial class HmiControl : Grid
     {
         bool active = IsActive && Quality == HmiQuality.Good && VisualTone != HmiVisualTone.Unknown;
         HmiDrawing.Draw(context, Symbol, Size, Value, _definition.Minimum, _definition.Maximum, active, Quality,
-            Symbol == HmiSymbol.Trend ? Array.Empty<HmiTagSample>() : _history, _hasAlarm, _phase, VisualTone, _definition.Appearance, ColorScheme);
+            Symbol == HmiSymbol.Trend ? Array.Empty<HmiTagSample>() : _history, _hasAlarm, _phase, VisualTone, _definition.Appearance, ColorScheme, StateText.Length > 0);
         if (Symbol == HmiSymbol.Trend && _trendBuckets != null)
-            HmiTrendDrawing.Draw(context, Size, _history, _trendNow, _definition.Trend, _definition.Minimum, _definition.Maximum, _trendBuckets, ColorScheme);
+            HmiTrendDrawing.Draw(context, Size, _history, _trendNow, _definition.Trend, _definition.Minimum, _definition.Maximum, _trendBuckets, ColorScheme, _definition.Appearance);
         base.OnRender(context);
     }
 }

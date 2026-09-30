@@ -12,18 +12,25 @@ using ProGPU.Text;
 using ProGPU.WinUI.Hmi;
 using ProGPU.WinUI.Hmi.Designer;
 
-if (args.Length is < 2 or > 3) throw new ArgumentException("Usage: ProGPU.Hmi.VisualSmoke <font-file> <output-directory> [Light|Dark|HighContrast]");
-var schemes = new[] { args.Length == 3 ? Enum.Parse<HmiColorScheme>(args[2]) : HmiColorScheme.Light };
+if (args.Length is < 2 or > 4) throw new ArgumentException("Usage: ProGPU.Hmi.VisualSmoke <font-file> <output-directory> [Light|Dark|HighContrast] [--graphics-only]");
+var schemes = new[] { args.Length >= 3 ? Enum.Parse<HmiColorScheme>(args[2]) : HmiColorScheme.Light };
 var elapsed = System.Diagnostics.Stopwatch.StartNew();
 if (JsonSerializer.IsReflectionEnabledByDefault) throw new InvalidOperationException("JSON reflection must remain disabled.");
 var font = new TtfFont(args[0]);
 PopupService.DefaultFont = font;
 Directory.CreateDirectory(args[1]);
-using var window = new HeadlessWindow(1440, 1120);
+uint catalogHeight = (uint)(80 + ((HmiControlCatalog.Items.Count + 7) / 8) * 208);
+using var window = new HeadlessWindow(1440, catalogHeight);
+if (args.Length == 4)
+{
+    if (args[3] != "--graphics-only") throw new ArgumentException("Unknown visual probe selector.");
+    foreach (var scheme in schemes) HmiGraphicConventionsProbe.Run(window, font, args[1], scheme);
+    return;
+}
 var at = DateTimeOffset.Parse("2026-01-01T12:00:00Z");
 foreach (var scheme in schemes)
 {
-    var canvas = new Canvas { Width = 1440, Height = 1120, Background = HmiThemeResources.GetBrush(scheme, HmiBrushRole.Workspace) };
+    var canvas = new Canvas { Width = 1440, Height = catalogHeight, Background = HmiThemeResources.GetBrush(scheme, HmiBrushRole.Workspace) };
     var title = new TextBlock { Text = "PROGPU HMI / EQUIPMENT LIBRARY", Font = font, FontSize = 22, Foreground = HmiThemeResources.GetBrush(scheme, HmiBrushRole.Text) };
     canvas.Children.Add(title); Canvas.SetLeft(title, 24); Canvas.SetTop(title, 16);
     int index = 0;
@@ -47,7 +54,7 @@ foreach (var scheme in schemes)
 }
 // Test glyphs independently of captions and instrument-card backgrounds. A repeated
 // generic picture with different text must not satisfy the equipment atlas check.
-window.Resize(1440, 600);
+window.Resize(1440, (uint)(24 + ((HmiControlCatalog.Items.Count + 9) / 10) * 144));
 foreach (var scheme in schemes)
 {
     var atlas = new Canvas { Background = HmiThemeResources.GetBrush(scheme, HmiBrushRole.Workspace) };
@@ -246,6 +253,7 @@ foreach (var scheme in schemes)
     window.Content = null;
     Console.WriteLine($"{scheme}: independent line style, active/stopped/unknown pixels and blocked terminal checks passed.");
 }
+foreach (var scheme in schemes) HmiGraphicConventionsProbe.Run(window, font, args[1], scheme);
 foreach (var scheme in schemes) HmiRouteEditingProbe.Run(window, font, args[1], scheme);
 Console.WriteLine($"PASS: actual ProGPU component, semantic diagram, designer and runtime readback with reflection JSON disabled ({elapsed.Elapsed}).");
 

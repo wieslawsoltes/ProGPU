@@ -24,7 +24,7 @@ broker/controller acknowledgements are distinguished from actual process feedbac
 
 ## HMI process studio
 
-The [HMI designer](docs/hmi-designer.md) reuses the shared WinUI authoring canvas and exposes **40 retained-vector components**, light/dark/high-contrast palettes, typed faceplates, state rules, alarms, trends, [semantic nozzle routing](docs/hmi-diagram-connections.md), and explicit Modbus TCP, MQTT and OPC UA commissioning.
+The [HMI designer](docs/hmi-designer.md) reuses the shared WinUI authoring canvas and exposes **48 retained-vector components**, light/dark/high-contrast palettes, typed faceplates, state rules, alarms, trends, [semantic nozzle routing](docs/hmi-diagram-connections.md), and explicit Modbus TCP, MQTT and OPC UA commissioning.
 
 ```sh
 dotnet run --project samples/HmiDesigner/HmiDesigner.csproj -c Release
@@ -1766,3 +1766,7 @@ If graphics interop is not supported by the environment (e.g. software rendering
 ### OPC UA HMI commissioning
 
 The optional `ProGPU.Hmi.OpcUa` package adds signed/encrypted OPC UA sessions, typed scalar acquisition, bounded node browsing and session-bound reviewed writes. The shared HMI designer exposes endpoint and mapping editors plus the node browser; opening a project never connects automatically. See [OPC UA commissioning](docs/hmi-opcua.md) and [HMI control integrations](docs/hmi-control-integrations.md).
+
+## Graphic conventions and direct editing
+
+The [graphic conventions guide](docs/hmi-graphic-conventions.md) documents the 48-symbol library, Process/HighPerformance/Schematic profiles, instrument annotations, operating-reference bands, contextual formatting and native F2/double-click caption editing. These conventions are not complete ISA/ISO/IEC certification.

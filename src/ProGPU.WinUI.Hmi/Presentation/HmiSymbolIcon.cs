@@ -22,12 +22,19 @@ public sealed class HmiSymbolIcon : Control
         get => (HmiColorScheme)(GetValue(ColorSchemeProperty) ?? HmiColorScheme.Light);
         set { if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value)); SetValue(ColorSchemeProperty, value); }
     }
+    public static readonly DependencyProperty GraphicStyleProperty = DependencyProperty.Register(nameof(GraphicStyle), typeof(HmiGraphicStyle), typeof(HmiSymbolIcon),
+        new PropertyMetadata(HmiGraphicStyle.Process) { AffectsRender = true });
+    public HmiGraphicStyle GraphicStyle
+    {
+        get => (HmiGraphicStyle)(GetValue(GraphicStyleProperty) ?? HmiGraphicStyle.Process);
+        set { if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value)); SetValue(GraphicStyleProperty, value); }
+    }
     public HmiSymbolIcon() { Width = 42; Height = 42; IsHitTestVisible = false; }
     public override void OnRender(DrawingContext context)
     {
         var size = Size;
         if (size.X < 8 || size.Y < 8) return;
-        HmiSymbolRenderer.DrawGlyph(context, Symbol, new Rect(3, 3, size.X - 6, size.Y - 6), HmiPalette.Get(ColorScheme),
+        HmiSymbolRenderer.DrawGlyph(context, Symbol, new Rect(3, 3, size.X - 6, size.Y - 6), HmiPalette.Get(ColorScheme, GraphicStyle),
              62, 0, 100, false, false, HmiVisualTone.Normal, ports: false);
     }
 }

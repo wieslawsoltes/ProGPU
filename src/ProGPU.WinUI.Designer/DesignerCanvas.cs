@@ -74,7 +74,12 @@ public class DesignerCanvas : Panel, IHitTestBackgroundProvider
     public float ZoomScale { get; set; } = 1.0f;
     public Vector2 PanOffset { get; set; } = Vector2.Zero;
 
-    public bool ShowGridLines { get; set; } = true;
+    private bool _showGridLines = true;
+    public bool ShowGridLines
+    {
+        get => _showGridLines;
+        set { if (_showGridLines == value) return; _showGridLines = value; Invalidate(); }
+    }
     public bool GridSnappingEnabled { get; set; } = true;
     public float GridSize { get; set; } = 10f;
     public Func<float>? GetDpiScale { get; set; }

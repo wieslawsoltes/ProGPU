@@ -29,7 +29,9 @@ public enum HmiSymbol
     Tank, Pump, Valve, Motor, Pipe, Conveyor, Gauge, BarGraph, Trend,
     AlarmBanner, AlarmList, NavigationButton, RecipeButton, Rectangle,
     HeatExchanger, Filter, Compressor, Fan, Heater, Thermometer, Boiler, CoolingTower,
-    ControlValve, CheckValve, ButterflyValve, Agitator, Silo, Hopper, Separator, Reactor, FlowMeter, Strainer, PressureTransmitter, LevelTransmitter
+    ControlValve, CheckValve, ButterflyValve, Agitator, Silo, Hopper, Separator, Reactor, FlowMeter, Strainer, PressureTransmitter, LevelTransmitter,
+    InstrumentBubble, ControlFunction, NormallyOpenContact, NormallyClosedContact,
+    RelayCoil, CircuitBreaker, Transformer, ProtectiveEarth
 }
 
 public enum HmiActionKind { None, ToggleTag, WriteTag, Navigate, AcknowledgeAlarms, ApplyRecipe }
