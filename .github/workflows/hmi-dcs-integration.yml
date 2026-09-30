@@ -1,0 +1,96 @@
+name: Standalone HMI DCS integration
+on:
+  push:
+    branches: [feat/hmi-designer]
+    paths: ['.github/workflows/hmi-dcs-integration.yml']
+permissions:
+  contents: read
+jobs:
+  integrate:
+    if: github.repository == 'wieslawsoltes/ProGPU' && github.ref == 'refs/heads/feat/hmi-designer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      PROGPU_WGPU_BACKEND: vulkan
+      XDG_RUNTIME_DIR: /tmp
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Apply exact source preimages and commit the tested implementation
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 eng/hmi-dcs-apply.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(hmi): add standalone DCS operator and engineering workplaces'
+          git push origin HEAD:refs/heads/feat/hmi-designer
+          mkdir -p artifacts/hmi-dcs
+          git rev-parse HEAD > artifacts/hmi-dcs/commit.txt
+          dotnet --info > artifacts/hmi-dcs/dotnet-info.txt
+      - name: Test reflection-disabled HMI, DCS and Modbus/MQTT workflows
+        run: dotnet test tests/ProGPU.Hmi.Tests -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi-dcs/tests
+      - name: Test actual OPC UA loopback server
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: dotnet test tests/ProGPU.Hmi.OpcUa.Tests -c Release --logger "trx;LogFileName=opcua.trx" --results-directory artifacts/hmi-dcs/tests
+      - name: Build standalone DCS application
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: dotnet build samples/HmiDcs/HmiDcs.csproj -c Release
+      - name: Build standalone engineering designer
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release
+      - name: Build actual desktop-gallery portable host
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:ProGpuSamplesDesktopPortableOnly=true
+      - name: Construct actual gallery page without JSON reflection
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: dotnet run --project tests/ProGPU.Hmi.GallerySmoke -c Release
+      - name: Execute reflection-disabled DCS graph and router
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: dotnet run --project tests/ProGPU.Hmi.SerializationSmoke -c Release
+      - name: Publish and run NativeAOT serializer, DCS model and router
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish tests/ProGPU.Hmi.SerializationSmoke -c Release -r linux-x64 -p:PublishAot=true -p:TreatWarningsAsErrors=true -o artifacts/hmi-aot
+          artifacts/hmi-aot/ProGPU.Hmi.SerializationSmoke
+      - name: Native retained graphics and real DCS pointer workflows in three palettes
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ulimit -c 0
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers libvulkan1 fonts-dejavu-core
+          export VK_ICD_FILENAMES=$(find /usr/share/vulkan/icd.d -name '*lvp*json' -print -quit)
+          test -n "$VK_ICD_FILENAMES"
+          cat "$VK_ICD_FILENAMES" > artifacts/hmi-dcs/vulkan-icd.json
+          dotnet build tests/ProGPU.Hmi.VisualSmoke -c Release
+          dotnet build tests/ProGPU.Hmi.DcsSmoke -c Release
+          for palette in Light Dark HighContrast; do
+            timeout -k 5s 180s dotnet run --project tests/ProGPU.Hmi.VisualSmoke -c Release --no-build -- /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf artifacts/hmi-dcs/visuals "$palette" | tee "artifacts/hmi-dcs/legacy-$palette.log"
+            timeout -k 5s 180s dotnet run --project tests/ProGPU.Hmi.DcsSmoke -c Release --no-build -- /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf artifacts/hmi-dcs/visuals "$palette" | tee "artifacts/hmi-dcs/dcs-$palette.log"
+          done
+      - name: Pack shared designer and seven HMI libraries
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in ProGPU.WinUI.Designer ProGPU.Hmi ProGPU.WinUI.Hmi ProGPU.WinUI.Hmi.Workplace ProGPU.WinUI.Hmi.Designer ProGPU.Hmi.Modbus ProGPU.Hmi.Mqtt ProGPU.Hmi.OpcUa; do
+            dotnet pack "src/$project/$project.csproj" -c Release --no-build -o artifacts/hmi-dcs/packages
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: standalone-dcs-validation
+          path: artifacts/hmi-dcs
+          retention-days: 14
