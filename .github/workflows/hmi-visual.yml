@@ -10,6 +10,8 @@ on:
       - 'src/ProGPU.WinUI/Controls/DataGrid.cs'
       - 'src/ProGPU.WinUI/Controls/TextBox.cs'
       - 'tests/ProGPU.Hmi.VisualSmoke/**'
+      - 'tests/ProGPU.Hmi.DcsSmoke/**'
+      - 'src/ProGPU.WinUI/Controls/Viewbox.cs'
       - '.github/workflows/hmi-visual.yml'
   pull_request:
     paths:
@@ -19,6 +21,8 @@ on:
       - 'src/ProGPU.WinUI/Controls/DataGrid.cs'
       - 'src/ProGPU.WinUI/Controls/TextBox.cs'
       - 'tests/ProGPU.Hmi.VisualSmoke/**'
+      - 'tests/ProGPU.Hmi.DcsSmoke/**'
+      - 'src/ProGPU.WinUI/Controls/Viewbox.cs'
       - '.github/workflows/hmi-visual.yml'
   workflow_dispatch:
 
@@ -43,6 +47,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 fonts-dejavu-core
       - name: Build native retained-renderer probe
         run: dotnet build tests/ProGPU.Hmi.VisualSmoke/ProGPU.Hmi.VisualSmoke.csproj -c Release
+      - name: Build standalone DCS native probe
+        run: dotnet build tests/ProGPU.Hmi.DcsSmoke/ProGPU.Hmi.DcsSmoke.csproj -c Release
       - name: Render glyphs, status, designer and actual pointer interactions
         shell: bash
         run: |
@@ -56,6 +62,7 @@ jobs:
           cat "$VK_ICD_FILENAMES" > artifacts/hmi-visual/vulkan-icd.json
           for palette in Light Dark HighContrast; do
             timeout -k 5s 180s dotnet run --project tests/ProGPU.Hmi.VisualSmoke/ProGPU.Hmi.VisualSmoke.csproj -c Release --no-build -- /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf artifacts/hmi-visual "$palette" | tee "artifacts/hmi-visual/$palette.log"
+            timeout -k 5s 180s dotnet run --project tests/ProGPU.Hmi.DcsSmoke/ProGPU.Hmi.DcsSmoke.csproj -c Release --no-build -- /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf artifacts/hmi-visual "$palette" | tee "artifacts/hmi-visual/dcs-$palette.log"
           done
       - uses: actions/upload-artifact@v4
         if: always()

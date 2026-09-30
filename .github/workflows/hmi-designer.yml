@@ -13,6 +13,8 @@ on:
       - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
       - 'src/ProGPU.Samples.Desktop/**'
       - 'samples/HmiDesigner/**'
+      - 'samples/HmiDcs/**'
+      - 'src/ProGPU.WinUI/Controls/Viewbox.cs'
       - 'tests/ProGPU.Hmi*/**'
       - 'docs/hmi-*.md'
       - 'Directory.Build.props'
@@ -31,6 +33,8 @@ on:
       - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
       - 'src/ProGPU.Samples.Desktop/**'
       - 'samples/HmiDesigner/**'
+      - 'samples/HmiDcs/**'
+      - 'src/ProGPU.WinUI/Controls/Viewbox.cs'
       - 'tests/ProGPU.Hmi*/**'
       - 'docs/hmi-*.md'
       - 'Directory.Build.props'
@@ -79,6 +83,9 @@ jobs:
       - name: Build standalone WinUI HMI designer
         if: ${{ !cancelled() }}
         run: dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release
+      - name: Build standalone DCS operator and engineering app
+        if: ${{ !cancelled() }}
+        run: dotnet build samples/HmiDcs/HmiDcs.csproj -c Release
       - name: Build shared sample gallery
         if: ${{ !cancelled() }}
         run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
@@ -104,7 +111,7 @@ jobs:
       - name: Pack HMI libraries and shared designer services
         shell: pwsh
         run: |
-          foreach ($project in @('ProGPU.WinUI.Designer', 'ProGPU.Hmi', 'ProGPU.WinUI.Hmi', 'ProGPU.WinUI.Hmi.Designer', 'ProGPU.Hmi.Modbus', 'ProGPU.Hmi.Mqtt', 'ProGPU.Hmi.OpcUa')) {
+          foreach ($project in @('ProGPU.WinUI.Designer', 'ProGPU.Hmi', 'ProGPU.WinUI.Hmi', 'ProGPU.WinUI.Hmi.Workplace', 'ProGPU.WinUI.Hmi.Designer', 'ProGPU.Hmi.Modbus', 'ProGPU.Hmi.Mqtt', 'ProGPU.Hmi.OpcUa')) {
             dotnet pack "src/$project/$project.csproj" -c Release --no-build -o artifacts/hmi/packages
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
