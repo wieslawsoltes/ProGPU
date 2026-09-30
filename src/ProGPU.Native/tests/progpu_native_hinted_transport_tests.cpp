@@ -11,7 +11,8 @@ hinted_glyph_batch make_batch(std::size_t length)
 {
     hinted_glyph_batch batch;
     auto identity = std::make_shared<hinted_font_identity>();
-    identity->original_bytes.assign(128U, std::byte{0x51});
+    const std::vector<std::byte> original(128U, std::byte{0x51});
+    identity->source = std::make_shared<const owned_font_source>(original, 0U);
     identity->variation_coordinates_16_16 = {-65536, 65536, 0, 1};
     batch.identity = identity;
     hinted_glyph glyph;
@@ -89,12 +90,12 @@ void failures_are_atomic()
     transport_require(copy_hinted_batch(single, glyphs, points, single.glyphs[0].tags, contours,
         hinted_transport_policy::automatic).error == hinted_transport_error::invalid_argument);
     transport_require(single.glyphs[0].tags == original_tags);
-    auto* font_bytes = reinterpret_cast<std::uint8_t*>(const_cast<std::byte*>(batch.identity->original_bytes.data()));
+    auto* font_bytes = reinterpret_cast<std::uint8_t*>(const_cast<std::byte*>(batch.identity->source->bytes.data()));
     transport_require(copy(glyphs, points, std::span(font_bytes, 128U), contours) == hinted_transport_error::invalid_argument);
-    transport_require(batch.identity->original_bytes == std::vector<std::byte>(128U, std::byte{0x51}));
+    transport_require(batch.identity->source->bytes == std::vector<std::byte>(128U, std::byte{0x51}));
     auto& alias_counts = *reinterpret_cast<progpu_native_hinted_batch_counts*>(font_bytes);
     transport_require(get_hinted_batch_counts(batch, alias_counts) == hinted_transport_error::invalid_argument);
-    transport_require(batch.identity->original_bytes == std::vector<std::byte>(128U, std::byte{0x51}));
+    transport_require(batch.identity->source->bytes == std::vector<std::byte>(128U, std::byte{0x51}));
     unchanged();
     // Failure in the final glyph must not publish earlier valid descriptors.
     for (unsigned int invalid = 0U; invalid < 5U; ++invalid) {
@@ -114,6 +115,10 @@ void failures_are_atomic()
     }
     auto absent = batch;
     absent.identity.reset();
+    transport_require(copy_hinted_batch(absent, glyphs, points, tags, contours,
+        hinted_transport_policy::automatic).error == hinted_transport_error::invalid_batch);
+    unchanged();
+    absent.identity = std::make_shared<hinted_font_identity>();
     transport_require(copy_hinted_batch(absent, glyphs, points, tags, contours,
         hinted_transport_policy::automatic).error == hinted_transport_error::invalid_batch);
     unchanged();

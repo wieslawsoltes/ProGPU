@@ -119,7 +119,7 @@ void verify(const std::vector<std::byte>& original)
             input.assign(input.size(), std::byte{0}); // caller mutation must not change the memory face
             std::shared_ptr<const hinted_glyph_batch> batch;
             require(font->try_capture(ids, batch, error));
-            require(batch->identity->original_bytes == original && batch->glyphs.size() == ids.size());
+            require(batch->identity->source->bytes == original && batch->glyphs.size() == ids.size());
             require(batch->identity->policy == policy && batch->identity->x_pixels_per_em_26_6 == ppem * 64U);
             require(batch->glyphs[0] == batch->glyphs[5] && batch->glyphs[1] == batch->glyphs[4]);
             require(batch->glyphs[2].points.empty() && batch->glyphs[2].advance_x_26_6 > 0);
@@ -209,11 +209,12 @@ void verify(const std::vector<std::byte>& original)
             phase_configuration.x_phase_26_6 = 19U;
             phase_configuration.y_phase_26_6 = 37U;
             std::unique_ptr<hinted_font> phase_font;
-            require(hinted_font::try_create(original, 0U, phase_configuration, phase_font, error));
+            require(hinted_font::try_create(saved->identity->source, phase_configuration, phase_font, error));
             std::shared_ptr<const hinted_glyph_batch> phased;
             require(phase_font->try_capture(ids, phased, error));
             require(phased->identity != saved->identity && phased->identity->x_phase_26_6 == 19U &&
                 phased->identity->y_phase_26_6 == 37U);
+            require(phased->identity->source == saved->identity->source);
             for (std::size_t glyph = 0U; glyph < ids.size(); ++glyph) {
                 require(phased->glyphs[glyph].advance_x_26_6 == saved->glyphs[glyph].advance_x_26_6);
                 require(phased->glyphs[glyph].points.size() == saved->glyphs[glyph].points.size());
@@ -225,7 +226,7 @@ void verify(const std::vector<std::byte>& original)
             font.reset();
             tests::verify_hinted_transport(*saved);
             phase_font.reset();
-            require(saved->identity->original_bytes == original && saved->glyphs == repeated->glyphs);
+            require(saved->identity->source->bytes == original && saved->glyphs == repeated->glyphs);
         }
     }
     hinted_font_configuration fractional{13U * 64U + 17U, 14U * 64U + 33U,

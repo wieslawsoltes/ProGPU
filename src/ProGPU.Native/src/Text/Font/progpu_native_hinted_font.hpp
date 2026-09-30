@@ -1,6 +1,8 @@
 #ifndef PROGPU_NATIVE_HINTED_FONT_HPP
 #define PROGPU_NATIVE_HINTED_FONT_HPP
 
+#include "progpu_native_font_source.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -36,9 +38,8 @@ struct hinted_font_configuration final {
 };
 
 struct hinted_font_identity final {
-    std::vector<std::byte> original_bytes{};
+    std::shared_ptr<const owned_font_source> source{};
     std::vector<std::int32_t> variation_coordinates_16_16{};
-    std::uint32_t face_index = 0U;
     std::uint32_t x_pixels_per_em_26_6 = 0U;
     std::uint32_t y_pixels_per_em_26_6 = 0U;
     font_hint_policy policy = font_hint_policy::truetype_40;
@@ -92,6 +93,12 @@ public:
 
     static bool try_create(std::span<const std::byte> font_bytes,
         std::uint32_t face_index, const hinted_font_configuration& configuration,
+        std::unique_ptr<hinted_font>& result, hinted_font_error& error) noexcept;
+
+    // Context-owned immutable sources share their bytes across configurations;
+    // source identity remains alive until every face and snapshot releases it.
+    static bool try_create(std::shared_ptr<const owned_font_source> source,
+        const hinted_font_configuration& configuration,
         std::unique_ptr<hinted_font>& result, hinted_font_error& error) noexcept;
 
     // Publication is whole-batch only. On any later invalid ID, hint fault or

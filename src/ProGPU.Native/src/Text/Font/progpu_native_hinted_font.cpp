@@ -113,11 +113,29 @@ bool hinted_font::try_create(std::span<const std::byte> font_bytes,
         font_bytes.size() > static_cast<std::size_t>(std::numeric_limits<FT_Long>::max()) ||
         face_index > 0xFFFFU) return fail(hinted_font_error::invalid_argument, error);
     try {
+        return try_create(std::make_shared<const owned_font_source>(font_bytes, face_index),
+            configuration, result, error);
+    } catch (const std::bad_alloc&) {
+        return fail(hinted_font_error::resource_exhausted, error);
+    } catch (const std::length_error&) {
+        return fail(hinted_font_error::resource_exhausted, error);
+    } catch (...) {
+        return fail(hinted_font_error::hinting_failed, error);
+    }
+}
+
+bool hinted_font::try_create(std::shared_ptr<const owned_font_source> source,
+    const hinted_font_configuration& configuration,
+    std::unique_ptr<hinted_font>& result, hinted_font_error& error) noexcept
+{
+    if (source == nullptr || !valid_configuration(configuration) || source->bytes.empty() ||
+        source->bytes.size() > static_cast<std::size_t>(std::numeric_limits<FT_Long>::max()) ||
+        source->face_index > 0xFFFFU) return fail(hinted_font_error::invalid_argument, error);
+    try {
         auto identity = std::make_shared<hinted_font_identity>();
-        identity->original_bytes.assign(font_bytes.begin(), font_bytes.end());
+        identity->source = std::move(source);
         identity->variation_coordinates_16_16.assign(configuration.variation_coordinates_16_16.begin(),
             configuration.variation_coordinates_16_16.end());
-        identity->face_index = face_index;
         identity->x_pixels_per_em_26_6 = configuration.x_pixels_per_em_26_6;
         identity->y_pixels_per_em_26_6 = configuration.y_pixels_per_em_26_6;
         identity->policy = configuration.policy;
@@ -137,8 +155,8 @@ bool hinted_font::try_create(std::span<const std::byte> font_bytes,
             FT_Property_Get(value->library, "truetype", "interpreter-version", &actual) != 0 || actual != policy)
             return fail(hinted_font_error::dependency_mismatch, error);
         if (FT_New_Memory_Face(value->library,
-                reinterpret_cast<const FT_Byte*>(identity->original_bytes.data()),
-                static_cast<FT_Long>(identity->original_bytes.size()), static_cast<FT_Long>(face_index),
+                reinterpret_cast<const FT_Byte*>(identity->source->bytes.data()),
+                static_cast<FT_Long>(identity->source->bytes.size()), static_cast<FT_Long>(identity->source->face_index),
                 &value->face) != 0) return fail(hinted_font_error::invalid_font, error);
         const char* format = FT_Get_Font_Format(value->face);
         if (!FT_IS_SCALABLE(value->face) || FT_HAS_COLOR(value->face) ||

@@ -2,6 +2,7 @@
 #include "progpu_native_text_styles.h"
 #include "progpu_native_text_flow.h"
 #include "progpu_native_text.hpp"
+#include "progpu_native_text_font_source.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,7 +27,7 @@
 // the language boundary. No supplied pointer is retained.
 
 struct progpu_native_text_owned_font final {
-    std::vector<std::byte> bytes{};
+    std::shared_ptr<const progpu::native::text::owned_font_source> source{};
     progpu::native::text::sfnt_font_view font{};
     std::uint64_t identity = 0U;
 };
@@ -60,7 +61,7 @@ struct progpu_native_text_context final {
         std::uint16_t pixels_per_em = 0U;
     };
 
-    std::vector<std::byte> font_bytes{};
+    std::shared_ptr<const progpu::native::text::owned_font_source> source{};
     std::vector<std::byte> normalization_bytes{};
     progpu::native::text::sfnt_font_view font{};
     progpu::native::text::unicode_normalization_data normalization{};
@@ -173,6 +174,12 @@ struct progpu_native_text_context final {
         return fallback_fonts.size() + 1U;
     }
 
+    std::shared_ptr<const progpu::native::text::owned_font_source> source_at(std::size_t index) const noexcept {
+        if (index == 0U) return source;
+        const auto fallback = index - 1U;
+        return fallback < fallback_fonts.size() ? fallback_fonts[fallback].source : nullptr;
+    }
+
     const progpu::native::text::sfnt_font_view* font_at(
         std::size_t index) const noexcept {
         if (index == 0U) return &font;
@@ -182,6 +189,13 @@ struct progpu_native_text_context final {
             : nullptr;
     }
 };
+
+std::shared_ptr<const progpu::native::text::owned_font_source>
+progpu::native::text::select_context_font_source(
+    progpu_native_text_context* context, std::uint32_t font_index) noexcept
+{
+    return context != nullptr ? context->source_at(font_index) : nullptr;
+}
 
 namespace {
 
@@ -1522,15 +1536,13 @@ progpu_native_status progpu_native_text_context_create(
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
     try {
-        auto* result = new progpu_native_text_context{};
+        auto result = std::make_unique<progpu_native_text_context>();
         result->plans.reserve(progpu_native_text_context::plan_capacity);
-        result->font_bytes.assign(
-            reinterpret_cast<const std::byte*>(font_data),
-            reinterpret_cast<const std::byte*>(font_data) + font_size);
+        result->source = std::make_shared<const owned_font_source>(
+            std::span<const std::byte>(reinterpret_cast<const std::byte*>(font_data), font_size), face_index);
         font_error error = font_error::none;
         if (!sfnt_font_view::try_create(
-                result->font_bytes, face_index, result->font, &error)) {
-            delete result;
+                result->source->bytes, result->source->face_index, result->font, &error)) {
             return status_from_error(error);
         }
         if (normalization_data_size != 0U) {
@@ -1543,7 +1555,6 @@ progpu_native_status progpu_native_text_context_create(
                     result->normalization_bytes,
                     result->normalization,
                     &unicode_result)) {
-                delete result;
                 return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
             }
             result->has_normalization = true;
@@ -1551,13 +1562,12 @@ progpu_native_status progpu_native_text_context_create(
             const auto* normalization =
                 get_default_unicode_normalization_data();
             if (normalization == nullptr) {
-                delete result;
                 return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
             }
             result->normalization = *normalization;
             result->has_normalization = true;
         }
-        *context = result;
+        *context = result.release();
         return PROGPU_NATIVE_STATUS_SUCCESS;
     } catch (const std::bad_alloc&) {
         return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
@@ -1672,13 +1682,12 @@ progpu_native_status progpu_native_text_context_add_fallback_font(
     }
     try {
         progpu_native_text_owned_font owned{};
-        owned.bytes.assign(
-            reinterpret_cast<const std::byte*>(font_data),
-            reinterpret_cast<const std::byte*>(font_data) + font_size);
+        owned.source = std::make_shared<const owned_font_source>(
+            std::span<const std::byte>(reinterpret_cast<const std::byte*>(font_data), font_size), face_index);
         owned.identity = identity;
         font_error error = font_error::none;
         if (!sfnt_font_view::try_create(
-                owned.bytes, face_index, owned.font, &error)) {
+                owned.source->bytes, owned.source->face_index, owned.font, &error)) {
             return status_from_error(error);
         }
         context->fallback_fonts.push_back(std::move(owned));

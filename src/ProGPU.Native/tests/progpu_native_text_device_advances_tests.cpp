@@ -1,4 +1,5 @@
 #include "progpu_native.h"
+#include "../src/Text/Interop/progpu_native_text_font_source.hpp"
 
 #include <algorithm>
 #include <array>
@@ -60,18 +61,73 @@ bytes font_bytes(bool with_device_table = true, std::uint8_t alternate_width = 2
 }
 struct context_owner final {
     progpu_native_text_context* value = nullptr;
-    explicit context_owner(const bytes& data) {
+    explicit context_owner(const bytes& data, std::uint32_t face_index = 0U) {
         require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
-            data.data(), data.size(), 0U, nullptr, 0U, &value) == PROGPU_NATIVE_STATUS_SUCCESS);
+            data.data(), data.size(), face_index, nullptr, 0U, &value) == PROGPU_NATIVE_STATUS_SUCCESS);
         require(value != nullptr);
     }
     ~context_owner() { progpu_native_text_context_destroy(value); }
     context_owner(const context_owner&) = delete;
     context_owner& operator=(const context_owner&) = delete;
 };
+
+void original_collection_identity_survives_context()
+{
+    // Original fixture provenance: font_bytes above and TTC wire assembly in
+    // progpu_native_text_tests.cpp:collection_and_failure_paths_are_bounded.
+    // Two distinct hdmx faces prove collection index is not the palette index.
+    const std::array<bytes, 2> faces{font_bytes(true, 231U), font_bytes(true, 7U)};
+    bytes collection(20U + faces[0].size() + faces[1].size());
+    put32(collection, 0U, 0x74746366U);
+    put32(collection, 4U, 0x00010000U);
+    put32(collection, 8U, 2U);
+    std::uint32_t offset = 20U;
+    for (std::size_t index = 0U; index < faces.size(); ++index) {
+        put32(collection, 12U + index * 4U, offset);
+        std::copy(faces[index].begin(), faces[index].end(), collection.begin() + offset);
+        // Table locations in this original two-table fixture are fixed.
+        put32(collection, offset + 20U, offset + 44U);
+        put32(collection, offset + 36U, offset + 76U);
+        offset += static_cast<std::uint32_t>(faces[index].size());
+    }
+    using namespace progpu::native::text;
+    std::shared_ptr<const owned_font_source> retained_primary, retained_fallback;
+    {
+        context_owner context(collection, 1U);
+        retained_primary = select_context_font_source(context.value, 0U);
+        require(retained_primary != nullptr && retained_primary->face_index == 1U);
+        require(select_context_font_source(context.value, 0U) == retained_primary);
+        std::uint32_t index = 99U;
+        require(progpu_native_text_context_add_fallback_font(context.value,
+            collection.data(), collection.size(), 0U, 901U, &index) == PROGPU_NATIVE_STATUS_SUCCESS && index == 1U);
+        retained_fallback = select_context_font_source(context.value, 1U);
+        require(retained_fallback != nullptr && retained_fallback != retained_primary && retained_fallback->face_index == 0U);
+        require(retained_fallback->bytes == retained_primary->bytes);
+        for (std::uint32_t next = 2U; next <= 20U; ++next) {
+            const auto data = font_bytes(false);
+            require(progpu_native_text_context_add_fallback_font(context.value, data.data(), data.size(),
+                0U, 901U + next, &index) == PROGPU_NATIVE_STATUS_SUCCESS && index == next);
+        }
+        require(select_context_font_source(context.value, 1U) == retained_fallback);
+        require(select_context_font_source(context.value, 21U) == nullptr && select_context_font_source(nullptr, 0U) == nullptr);
+        std::fill(collection.begin(), collection.end(), std::uint8_t{0});
+        const std::uint32_t glyph = 2U;
+        for (const std::uint32_t palette : {0U, 1U}) {
+            std::array<float, 3> output{-91.0F, -91.0F, -91.0F};
+            std::uint32_t available = 0U;
+            require(progpu_native_text_context_get_device_advances(context.value, palette, 12U,
+                &glyph, 1U, output.data(), wire_count(output), &available) == PROGPU_NATIVE_STATUS_SUCCESS);
+            require(available == 1U && output[0] == (palette == 0U ? 7.0F : 231.0F) &&
+                output[1] == -91.0F && output[2] == -91.0F);
+        }
+    }
+    require(retained_primary->face_index == 1U && retained_fallback->face_index == 0U &&
+        retained_primary->bytes == retained_fallback->bytes && retained_primary->bytes[0] == std::byte{0x74});
+}
 }
 
 int main() {
+    original_collection_identity_survives_context();
     auto original = font_bytes();
     context_owner context(original);
     std::fill(original.begin(), original.end(), std::uint8_t{0}); // Context owns its bytes.

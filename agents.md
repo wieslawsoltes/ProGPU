@@ -145,6 +145,11 @@ before any write. Preserve exact signed fixed-point metrics, native-long widenin
 tag bits and glyph-local contour indices; reject overlap with retained font/batch
 storage even in unused tails. Status/path return by value, never through aliased
 caller outputs. This core helper does not export a font ABI or admit source Display.
+Native text sources share immutable original bytes and collection face identity,
+never a fallback-palette index or parsed-table offset. Retain source ownership
+through every hinted face and snapshot; cold cached generations publish before
+bounded eviction, while native faults preserve the earlier exact key/batch.
+Cache synchronization does not replace the creating-thread context use lease.
 
 Retained DrawingTextLayout painting and interaction must share one original
 formatted generation. Own exact glyph/font runs and interaction geometry; do not

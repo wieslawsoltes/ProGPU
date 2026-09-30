@@ -82,6 +82,67 @@ must preserve the earlier batch through repeated later-glyph faults and recover 
 following valid capture. No production fault hook or error-ignoring flag is added.
 Variable-instance controls remain required alongside subsequent integration.
 
+## Immutable sources and bounded cache
+
+The actual native primary/fallback text contexts now retain one shared immutable
+`owned_font_source` containing original bytes and the original collection face
+index. The fallback-palette index is not the collection index, and a parsed table
+offset is not a replacement for either. Selection borrows the existing context
+use lease, then returns a source owner that survives fallback-vector growth and
+context disposal. Context creation holds its candidate under RAII through font/
+normalization allocation and validation, so a failed construction releases it.
+The native device-advance fixture now contains two independently authored TTC
+faces with different device widths and reversed primary/fallback selection;
+caller mutation, vector growth, exact source index and post-context lifetime are
+checked without enabling hinting or altering the public context ABI.
+
+The hinted adapter accepts that immutable source directly. Multiple device/
+phase/policy configurations share the same original bytes, instead of cloning a
+memory font for each native face; existing span creation still owns its input copy.
+Source members are const, and every retained generation owns the source until all
+faces and snapshots have released it. Transport preflight protects both the shared
+source metadata and its bytes, in addition to configuration/batch storage.
+
+`hinted_font_cache` retains at most 16 exact source/configuration entries with
+bounded FIFO replacement. Each entry keeps one native face and its latest exact
+ordered glyph-ID batch. Configuration matching includes both device-em values,
+both phases, interpreter and every original-order variation coordinate. Source
+identity is shared immutable ownership, not a borrowed mutable pointer or hash.
+A warm identical sequence returns the same generation without cloning buffers or
+running glyph instructions; source repetitions/order remain part of the key.
+Changing glyphs captures before swapping either the retained key or generation.
+Cold configuration creation/capture must complete before evicting anything.
+Native faults preserve both the caller's prior output and the existing cached
+batch. Evicted snapshots retain their source and remain transportable.
+
+Cache mutation is serialized, including actual concurrent capture controls; it
+does not authorize unleased context access or concurrent context disposal. The
+existing creating-thread context lease remains required. Diagnostics separately
+count actual face creations, capture attempts, batch hits and live entries, with
+saturating counters; they do not claim application performance or GPU residency.
+Lookup is O(K + A + G), K <= 16 entries, A variation coordinates and G ordered IDs;
+warm auxiliary allocation is zero by construction, not measured application
+qualification. Cold capture retains the dependent instruction/geometry cost;
+cache-owned storage is O(K * (A + G + P + C)) plus shared original font sources.
+Actual source layouts may independently retain older generations beyond the cache.
+
+The isolated signed producer executes new original cache controls for both hint
+policies: warm reuse/concurrency, different immutable owners, all size/phase/policy
+key components, reordered/empty IDs, failed native glyph/configuration publication,
+bounded eviction and generations surviving cache/source-owner disposal. Its receipt
+requires `cacheProbe` evidence. These controls are authored and await current CI.
+The cache/FreeType adapter are not yet linked into product contexts: source
+ownership is integrated, but actual product dependency/private-symbol/notices,
+cache admission and leased C/managed consumers still remain.
+
+Applicability: primary/fallback ownership lives in the existing shaping interop
+source shared by both native renderer libraries and called by the managed native
+text providers. The public context signatures, shaping results, device-width
+semantics and managed context use scope are unchanged; their existing independent
+consumer gates remain. The private hinted cache does not yet alter either raster
+provider or the managed Ideal path. Display-generation consumers still require
+paired integration rather than declaring those implementations inapplicable.
+
 The fixed-width transport helper is now compiled into the real native text core
 as well as the isolated producer. It copies an already retained generation into
 caller-owned glyph, signed 64-bit point, tag and signed 32-bit contour buffers.
@@ -114,7 +175,7 @@ capability admission; they are not a completed public font ABI.
 
 The adapter itself is still built by the isolated producer, not linked into the
 product text context or either renderer. Next steps must connect its selected
-immutable generation through the existing context use lease and bounded cache,
+immutable generation through the existing context use lease and the bounded cache,
 retain original shaping identities, expose leased C/managed batch transport with
 generated wire bindings, and share its output across actual consumers.
 No sampled width, isolated suffix reshape, per-glyph managed crossing, bitmap
@@ -135,7 +196,7 @@ The library-policy probe follows the public
 [module property contract](https://freetype.org/freetype2/docs/reference/ft2-module_management.html)
 and does not copy upstream implementation or its example code. All existing
 shaping/layout, glyph/atlas, upload, GPU execution and source defaults remain
-unchanged in this dependency-only step; application performance and independent
+unchanged by the private source/cache implementation; application performance and independent
 Windows Display comparisons are still unqualified.
 
 ## Architecture research and decisions

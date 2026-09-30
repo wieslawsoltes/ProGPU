@@ -67,9 +67,11 @@ bool aliases_batch(const std::array<memory_range, N>& output, const hinted_glyph
 {
     if (aliases(output, &batch, 1U) || aliases(output, batch.glyphs.data(), batch.glyphs.size())) return true;
     if (batch.identity != nullptr && (aliases(output, batch.identity.get(), 1U) ||
-        aliases(output, batch.identity->original_bytes.data(), batch.identity->original_bytes.size()) ||
         aliases(output, batch.identity->variation_coordinates_16_16.data(),
             batch.identity->variation_coordinates_16_16.size()))) return true;
+    if (batch.identity != nullptr && batch.identity->source != nullptr &&
+        (aliases(output, batch.identity->source.get(), 1U) ||
+            aliases(output, batch.identity->source->bytes.data(), batch.identity->source->bytes.size()))) return true;
     for (const auto& glyph : batch.glyphs)
         if (aliases(output, glyph.points.data(), glyph.points.size()) ||
             aliases(output, glyph.tags.data(), glyph.tags.size()) ||
@@ -159,7 +161,8 @@ hinted_transport_error get_hinted_batch_counts(const hinted_glyph_batch& batch,
     std::array<memory_range, 1> output{};
     if (!range(&counts, 1U, sizeof(counts), alignof(progpu_native_hinted_batch_counts), output[0]) ||
         aliases_batch(output, batch)) return hinted_transport_error::invalid_argument;
-    if (batch.identity == nullptr || batch.glyphs.size() > std::numeric_limits<std::uint32_t>::max())
+    if (batch.identity == nullptr || batch.identity->source == nullptr ||
+        batch.glyphs.size() > std::numeric_limits<std::uint32_t>::max())
         return hinted_transport_error::invalid_batch;
     progpu_native_hinted_batch_counts candidate{static_cast<std::uint32_t>(batch.glyphs.size()), 0U, 0U};
     // Prefix offsets and topology depend on each preceding contour/glyph.

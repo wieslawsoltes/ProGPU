@@ -231,6 +231,11 @@ def prepare(args):
     transport_probe = json.loads(run([str(transport_executable)]).stdout)
     if transport_probe != {"fixedWidthTransport": True, "exactIntegerDifferential": True, "atomicTailControls": True}:
         raise ValueError("Native hinted-font transport controls returned unexpected evidence")
+    cache_executable = probe_build / ("progpu_native_hinted_font_cache_tests.exe"
+                                    if args.rid.startswith("win-") else "progpu_native_hinted_font_cache_tests")
+    cache_probe = json.loads(run([str(cache_executable)]).stdout)
+    if cache_probe != {"boundedOwnedCache": True, "exactGenerationReuse": True, "nativeFaultAtomicity": True}:
+        raise ValueError("Native hinted-font cache controls returned unexpected evidence")
     if hashlib.sha256(test_font.read_bytes()).hexdigest() != test_font_hash:
         raise ValueError("The hinted-font control input changed during execution")
     legal = install / "share/progpu-freetype/licenses"
@@ -255,6 +260,7 @@ def prepare(args):
                 if not args.rid.startswith("win-") else args.cc,
                 "probeConfigure": probe_configure, "publicApiProbe": probe,
                 "glyphProbe": glyph_probe, "transportProbe": transport_probe,
+                "cacheProbe": cache_probe,
                 "testFont": {"path": str(test_font), "sha256": test_font_hash},
                 "qualification": "signed-source-static-architecture-library-policy-and-private-glyph-batches"}
     (install / "progpu-freetype.json").write_text(json.dumps(manifest, indent=2) + "\n")
