@@ -2,6 +2,7 @@
 #include "progpu_native_direct2d_scene_submission.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
+#include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
 #endif
 
 #include <webgpu.h>
@@ -1038,6 +1039,12 @@ int wmain(int argc, wchar_t** argv)
 #if defined(PROGPU_NATIVE_FONT_HINTING)
     std::array<progpu_native_engine*, 2U> hinted_engines{create_hinted_engine(api, gpu), create_hinted_engine(api, gpu)};
     progpu::native::tests::verify_hinted_glyph_rendering(
+        [&](bool reference, float, auto draw) {
+            return render_hinted_glyphs(api, gpu, hinted_engines[reference ? 1U : 0U], draw);
+        }, require);
+    for (auto* engine : hinted_engines) progpu_native_engine_destroy(engine);
+    hinted_engines = {create_hinted_engine(api, gpu), create_hinted_engine(api, gpu)};
+    progpu::native::tests::verify_hinted_paragraph_glyph_rendering(
         [&](bool reference, float, auto draw) {
             return render_hinted_glyphs(api, gpu, hinted_engines[reference ? 1U : 0U], draw);
         }, require);

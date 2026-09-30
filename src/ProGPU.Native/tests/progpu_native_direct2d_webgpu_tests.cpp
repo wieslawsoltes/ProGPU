@@ -7,6 +7,7 @@
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
+#include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
 #endif
 
 #include <wgpu.h>
@@ -1954,6 +1955,13 @@ int main(int argc, char** argv)
         }, require);
     for (auto* hinted_engine : hinted_engines) progpu_native_engine_destroy(hinted_engine);
     phase("retained hinted generation real GPU consumer passed");
+    hinted_engines = {create_engine(gpu), create_engine(gpu)};
+    progpu::native::tests::verify_hinted_paragraph_glyph_rendering(
+        [&](bool reference, float, auto draw) {
+            return render_hinted_glyphs(gpu, hinted_engines[reference ? 1U : 0U], draw);
+        }, require);
+    for (auto* hinted_engine : hinted_engines) progpu_native_engine_destroy(hinted_engine);
+    phase("retained hinted paragraph real GPU consumer passed");
 #endif
     phase("record Direct2D");
     verify_incremental_picture_backing(gpu, engine);

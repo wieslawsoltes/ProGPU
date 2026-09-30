@@ -15,6 +15,7 @@
 #include "progpu_native_webscene_state_mask_media_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
+#include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
 #endif
 #include "webscene_gpu_provider.h"
 
@@ -3596,6 +3597,17 @@ int main(int argc, char** argv) {
             PROGPU_NATIVE_STATUS_SUCCESS && hinted_engine != nullptr, "hinted real Dawn engine creation failed");
     }
     progpu::native::tests::verify_hinted_glyph_rendering(
+        [&](bool reference, float, auto draw) {
+            return render_hinted_glyphs(api, provider, canvas_configuration,
+                hinted_engines[reference ? 1U : 0U], draw);
+        }, require);
+    for (auto* hinted_engine : hinted_engines) progpu_native_engine_destroy(hinted_engine);
+    hinted_engines.fill(nullptr);
+    for (auto& hinted_engine : hinted_engines) {
+        require(progpu_native_dawn_engine_create(&engine_options, &hinted_engine) ==
+            PROGPU_NATIVE_STATUS_SUCCESS && hinted_engine != nullptr, "hinted paragraph real Dawn engine creation failed");
+    }
+    progpu::native::tests::verify_hinted_paragraph_glyph_rendering(
         [&](bool reference, float, auto draw) {
             return render_hinted_glyphs(api, provider, canvas_configuration,
                 hinted_engines[reference ? 1U : 0U], draw);

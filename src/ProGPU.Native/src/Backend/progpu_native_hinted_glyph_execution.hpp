@@ -2,6 +2,8 @@
 
 #include "../Text/Font/progpu_native_hinted_glyph_frame.hpp"
 
+namespace progpu::native::text { class hinted_paragraph_glyph_frame; }
+
 namespace progpu::native::execution {
 struct hinted_glyph_render_result final {
     progpu_native_status status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
@@ -16,4 +18,9 @@ struct hinted_glyph_render_result final {
 // poll, wait, readback or submit; no source factory/style/Display admission.
 hinted_glyph_render_result render_hinted_glyph_frame(progpu_native_engine* engine,
     std::shared_ptr<const text::hinted_glyph_frame> frame) noexcept;
+
+// Same original renderer crossing, retaining the exact original styled
+// paragraph and its per-style paint/descriptor ownership through submission.
+hinted_glyph_render_result render_hinted_paragraph_glyph_frame(progpu_native_engine* engine,
+    std::shared_ptr<const text::hinted_paragraph_glyph_frame> frame) noexcept;
 } // namespace progpu::native::execution

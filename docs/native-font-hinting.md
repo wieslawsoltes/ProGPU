@@ -612,8 +612,8 @@ This seam admits horizontal, untrimmed styled paragraphs only. Tabs, objects,
 vertical writing, synthetic collapse, exclusions, floats and continuations remain
 explicitly outside it. It does not manufacture empty hard-row carets, expose a
 public formatted-generation ABI or qualify source Display/editor admission.
-Complete mixed-style GPU frames, loaded package consumers and independent Windows
-text/UI comparisons remain required.
+The owned mixed-style frame below connects private renderer consumption; successful
+GPU/package evidence and independent Windows text/UI comparisons remain required.
 
 ### Shared native renderer outline records
 
@@ -711,6 +711,32 @@ These authored controls are additive, keep all original gates/deadlines and
 require their own whole successful exact-head CI. They exercise CPU-core font
 ownership plus the actual loaded renderer, not loaded public font-ABI/package or
 source Windows text/UI qualification.
+
+### Owned original-paragraph glyph frames
+
+`create_hinted_paragraph_glyph_frame` retains that exact full paragraph and copies
+explicit solid colors for every original style. It converts each original run
+through the shared outline adapter, rebases checked aggregate slices and retains
+source/run/descriptor/font/style owners independently of repeated glyph IDs.
+Positioned draws keep original visual order; only explicit no-ink draws are
+omitted and auxiliaries never become source outlines. Every positioned run,
+including no-ink items, must satisfy both literal reciprocal/product DPI checks.
+Unpositioned line-limited source remains owned, not reformatted or discarded.
+Target/origin and policy are explicit, source scale is not a second projection,
+and captured phase/Y mapping is applied once. By-value publication exposes no
+partial frame. The shared private consumer makes exactly one original renderer
+call with unchanged flags, resources, submission and completion semantics.
+
+Authored CPU controls compare independent raw contours, complete maps/colors and
+both source fonts, phases, DPI rejection, no-ink/line limits and retirement.
+All three existing GPU harnesses add dedicated fresh subject/reference engines
+for the styled paragraph. Separate raw run restoration and the original measured
+writer produce reference placements; literal four-point edges bypass both frame
+packing and outline conversion. Full pixels/every metrics field, both visible
+style colors, repeated/no-ink draws and post-context shared drawing/interaction
+ownership are checked. Original actual completion/readback paths and deadlines
+remain unchanged. These are authored controls requiring whole successful
+exact-head CI, not atlas retention, Microsoft text parity or source UI admission.
 
 The original paragraph cluster-break projection is also shared privately between
 wire and native scalars without changing its body or the original paragraph input.
