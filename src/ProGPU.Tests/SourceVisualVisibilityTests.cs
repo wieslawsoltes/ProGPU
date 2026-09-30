@@ -30,7 +30,7 @@ public sealed class SourceVisualVisibilityTests
         var child = new SourceVisual { HitTestId = 41 };
         child.OpacityMask = new SolidColorBrush(Vector4.One);
         child.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(0, 0, 20, 10));
-        ancestor.Children.Add(child);
+        ancestor.AddChild(child);
         using var capture = new GpuRenderCommandHitTestCacheBuilder();
         capture.AddSourceVisual(ancestor, Matrix4x4.Identity);
         Assert.Empty(capture.BuildIndex().Primitives);
