@@ -259,7 +259,20 @@ void verify_hinted_glyph_rendering(Render render, Require require) {
                     } else {
                         if (layout == nullptr) { layout = retained->layout(); run = layout->run; }
                         hinted_glyph_frame_error error{};
-                        require(try_create_hinted_glyph_frame(layout, run, target, retained, &error),
+                        const bool created = try_create_hinted_glyph_frame(layout, run, target, retained, &error);
+                        if (!created) {
+                            std::fprintf(stderr, "Hinted frame publication: interpreter=%u variant=%u error=%u outline=%u dpi=%.9g units=%.9g glyphs=%zu descriptors=%zu\n",
+                                static_cast<unsigned>(interpreter), variant, static_cast<unsigned>(error.code),
+                                static_cast<unsigned>(error.outline), static_cast<double>(dpi),
+                                static_cast<double>(layout->logical_units_per_physical_pixel), run->glyphs.size(), run->source_descriptor_count);
+                            for (std::size_t descriptor = 0U; descriptor < run->source_descriptor_count; ++descriptor) {
+                                const auto& captured = run->batch->glyphs[descriptor];
+                                std::fprintf(stderr, "Hinted source descriptor=%zu id=%u flags=%d points=%zu contours=%zu firstTag=%u\n",
+                                    descriptor, captured.glyph_index, captured.outline_flags, captured.points.size(),
+                                    captured.contour_ends.size(), captured.tags.empty() ? 0U : static_cast<unsigned>(captured.tags.front()));
+                            }
+                        }
+                        require(created,
                             "hinted rendering owned frame publication failed");
                         require(retained->glyphs().size() == reference.glyphs.size() &&
                             retained->source_outline_indices()[2U] == hinted_no_outline &&
