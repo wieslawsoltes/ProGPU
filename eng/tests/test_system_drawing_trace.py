@@ -64,11 +64,16 @@ if args[:5] == ["tool", "run", "dotnet-trace", "--", "collect"]:
         time.sleep(0.01)
 if pathlib.Path(args[0]).name == "ProGPU.SampleMemoryProfiler.dll":
     assert args[1] == "verify-drawing-trace"
-    valid = os.environ.get("STUB_INVALID") != "1"
+    expected = json.loads(os.environ.get("STUB_REQUIRED_METHODS", "[]"))
+    assert args[4:] == [part for method in expected for part in ["--require-method", *method]], args
+    pathlib.Path(args[3]).with_name("observed-profiler.json").write_text(json.dumps(args))
+    valid = os.environ.get("STUB_INVALID") != "1" and os.environ.get("STUB_MISSING_METHOD") != "1"
     pid = int((pathlib.Path(args[3]).parent / "testhost-session-ended").read_text())
     if os.environ.get("STUB_WRONG_PID") == "1":
         pid += 1
-    pathlib.Path(args[3]).write_text(json.dumps({"complete": valid, "processId": pid}))
+    pathlib.Path(args[3]).write_text(json.dumps({"complete": valid, "processId": pid,
+        "requiredMethods": [{"MethodNamespace": owner, "MethodName": name,
+                             "Found": os.environ.get("STUB_MISSING_METHOD") != "1"} for owner, name in expected]}))
     if not valid:
         print("synthetic EOF finalization failure")
     sys.exit(0 if valid else 29)
@@ -121,7 +126,7 @@ sys.exit(code)
 
 
 class DrawingTraceTests(unittest.TestCase):
-    def run_stub(self, exit_code, trace=True, extra=None, fault=None):
+    def run_stub(self, exit_code, trace=True, extra=None, fault=None, required_methods=()):
         temporary = tempfile.TemporaryDirectory(prefix="drawing-trace-control-")
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -132,7 +137,8 @@ class DrawingTraceTests(unittest.TestCase):
         output.mkdir()
         unrelated = output / "testhost-caller.nettrace"
         unrelated.write_bytes(b"caller-owned")
-        environment = os.environ | {"STUB_EXIT": str(exit_code), "STUB_TRACE": "1" if trace else "0"} | (extra or {})
+        environment = os.environ | {"STUB_EXIT": str(exit_code), "STUB_TRACE": "1" if trace else "0",
+                                    "STUB_REQUIRED_METHODS": json.dumps(required_methods)} | (extra or {})
         launch = [sys.executable, str(SCRIPT)]
         if fault:
             bootstrap = '''
@@ -160,7 +166,8 @@ elif kind in ("output", "persistent-output"):
 sys.exit(m.main())
 '''
             launch = [sys.executable, "-c", bootstrap, str(SCRIPT), fault]
-        result = subprocess.run(launch + ["--dotnet", str(executable), "--output", str(output)],
+        method_options = [part for method in required_methods for part in ["--require-method", *method]]
+        result = subprocess.run(launch + ["--dotnet", str(executable), "--output", str(output)] + method_options,
                                 env=environment, text=True, capture_output=True, timeout=15)
         directory, = output.glob("run-*")
         status = json.loads((directory / "status.json").read_text())
@@ -183,6 +190,42 @@ sys.exit(m.main())
         self.assertEqual(0, status["testExitCode"])
         self.assertEqual([], list(directory.glob("*.nettrace")))
         self.assertEqual("removed-after-success", status["traces"][0]["disposition"])
+
+    def test_exact_method_options_reach_only_verifier_and_retained_status(self):
+        methods = [["System.Drawing.Common.Tests.MetafileParserTests", "WarmedEnumerationDoesNotAllocatePerRecordPayloads"],
+                   ["Another.Type", "AnotherMethod"]]
+        result, directory, status = self.run_stub(0, required_methods=methods)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertNotIn("--require-method", status["command"])
+        self.assertEqual([{"methodNamespace": owner, "methodName": name} for owner, name in methods],
+                         status["additionalRequiredMethods"])
+        self.assertEqual([part for method in methods for part in ["--require-method", *method]],
+                         status["verificationCommand"][5:])
+        self.assertEqual(status["verificationCommand"][1:],
+                         json.loads((directory / "observed-profiler.json").read_text()))
+        self.assertEqual([], list(directory.glob("*.nettrace")))
+
+    def test_missing_required_metadata_retains_trace_and_preserves_test_failure(self):
+        methods = [["System.Drawing.Common.Tests.MetafileParserTests", "WarmedEnumerationDoesNotAllocatePerRecordPayloads"]]
+        for code in (0, 7):
+            with self.subTest(code=code):
+                result, directory, status = self.run_stub(code, required_methods=methods,
+                                                         extra={"STUB_MISSING_METHOD": "1"})
+                self.assertEqual(code if code else 2, result.returncode)
+                self.assertEqual(code, status["testExitCode"])
+                self.assertIn("validation failed", status["diagnosticError"])
+                self.assertEqual(1, len(list(directory.glob("*.nettrace"))))
+                self.assertFalse(json.loads((directory / "trace-validation.json").read_text())["requiredMethods"][0]["Found"])
+
+    def test_empty_or_incomplete_method_options_do_not_start_capture(self):
+        for options in (["--require-method", "", "Method"], ["--require-method", "Type", " "],
+                        ["--require-method", "Type"]):
+            with self.subTest(options=options), patch.object(sys, "argv", [str(SCRIPT), *options]), \
+                    patch.object(TRACE, "run") as run:
+                with self.assertRaises(SystemExit) as error:
+                    TRACE.main()
+                self.assertEqual(2, error.exception.code)
+                run.assert_not_called()
 
     def test_failing_child_exact_codes_are_retained_with_hashed_trace(self):
         for code in (1, 7, 127):

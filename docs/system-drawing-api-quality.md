@@ -91,6 +91,39 @@ The existing CI evidence artifact uploads these files even after failure.
 The repository's `ProGPU.SampleMemoryProfiler` already pins TraceEvent 3.1.15
 for offline trace inspection; raw traces can also be opened in PerfView.
 
+Consumers can require additional exact CLR method metadata without selecting or
+rerunning tests. For the Metafile enumeration allocation gate:
+
+```bash
+python3 eng/progpu-test-system-drawing.py \
+  --require-method System.Drawing.Common.Tests.MetafileParserTests \
+  WarmedEnumerationDoesNotAllocatePerRecordPayloads
+```
+
+The existing engine CI Drawing job supplies this same requirement during its
+single full-suite run, so consumer admission does not depend only on synthetic
+wrapper controls. No extra test invocation is added.
+
+`--require-method TYPE METHOD` is repeatable. The original font method remains
+mandatory even when options are supplied. The strict verifier checks both CLR
+`MethodNamespace` (the declaring type) and `MethodName` with ordinal equality in
+actual runtime metadata events; it does not match a suffix, stack label, test log
+or another process. Its version-2 receipt includes each exact requirement and
+whether it was observed, on both successful parsing and failure. The wrapper
+records the requested additions and actual verifier command. A missing method
+fails diagnostics and retains the bounded trace; an existing test failure keeps
+its original exit code. These changes do not alter the test command, provider
+set, collection budgets, font requirement or successful-trace cleanup.
+
+The Metafile method's 16 warmup walks, 16 measured walks, 65,568 callbacks and
+4,096-byte ceiling remain unchanged. Method metadata and sampled allocation
+events establish trace admission only: they neither locate the measured interval
+nor prove that any particular allocation was sampled. In particular, absence of
+a Metafile allocation stack is not zero-allocation evidence. The added matcher
+and wrapper controls are authored but were not executed for this change; full
+CI and an actual admitted trace remain required. This is managed diagnostic
+tooling, not a renderer algorithm, and has no paired C++ rendering change.
+
 Do not impose `RLIMIT_FSIZE` on the managed collector. It also limits Linux
 memory-backed files: the .NET 8 runtime's executable-code double mapper attempts
 a 2-TiB `ftruncate` and is killed by `SIGXFSZ` before collector startup. The
