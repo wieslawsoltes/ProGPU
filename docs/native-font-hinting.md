@@ -102,6 +102,28 @@ for the dependent ownership-range walk; auxiliary storage is O(1). No performanc
 claim is made. This displacement primitive adds neither origin/phase nor a late
 advance substitution and does not yet connect source Display shaping/layout.
 
+GPOS contour anchors now have a private retained-point accessor. It selects the
+original positioned descriptor and contour index, not the first matching glyph
+ID, and subtracts only that generation's explicit native phase. The
+[OpenType GPOS AnchorFormat2 contract](https://learn.microsoft.com/en-us/typography/opentype/spec/gpos)
+uses the hinted contour point for final device positioning. Cursive and mark
+calculations need origin-relative points; copying phase into an advance would
+be incorrect. Signed-32 positioning bounds are proven before subtraction even
+when captured native `long` coordinates are 64-bit. Missing points, invalid
+phases and unsupported coordinates fail explicitly, without clamping or a design
+coordinate fallback. Status and coordinates return by value; no caller/source
+buffer is modified. This is one dependent indexed metadata access, O(1) with no
+allocation, font execution or GPU work, not a whole-buffer scalar pass.
+
+Independent face controls compare every actual contour point for both policies,
+phase changes, fractional sizes and snapshots after adapter disposal. Separate
+unpacked descriptors with repeated IDs but different points reject ID-based
+substitution; out-of-range/empty/extreme/invalid-phase controls remain separate.
+The producer receipt requires retained-anchor evidence on every RID. Actual GPOS
+device-value/anchor dispatch, attachment arithmetic, pre-positioning hinted
+advances and fallback geometry still require coordinated integration. This
+accessor does not enable Display or qualify source layout/interaction/raster.
+
 The producer builds this original adapter and executes focused controls against
 the host's actual Arial (Windows/macOS) or DejaVu Sans (Linux), without packaging
 those fonts. Controls compare every retained metric/point/tag/contour/flag to a

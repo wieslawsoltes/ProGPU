@@ -115,6 +115,14 @@ struct hinted_projection_result final {
     hinted_projection_error error = hinted_projection_error::none;
     hinted_projection_path path = hinted_projection_path::none;
 };
+struct hinted_anchor_point_result final {
+    hinted_projection_error error = hinted_projection_error::none;
+    hinted_outline_point point{};
+};
+// Original positioned descriptor index, not glyph-ID lookup: repeated source
+// glyphs keep their own captured slot. Remove only the retained native phase.
+hinted_anchor_point_result get_hinted_anchor_point(const hinted_glyph_batch& batch,
+    std::size_t descriptor_index, std::size_t contour_point_index) noexcept;
 // Exact design displacement -> selected device 26.6; no origin/phase or late
 // glyph-advance replacement. One immutable batch, whole-span atomic preflight.
 hinted_projection_result project_hinted_design_vectors(const hinted_glyph_batch& batch,

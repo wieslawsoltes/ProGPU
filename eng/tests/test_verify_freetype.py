@@ -62,7 +62,7 @@ class FontInstallationAdmissionTests(unittest.TestCase):
                                            "independentPolicies": True, "invalidPolicyRejected": True},
                         "glyphProbe": {"glyphBatchControls": True, "nativeHintsObserved": True,
                                        "slotDifferential": True, "nativeFaultAtomicity": True, "fixedWidthTransport": True,
-                                       "actualDeviceFrame": True, "hintedProjectionSIMD": True},
+                                       "actualDeviceFrame": True, "hintedProjectionSIMD": True, "retainedAnchorPoints": True},
                         "transportProbe": {"fixedWidthTransport": True, "exactIntegerDifferential": True,
                                            "atomicTailControls": True},
                         "cacheProbe": {"boundedOwnedCache": True, "exactGenerationReuse": True,

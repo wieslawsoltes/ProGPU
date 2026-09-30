@@ -319,6 +319,29 @@ bool hinted_font::try_capture(std::span<const std::uint32_t> glyph_indices,
     }
 }
 
+hinted_anchor_point_result get_hinted_anchor_point(const hinted_glyph_batch& batch,
+    std::size_t descriptor_index, std::size_t contour_point_index) noexcept
+{
+    if (batch.identity == nullptr || batch.identity->source == nullptr ||
+        batch.identity->x_phase_26_6 >= 64U || batch.identity->y_phase_26_6 >= 64U ||
+        descriptor_index >= batch.glyphs.size() ||
+        contour_point_index >= batch.glyphs[descriptor_index].points.size())
+        return {hinted_projection_error::invalid_argument, {}};
+    const auto point = batch.glyphs[descriptor_index].points[contour_point_index];
+    const auto x_phase = static_cast<std::int64_t>(batch.identity->x_phase_26_6);
+    const auto y_phase = static_cast<std::int64_t>(batch.identity->y_phase_26_6);
+    // Establish the signed-32 positioning domain before subtraction, including
+    // native-long64 extremes. No signed overflow, clamp or source-ID search.
+    constexpr auto minimum = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min());
+    constexpr auto maximum = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
+    if (point.x_26_6 < minimum + x_phase || point.x_26_6 > maximum + x_phase ||
+        point.y_26_6 < minimum + y_phase || point.y_26_6 > maximum + y_phase)
+        return {hinted_projection_error::unsupported_frame, {}};
+    // One dependent indexed metadata read, not a whole-buffer arithmetic pass.
+    return {hinted_projection_error::none,
+        {static_cast<long>(point.x_26_6 - x_phase), static_cast<long>(point.y_26_6 - y_phase)}};
+}
+
 hinted_projection_result project_hinted_design_vectors(const hinted_glyph_batch& batch,
     std::span<const hinted_design_vector> input, std::span<hinted_outline_point> output,
     hinted_projection_policy policy) noexcept

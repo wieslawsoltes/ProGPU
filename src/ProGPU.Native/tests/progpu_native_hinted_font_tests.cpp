@@ -203,6 +203,59 @@ void verify_design_projection(const hinted_glyph_batch& batch)
     }
 }
 
+void verify_anchor_points(const hinted_glyph_batch& batch, FT_Face reference)
+{
+    FT_Vector phase{static_cast<FT_Pos>(batch.identity->x_phase_26_6),
+        static_cast<FT_Pos>(batch.identity->y_phase_26_6)};
+    FT_Set_Transform(reference, nullptr, &phase);
+    for (std::size_t glyph = 0U; glyph < batch.glyphs.size(); ++glyph) {
+        require(FT_Load_Glyph(reference, batch.glyphs[glyph].glyph_index,
+            FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT | FT_LOAD_PEDANTIC | FT_LOAD_TARGET_NORMAL) == 0);
+        for (std::size_t index = 0U; index < batch.glyphs[glyph].points.size(); ++index) {
+            const auto result = get_hinted_anchor_point(batch, glyph, index);
+            require(result.error == hinted_projection_error::none &&
+                result.point.x_26_6 == reference->glyph->outline.points[index].x - phase.x &&
+                result.point.y_26_6 == reference->glyph->outline.points[index].y - phase.y);
+        }
+        require(get_hinted_anchor_point(batch, glyph, batch.glyphs[glyph].points.size()).error ==
+            hinted_projection_error::invalid_argument);
+    }
+    require(get_hinted_anchor_point(batch, batch.glyphs.size(), 0U).error == hinted_projection_error::invalid_argument);
+    require(get_hinted_anchor_point(batch, std::numeric_limits<std::size_t>::max(), 0U).error ==
+        hinted_projection_error::invalid_argument);
+
+    // Different repeated descriptors intentionally retain different point data:
+    // a glyph-ID map must never substitute the first occurrence's captured slot.
+    auto identity = std::make_shared<hinted_font_identity>(*batch.identity);
+    identity->x_phase_26_6 = 19U;
+    identity->y_phase_26_6 = 37U;
+    hinted_glyph_batch raw;
+    raw.identity = identity;
+    raw.glyphs.resize(2U);
+    raw.glyphs[0].glyph_index = raw.glyphs[1].glyph_index = 7U;
+    raw.glyphs[0].points.push_back({31, 53});
+    raw.glyphs[1].points.push_back({41, 73});
+    require(get_hinted_anchor_point(raw, 0U, 0U).point == hinted_outline_point{12, 16});
+    require(get_hinted_anchor_point(raw, 1U, 0U).point == hinted_outline_point{22, 36});
+    raw.glyphs[1].points[0] = {std::numeric_limits<long>::min(), 73};
+    require(get_hinted_anchor_point(raw, 1U, 0U).error == hinted_projection_error::unsupported_frame);
+    require(get_hinted_anchor_point(raw, 0U, 0U).point == hinted_outline_point{12, 16});
+    identity->x_phase_26_6 = 64U;
+    require(get_hinted_anchor_point(raw, 0U, 0U).error == hinted_projection_error::invalid_argument);
+    identity->x_phase_26_6 = 0U;
+    identity->y_phase_26_6 = 0U;
+    raw.glyphs[1].points[0] = {std::numeric_limits<std::int32_t>::min(), std::numeric_limits<std::int32_t>::max()};
+    const auto extremes = get_hinted_anchor_point(raw, 1U, 0U);
+    require(extremes.error == hinted_projection_error::none && extremes.point == raw.glyphs[1].points[0]);
+    if constexpr (sizeof(long) == 8U) {
+        raw.glyphs[1].points[0].y_26_6 = static_cast<long>(static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max()) + 1);
+        require(get_hinted_anchor_point(raw, 1U, 0U).error == hinted_projection_error::unsupported_frame);
+    }
+    require(raw.glyphs[0].points[0] == hinted_outline_point{31, 53});
+    hinted_glyph_batch absent;
+    require(get_hinted_anchor_point(absent, 0U, 0U).error == hinted_projection_error::invalid_argument);
+}
+
 void verify(const std::vector<std::byte>& original)
 {
     reference_owner reference;
@@ -237,6 +290,7 @@ void verify(const std::vector<std::byte>& original)
             configure_reference(reference, configuration);
             compare_frame(*batch->identity, reference.face);
             verify_design_projection(*batch);
+            verify_anchor_points(*batch, reference.face);
             for (std::size_t index = 0U; index < ids.size(); ++index) {
                 require(FT_Load_Glyph(reference.face, ids[index],
                     FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT | FT_LOAD_PEDANTIC | FT_LOAD_TARGET_NORMAL) == 0);
@@ -328,6 +382,7 @@ void verify(const std::vector<std::byte>& original)
                 phased->identity->y_phase_26_6 == 37U);
             require(phased->identity->source == saved->identity->source);
             require(phased->identity->device_frame == saved->identity->device_frame);
+            verify_anchor_points(*phased, reference.face);
             for (std::size_t glyph = 0U; glyph < ids.size(); ++glyph) {
                 require(phased->glyphs[glyph].advance_x_26_6 == saved->glyphs[glyph].advance_x_26_6);
                 require(phased->glyphs[glyph].points.size() == saved->glyphs[glyph].points.size());
@@ -341,6 +396,7 @@ void verify(const std::vector<std::byte>& original)
             phase_font.reset();
             compare_frame(*saved->identity, reference.face);
             verify_design_projection(*saved);
+            verify_anchor_points(*saved, reference.face);
             require(saved->identity->source->bytes == original && saved->glyphs == repeated->glyphs);
         }
     }
@@ -356,6 +412,7 @@ void verify(const std::vector<std::byte>& original)
     configure_reference(reference, fractional);
     compare_frame(*fractional_batch->identity, reference.face);
     verify_design_projection(*fractional_batch);
+    verify_anchor_points(*fractional_batch, reference.face);
     require(fractional_batch->identity->device_frame.x_scale_16_16 !=
         fractional_batch->identity->device_frame.y_scale_16_16);
     for (std::size_t index = 0U; index < ids.size(); ++index) {
@@ -415,7 +472,7 @@ int main(int argc, char** argv)
         verify_native_hint_fault();
         std::cout << "{\"glyphBatchControls\":true,\"nativeHintsObserved\":true,"
                      "\"slotDifferential\":true,\"nativeFaultAtomicity\":true,\"fixedWidthTransport\":true,"
-                     "\"actualDeviceFrame\":true,\"hintedProjectionSIMD\":true}\n";
+                     "\"actualDeviceFrame\":true,\"hintedProjectionSIMD\":true,\"retainedAnchorPoints\":true}\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
