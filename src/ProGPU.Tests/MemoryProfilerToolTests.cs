@@ -5,6 +5,22 @@ namespace ProGPU.Tests;
 public sealed class MemoryProfilerToolTests
 {
     [Fact]
+    public void DrawingTraceVerificationRetainsCompleteProcessAndMethodAdmission()
+    {
+        string source = File.ReadAllText(FindRepoFile(
+            "tools", "ProGPU.SampleMemoryProfiler", "DrawingAllocationTraceVerifier.cs"));
+        Assert.Contains("DrawingTraceMethodRequirement.Parse(args.AsSpan(3))", source, StringComparison.Ordinal);
+        Assert.Contains("item.ProviderName != \"Microsoft-Windows-DotNETRuntime\"", source, StringComparison.Ordinal);
+        Assert.Contains("item.PayloadNames.Contains(\"MethodName\") && item.PayloadNames.Contains(\"MethodNamespace\")", source, StringComparison.Ordinal);
+        Assert.Contains("method.Observe(methodNamespace, methodName)", source, StringComparison.Ordinal);
+        Assert.Contains("bool metricMethod = requiredMethods[0].Found", source, StringComparison.Ordinal);
+        Assert.Contains("missingMethods.Length != 0 || processes.Count != 1 || trace.EventsLost != 0", source, StringComparison.Ordinal);
+        Assert.Contains("events == 0 || allocations == 0", source, StringComparison.Ordinal);
+        Assert.Contains("if (truncated || lost != 0)", source, StringComparison.Ordinal);
+        Assert.Contains("complete = false, requiredMethods, error = error.ToString()", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void VmRegionReportSeparatesResidentAndDirtyGrowth()
     {
         string source = File.ReadAllText(

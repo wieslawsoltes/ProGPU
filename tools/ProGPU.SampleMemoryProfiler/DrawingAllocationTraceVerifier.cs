@@ -6,8 +6,18 @@ internal static class DrawingAllocationTraceVerifier
 {
     public static int Run(string[] args)
     {
-        if (args.Length != 3)
+        if (args.Length < 3)
             return 2;
+        DrawingTraceMethodRequirement[] requiredMethods;
+        try
+        {
+            requiredMethods = DrawingTraceMethodRequirement.Parse(args.AsSpan(3));
+        }
+        catch (ArgumentException error)
+        {
+            Console.Error.WriteLine(error.Message);
+            return 2;
+        }
         string input = Path.GetFullPath(args[1]);
         string report = Path.GetFullPath(args[2]);
         string index = report + ".etlx";
@@ -32,7 +42,6 @@ internal static class DrawingAllocationTraceVerifier
             using var trace = new TraceLog(index);
             _ = trace.Clr;
             long events = 0, allocations = 0;
-            bool metricMethod = false;
             var processes = new HashSet<int>();
             foreach (TraceEvent item in trace.Events)
             {
@@ -42,17 +51,24 @@ internal static class DrawingAllocationTraceVerifier
                     continue;
                 if ((int)item.ID == 303)
                     allocations++;
-                if (item.PayloadNames.Contains("MethodName") &&
-                    item.PayloadByName("MethodName")?.ToString() == "WarmedPrivateMetricReadsAreAllocationFree" &&
-                    item.PayloadByName("MethodNamespace")?.ToString() == "System.Drawing.Tests.FontQualityTests")
-                    metricMethod = true;
+                if (item.PayloadNames.Contains("MethodName") && item.PayloadNames.Contains("MethodNamespace"))
+                {
+                    string? methodName = item.PayloadByName("MethodName")?.ToString();
+                    string? methodNamespace = item.PayloadByName("MethodNamespace")?.ToString();
+                    foreach (DrawingTraceMethodRequirement method in requiredMethods)
+                        method.Observe(methodNamespace, methodName);
+                }
             }
-            if (events == 0 || allocations == 0 || !metricMethod || processes.Count != 1 || trace.EventsLost != 0)
-                throw new InvalidDataException($"Incomplete quality trace: events={events}, allocationSamples={allocations}, metricMethod={metricMethod}, processes={processes.Count}, lost={trace.EventsLost}.");
+            bool metricMethod = requiredMethods[0].Found;
+            string[] missingMethods = requiredMethods.Where(method => !method.Found)
+                .Select(method => $"{method.MethodNamespace}.{method.MethodName}").ToArray();
+            if (events == 0 || allocations == 0 || missingMethods.Length != 0 || processes.Count != 1 || trace.EventsLost != 0)
+                throw new InvalidDataException($"Incomplete quality trace: events={events}, allocationSamples={allocations}, metricMethod={metricMethod}, missingMethods=[{string.Join(", ", missingMethods)}], processes={processes.Count}, lost={trace.EventsLost}.");
             File.WriteAllText(report, JsonSerializer.Serialize(new
             {
-                schemaVersion = 1, complete = true, reader = typeof(TraceLog).Assembly.FullName,
+                schemaVersion = 2, complete = true, reader = typeof(TraceLog).Assembly.FullName,
                 events, allocationSamples = allocations, metricMethod, processId = processes.Single(),
+                requiredMethods,
                 startUtc = trace.SessionStartTime.ToUniversalTime(), endUtc = trace.SessionEndTime.ToUniversalTime(),
                 lostEvents = trace.EventsLost
             }));
@@ -60,7 +76,7 @@ internal static class DrawingAllocationTraceVerifier
         }
         catch (Exception error)
         {
-            File.WriteAllText(report, JsonSerializer.Serialize(new { schemaVersion = 1, complete = false, error = error.ToString() }));
+            File.WriteAllText(report, JsonSerializer.Serialize(new { schemaVersion = 2, complete = false, requiredMethods, error = error.ToString() }));
             Console.Error.WriteLine(error);
             return 2;
         }

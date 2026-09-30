@@ -158,7 +158,7 @@ def finalize_collector(collector, relay=None, deadline=None):
         raise RuntimeError("Collector failed to finalize within 30 seconds; testhost was not terminated.")
 
 
-def run(dotnet, output):
+def run(dotnet, output, required_methods=()):
     output.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="run-", dir=output)).resolve()
     # Keep the private Unix socket path below the platform's length limit even
@@ -172,6 +172,8 @@ def run(dotnet, output):
                "--logger", "trx;LogFileName=quality.trx", "--results-directory", str(directory)]
     status = {"schemaVersion": 2, "command": command, "providers": PROVIDERS,
               "circularBufferMiB": 64, "externalCollectorVersion": COLLECTOR_VERSION,
+              "additionalRequiredMethods": [{"methodNamespace": owner, "methodName": name}
+                                            for owner, name in required_methods],
               "testExitCode": None, "traces": []}
     diagnostic_print(f"[DrawingTrace] Evidence: {directory}")
     with (directory / "dotnet-info.txt").open("w") as stream:
@@ -275,9 +277,13 @@ def run(dotnet, output):
         if not trace.is_file() or trace.stat().st_size == 0 or trace.stat().st_size > MAX_TRACE_BYTES:
             status["diagnosticError"] = "Trace is missing, empty or over the hard evidence budget."
         elif "diagnosticError" not in status:
+            verification_command = [dotnet, str(PROFILER_DLL), "verify-drawing-trace", str(trace),
+                                    str(directory / "trace-validation.json")]
+            for owner, name in required_methods:
+                verification_command.extend(["--require-method", owner, name])
+            status["verificationCommand"] = verification_command
             with (directory / "trace-validation.log").open("w") as validation:
-                verified = subprocess.run([dotnet, str(PROFILER_DLL), "verify-drawing-trace", str(trace),
-                                           str(directory / "trace-validation.json")], cwd=ROOT, stdout=validation,
+                verified = subprocess.run(verification_command, cwd=ROOT, stdout=validation,
                                           stderr=subprocess.STDOUT, timeout=60).returncode
             if verified != 0:
                 status["diagnosticError"] = f"Strict complete-trace validation failed with exit {verified}."
@@ -334,9 +340,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dotnet", default="dotnet")
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/system-drawing-quality")
+    parser.add_argument("--require-method", nargs=2, action="append", default=[], metavar=("TYPE", "METHOD"),
+                        help="Require exact CLR type/method metadata in addition to the mandatory font method; repeatable.")
     args = parser.parse_args()
+    if any(not value.strip() for method in args.require_method for value in method):
+        parser.error("--require-method requires nonempty exact CLR type and method names")
     try:
-        return run(args.dotnet, args.output)
+        return run(args.dotnet, args.output, args.require_method)
     except (OSError, subprocess.SubprocessError) as error:
         diagnostic_print(f"[DrawingTrace] Setup failed: {error}", error=True)
         return 2

@@ -26,6 +26,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\tools\ProGPU.SampleMemoryProfiler\DrawingTraceMethodRequirement.cs"
+             Link="Diagnostics\DrawingTraceMethodRequirement.cs" />
     <Compile Include="..\ProGPU.Android\AndroidStorageNamePolicy.cs"
              Link="Android\AndroidStorageNamePolicy.cs" />
     <Compile Include="..\ProGPU.Android\AndroidScrollDeltaPolicy.cs"
