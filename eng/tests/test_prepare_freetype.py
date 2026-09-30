@@ -1,6 +1,7 @@
 import importlib.util
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
+import os
 import struct
 import tempfile
 import unittest
@@ -122,6 +123,16 @@ class FreeTypeArchiveTests(unittest.TestCase):
 
 
 class FreeTypeProvenanceTests(unittest.TestCase):
+    def test_gpg_paths_retain_the_owned_keyring_on_windows_and_unix(self):
+        original = dict(os.environ)
+        for path, spelling in ((PureWindowsPath(r"D:\runner temp\font\keyring"),
+                                "D:/runner temp/font/keyring"),
+                               (PurePosixPath("/tmp/font/keyring"), "/tmp/font/keyring")):
+            with self.subTest(path=path):
+                environment = PREPARE.gpg_environment(path)
+                self.assertEqual(spelling, environment["GNUPGHOME"])
+                self.assertEqual(original, dict(os.environ))
+
     def signature(self, fingerprint=None):
         fingerprint = fingerprint or PIN["signerFingerprint"]
         return f"[GNUPG:] VALIDSIG {fingerprint} 2026-03-22 1774192173 0 4 0 17 2 00\n"

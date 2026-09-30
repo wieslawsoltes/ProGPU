@@ -34,6 +34,13 @@ def run(command, *, cwd=None, env=None):
                           text=True, timeout=600)
 
 
+def gpg_environment(keyring):
+    # Git for Windows' MSYS GnuPG accepts drive-qualified forward-slash paths,
+    # not Python's native backslash spelling in GNUPGHOME. Never fall back to
+    # the user's keyring or modify the caller's environment.
+    return dict(os.environ, GNUPGHOME=keyring.as_posix())
+
+
 def release_identity(tag_object, commit, author, signature_status, pin):
     if tag_object != pin["tagObject"] or commit != pin["commit"] or author != pin["author"]:
         raise ValueError("FreeType release identity differs from the reviewed pin")
@@ -155,8 +162,8 @@ def prepare(args):
     if not key or len(key) > 1024 * 1024:
         raise ValueError("Release key is empty or over budget")
     key_path.write_bytes(key)
-    environment = dict(os.environ, GNUPGHOME=str(keyring))
-    run([args.gpg, "--batch", "--import", str(key_path)], env=environment)
+    environment = gpg_environment(keyring)
+    run([args.gpg, "--batch", "--import", key_path.as_posix()], env=environment)
     run(["git", "init", "-q", str(source)])
     run(["git", "-C", str(source), "remote", "add", "origin", pin["repository"]])
     run(["git", "-C", str(source), "fetch", "--depth", "1", "origin", "tag", pin["tag"]])
