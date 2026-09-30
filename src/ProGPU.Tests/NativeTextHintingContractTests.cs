@@ -68,4 +68,40 @@ public sealed class NativeTextHintingContractTests
         owner.Dispose();
         Assert.Equal(1, releases);
     }
+
+    [Fact]
+    public void ShapedRunLeasesRetainTheirOwnDisposedIdentity()
+    {
+        int releases = 0;
+        var owner = new NativeTextContextOwner(43, _ => releases++, nameof(NativeHintedTextRun));
+        using (var lease = owner.Acquire())
+        {
+            owner.Dispose();
+            Assert.Equal(0, releases);
+            Assert.Equal(nameof(NativeHintedTextRun), Assert.Throws<ObjectDisposedException>(() =>
+            {
+                using var rejected = owner.Acquire();
+            }).ObjectName);
+        }
+        Assert.Equal(1, releases);
+        owner.Dispose();
+        Assert.Equal(1, releases);
+    }
+
+    [Fact]
+    public void HintedContextShapingRejectsIgnoredBorrowedResources()
+    {
+        var valid = new NativeTextShapeInput([], []);
+        NativeTextShapingContext.ValidateHintedShapeResources(in valid);
+        foreach (int resource in new[] { 0, 1, 2 })
+        {
+            bool rejected = false;
+            var invalid = new NativeTextShapeInput(resource == 0 ? new byte[] { 1 } : [], [],
+                faceIndex: resource == 1 ? 1U : 0U,
+                normalizationData: resource == 2 ? new byte[] { 1 } : []);
+            try { NativeTextShapingContext.ValidateHintedShapeResources(in invalid); }
+            catch (ArgumentException) { rejected = true; }
+            Assert.True(rejected);
+        }
+    }
 }

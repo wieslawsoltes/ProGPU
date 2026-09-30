@@ -1944,6 +1944,19 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME progpu_native_text_hinted_context_tests COMMAND progpu_native_text_hinted_context_tests)
     set_tests_properties(progpu_native_text_hinted_context_tests PROPERTIES TIMEOUT 60)
 
+    add_executable(progpu_native_text_hinted_run_tests
+        tests/progpu_native_text_hinted_run_tests.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(progpu_native_text_hinted_run_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_text_hinted_run_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Font")
+    target_compile_definitions(progpu_native_text_hinted_run_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_text_hinted_run_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_text_hinted_run_tests)
+    progpu_native_enable_sanitizers(progpu_native_text_hinted_run_tests)
+    add_test(NAME progpu_native_text_hinted_run_tests COMMAND progpu_native_text_hinted_run_tests)
+    set_tests_properties(progpu_native_text_hinted_run_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_text_shaping_showcase_tests
         tests/progpu_native_text_shaping_showcase_tests.cpp
         src/Text/Interop/progpu_native_text_shaping_interop.cpp)

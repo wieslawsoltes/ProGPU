@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 typedef struct progpu_native_hinted_batch progpu_native_hinted_batch;
+typedef struct progpu_native_hinted_run progpu_native_hinted_run;
 
 /* PROGPU_CSHARP_STRUCT: NativeMethods.HintedFontRequest */
 typedef struct progpu_native_hinted_font_request {
@@ -89,6 +90,42 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_batch_copy(
     uint8_t* tags, uint32_t tag_capacity,
     int32_t* contour_ends, uint32_t contour_capacity);
 PROGPU_NATIVE_API void progpu_native_hinted_batch_destroy(progpu_native_hinted_batch* batch);
+
+/* Explicit owned-context device shaping under the caller's exclusive context
+ * lease. The shape request must omit font bytes, face index and normalization
+ * bytes: the selected context font and context normalization own those inputs.
+ * Success publishes one immutable positioned run and its ordered post-GSUB
+ * outline capture; failure leaves *run unchanged. The output slot is never
+ * read; any prior handle's destruction remains the caller's responsibility.
+ * This additive boundary does not admit source Display mode. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_shape_hinted_run(
+    progpu_native_text_context* context,
+    const progpu_native_hinted_font_request* hint_request,
+    const int32_t* variation_coordinates_16_16,
+    const progpu_native_text_shape_request* shape_request,
+    progpu_native_hinted_run** run);
+
+/* Every copy/count output and unused slot remains unchanged on failure.
+ * Positioned glyph metrics are signed device 26.6 units; Y uses the existing
+ * C Y-down convention; outlines retain original captured Y-up coordinates.
+ * Descriptor
+ * indices identify exact capture slots, including repeated glyph IDs.
+ * Returned handles survive context retirement. Copies allocate/execute no
+ * fonts and do no GPU work; caller leases exclude concurrent destruction. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_run_get_counts(
+    const progpu_native_hinted_run* run, uint32_t* shaped_glyph_count,
+    progpu_native_hinted_batch_counts* outline_counts);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_run_copy_glyphs(
+    const progpu_native_hinted_run* run,
+    progpu_native_text_shaping_glyph* glyphs, uint32_t glyph_capacity,
+    uint32_t* descriptor_indices, uint32_t descriptor_capacity);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_run_copy_outlines(
+    const progpu_native_hinted_run* run,
+    progpu_native_hinted_glyph* glyphs, uint32_t glyph_capacity,
+    progpu_native_hinted_point* points, uint32_t point_capacity,
+    uint8_t* tags, uint32_t tag_capacity,
+    int32_t* contour_ends, uint32_t contour_capacity);
+PROGPU_NATIVE_API void progpu_native_hinted_run_destroy(progpu_native_hinted_run* run);
 
 #ifdef __cplusplus
 }

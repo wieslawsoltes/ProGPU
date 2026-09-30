@@ -4,6 +4,7 @@
 #include "progpu_native_text.hpp"
 #include "progpu_native_text_font_source.hpp"
 #include "../Font/progpu_native_hinted_transport.hpp"
+#include "../Font/progpu_native_hinted_shaper.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "../Font/progpu_native_hinted_font_cache.hpp"
 #endif
@@ -13,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <new>
 #include <span>
@@ -38,6 +40,10 @@ struct progpu_native_text_owned_font final {
 
 struct progpu_native_hinted_batch final {
     std::shared_ptr<const progpu::native::text::hinted_glyph_batch> generation{};
+};
+
+struct progpu_native_hinted_run final {
+    std::shared_ptr<const progpu::native::text::hinted_shaped_run> generation{};
 };
 
 struct progpu_native_text_plan_entry final {
@@ -237,6 +243,13 @@ bool progpu::native::text::capture_context_hinted(progpu_native_text_context* co
 #endif
     return false;
 }
+
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+std::shared_ptr<const progpu::native::text::hinted_shaped_run>
+progpu::native::text::select_hinted_run_generation(const progpu_native_hinted_run* run) noexcept {
+    return run != nullptr ? run->generation : nullptr;
+}
+#endif
 
 namespace {
 
@@ -721,6 +734,137 @@ void copy_scalars(
     for (std::size_t index = 0U; index < destination.size(); ++index) {
         destination[index] = convert_scalar(source[index]);
     }
+}
+
+bool hinted_run_output_aliases(const progpu_native_hinted_run& handle,
+    const void* output, std::uint64_t bytes) noexcept {
+    const auto overlaps = [=](const void* storage, std::size_t size) noexcept {
+        return byte_ranges_overlap(output, bytes, storage, size);
+    };
+    const auto vector_aliases = [&](const auto& values) noexcept {
+        return overlaps(values.data(), values.capacity() * sizeof(values[0]));
+    };
+    if (overlaps(&handle, sizeof(handle)) || handle.generation == nullptr) return true;
+    const auto& run = *handle.generation;
+    if (overlaps(&run, sizeof(run)) || vector_aliases(run.glyphs) ||
+        vector_aliases(run.descriptor_indices) || vector_aliases(run.normalized_coordinates) ||
+        run.batch == nullptr) return true;
+    const auto& batch = *run.batch;
+    if (overlaps(&batch, sizeof(batch)) || vector_aliases(batch.glyphs) || batch.identity == nullptr) return true;
+    const auto& identity = *batch.identity;
+    if (overlaps(&identity, sizeof(identity)) || vector_aliases(identity.variation_coordinates_16_16) ||
+        identity.source == nullptr || overlaps(identity.source.get(), sizeof(*identity.source)) ||
+        vector_aliases(identity.source->bytes)) return true;
+    for (const auto& glyph : batch.glyphs)
+        if (vector_aliases(glyph.points) || vector_aliases(glyph.tags) || vector_aliases(glyph.contour_ends)) return true;
+    return false;
+}
+
+bool hinted_run_publication_aliases_context(const void* output, std::uint64_t bytes,
+    const progpu_native_text_context& context) noexcept {
+    const auto overlaps = [=](const void* storage, std::size_t size) noexcept {
+        return byte_ranges_overlap(output, bytes, storage, size);
+    };
+    const auto vector_aliases = [&](const auto& values) noexcept {
+        return overlaps(values.data(), values.capacity() * sizeof(values[0]));
+    };
+    if (overlaps(&context, sizeof(context)) || vector_aliases(context.fallback_fonts) ||
+        vector_aliases(context.normalization_bytes) || vector_aliases(context.plans)) return true;
+    for (std::size_t index = 0U; index < context.font_count(); ++index) {
+        const auto source = context.source_at(index);
+        if (source != nullptr && (overlaps(source.get(), sizeof(*source)) || vector_aliases(source->bytes))) return true;
+    }
+    for (const auto& plan : context.plans)
+        if (vector_aliases(plan.gsub_lookups) || vector_aliases(plan.gpos_lookups) ||
+            vector_aliases(plan.gsub_accelerators) || vector_aliases(plan.gpos_accelerators) ||
+            vector_aliases(plan.gsub_context_subtables) || vector_aliases(plan.gsub_context_coverages) ||
+            vector_aliases(plan.gpos_context_subtables) || vector_aliases(plan.gpos_context_coverages)) return true;
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+    if (context.hinted_cache != nullptr && overlaps(context.hinted_cache.get(), sizeof(*context.hinted_cache))) return true;
+#endif
+    return false;
+}
+
+bool valid_hinted_run(const progpu_native_hinted_run* handle) noexcept {
+    if (!valid_hinted_buffer(handle, 1U) || handle->generation == nullptr || handle->generation->batch == nullptr) return false;
+    const auto& run = *handle->generation;
+    if (run.glyphs.size() > std::numeric_limits<std::uint32_t>::max() ||
+        run.descriptor_indices.size() != run.glyphs.size() || run.source_descriptor_count > run.batch->glyphs.size()) return false;
+    progpu_native_hinted_batch_counts counts{};
+    if (get_hinted_batch_counts(*run.batch, counts) != hinted_transport_error::none) return false;
+    for (std::size_t index = 0U; index < run.glyphs.size(); ++index) {
+        const auto slot = run.descriptor_indices[index];
+        if (slot >= run.source_descriptor_count || run.batch->glyphs[slot].glyph_index != run.glyphs[index].glyph_id) return false;
+    }
+    return true;
+}
+
+bool hinted_run_c_metrics_representable(const hinted_shaped_run& run) noexcept {
+    for (const auto& glyph : run.glyphs)
+        if (glyph.advance_y == std::numeric_limits<std::int32_t>::min() || glyph.offset_y == std::numeric_limits<std::int32_t>::min()) return false;
+    return true;
+}
+
+void copy_hinted_run_glyph(const shaping_glyph& source, progpu_native_text_shaping_glyph& output) noexcept {
+    output.glyph_id = source.glyph_id; output.code_point = source.code_point;
+    output.cluster = source.cluster; output.flags = static_cast<std::uint32_t>(source.flags);
+    static_assert(offsetof(progpu_native_text_shaping_glyph, advance_y) == offsetof(progpu_native_text_shaping_glyph, advance_x) + 4U);
+    static_assert(offsetof(progpu_native_text_shaping_glyph, offset_x) == offsetof(progpu_native_text_shaping_glyph, advance_x) + 8U);
+    static_assert(offsetof(progpu_native_text_shaping_glyph, offset_y) == offsetof(progpu_native_text_shaping_glyph, advance_x) + 12U);
+    // Descriptor validation is ordered/dependent. The four independent signed32
+    // metric lanes publish through the existing platform intrinsics, after the
+    // whole run's exact Y-negation preflight. CPU-owned copy needs no GPU path.
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(__SSE2__) || defined(_M_X64)
+    const std::array<std::int32_t, 4U> input{source.advance_x, source.advance_y, source.offset_x, source.offset_y};
+    constexpr std::array<std::int32_t, 4U> sign{0, -1, 0, -1};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const auto lanes = vld1q_s32(input.data()); const auto mask = vld1q_s32(sign.data());
+    const auto converted = vsubq_s32(veorq_s32(lanes, mask), mask);
+#else
+    const auto lanes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(input.data()));
+    const auto mask = _mm_loadu_si128(reinterpret_cast<const __m128i*>(sign.data()));
+    const auto converted = _mm_sub_epi32(_mm_xor_si128(lanes, mask), mask);
+#endif
+    std::memcpy(reinterpret_cast<std::byte*>(&output) + offsetof(progpu_native_text_shaping_glyph, advance_x), &converted, sizeof(converted));
+#else
+    output.advance_x = source.advance_x; output.advance_y = -source.advance_y;
+    output.offset_x = source.offset_x; output.offset_y = -source.offset_y;
+#endif
+}
+
+bool valid_hinted_shape_inputs(const progpu_native_hinted_font_request* hint,
+    const std::int32_t* axes, const progpu_native_text_shape_request* shape) noexcept {
+    if (!valid_hinted_buffer(hint, 1U) || !valid_hinted_buffer(shape, 1U) ||
+        hint->abi_version != PROGPU_NATIVE_ABI_VERSION || hint->struct_size != sizeof(*hint) || hint->reserved != 0U ||
+        hint->x_pixels_per_em_26_6 == 0U || hint->y_pixels_per_em_26_6 == 0U ||
+        hint->x_pixels_per_em_26_6 > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) ||
+        hint->y_pixels_per_em_26_6 > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) ||
+        hint->x_phase_26_6 >= 64U || hint->y_phase_26_6 >= 64U ||
+        (hint->interpreter != 35U && hint->interpreter != 40U) || hint->variation_count > 65535U ||
+        !valid_hinted_buffer(axes, hint->variation_count) || shape->struct_size < sizeof(*shape) ||
+        !valid_hinted_buffer(reinterpret_cast<const std::byte*>(shape), shape->struct_size) ||
+        shape->font_data != nullptr || shape->font_size != 0U || shape->face_index != 0U ||
+        shape->normalization_data != nullptr || shape->normalization_data_size != 0U ||
+        !valid_hinted_buffer(shape->input, shape->input_count) ||
+        !valid_hinted_buffer(shape->pre_context, shape->pre_context_count) ||
+        !valid_hinted_buffer(shape->post_context, shape->post_context_count) ||
+        !valid_hinted_buffer(shape->features, shape->feature_count) ||
+        !valid_hinted_buffer(shape->normalized_coordinates, shape->normalized_coordinate_count)) return false;
+    return valid_request(shape, false);
+}
+
+bool hinted_run_publication_aliases_inputs(const void* output, std::uint64_t bytes,
+    const progpu_native_hinted_font_request& hint, const std::int32_t* axes,
+    const progpu_native_text_shape_request& shape) noexcept {
+    return byte_ranges_overlap(output, bytes, &hint, sizeof(hint)) ||
+        byte_ranges_overlap(output, bytes, axes, static_cast<std::uint64_t>(hint.variation_count) * sizeof(*axes)) ||
+        byte_ranges_overlap(output, bytes, &shape, shape.struct_size) ||
+        byte_ranges_overlap(output, bytes, shape.input, static_cast<std::uint64_t>(shape.input_count) * sizeof(*shape.input)) ||
+        byte_ranges_overlap(output, bytes, shape.pre_context, static_cast<std::uint64_t>(shape.pre_context_count) * sizeof(*shape.pre_context)) ||
+        byte_ranges_overlap(output, bytes, shape.post_context, static_cast<std::uint64_t>(shape.post_context_count) * sizeof(*shape.post_context)) ||
+        byte_ranges_overlap(output, bytes, shape.features, static_cast<std::uint64_t>(shape.feature_count) * sizeof(*shape.features)) ||
+        byte_ranges_overlap(output, bytes, shape.normalized_coordinates,
+            static_cast<std::uint64_t>(shape.normalized_coordinate_count) * sizeof(*shape.normalized_coordinates));
 }
 
 constexpr std::uint32_t digit_scalar_mask =
@@ -3713,5 +3857,124 @@ progpu_native_status progpu_native_hinted_batch_copy(
 }
 
 void progpu_native_hinted_batch_destroy(progpu_native_hinted_batch* batch) { delete batch; }
+
+progpu_native_status progpu_native_text_context_shape_hinted_run(
+    progpu_native_text_context* context, const progpu_native_hinted_font_request* hint_request,
+    const std::int32_t* variation_coordinates_16_16, const progpu_native_text_shape_request* shape_request,
+    progpu_native_hinted_run** run) {
+    if (!valid_hinted_buffer(context, 1U) || !valid_hinted_buffer(run, 1U) ||
+        !valid_hinted_shape_inputs(hint_request, variation_coordinates_16_16, shape_request) ||
+        context->font_at(hint_request->font_index) == nullptr ||
+        hinted_run_publication_aliases_inputs(run, sizeof(*run), *hint_request, variation_coordinates_16_16, *shape_request) ||
+        hinted_run_publication_aliases_context(run, sizeof(*run), *context)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+#if !defined(PROGPU_NATIVE_FONT_HINTING)
+    return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+#else
+    try {
+        const auto& font = *context->font_at(hint_request->font_index);
+        std::vector<unicode_scalar> input(shape_request->input_count), pre(shape_request->pre_context_count), post(shape_request->post_context_count);
+        copy_scalars(shape_request->input, input); copy_scalars(shape_request->pre_context, pre); copy_scalars(shape_request->post_context, post);
+        std::vector<shaping_feature> features(shape_request->feature_count);
+        for (std::size_t index = 0U; index < features.size(); ++index) {
+            const auto& feature = shape_request->features[index];
+            features[index] = {open_type_tag{feature.tag}, feature.value, feature.start, feature.end};
+        }
+        std::vector<std::int16_t> normalized(shape_request->normalized_coordinate_count);
+        if (!normalized.empty()) std::copy_n(shape_request->normalized_coordinates, normalized.size(), normalized.begin());
+        std::vector<std::int32_t> axes(hint_request->variation_count);
+        if (!axes.empty()) std::copy_n(variation_coordinates_16_16, axes.size(), axes.begin());
+        const open_type_shape_configuration_request configuration_request{
+            open_type_tag{shape_request->unicode_script}, {}, static_cast<shaping_direction>(shape_request->direction), features,
+            normalized, shape_request->alternate_value, (shape_request->flags & PROGPU_NATIVE_TEXT_SHAPE_ZERO_MARK_ADVANCES) != 0U,
+            static_cast<shaping_cluster_level>(shape_request->cluster_level), static_cast<shaping_buffer_flags>(shape_request->buffer_flags),
+            context->has_normalization ? &context->normalization : nullptr, pre, post, open_type_tag{shape_request->language}};
+        open_type_shape_configuration_requirements needs{};
+        font_error error = font_error::none;
+        if (!try_get_open_type_shape_configuration_requirements(font, input, configuration_request, needs, &error)) return status_from_error(error);
+        std::vector<open_type_feature_setting> base(needs.base_feature_capacity);
+        std::vector<open_type_tag> explicit_features(needs.explicit_feature_capacity), requested_features(needs.requested_feature_capacity);
+        std::vector<shaping_feature> settings(needs.feature_setting_capacity);
+        open_type_shape_configuration configuration{};
+        if (!try_prepare_open_type_shape_configuration(font, input, configuration_request, base, explicit_features,
+            requested_features, settings, configuration, &error)) return status_from_error(error);
+        const open_type_shape_plan* plan = nullptr;
+        if (!context->try_get_plan(font, configuration.options, plan, error)) return status_from_error(error);
+        const hinted_font_configuration hinted_configuration{hint_request->x_pixels_per_em_26_6, hint_request->y_pixels_per_em_26_6,
+            static_cast<font_hint_policy>(hint_request->interpreter), hint_request->x_phase_26_6, hint_request->y_phase_26_6, axes};
+        auto candidate = std::make_unique<progpu_native_hinted_run>();
+        hinted_shape_error failure{};
+        if (!try_shape_context_hinted(context, hint_request->font_index, hinted_configuration, input, configuration.options,
+            candidate->generation, failure, hinted_projection_policy::automatic, plan)) {
+            if (failure.resource_exhausted) return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+            if (failure.capture != hinted_font_error::none) return hinted_status(failure.capture);
+            if (failure.projection == hinted_projection_error::unsupported_policy ||
+                failure.projection == hinted_projection_error::unsupported_frame) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+            if (failure.projection != hinted_projection_error::none) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            return failure.shaping == font_error::none ? PROGPU_NATIVE_STATUS_INTERNAL_ERROR : status_from_error(failure.shaping);
+        }
+        if (!valid_hinted_run(candidate.get()) || !hinted_run_c_metrics_representable(*candidate->generation))
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        *run = candidate.release();
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
+#endif
+}
+
+progpu_native_status progpu_native_hinted_run_get_counts(const progpu_native_hinted_run* run,
+    std::uint32_t* shaped_glyph_count, progpu_native_hinted_batch_counts* outline_counts) {
+    if (!valid_hinted_run(run) || !valid_hinted_buffer(shaped_glyph_count, 1U) || !valid_hinted_buffer(outline_counts, 1U) ||
+        byte_ranges_overlap(shaped_glyph_count, sizeof(*shaped_glyph_count), outline_counts, sizeof(*outline_counts)) ||
+        hinted_run_output_aliases(*run, shaped_glyph_count, sizeof(*shaped_glyph_count)) ||
+        hinted_run_output_aliases(*run, outline_counts, sizeof(*outline_counts))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    progpu_native_hinted_batch_counts counts{};
+    if (get_hinted_batch_counts(*run->generation->batch, counts) != hinted_transport_error::none) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    *shaped_glyph_count = static_cast<std::uint32_t>(run->generation->glyphs.size());
+    *outline_counts = counts;
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_hinted_run_copy_glyphs(const progpu_native_hinted_run* run,
+    progpu_native_text_shaping_glyph* glyphs, std::uint32_t glyph_capacity,
+    std::uint32_t* descriptor_indices, std::uint32_t descriptor_capacity) {
+    const auto glyph_bytes = static_cast<std::uint64_t>(glyph_capacity) * sizeof(*glyphs);
+    const auto descriptor_bytes = static_cast<std::uint64_t>(descriptor_capacity) * sizeof(*descriptor_indices);
+    if (!valid_hinted_run(run) || !valid_hinted_buffer(glyphs, glyph_capacity) ||
+        !valid_hinted_buffer(descriptor_indices, descriptor_capacity) ||
+        glyph_capacity < run->generation->glyphs.size() || descriptor_capacity < run->generation->glyphs.size() ||
+        byte_ranges_overlap(glyphs, glyph_bytes, descriptor_indices, descriptor_bytes) ||
+        hinted_run_output_aliases(*run, glyphs, glyph_bytes) || hinted_run_output_aliases(*run, descriptor_indices, descriptor_bytes))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (!hinted_run_c_metrics_representable(*run->generation)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    for (std::size_t index = 0U; index < run->generation->glyphs.size(); ++index) {
+        const auto& glyph = run->generation->glyphs[index];
+        copy_hinted_run_glyph(glyph, glyphs[index]);
+        descriptor_indices[index] = run->generation->descriptor_indices[index];
+    }
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_hinted_run_copy_outlines(const progpu_native_hinted_run* run,
+    progpu_native_hinted_glyph* glyphs, std::uint32_t glyph_capacity,
+    progpu_native_hinted_point* points, std::uint32_t point_capacity, std::uint8_t* tags, std::uint32_t tag_capacity,
+    std::int32_t* contour_ends, std::uint32_t contour_capacity) {
+    if (!valid_hinted_run(run) || !valid_hinted_buffer(glyphs, glyph_capacity) || !valid_hinted_buffer(points, point_capacity) ||
+        !valid_hinted_buffer(tags, tag_capacity) || !valid_hinted_buffer(contour_ends, contour_capacity) ||
+        hinted_run_output_aliases(*run, glyphs, static_cast<std::uint64_t>(glyph_capacity) * sizeof(*glyphs)) ||
+        hinted_run_output_aliases(*run, points, static_cast<std::uint64_t>(point_capacity) * sizeof(*points)) ||
+        hinted_run_output_aliases(*run, tags, tag_capacity) ||
+        hinted_run_output_aliases(*run, contour_ends, static_cast<std::uint64_t>(contour_capacity) * sizeof(*contour_ends)))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    // The canonical transport preflights every pair of full-capacity outputs,
+    // topology, fixed-width conversions and borrowed capture aliases atomically.
+    const auto copied = copy_hinted_batch(*run->generation->batch, {glyphs, glyph_capacity}, {points, point_capacity},
+        {tags, tag_capacity}, {contour_ends, contour_capacity}, hinted_transport_policy::automatic);
+    return copied ? PROGPU_NATIVE_STATUS_SUCCESS : PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+}
+
+void progpu_native_hinted_run_destroy(progpu_native_hinted_run* run) { delete run; }
 
 } // extern "C"

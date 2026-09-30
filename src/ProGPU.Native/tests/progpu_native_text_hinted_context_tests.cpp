@@ -67,12 +67,13 @@ void verify_owned_shaping(const progpu::native::text::hinted_font_configuration&
             for (const bool ranged : {false, true}) {
                 const std::array values{shaping_feature{kern, 0U, 0U, 0xFFFFFFFFU}, shaping_feature{kern, 1U, 1U, 2U}};
                 options.feature_settings = ranged ? std::span<const shaping_feature>(values) : std::span<const shaping_feature>{};
+                error.resource_exhausted = true; // A previous diagnostic never survives a new successful request.
                 const bool shaped = try_shape_context_hinted(context.value, 0U, configuration, input, options, retained, error, policy);
                 if (!shaped) std::cerr << "Owned hinted shaping failed: interpreter=" << static_cast<std::uint32_t>(configuration.policy)
                     << " direction=" << static_cast<std::uint32_t>(direction) << " projection_policy=" << static_cast<std::uint32_t>(policy)
                     << " ranged=" << ranged << " shaping=" << static_cast<std::uint32_t>(error.shaping)
                     << " capture=" << static_cast<std::uint32_t>(error.capture) << " projection=" << static_cast<std::uint32_t>(error.projection) << '\n';
-                transport_require(shaped);
+                transport_require(shaped && !error.resource_exhausted);
                 transport_require(retained->source_descriptor_count == 3U && retained->batch->glyphs.size() == 3U &&
                     retained->glyphs.size() == 3U && retained->descriptor_indices.size() == 3U &&
                     retained->batch->identity->source == source && retained->batch->identity->policy == configuration.policy &&
@@ -128,10 +129,10 @@ void verify_owned_shaping(const progpu::native::text::hinted_font_configuration&
     const std::array only_kern{kern};
     options.requested_features = only_kern; // Fault glyph B is no longer substituted before capture.
     transport_require(!try_shape_context_hinted(context.value, 0U, configuration, input, options, retained, error) &&
-        error.capture == hinted_font_error::hinting_failed && retained == saved);
+        error.capture == hinted_font_error::hinting_failed && !error.resource_exhausted && retained == saved);
     options.requested_features = features;
     transport_require(!try_shape_context_hinted(context.value, 99U, configuration, input, options, retained, error) &&
-        error.shaping == font_error::invalid_argument && retained == saved);
+        error.shaping == font_error::invalid_argument && !error.resource_exhausted && retained == saved);
     transport_require(!try_shape_context_hinted(context.value, 0U, configuration, input, options, retained, error,
         hinted_projection_policy::gpu_shader) && error.projection == hinted_projection_error::unsupported_policy && retained == saved);
     const std::array<std::int16_t, 1U> invalid_normalized{1};
@@ -430,12 +431,12 @@ int main()
             shape_options.script = open_type_tag::from_chars('l', 'a', 't', 'n');
             hinted_shape_error shape_error{};
             transport_require(try_shape_context_hinted(shape_context.value, 0U, configuration, repeated_a,
-                shape_options, owned_shape, shape_error) && owned_shape->batch->glyphs.size() == 2U &&
+                shape_options, owned_shape, shape_error) && !shape_error.resource_exhausted && owned_shape->batch->glyphs.size() == 2U &&
                 owned_shape->descriptor_indices == std::vector<std::uint32_t>{0U, 1U});
             const auto saved_shape = owned_shape;
             const std::array<unicode_scalar, 2U> faulty_shape{unicode_scalar{0x41U, 0U, 1U}, unicode_scalar{0x42U, 1U, 1U}};
             transport_require(!try_shape_context_hinted(shape_context.value, 0U, configuration, faulty_shape,
-                shape_options, owned_shape, shape_error) && shape_error.capture == hinted_font_error::hinting_failed &&
+                shape_options, owned_shape, shape_error) && shape_error.capture == hinted_font_error::hinting_failed && !shape_error.resource_exhausted &&
                 owned_shape == saved_shape);
             const auto saved = retained;
             transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,

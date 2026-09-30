@@ -200,6 +200,7 @@ bool prepare(void* value, const sfnt_font_view& font, const open_type_shape_run_
         frame.stretch_widths = owner.widths;
         return true;
     } catch (const std::bad_alloc&) {
+        owner.failure.resource_exhausted = true;
         owner.failure.capture = hinted_font_error::resource_exhausted;
         if (error != nullptr) *error = font_error::insufficient_buffer;
     } catch (...) {
@@ -231,9 +232,11 @@ bool shape_fragment(void* value, const sfnt_font_view& font, std::span<const uni
         if (!success) {
             parent.failure.capture = child.failure.capture;
             parent.failure.projection = child.failure.projection;
+            parent.failure.resource_exhausted = parent.failure.resource_exhausted || child.failure.resource_exhausted;
         }
         return success;
     } catch (const std::bad_alloc&) {
+        parent.failure.resource_exhausted = true;
         if (error != nullptr) *error = font_error::insufficient_buffer;
     } catch (...) {
         if (error != nullptr) *error = font_error::invalid_face;
@@ -320,6 +323,7 @@ bool try_shape_context_hinted(progpu_native_text_context* context, std::uint32_t
         error = {};
         return true;
     } catch (const std::bad_alloc&) {
+        error.resource_exhausted = true;
         error.shaping = font_error::insufficient_buffer;
     } catch (...) {
         error.shaping = font_error::invalid_face;
