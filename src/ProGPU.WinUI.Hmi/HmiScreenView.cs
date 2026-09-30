@@ -30,6 +30,14 @@ public sealed class HmiScreenView : Grid, IDisposable
             foreach (var control in _definitions.Keys) control.ColorScheme = value;
         }
     }
+    private bool _objectSelectionEnabled;
+    /// <summary>Pick object aspects instead of executing embedded commands. Defaults off for existing consumers.</summary>
+    public bool ObjectSelectionEnabled
+    {
+        get => _objectSelectionEnabled;
+        set { if (_objectSelectionEnabled == value) return; _objectSelectionEnabled = value; RefreshState(); }
+    }
+    public event Action<HmiElement>? ObjectSelected;
     public string ScreenId { get; private set; } = "";
     public IReadOnlyCollection<HmiControl> Controls => _definitions.Keys;
     public Action<HmiElement, HmiValue?>? CommandRequested { get; set; }
@@ -65,6 +73,12 @@ public sealed class HmiScreenView : Grid, IDisposable
             var control = HmiControlCatalog.Create(definition.Symbol);
             control.Font = _font; control.ColorScheme = ColorScheme;
             control.ApplyDefinition(definition);
+            control.PointerPressed += (_, e) =>
+            {
+                if (!ObjectSelectionEnabled || !e.IsLeftButtonPressed) return;
+                e.Handled = true;
+                ObjectSelected?.Invoke(definition.Copy());
+            };
             _definitions.Add(control, definition);
             _surface.Children.Add(control);
             foreach (var tag in new[] { definition.Tag, definition.VisibilityTag, definition.EnabledTag }.Concat(definition.States.Select(s => s.Tag)).Where(t => t.Length > 0).Distinct())
@@ -119,7 +133,8 @@ public sealed class HmiScreenView : Grid, IDisposable
         if (definition.EnabledTag.Length > 0)
             enabled = _runtime.TryRead(definition.EnabledTag, out var condition) && condition.Quality == HmiQuality.Good && condition.Value.AsBoolean();
         control.RuntimeEnabled = enabled;
-        control.CommandsEnabled = _runtime.IsRunning;
+        control.IsObjectSelectionTarget = ObjectSelectionEnabled;
+        control.CommandsEnabled = _runtime.IsRunning && !ObjectSelectionEnabled;
         control.UpdateState(HmiStateEvaluator.Evaluate(definition.States, tag => _runtime.TryRead(tag, out var sample) ? sample : null));
         if (_runtime.TryRead(definition.Tag, out var sample))
             control.UpdateSample(sample, _runtime.GetHistory(definition.Tag), (_runtime.Now.ToUnixTimeMilliseconds() % 1000) / 1000f, now: _runtime.Now);
@@ -144,5 +159,6 @@ public sealed class HmiScreenView : Grid, IDisposable
         _bindings.Clear(); _definitions.Clear(); _alarmControls.Clear();
         _surface.Children.Clear();
         DiagramLayer.Clear();
+        ObjectSelected = null;
     }
 }

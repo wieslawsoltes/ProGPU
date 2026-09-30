@@ -9,5 +9,5 @@ if (JsonSerializer.IsReflectionEnabledByDefault)
 var page = VisualDesignerPage.Create();
 if (page == null) throw new InvalidOperationException("The gallery did not create its Visual Designer / HMI page.");
 GC.KeepAlive(page);
-Console.WriteLine("PASS: actual VisualDesignerPage.Create with reflection JSON disabled; visual and HMI designer construction completed.");
+Console.WriteLine("PASS: actual VisualDesignerPage.Create with reflection JSON disabled; shared visual designer and standalone HMI/DCS sample entry constructed.");
 // This test does not create a native window, GPU device or physical input source.

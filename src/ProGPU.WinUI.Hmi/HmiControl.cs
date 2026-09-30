@@ -9,7 +9,7 @@ using ProGPU.Text;
 namespace ProGPU.WinUI.Hmi;
 
 /// <summary>Retained HMI visual with lazily created operator input; independent of the designer assembly.</summary>
-public partial class HmiControl : Grid
+public partial class HmiControl : Grid, IHitTestBackgroundProvider
 {
     public static readonly DependencyProperty ValueProperty = DependencyProperty.Register(nameof(Value), typeof(double), typeof(HmiControl), new PropertyMetadata(0d, OnDisplayChanged) { AffectsRender = true });
     public static readonly DependencyProperty LabelProperty = DependencyProperty.Register(nameof(Label), typeof(string), typeof(HmiControl), new PropertyMetadata("Component", OnDisplayChanged) { AffectsRender = true });
@@ -19,6 +19,9 @@ public partial class HmiControl : Grid
     public static readonly DependencyProperty VisualToneProperty = DependencyProperty.Register(nameof(VisualTone), typeof(HmiVisualTone), typeof(HmiControl), new PropertyMetadata(HmiVisualTone.Normal, OnDisplayChanged) { AffectsRender = true });
     public static readonly DependencyProperty StateTextProperty = DependencyProperty.Register(nameof(StateText), typeof(string), typeof(HmiControl), new PropertyMetadata("", OnDisplayChanged) { AffectsRender = true });
 
+    // Aspect picking is opt-in and must not introduce an opaque background into process graphics.
+    internal bool IsObjectSelectionTarget { get; set; }
+    bool IHitTestBackgroundProvider.HasHitTestBackground => IsObjectSelectionTarget || Background != null;
     private HmiElement _definition;
     private readonly TextBlock _label;
     private readonly TextBlock _value;

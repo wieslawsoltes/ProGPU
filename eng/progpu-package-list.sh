@@ -37,6 +37,7 @@ progpu_portable_package_ids=(
   ProGPU.WinUI.Designer
   ProGPU.Hmi
   ProGPU.WinUI.Hmi
+  ProGPU.WinUI.Hmi.Workplace
   ProGPU.WinUI.Hmi.Designer
   ProGPU.Hmi.Modbus
   ProGPU.Hmi.Mqtt
@@ -93,6 +94,7 @@ progpu_portable_package_projects=(
   src/ProGPU.WinUI.Designer/ProGPU.WinUI.Designer.csproj
   src/ProGPU.Hmi/ProGPU.Hmi.csproj
   src/ProGPU.WinUI.Hmi/ProGPU.WinUI.Hmi.csproj
+  src/ProGPU.WinUI.Hmi.Workplace/ProGPU.WinUI.Hmi.Workplace.csproj
   src/ProGPU.WinUI.Hmi.Designer/ProGPU.WinUI.Hmi.Designer.csproj
   src/ProGPU.Hmi.Modbus/ProGPU.Hmi.Modbus.csproj
   src/ProGPU.Hmi.Mqtt/ProGPU.Hmi.Mqtt.csproj

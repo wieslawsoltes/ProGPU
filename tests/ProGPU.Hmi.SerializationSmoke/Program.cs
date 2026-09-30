@@ -4,6 +4,16 @@ using ProGPU.Hmi;
 if (JsonSerializer.IsReflectionEnabledByDefault)
     throw new InvalidOperationException("The regression probe must run with reflection serialization disabled.");
 
+var dcs = HmiDcsProject.Create();
+if (HmiProjectSerializer.Serialize(HmiProjectSerializer.Clone(dcs)) != HmiProjectSerializer.Serialize(dcs))
+    throw new InvalidOperationException("Standalone DCS project round-trip changed configuration.");
+using (var workplace = new HmiWorkplaceSession(dcs))
+{
+    workplace.Navigate("pumps", "pump-run"); workplace.StartSimulation();
+    var review = workplace.ReviewValue(new("pumps", "pump-run"), HmiValue.From(false));
+    workplace.Confirm(review);
+    if (workplace.Runtime.Read("Pump.Running").Value.Boolean) throw new InvalidOperationException("Native workplace review failed.");
+}
 var conventions = HmiConventionsProject.Create();
 if (HmiProjectSerializer.Serialize(HmiProjectSerializer.Clone(conventions)) != HmiProjectSerializer.Serialize(conventions))
     throw new InvalidOperationException("Generated graphic conventions, instrument identifiers or normal-band metadata changed.");
@@ -53,4 +63,4 @@ try
         throw new InvalidOperationException("Generated file round-trip changed configuration.");
 }
 finally { if (File.Exists(file)) File.Delete(file); }
-Console.WriteLine($"PASS: reflection-disabled project graph, {Enum.GetValues<HmiSymbol>().Length} symbols, ordered route pins, semantic links, Unicode, OPC UA profiles, runtime, recipes and async persistence.");
+Console.WriteLine($"PASS: reflection-disabled DCS project/local review and project graph, {Enum.GetValues<HmiSymbol>().Length} symbols, ordered route pins, semantic links, Unicode, OPC UA profiles, runtime, recipes and async persistence.");

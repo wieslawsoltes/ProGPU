@@ -30,6 +30,20 @@ public sealed class HmiLinkLayer : Control
     private readonly Dictionary<string, HmiRouteResult> _routes = new(StringComparer.Ordinal);
     private HmiRouteObstacle[] _obstacles = [];
     private HmiColorScheme _scheme;
+    private HmiGraphicStyle _graphicStyle;
+    /// <summary>Presentation only; changing the style never changes routes, topology or quality.</summary>
+    public HmiGraphicStyle GraphicStyle
+    {
+        get => _graphicStyle;
+        set
+        {
+            if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value));
+            if (_graphicStyle == value) return;
+            _graphicStyle = value;
+            foreach (var entry in _entries.Values) ConfigurePens(entry);
+            Invalidate();
+        }
+    }
     private string? _selected;
     public IReadOnlyDictionary<string, HmiRouteResult> Routes { get; }
     public long RoutingPasses { get; private set; }
@@ -289,7 +303,7 @@ public sealed class HmiLinkLayer : Control
 
     private void ConfigurePens(Entry entry)
     {
-        var p = HmiPalette.Get(_scheme); float width = entry.Model.Thickness;
+        var p = HmiPalette.Get(_scheme, _graphicStyle); float width = entry.Model.Thickness;
         entry.Outer = new(p.Edge, width + 2); entry.Normal = new(entry.Model.Kind == HmiLinkKind.Process ? p.Body : p.Muted, width);
         entry.Running = new(p.Running, width); entry.Unknown = new(p.Warning, width);
         entry.Selected = new(p.Accent, width + 1);

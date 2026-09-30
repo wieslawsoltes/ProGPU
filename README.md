@@ -13,8 +13,12 @@ Native hosts can explicitly select a WebGPU backend before instance creation wit
 
 The [HMI workbench](docs/hmi-designer.md) reuses the existing designer canvas and ships
 standalone controls, typed tags, alarms, recipes, linked equipment faceplates and
-priority-based equipment states. Run `dotnet run --project samples/HmiDesigner -c Release`
-or open **Visual Designer → HMI** in the sample gallery.
+priority-based equipment states. The [standalone DCS workplace](docs/hmi-dcs-workplace.md)
+adds an ABB System 800xA-inspired operator/engineering workflow with linked object aspects,
+alarms, events and trends. Run `dotnet run --project samples/HmiDcs -c Release`.
+The gallery's **Visual Designer → HMI / DCS** entry points to the standalone app;
+`samples/HmiDesigner` remains the focused engineering-only sample. No ABB product
+compatibility or full vendor feature parity is asserted.
 
 The [control integration guide](docs/hmi-control-integrations.md) covers real Modbus TCP
 and MQTT 5/TLS adapters, editable connection/mapping profiles, explicit read-only
