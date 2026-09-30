@@ -60,8 +60,9 @@ keep their exact original font/size/policy identity after adapter disposal. SIMD
 validates original unsigned IDs on admitted x64/ARM64 targets; geometry uses exact
 native signed-long bulk copies, without float rounding. The private C++ types are
 not a wire ABI. No managed per-glyph crossing is added. Any later invalid ID,
-native hint fault or allocation failure leaves the previous batch unpublished and
-unchanged; descriptors and input order, including repeated glyphs, remain intact.
+native hint fault or allocation failure leaves the candidate unpublished and the
+previous batch unchanged; descriptors and input order, including repeated glyphs,
+remain intact.
 
 The producer builds this original adapter and executes focused controls against
 the host's actual Arial (Windows/macOS) or DejaVu Sans (Linux), without packaging
@@ -70,6 +71,8 @@ separate public-API FreeType face, require an actual hinted-versus-unhinted
 difference, retain caller mutation/disposal independence, exercise every SIMD lane
 and bounded tail, invalid configuration publication, phase translation and empty/
 repeated batches. The receipt records the actual test-font hash. These controls
+also cover concurrent captures from one live owner and a nonuniform fractional
+device-em request, without disposing the owner during a borrowed operation.
 are adapter/dependency evidence, not an independent Windows Display oracle or
 GPU/application qualification. Variable-instance and native hint-failure injection
 controls remain required alongside subsequent integration.

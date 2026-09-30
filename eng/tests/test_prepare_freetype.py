@@ -6,6 +6,8 @@ import struct
 import tempfile
 import unittest
 import uuid
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "progpu-prepare-freetype.py"
@@ -132,6 +134,21 @@ class FreeTypeProvenanceTests(unittest.TestCase):
                 environment = PREPARE.gpg_environment(path)
                 self.assertEqual(spelling, environment["GNUPGHOME"])
                 self.assertEqual(original, dict(os.environ))
+
+    def test_msys_keyring_requires_an_exact_round_trip_not_an_argv_path_guess(self):
+        with tempfile.TemporaryDirectory() as directory:
+            keyring = Path(directory).resolve()
+            replies = [SimpleNamespace(stdout="/d/task/keyring\n"), SimpleNamespace(stdout=str(keyring) + "\n")]
+            with patch.object(PREPARE, "run", side_effect=replies) as native:
+                self.assertEqual("/d/task/keyring", PREPARE.gpg_environment(keyring, "cygpath")["GNUPGHOME"])
+                self.assertEqual(2, native.call_count)
+            for spelling in ("relative", "D:/task/keyring", "/d/task/keyring\n/other"):
+                with self.subTest(spelling=spelling), patch.object(PREPARE, "run",
+                    return_value=SimpleNamespace(stdout=spelling)), self.assertRaises(ValueError):
+                    PREPARE.gpg_environment(keyring, "cygpath")
+            replies[1] = SimpleNamespace(stdout=str(keyring / "other"))
+            with patch.object(PREPARE, "run", side_effect=replies), self.assertRaisesRegex(ValueError, "changed"):
+                PREPARE.gpg_environment(keyring, "cygpath")
 
     def signature(self, fingerprint=None):
         fingerprint = fingerprint or PIN["signerFingerprint"]

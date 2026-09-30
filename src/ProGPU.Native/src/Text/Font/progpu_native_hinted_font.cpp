@@ -143,7 +143,7 @@ bool hinted_font::try_create(std::span<const std::byte> font_bytes,
         const char* format = FT_Get_Font_Format(value->face);
         if (!FT_IS_SCALABLE(value->face) || FT_HAS_COLOR(value->face) ||
             format == nullptr || std::strcmp(format, "TrueType") != 0 || value->face->num_glyphs <= 0 ||
-            static_cast<unsigned long>(value->face->num_glyphs) > std::numeric_limits<std::uint32_t>::max())
+            !std::in_range<std::uint32_t>(value->face->num_glyphs))
             return fail(hinted_font_error::unsupported_font, error);
         if (!select_variation(value->library, value->face, identity->variation_coordinates_16_16))
             return fail(hinted_font_error::invalid_argument, error);

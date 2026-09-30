@@ -11,6 +11,7 @@
 #include <source_location>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 namespace {
 using namespace progpu::native::text;
@@ -147,6 +148,25 @@ void verify(const std::vector<std::byte>& original)
             std::shared_ptr<const hinted_glyph_batch> repeated;
             require(font->try_capture(ids, repeated, error));
             require(repeated->identity == saved->identity && repeated->glyphs == saved->glyphs);
+            std::array<std::shared_ptr<const hinted_glyph_batch>, 2> concurrent{};
+            std::array<bool, 2> success{true, true};
+            const auto capture = [&](std::size_t worker) {
+                hinted_font_error worker_error = hinted_font_error::hinting_failed;
+                for (unsigned int attempt = 0U; attempt < 4U; ++attempt) {
+                    if (!font->try_capture(ids, concurrent[worker], worker_error) ||
+                        worker_error != hinted_font_error::none) {
+                        success[worker] = false;
+                        return;
+                    }
+                }
+            };
+            std::jthread first(capture, 0U);
+            std::jthread second(capture, 1U);
+            first.join();
+            second.join();
+            for (std::size_t worker = 0U; worker < concurrent.size(); ++worker)
+                require(success[worker] && concurrent[worker]->identity == saved->identity &&
+                    concurrent[worker]->glyphs == saved->glyphs);
             std::shared_ptr<const hinted_glyph_batch> empty;
             require(font->try_capture({}, empty, error) && empty->glyphs.empty());
             require(empty->identity == saved->identity);
@@ -193,6 +213,21 @@ void verify(const std::vector<std::byte>& original)
             phase_font.reset();
             require(saved->identity->original_bytes == original && saved->glyphs == repeated->glyphs);
         }
+    }
+    hinted_font_configuration fractional{13U * 64U + 17U, 14U * 64U + 33U,
+        font_hint_policy::truetype_40, 19U, 37U, {}};
+    std::unique_ptr<hinted_font> fractional_font;
+    hinted_font_error error = hinted_font_error::hinting_failed;
+    require(hinted_font::try_create(original, 0U, fractional, fractional_font, error));
+    std::shared_ptr<const hinted_glyph_batch> fractional_batch;
+    require(fractional_font->try_capture(ids, fractional_batch, error));
+    require(fractional_batch->identity->x_pixels_per_em_26_6 == fractional.x_pixels_per_em_26_6 &&
+        fractional_batch->identity->y_pixels_per_em_26_6 == fractional.y_pixels_per_em_26_6);
+    configure_reference(reference, fractional);
+    for (std::size_t index = 0U; index < ids.size(); ++index) {
+        require(FT_Load_Glyph(reference.face, ids[index],
+            FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT | FT_LOAD_PEDANTIC | FT_LOAD_TARGET_NORMAL) == 0);
+        compare_slot(fractional_batch->glyphs[index], reference.face->glyph);
     }
     require(actual_hint_difference); // an unhinted/Ideal substitute cannot pass the fixture
 }

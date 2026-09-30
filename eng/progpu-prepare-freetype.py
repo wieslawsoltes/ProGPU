@@ -34,11 +34,19 @@ def run(command, *, cwd=None, env=None):
                           text=True, timeout=600)
 
 
-def gpg_environment(keyring):
-    # Git for Windows' MSYS GnuPG accepts drive-qualified forward-slash paths,
-    # not Python's native backslash spelling in GNUPGHOME. Never fall back to
-    # the user's keyring or modify the caller's environment.
-    return dict(os.environ, GNUPGHOME=keyring.as_posix())
+def gpg_environment(keyring, path_converter=None):
+    # An MSYS executable's environment is not argv-path-converted: GNUPGHOME
+    # must use its /drive/... namespace. Verify the reverse mapping so spelling
+    # cannot redirect the task keyring. Native Windows GnuPG needs no converter.
+    spelling = keyring.as_posix()
+    if path_converter is not None:
+        spelling = run([str(path_converter), "--unix", str(keyring)]).stdout.strip()
+        if not spelling.startswith("/") or "\n" in spelling or "\r" in spelling:
+            raise ValueError("MSYS keyring conversion did not produce one absolute path")
+        restored = run([str(path_converter), "--windows", spelling]).stdout.strip()
+        if Path(restored).resolve() != keyring.resolve():
+            raise ValueError("MSYS keyring conversion changed the owned directory")
+    return dict(os.environ, GNUPGHOME=spelling)
 
 
 def release_identity(tag_object, commit, author, signature_status, pin):
@@ -162,7 +170,8 @@ def prepare(args):
     if not key or len(key) > 1024 * 1024:
         raise ValueError("Release key is empty or over budget")
     key_path.write_bytes(key)
-    environment = gpg_environment(keyring)
+    converter = Path(args.gpg).with_name("cygpath.exe") if os.name == "nt" else None
+    environment = gpg_environment(keyring, converter if converter is not None and converter.is_file() else None)
     run([args.gpg, "--batch", "--import", key_path.as_posix()], env=environment)
     run(["git", "init", "-q", str(source)])
     run(["git", "-C", str(source), "remote", "add", "origin", pin["repository"]])
