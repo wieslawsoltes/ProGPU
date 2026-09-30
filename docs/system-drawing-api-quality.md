@@ -100,6 +100,10 @@ python3 eng/progpu-test-system-drawing.py \
   WarmedEnumerationDoesNotAllocatePerRecordPayloads
 ```
 
+The existing engine CI Drawing job supplies this same requirement during its
+single full-suite run, so consumer admission does not depend only on synthetic
+wrapper controls. No extra test invocation is added.
+
 `--require-method TYPE METHOD` is repeatable. The original font method remains
 mandatory even when options are supplied. The strict verifier checks both CLR
 `MethodNamespace` (the declaring type) and `MethodName` with ordinal equality in
