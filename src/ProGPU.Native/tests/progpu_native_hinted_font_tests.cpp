@@ -1,4 +1,5 @@
 #include "progpu_native_hinted_font.hpp"
+#include "progpu_native_hint_fault_fixture.hpp"
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -243,6 +244,44 @@ void verify(const std::vector<std::byte>& original)
     require(actual_outline_hint_difference && actual_advance_hint_difference);
 }
 
+void verify_native_hint_fault()
+{
+    const auto original = progpu::native::tests::make_hint_fault_font();
+    reference_owner reference;
+    require(FT_Init_FreeType(&reference.library) == 0);
+    require(FT_New_Memory_Face(reference.library, reinterpret_cast<const FT_Byte*>(original.data()),
+        static_cast<FT_Long>(original.size()), 0, &reference.face) == 0);
+    for (const auto policy : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
+        hinted_font_configuration configuration{14U * 64U, 14U * 64U, policy, 0U, 0U, {}};
+        configure_reference(reference, configuration);
+        constexpr FT_Int32 native_flags = FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT |
+            FT_LOAD_PEDANTIC | FT_LOAD_TARGET_NORMAL;
+        // Both outlines parse and scale. Only the second native program faults.
+        require(FT_Load_Glyph(reference.face, 2U, FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP) == 0);
+        require(FT_Load_Glyph(reference.face, 1U, native_flags) == 0);
+        std::unique_ptr<hinted_font> font;
+        hinted_font_error error = hinted_font_error::invalid_font;
+        require(hinted_font::try_create(original, 0U, configuration, font, error));
+        const std::array<std::uint32_t, 1> good{1U};
+        std::shared_ptr<const hinted_glyph_batch> batch;
+        require(font->try_capture(good, batch, error));
+        compare_slot(batch->glyphs[0], reference.face->glyph);
+        const auto saved = batch;
+        const auto exact = saved->glyphs;
+        require(FT_Load_Glyph(reference.face, 2U, native_flags) != 0);
+        const std::array<std::uint32_t, 3> late_fault{1U, 1U, 2U};
+        for (unsigned int repeat = 0U; repeat < 2U; ++repeat) {
+            require(!font->try_capture(late_fault, batch, error));
+            require(error == hinted_font_error::hinting_failed && batch == saved && saved->glyphs == exact);
+        }
+        // A failed slot does not invalidate an earlier retained batch or poison
+        // a later valid capture; no caller-visible prefix is published.
+        std::shared_ptr<const hinted_glyph_batch> recovered;
+        require(font->try_capture(good, recovered, error));
+        require(recovered->identity == saved->identity && recovered->glyphs == exact);
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -250,6 +289,7 @@ int main(int argc, char** argv)
     try {
         require(argc == 2);
         verify(read_font(argv[1]));
+        verify_native_hint_fault();
         std::cout << "{\"glyphBatchControls\":true,\"nativeHintsObserved\":true,\"slotDifferential\":true}\n";
         return 0;
     } catch (const std::exception& error) {

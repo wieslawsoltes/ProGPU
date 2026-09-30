@@ -74,8 +74,13 @@ repeated batches. The receipt records the actual test-font hash. These controls
 also cover concurrent captures from one live owner and a nonuniform fractional
 device-em request, without disposing the owner during a borrowed operation.
 These controls are adapter/dependency evidence, not an independent Windows Display oracle or
-GPU/application qualification. Variable-instance and native hint-failure injection
-controls remain required alongside subsequent integration.
+GPU/application qualification. An original three-glyph SFNT fixture adds a valid
+explicit grid-fit program and a later empty-stack `POP` program on the same valid
+contour. A separate FreeType face proves that the faulty glyph parses/scales with
+hinting disabled and fails only under pedantic native execution. Both interpreters
+must preserve the earlier batch through repeated later-glyph faults and recover a
+following valid capture. No production fault hook or error-ignoring flag is added.
+Variable-instance controls remain required alongside subsequent integration.
 
 The adapter is currently built by the isolated producer, not linked into the
 product text context or either renderer. Next steps must connect its selected
@@ -135,3 +140,12 @@ bounded context cache must avoid repeated font copies/captures without confusing
 font identity, positioned scene revisions or live atlas generations. Cold/warm
 application timings, allocation/residency evidence, native package/NativeAOT and
 independent image gates remain outstanding; no performance benefit is claimed.
+
+The authored fault fixture follows the public
+[OpenType glyf](https://learn.microsoft.com/en-us/typography/opentype/spec/glyf),
+[maxp](https://learn.microsoft.com/en-us/typography/opentype/spec/maxp),
+[head](https://learn.microsoft.com/en-us/typography/opentype/spec/head),
+[loca](https://learn.microsoft.com/en-us/typography/opentype/spec/loca) tables and
+[TrueType instruction contract](https://developer.apple.com/fonts/TrueType-Reference-Manual/RM05/Chap5.html).
+It assembles independent valid table/file checksums and uses original test-only
+bytes, rather than modifying an external font or reproducing an interpreter.
