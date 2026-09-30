@@ -47,11 +47,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          ulimit -c 0
           export VK_ICD_FILENAMES=$(find /usr/share/vulkan/icd.d -name '*lvp*json' -print -quit)
           test -n "$VK_ICD_FILENAMES"
           mkdir -p artifacts/hmi-visual
+          git rev-parse HEAD > artifacts/hmi-visual/commit.txt
+          dotnet --info > artifacts/hmi-visual/dotnet-info.txt
+          cat "$VK_ICD_FILENAMES" > artifacts/hmi-visual/vulkan-icd.json
           for palette in Light Dark HighContrast; do
-            timeout 180s dotnet run --project tests/ProGPU.Hmi.VisualSmoke/ProGPU.Hmi.VisualSmoke.csproj -c Release --no-build -- /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf artifacts/hmi-visual "$palette" | tee "artifacts/hmi-visual/$palette.log"
+            timeout -k 5s 180s dotnet run --project tests/ProGPU.Hmi.VisualSmoke/ProGPU.Hmi.VisualSmoke.csproj -c Release --no-build -- /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf artifacts/hmi-visual "$palette" | tee "artifacts/hmi-visual/$palette.log"
           done
       - uses: actions/upload-artifact@v4
         if: always()
