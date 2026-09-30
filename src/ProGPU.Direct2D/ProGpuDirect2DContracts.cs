@@ -693,8 +693,10 @@ public readonly record struct ProGpuDirect2DCommandStreamSummary(
 
 /// <summary>
 /// Metadata from the two-pass native translation of a closed Direct2D command
-/// list into ProGPU's pointer-free semantic scene stream. A leading clear is
-/// frame metadata rather than a retained scene command.
+/// list into ProGPU's pointer-free semantic scene stream. The last full-target
+/// clear is leading frame metadata for the surviving scene. Flags and retained
+/// counts describe that scene; <see cref="TranslatedDrawCount"/> includes all
+/// successfully translated draws, even those discarded by a later clear.
 /// </summary>
 public readonly record struct ProGpuDirect2DSceneStreamResult(
     ProGpuDirect2DSceneStreamFlags Flags,

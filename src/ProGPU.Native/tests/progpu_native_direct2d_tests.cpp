@@ -2,6 +2,7 @@
 #include "progpu_native_direct2d_compat.hpp"
 #include "progpu_native_direct2d_clip_fixture.hpp"
 #include "progpu_native_direct2d_brush_fixture.hpp"
+#include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native.h"
 
 #include <d2d1_3.h>
@@ -20,6 +21,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
@@ -76,6 +78,136 @@ void require(bool condition, const char* message)
 {
     if (!condition) {
         fail(message);
+    }
+}
+
+void full_target_clear_regressions(
+    progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    ComPtr<ID2D1Device> device;
+    source_context->GetDevice(device.GetAddressOf());
+    ComPtr<ID2D1DeviceContext> context;
+    require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
+        "clear fixture context creation failed");
+    const D2D1_COLOR_F color{0.25F, 0.5F, 0.75F, 0.875F};
+    const D2D1_COLOR_F clear{0.75F, 0.5F, 0.25F, 0.5F};
+    const D2D1_RECT_F rectangle{1, 2, 9, 10};
+    const D2D1_MATRIX_3X2_F transform = D2D1::Matrix3x2F(2, 0, 0, 3, 5, 7);
+    ComPtr<ID2D1SolidColorBrush> brush;
+    require(context->CreateSolidColorBrush(&color, nullptr, brush.GetAddressOf()) == S_OK,
+        "clear fixture brush creation failed");
+    brush->SetOpacity(0.75F);
+    for (const bool streamed : {false, true}) {
+        for (unsigned variant = 0U; variant < 3U; ++variant) {
+            progpu_native_direct2d_scene_recorder* recorder = nullptr;
+            int32_t hr = E_FAIL;
+            require(progpu_native_direct2d_scene_recorder_create(7101U, 1U, nullptr, &recorder, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "clear fixture recorder creation failed");
+            void* raw_sink = nullptr;
+            require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "clear fixture sink acquisition failed");
+            ComPtr<ID2D1CommandSink1> sink;
+            sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+            ComPtr<ID2D1CommandList> list;
+            std::uint32_t expected_translated_draws = variant == 2U ? 2U : 3U;
+            if (streamed) {
+                require(context->CreateCommandList(list.GetAddressOf()) == S_OK, "clear fixture command list failed");
+                context->SetTarget(list.Get());
+                context->BeginDraw();
+                context->SetTransform(transform);
+                context->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+                context->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_ALIASED);
+                context->PushAxisAlignedClip(&rectangle, D2D1_ANTIALIAS_MODE_ALIASED);
+                context->FillRectangle(&rectangle, brush.Get());
+                context->PopAxisAlignedClip();
+                context->FillRectangle(&rectangle, brush.Get());
+                context->Clear(&clear);
+                if (variant == 1U) context->Clear(nullptr);
+                if (variant != 2U) context->FillRectangle(&rectangle, brush.Get());
+                require(context->EndDraw() == S_OK && list->Close() == S_OK, "clear fixture command list end failed");
+                context->SetTarget(nullptr);
+                // The native list may discard overwritten draws. Count its
+                // actual callbacks independently, not the source method calls.
+                progpu_native_direct2d_command_stream_summary summary{};
+                summary.struct_size = sizeof(summary);
+                require(progpu_native_direct2d_command_list_get_stream_summary(surface, list.Get(),
+                        PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS,
+                        &summary, &hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
+                    "clear fixture independent native command summary failed");
+                expected_translated_draws = summary.draw_count + summary.fill_count;
+                require(list->Stream(sink.Get()) == S_OK, "full-target Clear command list translation failed");
+            } else {
+                require(sink->BeginDraw() == S_OK && sink->SetTransform(&transform) == S_OK &&
+                    sink->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED) == S_OK &&
+                    sink->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_ALIASED) == S_OK &&
+                    sink->PushAxisAlignedClip(&rectangle, D2D1_ANTIALIAS_MODE_ALIASED) == S_OK &&
+                    sink->FillRectangle(&rectangle, brush.Get()) == S_OK && sink->PopAxisAlignedClip() == S_OK &&
+                    sink->FillRectangle(&rectangle, brush.Get()) == S_OK && sink->Clear(&clear) == S_OK,
+                    "full-target Clear callback rejected prior draws");
+                if (variant == 1U) require(sink->Clear(nullptr) == S_OK, "repeated null Clear failed");
+                if (variant != 2U) require(sink->FillRectangle(&rectangle, brush.Get()) == S_OK,
+                    "post-clear cached brush/state was invalidated incorrectly");
+                require(sink->EndDraw() == S_OK, "clear fixture end failed");
+            }
+            progpu_native_direct2d_scene_stream_result result{};
+            result.struct_size = sizeof(result);
+            require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "clear fixture stream measurement failed");
+            const auto expected = variant == 1U ? D2D1_COLOR_F{} : clear;
+            const std::uint32_t expected_flags = PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_LEADING_CLEAR |
+                (variant == 2U ? 0U : static_cast<std::uint32_t>(
+                    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_ALIASED_PRIMITIVES));
+            require(result.flags == expected_flags && result.failure_callback_index == 0U &&
+                result.clear_color.red == expected.r && result.clear_color.green == expected.g &&
+                result.clear_color.blue == expected.b && result.clear_color.alpha == expected.a &&
+                result.translated_draw_count == expected_translated_draws,
+                "clear lost straight RGBA or confused original callbacks with retained scene metadata");
+            std::vector<std::uint8_t> bytes(static_cast<std::size_t>(result.required_bytes));
+            require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "clear fixture stream write failed");
+            sink.Reset();
+            progpu_native_direct2d_scene_recorder_destroy(recorder);
+            require(variant == 2U ? fixture::full_clear_empty_contract(std::as_bytes(std::span(bytes)))
+                                 : fixture::full_clear_suffix_contract(std::as_bytes(std::span(bytes))),
+                "clear retained discarded resources or changed subsequent transform/AA/brush values");
+        }
+    }
+    for (unsigned variant = 0U; variant < 4U; ++variant) {
+        progpu_native_direct2d_scene_recorder* recorder = nullptr;
+        int32_t hr = E_FAIL;
+        require(progpu_native_direct2d_scene_recorder_create(7102U, 1U, nullptr, &recorder, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "negative clear recorder creation failed");
+        void* raw_sink = nullptr;
+        require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "negative clear sink acquisition failed");
+        ComPtr<ID2D1CommandSink1> sink;
+        sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+        require(sink->BeginDraw() == S_OK, "negative clear begin failed");
+        if (variant < 2U) require(sink->PushAxisAlignedClip(&rectangle, variant == 0U
+                ? D2D1_ANTIALIAS_MODE_ALIASED : D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) == S_OK,
+            "negative clear clip setup failed");
+        else if (variant == 2U) {
+            const D2D1_LAYER_PARAMETERS1 layer{rectangle, nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                D2D1::Matrix3x2F::Identity(), 0.5F, nullptr, D2D1_LAYER_OPTIONS1_NONE};
+            require(sink->PushLayer(&layer, nullptr) == S_OK, "negative clear layer setup failed");
+        } else {
+            const D2D1_COLOR_F invalid{std::numeric_limits<float>::quiet_NaN(), 0, 0, 1};
+            require(sink->Clear(&invalid) == E_INVALIDARG, "invalid clear color was accepted");
+        }
+        require(FAILED(sink->Clear(&clear)) && FAILED(sink->EndDraw()), "scoped/failed Clear was revived");
+        std::array<std::uint8_t, 64U> bytes;
+        bytes.fill(0x5a);
+        const auto before = bytes;
+        progpu_native_direct2d_scene_stream_result result{};
+        result.struct_size = sizeof(result);
+        require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) !=
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && bytes == before && result.written_bytes == 0U &&
+            result.failure_callback_index == (variant < 3U ? 2U : 1U) &&
+            result.failure_reason == (variant < 3U ? PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_OPERATION
+                                                   : PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_INVALID_VALUE),
+            "clear changed the first failure index/reason or published a partial scene");
+        progpu_native_direct2d_scene_recorder_destroy(recorder);
     }
 }
 
@@ -5243,6 +5375,7 @@ int main()
     direct_recorder = nullptr;
 
     mutable_brush_regressions(context.Get());
+    full_target_clear_regressions(surface, context.Get());
 
     {
         ComPtr<ID2D1PathGeometry> line_geometry;

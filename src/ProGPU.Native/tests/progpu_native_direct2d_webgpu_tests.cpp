@@ -1158,6 +1158,64 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     progpu_native_engine_destroy(reference_engine);
 }
 
+void verify_full_target_clear(const gpu_context& gpu, progpu_native_engine* engine)
+{
+    d2d::factory* raw_factory = nullptr;
+    require(d2d::create_factory(&raw_factory) == native_com::ok, "clear pixel factory creation failed");
+    native_com::pointer<d2d::factory> factory;
+    factory.attach(raw_factory);
+    native_com::pointer<d2d::scene_factory_native> scene_factory;
+    require(factory.as(d2d::scene_factory_native_interface_id, scene_factory) == native_com::ok,
+        "clear pixel scene factory query failed");
+    const d2d::scene_render_target_properties properties{width, height, 96, 96, 0x94F1U, 1U};
+    d2d::render_target* raw_target = nullptr;
+    require(scene_factory->CreateSceneRenderTarget(&properties, &raw_target) == native_com::ok,
+        "clear pixel target creation failed");
+    native_com::pointer<d2d::render_target> target;
+    target.attach(raw_target);
+    native_com::pointer<d2d::scene_render_target_native> scene_target;
+    require(target.as(d2d::scene_render_target_native_interface_id, scene_target) == native_com::ok,
+        "clear pixel scene query failed");
+    const d2d::color_f red{1, 0, 0, 1}, blue{0, 0, 1, 1}, clear{0.75F, 0.5F, 0.25F, 0.5F};
+    d2d::solid_color_brush* raw_brush = nullptr;
+    require(target->CreateSolidColorBrush(&red, nullptr, &raw_brush) == native_com::ok,
+        "clear pixel brush creation failed");
+    native_com::pointer<d2d::solid_color_brush> brush;
+    brush.attach(raw_brush);
+    const d2d::matrix_3x2_f identity{1, 0, 0, 1, 0, 0}, transform{2, 0, 0, 3, 5, 7};
+    const d2d::rectangle_f whole{0, 0, static_cast<float>(width), static_cast<float>(height)};
+    const d2d::rectangle_f rectangle{1, 2, 9, 10};
+    for (const bool null_clear : {false, true}) {
+        target->BeginDraw();
+        target->SetAntialiasMode(d2d::antialias_mode::aliased);
+        target->SetTransform(&identity);
+        brush->SetColor(&red);
+        target->FillRectangle(&whole, brush.get());
+        target->SetTransform(&transform);
+        target->Clear(&clear);
+        if (null_clear) target->Clear(nullptr);
+        brush->SetColor(&blue);
+        target->FillRectangle(&rectangle, brush.get());
+        require(target->EndDraw(nullptr, nullptr) == native_com::ok, "clear pixel recording failed");
+        // Actual shared submission and GPU readback, not a synthesized image.
+        const auto pixels = render_scene(gpu, engine, scene_target.get(), 1U, 1U, 1U);
+        require(pixels.size() == static_cast<std::size_t>(row_bytes) * height, "clear pixel image size mismatch");
+        for (std::uint32_t y = 0U; y < height; ++y) {
+            for (std::uint32_t x = 0U; x < width; ++x) {
+                const bool ink = x >= 7U && x < 23U && y >= 13U && y < 37U;
+                const std::array<int, 4U> expected = ink ? std::array<int, 4U>{0, 0, 255, 255}
+                    : null_clear ? std::array<int, 4U>{0, 0, 0, 0}
+                                 : std::array<int, 4U>{96, 64, 32, 128};
+                const auto* pixel = pixels.data() + static_cast<std::size_t>(y) * row_bytes + x * 4U;
+                for (std::size_t channel = 0U; channel < expected.size(); ++channel) {
+                    require(std::abs(static_cast<int>(pixel[channel]) - expected[channel]) <= 1,
+                        "full Clear pixels retained old ink, changed draw state or multiplied straight alpha incorrectly");
+                }
+            }
+        }
+    }
+}
+
 void verify_compatible_bitmap_uploads(const gpu_context& gpu, progpu_native_engine* engine)
 {
     // This independently updated target must not rewind the later main fixture.
@@ -1892,6 +1950,7 @@ int main(int argc, char** argv)
     phase("record Direct2D");
     verify_incremental_picture_backing(gpu, engine);
     verify_compatible_bitmap_uploads(gpu, engine);
+    verify_full_target_clear(gpu, engine);
     portable_scene scene = record_scene();
     const std::vector<std::uint8_t> pixels = render_scene(
         gpu, engine, scene.scene_target.get());
