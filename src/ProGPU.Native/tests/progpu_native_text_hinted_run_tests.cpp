@@ -140,13 +140,28 @@ void verify_boundary(std::uint32_t interpreter) {
                     const auto original = backward ? 2U - index : index;
                     const auto& raw = reference->glyphs[original];
                     const auto& glyph = glyphs[index];
-                    const bool positioned = !ranged || original == 1U;
-                    transport_require(glyph.glyph_id == 1U && glyph.code_point == input[original].code_point && glyph.cluster == static_cast<std::int32_t>(original) &&
+                    // Public directional feature planning omits horizontal
+                    // kern for vertical runs; direct private controls exercise
+                    // explicit GPOS in every direction independently.
+                    const bool positioned = !vertical && (!ranged || original == 1U);
+                    const auto expected_advance_x = (vertical ? 0L : raw.advance_x_26_6) + (positioned ? projected[1U].x_26_6 : 0L);
+                    const auto expected_advance_y = vertical ? raw.vertical_advance_26_6 : -raw.advance_y_26_6;
+                    const auto expected_offset_x = (vertical ? raw.vertical_bearing_x_26_6 - raw.horizontal_bearing_x_26_6 : 0L) +
+                        (positioned ? projected[0U].x_26_6 : 0L);
+                    const auto expected_offset_y = vertical ? raw.horizontal_bearing_y_26_6 + raw.vertical_bearing_y_26_6 : 0L;
+                    const auto expected_flags = static_cast<std::uint32_t>(generation->glyphs[index].flags);
+                    const bool matches = glyph.glyph_id == 1U && glyph.code_point == input[original].code_point && glyph.cluster == static_cast<std::int32_t>(original) &&
                         mapping[index] == original && glyph.flags == static_cast<std::uint32_t>(generation->glyphs[index].flags) &&
-                        glyph.advance_x == (vertical ? 0L : raw.advance_x_26_6) + (positioned ? projected[1U].x_26_6 : 0L) &&
-                        glyph.advance_y == (vertical ? raw.vertical_advance_26_6 : -raw.advance_y_26_6) &&
-                        glyph.offset_x == (vertical ? raw.vertical_bearing_x_26_6 - raw.horizontal_bearing_x_26_6 : 0L) + (positioned ? projected[0U].x_26_6 : 0L) &&
-                        glyph.offset_y == (vertical ? raw.horizontal_bearing_y_26_6 + raw.vertical_bearing_y_26_6 : 0L));
+                        glyph.advance_x == expected_advance_x && glyph.advance_y == expected_advance_y &&
+                        glyph.offset_x == expected_offset_x && glyph.offset_y == expected_offset_y;
+                    if (!matches) std::cerr << "Hinted run glyph mismatch: interpreter=" << interpreter << " direction=" << direction
+                        << " ranged=" << ranged << " verify=" << verify << " index=" << index << " original=" << original
+                        << " glyph_id=" << glyph.glyph_id << "/1 code_point=" << glyph.code_point << '/' << input[original].code_point
+                        << " cluster=" << glyph.cluster << '/' << original << " descriptor=" << mapping[index] << '/' << original
+                        << " flags=" << glyph.flags << '/' << expected_flags << " advance_x=" << glyph.advance_x << '/' << expected_advance_x
+                        << " advance_y=" << glyph.advance_y << '/' << expected_advance_y << " offset_x=" << glyph.offset_x << '/' << expected_offset_x
+                        << " offset_y=" << glyph.offset_y << '/' << expected_offset_y << '\n';
+                    transport_require(matches);
                 }
                 for (std::size_t index = 3U; index < 5U; ++index) transport_require(std::memcmp(&glyphs[index], &glyph_tail, sizeof(glyph_tail)) == 0 && mapping[index] == 0xA5A5A5A5U);
                 const auto before_glyphs = glyphs; const auto before_mapping = mapping;
