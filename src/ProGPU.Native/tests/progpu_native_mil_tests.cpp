@@ -20716,7 +20716,7 @@ bool source_visual_visibility_is_atomic_and_released_with_its_owner() {
     }
     const progpu_native_mil_visual_visibility detached{6U, 2U};
     PROGPU_REQUIRE(state.set_visual_visibilities({&detached, 1U}) == status::success);
-    batch.clear(); append_command(batch, command::channel_delete_resource, 6U);
+    batch.clear(); append_command(batch, command::channel_delete_resource, 6U, 39U);
     PROGPU_REQUIRE(state.apply(batch) == status::success);
     PROGPU_REQUIRE(state.set_visual_visibilities({&detached, 1U}) == status::invalid_handle);
     batch.clear(); append_create(batch, 6U, 39U);
