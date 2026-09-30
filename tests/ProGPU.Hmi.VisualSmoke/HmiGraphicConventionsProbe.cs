@@ -89,6 +89,7 @@ internal static class HmiGraphicConventionsProbe
                 Appearance = new() { GraphicStyle = HmiGraphicStyle.HighPerformance, CaptionFontSize = 18, CaptionAlignment = HmiCaptionAlignment.Center },
                 States = [new() { Tag = "Trip", Condition = HmiStateCondition.IsTrue, Tone = HmiVisualTone.Fault, Text = "TRIPPED" }] }] }] };
         byte[] design;
+        Vector2 designOrigin;
         window.Resize(1600, 1000);
         using (var host = new HmiDesignerHost(project, font) { ColorScheme = scheme })
         {
@@ -98,6 +99,7 @@ internal static class HmiGraphicConventionsProbe
             window.Render(0); window.Render(0);
             var control = host.WorkspaceCanvas.DesignSurface.Children.OfType<HmiControl>().Single();
             var at = control.TransformToVisual(host).TransformPoint(Vector2.Zero);
+            designOrigin = at;
             design = Crop(window.ReadPixels(), 1600, (int)at.X, (int)at.Y, 260, 240);
             Console.WriteLine($"Design comparison origin={at} size={control.Size} caption={control.CaptionBounds} tone={control.VisualTone}");
             PngEncoder.SavePng(Path.Combine(output, "parity-design-" + scheme.ToString().ToLowerInvariant() + ".png"), design, 260, 240);
@@ -105,9 +107,18 @@ internal static class HmiGraphicConventionsProbe
         }
         var runtime = new HmiRuntime(project, DateTimeOffset.UnixEpoch);
         using var view = new HmiScreenView(project, runtime, font: font) { ColorScheme = scheme };
-        window.Content = view; window.Render(0); window.Render(0);
+        // Compare the same physical placement, not two independently rounded GPU projections.
+        // Translation invariance across unrelated framebuffer origins is a separate renderer contract.
+        // Keep the strict byte equality below: no tolerance, image normalization or masked pixels.
+        var root = new Canvas { Background = HmiThemeResources.GetReference(scheme, HmiBrushRole.Surface) };
+        Canvas.SetLeft(view, designOrigin.X - project.Screens[0].Elements[0].X);
+        Canvas.SetTop(view, designOrigin.Y - project.Screens[0].Elements[0].Y);
+        root.Children.Add(view);
+        window.Content = root; window.Render(0); window.Render(0);
         var liveControl = view.Controls.Single();
-        var position = liveControl.TransformToVisual(view).TransformPoint(Vector2.Zero);
+        var position = liveControl.TransformToVisual(root).TransformPoint(Vector2.Zero);
+        if (position != designOrigin || position.X != MathF.Truncate(position.X) || position.Y != MathF.Truncate(position.Y))
+            throw new InvalidOperationException("Design/runtime fixture origins must match the same physical pixel boundary.");
         var live = Crop(window.ReadPixels(), 1600, (int)position.X, (int)position.Y, 260, 240);
         Console.WriteLine($"Runtime comparison origin={position} size={liveControl.Size} caption={liveControl.CaptionBounds} tone={liveControl.VisualTone}");
         PngEncoder.SavePng(Path.Combine(output, "parity-runtime-" + scheme.ToString().ToLowerInvariant() + ".png"), live, 260, 240);
