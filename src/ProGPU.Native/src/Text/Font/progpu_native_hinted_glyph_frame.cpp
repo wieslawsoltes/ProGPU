@@ -174,7 +174,7 @@ bool hinted_glyph_frame_output_aliases(const hinted_glyph_frame& frame, std::spa
 bool try_create_hinted_glyph_frame(std::shared_ptr<const hinted_text_layout> layout,
     std::shared_ptr<const hinted_shaped_run> run, const hinted_glyph_target& target,
     std::shared_ptr<const hinted_glyph_frame>& result, hinted_glyph_frame_error* error,
-    hinted_projection_policy policy) noexcept {
+    hinted_projection_policy policy, hinted_outline_coverage coverage) noexcept {
     memory_range result_range{}, error_range{};
     const auto input_alias = [&](memory_range output) noexcept {
         return aliases(output, &target) || aliases(output, &layout) || aliases(output, &run) ||
@@ -215,7 +215,7 @@ bool try_create_hinted_glyph_frame(std::shared_ptr<const hinted_text_layout> lay
         if (!valid_layout(*layout, *run, target, logical_by_run, positioned_by_run))
             return fail(hinted_glyph_frame_error_code::invalid_layout);
         hinted_outline_requirements required{};
-        auto outline_error = get_hinted_outline_requirements(*run, required, policy);
+        auto outline_error = get_hinted_outline_requirements(*run, required, policy, coverage);
         if (outline_error != hinted_outline_error::none)
             return fail(hinted_glyph_frame_error_code::outline_conversion_failed, outline_error);
         // Original executor bounds, plus source/run map slots at its glyph bound.
@@ -224,6 +224,7 @@ bool try_create_hinted_glyph_frame(std::shared_ptr<const hinted_text_layout> lay
             layout->glyphs.size() > (1U << 24U)) return fail(hinted_glyph_frame_error_code::insufficient_capacity);
         auto candidate = std::shared_ptr<hinted_glyph_frame>(new hinted_glyph_frame{});
         candidate->layout_ = std::move(layout); candidate->target_ = target;
+        candidate->coverage_ = coverage;
         candidate->outlines_.resize(required.outlines); candidate->segments_.resize(required.segments);
         candidate->source_outline_indices_.resize(required.source_slots);
         candidate->run_outline_indices_.resize(required.positioned_slots);
@@ -231,7 +232,7 @@ bool try_create_hinted_glyph_frame(std::shared_ptr<const hinted_text_layout> lay
         std::vector<progpu_native_point> physical(required.scratch_points);
         hinted_outline_requirements written{};
         outline_error = write_hinted_run_outlines(*run, {topology, physical}, candidate->outlines_, candidate->segments_,
-            candidate->source_outline_indices_, candidate->run_outline_indices_, written, policy);
+            candidate->source_outline_indices_, candidate->run_outline_indices_, written, policy, coverage);
         if (outline_error != hinted_outline_error::none)
             return fail(hinted_glyph_frame_error_code::outline_conversion_failed, outline_error);
         candidate->glyphs_.reserve(candidate->layout_->glyphs.size());

@@ -32,6 +32,7 @@ public:
     hinted_glyph_frame& operator=(const hinted_glyph_frame&) = delete;
     const std::shared_ptr<const hinted_text_layout>& layout() const noexcept { return layout_; }
     const hinted_glyph_target& target() const noexcept { return target_; }
+    hinted_outline_coverage coverage() const noexcept { return coverage_; }
     std::span<const progpu_native_glyph_outline> outlines() const noexcept { return outlines_; }
     std::span<const progpu_native_path_segment> segments() const noexcept { return segments_; }
     std::span<const progpu_native_positioned_glyph> glyphs() const noexcept { return glyphs_; }
@@ -49,6 +50,7 @@ private:
     hinted_glyph_frame() = default;
     std::shared_ptr<const hinted_text_layout> layout_{};
     hinted_glyph_target target_{};
+    hinted_outline_coverage coverage_ = hinted_outline_coverage::strict;
     std::vector<progpu_native_glyph_outline> outlines_{};
     std::vector<progpu_native_path_segment> segments_{};
     std::vector<progpu_native_positioned_glyph> glyphs_{};
@@ -58,7 +60,7 @@ private:
     friend bool try_create_hinted_glyph_frame(std::shared_ptr<const hinted_text_layout>,
         std::shared_ptr<const hinted_shaped_run>, const hinted_glyph_target&,
         std::shared_ptr<const hinted_glyph_frame>&, hinted_glyph_frame_error*,
-        hinted_projection_policy) noexcept;
+        hinted_projection_policy, hinted_outline_coverage) noexcept;
     friend bool hinted_glyph_frame_output_aliases(const hinted_glyph_frame&,
         std::span<std::byte>) noexcept;
 };
@@ -72,11 +74,14 @@ private:
 // and exact original-run/descriptor maps, skipping ONLY explicit no-ink slots.
 // Factory publication is atomic. Error/result must be disjoint from complete
 // input/previous-output owners and capacities. Unsafe aliases leave both intact.
+// Coverage stays strict by default; an explicit vector contract is retained in
+// the frame and changes only the admitted metadata, never raw captures/raster work.
 bool try_create_hinted_glyph_frame(std::shared_ptr<const hinted_text_layout> layout,
     std::shared_ptr<const hinted_shaped_run> run, const hinted_glyph_target& target,
     std::shared_ptr<const hinted_glyph_frame>& result,
     hinted_glyph_frame_error* error = nullptr,
-    hinted_projection_policy policy = hinted_projection_policy::automatic) noexcept;
+    hinted_projection_policy policy = hinted_projection_policy::automatic,
+    hinted_outline_coverage coverage = hinted_outline_coverage::strict) noexcept;
 
 bool hinted_glyph_frame_output_aliases(const hinted_glyph_frame& frame,
     std::span<std::byte> output) noexcept;

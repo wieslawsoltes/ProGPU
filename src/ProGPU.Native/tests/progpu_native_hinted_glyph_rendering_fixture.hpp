@@ -234,6 +234,7 @@ void verify_hinted_glyph_rendering(Render render, Require require) {
             const auto reference = unpack(*run, *layout, target, require);
             require(reference.glyphs.size() == (no_ink ? 0U : 3U) &&
                 reference.outlines.size() == (no_ink ? 0U : 3U), "hinted raw reference omitted source draws");
+            const auto captured_descriptors = run->batch->glyphs;
             std::weak_ptr<const hinted_shaped_run> weak_run = run;
             std::weak_ptr<const hinted_text_layout> weak_layout = layout;
             std::weak_ptr<const hinted_glyph_batch> weak_batch = run->batch;
@@ -259,7 +260,8 @@ void verify_hinted_glyph_rendering(Render render, Require require) {
                     } else {
                         if (layout == nullptr) { layout = retained->layout(); run = layout->run; }
                         hinted_glyph_frame_error error{};
-                        const bool created = try_create_hinted_glyph_frame(layout, run, target, retained, &error);
+                        const bool created = try_create_hinted_glyph_frame(layout, run, target, retained, &error,
+                            hinted_projection_policy::automatic, hinted_outline_coverage::nonzero_vector);
                         if (!created) {
                             std::fprintf(stderr, "Hinted frame publication: interpreter=%u variant=%u error=%u outline=%u dpi=%.9g units=%.9g glyphs=%zu descriptors=%zu\n",
                                 static_cast<unsigned>(interpreter), variant, static_cast<unsigned>(error.code),
@@ -274,6 +276,10 @@ void verify_hinted_glyph_rendering(Render render, Require require) {
                         }
                         require(created,
                             "hinted rendering owned frame publication failed");
+                        require(retained->coverage() == hinted_outline_coverage::nonzero_vector,
+                            "hinted rendering lost explicit original nonzero-vector coverage contract");
+                        require(run->batch->glyphs == captured_descriptors,
+                            "hinted rendering changed exact captured flags, tags or geometry");
                         require(retained->glyphs().size() == reference.glyphs.size() &&
                             retained->source_outline_indices()[2U] == hinted_no_outline &&
                             retained->layout() == layout && retained->layout()->run == run,

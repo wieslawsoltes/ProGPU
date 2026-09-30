@@ -81,9 +81,10 @@ struct buffers final {
         source.fill(0x5A5A5A5AU); positioned.fill(0x5A5A5A5AU);
     }
     hinted_outline_error write(const hinted_shaped_run& run,
-        hinted_projection_policy policy = hinted_projection_policy::scalar_reference) {
+        hinted_projection_policy policy = hinted_projection_policy::scalar_reference,
+        hinted_outline_coverage coverage = hinted_outline_coverage::strict) {
         return write_hinted_run_outlines(run, {topology, physical}, outlines, segments,
-            source, positioned, written, policy);
+            source, positioned, written, policy, coverage);
     }
 };
 
@@ -414,6 +415,141 @@ void failures_precede_all_publication() {
         bytes(output.outlines) == bytes(buffers{}.outlines) && bytes(output.segments) == bytes(buffers{}.segments) &&
         output.source == buffers{}.source && output.positioned == buffers{}.positioned);
 }
+
+void explicit_nonzero_vector_coverage() {
+    // The strict authored geometry has independent literal segment/bounds/map
+    // controls above. Add only public raster metadata to separately owned input:
+    // outputs must remain that exact geometry, not a metadata-stripped run.
+    const auto authored = batch();
+    const auto strict_run = run_for(authored);
+    buffers strict;
+    require(strict.write(strict_run) == hinted_outline_error::none);
+    for (const unsigned flags : {0U, 0x08U, 0x100U, 0x108U}) {
+        const auto observed = batch();
+        for (std::size_t descriptor = 0U; descriptor < 7U; ++descriptor) {
+            auto& source = observed->glyphs[descriptor];
+            source.outline_flags |= static_cast<int>(flags);
+            std::size_t start = 0U;
+            for (const auto end : source.contour_ends) {
+                source.tags[start] |= 0x04U; // contour-start SCANTYPE mode zero
+                start = static_cast<std::size_t>(end) + 1U;
+            }
+        }
+        // The actual hosted fixture reports ON|TOUCH_Y|HAS_SCANMODE = 0x15.
+        observed->glyphs[3].tags[0] = 0x15U;
+        const auto saved_descriptors = observed->glyphs;
+        const auto vector_run = run_for(observed);
+        hinted_outline_requirements required{};
+        require(get_hinted_outline_requirements(vector_run, required,
+            hinted_projection_policy::scalar_reference, hinted_outline_coverage::nonzero_vector) ==
+            hinted_outline_error::none && required == strict.written);
+        buffers output;
+        const auto before = output;
+        require(output.write(vector_run, hinted_projection_policy::scalar_reference,
+            hinted_outline_coverage::nonzero_vector) == hinted_outline_error::none);
+        require(output.written == strict.written && bytes(output.outlines) == bytes(strict.outlines) &&
+            bytes(output.segments) == bytes(strict.segments) && bytes(output.physical) == bytes(strict.physical) &&
+            output.source == strict.source && output.positioned == strict.positioned);
+        for (std::size_t index = 0U; index < output.topology.size(); ++index)
+            require(output.topology[index].x == strict.topology[index].x &&
+                output.topology[index].y == strict.topology[index].y &&
+                output.topology[index].flags == strict.topology[index].flags);
+        require(std::memcmp(output.outlines.data() + 4U, before.outlines.data() + 4U,
+            sizeof(output.outlines) - 4U * sizeof(progpu_native_glyph_outline)) == 0);
+        require(std::memcmp(output.segments.data() + 18U, before.segments.data() + 18U,
+            sizeof(output.segments) - 18U * sizeof(progpu_native_path_segment)) == 0);
+        require(std::memcmp(output.topology.data() + 8U, before.topology.data() + 8U,
+            8U * sizeof(sfnt_outline_point)) == 0);
+        require(std::memcmp(output.physical.data() + 8U, before.physical.data() + 8U,
+            8U * sizeof(progpu_native_point)) == 0);
+        require(std::equal(output.source.begin() + 7U, output.source.end(), before.source.begin() + 7U) &&
+            std::equal(output.positioned.begin() + 8U, output.positioned.end(), before.positioned.begin() + 8U));
+        require(observed->glyphs == saved_descriptors && vector_run.descriptor_indices == strict_run.descriptor_indices);
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(__SSE2__) || defined(_M_X64)
+        buffers intrinsic;
+        require(intrinsic.write(vector_run, hinted_projection_policy::intrinsic_simd,
+            hinted_outline_coverage::nonzero_vector) == hinted_outline_error::none);
+        require(bytes(intrinsic.outlines) == bytes(output.outlines) && bytes(intrinsic.segments) == bytes(output.segments) &&
+            bytes(intrinsic.physical) == bytes(output.physical) && intrinsic.source == output.source &&
+            intrinsic.positioned == output.positioned && intrinsic.written == output.written);
+        require(observed->glyphs == saved_descriptors);
+#endif
+        buffers denied;
+        const auto denied_before = bytes(denied);
+        require(denied.write(vector_run) == hinted_outline_error::unsupported_flags && bytes(denied) == denied_before);
+        hinted_outline_requirements denied_counts{1U, 2U, 3U, 4U, 5U};
+        const auto denied_counts_before = denied_counts;
+        require(get_hinted_outline_requirements(vector_run, denied_counts,
+            hinted_projection_policy::scalar_reference) == hinted_outline_error::unsupported_flags &&
+            denied_counts == denied_counts_before && observed->glyphs == saved_descriptors);
+    }
+
+    const auto observed = batch();
+    for (std::size_t descriptor = 0U; descriptor < 7U; ++descriptor)
+        observed->glyphs[descriptor].outline_flags |= 0x108;
+    observed->glyphs[4].tags[4] = 0x15U; // later valid contour-start marker
+    auto run = run_for(observed);
+    buffers output;
+    const auto before = bytes(output);
+    const auto fail = [&](const hinted_shaped_run& invalid, hinted_outline_error expected,
+        hinted_outline_coverage coverage = hinted_outline_coverage::nonzero_vector) {
+        const auto raw_before = invalid.batch->glyphs;
+        require(output.write(invalid, hinted_projection_policy::scalar_reference, coverage) == expected &&
+            bytes(output) == before && invalid.batch->glyphs == raw_before);
+        hinted_outline_requirements required{1U, 2U, 3U, 4U, 5U};
+        const auto saved = required;
+        require(get_hinted_outline_requirements(invalid, required, hinted_projection_policy::scalar_reference,
+            coverage) == expected && required == saved && invalid.batch->glyphs == raw_before);
+    };
+    for (const int flags : {-1, 0x02, 0x10, 0x20, 0x40, 0x200, 0x400}) {
+        auto invalid = std::make_shared<hinted_glyph_batch>(*observed);
+        invalid->glyphs[6].outline_flags = flags;
+        fail(run_for(invalid), hinted_outline_error::unsupported_flags);
+    }
+    for (const std::uint8_t tag : {std::uint8_t{0x25}, std::uint8_t{0xE5}, std::uint8_t{0x21}}) {
+        auto invalid = std::make_shared<hinted_glyph_batch>(*observed);
+        invalid->glyphs[4].tags[4] = tag;
+        fail(run_for(invalid), hinted_outline_error::unsupported_flags);
+    }
+    auto misplaced = std::make_shared<hinted_glyph_batch>(*observed);
+    misplaced->glyphs[4].tags[5] = 0x15U; // not the contour start
+    fail(run_for(misplaced), hinted_outline_error::unsupported_flags);
+    auto malformed = std::make_shared<hinted_glyph_batch>(*observed);
+    malformed->glyphs[6].contour_ends = {-1};
+    fail(run_for(malformed), hinted_outline_error::invalid_topology);
+    fail(run, hinted_outline_error::unsupported_policy, static_cast<hinted_outline_coverage>(713U));
+    for (const auto policy : {hinted_projection_policy::native_compute, hinted_projection_policy::gpu_shader,
+            static_cast<hinted_projection_policy>(713U)}) {
+        require(output.write(run, policy, hinted_outline_coverage::nonzero_vector) ==
+            hinted_outline_error::unsupported_policy && bytes(output) == before);
+    }
+    for (unsigned int missing = 0U; missing < 6U; ++missing) {
+        require(write_hinted_run_outlines(run,
+            {std::span(output.topology).first(missing == 0U ? 7U : 16U), std::span(output.physical).first(missing == 1U ? 7U : 16U)},
+            std::span(output.outlines).first(missing == 2U ? 3U : 12U), std::span(output.segments).first(missing == 3U ? 17U : 64U),
+            std::span(output.source).first(missing == 4U ? 6U : 16U), std::span(output.positioned).first(missing == 5U ? 7U : 16U),
+            output.written, hinted_projection_policy::scalar_reference, hinted_outline_coverage::nonzero_vector) ==
+            hinted_outline_error::insufficient_capacity && bytes(output) == before);
+    }
+    const auto saved_descriptors = observed->glyphs;
+    const auto saved_indices = run.descriptor_indices;
+    require(write_hinted_run_outlines(run, {output.topology, output.physical}, output.outlines, output.segments,
+        run.descriptor_indices, output.positioned, output.written, hinted_projection_policy::scalar_reference,
+        hinted_outline_coverage::nonzero_vector) == hinted_outline_error::invalid_argument && bytes(output) == before);
+    run.descriptor_indices.reserve(32U);
+    auto* spare = run.descriptor_indices.data() + run.descriptor_indices.size();
+    require(write_hinted_run_outlines(run, {output.topology, output.physical}, output.outlines, output.segments,
+        std::span{spare, 16U}, output.positioned, output.written, hinted_projection_policy::scalar_reference,
+        hinted_outline_coverage::nonzero_vector) == hinted_outline_error::invalid_argument && bytes(output) == before);
+    auto* tail = reinterpret_cast<std::uint32_t*>(output.physical.data() + 12U);
+    require(write_hinted_run_outlines(run, {output.topology, output.physical}, output.outlines, output.segments,
+        std::span{tail, 8U}, output.positioned, output.written, hinted_projection_policy::scalar_reference,
+        hinted_outline_coverage::nonzero_vector) == hinted_outline_error::invalid_argument && bytes(output) == before);
+    require(write_hinted_run_outlines(run, {output.topology, output.physical}, output.outlines, output.segments,
+        output.source, output.source, output.written, hinted_projection_policy::scalar_reference,
+        hinted_outline_coverage::nonzero_vector) == hinted_outline_error::invalid_argument && bytes(output) == before);
+    require(observed->glyphs == saved_descriptors && run.descriptor_indices == saved_indices);
+}
 } // namespace
 
 int main() {
@@ -423,6 +559,7 @@ int main() {
         mixed_and_closed_cubic_records();
         shaping_input_aliases();
         failures_precede_all_publication();
+        explicit_nonzero_vector_coverage();
         std::cout << "{\"sourceIndexedGeometry\":true,\"originalQuadraticWriter\":true,\"exactCubicRecords\":true,\"retainedShapingInputAliases\":true,\"wholeRunAtomicPreflight\":true}\n";
         return 0;
     } catch (const std::exception& error) {

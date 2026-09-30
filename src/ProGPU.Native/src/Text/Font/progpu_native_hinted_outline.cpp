@@ -19,15 +19,20 @@ namespace {
 constexpr std::uint8_t conic = 0U, on_curve = 1U, cubic = 2U;
 constexpr float physical_scale = 1.0F / 64.0F;
 // Retained native ownership and reverse-winding metadata do not change the
-// shared nonzero coverage predicate. Even-odd and scan/dropout/raster flags
-// have no corresponding glyph-frame contract and cannot be silently discarded.
+// shared nonzero coverage predicate. Strict rejects even-odd and scan/raster
+// policies rather than implicitly choosing a vector contract for those flags.
 constexpr unsigned supported_outline_flags = 0x01U | 0x04U;
 // Curve-kind bits plus FreeType's retained internal touch/reserved bits 3/4.
 // First-contour-point bit 2 enables bits 5..7 as a SCANTYPE dropout override
-// for the B/W rasterizer. The shared records have no scan/dropout policy; both
-// that override and unknown tag-policy bits fail, not a grayscale/B/W parity
-// claim. Internal metadata remains exact in the immutable original batch.
+// for the B/W rasterizer. Strict rejects that override and unknown tag-policy
+// bits rather than claiming grayscale/B/W parity.
+// Internal metadata remains exact in the immutable original batch.
 constexpr std::uint8_t supported_tag_bits = 0x03U | 0x18U;
+// Public FT outline metadata: these switches do not select a new contour or
+// winding rule. Explicit vector coverage keeps the original metadata but uses
+// only our existing nonzero geometry/coverage contract, never B/W scan behavior.
+constexpr unsigned vector_outline_flags = 0x08U | 0x100U;
+constexpr std::uint8_t contour_scan_mode_zero = 0x04U;
 
 struct memory_range final { std::uintptr_t start = 0U, end = 0U; };
 
@@ -136,15 +141,20 @@ struct glyph_info final {
     bool renderable = false;
 };
 
-hinted_outline_error inspect_glyph(const hinted_glyph& glyph, glyph_info& info) noexcept {
+hinted_outline_error inspect_glyph(const hinted_glyph& glyph, glyph_info& info,
+    hinted_outline_coverage coverage) noexcept {
+    const bool vector = coverage == hinted_outline_coverage::nonzero_vector;
+    const auto outline_flags = supported_outline_flags | (vector ? vector_outline_flags : 0U);
+    const auto tag_bits = static_cast<std::uint8_t>(supported_tag_bits |
+        (vector ? contour_scan_mode_zero : 0U));
     if (glyph.outline_flags < 0 ||
-        (static_cast<unsigned>(glyph.outline_flags) & ~supported_outline_flags) != 0U)
+        (static_cast<unsigned>(glyph.outline_flags) & ~outline_flags) != 0U)
         return hinted_outline_error::unsupported_flags;
     if (glyph.points.size() != glyph.tags.size() || glyph.points.size() > 32768U ||
         (glyph.points.empty() != glyph.contour_ends.empty()))
         return hinted_outline_error::invalid_topology;
     for (std::size_t index = 0U; index < glyph.points.size(); ++index) {
-        if ((glyph.tags[index] & static_cast<std::uint8_t>(~supported_tag_bits)) != 0U)
+        if ((glyph.tags[index] & static_cast<std::uint8_t>(~tag_bits)) != 0U)
             return hinted_outline_error::unsupported_flags;
         if (kind(glyph.tags[index]) == 3U) return hinted_outline_error::invalid_topology;
         if (!exact_point(glyph.points[index])) return hinted_outline_error::unsupported_coordinates;
@@ -166,6 +176,11 @@ hinted_outline_error inspect_glyph(const hinted_glyph& glyph, glyph_info& info) 
         const auto points = std::span{glyph.points}.subspan(start, count);
         const auto tags = std::span{glyph.tags}.subspan(start, count);
         start += count;
+        // Bit 2 is a per-contour-start marker, never another curve/touch bit.
+        // Upper SCANTYPE bits remain outside tag_bits, admitting mode zero only.
+        if (vector && std::any_of(tags.begin() + 1U, tags.end(), [](std::uint8_t tag) {
+            return (tag & contour_scan_mode_zero) != 0U;
+        })) return hinted_outline_error::unsupported_flags;
         if (kind(tags.front()) == cubic ||
             (kind(tags.front()) == conic && kind(tags.back()) == cubic))
             return hinted_outline_error::invalid_topology;
@@ -203,7 +218,7 @@ hinted_outline_error inspect_glyph(const hinted_glyph& glyph, glyph_info& info) 
 }
 
 hinted_outline_error inspect_run(const hinted_shaped_run& run,
-    hinted_outline_requirements& requirements) noexcept {
+    hinted_outline_requirements& requirements, hinted_outline_coverage coverage) noexcept {
     if (run.batch == nullptr || run.batch->identity == nullptr ||
         run.batch->identity->source == nullptr ||
         run.batch->identity->x_phase_26_6 >= 64U || run.batch->identity->y_phase_26_6 >= 64U ||
@@ -221,7 +236,7 @@ hinted_outline_error inspect_run(const hinted_shaped_run& run,
     for (std::size_t index = 0U; index < run.source_descriptor_count; ++index) {
         const auto& glyph = run.batch->glyphs[index];
         glyph_info info{};
-        const auto error = inspect_glyph(glyph, info);
+        const auto error = inspect_glyph(glyph, info, coverage);
         if (error != hinted_outline_error::none) return error;
         requirements.scratch_points = std::max(requirements.scratch_points, glyph.points.size());
         if (info.renderable) {
@@ -337,15 +352,18 @@ std::size_t write_glyph(const hinted_glyph& glyph, hinted_outline_scratch scratc
 } // namespace
 
 hinted_outline_error get_hinted_outline_requirements(const hinted_shaped_run& run,
-    hinted_outline_requirements& requirements, hinted_projection_policy policy) noexcept {
+    hinted_outline_requirements& requirements, hinted_projection_policy policy,
+    hinted_outline_coverage coverage) noexcept {
     hinted_projection_path path{};
     auto error = select_path(policy, path);
     if (error != hinted_outline_error::none) return error;
+    if (coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector)
+        return hinted_outline_error::unsupported_policy;
     std::array<memory_range, 1> output{};
     if (!range(std::span{&requirements, 1U}, output[0]) || aliases_run(output, run))
         return hinted_outline_error::invalid_argument;
     hinted_outline_requirements candidate{};
-    error = inspect_run(run, candidate);
+    error = inspect_run(run, candidate, coverage);
     if (error == hinted_outline_error::none) requirements = candidate;
     return error;
 }
@@ -355,10 +373,13 @@ hinted_outline_error write_hinted_run_outlines(const hinted_shaped_run& run,
     std::span<progpu_native_path_segment> segments,
     std::span<std::uint32_t> source_outline_indices,
     std::span<std::uint32_t> positioned_outline_indices,
-    hinted_outline_requirements& written, hinted_projection_policy policy) noexcept {
+    hinted_outline_requirements& written, hinted_projection_policy policy,
+    hinted_outline_coverage coverage) noexcept {
     hinted_projection_path path{};
     auto error = select_path(policy, path);
     if (error != hinted_outline_error::none) return error;
+    if (coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector)
+        return hinted_outline_error::unsupported_policy;
     std::array<memory_range, 7> outputs{};
     if (!range(scratch.topology, outputs[0]) || !range(scratch.physical_points, outputs[1]) ||
         !range(outlines, outputs[2]) || !range(segments, outputs[3]) ||
@@ -369,7 +390,7 @@ hinted_outline_error write_hinted_run_outlines(const hinted_shaped_run& run,
         for (std::size_t second = first + 1U; second < outputs.size(); ++second)
             if (overlaps(outputs[first], outputs[second])) return hinted_outline_error::invalid_argument;
     hinted_outline_requirements required{};
-    error = inspect_run(run, required);
+    error = inspect_run(run, required, coverage);
     if (error != hinted_outline_error::none) return error;
     if (scratch.topology.size() < required.scratch_points || scratch.physical_points.size() < required.scratch_points ||
         outlines.size() < required.outlines || segments.size() < required.segments ||
@@ -381,7 +402,7 @@ hinted_outline_error write_hinted_run_outlines(const hinted_shaped_run& run,
     for (std::size_t index = 0U; index < required.source_slots; ++index) {
         const auto& glyph = run.batch->glyphs[index];
         glyph_info info{};
-        (void)inspect_glyph(glyph, info);
+        (void)inspect_glyph(glyph, info, coverage);
         if (!info.renderable) { source_outline_indices[index] = hinted_no_outline; continue; }
         (void)write_glyph(glyph, scratch, segments.subspan(segment_offset, info.segments), path);
         outlines[outline_index] = {segment_offset, info.segments,

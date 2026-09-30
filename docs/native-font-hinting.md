@@ -647,6 +647,20 @@ controls retain scalar/SIMD comparisons, duplicate slots, all tails, later inval
 topology/policy/precision and spare-capacity aliases. Both real raster consumers,
 atlas retention, full package/image and independent Windows gates remain open.
 
+The default `hinted_outline_coverage::strict` keeps all of those original
+rejections. Hosted actual-font GPU controls exposed original metadata flags
+`0x108` and tag `0x15`, rejected before frame publication. An additive explicit
+`nonzero_vector` contract now admits only the documented ignore-dropouts and
+high-precision hints plus a mode-zero scan marker at a contour start. It selects
+ProGPU's existing nonzero vector coverage, not FreeType scan conversion. Raw tags
+and flags remain immutable. Even-odd, other raster switches, unknown bits,
+nonzero scan modes and misplaced markers still reject. Separate opt-in controls
+compare complete geometry/maps, scalar/SIMD, raw metadata, tails, aliases and late
+faults; every existing strict negative assertion remains unchanged.
+The actual owned-frame GPU fixture selects this contract explicitly, without
+changing font size, capture, GPU work, counters, completion or deadlines.
+Neither policy claims FreeType grayscale/B/W pixel parity or source Display.
+
 ### Owned glyph frame and original renderer consumer
 
 `try_create_hinted_glyph_frame` now owns the exact retained layout/run and all
