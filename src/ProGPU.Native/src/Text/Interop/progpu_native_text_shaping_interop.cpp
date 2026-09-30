@@ -3,6 +3,9 @@
 #include "progpu_native_text_flow.h"
 #include "progpu_native_text.hpp"
 #include "progpu_native_text_font_source.hpp"
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+#include "../Font/progpu_native_hinted_font_cache.hpp"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -74,6 +77,11 @@ struct progpu_native_text_context final {
     // vector moves. Zero ppem marks unused slots; absence is also cached.
     std::array<device_width_entry, 16U> device_widths{};
     std::size_t device_width_cursor = 0U;
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+    // Last member retires native faces before this context releases its sources.
+    // Created only by an explicit whole-batch capture, never context startup.
+    std::unique_ptr<progpu::native::text::hinted_font_cache> hinted_cache{};
+#endif
 
     bool try_get_device_widths(std::uint32_t font_index,
         std::uint16_t pixels_per_em,
@@ -195,6 +203,34 @@ progpu::native::text::select_context_font_source(
     progpu_native_text_context* context, std::uint32_t font_index) noexcept
 {
     return context != nullptr ? context->source_at(font_index) : nullptr;
+}
+
+bool progpu::native::text::capture_context_hinted(progpu_native_text_context* context,
+    std::uint32_t font_index, const hinted_font_configuration& configuration,
+    std::span<const std::uint32_t> glyph_indices, std::shared_ptr<const hinted_glyph_batch>& result,
+    hinted_font_error& error) noexcept
+{
+    const auto source = select_context_font_source(context, font_index);
+    if (source == nullptr) {
+        error = hinted_font_error::invalid_argument;
+        return false;
+    }
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+    try {
+        if (context->hinted_cache == nullptr) context->hinted_cache = std::make_unique<hinted_font_cache>();
+        return context->hinted_cache->try_capture(source, configuration, glyph_indices, result, error);
+    } catch (const std::bad_alloc&) {
+        error = hinted_font_error::resource_exhausted;
+    } catch (...) {
+        error = hinted_font_error::hinting_failed;
+    }
+#else
+    (void)configuration;
+    (void)glyph_indices;
+    (void)result;
+    error = hinted_font_error::dependency_unavailable;
+#endif
+    return false;
 }
 
 namespace {

@@ -4,17 +4,23 @@ set -euo pipefail
 # Deliberately CLI-only: an inherited environment variable must not bypass CI.
 build_only=0
 requested_rid=
+font_manifest=
+# Font admission is explicit and does not change original validation profiles.
+if [[ "$#" -ge 2 && "$1" == --font-manifest ]]; then
+  font_manifest="$2"
+  shift 2
+fi
 if [[ ( "$#" == 1 || "$#" == 3 ) && "$1" == --build-only ]]; then
   build_only=1
   if [[ "$#" == 3 ]]; then
     if [[ "$2" != --rid || ( "$3" != linux-x64 && "$3" != linux-arm64 && "$3" != osx-x64 && "$3" != osx-arm64 ) ]]; then
-      echo "Usage: $0 [--build-only [--rid linux-x64|linux-arm64|osx-x64|osx-arm64]]" >&2
+      echo "Usage: $0 [--font-manifest absolute-producer-receipt] [--build-only [--rid linux-x64|linux-arm64|osx-x64|osx-arm64]]" >&2
       exit 2
     fi
     requested_rid="$3"
   fi
 elif [[ "$#" != 0 ]]; then
-  echo "Usage: $0 [--build-only [--rid linux-x64|linux-arm64|osx-x64|osx-arm64]]" >&2
+  echo "Usage: $0 [--font-manifest absolute-producer-receipt] [--build-only [--rid linux-x64|linux-arm64|osx-x64|osx-arm64]]" >&2
   exit 2
 fi
 if [[ "${build_only}" == 1 && "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" == 1 ]]; then
@@ -189,6 +195,8 @@ cmake_options=(
   -DPROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR=
   -DPROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY=
   -DPROGPU_NATIVE_BUILD_SAMPLE=ON
+  -DPROGPU_NATIVE_FREETYPE_MANIFEST="${font_manifest}"
+  -DPROGPU_NATIVE_FREETYPE_RID="${package_rid}"
   -DBUILD_TESTING=ON)
 if [[ "${build_only}" == 1 ]]; then
   source "${repo_root}/eng/progpu-native-dawn-headers.sh"
@@ -220,6 +228,10 @@ if [[ "${build_only}" == 1 ]]; then
   mkdir -p "${package_stage}/sdk"
   for payload_file in "${payload_files[@]}"; do cp "${build_dir}/${payload_file}" "${package_stage}/"; done
   for payload_file in "${sdk_files[@]}"; do cp "${build_dir}/${payload_file}" "${package_stage}/sdk/"; done
+  if [[ -n "${font_manifest}" ]]; then
+    python3 "${repo_root}/eng/progpu-verify-freetype.py" --manifest "${font_manifest}" --rid "${package_rid}" \
+      --native-destination "${package_stage}" --build-directory "${build_dir}"
+  fi
   echo "Built unqualified native package payload for ${package_rid}: ${package_stage}"
   echo "No tests, samples, export/protocol verification, benchmarks or release qualification executed."
   exit 0
@@ -275,6 +287,8 @@ if [[ "${PROGPU_NATIVE_RUN_SANITIZERS:-0}" == "1" ]]; then
     -DPROGPU_NATIVE_WEBGPU_LIBRARY="${native_library}"
     -DPROGPU_NATIVE_BUILD_SAMPLE=OFF
     -DPROGPU_NATIVE_ENABLE_SANITIZERS=ON
+    -DPROGPU_NATIVE_FREETYPE_MANIFEST="${font_manifest}"
+    -DPROGPU_NATIVE_FREETYPE_RID="${package_rid}"
     -DBUILD_TESTING=ON
     "${sanitizer_dawn_options[@]}")
   if ((${#module_options[@]})); then

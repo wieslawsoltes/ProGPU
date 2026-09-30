@@ -465,8 +465,8 @@ jobs:
           PROGPU_NATIVE_RUN_DAWN_HEADER_CONTRACT: 1
           PROGPU_NATIVE_ENABLE_CPP_MODULES: ${{ matrix.rid == 'linux-x64' && 'ON' || '' }}
         run: |
-          ./eng/build-progpu-native.sh
-          ./eng/progpu-stage-native-runtime.sh
+          ./eng/build-progpu-native.sh --font-manifest "$PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json"
+          ./eng/progpu-stage-native-runtime.sh --font-manifest "$PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json"
 
       - name: Build and integration-test native renderer on Windows
         if: runner.os == 'Windows'
@@ -475,6 +475,7 @@ jobs:
           ./eng/build-progpu-native-windows.ps1
           -Rid "${{ matrix.rid }}"
           -BenchmarkProfile Smoke
+          -FontManifest "${{ env.PROGPU_FREETYPE_WORKSPACE }}/install/progpu-freetype.json"
 
       - name: Upload native MIL ImageBrush frames
         if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'
@@ -822,7 +823,7 @@ jobs:
             -p:Version="${version}" -p:PackageVersion="${version}"
           dotnet pack src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj \
             --configuration Release --output "${output}" \
-            -p:Version="${version}" -p:PackageVersion="${version}"
+            -p:Version="${version}" -p:PackageVersion="${version}" -p:ProGpuNativeRequireFontHinting=true
           dotnet pack src/ProGPU.Backend.Dx12/ProGPU.Backend.Dx12.csproj \
             --configuration Release --output "${output}" \
             -p:Version="${version}" -p:PackageVersion="${version}"
@@ -1447,7 +1448,7 @@ jobs:
 
       - name: Verify isolated font-hinting dependency admission controls
         if: runner.os == 'Linux'
-        run: python3 -m unittest discover -s eng/tests -p test_prepare_freetype.py -v
+        run: python3 -m unittest discover -s eng/tests -p '*freetype.py' -v
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5

@@ -130,10 +130,52 @@ The isolated signed producer executes new original cache controls for both hint
 policies: warm reuse/concurrency, different immutable owners, all size/phase/policy
 key components, reordered/empty IDs, failed native glyph/configuration publication,
 bounded eviction and generations surviving cache/source-owner disposal. Its receipt
-requires `cacheProbe` evidence. These controls are authored and await current CI.
-The cache/FreeType adapter are not yet linked into product contexts: source
-ownership is integrated, but actual product dependency/private-symbol/notices,
-cache admission and leased C/managed consumers still remain.
+requires `cacheProbe` evidence. The prior source/cache head passed all six native
+jobs, but its whole exact-head Build remains pending. Product linking described
+below is additional work and requires its own exact-head evidence.
+
+## Explicit product linking and redistribution
+
+`PROGPU_NATIVE_FREETYPE_MANIFEST` and its exact target RID explicitly select the
+prepared archive; an omitted manifest keeps the original dependency-free path.
+The read-only admission helper revalidates the signed source identity, actual
+Release/static/PIC build configuration, every installed header, every archive
+object, all producer controls and original notices. Paths are canonical and
+cannot redirect through symlinks or build-tool argument delimiters. No ambient
+FreeType lookup or foreign source patch is added. All six native CI jobs now pass
+their own producer receipt explicitly into ordinary product builds; original
+CTest, sanitizer, GPU, sample and package gates remain unchanged.
+
+Both renderer contexts retain a lazy private `hinted_font_cache`. The internal
+capture helper selects the exact immutable primary/fallback source under the
+existing context use lease; no ordinary shaping call allocates a hinted face.
+An absent dependency fails explicitly without replacing the caller's prior batch.
+New ordinary CTest controls exercise both interpreters, actual context/fallback
+growth, native-fault atomicity, warm reuse, eviction and transport after context
+retirement. They test the static text core, not a loaded shared product font ABI.
+No C entrypoint, generated managed consumer or source Display admission is added.
+
+Dependency symbols remain hidden at linkage: ELF uses the exact archive names
+with `--exclude-libs`; Apple uses the absolute archive with `-load_hidden`.
+Windows does not export the static dependency. The native adapter verifies that
+all selected public FreeType function addresses belong to its own executing
+image before any library/font creation; a version match cannot substitute for
+module ownership. This uses borrowed Windows module handles or PIC/dladdr
+identity, with no unload or global loader mutation. Export controls also reject
+FreeType-prefixed symbols independently of their symbol type. Actual shared
+product execution and negative/interposition controls still remain required.
+
+Runtime staging requires the product CMake cache to select that exact receipt
+and RID. Fresh SDK targets receive the verified archive, relative metadata,
+original legal documents and FreeType credit; existing dependency targets are
+never overwritten. Regular CMake installs carry the same archive and notices.
+SDK imported targets verify the reviewed pin, target RID, archive and notice
+hashes and retain transitive private linkage. Pre-NuGet admission independently
+rechecks every staged archive's architecture and hash and every original notice;
+one partial dependency requires all six RIDs. Native package CI explicitly
+requires the dependency, so removing all markers cannot silently bypass it.
+These implementation controls are authored; their current-head CI is not yet
+evidence of successful redistribution or application qualification.
 
 Applicability: primary/fallback ownership lives in the existing shaping interop
 source shared by both native renderer libraries and called by the managed native
@@ -173,11 +215,11 @@ in its receipt. These controls are authored, not locally executed. The C records
 do not yet have exported entrypoints, generated managed bindings or source
 capability admission; they are not a completed public font ABI.
 
-The adapter itself is still built by the isolated producer, not linked into the
-product text context or either renderer. Next steps must connect its selected
-immutable generation through the existing context use lease and the bounded cache,
-retain original shaping identities, expose leased C/managed batch transport with
-generated wire bindings, and share its output across actual consumers.
+The adapter is now explicitly linkable into the product text context and both
+renderers through the bounded cache. Next steps must retain original shaping
+identities, expose leased C/managed batch transport with generated wire bindings,
+and share its output across actual consumers. Linking alone does not prove that
+either renderer or a source application has consumed a hinted generation.
 No sampled width, isolated suffix reshape, per-glyph managed crossing, bitmap
 substitution or Ideal coercion admits source Display mode.
 
@@ -192,6 +234,11 @@ Public references: [official downloads](https://freetype.org/download.html),
 [glyph slot lifetime and hinted metrics](https://freetype.org/freetype2/docs/reference/ft2-glyph_retrieval.html),
 [driver/interpreter properties](https://freetype.org/freetype2/docs/reference/ft2-properties.html),
 and [upstream licensing](https://freetype.org/license.html).
+Module/linkage contracts follow the
+[Apple linker manual](https://github.com/apple-oss-distributions/ld64/blob/main/doc/man/man1/ld-classic.1),
+[GNU linker options](https://sourceware.org/binutils/docs/ld/Options.html),
+[dladdr PIC caveat](https://man7.org/linux/man-pages/man3/dladdr.3.html), and
+[borrowed Windows module query](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw).
 The library-policy probe follows the public
 [module property contract](https://freetype.org/freetype2/docs/reference/ft2-module_management.html)
 and does not copy upstream implementation or its example code. All existing

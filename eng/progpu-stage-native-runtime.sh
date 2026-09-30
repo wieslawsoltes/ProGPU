@@ -4,6 +4,13 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_dir="${PROGPU_NATIVE_BUILD_DIR:-${repo_root}/artifacts/progpu-native/build}"
 package_root="${PROGPU_NATIVE_PACKAGE_ROOT:-${repo_root}/artifacts/progpu-native/package}"
+font_manifest=
+if [[ "$#" == 2 && "$1" == --font-manifest ]]; then
+  font_manifest="$2"
+elif [[ "$#" != 0 ]]; then
+  echo "Usage: $0 [--font-manifest absolute-producer-receipt]" >&2
+  exit 2
+fi
 
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64)
@@ -54,6 +61,11 @@ for sdk_library in "${sdk_libraries[@]}"; do
   fi
 done
 
+if [[ -n "${font_manifest}" ]]; then
+  python3 "${repo_root}/eng/progpu-verify-freetype.py" --manifest "${font_manifest}" --rid "${rid}" \
+    --build-directory "${build_dir}" > /dev/null
+fi
+
 destination="${package_root}/runtimes/${rid}/native"
 sdk_destination="${destination}/sdk"
 mkdir -p "${destination}"
@@ -63,5 +75,9 @@ cp "${dawn_library}" "${destination}/$(basename "${dawn_library}")"
 for sdk_library in "${sdk_libraries[@]}"; do
   cp "${build_dir}/${sdk_library}" "${sdk_destination}/${sdk_library}"
 done
+if [[ -n "${font_manifest}" ]]; then
+  python3 "${repo_root}/eng/progpu-verify-freetype.py" --manifest "${font_manifest}" --rid "${rid}" \
+    --native-destination "${destination}" --build-directory "${build_dir}"
+fi
 
 echo "Staged ProGPU native renderer and C++ SDK for ${rid}: ${destination}"

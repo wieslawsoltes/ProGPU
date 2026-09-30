@@ -46,12 +46,15 @@ required_entries=(
   build/native/include/progpu_native_direct2d.h
   build/native/include/progpu_native_scene_builder.hpp
   build/native/include/progpu_native_text.hpp
+  build/native/include/progpu_native_text_hinting.h
   build/native/modules/progpu_native_compression.cppm
   build/native/modules/progpu_native_hit_testing.cppm
   build/native/modules/progpu_native_image.cppm
   build/native/modules/progpu_native_scene_builder.cppm
   build/native/modules/progpu_native_text.cppm
   build/native/cmake/ProGPUNativeConfig.cmake
+  build/native/cmake/ProGPUNativeFontDependency.cmake
+  build/native/cmake/ProGPUNativeFontPin.json
 )
 for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
   for library in compression hit_testing image mil direct2d_core text scene_builder; do

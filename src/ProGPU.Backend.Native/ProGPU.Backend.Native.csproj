@@ -34,14 +34,30 @@
           Pack="true"
           PackagePath="build\native\modules\%(Filename)%(Extension)"
           Visible="false" />
-    <None Include="..\ProGPU.Native\cmake\ProGPUNativeConfig.cmake"
+    <None Include="..\ProGPU.Native\cmake\ProGPUNativeConfig.cmake;..\ProGPU.Native\cmake\ProGPUNativeFontDependency.cmake"
           Pack="true"
-          PackagePath="build\native\cmake\ProGPUNativeConfig.cmake"
+          PackagePath="build\native\cmake\%(Filename)%(Extension)"
           Visible="false" />
+    <None Include="..\..\eng\native-freetype.json" Pack="true"
+          PackagePath="build\native\cmake\ProGPUNativeFontPin.json" Visible="false" />
   </ItemGroup>
   <Target Name="ValidateProGpuNativePackageRuntimes"
           BeforeTargets="Pack"
           Condition="'$(ProGpuNativeSkipRuntimeValidation)' != 'true'">
+    <PropertyGroup>
+      <_ProGpuFontRequiredArg Condition="'$(ProGpuNativeRequireFontHinting)' == 'true'">--require</_ProGpuFontRequiredArg>
+      <ProGpuNativePython Condition="'$(ProGpuNativePython)' == '' and '$(OS)' == 'Windows_NT'">python</ProGpuNativePython>
+      <ProGpuNativePython Condition="'$(ProGpuNativePython)' == ''">python3</ProGpuNativePython>
+      <_ProGpuFontVerifier>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../eng/progpu-verify-freetype.py'))</_ProGpuFontVerifier>
+      <_ProGpuFontRuntimeRoot>$([System.IO.Path]::GetFullPath('$(ProGpuNativeRuntimeRoot)'))</_ProGpuFontRuntimeRoot>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ProGpuFontAssets Include="$(ProGpuNativeRuntimeRoot)/runtimes/*/native/sdk/progpu-native-font-dependency.json;
+                                 $(ProGpuNativeRuntimeRoot)/runtimes/*/native/sdk/*progpu_native_freetype*;
+                                 $(ProGpuNativeRuntimeRoot)/runtimes/*/native/licenses/freetype/**/*" />
+    </ItemGroup>
+    <Exec Condition="'$(ProGpuNativeRequireFontHinting)' == 'true' or '@(_ProGpuFontAssets)' != ''"
+          Command="&quot;$(ProGpuNativePython)&quot; &quot;$(_ProGpuFontVerifier)&quot; --package-root &quot;$(_ProGpuFontRuntimeRoot)&quot; $(_ProGpuFontRequiredArg)" />
     <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\linux-x64\native\libprogpu_native.so')"
            Text="The linux-x64 ProGPU native runtime has not been staged." />
     <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\linux-arm64\native\libprogpu_native.so')"

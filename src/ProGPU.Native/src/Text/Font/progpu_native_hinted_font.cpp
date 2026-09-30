@@ -7,6 +7,7 @@
 #include FT_MULTIPLE_MASTERS_H
 #include FT_OUTLINE_H
 
+#include <array>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -14,6 +15,17 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#elif defined(__APPLE__) || defined(__linux__)
+#include <dlfcn.h>
+#endif
 #if defined(__aarch64__) || defined(_M_ARM64)
 #include <arm_neon.h>
 #elif defined(__SSE2__) || defined(_M_X64)
@@ -38,6 +50,40 @@ struct hinted_font::state final {
 };
 
 namespace {
+
+const void* module_of(const void* address) noexcept
+{
+#if defined(_WIN32)
+    HMODULE module = nullptr;
+    return GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        reinterpret_cast<LPCWSTR>(address), &module) != 0 ? module : nullptr;
+#elif defined(__APPLE__) || defined(__linux__)
+    Dl_info information{};
+    return dladdr(address, &information) != 0 ? information.dli_fbase : nullptr;
+#else
+    (void)address;
+    return nullptr;
+#endif
+}
+
+bool dependency_owned() noexcept
+{
+    const auto owner = module_of(reinterpret_cast<const void*>(&dependency_owned));
+    const std::array<const void*, 16> functions{
+        reinterpret_cast<const void*>(&FT_Init_FreeType), reinterpret_cast<const void*>(&FT_Done_FreeType),
+        reinterpret_cast<const void*>(&FT_Library_Version), reinterpret_cast<const void*>(&FT_Property_Set),
+        reinterpret_cast<const void*>(&FT_Property_Get), reinterpret_cast<const void*>(&FT_New_Memory_Face),
+        reinterpret_cast<const void*>(&FT_Done_Face), reinterpret_cast<const void*>(&FT_Get_Font_Format),
+        reinterpret_cast<const void*>(&FT_Get_MM_Var), reinterpret_cast<const void*>(&FT_Done_MM_Var),
+        reinterpret_cast<const void*>(&FT_Set_Var_Design_Coordinates), reinterpret_cast<const void*>(&FT_Request_Size),
+        reinterpret_cast<const void*>(&FT_Set_Transform), reinterpret_cast<const void*>(&FT_Load_Glyph),
+        reinterpret_cast<const void*>(&FT_Outline_Check), reinterpret_cast<const void*>(&FT_Get_Char_Index)};
+    if (owner == nullptr) return false;
+    // Each selected public function must belong to this executing image. A
+    // matching version or archive path alone cannot establish loaded ownership.
+    for (const auto function : functions) if (module_of(function) != owner) return false;
+    return true;
+}
 
 bool fail(hinted_font_error value, hinted_font_error& error) noexcept
 {
@@ -131,6 +177,7 @@ bool hinted_font::try_create(std::shared_ptr<const owned_font_source> source,
     if (source == nullptr || !valid_configuration(configuration) || source->bytes.empty() ||
         source->bytes.size() > static_cast<std::size_t>(std::numeric_limits<FT_Long>::max()) ||
         source->face_index > 0xFFFFU) return fail(hinted_font_error::invalid_argument, error);
+    if (!dependency_owned()) return fail(hinted_font_error::dependency_mismatch, error);
     try {
         auto identity = std::make_shared<hinted_font_identity>();
         identity->source = std::move(source);

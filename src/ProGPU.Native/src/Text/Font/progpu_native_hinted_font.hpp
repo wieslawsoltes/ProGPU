@@ -24,6 +24,7 @@ enum class hinted_font_error : std::uint32_t {
     dependency_mismatch,
     hinting_failed,
     resource_exhausted,
+    dependency_unavailable,
 };
 
 struct hinted_font_configuration final {

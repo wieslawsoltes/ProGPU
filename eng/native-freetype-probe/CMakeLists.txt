@@ -29,8 +29,9 @@ add_library(progpu_native_hinted_font STATIC
     "${native_root}/src/Text/Font/progpu_native_hinted_font.cpp"
     "${native_root}/src/Text/Font/progpu_native_hinted_font_cache.cpp"
     "${native_root}/src/Text/Font/progpu_native_hinted_transport.cpp")
+set_target_properties(progpu_native_hinted_font PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(progpu_native_hinted_font PUBLIC "${native_root}/src/Text/Font" "${native_root}/include")
-target_link_libraries(progpu_native_hinted_font PRIVATE Threads::Threads)
+target_link_libraries(progpu_native_hinted_font PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
 configure_font_target(progpu_native_hinted_font)
 add_executable(progpu_native_hinted_font_tests
     "${native_root}/tests/progpu_native_hinted_font_tests.cpp")

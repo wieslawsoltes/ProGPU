@@ -150,6 +150,14 @@ never a fallback-palette index or parsed-table offset. Retain source ownership
 through every hinted face and snapshot; cold cached generations publish before
 bounded eviction, while native faults preserve the earlier exact key/batch.
 Cache synchronization does not replace the creating-thread context use lease.
+Product hinting requires an explicit exact signed producer receipt and target RID,
+including actual static/PIC build, header/archive and original-notice admission.
+Keep dependency symbols private and verify selected functions belong to the
+executing image before font loading; version alone is not ownership. Context
+caches stay lazy and unpublished native failures retain prior generations. SDK
+staging must match the actual product configuration and preserve fresh notices;
+partial dependency packages require all six verified architectures. This private
+linkage does not admit source Display or qualify a loaded shared font ABI.
 
 Retained DrawingTextLayout painting and interaction must share one original
 formatted generation. Own exact glyph/font runs and interaction geometry; do not

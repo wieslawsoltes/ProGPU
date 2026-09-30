@@ -7,6 +7,7 @@ include(GNUInstallDirs)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+include(cmake/ProGPUFontHinting.cmake)
 
 # CMake's ClangCL/Ninja generator invokes lld-link directly. Keep the compiler
 # runtime selected by the clang-cl driver on that link line as an absolute
@@ -917,6 +918,13 @@ target_include_directories(progpu_native_text
         "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Shaping"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
 target_link_libraries(progpu_native_text PUBLIC progpu_native_compression)
+if(PROGPU_NATIVE_FONT_HINTING)
+    target_sources(progpu_native_text PRIVATE
+        src/Text/Font/progpu_native_hinted_font.cpp
+        src/Text/Font/progpu_native_hinted_font_cache.cpp)
+    target_compile_definitions(progpu_native_text PUBLIC PROGPU_NATIVE_FONT_HINTING=1)
+    target_link_libraries(progpu_native_text PRIVATE progpu_native_freetype Threads::Threads ${CMAKE_DL_LIBS})
+endif()
 set_target_properties(progpu_native_text PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden
@@ -1884,6 +1892,19 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME progpu_native_text_device_advances_tests COMMAND progpu_native_text_device_advances_tests)
     set_tests_properties(progpu_native_text_device_advances_tests PROPERTIES TIMEOUT 60)
 
+    add_executable(progpu_native_text_hinted_context_tests
+        tests/progpu_native_text_hinted_context_tests.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(progpu_native_text_hinted_context_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_text_hinted_context_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Font")
+    target_compile_definitions(progpu_native_text_hinted_context_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_text_hinted_context_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_text_hinted_context_tests)
+    progpu_native_enable_sanitizers(progpu_native_text_hinted_context_tests)
+    add_test(NAME progpu_native_text_hinted_context_tests COMMAND progpu_native_text_hinted_context_tests)
+    set_tests_properties(progpu_native_text_hinted_context_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_text_shaping_showcase_tests
         tests/progpu_native_text_shaping_showcase_tests.cpp
         src/Text/Interop/progpu_native_text_shaping_interop.cpp)
@@ -2006,6 +2027,14 @@ if(PROGPU_NATIVE_BUILD_SAMPLE AND NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TA
 endif()
 
 if(NOT EMSCRIPTEN)
+    if(PROGPU_NATIVE_FONT_HINTING)
+        install(FILES "${PROGPU_NATIVE_FREETYPE_library}"
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}" RENAME "${PROGPU_NATIVE_FREETYPE_sdk_name}")
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-font-dependency.json"
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+        install(DIRECTORY "${PROGPU_NATIVE_FREETYPE_notices}/"
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}/licenses/freetype")
+    endif()
     install(TARGETS
         progpu_native_compression
         progpu_native_hit_testing
@@ -2030,6 +2059,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_mil.hpp
         include/progpu_native_scene_builder.hpp
         include/progpu_native_text.hpp
+        include/progpu_native_text_hinting.h
         include/progpu_native_text_interaction.h
         include/progpu_native_text_styles.h
         include/progpu_native_text_flow.h
@@ -2057,6 +2087,8 @@ if(NOT EMSCRIPTEN)
         src/Scene/Builder/progpu_native_scene_builder.cppm
         src/Text/progpu_native_text.cppm
         DESTINATION "${CMAKE_INSTALL_DATADIR}/progpu/modules")
-    install(FILES cmake/ProGPUNativeConfig.cmake
+    install(FILES cmake/ProGPUNativeConfig.cmake cmake/ProGPUNativeFontDependency.cmake
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ProGPUNative")
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../eng/native-freetype.json"
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ProGPUNative" RENAME ProGPUNativeFontPin.json)
 endif()
