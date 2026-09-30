@@ -94,7 +94,8 @@ bool try_build_runs(
     bool write_runs,
     bool actions_from_flags,
     arabic_stretch_requirements& result,
-    font_error* error) noexcept {
+    font_error* error,
+    std::span<const std::int32_t> device_widths = {}) noexcept {
     result = {};
     if ((!actions_from_flags && actions.size() < glyphs.size()) ||
         glyphs.size() > maximum_shaped_glyph_count) {
@@ -128,7 +129,9 @@ bool try_build_runs(
         while (index > 0U && is_stretch(action_at(index - 1U))) {
             --index;
             std::int32_t width = 0;
-            if (!try_width(font, glyph_at(index), coordinates, width, error)) {
+            if (!device_widths.empty()) {
+                width = device_widths[source_index(index, count, right_to_left)];
+            } else if (!try_width(font, glyph_at(index), coordinates, width, error)) {
                 return false;
             }
             if (action_at(index) == open_type_arabic_action::stretch_fixed) {
@@ -210,6 +213,41 @@ std::int32_t clamp_i16(std::int64_t value) noexcept {
         value,
         std::numeric_limits<std::int16_t>::min(),
         std::numeric_limits<std::int16_t>::max()));
+}
+
+bool try_preflight_device_offsets(
+    std::span<const shaping_glyph> glyphs,
+    std::span<const std::int32_t> widths,
+    bool right_to_left,
+    std::span<const arabic_stretch_run> runs,
+    font_error* error) noexcept {
+    const auto count = static_cast<std::uint32_t>(glyphs.size());
+    for (const auto& run : runs) {
+        std::int64_t x_offset = run.remaining_width / 2;
+        for (std::uint32_t index = run.end; index > run.start; --index) {
+            const auto original = source_index(index - 1U, count, right_to_left);
+            const auto action = static_cast<open_type_arabic_action>(
+                (static_cast<std::uint32_t>(glyphs[original].flags) >> 28U) & 0x0FU);
+            const auto repeat = action == open_type_arabic_action::stretch_repeating
+                ? run.copy_count + 1U : 1U;
+            for (std::uint32_t copy = 0U; copy < repeat; ++copy) {
+                if (right_to_left) {
+                    x_offset -= widths[original];
+                    if (copy > 0U) x_offset += run.extra_repeat_overlap;
+                }
+                if (x_offset < std::numeric_limits<std::int32_t>::min() ||
+                    x_offset > std::numeric_limits<std::int32_t>::max()) {
+                    set_error(error, font_error::invalid_argument);
+                    return false;
+                }
+                if (!right_to_left) {
+                    x_offset += widths[original];
+                    if (copy > 0U) x_offset -= run.extra_repeat_overlap;
+                }
+            }
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -350,13 +388,16 @@ bool try_apply_arabic_stretch(
     return true;
 }
 
-bool detail::try_apply_arabic_stretch_from_glyph_actions(
+static bool try_apply_glyph_actions_impl(
     const sfnt_font_view& font,
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
     bool right_to_left,
     std::span<const std::int16_t> normalized_coordinates,
     std::span<arabic_stretch_run> run_scratch,
+    std::span<const std::int32_t> device_widths,
+    std::span<std::uint32_t> descriptor_mapping,
+    bool device_frame,
     font_error* error) noexcept {
     if (glyph_count > glyph_storage.size()) {
         set_error(error, font_error::invalid_argument);
@@ -373,11 +414,13 @@ bool detail::try_apply_arabic_stretch_from_glyph_actions(
             true,
             true,
             requirements,
-            error)) {
+            error,
+            device_widths)) {
         return false;
     }
     if (glyph_storage.size() < requirements.glyph_capacity ||
-        run_scratch.size() < requirements.run_capacity) {
+        run_scratch.size() < requirements.run_capacity ||
+        (device_frame && descriptor_mapping.size() < requirements.glyph_capacity)) {
         set_error(error, font_error::insufficient_buffer);
         return false;
     }
@@ -386,9 +429,17 @@ bool detail::try_apply_arabic_stretch_from_glyph_actions(
         return true;
     }
     const std::uint32_t source_count = glyph_count;
+    if (device_frame && !try_preflight_device_offsets(
+            glyph_storage.first(source_count), device_widths, right_to_left,
+            run_scratch.first(requirements.run_capacity), error)) {
+        return false;
+    }
     if (!right_to_left) {
         std::reverse(glyph_storage.begin(),
             glyph_storage.begin() + source_count);
+        if (device_frame) {
+            std::reverse(descriptor_mapping.begin(), descriptor_mapping.begin() + source_count);
+        }
     }
     for (std::uint32_t run_index = 0U;
          run_index < requirements.run_capacity;
@@ -427,6 +478,7 @@ bool detail::try_apply_arabic_stretch_from_glyph_actions(
                 glyph_storage[source - 1U].flags) >> 28U) & 0x0FU);
         if (!is_stretch(action)) {
             glyph_storage[--write] = glyph_storage[--source];
+            if (device_frame) descriptor_mapping[write] = descriptor_mapping[source];
             continue;
         }
         const auto run = run_scratch[run_index++];
@@ -436,8 +488,11 @@ bool detail::try_apply_arabic_stretch_from_glyph_actions(
              glyph_index > run.start;
              --glyph_index) {
             shaping_glyph glyph = glyph_storage[glyph_index - 1U];
+            const auto descriptor = device_frame ? descriptor_mapping[glyph_index - 1U] : 0U;
             std::int32_t width = 0;
-            if (!try_width(font, glyph, normalized_coordinates, width, error)) {
+            if (device_frame) {
+                width = device_widths[source_index(glyph_index - 1U, source_count, right_to_left)];
+            } else if (!try_width(font, glyph, normalized_coordinates, width, error)) {
                 return false;
             }
             const auto glyph_action = static_cast<open_type_arabic_action>(
@@ -452,8 +507,9 @@ bool detail::try_apply_arabic_stretch_from_glyph_actions(
                     x_offset -= width;
                     if (copy > 0U) x_offset += run.extra_repeat_overlap;
                 }
-                glyph.offset_x = clamp_i16(x_offset);
+                glyph.offset_x = device_frame ? static_cast<std::int32_t>(x_offset) : clamp_i16(x_offset);
                 glyph_storage[--write] = glyph;
+                if (device_frame) descriptor_mapping[write] = descriptor;
                 if (!right_to_left) {
                     x_offset += width;
                     if (copy > 0U) x_offset -= run.extra_repeat_overlap;
@@ -464,9 +520,67 @@ bool detail::try_apply_arabic_stretch_from_glyph_actions(
     glyph_count = requirements.glyph_capacity;
     if (!right_to_left) {
         std::reverse(glyph_storage.begin(), glyph_storage.begin() + glyph_count);
+        if (device_frame) {
+            std::reverse(descriptor_mapping.begin(), descriptor_mapping.begin() + glyph_count);
+        }
     }
     set_error(error, font_error::none);
     return true;
+}
+
+bool detail::try_apply_arabic_stretch_from_glyph_actions(
+    const sfnt_font_view& font,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    bool right_to_left,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::span<arabic_stretch_run> run_scratch,
+    font_error* error) noexcept {
+    return try_apply_glyph_actions_impl(font, glyph_storage, glyph_count,
+        right_to_left, normalized_coordinates, run_scratch, {}, {}, false, error);
+}
+
+bool detail::try_apply_device_arabic_stretch_from_glyph_actions(
+    const sfnt_font_view& font,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    bool right_to_left,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::span<arabic_stretch_run> run_scratch,
+    const device_stretch_metrics& metrics,
+    std::span<std::uint32_t> descriptor_mapping,
+    std::span<std::int32_t> width_scratch,
+    font_error* error) noexcept {
+    if (metrics.owner == nullptr || metrics.get_advance == nullptr ||
+        glyph_count > glyph_storage.size() || glyph_count > maximum_shaped_glyph_count) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    if (width_scratch.size() < glyph_count || descriptor_mapping.size() < glyph_count) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    // Freeze only stretch widths while the original current-index mapping and
+    // glyph order are intact. No callback runs after output publication begins.
+    for (std::uint32_t index = 0U; index < glyph_count; ++index) {
+        const auto& glyph = glyph_storage[index];
+        const auto action = static_cast<open_type_arabic_action>(
+            (static_cast<std::uint32_t>(glyph.flags) >> 28U) & 0x0FU);
+        if (!is_stretch(action)) continue;
+        if (glyph.glyph_id > 0xFFFFU) {
+            set_error(error, font_error::invalid_glyph);
+            return false;
+        }
+        std::int32_t width = 0;
+        if (!metrics.get_advance(metrics.owner, index, glyph.glyph_id, width)) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+        width_scratch[index] = width;
+    }
+    return try_apply_glyph_actions_impl(font, glyph_storage, glyph_count,
+        right_to_left, normalized_coordinates, run_scratch,
+        width_scratch.first(glyph_count), descriptor_mapping, true, error);
 }
 
 } // namespace progpu::native::text

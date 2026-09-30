@@ -2,6 +2,7 @@
 
 #include "progpu_native_open_type_complex_internal.hpp"
 #include "progpu_native_open_type_feature_values_internal.hpp"
+#include "progpu_native_open_type_device_shaper_internal.hpp"
 #include "progpu_native_initial_mapping_internal.hpp"
 #include "progpu_native_use_diacritics_internal.hpp"
 #include "progpu_native_open_type_gsub_internal.hpp"
@@ -1385,7 +1386,8 @@ bool verify_open_type_shape_result(
     std::span<shaping_glyph> fragment_glyphs,
     open_type_shape_run_scratch scratch,
     const open_type_shape_plan* plan,
-    font_error* error) noexcept {
+    font_error* error,
+    const detail::device_shape_run_services* device) noexcept {
     if (expected.empty()) {
         return true;
     }
@@ -1525,7 +1527,7 @@ bool verify_open_type_shape_result(
             post_storage);
         scratch.verification = nullptr;
         std::uint32_t actual_count = 0U;
-        if (!try_shape_open_type_run(
+        const bool shaped = device == nullptr ? try_shape_open_type_run(
                 font,
                 fragment_input,
                 fragment_options,
@@ -1533,7 +1535,9 @@ bool verify_open_type_shape_result(
                 scratch,
                 actual_count,
                 error,
-                plan)) {
+                plan) : device->shape_fragment(device->owner, font, fragment_input,
+                    fragment_options, fragment_glyphs, scratch, actual_count, error, plan);
+        if (!shaped) {
             if (error == nullptr || *error != font_error::insufficient_buffer) {
                 set_error(error, font_error::verification_failed);
             }
@@ -1586,7 +1590,7 @@ void add_glyphs_to_digest(
 
 } // namespace
 
-bool try_verify_open_type_shape_result(
+static bool verify_open_type_shape_result_core(
     const sfnt_font_view& font,
     std::span<const unicode_scalar> input,
     const open_type_shape_run_options& options,
@@ -1594,7 +1598,8 @@ bool try_verify_open_type_shape_result(
     std::span<shaping_glyph> fragment_glyph_storage,
     open_type_shape_run_scratch scratch,
     font_error* error,
-    const open_type_shape_plan* plan) noexcept {
+    const open_type_shape_plan* plan,
+    const detail::device_shape_run_services* device) noexcept {
     auto fragment_options = options;
     fragment_options.buffer_flags = static_cast<shaping_buffer_flags>(
         static_cast<std::uint8_t>(options.buffer_flags) &
@@ -1618,7 +1623,8 @@ bool try_verify_open_type_shape_result(
         fragment_glyph_storage.first(requirements.glyph_capacity),
         scratch,
         plan,
-        error);
+        error,
+        device);
     if (verified) {
         set_error(error, font_error::none);
     }
@@ -1855,7 +1861,7 @@ bool try_get_open_type_shape_run_requirements(
     return true;
 }
 
-bool try_shape_open_type_run(
+static bool shape_open_type_run_core(
     const sfnt_font_view& font,
     std::span<const unicode_scalar> input,
     const open_type_shape_run_options& options,
@@ -1863,8 +1869,13 @@ bool try_shape_open_type_run(
     open_type_shape_run_scratch scratch,
     std::uint32_t& glyph_count,
     font_error* error,
-    const open_type_shape_plan* plan) noexcept {
+    const open_type_shape_plan* plan,
+    const detail::device_shape_run_services* device) noexcept {
     glyph_count = 0U;
+    if (device != nullptr && (device->owner == nullptr || device->prepare == nullptr || device->shape_fragment == nullptr)) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
     complex_metadata_guard complex_guard{glyph_storage, &glyph_count, false};
     for (const auto& feature : options.feature_settings) {
         if (feature.start > feature.end ||
@@ -2853,8 +2864,51 @@ bool try_shape_open_type_run(
         options.direction == shaping_direction::bottom_to_top;
     sfnt_table_view gpos_table{};
     const bool has_gpos_table = font.try_get_table(gpos_tag, gpos_table);
+    detail::device_shape_run_frame device_frame{};
+    if (device != nullptr) {
+        // Preserve the writer's substituted/default-ignorable intent before
+        // preparation overwrites initial metric sentinels. Resolver scratch is
+        // idle here and is reset again at attachment resolution.
+        for (std::uint32_t index = 0U; index < glyph_count; ++index) {
+            scratch.attachment_states[index] = static_cast<std::uint8_t>(
+                is_default_ignorable(glyph_storage[index].code_point) &&
+                glyph_storage[index].advance_x != substituted_advance_sentinel &&
+                !has_buffer_flag(options.buffer_flags, shaping_buffer_flags::preserve_default_ignorables));
+        }
+        if (!device->prepare(device->owner, font, options, glyph_storage.first(glyph_count), device_frame, error)) return false;
+        auto base = open_type_gpos_apply_options{};
+        base.font = &font;
+        base.normalized_coordinates = options.normalized_coordinates;
+        if (!detail::try_validate_device_gpos_frame(base, device_frame.gpos, error)) return false;
+        if (device_frame.spaces.owner == nullptr || device_frame.spaces.get_advances == nullptr ||
+            device_frame.marks.owner == nullptr || device_frame.marks.try_get_extents == nullptr ||
+            device_frame.stretch.owner == nullptr || device_frame.stretch.get_advance == nullptr ||
+            device_frame.descriptor_mapping.size() < glyph_storage.size() ||
+            device_frame.stretch_widths.size() < glyph_storage.size()) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+    }
+    const auto adjust_mark_origin = [&](shaping_glyph& glyph) noexcept {
+        const auto x = static_cast<std::int64_t>(glyph.offset_x) - glyph.advance_x;
+        const auto y = static_cast<std::int64_t>(glyph.offset_y) - glyph.advance_y;
+        if (device == nullptr) {
+            glyph.offset_x = clamp_i16(x);
+            glyph.offset_y = clamp_i16(y);
+        } else {
+            if (x < std::numeric_limits<std::int32_t>::min() || x > std::numeric_limits<std::int32_t>::max() ||
+                y < std::numeric_limits<std::int32_t>::min() || y > std::numeric_limits<std::int32_t>::max()) {
+                set_error(error, font_error::invalid_face);
+                return false;
+            }
+            glyph.offset_x = static_cast<std::int32_t>(x);
+            glyph.offset_y = static_cast<std::int32_t>(y);
+        }
+        return true;
+    };
     for (std::uint32_t index = 0U; index < glyph_count; ++index) {
         const bool zero_default_ignorable_advance =
+            device != nullptr ? scratch.attachment_states[index] != 0U :
             is_default_ignorable(glyph_storage[index].code_point) &&
             glyph_storage[index].advance_x != substituted_advance_sentinel &&
             !has_buffer_flag(
@@ -2872,57 +2926,61 @@ bool try_shape_open_type_run(
             set_error(error, font_error::invalid_glyph);
             return false;
         }
-        float advance_width = 0.0F;
-        const auto glyph =
-            static_cast<std::uint16_t>(glyph_storage[index].glyph_id);
-        const bool has_advance = scratch.fallback_marks == nullptr
-            ? font.try_get_design_advance_width(
-                glyph,
-                options.normalized_coordinates,
-                advance_variation_pointer,
-                advance_width,
-                error)
-            : font.try_get_design_advance_width(
-                glyph,
-                options.normalized_coordinates,
-                advance_variation_pointer,
-                advance_width,
-                scratch.fallback_marks->advance_width,
-                error);
-        if (!has_advance) {
-            return false;
-        }
-        if (vertical) {
-            std::int32_t advance_height = 0;
-            std::int32_t origin_y = 0;
-            if (!font.try_get_design_advance_height(
-                    static_cast<std::uint16_t>(glyph_storage[index].glyph_id),
-                    advance_height) ||
-                !font.try_get_design_vertical_origin_y(
-                    static_cast<std::uint16_t>(glyph_storage[index].glyph_id),
-                    origin_y)) {
-                set_error(error, font_error::invalid_face);
+        if (device == nullptr) {
+            float advance_width = 0.0F;
+            const auto glyph =
+                static_cast<std::uint16_t>(glyph_storage[index].glyph_id);
+            const bool has_advance = scratch.fallback_marks == nullptr
+                ? font.try_get_design_advance_width(
+                    glyph,
+                    options.normalized_coordinates,
+                    advance_variation_pointer,
+                    advance_width,
+                    error)
+                : font.try_get_design_advance_width(
+                    glyph,
+                    options.normalized_coordinates,
+                    advance_variation_pointer,
+                    advance_width,
+                    scratch.fallback_marks->advance_width,
+                    error);
+            if (!has_advance) {
                 return false;
             }
-            glyph_storage[index].advance_x = 0;
-            glyph_storage[index].advance_y = clamp_i16(-advance_height);
-            glyph_storage[index].offset_x = clamp_i16(
-                -(round_to_even(advance_width) / 2));
-            glyph_storage[index].offset_y = clamp_i16(-origin_y);
-        } else {
-            glyph_storage[index].advance_x = clamp_i16(
-                static_cast<std::int64_t>(std::lround(advance_width)));
-            glyph_storage[index].advance_y = 0;
-            glyph_storage[index].offset_x = 0;
-            glyph_storage[index].offset_y = 0;
+            if (vertical) {
+                std::int32_t advance_height = 0;
+                std::int32_t origin_y = 0;
+                if (!font.try_get_design_advance_height(
+                        static_cast<std::uint16_t>(glyph_storage[index].glyph_id),
+                        advance_height) ||
+                    !font.try_get_design_vertical_origin_y(
+                        static_cast<std::uint16_t>(glyph_storage[index].glyph_id),
+                        origin_y)) {
+                    set_error(error, font_error::invalid_face);
+                    return false;
+                }
+                glyph_storage[index].advance_x = 0;
+                glyph_storage[index].advance_y = clamp_i16(-advance_height);
+                glyph_storage[index].offset_x = clamp_i16(
+                    -(round_to_even(advance_width) / 2));
+                glyph_storage[index].offset_y = clamp_i16(-origin_y);
+            } else {
+                glyph_storage[index].advance_x = clamp_i16(
+                    static_cast<std::int64_t>(std::lround(advance_width)));
+                glyph_storage[index].advance_y = 0;
+                glyph_storage[index].offset_x = 0;
+                glyph_storage[index].offset_y = 0;
+            }
         }
-        if (!detail::try_apply_space_fallback(
+        const bool spaced = device == nullptr ? detail::try_apply_space_fallback(
                 font,
                 options.direction,
                 options.normalized_coordinates,
                 scratch.fallback_marks,
                 glyph_storage[index],
-                error)) {
+                error) : detail::try_apply_device_space_fallback(font, options.direction,
+                    options.normalized_coordinates, glyph_storage[index], device_frame.gpos, device_frame.spaces, error);
+        if (!spaced) {
             return false;
         }
         if (zero_mark_advances_early &&
@@ -2930,12 +2988,7 @@ bool try_shape_open_type_run(
             if (!has_gpos_table &&
                 (options.direction == shaping_direction::left_to_right ||
                  options.direction == shaping_direction::top_to_bottom)) {
-                glyph_storage[index].offset_x = clamp_i16(
-                    static_cast<std::int64_t>(glyph_storage[index].offset_x) -
-                    glyph_storage[index].advance_x);
-                glyph_storage[index].offset_y = clamp_i16(
-                    static_cast<std::int64_t>(glyph_storage[index].offset_y) -
-                    glyph_storage[index].advance_y);
+                if (!adjust_mark_origin(glyph_storage[index])) return false;
             }
             glyph_storage[index].advance_x = 0;
             glyph_storage[index].advance_y = 0;
@@ -3055,7 +3108,8 @@ bool try_shape_open_type_run(
                     glyphs,
                     lookup_apply_options,
                     error,
-                    has_accelerators ? &resolution : nullptr)) {
+                    has_accelerators ? &resolution : nullptr,
+                    device == nullptr ? nullptr : &device_frame.gpos)) {
                 return false;
             }
         }
@@ -3065,8 +3119,10 @@ bool try_shape_open_type_run(
         options.complex_script != open_type_complex_script::indic &&
         (options.direction == shaping_direction::left_to_right ||
             options.direction == shaping_direction::right_to_left)) {
-        detail::apply_legacy_kern(
+        if (device == nullptr) detail::apply_legacy_kern(
             font, glyph_storage.first(glyph_count), gdef_pointer);
+        else if (!detail::try_apply_device_legacy_kern(font, glyph_storage.first(glyph_count),
+            gdef_pointer, device_frame.gpos, error)) return false;
     }
     const bool zero_mark_advances_late = options.zero_mark_advances &&
         (fallback_mark_positioning ||
@@ -3081,12 +3137,7 @@ bool try_shape_open_type_run(
                 continue;
             }
             if (adjust_offsets) {
-                glyph_storage[index].offset_x = clamp_i16(
-                    static_cast<std::int64_t>(glyph_storage[index].offset_x) -
-                    glyph_storage[index].advance_x);
-                glyph_storage[index].offset_y = clamp_i16(
-                    static_cast<std::int64_t>(glyph_storage[index].offset_y) -
-                    glyph_storage[index].advance_y);
+                if (!adjust_mark_origin(glyph_storage[index])) return false;
             }
             glyph_storage[index].advance_x = 0;
             glyph_storage[index].advance_y = 0;
@@ -3095,30 +3146,38 @@ bool try_shape_open_type_run(
     if (gpos.lookup_count() != 0U) {
         const auto glyphs = glyph_storage.first(glyph_count);
         const auto attachments = scratch.attachments.first(glyph_count);
-        if (!try_resolve_open_type_attachments(
+        const bool resolved = device == nullptr ? try_resolve_open_type_attachments(
                 glyphs,
                 attachments,
                 options.direction,
                 scratch.attachment_states.first(glyph_count),
-                error)) {
+                error) : detail::try_resolve_device_gpos_attachments(glyphs, attachments,
+                    options.direction, scratch.attachment_states.first(glyph_count), error);
+        if (!resolved) {
             return false;
         }
     }
-    if (fallback_mark_positioning &&
-        !detail::try_apply_fallback_mark_positioning_from_attachments(
+    if (fallback_mark_positioning) {
+        const bool positioned = device == nullptr ? detail::try_apply_fallback_mark_positioning_from_attachments(
             font,
             glyph_storage.first(glyph_count),
             options.direction,
             scratch.attachments.first(glyph_count),
             options.normalized_coordinates,
             scratch.fallback_marks,
-            error)) {
-        return false;
+            error) : detail::try_apply_device_fallback_mark_positioning_from_attachments(font,
+                glyph_storage.first(glyph_count), options.direction, scratch.attachments.first(glyph_count),
+                options.normalized_coordinates, scratch.fallback_marks, device_frame.gpos, device_frame.marks, error);
+        if (!positioned) return false;
     }
     if (options.direction == shaping_direction::right_to_left ||
         options.direction == shaping_direction::bottom_to_top) {
         auto glyphs = glyph_storage.first(glyph_count);
         std::reverse(glyphs.begin(), glyphs.end());
+        if (device != nullptr) {
+            auto mapping = device_frame.descriptor_mapping.first(glyph_count);
+            std::reverse(mapping.begin(), mapping.end());
+        }
         if (options.cluster_level ==
             shaping_cluster_level::monotone_characters) {
             for (std::size_t start = 0U; start < glyphs.size();) {
@@ -3148,22 +3207,27 @@ bool try_shape_open_type_run(
             }
         }
     }
-    if (arabic_joining &&
-        !detail::try_apply_arabic_stretch_from_glyph_actions(
+    if (arabic_joining) {
+        const bool stretched = device == nullptr ? detail::try_apply_arabic_stretch_from_glyph_actions(
             font,
             glyph_storage,
             glyph_count,
             options.direction == shaping_direction::right_to_left,
             options.normalized_coordinates,
             scratch.arabic_stretch_runs,
-            error)) {
-        clear_arabic_actions(glyph_storage.first(glyph_count));
-        return false;
+            error) : detail::try_apply_device_arabic_stretch_from_glyph_actions(font, glyph_storage,
+                glyph_count, options.direction == shaping_direction::right_to_left, options.normalized_coordinates,
+                scratch.arabic_stretch_runs, device_frame.stretch, device_frame.descriptor_mapping,
+                device_frame.stretch_widths, error);
+        if (!stretched) {
+            clear_arabic_actions(glyph_storage.first(glyph_count));
+            return false;
+        }
     }
     if (arabic_joining) {
         clear_arabic_actions(glyph_storage.first(glyph_count));
     }
-    if (verify && !try_verify_open_type_shape_result(
+    if (verify && !verify_open_type_shape_result_core(
             font,
             input,
             options,
@@ -3172,12 +3236,39 @@ bool try_shape_open_type_run(
                 requirements.verification_glyph_capacity),
             scratch,
             error,
-            plan)) {
+            plan,
+            device)) {
         glyph_count = 0U;
         return false;
     }
     set_error(error, font_error::none);
     return true;
+}
+
+bool try_shape_open_type_run(const sfnt_font_view& font, std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options, std::span<shaping_glyph> glyph_storage,
+    open_type_shape_run_scratch scratch, std::uint32_t& glyph_count, font_error* error,
+    const open_type_shape_plan* plan) noexcept {
+    return shape_open_type_run_core(font, input, options, glyph_storage, scratch, glyph_count, error, plan, nullptr);
+}
+
+bool detail::try_shape_device_open_type_run(const sfnt_font_view& font, std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options, std::span<shaping_glyph> glyph_storage,
+    open_type_shape_run_scratch scratch, const device_shape_run_services& device, std::uint32_t& glyph_count,
+    font_error* error, const open_type_shape_plan* plan) noexcept {
+    return shape_open_type_run_core(font, input, options, glyph_storage, scratch, glyph_count, error, plan, &device);
+}
+
+bool detail::device_shape_uses_arabic_stretch(const open_type_shape_run_options& options) noexcept {
+    return uses_arabic_joining(effective_unicode_script(options)) &&
+        is_run_feature_enabled(options, open_type_tag::from_chars('s', 't', 'c', 'h'));
+}
+
+bool try_verify_open_type_shape_result(const sfnt_font_view& font, std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options, std::span<const shaping_glyph> expected,
+    std::span<shaping_glyph> fragment_glyph_storage, open_type_shape_run_scratch scratch,
+    font_error* error, const open_type_shape_plan* plan) noexcept {
+    return verify_open_type_shape_result_core(font, input, options, expected, fragment_glyph_storage, scratch, error, plan, nullptr);
 }
 
 } // namespace progpu::native::text

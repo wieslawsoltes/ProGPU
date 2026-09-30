@@ -1726,6 +1726,14 @@ bool try_apply_device_gpos_lookup(const open_type_layout_table_view& gpos,
         try_apply_gpos_lookup(gpos, lookup_index, glyphs, options, applied, error);
 }
 
+bool try_validate_device_gpos_frame(const open_type_gpos_apply_options& base,
+    const gpos_device_frame& device, font_error* error) noexcept
+{
+    gpos_execution_options options{};
+    bool applied = false;
+    return bind_device_options(base, device, options, applied, error);
+}
+
 bool try_apply_device_gpos_lookup_at(const open_type_layout_table_view& gpos,
     std::uint16_t lookup_index, std::span<shaping_glyph> glyphs, std::uint32_t position,
     const open_type_gpos_apply_options& base, const gpos_device_frame& device,

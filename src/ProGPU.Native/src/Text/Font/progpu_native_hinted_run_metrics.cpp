@@ -64,8 +64,19 @@ hinted_gpos_frame_result initialize_hinted_run_metrics(const hinted_glyph_batch&
     const sfnt_font_view& font, shaping_direction direction, std::span<shaping_glyph> glyphs,
     hinted_projection_policy policy, std::span<const std::int16_t> normalized_coordinates) noexcept
 {
+    return initialize_hinted_run_metrics(batch, font, direction, glyphs,
+        batch.glyphs.size(), policy, normalized_coordinates);
+}
+
+hinted_gpos_frame_result initialize_hinted_run_metrics(const hinted_glyph_batch& batch,
+    const sfnt_font_view& font, shaping_direction direction, std::span<shaping_glyph> glyphs,
+    std::size_t source_descriptor_count, hinted_projection_policy policy,
+    std::span<const std::int16_t> normalized_coordinates) noexcept
+{
     if (direction != shaping_direction::left_to_right && direction != shaping_direction::right_to_left &&
         direction != shaping_direction::top_to_bottom && direction != shaping_direction::bottom_to_top)
+        return {hinted_projection_error::invalid_argument, {}};
+    if (source_descriptor_count > batch.glyphs.size())
         return {hinted_projection_error::invalid_argument, {}};
     const auto frame = bind_hinted_gpos_frame(batch, font, policy, normalized_coordinates);
     if (frame.error != hinted_projection_error::none) return frame;
@@ -75,7 +86,7 @@ hinted_gpos_frame_result initialize_hinted_run_metrics(const hinted_glyph_batch&
         (!glyphs.empty() && (glyphs.data() == nullptr || start % alignof(shaping_glyph) != 0U)) ||
         glyphs.size_bytes() > maximum - start)
         return {hinted_projection_error::invalid_argument, {}};
-    if (glyphs.size() < batch.glyphs.size()) return {hinted_projection_error::insufficient_capacity, {}};
+    if (glyphs.size() < source_descriptor_count) return {hinted_projection_error::insufficient_capacity, {}};
     if (hinted_batch_output_aliases(batch, std::as_writable_bytes(glyphs)))
         return {hinted_projection_error::invalid_argument, {}};
     const auto normalized_start = reinterpret_cast<std::uintptr_t>(normalized_coordinates.data());
@@ -86,11 +97,11 @@ hinted_gpos_frame_result initialize_hinted_run_metrics(const hinted_glyph_batch&
         return {hinted_projection_error::invalid_argument, {}};
     const bool vertical = direction == shaping_direction::top_to_bottom || direction == shaping_direction::bottom_to_top;
     std::array<std::int32_t, 4> values{};
-    for (std::size_t index = 0U; index < batch.glyphs.size(); ++index) {
+    for (std::size_t index = 0U; index < source_descriptor_count; ++index) {
         if (glyphs[index].glyph_id != batch.glyphs[index].glyph_index || !metrics(batch.glyphs[index], vertical, values))
             return {hinted_projection_error::unsupported_frame, {}};
     }
-    for (std::size_t index = 0U; index < batch.glyphs.size(); ++index) {
+    for (std::size_t index = 0U; index < source_descriptor_count; ++index) {
         (void)metrics(batch.glyphs[index], vertical, values);
         publish(glyphs[index], values, frame.frame.arithmetic_path);
     }

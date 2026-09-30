@@ -92,6 +92,8 @@ bool try_apply_gpos_lookup_at(const open_type_layout_table_view&, std::uint16_t,
 bool try_apply_device_gpos_lookup(const open_type_layout_table_view&, std::uint16_t,
     std::span<shaping_glyph>, const open_type_gpos_apply_options&, const gpos_device_frame&,
     bool&, font_error* = nullptr) noexcept;
+bool try_validate_device_gpos_frame(const open_type_gpos_apply_options&,
+    const gpos_device_frame&, font_error* = nullptr) noexcept;
 bool try_apply_device_gpos_lookup_at(const open_type_layout_table_view&, std::uint16_t,
     std::span<shaping_glyph>, std::uint32_t, const open_type_gpos_apply_options&, const gpos_device_frame&,
     bool&, font_error* = nullptr) noexcept;
