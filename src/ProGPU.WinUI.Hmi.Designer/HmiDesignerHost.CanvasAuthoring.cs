@@ -272,7 +272,7 @@ public sealed partial class HmiDesignerHost
         if (!placement)
         {
             // Even an unavailable route can expose recovery handles outside equipment and successful paths.
-            if ((_routeAdorner?.Hit(point, 9 / _canvas.ZoomScale) ?? -1) >= 0) return false;
+            if ((_routeAdorner?.Hit(point, 9 / _canvas.ZoomScale) ?? -1) >= 0 || (_routeAdorner?.HitSegment(point) ?? -1) >= 0) return false;
             // Foreground equipment, nozzle/link tools and resize handles retain their existing priority.
             for (var owner = e.OriginalSource as FrameworkElement; owner != null; owner = owner.Parent as FrameworkElement)
                 if (owner is Thumb) return false;

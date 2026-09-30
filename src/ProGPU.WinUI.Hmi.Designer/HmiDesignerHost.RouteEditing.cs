@@ -16,20 +16,22 @@ public sealed partial class HmiDesignerHost
     private HmiRouteAdorner? _routeAdorner;
     private WaypointGesture? _waypointGesture;
     private bool _placingWaypoint;
+    private long _routeEditEpoch;
     private int _selectedWaypointIndex = -1;
-    public bool IsEditingRoute => _placingWaypoint || _waypointGesture != null;
+    public bool IsEditingRoute => _placingWaypoint || _waypointGesture != null || _segmentGesture != null;
     public int SelectedWaypointIndex => _selectedWaypointIndex;
 
     private void InitializeRouteEditing()
     {
         _routeAdorner = new HmiRouteAdorner(_canvas) { IsHitTestVisible = false, LabelFont = _font };
         _canvas.AdornerSurface.Children.Add(_routeAdorner);
+        _canvas.ViewportChanged += OnRouteViewportChanged;
         _canvas.RoutePointerPressed = HandleRoutePointerPressed;
         _canvas.RoutePointerMoved = HandleRoutePointerMoved;
         _canvas.RoutePointerReleased = HandleRoutePointerReleased;
         _canvas.RoutePointerCanceled = e =>
         {
-            if (_waypointGesture?.Pointer?.PointerId == e.Pointer.PointerId) CancelRouteEdit();
+            if (_waypointGesture?.Pointer?.PointerId == e.Pointer.PointerId || _segmentGesture?.Pointer?.PointerId == e.Pointer.PointerId) CancelRouteEdit();
         };
     }
 
@@ -48,8 +50,7 @@ public sealed partial class HmiDesignerHost
         HmiRouteWaypoints.ValidatePoint(point);
         EditSelectedLink("Insert route waypoint", link =>
         {
-            if ((uint)index > (uint)link.Waypoints.Count) throw new ArgumentOutOfRangeException(nameof(index));
-            link.Waypoints.Insert(index, point);
+            HmiRouteSegments.InsertWaypoint(link, index, point);
         });
         _selectedWaypointIndex = index;
         UpdateInspector(); ReportRoute();
@@ -81,7 +82,7 @@ public sealed partial class HmiDesignerHost
         if (_selectedWaypointIndex < 0) return;
         RequireEditableRoute();
         int index = _selectedWaypointIndex;
-        EditSelectedLink("Remove route waypoint", link => link.Waypoints.RemoveAt(index));
+        EditSelectedLink("Remove route waypoint", link => HmiRouteSegments.RemoveWaypoint(link, index));
         _selectedWaypointIndex = -1;
         UpdateInspector(); ReportRoute();
     }
@@ -89,7 +90,7 @@ public sealed partial class HmiDesignerHost
     public void ClearSelectedWaypoints()
     {
         RequireEditableRoute();
-        EditSelectedLink("Restore automatic routing", link => link.Waypoints.Clear());
+        EditSelectedLink("Restore automatic routing", link => { link.Waypoints.Clear(); link.StraightSegments.Clear(); });
         _selectedWaypointIndex = -1;
         UpdateInspector(); ReportRoute();
     }
@@ -99,7 +100,9 @@ public sealed partial class HmiDesignerHost
     {
         var link = RequireEditableRoute();
         if ((uint)index >= (uint)link.Waypoints.Count) throw new ArgumentOutOfRangeException(nameof(index));
-        CancelCanvasAuthoring(); CancelLabelEdit(); CancelDiagramConnection(); CancelRouteEdit();
+        string document = Session.ExportJson(), screen = Session.ActiveScreenId;
+        CancelCanvasAuthoring(); CancelLabelEdit(); CancelDiagramConnection();
+        long epoch = RetireRouteEdit(); EnsureRouteRevision(document, screen, epoch);
         _selectedWaypointIndex = index;
         _waypointGesture = new(Session.ExportJson(), Session.ActiveScreenId, link.Id, index, [.. link.Waypoints]);
         UpdateInspector();
@@ -126,35 +129,38 @@ public sealed partial class HmiDesignerHost
     {
         var gesture = _waypointGesture;
         if (gesture == null) return;
-        _waypointGesture = null;
-        // Clear the gesture before release: native capture-lost callbacks may run synchronously.
-        if (gesture.Pointer != null) _canvas.ReleasePointerCapture(gesture.Pointer);
-        try
-        {
-            if (IsPreviewing || Session.ActiveScreenId != gesture.Screen || Session.ExportJson() != gesture.Document)
-                throw new InvalidOperationException("The design changed; the route gesture was canceled.");
-            EditLink(gesture.Link, "Move route waypoint", link => link.Waypoints = [.. gesture.Points], allowLocked: false);
-            _selectedWaypointIndex = gesture.Index;
-            ReportRoute();
-        }
-        finally
-        {
-            DiagramLayer.SetScreen(Session.ActiveScreen);
-            UpdateInspector();
-        }
+        long epoch = RetireRouteEdit();
+        EnsureRouteRevision(gesture.Document, gesture.Screen, epoch);
+        EditLink(gesture.Link, "Move route waypoint", link => link.Waypoints = [.. gesture.Points], allowLocked: false);
+        if (!IsEditingRoute) { _selectedWaypointIndex = gesture.Index; UpdateInspector(); ReportRoute(); }
     }
 
-    public void CancelRouteEdit()
+    public void CancelRouteEdit() => RetireRouteEdit();
+
+    private long RetireRouteEdit()
     {
-        _placingWaypoint = false;
-        var gesture = _waypointGesture;
-        _waypointGesture = null;
-        if (gesture != null)
-        {
-            if (gesture.Pointer != null) _canvas.ReleasePointerCapture(gesture.Pointer);
-            DiagramLayer.SetScreen(Session.ActiveScreen);
-        }
+        long epoch = ++_routeEditEpoch;
+        var pointer = _waypointGesture?.Pointer ?? _segmentGesture?.Pointer;
+        bool hadPreview = _waypointGesture != null || _segmentGesture != null;
+        _placingWaypoint = false; _waypointGesture = null; _segmentGesture = null;
+        // Complete owned teardown before capture-loss observers can start replacement work.
+        if (hadPreview && !_disposed) DiagramLayer.SetScreen(Session.ActiveScreen);
         RefreshWaypointAdorner();
+        if (pointer != null) _canvas.ReleasePointerCapture(pointer);
+        return epoch;
+    }
+
+    private void EnsureRouteRevision(string document, string screen, long epoch)
+    {
+        if (_disposed || epoch != _routeEditEpoch || IsPreviewing || IsPlacingComponent || IsSelectingArea || IsEditingLabel || IsConnectingDiagram ||
+            Session.ActiveScreenId != screen || Session.ExportJson() != document)
+            throw new InvalidOperationException("The route gesture was retired by a document, viewport or interaction change.");
+    }
+
+    private void OnRouteViewportChanged()
+    {
+        if (_waypointGesture != null || _segmentGesture != null) CancelRouteEdit();
+        else RefreshWaypointAdorner();
     }
 
     private HmiDiagramLink RequireEditableRoute()
@@ -170,7 +176,11 @@ public sealed partial class HmiDesignerHost
 
     private bool HandleRoutePointerPressed(PointerRoutedEventArgs e)
     {
-        if (_waypointGesture != null) return true;
+        if (_waypointGesture != null || _segmentGesture != null)
+        {
+            if (e.IsCanceled || e.IsMiddleButtonPressed || e.IsRightButtonPressed) CancelRouteEdit();
+            return true;
+        }
         if (IsPreviewing || _canvas.IsInteractionMode || !e.IsLeftButtonPressed || e.IsMiddleButtonPressed || e.IsRightButtonPressed) return false;
         var point = RoutePoint(e, snap: false);
         if (_placingWaypoint)
@@ -186,7 +196,7 @@ public sealed partial class HmiDesignerHost
             return true;
         }
         int hit = _routeAdorner?.Hit(point, 9 / _canvas.ZoomScale) ?? -1;
-        if (hit < 0) { _selectedWaypointIndex = -1; return false; }
+        if (hit < 0) { _selectedWaypointIndex = -1; return TryBeginSegmentPointer(e, point); }
         Guard(() =>
         {
             InputSystem.SetFocus(_canvas);
@@ -199,13 +209,14 @@ public sealed partial class HmiDesignerHost
                 throw new InvalidOperationException("The pointer could not be captured; no route edit was started.");
             }
             // Cursor/capture callbacks may invoke host code and retire this gesture.
-            if (!ReferenceEquals(_waypointGesture, gesture)) _canvas.ReleasePointerCapture(e.Pointer);
+            if (!ReferenceEquals(_waypointGesture, gesture) && _waypointGesture == null && _segmentGesture == null) _canvas.ReleasePointerCapture(e.Pointer);
         });
         return true;
     }
 
     private bool HandleRoutePointerMoved(PointerRoutedEventArgs e)
     {
+        if (_segmentGesture != null) return HandleSegmentPointerMoved(e);
         if (_waypointGesture == null) return false;
         if (_waypointGesture.Pointer?.PointerId != e.Pointer.PointerId) return true;
         if (e.IsCanceled || e.IsMiddleButtonPressed || e.IsRightButtonPressed || !e.IsLeftButtonPressed)
@@ -216,9 +227,10 @@ public sealed partial class HmiDesignerHost
 
     private bool HandleRoutePointerReleased(PointerRoutedEventArgs e)
     {
+        if (_segmentGesture != null) return HandleSegmentPointerReleased(e);
         if (_waypointGesture == null) return false;
         if (_waypointGesture.Pointer?.PointerId != e.Pointer.PointerId) return true;
-        if (e.IsCanceled) CancelRouteEdit();
+        if (e.IsCanceled || e.IsMiddleButtonPressed || e.IsRightButtonPressed) CancelRouteEdit();
         else Guard(() =>
         {
             // A release may carry a final position not previously delivered by a move event.
@@ -243,18 +255,24 @@ public sealed partial class HmiDesignerHost
     {
         if (_routeAdorner == null) return;
         var link = Session.ActiveScreen.Links.SingleOrDefault(l => l.Id == _selectedLinkId);
-        var points = _waypointGesture?.Points ?? link?.Waypoints;
+        var points = _segmentGesture?.Preview?.Waypoints ?? _waypointGesture?.Points ?? link?.Waypoints;
         if (_selectedWaypointIndex >= (points?.Count ?? 0)) _selectedWaypointIndex = -1;
         _routeAdorner.Scheme = ColorScheme;
         _routeAdorner.SelectedIndex = _selectedWaypointIndex;
         _routeAdorner.Locked = link?.IsLocked == true;
         _routeAdorner.Blocked = link != null && DiagramLayer.Routes.TryGetValue(link.Id, out var route) && route.Status != HmiRouteStatus.Success;
-        _routeAdorner.SetPoints(!IsPreviewing && link is { IsHidden: false } && DiagramLayer.Routes.ContainsKey(link.Id) ? points ?? [] : []);
+        bool visible = !IsPreviewing && link is { IsHidden: false } && DiagramLayer.Routes.ContainsKey(link.Id);
+        _routeAdorner.SetPoints(visible ? points ?? [] : []);
+        var handles = visible && !link!.IsLocked && _waypointGesture == null && !_placingWaypoint
+            ? DiagramLayer.GetEditableSegments(link.Id) : Array.Empty<HmiRouteSegment>();
+        _routeAdorner.SetSegments(handles, _segmentGesture?.Plan.Segment, _segmentGesture?.Offset ?? 0);
+
     }
 
     private void BuildWaypointInspector(HmiDiagramLink link)
     {
         ReadOnlyProperty("Routing constraints", $"{link.Waypoints.Count} / {HmiRouteWaypoints.MaximumCount} pins · drag handles; Delete removes the selected pin");
+        ReadOnlyProperty("Straight spans", $"{link.StraightSegments.Count} · drag a capsule grip perpendicular to the line; Alt bypasses snap");
         ReadOnlyProperty("Selected pin", _selectedWaypointIndex >= 0 ? (_selectedWaypointIndex + 1).ToString(Invariant) : "None");
         for (int i = 0; i < link.Waypoints.Count; i++)
         {

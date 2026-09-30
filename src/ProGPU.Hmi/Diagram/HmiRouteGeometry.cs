@@ -10,7 +10,7 @@ public readonly record struct HmiRouteBox(float Left, float Top, float Right, fl
 
 public readonly record struct HmiRouteObstacle(string ElementId, HmiRouteBox Bounds);
 public readonly record struct HmiRouteTerminal(string ElementId, HmiPoint Point, HmiPortDirection Direction, HmiRouteBox Bounds);
-public enum HmiRouteStatus { Success, BlockedTerminal, NoRoute, CapacityExceeded, BlockedWaypoint }
+public enum HmiRouteStatus { Success, BlockedTerminal, NoRoute, CapacityExceeded, BlockedWaypoint, BlockedSegment }
 
 /// <summary>An immutable computed route. It is never persisted as if it were topology.</summary>
 public sealed class HmiRouteResult

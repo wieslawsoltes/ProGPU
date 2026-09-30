@@ -62,4 +62,4 @@ PROGPU_WGPU_BACKEND=vulkan dotnet run --project tests/ProGPU.Hmi.VisualSmoke -c 
   /path/to/installed-font.ttf artifacts/hmi-visual Dark
 ```
 
-Manually moving entire routed segments, explicit junctions/branches, crossover bridges, wire numbering and engineering flow/electrical solving remain separate work. This extension does not alter protocol authorization, feedback quality, reviewed command submission or controller-side interlocks.
+Direct segment grips and exact straight-span constraints are documented in [segment editing](hmi-segment-editing.md). Explicit junctions/branches, crossover bridges, wire numbering and engineering flow/electrical solving remain separate work. This extension does not alter protocol authorization, feedback quality, reviewed command submission or controller-side interlocks.

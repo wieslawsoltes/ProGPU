@@ -38,7 +38,7 @@ public static class HmiDiagram
                 !Enum.IsDefined(link.Kind) || !float.IsFinite(link.Thickness) || link.Thickness is < 1 or > 12 ||
                 !float.IsFinite(link.Clearance) || link.Clearance is < 2 or > 128)
                 throw new InvalidDataException($"Invalid diagram link appearance: {link.Id}.");
-            HmiRouteWaypoints.Validate(link.Waypoints);
+            HmiRouteSegments.Validate(link.Waypoints, link.StraightSegments);
             CheckEnd(link.Source); CheckEnd(link.Target);
             if (link.Source.ElementId == link.Target.ElementId && link.Source.PortId == link.Target.PortId)
                 throw new InvalidDataException("A link requires two different ports.");

@@ -114,6 +114,7 @@ public sealed partial class HmiDesignerHost
     public void ReverseSelectedLink() => EditSelectedLink("Reverse diagram link", link =>
     {
         (link.Source, link.Target) = (link.Target, link.Source);
+        link.StraightSegments = link.StraightSegments.Select(i => link.Waypoints.Count - 2 - i).Reverse().ToList();
         link.Waypoints.Reverse();
     });
 
@@ -193,6 +194,7 @@ public sealed partial class HmiDesignerHost
         tools.AddChild(Command("Connect nozzles", BeginDiagramConnection));
         tools.AddChild(Command("Add waypoint", BeginWaypointPlacement));
         tools.AddChild(Command("Remove pin", RemoveSelectedWaypoint));
+        tools.AddChild(Command("Free straight spans", ReleaseStraightSegments));
         tools.AddChild(Command("Auto route", ClearSelectedWaypoints));
         tools.AddChild(Command("Cancel", () => { CancelRouteEdit(); CancelDiagramConnection(); }));
         tools.AddChild(Command("Reverse", ReverseSelectedLink));

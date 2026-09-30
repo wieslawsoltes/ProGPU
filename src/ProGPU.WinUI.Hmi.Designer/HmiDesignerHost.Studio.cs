@@ -123,6 +123,7 @@ public sealed partial class HmiDesignerHost
             ("Cancel nozzle connection (Escape)", CancelDiagramConnection),
             ("Add waypoint to selected link", BeginWaypointPlacement),
             ("Remove selected waypoint (Delete)", RemoveSelectedWaypoint),
+            ("Release straight segments (keep pins)", ReleaseStraightSegments),
             ("Clear waypoints / automatic route", ClearSelectedWaypoints),
             ("Reverse selected link", ReverseSelectedLink),
             ("Delete selected link", DeleteSelectedLink),

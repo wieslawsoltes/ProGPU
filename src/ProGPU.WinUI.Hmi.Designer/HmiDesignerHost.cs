@@ -475,6 +475,7 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         _canvas.AuthoringPointerPressed = null; _canvas.AuthoringPointerMoved = null;
         _canvas.AuthoringPointerReleased = null; _canvas.AuthoringPointerCanceled = null;
         _canvas.ViewportChanged -= OnAuthoringViewportChanged;
+        _canvas.ViewportChanged -= OnRouteViewportChanged;
         _canvas.CaptionDoubleTapped = null;
         Session.Changed -= OnSessionChanged; Session.ScreenChanged -= OnScreenChanged;
         _canvas.CanvasModifying -= OnCanvasModifying; _canvas.CanvasModified -= OnCanvasModified; _canvas.SelectionChanged -= OnCanvasSelectionChanged;

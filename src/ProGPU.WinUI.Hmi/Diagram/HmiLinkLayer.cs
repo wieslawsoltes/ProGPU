@@ -95,9 +95,9 @@ public sealed class HmiLinkLayer : Control
             if (!routable) route = HmiRouteResult.Unavailable(HmiRouteStatus.BlockedTerminal, "Enlarge the endpoint component to expose a routable glyph.");
             else if (_entries.TryGetValue(link.Id, out var old) && old.Source == source && old.Target == target &&
                 old.Model.Clearance == link.Clearance && old.Model.Thickness == link.Thickness &&
-                old.Model.Waypoints.SequenceEqual(link.Waypoints) && ownedObstacles.Length <= HmiOrthogonalRouter.MaximumObstacles &&
+                old.Model.Waypoints.SequenceEqual(link.Waypoints) && old.Model.StraightSegments.SequenceEqual(link.StraightSegments) && ownedObstacles.Length <= HmiOrthogonalRouter.MaximumObstacles &&
                 old.Route.Status == HmiRouteStatus.Success && !changed.Any(o => Crosses(old.Route, o.Bounds.Inflate(RoutingPadding(link))))) route = old.Route;
-            else { route = HmiOrthogonalRouter.Route(source, target, ownedObstacles, link.Waypoints, RoutingPadding(link)); RoutingPasses++; }
+            else { route = HmiOrthogonalRouter.Route(source, target, ownedObstacles, link.Waypoints, link.StraightSegments, RoutingPadding(link)); RoutingPasses++; }
             var entry = new Entry(link, source, target, route);
             ConfigurePens(entry); Refresh(entry);
             entries.Add(link.Id, entry);
@@ -119,18 +119,37 @@ public sealed class HmiLinkLayer : Control
     /// </summary>
     public HmiRouteResult PreviewWaypoints(string id, IReadOnlyList<HmiPoint> waypoints)
     {
-        HmiRouteWaypoints.Validate(waypoints);
+        if (!_entries.TryGetValue(id, out var entry)) throw new ArgumentException("The diagram link is not visible.", nameof(id));
+        return PreviewConstraints(id, waypoints, entry.Model.StraightSegments);
+    }
+
+    /// <summary>Return editable route portions with fixed nozzle escape leads excluded.</summary>
+    public IReadOnlyList<HmiRouteSegment> GetEditableSegments(string id)
+    {
+        if (!_entries.TryGetValue(id, out var entry) || !entry.Visible) return Array.Empty<HmiRouteSegment>();
+        if (entry.Route.Status != HmiRouteStatus.Success)
+            return Array.AsReadOnly(entry.Model.StraightSegments.Select(i => new HmiRouteSegment(
+                HmiOrthogonalRouter.MaximumRoutePoints + i, entry.Model.Waypoints[i], entry.Model.Waypoints[i + 1], i)).ToArray());
+        return HmiRouteSegments.GetEditableSegments(entry.Route, entry.Source, entry.Target, RoutingPadding(entry.Model));
+    }
+
+    /// <summary>Atomically preview one link's pins and straight spans; this never edits the source document.</summary>
+    public HmiRouteResult PreviewConstraints(string id, IReadOnlyList<HmiPoint> waypoints, IReadOnlyList<int> straightSegments)
+    {
+        HmiRouteSegments.Validate(waypoints, straightSegments);
         if (!_entries.TryGetValue(id, out var entry)) throw new ArgumentException("The diagram link is not visible.", nameof(id));
         if (entry.Model.IsLocked) throw new InvalidOperationException("Unlock the diagram link before editing its route.");
-        if (entry.Model.Waypoints.SequenceEqual(waypoints)) return entry.Route;
+        if (entry.Model.Waypoints.SequenceEqual(waypoints) && entry.Model.StraightSegments.SequenceEqual(straightSegments)) return entry.Route;
         var pins = waypoints.ToList();
+        var spans = straightSegments.ToList();
         var obstacles = _obstacles;
         if (!obstacles.Any(o => o.ElementId == entry.Source.ElementId)) obstacles = [.. obstacles, new(entry.Source.ElementId, entry.Source.Bounds)];
         if (!obstacles.Any(o => o.ElementId == entry.Target.ElementId)) obstacles = [.. obstacles, new(entry.Target.ElementId, entry.Target.Bounds)];
         var route = HmiPortLayout.HasRoutableGlyph(_elements[entry.Source.ElementId]) && HmiPortLayout.HasRoutableGlyph(_elements[entry.Target.ElementId])
-            ? HmiOrthogonalRouter.Route(entry.Source, entry.Target, obstacles, pins, RoutingPadding(entry.Model))
+            ? HmiOrthogonalRouter.Route(entry.Source, entry.Target, obstacles, pins, spans, RoutingPadding(entry.Model))
             : HmiRouteResult.Unavailable(HmiRouteStatus.BlockedTerminal, "Enlarge the endpoint component to expose a routable glyph.");
         entry.Model.Waypoints = pins;
+        entry.Model.StraightSegments = spans;
         entry.Route = route;
         _routes[id] = route;
         RoutingPasses++;

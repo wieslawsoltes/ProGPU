@@ -17,7 +17,7 @@ public sealed partial class HmiDesignerHost
             if (link == null) { Fit(); return; }
             var points = new List<HmiPoint>();
             if (DiagramLayer.Routes.TryGetValue(SelectedLinkId, out var route)) points.AddRange(route.Points);
-            points.AddRange(_waypointGesture?.Points ?? link.Waypoints);
+            points.AddRange(_segmentGesture?.Preview?.Waypoints ?? _waypointGesture?.Points ?? link.Waypoints);
             if (route?.Status != HmiRouteStatus.Success)
             {
                 // A blocked route has no invented line geometry. Frame its pins and

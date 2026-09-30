@@ -79,7 +79,7 @@ PROGPU_WGPU_BACKEND=vulkan dotnet run --project tests/ProGPU.Hmi.VisualSmoke -c 
 
 The optional `--authoring-only` argument isolates the new input probe during diagnosis. Default invocation still runs the complete suite; no existing assertion or palette was removed. Native artifacts record the exact source revision and renderer environment.
 
-This extension does not add standards certification or new industrial command authority. The existing 48 original symbols and graphic conventions remain unchanged. Native Modbus/MQTT/OPC UA acquisition, reviewed writes, authenticated host authorization, quality checks and controller-side interlocks are untouched. Nested faceplate editing, whole-segment routing, junctions/crossover bridges and durable industrial historian workflows remain distinct features.
+This extension does not add standards certification or new industrial command authority. The existing 48 original symbols and graphic conventions remain unchanged. Native Modbus/MQTT/OPC UA acquisition, reviewed writes, authenticated host authorization, quality checks and controller-side interlocks are untouched. Direct route-segment motion is documented in [segment editing](hmi-segment-editing.md). Nested faceplate editing, junctions/crossover bridges and durable industrial historian workflows remain distinct features.
 
 ## Primary references and source provenance
 

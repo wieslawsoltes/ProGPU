@@ -12,7 +12,7 @@ using ProGPU.Text;
 using ProGPU.WinUI.Hmi;
 using ProGPU.WinUI.Hmi.Designer;
 
-if (args.Length is < 2 or > 4) throw new ArgumentException("Usage: ProGPU.Hmi.VisualSmoke <font-file> <output-directory> [Light|Dark|HighContrast] [--graphics-only|--authoring-only]");
+if (args.Length is < 2 or > 4) throw new ArgumentException("Usage: ProGPU.Hmi.VisualSmoke <font-file> <output-directory> [Light|Dark|HighContrast] [--graphics-only|--authoring-only|--segments-only]");
 var schemes = new[] { args.Length >= 3 ? Enum.Parse<HmiColorScheme>(args[2]) : HmiColorScheme.Light };
 var elapsed = System.Diagnostics.Stopwatch.StartNew();
 if (JsonSerializer.IsReflectionEnabledByDefault) throw new InvalidOperationException("JSON reflection must remain disabled.");
@@ -25,6 +25,7 @@ if (args.Length == 4)
 {
     if (args[3] == "--graphics-only") foreach (var scheme in schemes) HmiGraphicConventionsProbe.Run(window, font, args[1], scheme);
     else if (args[3] == "--authoring-only") foreach (var scheme in schemes) HmiCanvasAuthoringProbe.Run(window, font, args[1], scheme);
+    else if (args[3] == "--segments-only") foreach (var scheme in schemes) HmiSegmentEditingProbe.Run(window, font, args[1], scheme);
     else throw new ArgumentException("Unknown visual probe selector.");
     return;
 }
@@ -257,6 +258,7 @@ foreach (var scheme in schemes)
 foreach (var scheme in schemes) HmiGraphicConventionsProbe.Run(window, font, args[1], scheme);
 foreach (var scheme in schemes) HmiRouteEditingProbe.Run(window, font, args[1], scheme);
 foreach (var scheme in schemes) HmiCanvasAuthoringProbe.Run(window, font, args[1], scheme);
+foreach (var scheme in schemes) HmiSegmentEditingProbe.Run(window, font, args[1], scheme);
 Console.WriteLine($"PASS: actual ProGPU component, semantic diagram, designer and runtime readback with reflection JSON disabled ({elapsed.Elapsed}).");
 
 static IEnumerable<Visual> Descendants(Visual visual)

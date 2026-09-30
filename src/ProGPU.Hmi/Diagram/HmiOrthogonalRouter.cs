@@ -26,11 +26,19 @@ public static class HmiOrthogonalRouter
     /// </summary>
     public static HmiRouteResult Route(HmiRouteTerminal source, HmiRouteTerminal target,
         IReadOnlyList<HmiRouteObstacle> obstacles, IReadOnlyList<HmiPoint> waypoints, float clearance = 12)
+        => Route(source, target, obstacles, waypoints, Array.Empty<int>(), clearance);
+
+    /// <summary>Route through ordered pins, admitting each constrained pin pair as one obstacle-tested straight edge.</summary>
+    public static HmiRouteResult Route(HmiRouteTerminal source, HmiRouteTerminal target,
+        IReadOnlyList<HmiRouteObstacle> obstacles, IReadOnlyList<HmiPoint> waypoints,
+        IReadOnlyList<int> straightSegments, float clearance = 12)
     {
         ArgumentNullException.ThrowIfNull(obstacles);
-        HmiRouteWaypoints.Validate(waypoints);
+        HmiRouteSegments.Validate(waypoints, straightSegments);
         // Search consumes one owned immutable constraint generation.
         HmiPoint[] pins = waypoints.ToArray();
+        var rigid = new bool[pins.Length];
+        foreach (int index in straightSegments) rigid[index] = true;
         if (!float.IsFinite(clearance) || clearance is < 2 or > 256 || !Valid(source) || !Valid(target))
             throw new ArgumentException("Finite nozzle geometry and 2..256 clearance are required.");
         if (source.ElementId == target.ElementId && source.Point == target.Point)
@@ -59,6 +67,9 @@ public static class HmiOrthogonalRouter
         for (int i = 0; i < pins.Length; i++)
             if (boxes.Any(o => o.Bounds.Contains(pins[i])))
                 return Fail(HmiRouteStatus.BlockedWaypoint, $"Waypoint {i + 1} is inside an equipment clearance envelope. Move the pin or the equipment.");
+        foreach (int index in straightSegments)
+            if (boxes.Any(o => Intersects(pins[index], pins[index + 1], o.Bounds)))
+                return Fail(HmiRouteStatus.BlockedSegment, $"Straight segment {index + 1} crosses an equipment clearance envelope. Move or release its straight constraint.");
         var xs = new SortedSet<float> { start.X, finish.X };
         var ys = new SortedSet<float> { start.Y, finish.Y };
         foreach (var pin in pins) { xs.Add(pin.X); ys.Add(pin.Y); }
@@ -120,6 +131,14 @@ public static class HmiOrthogonalRouter
                 // At most four enqueues below; exhaustion is explicit, not a partial route.
                 if (queue.Count > MaximumFrontierEntries - 4)
                     return Fail(HmiRouteStatus.CapacityExceeded, "The waypoint search frontier exceeded its bounded queue budget.");
+                if (stage > 0 && stage < pins.Length && rigid[stage - 1])
+                {
+                    // A constrained stage is reachable only at its preceding pin. Traversing
+                    // the pair atomically preserves straightness and bend cost at both ends.
+                    var a = pins[stage - 1]; var b = pins[stage];
+                    Visit(pinNodes[stage], a.Y == b.Y ? 0 : 1, (float)Distance(a, b));
+                    continue;
+                }
                 if (ix > 0 && (edges[node - 1] & 1) == 0) Visit(node - 1, 0, x[ix] - x[ix - 1]);
                 if (ix + 1 < nx && (edges[node] & 1) == 0) Visit(node + 1, 0, x[ix + 1] - x[ix]);
                 if (iy > 0 && (edges[node - nx] & 2) == 0) Visit(node - nx, 1, y[iy] - y[iy - 1]);
@@ -170,7 +189,7 @@ public static class HmiOrthogonalRouter
     private static bool Valid(HmiRouteTerminal t) => !string.IsNullOrWhiteSpace(t.ElementId) && t.Bounds.IsValid &&
         Enum.IsDefined(t.Direction) && float.IsFinite(t.Point.X) && float.IsFinite(t.Point.Y) &&
         t.Point.X >= t.Bounds.Left && t.Point.X <= t.Bounds.Right && t.Point.Y >= t.Bounds.Top && t.Point.Y <= t.Bounds.Bottom;
-    private static HmiPoint Exit(HmiRouteTerminal t, float clearance) => t.Direction switch
+    internal static HmiPoint Exit(HmiRouteTerminal t, float clearance) => t.Direction switch
     {
         HmiPortDirection.Left => new(t.Bounds.Left - clearance, t.Point.Y),
         HmiPortDirection.Right => new(t.Bounds.Right + clearance, t.Point.Y),
