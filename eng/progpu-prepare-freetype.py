@@ -183,6 +183,25 @@ def prepare(args):
     library = install / "lib" / ("freetype.lib" if args.rid.startswith("win-") else "libfreetype.a")
     payload = library.read_bytes()
     count = verify_archive(payload, args.rid)
+    probe_build = workspace / "probe-build"
+    probe_configure = [args.cmake, "-S", str(ROOT / "eng/native-freetype-probe"),
+                       "-B", str(probe_build), "-G", args.generator,
+                       "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW",
+                       "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL",
+                       "-DCMAKE_CXX_COMPILER=" + args.cxx,
+                       "-DPROGPU_FREETYPE_LIBRARY=" + str(library),
+                       "-DPROGPU_FREETYPE_INCLUDE=" + str(install / "include/freetype2")]
+    if args.rid.startswith("osx-"):
+        probe_configure.append("-DCMAKE_OSX_ARCHITECTURES=" +
+                               ("arm64" if args.rid.endswith("arm64") else "x86_64"))
+    run(probe_configure)
+    run([args.cmake, "--build", str(probe_build), "--config", "Release", "--parallel", "2"])
+    executable = probe_build / ("progpu_font_dependency_probe.exe"
+                                if args.rid.startswith("win-") else "progpu_font_dependency_probe")
+    probe = json.loads(run([str(executable)]).stdout)
+    if probe != {"version": pin["version"], "interpreters": [35, 40],
+                 "independentPolicies": True, "invalidPolicyRejected": True}:
+        raise ValueError("FreeType dependency capability probe returned unexpected evidence")
     legal = install / "share/progpu-freetype/licenses"
     legal.mkdir(parents=True)
     receipts = []
@@ -203,7 +222,8 @@ def prepare(args):
                 "include": str(install / "include/freetype2"), "notices": receipts,
                 "configure": configure, "compiler": run([args.cc, "--version"]).stdout.strip()
                 if not args.rid.startswith("win-") else args.cc,
-                "qualification": "signed-source-and-static-architecture-only"}
+                "probeConfigure": probe_configure, "publicApiProbe": probe,
+                "qualification": "signed-source-static-architecture-and-library-policy-only"}
     (install / "progpu-freetype.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps({"rid": args.rid, "manifest": str(install / "progpu-freetype.json"),
                       "verifiedObjects": count, "sha256": manifest["sha256"]}))
@@ -214,6 +234,7 @@ def main():
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--rid", choices=RID_MACHINES, required=True)
     parser.add_argument("--cc", required=True)
+    parser.add_argument("--cxx", required=True)
     parser.add_argument("--generator", default="Ninja")
     parser.add_argument("--cmake", default="cmake")
     parser.add_argument("--gpg", default="gpg")

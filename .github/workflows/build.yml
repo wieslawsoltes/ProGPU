@@ -408,6 +408,7 @@ jobs:
             clang-tools \
             cmake \
             ninja-build \
+            gnupg \
             libvulkan1 \
             mesa-vulkan-drivers \
             libx11-xcb1 \
@@ -422,7 +423,32 @@ jobs:
 
       - name: Install macOS native build tools
         if: runner.os == 'macOS'
-        run: brew install ninja
+        run: brew install ninja gnupg
+
+      - name: Build signed isolated font dependency
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          font_workspace="$(mktemp -d "${RUNNER_TEMP}/progpu-freetype.XXXXXXXX")"
+          font_workspace="$(cd "$font_workspace" && pwd -P)"
+          echo "PROGPU_FREETYPE_WORKSPACE=$font_workspace" >> "$GITHUB_ENV"
+          python3 ./eng/progpu-prepare-freetype.py \
+            --workspace "$font_workspace" --rid '${{ matrix.rid }}' --cc clang --cxx clang++
+
+      - name: Build signed isolated font dependency on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $fontWorkspace = Join-Path $env:RUNNER_TEMP ('progpu-freetype.' + [Guid]::NewGuid().ToString('N'))
+          "PROGPU_FREETYPE_WORKSPACE=$fontWorkspace" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          ./eng/progpu-prepare-freetype-windows.ps1 -Rid '${{ matrix.rid }}' -Workspace $fontWorkspace
+
+      - name: Upload verified font dependency and original notices
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-freetype-${{ matrix.rid }}
+          path: ${{ env.PROGPU_FREETYPE_WORKSPACE }}/install
+          if-no-files-found: error
 
       - name: Build and integration-test native renderer
         if: runner.os != 'Windows'
