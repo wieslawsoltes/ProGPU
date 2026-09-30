@@ -279,6 +279,14 @@ progpu_native_mil_channel_set_point_hit_rectangles(
     progpu_native_mil_channel* channel,
     const progpu_native_mil_point_hit_rectangle* rectangles,
     size_t count);
+/* Atomically replaces local visual visibility. Handles must be live Visuals in
+ * strictly increasing order, values 0/1/2 (Visible/Hidden/Collapsed). Absent
+ * handles are Visible; zero count clears the snapshot. Input is copied. */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_visual_visibilities(
+    progpu_native_mil_channel* channel,
+    const progpu_native_mil_visual_visibility* visibilities,
+    size_t count);
 /*
  * Binds one pointer-free flattened 3D scene to a canonical
  * TYPE_VIEWPORT3DVISUAL handle. Source-built WPF owns camera/model traversal;

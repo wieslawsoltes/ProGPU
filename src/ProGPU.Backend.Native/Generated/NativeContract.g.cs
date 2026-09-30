@@ -551,6 +551,14 @@ public partial struct NativeMilPointHitRectangle
     public double Height;
 }
 
+// Native source: progpu_native_mil_visual_visibility.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeMilVisualVisibility
+{
+    public uint Handle;
+    public uint Visibility;
+}
+
 // Native source: progpu_native_hit_test_primitive.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeGpuHitTestPrimitive

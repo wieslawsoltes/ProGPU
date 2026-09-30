@@ -2975,6 +2975,7 @@ struct channel::implementation {
         quaternion_resources;
     std::unordered_map<std::uint32_t, visual_state> visuals;
     std::unordered_map<std::uint32_t, progpu_native_mil_point_hit_rectangle> point_hit_rectangles;
+    std::unordered_map<std::uint32_t, std::uint32_t> visual_visibilities;
     std::unordered_map<std::uint32_t, viewport3d_visual_state>
         viewport3d_visuals;
     std::unordered_map<std::uint32_t, visual3d_state> visuals3d;
@@ -3033,6 +3034,12 @@ struct channel::implementation {
         const auto found = resources.find(handle);
         return found != resources.end() && is_visual_type(found->second.type) &&
             visuals.contains(handle);
+    }
+
+    std::uint32_t local_visual_visibility(std::uint32_t handle) const noexcept {
+        const auto found = visual_visibilities.find(handle);
+        return found == visual_visibilities.end()
+            ? std::uint32_t{PROGPU_NATIVE_MIL_VISIBILITY_VISIBLE} : found->second;
     }
 
     bool require_target(std::uint32_t handle) const noexcept {
@@ -5494,6 +5501,7 @@ struct channel::implementation {
             }
             visuals.erase(handle);
             point_hit_rectangles.erase(handle);
+            visual_visibilities.erase(handle);
             viewport3d_visuals.erase(handle);
             visuals3d.erase(handle);
             model3d_groups.erase(handle);
@@ -20351,6 +20359,17 @@ struct channel::implementation {
                 dependency, active_resources, hash) == status::success;
         };
         append_fnv1a64(hash, handle);
+        if (include_outer_state) {
+            const auto visibility = local_visual_visibility(handle);
+            append_fnv1a64(hash, visibility);
+            // Hidden descendants contribute their exclusion, not resources that
+            // cannot reach this capture. Explicit cache-brush roots omit this
+            // outer state and still hash/replay their own content and children.
+            if (visibility != PROGPU_NATIVE_MIL_VISIBILITY_VISIBLE) {
+                active_visuals.erase(handle);
+                return status::success;
+            }
+        }
         if (resource->second.type == type_viewport3d_visual) {
             const auto viewport = viewport3d_visuals.find(handle);
             if (viewport == viewport3d_visuals.end() || !viewport->second.has_child_binding) {
@@ -21201,6 +21220,13 @@ struct channel::implementation {
         if (visual == visuals.end()) {
             active_visuals.erase(handle);
             return status::invalid_handle;
+        }
+        // Visibility is source state, not alpha. Exclude before touching caches,
+        // effects or hit-only descendants. BitmapCacheBrush's explicit root
+        // capture intentionally bypasses append_visual, but its children do not.
+        if (local_visual_visibility(handle) != PROGPU_NATIVE_MIL_VISIBILITY_VISIBLE) {
+            active_visuals.erase(handle);
+            return status::success;
         }
         const bool record_hit_owner = compile_context != nullptr &&
             compile_context->records_hit_test_owners();
@@ -22126,6 +22152,28 @@ status channel::set_point_hit_rectangles(
         replacement.reserve(rectangles.size());
         for (const auto& rectangle : rectangles) replacement.emplace(rectangle.handle, rectangle);
         implementation_->point_hit_rectangles.swap(replacement);
+        build_cache_.reset();
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::capacity_exceeded;
+    }
+}
+
+status channel::set_visual_visibilities(
+    std::span<const progpu_native_mil_visual_visibility> visibilities) noexcept {
+    if (visibilities.size() > implementation_->visuals.size()) return status::invalid_argument;
+    std::uint32_t previous = 0U;
+    for (const auto& entry : visibilities) {
+        if (entry.handle <= previous || entry.visibility > PROGPU_NATIVE_MIL_VISIBILITY_COLLAPSED)
+            return status::invalid_argument;
+        if (!implementation_->require_visual(entry.handle)) return status::invalid_handle;
+        previous = entry.handle;
+    }
+    try {
+        decltype(implementation_->visual_visibilities) replacement;
+        replacement.reserve(visibilities.size());
+        for (const auto& entry : visibilities) replacement.emplace(entry.handle, entry.visibility);
+        implementation_->visual_visibilities.swap(replacement);
         build_cache_.reset();
         return status::success;
     } catch (const std::bad_alloc&) {

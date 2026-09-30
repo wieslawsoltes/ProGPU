@@ -450,6 +450,26 @@ public sealed unsafe class NativeMilChannel : IDisposable
         }
     }
 
+    /// <summary>
+    /// Atomically replaces local source visibility (0 Visible, 1 Hidden, 2 Collapsed).
+    /// Handles must be live Visuals in strictly increasing order. Absent handles
+    /// remain visible; an empty snapshot clears all overrides. The native channel
+    /// copies the snapshot. Explicit BitmapCacheBrush roots omit outer visibility,
+    /// while their descendants retain ordinary visibility processing.
+    /// </summary>
+    public void SetVisualVisibilities(ReadOnlySpan<NativeMilVisualVisibility> visibilities)
+    {
+        nint channel = GetChannel();
+        fixed (NativeMilVisualVisibility* data = visibilities)
+        {
+            var status = _backend == NativeMilBackend.Dawn
+                ? NativeMilDawnMethods.SetVisualVisibilities(channel, data, (nuint)visibilities.Length)
+                : NativeMilMethods.SetVisualVisibilities(channel, data, (nuint)visibilities.Length);
+            if (status != NativeMilStatus.Success)
+                throw new NativeMilException(status, $"The source visual-visibility snapshot was rejected with {status}.");
+        }
+    }
+
     /// <summary>Sets exact Visual descendant bounds for cache/effect isolation.</summary>
     public void SetVisualCacheBounds(
         uint handle,

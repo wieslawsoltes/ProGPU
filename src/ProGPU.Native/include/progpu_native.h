@@ -2332,6 +2332,21 @@ typedef struct progpu_native_mil_point_hit_rectangle {
     double height;
 } progpu_native_mil_point_hit_rectangle;
 
+/* Local source visibility, independent of attachment and opacity. Ordinary
+ * traversal excludes Hidden/Collapsed subtrees. BitmapCacheBrush captures the
+ * explicit root's content without its outer state; child visibility still applies. */
+enum {
+    PROGPU_NATIVE_MIL_VISIBILITY_VISIBLE = 0U,
+    PROGPU_NATIVE_MIL_VISIBILITY_HIDDEN = 1U,
+    PROGPU_NATIVE_MIL_VISIBILITY_COLLAPSED = 2U
+};
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeMilVisualVisibility */
+typedef struct progpu_native_mil_visual_visibility {
+    uint32_t handle;
+    uint32_t visibility;
+} progpu_native_mil_visual_visibility;
+
 enum {
     PROGPU_NATIVE_HIT_TEST_VISIBLE = 1U << 0U,
     PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT = 1U << 1U,

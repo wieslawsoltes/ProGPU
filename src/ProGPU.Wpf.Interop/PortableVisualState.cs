@@ -5,9 +5,21 @@ public interface IPortableVisualStateSource
     bool TryGetPortableVisualState(out PortableVisualState state);
 }
 
+/// <summary>Local source visibility, independent of opacity and presentation-source attachment.</summary>
+public enum PortableVisualVisibility
+{
+    Visible = 0,
+    Hidden = 1,
+    Collapsed = 2
+}
+
 public sealed class PortableVisualState
 {
     private static readonly double[] s_emptyGuidelines = System.Array.Empty<double>();
+
+    public bool HasVisibility { get; set; }
+
+    public PortableVisualVisibility Visibility { get; set; } = PortableVisualVisibility.Visible;
 
     public bool HasOffset { get; set; }
 
