@@ -290,7 +290,8 @@ int main(int argc, char** argv)
         require(argc == 2);
         verify(read_font(argv[1]));
         verify_native_hint_fault();
-        std::cout << "{\"glyphBatchControls\":true,\"nativeHintsObserved\":true,\"slotDifferential\":true}\n";
+        std::cout << "{\"glyphBatchControls\":true,\"nativeHintsObserved\":true,"
+                     "\"slotDifferential\":true,\"nativeFaultAtomicity\":true}\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

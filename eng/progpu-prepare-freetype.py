@@ -223,7 +223,8 @@ def prepare(args):
     glyph_executable = probe_build / ("progpu_native_hinted_font_tests.exe"
                                     if args.rid.startswith("win-") else "progpu_native_hinted_font_tests")
     glyph_probe = json.loads(run([str(glyph_executable), str(test_font)]).stdout)
-    if glyph_probe != {"glyphBatchControls": True, "nativeHintsObserved": True, "slotDifferential": True}:
+    if glyph_probe != {"glyphBatchControls": True, "nativeHintsObserved": True,
+                      "slotDifferential": True, "nativeFaultAtomicity": True}:
         raise ValueError("Native hinted-font batch controls returned unexpected evidence")
     if hashlib.sha256(test_font.read_bytes()).hexdigest() != test_font_hash:
         raise ValueError("The hinted-font control input changed during execution")
