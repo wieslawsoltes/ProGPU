@@ -63,7 +63,8 @@ bool aliases_run(const std::array<memory_range, Count>& outputs,
     if (aliases(outputs, &run, 1U) ||
         aliases(outputs, run.glyphs.data(), run.glyphs.capacity()) ||
         aliases(outputs, run.descriptor_indices.data(), run.descriptor_indices.capacity()) ||
-        aliases(outputs, run.normalized_coordinates.data(), run.normalized_coordinates.capacity()))
+        aliases(outputs, run.normalized_coordinates.data(), run.normalized_coordinates.capacity()) ||
+        aliases(outputs, run.shaping_input.data(), run.shaping_input.capacity()))
         return true;
     if (run.batch == nullptr) return false;
     const auto& batch = *run.batch;

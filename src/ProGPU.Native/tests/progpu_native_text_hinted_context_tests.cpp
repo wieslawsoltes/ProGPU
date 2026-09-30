@@ -7,6 +7,7 @@
 #include "progpu_native_hinted_shape_fixture.hpp"
 #include "../src/Text/Shaping/progpu_native_open_type_device_shaper_internal.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <iostream>
@@ -20,6 +21,19 @@ struct batch_owner final {
 };
 
 #if defined(PROGPU_NATIVE_FONT_HINTING)
+void verify_shaping_input(const progpu::native::text::hinted_shaped_run& run,
+    std::span<const progpu::native::text::unicode_scalar> admitted) {
+    using progpu::native::text::tests::transport_require;
+    transport_require(run.shaping_input.size() == admitted.size());
+    for (std::size_t index = 0U; index < admitted.size(); ++index) {
+        const auto& expected = admitted[index];
+        const auto& actual = run.shaping_input[index];
+        transport_require(actual.code_point == expected.code_point && actual.input_index == expected.input_index &&
+            actual.input_length == expected.input_length && actual.canonical_combining_class == expected.canonical_combining_class &&
+            actual.reserved == expected.reserved && actual.script == expected.script);
+    }
+}
+
 void verify_shaping_map(std::span<const std::byte> bytes) {
     using namespace progpu::native::text;
     sfnt_font_view font{};
@@ -74,6 +88,7 @@ void verify_owned_shaping(const progpu::native::text::hinted_font_configuration&
                     << " ranged=" << ranged << " shaping=" << static_cast<std::uint32_t>(error.shaping)
                     << " capture=" << static_cast<std::uint32_t>(error.capture) << " projection=" << static_cast<std::uint32_t>(error.projection) << '\n';
                 transport_require(shaped && !error.resource_exhausted);
+                verify_shaping_input(*retained, input); // Admitted order, never visual-order reversal.
                 transport_require(retained->source_descriptor_count == 3U && retained->batch->glyphs.size() == 3U &&
                     retained->glyphs.size() == 3U && retained->descriptor_indices.size() == 3U &&
                     retained->batch->identity->source == source && retained->batch->identity->policy == configuration.policy &&
@@ -112,6 +127,7 @@ void verify_owned_shaping(const progpu::native::text::hinted_font_configuration&
             const std::array<unicode_scalar, 3U> spaces{unicode_scalar{0x41U, 0U, 1U},
                 unicode_scalar{0x2007U, 1U, 1U}, unicode_scalar{0x2008U, 2U, 1U}};
             transport_require(try_shape_context_hinted(context.value, 0U, configuration, spaces, options, retained, error, policy));
+            verify_shaping_input(*retained, spaces);
             transport_require(retained->source_descriptor_count == 3U && retained->batch->glyphs.size() == 5U &&
                 retained->figure_descriptor_start == 3U && retained->figure_descriptor_count == 1U &&
                 retained->punctuation_descriptor_start == 4U && retained->punctuation_descriptor_count == 1U);
@@ -147,7 +163,7 @@ void verify_owned_shaping(const progpu::native::text::hinted_font_configuration&
     transport_require(try_shape_context_hinted(context.value, 0U, configuration,
         std::span<const unicode_scalar>{}, options, empty_shape, error) &&
         empty_shape->batch != nullptr && empty_shape->batch->glyphs.empty() &&
-        empty_shape->glyphs.empty() && empty_shape->descriptor_indices.empty() &&
+        empty_shape->glyphs.empty() && empty_shape->descriptor_indices.empty() && empty_shape->shaping_input.empty() &&
         empty_shape->source_descriptor_count == 0U && retained == saved);
     auto late_bytes = bytes;
     sfnt_font_view late_font{};
@@ -183,9 +199,27 @@ void verify_owned_shaping(const progpu::native::text::hinted_font_configuration&
     transport_require(try_shape_context_hinted(context.value, 0U, configuration, only_a, options, retained, error));
     transport_require(retained->source_descriptor_count == 1U && retained->batch->glyphs.size() == 1U &&
         retained->glyphs.capacity() < 257U); // No selected stch lookup: no blanket expansion reservation.
+    auto mutable_input = input;
+    mutable_input[0].input_index = 9U; mutable_input[0].input_length = 2U;
+    mutable_input[1].input_index = 11U; mutable_input[1].input_length = 3U;
+    mutable_input[2].input_index = 14U; mutable_input[2].input_length = 1U;
+    for (auto& scalar : mutable_input) scalar.script = latin;
+    const auto admitted = mutable_input;
+    options.script = latin; options.direction = shaping_direction::right_to_left; options.requested_features = features;
+    std::shared_ptr<const hinted_shaped_run> independent;
+    transport_require(try_shape_context_hinted(context.value, 0U, configuration, mutable_input, options, independent, error));
+    const auto original_glyphs = independent->glyphs;
+    const auto original_descriptors = independent->descriptor_indices;
+    std::fill(mutable_input.begin(), mutable_input.end(), unicode_scalar{});
+    verify_shaping_input(*independent, admitted);
+    transport_require(independent->shaping_input.data() != mutable_input.data() &&
+        independent->descriptor_indices == original_descriptors &&
+        std::memcmp(independent->glyphs.data(), original_glyphs.data(), original_glyphs.size() * sizeof(shaping_glyph)) == 0);
     progpu_native_text_context_destroy(context.value);
     context.value = nullptr;
     transport_require(retained->batch->identity->source == source && retained->batch->identity->source->bytes == bytes);
+    verify_shaping_input(*retained, only_a);
+    verify_shaping_input(*independent, admitted);
     tests::verify_hinted_transport(*saved->batch);
     tests::verify_hinted_transport(*retained->batch);
     transport_require(saved->batch->glyphs.size() == 5U && saved->descriptor_indices.size() == 3U);

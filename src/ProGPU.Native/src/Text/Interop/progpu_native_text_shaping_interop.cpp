@@ -746,7 +746,7 @@ bool hinted_run_output_aliases(const progpu_native_hinted_run& handle,
     };
     if (overlaps(&handle, sizeof(handle)) || handle.generation == nullptr) return true;
     const auto& run = *handle.generation;
-    if (overlaps(&run, sizeof(run)) || vector_aliases(run.glyphs) ||
+    if (overlaps(&run, sizeof(run)) || vector_aliases(run.shaping_input) || vector_aliases(run.glyphs) ||
         vector_aliases(run.descriptor_indices) || vector_aliases(run.normalized_coordinates) ||
         run.batch == nullptr) return true;
     const auto& batch = *run.batch;

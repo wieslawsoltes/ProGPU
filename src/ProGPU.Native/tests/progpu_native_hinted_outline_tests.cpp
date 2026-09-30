@@ -226,6 +226,78 @@ void mixed_and_closed_cubic_records() {
     require(output.positioned[0] == 1U && output.positioned[1] == 0U);
 }
 
+void shaping_input_aliases() {
+    const auto retained = batch();
+    auto run = run_for(retained);
+    run.shaping_input.reserve(512U);
+    for (std::uint32_t index = 0U; index < 8U; ++index)
+        run.shaping_input.push_back({0x41U + index, index, 1U, 0U, 0U, default_script});
+    for (std::size_t index = 0U; index < run.glyphs.size(); ++index) {
+        const auto source = static_cast<std::uint32_t>(run.glyphs.size() - 1U - index);
+        run.glyphs[index].code_point = run.shaping_input[source].code_point;
+        run.glyphs[index].cluster = static_cast<std::int32_t>(source);
+    }
+    // Paint and snapshot the complete retained allocation, not only live
+    // scalars: an output aimed solely at spare capacity must not mutate it.
+    const auto used_bytes = run.shaping_input.size() * sizeof(unicode_scalar);
+    const auto capacity_bytes = run.shaping_input.capacity() * sizeof(unicode_scalar);
+    auto* const input_bytes = reinterpret_cast<std::byte*>(run.shaping_input.data());
+    std::memset(input_bytes + used_bytes, 0xA6, capacity_bytes - used_bytes);
+    std::vector<std::byte> input_before(capacity_bytes);
+    std::memcpy(input_before.data(), input_bytes, capacity_bytes);
+    hinted_outline_requirements admitted_requirements{};
+    require(get_hinted_outline_requirements(run, admitted_requirements,
+        hinted_projection_policy::scalar_reference) == hinted_outline_error::none &&
+        admitted_requirements == hinted_outline_requirements{7U, 8U, 4U, 18U, 8U});
+    buffers admitted;
+    require(admitted.write(run) == hinted_outline_error::none &&
+        admitted.written == admitted_requirements &&
+        std::memcmp(input_before.data(), input_bytes, capacity_bytes) == 0);
+    buffers output;
+    const auto output_before = bytes(output);
+    constexpr auto alias_alignment = std::max({alignof(hinted_outline_requirements),
+        alignof(sfnt_outline_point), alignof(progpu_native_point),
+        alignof(progpu_native_glyph_outline), alignof(progpu_native_path_segment),
+        alignof(std::uint32_t)});
+    for (const auto offset : {std::size_t{0U}, used_bytes}) {
+        const auto address = reinterpret_cast<std::uintptr_t>(input_bytes + offset);
+        const auto aligned = (address + alias_alignment - 1U) & ~(alias_alignment - 1U);
+        auto* const storage = reinterpret_cast<std::byte*>(aligned);
+        const auto remaining = capacity_bytes - static_cast<std::size_t>(storage - input_bytes);
+        require(remaining >= std::max({sizeof(output.topology), sizeof(output.physical),
+            sizeof(output.outlines), sizeof(output.segments), sizeof(output.source),
+            sizeof(output.positioned), sizeof(output.written)}));
+        auto& requirements = *reinterpret_cast<hinted_outline_requirements*>(storage);
+        require(get_hinted_outline_requirements(run, requirements,
+            hinted_projection_policy::scalar_reference) == hinted_outline_error::invalid_argument);
+        require(bytes(output) == output_before &&
+            std::memcmp(input_before.data(), input_bytes, capacity_bytes) == 0);
+        // Independently exercise every borrowed conversion destination/scratch
+        // role with its full original capacity in both used and spare storage.
+        for (unsigned int target = 0U; target < 7U; ++target) {
+            std::span<sfnt_outline_point> topology = output.topology;
+            std::span<progpu_native_point> physical = output.physical;
+            std::span<progpu_native_glyph_outline> outlines = output.outlines;
+            std::span<progpu_native_path_segment> segments = output.segments;
+            std::span<std::uint32_t> source = output.source;
+            std::span<std::uint32_t> positioned = output.positioned;
+            auto* written = &output.written;
+            if (target == 0U) topology = {reinterpret_cast<sfnt_outline_point*>(storage), topology.size()};
+            if (target == 1U) physical = {reinterpret_cast<progpu_native_point*>(storage), physical.size()};
+            if (target == 2U) outlines = {reinterpret_cast<progpu_native_glyph_outline*>(storage), outlines.size()};
+            if (target == 3U) segments = {reinterpret_cast<progpu_native_path_segment*>(storage), segments.size()};
+            if (target == 4U) source = {reinterpret_cast<std::uint32_t*>(storage), source.size()};
+            if (target == 5U) positioned = {reinterpret_cast<std::uint32_t*>(storage), positioned.size()};
+            if (target == 6U) written = reinterpret_cast<hinted_outline_requirements*>(storage);
+            require(write_hinted_run_outlines(run, {topology, physical}, outlines, segments,
+                source, positioned, *written, hinted_projection_policy::scalar_reference) ==
+                hinted_outline_error::invalid_argument);
+            require(bytes(output) == output_before &&
+                std::memcmp(input_before.data(), input_bytes, capacity_bytes) == 0);
+        }
+    }
+}
+
 void failures_precede_all_publication() {
     const auto retained = batch();
     auto run = run_for(retained);
@@ -348,8 +420,9 @@ int main() {
         source_geometry_and_phase();
         original_quadratic_differential();
         mixed_and_closed_cubic_records();
+        shaping_input_aliases();
         failures_precede_all_publication();
-        std::cout << "{\"sourceIndexedGeometry\":true,\"originalQuadraticWriter\":true,\"exactCubicRecords\":true,\"wholeRunAtomicPreflight\":true}\n";
+        std::cout << "{\"sourceIndexedGeometry\":true,\"originalQuadraticWriter\":true,\"exactCubicRecords\":true,\"retainedShapingInputAliases\":true,\"wholeRunAtomicPreflight\":true}\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n'; return 1;

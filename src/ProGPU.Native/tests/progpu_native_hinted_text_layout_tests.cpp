@@ -82,6 +82,11 @@ std::shared_ptr<hinted_shaped_run> raw_run(shaping_direction direction) {
     auto run = std::make_shared<hinted_shaped_run>();
     run->batch = batch;
     run->direction = direction;
+    run->shaping_input = {{'A', 0U, 2U}, {'B', 2U, 1U}, {0x301U, 3U, 1U},
+        {'C', 4U, 2U}, {0x20U, 6U, 1U}};
+    run->shaping_input.resize(8U); // Initialized capacity remains owned after shrinking.
+    run->shaping_input.resize(run->shaping_input.capacity());
+    run->shaping_input.resize(5U);
     run->source_descriptor_count = 5U;
     run->figure_descriptor_start = 5U; run->figure_descriptor_count = 1U;
     run->punctuation_descriptor_start = 6U; run->punctuation_descriptor_count = 1U;
@@ -291,6 +296,16 @@ void rejection_controls() {
     require(!fit(replacement, replacement_values, 1.0F, options, retained,
         reinterpret_cast<font_error*>(&run->source_descriptor_count)) && retained == previous &&
         run->source_descriptor_count == source_count);
+    const auto input_bytes = run->shaping_input.capacity() * sizeof(unicode_scalar);
+    std::vector<std::byte> input_before(input_bytes);
+    std::memcpy(input_before.data(), run->shaping_input.data(), input_bytes);
+    for (const auto slot : {0U, 5U}) {
+        auto* diagnostic = reinterpret_cast<font_error*>(run->shaping_input.data() + slot);
+        require(!fit(run, values, 1.0F, options, retained, diagnostic) && retained == previous &&
+            std::memcmp(input_before.data(), run->shaping_input.data(), input_bytes) == 0);
+        require(!fit(replacement, replacement_values, 1.0F, options, retained, diagnostic) && retained == previous &&
+            std::memcmp(input_before.data(), run->shaping_input.data(), input_bytes) == 0);
+    }
     const auto& old_points = run->batch->glyphs.back().points;
     // This slot is outside the old generation's used point span but inside its
     // retained allocation. No write or dereference of the unused object occurs.
@@ -298,7 +313,7 @@ void rejection_controls() {
         reinterpret_cast<font_error*>(const_cast<hinted_outline_point*>(old_points.data() + old_points.size()))) &&
         retained == previous && old_points.size() == 1U);
     auto empty = std::make_shared<hinted_shaped_run>(*run);
-    empty->glyphs.clear(); empty->descriptor_indices.clear(); empty->source_descriptor_count = 0U;
+    empty->glyphs.clear(); empty->descriptor_indices.clear(); empty->shaping_input.clear(); empty->source_descriptor_count = 0U;
     metadata none;
     // A valid shared_ptr publication object appears only in unused metadata
     // capacity. Rejection precedes any shared_ptr read/write through that span.
@@ -357,6 +372,11 @@ void actual_generation_controls() {
         hinted_shape_error failure{};
         require(try_shape_context_hinted(context, 0U, configuration, input, shape, run, failure));
         progpu_native_text_context_destroy(context); lifetime.value = nullptr;
+        require(run->shaping_input.size() == input.size());
+        for (std::size_t index = 0U; index < input.size(); ++index)
+            require(run->shaping_input[index].code_point == input[index].code_point &&
+                run->shaping_input[index].input_index == input[index].input_index &&
+                run->shaping_input[index].input_length == input[index].input_length);
         const auto values = source_metadata(*run);
         text_layout_options options{}; options.maximum_width = 20.0F;
         std::shared_ptr<const hinted_text_layout> layout;

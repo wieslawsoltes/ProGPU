@@ -8,6 +8,10 @@
 namespace progpu::native::text {
 struct hinted_shaped_run final {
     std::shared_ptr<const hinted_glyph_batch> batch{};
+    // Exact admitted scalar records before this run's normalization/GSUB.
+    // Source adapters may already have substituted scalars; this is not an
+    // original pre-substitution source or inferred bidi/formatting metadata.
+    std::vector<unicode_scalar> shaping_input{};
     std::vector<shaping_glyph> glyphs{};
     std::vector<std::uint32_t> descriptor_indices{};
     std::vector<std::int16_t> normalized_coordinates{};

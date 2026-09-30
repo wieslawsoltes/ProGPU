@@ -220,6 +220,7 @@ bool shape_fragment(void* value, const sfnt_font_view& font, std::span<const uni
         child.configuration = parent.configuration; child.policy = parent.policy; child.source = parent.source;
         child.run = std::make_shared<hinted_shaped_run>();
         child.run->direction = options.direction;
+        if (!input.empty()) child.run->shaping_input.assign(input.begin(), input.end());
         if (!options.normalized_coordinates.empty()) child.run->normalized_coordinates.assign(
             options.normalized_coordinates.begin(), options.normalized_coordinates.end());
         child.run->descriptor_indices.resize(glyphs.size());
@@ -227,7 +228,7 @@ bool shape_fragment(void* value, const sfnt_font_view& font, std::span<const uni
         auto child_options = options;
         child_options.normalized_coordinates = child.run->normalized_coordinates;
         const detail::device_shape_run_services services{&child, &prepare, &shape_fragment};
-        const bool success = detail::try_shape_device_open_type_run(font, input, child_options,
+        const bool success = detail::try_shape_device_open_type_run(font, child.run->shaping_input, child_options,
             glyphs, scratch, services, count, error, plan);
         if (!success) {
             parent.failure.capture = child.failure.capture;
@@ -301,12 +302,15 @@ bool try_shape_context_hinted(progpu_native_text_context* context, std::uint32_t
         if (!try_get_open_type_shape_run_requirements(font, input, owned_options, needs, &error.shaping)) return false;
         std::size_t capacity = 0U;
         if (!try_capacity(font, owned_options, needs, capacity, &error.shaping)) return false;
+        // Preserve original input/capacity admission before allocating the
+        // exact scalar owner; every actual shaping stage uses that owner.
+        if (!input.empty()) owner.run->shaping_input.assign(input.begin(), input.end());
         owner.run->glyphs.resize(capacity); owner.run->descriptor_indices.resize(capacity); owner.widths.resize(capacity);
         scratch_owner storage;
         const auto scratch = storage.initialize(needs, capacity);
         const detail::device_shape_run_services services{&owner, &prepare, &shape_fragment};
         std::uint32_t count = 0U;
-        const bool success = detail::try_shape_device_open_type_run(font, input, owned_options,
+        const bool success = detail::try_shape_device_open_type_run(font, owner.run->shaping_input, owned_options,
             owner.run->glyphs, scratch, services, count, &owner.failure.shaping, plan);
         error = owner.failure;
         if (!success) return false;

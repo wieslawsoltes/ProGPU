@@ -136,6 +136,11 @@ void verify_boundary(std::uint32_t interpreter) {
                 const bool vertical = direction == PROGPU_NATIVE_TEXT_DIRECTION_TOP_TO_BOTTOM || direction == PROGPU_NATIVE_TEXT_DIRECTION_BOTTOM_TO_TOP;
                 const bool backward = direction == PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT || direction == PROGPU_NATIVE_TEXT_DIRECTION_BOTTOM_TO_TOP;
                 const auto generation = select_hinted_run_generation(retained.value);
+                transport_require(generation->shaping_input.size() == input.size());
+                for (std::size_t index = 0U; index < input.size(); ++index)
+                    transport_require(generation->shaping_input[index].code_point == input[index].code_point &&
+                        generation->shaping_input[index].input_index == input[index].input_index &&
+                        generation->shaping_input[index].input_length == input[index].input_length);
                 for (std::size_t index = 0U; index < 3U; ++index) {
                     const auto original = backward ? 2U - index : index;
                     const auto& raw = reference->glyphs[original];
@@ -165,6 +170,14 @@ void verify_boundary(std::uint32_t interpreter) {
                 }
                 for (std::size_t index = 3U; index < 5U; ++index) transport_require(std::memcmp(&glyphs[index], &glyph_tail, sizeof(glyph_tail)) == 0 && mapping[index] == 0xA5A5A5A5U);
                 const auto before_glyphs = glyphs; const auto before_mapping = mapping;
+                const auto admitted_input = generation->shaping_input;
+                auto* admitted_storage = const_cast<unicode_scalar*>(generation->shaping_input.data());
+                transport_require(progpu_native_hinted_run_copy_glyphs(retained.value, glyphs.data(), 5U,
+                    reinterpret_cast<std::uint32_t*>(admitted_storage), 3U) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                    same(glyphs, before_glyphs) && mapping == before_mapping && same(generation->shaping_input, admitted_input));
+                transport_require(progpu_native_hinted_run_get_counts(retained.value,
+                    reinterpret_cast<std::uint32_t*>(admitted_storage), &outline_counts) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                    outline_counts.glyphs == 3U && same(generation->shaping_input, admitted_input));
                 transport_require(progpu_native_hinted_run_copy_glyphs(retained.value, glyphs.data(), 2U, mapping.data(), 5U) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
                     same(glyphs, before_glyphs) && mapping == before_mapping);
                 transport_require(progpu_native_hinted_run_copy_glyphs(retained.value, glyphs.data(), 5U, mapping.data(), 2U) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
@@ -193,6 +206,10 @@ void verify_boundary(std::uint32_t interpreter) {
                 transport_require(progpu_native_hinted_run_copy_outlines(retained.value, outlines.data(), 5U, points.data(), 14U, tags.data(), 14U, contours.data(), 5U) == PROGPU_NATIVE_STATUS_SUCCESS);
                 transport_require(static_cast<bool>(copy_hinted_batch(*reference, expected_outlines, expected_points, expected_tags, expected_contours, hinted_transport_policy::scalar_reference)) &&
                     same(outlines, expected_outlines) && same(points, expected_points) && tags == expected_tags && contours == expected_contours);
+                transport_require(progpu_native_hinted_run_copy_outlines(retained.value, outlines.data(), 5U, points.data(), 14U,
+                    reinterpret_cast<std::uint8_t*>(admitted_storage), 14U, contours.data(), 5U) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                    same(outlines, expected_outlines) && same(points, expected_points) && tags == expected_tags &&
+                    contours == expected_contours && same(generation->shaping_input, admitted_input));
                 transport_require(progpu_native_hinted_run_copy_outlines(retained.value, outlines.data(), 5U, points.data(), 11U, tags.data(), 14U, contours.data(), 5U) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
                     same(outlines, expected_outlines) && same(points, expected_points) && tags == expected_tags && contours == expected_contours);
                 transport_require(progpu_native_hinted_run_copy_outlines(retained.value, outlines.data(), 5U, points.data(), 14U,
@@ -225,6 +242,7 @@ void verify_boundary(std::uint32_t interpreter) {
     std::uint32_t count = 0U; progpu_native_hinted_batch_counts outline_counts{};
     transport_require(progpu_native_hinted_run_get_counts(auxiliary.value, &count, &outline_counts) == PROGPU_NATIVE_STATUS_SUCCESS && count == 3U && outline_counts.glyphs == 5U);
     const auto generation = select_hinted_run_generation(auxiliary.value);
+    transport_require(generation->shaping_input.size() == spaces.size());
     transport_require(generation->figure_descriptor_start == 3U && generation->punctuation_descriptor_start == 4U);
     for (const auto& glyph : generation->batch->glyphs) transport_require(glyph.glyph_index == 1U); // Unused digit/comma fault2 never captured.
     progpu_native_text_context_destroy(context.value); context.value = nullptr;
@@ -232,6 +250,10 @@ void verify_boundary(std::uint32_t interpreter) {
     std::array<progpu_native_text_shaping_glyph, 3U> after_retirement{}; std::array<std::uint32_t, 3U> after_mapping{};
     transport_require(progpu_native_hinted_run_copy_glyphs(auxiliary.value, after_retirement.data(), 3U, after_mapping.data(), 3U) == PROGPU_NATIVE_STATUS_SUCCESS &&
         after_mapping == std::array<std::uint32_t, 3U>{2U, 1U, 0U} && generation->batch->identity->source == source);
+    for (std::size_t index = 0U; index < spaces.size(); ++index)
+        transport_require(generation->shaping_input[index].code_point == spaces[index].code_point &&
+            generation->shaping_input[index].input_index == spaces[index].input_index &&
+            generation->shaping_input[index].input_length == spaces[index].input_length);
     tests::verify_hinted_transport(*generation->batch);
 #endif
 }

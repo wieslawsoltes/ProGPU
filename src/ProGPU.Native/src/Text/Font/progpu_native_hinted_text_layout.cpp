@@ -39,7 +39,8 @@ bool aliases_vector(const void* output, std::size_t bytes, const std::vector<T>&
 }
 
 bool aliases_run(void* output, std::size_t bytes, const hinted_shaped_run& run) noexcept {
-    if (overlaps(output, bytes, &run, sizeof(run)) || aliases_vector(output, bytes, run.glyphs) ||
+    if (overlaps(output, bytes, &run, sizeof(run)) || aliases_vector(output, bytes, run.shaping_input) ||
+        aliases_vector(output, bytes, run.glyphs) ||
         aliases_vector(output, bytes, run.descriptor_indices) || aliases_vector(output, bytes, run.normalized_coordinates))
         return true;
     if (run.batch == nullptr) return false;
