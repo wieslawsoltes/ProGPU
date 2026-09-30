@@ -43,5 +43,6 @@ $Gpg = if ($GpgCommand) { $GpgCommand.Source } else {
 if (-not (Test-Path $Gpg -PathType Leaf)) { throw 'A real GnuPG executable is required.' }
 if (-not (Get-Command ninja.exe -ErrorAction SilentlyContinue)) { throw 'Ninja is required.' }
 python (Join-Path $PSScriptRoot 'progpu-prepare-freetype.py') `
-    --workspace $Workspace --rid $Rid --cc cl --cxx cl --gpg $Gpg
+    --workspace $Workspace --rid $Rid --cc cl --cxx cl --gpg $Gpg `
+    --test-font (Join-Path $env:WINDIR 'Fonts/arial.ttf')
 if ($LASTEXITCODE -ne 0) { throw "The signed font dependency producer failed for $Rid." }

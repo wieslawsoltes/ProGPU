@@ -409,6 +409,7 @@ jobs:
             cmake \
             ninja-build \
             gnupg \
+            fonts-dejavu-core \
             libvulkan1 \
             mesa-vulkan-drivers \
             libx11-xcb1 \
@@ -432,8 +433,14 @@ jobs:
           font_workspace="$(mktemp -d "${RUNNER_TEMP}/progpu-freetype.XXXXXXXX")"
           font_workspace="$(cd "$font_workspace" && pwd -P)"
           echo "PROGPU_FREETYPE_WORKSPACE=$font_workspace" >> "$GITHUB_ENV"
+          if [[ '${{ runner.os }}' == 'macOS' ]]; then
+            test_font='/System/Library/Fonts/Supplemental/Arial.ttf'
+          else
+            test_font='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+          fi
           python3 ./eng/progpu-prepare-freetype.py \
-            --workspace "$font_workspace" --rid '${{ matrix.rid }}' --cc clang --cxx clang++
+            --workspace "$font_workspace" --rid '${{ matrix.rid }}' --cc clang --cxx clang++ \
+            --test-font "$test_font"
 
       - name: Build signed isolated font dependency on Windows
         if: runner.os == 'Windows'

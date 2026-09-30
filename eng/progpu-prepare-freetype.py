@@ -209,6 +209,15 @@ def prepare(args):
     if probe != {"version": pin["version"], "interpreters": [35, 40],
                  "independentPolicies": True, "invalidPolicyRejected": True}:
         raise ValueError("FreeType dependency capability probe returned unexpected evidence")
+    test_font = Path(args.test_font).resolve(strict=True)
+    test_font_hash = hashlib.sha256(test_font.read_bytes()).hexdigest()
+    glyph_executable = probe_build / ("progpu_native_hinted_font_tests.exe"
+                                    if args.rid.startswith("win-") else "progpu_native_hinted_font_tests")
+    glyph_probe = json.loads(run([str(glyph_executable), str(test_font)]).stdout)
+    if glyph_probe != {"glyphBatchControls": True, "nativeHintsObserved": True, "slotDifferential": True}:
+        raise ValueError("Native hinted-font batch controls returned unexpected evidence")
+    if hashlib.sha256(test_font.read_bytes()).hexdigest() != test_font_hash:
+        raise ValueError("The hinted-font control input changed during execution")
     legal = install / "share/progpu-freetype/licenses"
     legal.mkdir(parents=True)
     receipts = []
@@ -230,7 +239,8 @@ def prepare(args):
                 "configure": configure, "compiler": run([args.cc, "--version"]).stdout.strip()
                 if not args.rid.startswith("win-") else args.cc,
                 "probeConfigure": probe_configure, "publicApiProbe": probe,
-                "qualification": "signed-source-static-architecture-and-library-policy-only"}
+                "glyphProbe": glyph_probe, "testFont": {"path": str(test_font), "sha256": test_font_hash},
+                "qualification": "signed-source-static-architecture-library-policy-and-private-glyph-batches"}
     (install / "progpu-freetype.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps({"rid": args.rid, "manifest": str(install / "progpu-freetype.json"),
                       "verifiedObjects": count, "sha256": manifest["sha256"]}))
@@ -242,6 +252,7 @@ def main():
     parser.add_argument("--rid", choices=RID_MACHINES, required=True)
     parser.add_argument("--cc", required=True)
     parser.add_argument("--cxx", required=True)
+    parser.add_argument("--test-font", required=True)
     parser.add_argument("--generator", default="Ninja")
     parser.add_argument("--cmake", default="cmake")
     parser.add_argument("--gpg", default="gpg")

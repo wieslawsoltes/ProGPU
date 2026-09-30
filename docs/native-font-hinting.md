@@ -45,10 +45,40 @@ also keep FreeType symbols private to the owning renderer and reject interpositi
 ## Remaining integration
 
 Dependency preparation is not hinted-font execution or application qualification.
-The native font adapter must retain immutable selected font bytes and exact face,
-size, phase, hint policy and variation identity. It must capture advances and
-outlines together before the next FreeType glyph slot overwrites them, preserve
-original glyph/source IDs, publish batches atomically and retain caller tails.
+The native font adapter now owns immutable original font bytes, exact face index,
+26.6 device-em request and fractional phase, interpreter policy and original-order
+16.16 variation coordinates. Its native face and library end before their memory
+font. Variable TrueType fonts require all axes explicitly within their ranges;
+named-instance encodings, CFF/CFF2, color and bitmap-only fonts remain unadmitted,
+rather than silently substituting a base instance or bitmap. That is an explicit
+remaining compatibility requirement, not full source Display support.
+
+One serialized native batch captures every original glyph's advances, all metrics,
+linear advances, bearing deltas, outline flags, points, tags and contour ends from
+the same glyph slot before another load overwrites it. Retained immutable batches
+keep their exact original font/size/policy identity after adapter disposal. SIMD
+validates original unsigned IDs on admitted x64/ARM64 targets; geometry uses exact
+native signed-long bulk copies, without float rounding. The private C++ types are
+not a wire ABI. No managed per-glyph crossing is added. Any later invalid ID,
+native hint fault or allocation failure leaves the previous batch unpublished and
+unchanged; descriptors and input order, including repeated glyphs, remain intact.
+
+The producer builds this original adapter and executes focused controls against
+the host's actual Arial (Windows/macOS) or DejaVu Sans (Linux), without packaging
+those fonts. Controls compare every retained metric/point/tag/contour/flag to a
+separate public-API FreeType face, require an actual hinted-versus-unhinted
+difference, retain caller mutation/disposal independence, exercise every SIMD lane
+and bounded tail, invalid configuration publication, phase translation and empty/
+repeated batches. The receipt records the actual test-font hash. These controls
+are adapter/dependency evidence, not an independent Windows Display oracle or
+GPU/application qualification. Variable-instance and native hint-failure injection
+controls remain required alongside subsequent integration.
+
+The adapter is currently built by the isolated producer, not linked into the
+product text context or either renderer. Next steps must connect its selected
+immutable generation through the existing context use lease and bounded cache,
+retain original shaping identities, add atomic fixed-width C/managed transport
+and untouched caller-tail tests, and share its output across actual consumers.
 No sampled width, isolated suffix reshape, per-glyph managed crossing, bitmap
 substitution or Ideal coercion admits source Display mode.
 
@@ -69,3 +99,36 @@ and does not copy upstream implementation or its example code. All existing
 shaping/layout, glyph/atlas, upload, GPU execution and source defaults remain
 unchanged in this dependency-only step; application performance and independent
 Windows Display comparisons are still unqualified.
+
+## Architecture research and decisions
+
+Only public contracts/design notes were used; foreign implementation structure is
+not copied. [Skia's shaped-text model](https://docs.skia.org/docs/dev/design/text_shaper/)
+and [Win2D retained text layout](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm)
+support retaining original font/glyph identity and sharing formatted results across
+drawing and interaction. Adopted: immutable batch snapshots; rejected: reshaping
+substrings or deriving caret positions from ink geometry.
+[Direct2D/DirectWrite integration](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite)
+keeps layout and rendering distinct. A FreeType interpreter choice is not inferred
+to reproduce Microsoft's measuring/rendering modes; an independent Windows oracle
+must qualify the complete source path.
+[WebRender font-instance options](https://doc.servo.org/webrender_api/font/struct.FontInstanceOptions.html)
+make rendering policy part of font-instance identity; this adapter retains its
+own exact policy/phase/variation identity rather than adopting foreign cache keys.
+[Vello](https://github.com/linebender/vello) and
+[Parley's layout concepts](https://github.com/linebender/parley/blob/main/doc/concept.md)
+keep reusable CPU layout separate from GPU vector work. Adopted: CPU-dependent
+native TrueType instruction execution and retained outlines; existing ProGPU GPU
+coverage/composition stays unchanged. [HarfBuzz's responsibilities](https://harfbuzz.github.io/what-does-harfbuzz-do.html)
+do not replace font hint execution; shaping remains the original ProGPU pipeline,
+not another engine's text implementation.
+
+Creation is lazy/explicit and owns a font copy; capture is O(H + G + P + C), where
+H is dependent instruction execution, G glyphs, P points and C contours, with
+O(F + G + P + C) owned storage including F original font bytes. Startup, worker
+preparation, scene visibility, demand uploads, cache eviction, atlas generations
+and device-loss ownership are unchanged until actual product wiring. The future
+bounded context cache must avoid repeated font copies/captures without confusing
+font identity, positioned scene revisions or live atlas generations. Cold/warm
+application timings, allocation/residency evidence, native package/NativeAOT and
+independent image gates remain outstanding; no performance benefit is claimed.
