@@ -20649,9 +20649,15 @@ bool source_visual_visibility_is_atomic_and_released_with_its_owner() {
     request.target_handle = 4U; request.scene_id = 9831U;
     request.generation = request.request_serial = 1U;
     request.dpi_scale_x = request.dpi_scale_y = 1.0;
-    const auto hits = [&](status expected = status::success) {
+    const auto hits = [&](const char* phase, status expected = status::success) {
         std::span<const std::byte> compiled;
-        PROGPU_REQUIRE(state.build_scene(request, compiled) == expected);
+        const status actual = state.build_scene(request, compiled);
+        if (actual != expected) {
+            std::cerr << "visual visibility phase '" << phase << "': expected status "
+                << static_cast<std::uint32_t>(expected) << ", actual "
+                << static_cast<std::uint32_t>(actual) << '\n';
+        }
+        PROGPU_REQUIRE(actual == expected);
         if (expected != status::success) {
             PROGPU_REQUIRE(compiled.empty());
             return std::uint32_t{0U};
@@ -20667,27 +20673,27 @@ bool source_visual_visibility_is_atomic_and_released_with_its_owner() {
         }
         return count;
     };
-    PROGPU_REQUIRE(hits() == 2U);
+    PROGPU_REQUIRE(hits("initial") == 2U);
     progpu_native_mil_visual_visibility child{2U, PROGPU_NATIVE_MIL_VISIBILITY_HIDDEN};
     PROGPU_REQUIRE(state.set_visual_visibilities({&child, 1U}) == status::success);
     child.visibility = PROGPU_NATIVE_MIL_VISIBILITY_VISIBLE; // Caller mutation cannot change retained state.
-    PROGPU_REQUIRE(hits() == 1U);
+    PROGPU_REQUIRE(hits("copied child snapshot") == 1U);
     const std::array<std::array<progpu_native_mil_visual_visibility, 2U>, 3U> malformed{{
         {{{1U, 0U}, {2U, 3U}}}, {{{1U, 0U}, {1U, 1U}}}, {{{2U, 0U}, {1U, 1U}}}
     }};
     for (const auto& entries : malformed) {
         PROGPU_REQUIRE(state.set_visual_visibilities(entries) == status::invalid_argument);
-        PROGPU_REQUIRE(hits() == 1U); // Invalid suffix cannot clear the old child exclusion.
+        PROGPU_REQUIRE(hits("invalid value/order retained snapshot") == 1U);
     }
     for (const std::uint32_t invalid_handle : {3U, 9U}) {
         const progpu_native_mil_visual_visibility entries[]{{1U, 0U}, {invalid_handle, 1U}};
         PROGPU_REQUIRE(state.set_visual_visibilities(entries) == status::invalid_handle);
-        PROGPU_REQUIRE(hits() == 1U);
+        PROGPU_REQUIRE(hits("invalid handle retained snapshot") == 1U);
     }
     const progpu_native_mil_visual_visibility zero{0U, 1U};
     PROGPU_REQUIRE(state.set_visual_visibilities({&zero, 1U}) == status::invalid_argument);
-    PROGPU_REQUIRE(hits() == 1U);
-    PROGPU_REQUIRE(state.set_visual_visibilities({}) == status::success && hits() == 2U);
+    PROGPU_REQUIRE(hits("zero handle retained snapshot") == 1U);
+    PROGPU_REQUIRE(state.set_visual_visibilities({}) == status::success && hits("cleared snapshot") == 2U);
     // Retain the actual channel and identical build request across visibility
     // changes. Removing the override must restore the original cache identity.
     batch.clear(); append_create(batch, 8U, 94U);
@@ -20712,7 +20718,7 @@ bool source_visual_visibility_is_atomic_and_released_with_its_owner() {
     PROGPU_REQUIRE(state.apply(batch) == status::success);
     for (const auto visibility : {PROGPU_NATIVE_MIL_VISIBILITY_HIDDEN, PROGPU_NATIVE_MIL_VISIBILITY_COLLAPSED}) {
         const progpu_native_mil_visual_visibility root{1U, static_cast<std::uint32_t>(visibility)};
-        PROGPU_REQUIRE(state.set_visual_visibilities({&root, 1U}) == status::success && hits() == 0U);
+        PROGPU_REQUIRE(state.set_visual_visibilities({&root, 1U}) == status::success && hits("invisible root") == 0U);
     }
     const progpu_native_mil_visual_visibility detached{6U, 2U};
     PROGPU_REQUIRE(state.set_visual_visibilities({&detached, 1U}) == status::success);
@@ -20724,9 +20730,9 @@ bool source_visual_visibility_is_atomic_and_released_with_its_owner() {
     append_command(batch, command::visual_set_content, 6U, 3U);
     append_command(batch, command::visual_insert_child_at, 1U, 6U, 1U);
     append_command(batch, command::visual_set_alpha, 1U, 0.0);
-    PROGPU_REQUIRE(state.apply(batch) == status::success && hits() == 3U);
-    // An opacity-zero parent retains input, so an active spatial mask still
-    // rejects. Actual local invisibility must retire the subtree before it.
+    PROGPU_REQUIRE(state.apply(batch) == status::success && hits("reused handle under zero opacity") == 3U);
+    // An ordinary source opacity mask is input-neutral. A spatial mask on a
+    // bitmap-cached Visual remains an explicitly unsupported input boundary.
     batch.clear(); append_create(batch, 7U, 77U);
     const std::array stops{mil_gradient_stop{0.0, {1, 1, 1, 0}}, mil_gradient_stop{1.0, {1, 1, 1, 1}}};
     append_linear_gradient_brush(batch, 7U, 1.0, 0.0, 0.0, 1.0, 0.0,
@@ -20734,13 +20740,16 @@ bool source_visual_visibility_is_atomic_and_released_with_its_owner() {
     append_command(batch, command::visual_set_alpha_mask, 2U, 7U);
     PROGPU_REQUIRE(state.apply(batch) == status::success);
     PROGPU_REQUIRE(state.set_visual_cache_bounds(2U, 0, 0, 12, 8) == status::success);
-    hits(status::unsupported_command);
+    PROGPU_REQUIRE(hits("ordinary source opacity mask") == 3U);
+    batch.clear(); append_command(batch, command::visual_set_cache_mode, 2U, 8U);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    hits("cached source opacity mask", status::unsupported_command);
     child.visibility = PROGPU_NATIVE_MIL_VISIBILITY_HIDDEN;
-    PROGPU_REQUIRE(state.set_visual_visibilities({&child, 1U}) == status::success && hits() == 2U);
+    PROGPU_REQUIRE(state.set_visual_visibilities({&child, 1U}) == status::success && hits("hidden cached masked child") == 2U);
     const progpu_native_mil_visual_visibility hidden_root{1U, 2U};
-    PROGPU_REQUIRE(state.set_visual_visibilities({&hidden_root, 1U}) == status::success && hits() == 0U);
+    PROGPU_REQUIRE(state.set_visual_visibilities({&hidden_root, 1U}) == status::success && hits("collapsed mask ancestor") == 0U);
     PROGPU_REQUIRE(state.set_visual_visibilities({}) == status::success);
-    hits(status::unsupported_command);
+    hits("restored cached masked child", status::unsupported_command);
     return true;
 }
 
