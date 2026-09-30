@@ -31,6 +31,11 @@ struct reference_owner final {
     }
 };
 
+struct thread_join final {
+    std::thread& value;
+    ~thread_join() { if (value.joinable()) value.join(); }
+};
+
 std::vector<std::byte> read_font(const char* path)
 {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -161,8 +166,12 @@ void verify(const std::vector<std::byte>& original)
                     }
                 }
             };
-            std::jthread first(capture, 0U);
-            std::jthread second(capture, 1U);
+            // Apple's supported libc++ lacks jthread; retain real concurrency
+            // and exception-safe joining without changing the toolchain/gate.
+            std::thread first(capture, 0U);
+            const thread_join first_join{first};
+            std::thread second(capture, 1U);
+            const thread_join second_join{second};
             first.join();
             second.join();
             for (std::size_t worker = 0U; worker < concurrent.size(); ++worker)
