@@ -65,6 +65,16 @@ public readonly record struct TextHitTestResult(
     TextBounds Bounds,
     sbyte BidiLevel);
 
+/// <summary>
+/// A point hit and the selected shaping cluster's original UTF-16 range in the
+/// same retained layout generation. Empty rows return their insertion position
+/// with zero length. This range is not a word boundary or a glyph-ink bound.
+/// </summary>
+public readonly record struct TextClusterHitTestResult(
+    TextHitTestResult Hit,
+    int ClusterStart,
+    int ClusterLength);
+
 public class TextLayout
 {
     private const long SharedFallbackFontFileSizeLimit = 16L * 1024L * 1024L;

@@ -109,6 +109,16 @@ public sealed partial class TextInteractionSnapshot
     internal TextHitTestResult HitTestPoint(Vector2 point, out int boxIndex)
         => HitTestPoint(_boxes, _emptyHeight, point, _emptyLines, out boxIndex);
 
+    /// <summary>Returns the same point hit together with its owned original UTF-16 cluster range.</summary>
+    public TextClusterHitTestResult HitTestCluster(Vector2 point)
+    {
+        TextHitTestResult hit = HitTestPoint(point, out int boxIndex);
+        if (boxIndex < 0)
+            return new TextClusterHitTestResult(hit, hit.TextPosition, 0);
+        TextLayout.ClusterBox box = _boxes[boxIndex];
+        return new TextClusterHitTestResult(hit, box.Start, box.End - box.Start);
+    }
+
     public TextCaretStop GetCaretStop(int textPosition, bool trailingAffinity = false)
         => GetCaretStop(_carets, textPosition, trailingAffinity);
 

@@ -145,6 +145,17 @@ public sealed class DrawingTextLayout
         return Translate(hit);
     }
 
+    /// <summary>
+    /// Returns the selected original UTF-16 cluster from this layout generation,
+    /// with the same aligned bounds and caret affinity as <see cref="HitTestPoint"/>.
+    /// Empty rows have a zero-length range at their retained insertion position.
+    /// </summary>
+    public TextClusterHitTestResult HitTestCluster(PointF point)
+    {
+        TextClusterHitTestResult result = _interaction.HitTestCluster(new Vector2(point.X, point.Y) - Offset);
+        return result with { Hit = Translate(result.Hit) };
+    }
+
     /// <summary>EDIT pointer geometry over original whole-grapheme owners, not word-boundary endpoints.</summary>
     public TextHitTestResult HitTestEditPoint(PointF point)
         => Translate(_editInteraction.Value.HitTestPoint(new Vector2(point.X, point.Y) - Offset));

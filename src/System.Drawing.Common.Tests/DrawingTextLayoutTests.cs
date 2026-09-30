@@ -9,6 +9,56 @@ namespace System.Drawing.Tests;
 public sealed class DrawingTextLayoutTests
 {
     [Theory]
+    [InlineData(StringAlignment.Near, false)]
+    [InlineData(StringAlignment.Center, false)]
+    [InlineData(StringAlignment.Far, true)]
+    public void ClusterHitRetainsUtf16RangeThroughDrawingAlignment(StringAlignment alignment, bool rtl)
+    {
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
+        using var font = new Font(FontFamily.GenericSansSerif, 20);
+        using StringFormat format = MakeFormat();
+        format.Alignment = alignment;
+        format.LineAlignment = StringAlignment.Far;
+        format.FormatFlags |= StringFormatFlags.NoWrap;
+        if (rtl) format.FormatFlags |= StringFormatFlags.DirectionRightToLeft;
+        DrawingTextLayout layout = DrawingTextLayout.Create(graphics, "a x\u0301 b", font, new SizeF(300, 150), format);
+        var bounds = Assert.Single(layout.GetSelectionRectangles(2, 2));
+        Assert.True(bounds.Width > 0);
+        foreach (float fraction in new[] { .25f, .75f })
+        {
+            var point = new PointF(bounds.X + bounds.Width * fraction, bounds.Y + bounds.Height / 2);
+            var result = layout.HitTestCluster(point);
+            Assert.Equal((2, 2), (result.ClusterStart, result.ClusterLength));
+            Assert.Equal(bounds, result.Hit.Bounds);
+            Assert.True(result.Hit.IsInside);
+            Assert.Equal(layout.HitTestPoint(point), result.Hit);
+        }
+    }
+
+    [Theory]
+    [InlineData("", 0)]
+    [InlineData("a\r\n\r\nb", 3)]
+    public void ClusterHitKeepsAlignedEmptyRowInsertionAndFontHeight(string text, int position)
+    {
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
+        using var font = new Font(FontFamily.GenericSansSerif, 20);
+        using StringFormat format = MakeFormat();
+        format.Alignment = StringAlignment.Far;
+        format.LineAlignment = StringAlignment.Far;
+        DrawingTextLayout layout = DrawingTextLayout.Create(graphics, text, font, new SizeF(300, 150), format);
+        var caret = layout.GetCaretStop(position);
+        var point = new PointF(caret.Position.X + 1000, caret.Position.Y + caret.Height / 2);
+        var result = layout.HitTestCluster(point);
+        Assert.Equal((position, 0), (result.ClusterStart, result.ClusterLength));
+        Assert.False(result.Hit.IsInside);
+        Assert.Equal(0, result.Hit.Bounds.Width);
+        Assert.Equal(caret.Position.X, result.Hit.Bounds.X);
+        Assert.Equal(caret.Position.Y, result.Hit.Bounds.Y);
+        Assert.Equal(caret.Height, result.Hit.Bounds.Height);
+        Assert.Equal(layout.HitTestPoint(point), result.Hit);
+    }
+
+    [Theory]
     [InlineData(StringAlignment.Near)]
     [InlineData(StringAlignment.Center)]
     [InlineData(StringAlignment.Far)]

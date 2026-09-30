@@ -90,3 +90,39 @@ The first complete Drawing CI at `8138dc9e3` failed the unchanged
 `WarmedPrivateMetricReadsAreAllocationFree` assertion (zero expected, 1,024 bytes
 observed). That failure is retained in the job log and is not a successful gate;
 neither its assertion nor the runtime/warmup policy has been relaxed.
+
+## Original cluster range at a point
+
+`DrawingTextLayout.HitTestCluster(PointF)` and
+`TextInteractionSnapshot.HitTestCluster(Vector2)` return a
+`TextClusterHitTestResult`: the existing `Hit`, plus `ClusterStart` and
+`ClusterLength` in original UTF-16 units. The range belongs to the exact retained
+generation that selected the hit. Empty rows return their writer-owned insertion
+position with zero length; empty text returns `(0, 0)` and Drawing retains the
+actual font line height. An outside hit retains the nearest selected cluster and
+`IsInside == false`.
+
+The original point-hit constructor/deconstruction and result semantics are
+unchanged. Both methods use the original single selector from
+`TextInteractionSnapshot` at `4b0064a9c`; the Drawing wrapper applies the same
+alignment translation once. Trailing hits already contain the cluster **end**,
+not its start plus one. The new range comes directly from the selected retained
+box, never from subtracting a UTF-16 unit, probing another point, reshaping text,
+or borrowing a mutable glyph collection. Bidi half/midpoint rules, row selection,
+shared-edge ties and nearest-box order are unchanged. Query cost remains the
+existing O(clusters + empty rows) scan with O(1) extra value storage and no new
+allocation, GPU work or managed/native call.
+
+This is a managed retained-layout metadata exposure, not a new shaping or hit
+algorithm. Both renderer modes consume the same Drawing layout; native paragraph
+interaction, C ABI, shaders and renderer commands are unchanged. The design
+references above still apply. No word boundaries or Windows EDIT selection
+semantics are inferred: Forms owns the immediately dependent source selection
+policy and interaction integration.
+
+Fifteen focused cases are authored in the existing text and Drawing test projects
+for actual combining/supplementary/ligature source ranges, bidi halves, midpoint
+and shared-edge ties, outside hits, blank/CRLF rows, original API shape and aligned
+Drawing results. The existing snapshot-generation case also retains the new result
+through source glyph clearing/regeneration. These additions have **not been built
+or run locally**; full CI and the source editor's native acceptance remain required.
