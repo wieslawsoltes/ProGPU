@@ -329,6 +329,26 @@ internal static class ManagedPictureBenchmark
         if (report.Native.AllocatedBytesPerFrame != 0d ||
             report.Managed.AllocatedBytesPerFrame != 0d)
         {
+            // Emit only already-recorded values, after every measured frame and
+            // image/control check. Diagnostics cannot change admission or move
+            // reporting allocations into the render/wait measurement windows.
+            Console.WriteLine(
+                $"Stable replay allocation samples: runtime={report.Runtime}, " +
+                $"os={report.OperatingSystem}, backend={report.Backend}, " +
+                $"warmup={warmupCount}, measured={iterationCount}.");
+            for (int index = 0; index < iterationCount; index++)
+            {
+                TimingSample nativeSample = nativeSamples[index];
+                TimingSample managedSample = managedSamples[index];
+                Console.WriteLine(
+                    $"frame={index}, order={((index & 1) == 0 ? "native-managed" : "managed-native")}, " +
+                    $"nativeTotal={nativeSample.AllocatedBytes}, " +
+                    $"nativeSubmit={nativeSample.SubmissionAllocatedBytes}, " +
+                    $"nativeWait={nativeSample.CompletionWaitAllocatedBytes}, " +
+                    $"managedTotal={managedSample.AllocatedBytes}, " +
+                    $"managedSubmit={managedSample.SubmissionAllocatedBytes}, " +
+                    $"managedWait={managedSample.CompletionWaitAllocatedBytes}.");
+            }
             throw new InvalidOperationException(
                 "Matched stable replay must allocate zero managed bytes per " +
                 $"frame: native={report.Native.AllocatedBytesPerFrame}, " +
@@ -350,16 +370,21 @@ internal static class ManagedPictureBenchmark
             long allocationStart = GC.GetAllocatedBytesForCurrentThread();
             long submitStart = Stopwatch.GetTimestamp();
             RenderNative();
+            long submittedAllocation = GC.GetAllocatedBytesForCurrentThread();
             double submission = Stopwatch.GetElapsedTime(submitStart).TotalMilliseconds;
             NativeSubmissionToken token = native.GetLastSubmissionToken();
             long waitStart = Stopwatch.GetTimestamp();
             native.WaitForSubmission(token);
             double completion = Stopwatch.GetElapsedTime(waitStart).TotalMilliseconds;
+            double total = Stopwatch.GetElapsedTime(submitStart).TotalMilliseconds;
+            long completedAllocation = GC.GetAllocatedBytesForCurrentThread();
             return new(
                 submission,
                 completion,
-                Stopwatch.GetElapsedTime(submitStart).TotalMilliseconds,
-                GC.GetAllocatedBytesForCurrentThread() - allocationStart);
+                total,
+                completedAllocation - allocationStart,
+                submittedAllocation - allocationStart,
+                completedAllocation - submittedAllocation);
         }
 
         TimingSample MeasureManaged()
@@ -367,15 +392,20 @@ internal static class ManagedPictureBenchmark
             long allocationStart = GC.GetAllocatedBytesForCurrentThread();
             long submitStart = Stopwatch.GetTimestamp();
             RenderManaged();
+            long submittedAllocation = GC.GetAllocatedBytesForCurrentThread();
             double submission = Stopwatch.GetElapsedTime(submitStart).TotalMilliseconds;
             long waitStart = Stopwatch.GetTimestamp();
             context.PollDevice(wait: true);
             double completion = Stopwatch.GetElapsedTime(waitStart).TotalMilliseconds;
+            double total = Stopwatch.GetElapsedTime(submitStart).TotalMilliseconds;
+            long completedAllocation = GC.GetAllocatedBytesForCurrentThread();
             return new(
                 submission,
                 completion,
-                Stopwatch.GetElapsedTime(submitStart).TotalMilliseconds,
-                GC.GetAllocatedBytesForCurrentThread() - allocationStart);
+                total,
+                completedAllocation - allocationStart,
+                submittedAllocation - allocationStart,
+                completedAllocation - submittedAllocation);
         }
     }
 
@@ -1057,7 +1087,9 @@ internal static class ManagedPictureBenchmark
         double SubmissionMilliseconds,
         double CompletionWaitMilliseconds,
         double TotalMilliseconds,
-        long AllocatedBytes);
+        long AllocatedBytes,
+        long SubmissionAllocatedBytes,
+        long CompletionWaitAllocatedBytes);
 
     private sealed record ManagedPictureBenchmarkReport(
         string Runtime,
