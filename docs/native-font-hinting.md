@@ -249,8 +249,34 @@ authored; actual shared-library and package consumers remain required.
 The existing managed contract generator adds exact `int64_t` -> `long` support
 and owns marked hinting records. A read-only hosted generation workflow emits
 the original generator outputs with exact producer commit and input-header hash;
-no local build or handwritten generated output is used. The generated file must
-be imported and verified before managed consumers are admitted.
+no local build or handwritten generated output is used. Hosted run36744475000
+succeeded at730822ff04555f0c9670a0873fe9ac54bbdb9987. Its header SHA-256
+`d7b0be1416a02e18fa9a228ed1a80048f668b141aae8c0607f795b1867864fbe`
+matches the unchanged current header; every previous generated contract was
+byte-identical. `NativeTextHintingContract.g.cs` is imported byte-for-byte from
+that successful generator artifact, and the ordinary verifier now checks it.
+Generator provenance is not native product/runtime qualification.
+
+`NativeTextShapingContext.CaptureHintedBatch` retains the existing context use
+through native capture and managed ownership construction, with paired raw-handle
+release on construction failure. `NativeHintedFontBatch` retains immutable counts
+and a separate monitor-backed handle owner for each whole atomic copy. Finalizer/
+explicit disposal cannot release a borrowed pointer; snapshots survive context
+disposal/cache eviction without keeping the mutable context live. Generated
+records preserve all 14 signed 64-bit metrics and exact geometry, not floating
+approximations. Public values ending in266/1616 denote the corresponding fixed-
+point units under the existing generator naming convention. A captured generation
+still does not attach itself to ordinary source layout or rendering.
+
+Authored managed controls independently check fixed layouts, every metric offset/
+signed type, integer extremes and purpose-correct disposal leases without loading
+fonts. The existing source-independent package consumer also retains all prior
+device-advance checks and adds actual loaded-library hinted generation controls
+for both interpreters: exact original order/phase, complete raw warm equality,
+short/overlapping buffers and untouched tails, cache eviction, concurrent copies
+and post-context/batch disposal. The existing JIT/NativeAOT package processes and
+deadlines remain intact; no new selector replaces an original independent case.
+These product consumers are authored, not yet qualified by current exact-head CI.
 
 The adapter is now explicitly linkable into the product text context and both
 renderers through the bounded cache. Next steps must retain original shaping

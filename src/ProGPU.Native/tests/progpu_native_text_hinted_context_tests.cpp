@@ -87,6 +87,11 @@ int main()
                 ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
                 candidate == nullptr);
             request.reserved = 0U;
+            request.x_phase_26_6 = 64U;
+            transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,
+                ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                candidate == nullptr);
+            request.x_phase_26_6 = 0U;
             transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,
                 ids.data(), static_cast<std::uint32_t>(ids.size()), reinterpret_cast<progpu_native_hinted_batch**>(&request)) ==
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && request.abi_version == PROGPU_NATIVE_ABI_VERSION);
@@ -118,7 +123,13 @@ int main()
                 transport_require(capture_context_hinted(context.value, palette, configuration, ids, fallback, error));
                 transport_require(fallback->identity->source == select_context_font_source(context.value, palette) &&
                     fallback->identity->source != source && fallback->glyphs == saved->glyphs);
+                batch_owner published_fallback;
+                request.font_index = palette;
+                transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,
+                    ids.data(), static_cast<std::uint32_t>(ids.size()), &published_fallback.value) == PROGPU_NATIVE_STATUS_SUCCESS);
+                verify_public_batch(published_fallback.value, *fallback);
             }
+            request.font_index = 0U;
             transport_require(retained == saved && retained->identity->source == source);
             tests::verify_hinted_transport(*retained);
 #else

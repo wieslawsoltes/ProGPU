@@ -13,6 +13,7 @@ WgpuContext.OnWebGpuDeviceLost += (reason, message) =>
 if (args.Contains("--text-device-advances-only", StringComparer.Ordinal))
 {
     TextDeviceAdvanceValidation.Run();
+    TextHintingValidation.Run(Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"));
     return;
 }
 
@@ -546,6 +547,7 @@ Console.WriteLine(
 static void ValidateNativeInlineParagraph()
 {
     TextDeviceAdvanceValidation.Run();
+    TextHintingValidation.Run(Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"));
     TextDigitSubstitutionValidation.Run(Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"));
     TextContinuationValidation.Run(Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"));
     if (Marshal.SizeOf<NativeTextFloatingItem>() != 16 || Marshal.SizeOf<NativeTextFloatingOptions>() != 32 ||
