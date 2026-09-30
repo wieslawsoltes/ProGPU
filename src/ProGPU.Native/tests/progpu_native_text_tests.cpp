@@ -2980,7 +2980,7 @@ void device_gpos_anchors_and_attachments_use_one_frame() {
         if (path == device_gpos::gpos_arithmetic_path::intrinsic_simd) continue;
 #endif
         const auto frame = make_gpos_control_frame(font, control, path);
-        for (const std::uint16_t format : {1U, 2U, 3U}) {
+        for (const std::uint16_t format : {std::uint16_t{1U}, std::uint16_t{2U}, std::uint16_t{3U}}) {
             const std::size_t anchor_size = format == 1U ? 6U : format == 2U ? 8U : 10U;
             const std::size_t base_array = 84U + anchor_size;
             const std::size_t base_anchor = base_array + 4U;
