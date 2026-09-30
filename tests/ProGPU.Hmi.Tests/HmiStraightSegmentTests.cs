@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace ProGPU.Hmi.Tests;
@@ -108,18 +109,32 @@ public sealed class HmiStraightSegmentTests
         Assert.Equal(new[] { new HmiPoint(0, 0), new HmiPoint(10, 0), new HmiPoint(20, 0) }, link.Waypoints);
     }
 
-    [Fact]
-    public void LegacyJsonCopyAndReflectionDisabledRoundTripAreSafe()
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void LegacyJsonCopyAndReflectionDisabledRoundTripAreSafe(string newLine)
     {
         Assert.False(JsonSerializer.IsReflectionEnabledByDefault);
         var project = HmiDiagramModelTests.Project(); var link = project.Screens[0].Links[0];
-        string legacy = HmiProjectSerializer.Serialize(project).Replace(",\n          \"straightSegments\": []", "");
-        Assert.Empty(HmiProjectSerializer.Deserialize(legacy).Screens[0].Links[0].StraightSegments);
+        var legacy = JsonNode.Parse(WithLineEndings(HmiProjectSerializer.Serialize(project)))!;
+        var legacyLink = legacy["screens"]![0]!["links"]![0]!.AsObject();
+        Assert.True(legacyLink.Remove("straightSegments"));
+        Assert.False(legacyLink.ContainsKey("straightSegments"));
+        Assert.Empty(HmiProjectSerializer.Deserialize(legacy.ToJsonString()).Screens[0].Links[0].StraightSegments);
         link.Waypoints = [new(200, -60), new(400, -60)]; link.StraightSegments = [0];
         var json = HmiProjectSerializer.Serialize(project);
-        Assert.Equal(json, HmiProjectSerializer.Serialize(HmiProjectSerializer.Deserialize(json)));
+        Assert.Equal(json, HmiProjectSerializer.Serialize(HmiProjectSerializer.Deserialize(WithLineEndings(json))));
         var copy = link.Copy(); copy.StraightSegments.Clear(); Assert.Single(link.StraightSegments);
-        Assert.Throws<InvalidDataException>(() => HmiProjectSerializer.Deserialize(json.Replace("\"straightSegments\": [\n            0\n          ]", "\"straightSegments\": null")));
+        // Mutate the actual JSON member, not platform-dependent indentation/newlines.
+        var invalid = JsonNode.Parse(WithLineEndings(json))!;
+        var invalidLink = invalid["screens"]![0]!["links"]![0]!.AsObject();
+        invalidLink["straightSegments"] = null;
+        Assert.True(invalidLink.ContainsKey("straightSegments"));
+        Assert.Null(invalidLink["straightSegments"]);
+        Assert.Throws<InvalidDataException>(() => HmiProjectSerializer.Deserialize(invalid.ToJsonString()));
+
+        string WithLineEndings(string value) => value.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace("\n", newLine, StringComparison.Ordinal);
     }
 
     [Fact]
