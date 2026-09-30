@@ -1,4 +1,5 @@
 #include "progpu_native_text.hpp"
+#include "progpu_native_text_layout_origin_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -110,17 +111,7 @@ bool metric_envelope(std::span<const text_item_metrics> metrics,
 float line_alignment_shift(
     const text_layout_options& options,
     float line_width) noexcept {
-    if (options.maximum_width <= line_width) return 0.0F;
-    switch (options.alignment) {
-        case text_alignment::center:
-            return (options.maximum_width - line_width) * 0.5F;
-        case text_alignment::right:
-            return options.maximum_width - line_width;
-        case text_alignment::left:
-        case text_alignment::justify:
-            return 0.0F;
-    }
-    return 0.0F;
+    return detail::text_line_alignment_shift(options, line_width);
 }
 
 float horizontal_advance(
@@ -1080,8 +1071,8 @@ static bool layout_measured_core(
         }
         const float sign_width = should_trim ? options.ellipsis_advance * options.scale : 0.0F;
         const bool leading_sign = should_trim && options.collapse_width >= 0.0F && (paragraph_level & 1) != 0;
-        float cursor_x = leading_sign ? sign_width :
-            expansion > 0.0F && (paragraph_level & 1) != 0 ? -trailing_width : 0.0F;
+        float cursor_x = detail::text_line_pen_origin(leading_sign, sign_width,
+            expansion > 0.0F && (paragraph_level & 1) != 0, trailing_width);
         float cursor_y = baseline;
         float distributed = 0.0F;
         std::size_t remaining_opportunities = opportunities;
