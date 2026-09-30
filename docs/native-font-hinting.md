@@ -76,6 +76,32 @@ fractional sizes, phase changes and retained snapshots after adapter disposal.
 The producer receipt requires these controls on every RID. Capturing this frame
 does not yet connect hinted shaping, fitting, interaction or GPU rasterization.
 
+The private design-vector projection now consumes those retained scales in one
+allocation-free span operation. Automatic selection uses baseline SSE2/ARM64 NEON;
+forced SIMD and explicit scalar-reference policies report their selected path.
+Unsupported policies and forced GPU paths fail closed: these CPU-visible values
+are inputs to native positioning, so a GPU pass would add prohibited readback.
+This is not a renderer compute fallback. The scalar oracle calls the actual
+public `FT_MulFix`; the original SIMD implementation uses widened magnitude
+products, integer rounding and sign restoration, with at most one vector tail.
+Its public arithmetic/domain reference is
+[FreeType computations](https://freetype.org/freetype2/docs/reference/ft2-computations.html).
+No foreign implementation text or structure was consulted or imported.
+
+Both scale operands and rounded outputs must fit signed 32-bit arithmetic even
+where native `long` is 64-bit. Exact integer bounds validate every SIMD lane
+before the first output write. Complete output capacity may not alias input or
+any retained source/configuration/glyph storage, including the device frame.
+Output tails and all outputs on later invalid values remain unchanged. Authored
+controls compare automatic/forced SIMD against the public scalar oracle for all
+lengths 0–17, both signs and half ties, extreme values, nonuniform selected scales,
+post-disposal generations, every invalid lane/tail and both native-long widths.
+Every producer receipt requires these controls; current-head execution remains
+subject to whole hosted CI. Work is O(N + G), N vectors and G retained glyphs
+for the dependent ownership-range walk; auxiliary storage is O(1). No performance
+claim is made. This displacement primitive adds neither origin/phase nor a late
+advance substitution and does not yet connect source Display shaping/layout.
+
 The producer builds this original adapter and executes focused controls against
 the host's actual Arial (Windows/macOS) or DejaVu Sans (Linux), without packaging
 those fonts. Controls compare every retained metric/point/tag/contour/flag to a

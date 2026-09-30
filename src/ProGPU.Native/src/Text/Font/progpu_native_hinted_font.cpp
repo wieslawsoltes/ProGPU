@@ -1,4 +1,5 @@
 #include "progpu_native_hinted_font.hpp"
+#include "progpu_native_hinted_transport.hpp"
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -69,7 +70,7 @@ const void* module_of(const void* address) noexcept
 bool dependency_owned() noexcept
 {
     const auto owner = module_of(reinterpret_cast<const void*>(&dependency_owned));
-    const std::array<const void*, 16> functions{
+    const std::array<const void*, 17> functions{
         reinterpret_cast<const void*>(&FT_Init_FreeType), reinterpret_cast<const void*>(&FT_Done_FreeType),
         reinterpret_cast<const void*>(&FT_Library_Version), reinterpret_cast<const void*>(&FT_Property_Set),
         reinterpret_cast<const void*>(&FT_Property_Get), reinterpret_cast<const void*>(&FT_New_Memory_Face),
@@ -77,7 +78,8 @@ bool dependency_owned() noexcept
         reinterpret_cast<const void*>(&FT_Get_MM_Var), reinterpret_cast<const void*>(&FT_Done_MM_Var),
         reinterpret_cast<const void*>(&FT_Set_Var_Design_Coordinates), reinterpret_cast<const void*>(&FT_Request_Size),
         reinterpret_cast<const void*>(&FT_Set_Transform), reinterpret_cast<const void*>(&FT_Load_Glyph),
-        reinterpret_cast<const void*>(&FT_Outline_Check), reinterpret_cast<const void*>(&FT_Get_Char_Index)};
+        reinterpret_cast<const void*>(&FT_Outline_Check), reinterpret_cast<const void*>(&FT_Get_Char_Index),
+        reinterpret_cast<const void*>(&FT_MulFix)};
     if (owner == nullptr) return false;
     // Each selected public function must belong to this executing image. A
     // matching version or archive path alone cannot establish loaded ownership.
@@ -315,6 +317,139 @@ bool hinted_font::try_capture(std::span<const std::uint32_t> glyph_indices,
     } catch (...) {
         return fail(hinted_font_error::hinting_failed, error);
     }
+}
+
+hinted_projection_result project_hinted_design_vectors(const hinted_glyph_batch& batch,
+    std::span<const hinted_design_vector> input, std::span<hinted_outline_point> output,
+    hinted_projection_policy policy) noexcept
+{
+    static_assert(sizeof(hinted_design_vector) == 8U && offsetof(hinted_design_vector, y) == 4U);
+    static_assert(sizeof(hinted_outline_point) == 2U * sizeof(long));
+    static_assert(offsetof(hinted_outline_point, y_26_6) == sizeof(long));
+    hinted_projection_path path = hinted_projection_path::none;
+    if (policy == hinted_projection_policy::scalar_reference) path = hinted_projection_path::scalar_reference;
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(__SSE2__) || defined(_M_X64)
+    else if (policy == hinted_projection_policy::automatic || policy == hinted_projection_policy::intrinsic_simd)
+        path = hinted_projection_path::intrinsic_simd;
+#endif
+    // These CPU-visible displacement values precede native GPOS. A GPU pass
+    // would require a new readback; forced GPU policies therefore fail closed.
+    if (path == hinted_projection_path::none) return {hinted_projection_error::unsupported_policy, path};
+    const auto fail_projection = [path](hinted_projection_error error) noexcept {
+        return hinted_projection_result{error, path};
+    };
+    if (batch.identity == nullptr || batch.identity->source == nullptr)
+        return fail_projection(hinted_projection_error::invalid_argument);
+    const auto& frame = batch.identity->device_frame;
+    // Public fixed computations admit signed-32-bit operands even on LP64.
+    if (frame.units_per_em == 0U || frame.x_scale_16_16 <= 0 || frame.y_scale_16_16 <= 0 ||
+        frame.x_scale_16_16 > std::numeric_limits<std::int32_t>::max() ||
+        frame.y_scale_16_16 > std::numeric_limits<std::int32_t>::max())
+        return fail_projection(hinted_projection_error::unsupported_frame);
+    if (output.size() < input.size()) return fail_projection(hinted_projection_error::insufficient_capacity);
+    const auto input_address = reinterpret_cast<std::uintptr_t>(input.data());
+    if ((!input.empty() && (input.data() == nullptr || input_address % alignof(hinted_design_vector) != 0U)) ||
+        input.size() > (std::numeric_limits<std::uintptr_t>::max() - input_address) / sizeof(hinted_design_vector) ||
+        hinted_batch_output_aliases(batch, output)) return fail_projection(hinted_projection_error::invalid_argument);
+    const auto output_address = reinterpret_cast<std::uintptr_t>(output.data());
+    if (!input.empty() && !output.empty() &&
+        (input_address <= output_address ? output_address - input_address < input.size_bytes() :
+            input_address - output_address < output.size_bytes())) return fail_projection(hinted_projection_error::invalid_argument);
+
+    const auto sx = static_cast<std::int32_t>(frame.x_scale_16_16);
+    const auto sy = static_cast<std::int32_t>(frame.y_scale_16_16);
+    const auto bound = [](std::int32_t scale, bool negative) noexcept {
+        const std::int64_t magnitude = negative ? 2147483648LL : 2147483647LL;
+        const auto maximum = (magnitude * 65536 + 32767) / scale;
+        const auto admitted = maximum < magnitude ? maximum : magnitude;
+        return static_cast<std::int32_t>(negative ? -admitted : admitted);
+    };
+    const hinted_design_vector minimum{bound(sx, true), bound(sy, true)};
+    const hinted_design_vector maximum{bound(sx, false), bound(sy, false)};
+    std::size_t index = 0U;
+    if (path == hinted_projection_path::intrinsic_simd) {
+#if defined(__aarch64__) || defined(_M_ARM64)
+        const std::array<std::int32_t, 4> lower{minimum.x, minimum.y, minimum.x, minimum.y};
+        const std::array<std::int32_t, 4> upper{maximum.x, maximum.y, maximum.x, maximum.y};
+        for (; input.size() - index >= 2U; index += 2U) {
+            int32x4_t lanes{};
+            std::memcpy(&lanes, input.data() + index, sizeof(lanes));
+            if (vminvq_u32(vandq_u32(vcgeq_s32(lanes, vld1q_s32(lower.data())),
+                vcleq_s32(lanes, vld1q_s32(upper.data())))) == 0U)
+                return fail_projection(hinted_projection_error::unsupported_frame);
+        }
+#elif defined(__SSE2__) || defined(_M_X64)
+        const auto lower = _mm_setr_epi32(minimum.x, minimum.y, minimum.x, minimum.y);
+        const auto upper = _mm_setr_epi32(maximum.x, maximum.y, maximum.x, maximum.y);
+        for (; input.size() - index >= 2U; index += 2U) {
+            const auto lanes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(input.data() + index));
+            if (_mm_movemask_epi8(_mm_or_si128(_mm_cmpgt_epi32(lower, lanes), _mm_cmpgt_epi32(lanes, upper))) != 0)
+                return fail_projection(hinted_projection_error::unsupported_frame);
+        }
+#endif
+    }
+    for (; index < input.size(); ++index) {
+        const auto value = input[index];
+        if (value.x < minimum.x || value.x > maximum.x || value.y < minimum.y || value.y > maximum.y)
+            return fail_projection(hinted_projection_error::unsupported_frame);
+    }
+    // Only after the complete ownership/domain pass may any output be written.
+    index = 0U;
+    if (path == hinted_projection_path::intrinsic_simd) {
+#if defined(__aarch64__) || defined(_M_ARM64)
+        const std::array<std::uint32_t, 4> scales{static_cast<std::uint32_t>(sx), static_cast<std::uint32_t>(sy),
+            static_cast<std::uint32_t>(sx), static_cast<std::uint32_t>(sy)};
+        const auto scale = vld1q_u32(scales.data());
+        const auto rounded = [](uint64x2_t product, int64x2_t sign) noexcept {
+            const auto magnitude = vreinterpretq_s64_u64(vshrq_n_u64(vaddq_u64(product, vdupq_n_u64(32768U)), 16));
+            return vsubq_s64(veorq_s64(magnitude, sign), sign);
+        };
+        for (; input.size() - index >= 2U; index += 2U) {
+            int32x4_t lanes{};
+            std::memcpy(&lanes, input.data() + index, sizeof(lanes));
+            const auto sign = vshrq_n_s32(lanes, 31);
+            const auto magnitude = vreinterpretq_u32_s32(vabsq_s32(lanes));
+            const auto first = rounded(vmull_u32(vget_low_u32(magnitude), vget_low_u32(scale)), vmovl_s32(vget_low_s32(sign)));
+            const auto second = rounded(vmull_u32(vget_high_u32(magnitude), vget_high_u32(scale)), vmovl_s32(vget_high_s32(sign)));
+            if constexpr (sizeof(long) == 8U) {
+                std::memcpy(output.data() + index, &first, sizeof(first));
+                std::memcpy(output.data() + index + 1U, &second, sizeof(second));
+            } else {
+                const auto values = vcombine_s32(vmovn_s64(first), vmovn_s64(second));
+                std::memcpy(output.data() + index, &values, sizeof(values));
+            }
+        }
+#elif defined(__SSE2__) || defined(_M_X64)
+        const auto scales = _mm_setr_epi32(sx, sy, sx, sy);
+        const auto rounded = [](__m128i product, __m128i sign) noexcept {
+            const auto magnitude = _mm_srli_epi64(_mm_add_epi64(product, _mm_set1_epi64x(32768)), 16);
+            return _mm_sub_epi64(_mm_xor_si128(magnitude, sign), sign);
+        };
+        for (; input.size() - index >= 2U; index += 2U) {
+            const auto lanes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(input.data() + index));
+            const auto sign = _mm_srai_epi32(lanes, 31);
+            const auto magnitude = _mm_sub_epi32(_mm_xor_si128(lanes, sign), sign);
+            const auto x = rounded(_mm_mul_epu32(magnitude, scales), _mm_shuffle_epi32(sign, _MM_SHUFFLE(2, 2, 0, 0)));
+            const auto y = rounded(_mm_mul_epu32(_mm_srli_si128(magnitude, 4), _mm_srli_si128(scales, 4)),
+                _mm_shuffle_epi32(sign, _MM_SHUFFLE(3, 3, 1, 1)));
+            if constexpr (sizeof(long) == 8U) {
+                const auto first = _mm_unpacklo_epi64(x, y);
+                const auto second = _mm_unpackhi_epi64(x, y);
+                std::memcpy(output.data() + index, &first, sizeof(first));
+                std::memcpy(output.data() + index + 1U, &second, sizeof(second));
+            } else {
+                const auto values = _mm_unpacklo_epi32(_mm_shuffle_epi32(x, _MM_SHUFFLE(2, 0, 2, 0)),
+                    _mm_shuffle_epi32(y, _MM_SHUFFLE(2, 0, 2, 0)));
+                std::memcpy(output.data() + index, &values, sizeof(values));
+            }
+        }
+#endif
+    }
+    // At most one vector remains in SIMD mode. Explicit scalar-reference mode
+    // uses the actual public dependency function for its independent oracle.
+    for (; index < input.size(); ++index)
+        output[index] = {FT_MulFix(input[index].x, sx), FT_MulFix(input[index].y, sy)};
+    return {hinted_projection_error::none, path};
 }
 
 } // namespace progpu::native::text

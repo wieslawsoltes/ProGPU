@@ -7,6 +7,7 @@
 #include FT_MODULE_H
 
 #include <array>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -107,6 +108,101 @@ void compare_slot(const hinted_glyph& glyph, FT_GlyphSlot slot)
         require(glyph.contour_ends[index] == slot->outline.contours[index]);
 }
 
+void verify_design_projection(const hinted_glyph_batch& batch)
+{
+    constexpr std::array policies{hinted_projection_policy::automatic,
+        hinted_projection_policy::intrinsic_simd, hinted_projection_policy::scalar_reference};
+    const auto& frame = batch.identity->device_frame;
+    std::array<hinted_design_vector, 17> input{};
+    for (std::size_t index = 0U; index < input.size(); ++index)
+        input[index] = {static_cast<std::int32_t>(index) * 1234 - 4321,
+            7654 - static_cast<std::int32_t>(index) * 2345};
+    const hinted_outline_point sentinel{-77, -91};
+    std::array<hinted_outline_point, 18> output{};
+    for (const auto policy : policies) {
+        for (std::size_t count = 0U; count <= input.size(); ++count) {
+            output.fill(sentinel);
+            const auto result = project_hinted_design_vectors(batch, {input.data(), count}, output, policy);
+            require(result.error == hinted_projection_error::none && result.path ==
+                (policy == hinted_projection_policy::scalar_reference ? hinted_projection_path::scalar_reference :
+                    hinted_projection_path::intrinsic_simd));
+            for (std::size_t index = 0U; index < output.size(); ++index)
+                require(output[index] == (index < count ? hinted_outline_point{
+                    FT_MulFix(input[index].x, frame.x_scale_16_16),
+                    FT_MulFix(input[index].y, frame.y_scale_16_16)} : sentinel));
+        }
+        output.fill(sentinel);
+        const auto untouched = output;
+        require(project_hinted_design_vectors(batch, input, {output.data(), 16U}, policy).error ==
+            hinted_projection_error::insufficient_capacity && output == untouched);
+        auto overlapping = input;
+        require(project_hinted_design_vectors(batch, overlapping,
+            {reinterpret_cast<hinted_outline_point*>(overlapping.data()), overlapping.size()}, policy).error ==
+            hinted_projection_error::invalid_argument);
+        require(std::memcmp(overlapping.data(), input.data(), sizeof(input)) == 0);
+        require(project_hinted_design_vectors(batch, {input.data(), 1U},
+            {reinterpret_cast<hinted_outline_point*>(const_cast<std::byte*>(batch.identity->source->bytes.data())), 1U},
+            policy).error == hinted_projection_error::invalid_argument);
+        require(project_hinted_design_vectors(batch, {input.data(), 1U},
+            {reinterpret_cast<hinted_outline_point*>(const_cast<hinted_font_device_frame*>(&frame)), 1U},
+            policy).error == hinted_projection_error::invalid_argument);
+    }
+    output.fill(sentinel);
+    const auto untouched = output;
+    for (const auto policy : {hinted_projection_policy::native_compute, hinted_projection_policy::gpu_shader,
+        static_cast<hinted_projection_policy>(0xFFFFFFFFU)}) {
+        const auto result = project_hinted_design_vectors(batch, input, output, policy);
+        require(result.error == hinted_projection_error::unsupported_policy && result.path == hinted_projection_path::none &&
+            output == untouched);
+    }
+
+    // Independent unpacked arithmetic frames, not admitted font fixtures.
+    auto identity = std::make_shared<hinted_font_identity>(*batch.identity);
+    hinted_glyph_batch arithmetic;
+    arithmetic.identity = identity;
+    for (const auto policy : policies) {
+        for (const std::int32_t scale : {65536, 32768}) {
+            identity->device_frame.x_scale_16_16 = scale;
+            identity->device_frame.y_scale_16_16 = scale;
+            const std::array<hinted_design_vector, 5> edges{{
+                {std::numeric_limits<std::int32_t>::min(), std::numeric_limits<std::int32_t>::max()},
+                {1, -1}, {-3, 3}, {-1, 1}, {3, -3}}};
+            for (std::size_t count = 0U; count <= edges.size(); ++count) {
+                output.fill(sentinel);
+                require(project_hinted_design_vectors(arithmetic, {edges.data(), count}, output, policy).error ==
+                    hinted_projection_error::none);
+                for (std::size_t index = 0U; index < output.size(); ++index)
+                    require(output[index] == (index < count ? hinted_outline_point{
+                        FT_MulFix(edges[index].x, scale), FT_MulFix(edges[index].y, scale)} : sentinel));
+            }
+        }
+        identity->device_frame.x_scale_16_16 = std::numeric_limits<std::int32_t>::max();
+        identity->device_frame.y_scale_16_16 = std::numeric_limits<std::int32_t>::max();
+        for (std::size_t bad_index = 0U; bad_index < input.size(); ++bad_index) {
+            for (const bool bad_y : {false, true}) {
+                for (const std::int32_t invalid : {-65537, 65537}) {
+                    std::array<hinted_design_vector, 17> bad{};
+                    bad[bad_index] = bad_y ? hinted_design_vector{0, invalid} : hinted_design_vector{invalid, 0};
+                    output.fill(sentinel);
+                    require(project_hinted_design_vectors(arithmetic, bad, output, policy).error ==
+                        hinted_projection_error::unsupported_frame && output == untouched);
+                }
+            }
+        }
+        const std::array<hinted_design_vector, 2> boundary{{{65536, -65536}, {-65536, 65536}}};
+        output.fill(sentinel);
+        require(project_hinted_design_vectors(arithmetic, boundary, output, policy).error == hinted_projection_error::none);
+        for (std::size_t index = 0U; index < output.size(); ++index)
+            require(output[index] == (index < boundary.size() ? hinted_outline_point{
+                FT_MulFix(boundary[index].x, std::numeric_limits<std::int32_t>::max()),
+                FT_MulFix(boundary[index].y, std::numeric_limits<std::int32_t>::max())} : sentinel));
+        identity->device_frame.y_scale_16_16 = 0;
+        output.fill(sentinel);
+        require(project_hinted_design_vectors(arithmetic, input, output, policy).error ==
+            hinted_projection_error::unsupported_frame && output == untouched);
+    }
+}
+
 void verify(const std::vector<std::byte>& original)
 {
     reference_owner reference;
@@ -140,6 +236,7 @@ void verify(const std::vector<std::byte>& original)
             tests::verify_hinted_transport(*batch);
             configure_reference(reference, configuration);
             compare_frame(*batch->identity, reference.face);
+            verify_design_projection(*batch);
             for (std::size_t index = 0U; index < ids.size(); ++index) {
                 require(FT_Load_Glyph(reference.face, ids[index],
                     FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT | FT_LOAD_PEDANTIC | FT_LOAD_TARGET_NORMAL) == 0);
@@ -243,6 +340,7 @@ void verify(const std::vector<std::byte>& original)
             tests::verify_hinted_transport(*saved);
             phase_font.reset();
             compare_frame(*saved->identity, reference.face);
+            verify_design_projection(*saved);
             require(saved->identity->source->bytes == original && saved->glyphs == repeated->glyphs);
         }
     }
@@ -257,6 +355,7 @@ void verify(const std::vector<std::byte>& original)
         fractional_batch->identity->y_pixels_per_em_26_6 == fractional.y_pixels_per_em_26_6);
     configure_reference(reference, fractional);
     compare_frame(*fractional_batch->identity, reference.face);
+    verify_design_projection(*fractional_batch);
     require(fractional_batch->identity->device_frame.x_scale_16_16 !=
         fractional_batch->identity->device_frame.y_scale_16_16);
     for (std::size_t index = 0U; index < ids.size(); ++index) {
@@ -316,7 +415,7 @@ int main(int argc, char** argv)
         verify_native_hint_fault();
         std::cout << "{\"glyphBatchControls\":true,\"nativeHintsObserved\":true,"
                      "\"slotDifferential\":true,\"nativeFaultAtomicity\":true,\"fixedWidthTransport\":true,"
-                     "\"actualDeviceFrame\":true}\n";
+                     "\"actualDeviceFrame\":true,\"hintedProjectionSIMD\":true}\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

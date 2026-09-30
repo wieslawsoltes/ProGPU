@@ -107,6 +107,20 @@ struct hinted_glyph_batch final {
     std::vector<hinted_glyph> glyphs{};
 };
 
+struct hinted_design_vector final { std::int32_t x = 0, y = 0; };
+enum class hinted_projection_policy : std::uint32_t { automatic, native_compute, gpu_shader, intrinsic_simd, scalar_reference };
+enum class hinted_projection_path : std::uint32_t { none, intrinsic_simd, scalar_reference };
+enum class hinted_projection_error : std::uint32_t { none, invalid_argument, insufficient_capacity, unsupported_frame, unsupported_policy };
+struct hinted_projection_result final {
+    hinted_projection_error error = hinted_projection_error::none;
+    hinted_projection_path path = hinted_projection_path::none;
+};
+// Exact design displacement -> selected device 26.6; no origin/phase or late
+// glyph-advance replacement. One immutable batch, whole-span atomic preflight.
+hinted_projection_result project_hinted_design_vectors(const hinted_glyph_batch& batch,
+    std::span<const hinted_design_vector> input, std::span<hinted_outline_point> output,
+    hinted_projection_policy policy = hinted_projection_policy::automatic) noexcept;
+
 class hinted_font final {
 public:
     ~hinted_font();

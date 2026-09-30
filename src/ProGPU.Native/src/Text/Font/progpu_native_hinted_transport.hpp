@@ -19,6 +19,10 @@ struct hinted_transport_result final {
 hinted_transport_error get_hinted_batch_counts(const hinted_glyph_batch& batch,
     progpu_native_hinted_batch_counts& counts) noexcept;
 
+// Full output-capacity guard shared with native design-vector projection.
+bool hinted_batch_output_aliases(const hinted_glyph_batch& batch,
+    std::span<hinted_outline_point> output) noexcept;
+
 // One retained generation, one atomic preflight, no allocation or font/GPU work.
 // Tags share the point offsets. Contour ends remain glyph-local original indices.
 // Every unused caller slot remains untouched, including successful empty input.

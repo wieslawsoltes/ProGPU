@@ -225,7 +225,7 @@ def prepare(args):
     glyph_probe = json.loads(run([str(glyph_executable), str(test_font)]).stdout)
     if glyph_probe != {"glyphBatchControls": True, "nativeHintsObserved": True,
                       "slotDifferential": True, "nativeFaultAtomicity": True, "fixedWidthTransport": True,
-                      "actualDeviceFrame": True}:
+                      "actualDeviceFrame": True, "hintedProjectionSIMD": True}:
         raise ValueError("Native hinted-font batch controls returned unexpected evidence")
     transport_executable = probe_build / ("progpu_native_hinted_transport_tests.exe"
                                         if args.rid.startswith("win-") else "progpu_native_hinted_transport_tests")

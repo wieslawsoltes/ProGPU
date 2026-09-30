@@ -233,4 +233,11 @@ hinted_transport_result copy_hinted_batch(const hinted_glyph_batch& batch,
     return {hinted_transport_error::none, selected};
 }
 
+bool hinted_batch_output_aliases(const hinted_glyph_batch& batch,
+    std::span<hinted_outline_point> values) noexcept
+{
+    std::array<memory_range, 1> output{};
+    return !range(values, output[0]) || aliases_batch(output, batch);
+}
+
 } // namespace progpu::native::text
