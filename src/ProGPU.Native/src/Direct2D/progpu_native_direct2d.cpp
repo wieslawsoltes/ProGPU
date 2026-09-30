@@ -6065,6 +6065,7 @@ public:
         double target_width = 0.0,
         double target_height = 0.0)
         : builder_(scene_id, generation),
+          scene_id_(scene_id), generation_(generation),
           target_width_(target_width), target_height_(target_height)
     {
         const uint64_t draw_count =
@@ -6251,7 +6252,7 @@ public:
         if (!can_record()) {
             return fail_drawing_state();
         }
-        if (has_clear_ || translated_draw_count_ != 0U || scope_depth_ != 0U) {
+        if (scope_depth_ != 0U) {
             return fail_unsupported_operation();
         }
         const D2D1_COLOR_F value = color == nullptr
@@ -6260,6 +6261,26 @@ public:
         if (!finite_color(value)) {
             return fail_invalid_value();
         }
+        // Same full-target replacement as the portable render target. A
+        // leading clear plus the surviving suffix describes the final scene;
+        // translated-draw/callback/failure accounting still describes the
+        // original stream, including successfully translated discarded draws.
+        // Reset invalidates retained brush indices, never the caller's COM
+        // brushes or already built scene bytes. O(C + R) retirement, no GPU work.
+        if (!builder_.reset(scene_id_, generation_)) {
+            return fail_builder();
+        }
+        brush_cache_.clear();
+        has_aliased_primitives_ = false;
+        has_axis_aligned_clips_ = false;
+        has_gradient_brushes_ = false;
+        has_path_geometry_ = false;
+        has_stroked_path_geometry_ = false;
+        has_opacity_layers_ = false;
+        has_geometric_layer_masks_ = false;
+        has_opacity_brush_layer_masks_ = false;
+        has_composite_layer_masks_ = false;
+        has_target_dependent_masks_ = false;
         clear_color_ = value;
         has_clear_ = true;
         return S_OK;
@@ -8507,6 +8528,8 @@ private:
 
     std::atomic<ULONG> reference_count_{1U};
     progpu::native::semantic_scene_builder builder_;
+    const uint64_t scene_id_;
+    const uint64_t generation_;
     const double target_width_;
     const double target_height_;
     D2D1_MATRIX_3X2_F transform_ = D2D1::Matrix3x2F::Identity();
