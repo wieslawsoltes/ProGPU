@@ -20,6 +20,23 @@ struct batch_owner final {
 };
 
 #if defined(PROGPU_NATIVE_FONT_HINTING)
+void verify_shaping_map(std::span<const std::byte> bytes) {
+    using namespace progpu::native::text;
+    sfnt_font_view font{};
+    tests::transport_require(sfnt_font_view::try_create(bytes, 0U, font));
+    for (std::uint32_t code_point = 0U; code_point < 256U; ++code_point) {
+        const std::uint16_t expected = code_point == 0x20U || code_point == 0x2EU ||
+            code_point == 0x30U || code_point == 0x41U ? std::uint16_t{1U} :
+            code_point == 0x2CU || code_point == 0x31U || code_point == 0x42U ? std::uint16_t{2U} : std::uint16_t{0U};
+        std::uint16_t actual = 0xFFFFU;
+        tests::transport_require(font.try_get_glyph_index(code_point, actual) && actual == expected);
+    }
+    for (const std::uint32_t code_point : {0x2007U, 0x2008U, 0xFFFFU}) {
+        std::uint16_t actual = 0xFFFFU;
+        tests::transport_require(font.try_get_glyph_index(code_point, actual) && actual == 0U);
+    }
+}
+
 void verify_owned_shaping(const progpu::native::text::hinted_font_configuration& configuration) {
     using namespace progpu::native::text;
     using tests::transport_require;
@@ -28,6 +45,7 @@ void verify_owned_shaping(const progpu::native::text::hinted_font_configuration&
         ~context_owner() { progpu_native_text_context_destroy(value); }
     } context;
     const auto bytes = progpu::native::tests::make_hinted_shape_font();
+    verify_shaping_map(bytes);
     transport_require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
         reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size(), 0U,
         nullptr, 0U, &context.value) == PROGPU_NATIVE_STATUS_SUCCESS);
@@ -49,7 +67,12 @@ void verify_owned_shaping(const progpu::native::text::hinted_font_configuration&
             for (const bool ranged : {false, true}) {
                 const std::array values{shaping_feature{kern, 0U, 0U, 0xFFFFFFFFU}, shaping_feature{kern, 1U, 1U, 2U}};
                 options.feature_settings = ranged ? std::span<const shaping_feature>(values) : std::span<const shaping_feature>{};
-                transport_require(try_shape_context_hinted(context.value, 0U, configuration, input, options, retained, error, policy));
+                const bool shaped = try_shape_context_hinted(context.value, 0U, configuration, input, options, retained, error, policy);
+                if (!shaped) std::cerr << "Owned hinted shaping failed: interpreter=" << static_cast<std::uint32_t>(configuration.policy)
+                    << " direction=" << static_cast<std::uint32_t>(direction) << " projection_policy=" << static_cast<std::uint32_t>(policy)
+                    << " ranged=" << ranged << " shaping=" << static_cast<std::uint32_t>(error.shaping)
+                    << " capture=" << static_cast<std::uint32_t>(error.capture) << " projection=" << static_cast<std::uint32_t>(error.projection) << '\n';
+                transport_require(shaped);
                 transport_require(retained->source_descriptor_count == 3U && retained->batch->glyphs.size() == 3U &&
                     retained->glyphs.size() == 3U && retained->descriptor_indices.size() == 3U &&
                     retained->batch->identity->source == source && retained->batch->identity->policy == configuration.policy &&
@@ -365,6 +388,8 @@ int main()
         batch_owner public_batch;
 #if defined(PROGPU_NATIVE_FONT_HINTING)
         std::shared_ptr<const hinted_shaped_run> owned_shape;
+        const auto mapping_original = progpu::native::tests::make_hinted_mapping_font();
+        verify_shaping_map(mapping_original);
 #endif
         for (const auto policy : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
             context_owner context;
@@ -396,16 +421,20 @@ int main()
             verify_owned_gpos_frame(*retained);
             verify_owned_run_metrics(*retained);
             verify_owned_shaping(configuration);
+            context_owner shape_context;
+            transport_require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
+                reinterpret_cast<const std::uint8_t*>(mapping_original.data()), mapping_original.size(), 0U,
+                nullptr, 0U, &shape_context.value) == PROGPU_NATIVE_STATUS_SUCCESS);
             const std::array<unicode_scalar, 2U> repeated_a{unicode_scalar{0x41U, 0U, 1U}, unicode_scalar{0x41U, 1U, 1U}};
             auto shape_options = open_type_shape_run_options{};
             shape_options.script = open_type_tag::from_chars('l', 'a', 't', 'n');
             hinted_shape_error shape_error{};
-            transport_require(try_shape_context_hinted(context.value, 0U, configuration, repeated_a,
+            transport_require(try_shape_context_hinted(shape_context.value, 0U, configuration, repeated_a,
                 shape_options, owned_shape, shape_error) && owned_shape->batch->glyphs.size() == 2U &&
                 owned_shape->descriptor_indices == std::vector<std::uint32_t>{0U, 1U});
             const auto saved_shape = owned_shape;
             const std::array<unicode_scalar, 2U> faulty_shape{unicode_scalar{0x41U, 0U, 1U}, unicode_scalar{0x42U, 1U, 1U}};
-            transport_require(!try_shape_context_hinted(context.value, 0U, configuration, faulty_shape,
+            transport_require(!try_shape_context_hinted(shape_context.value, 0U, configuration, faulty_shape,
                 shape_options, owned_shape, shape_error) && shape_error.capture == hinted_font_error::hinting_failed &&
                 owned_shape == saved_shape);
             const auto saved = retained;

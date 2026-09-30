@@ -8,7 +8,7 @@ namespace progpu::native::tests {
 // liga substitutes the valid glyph before capture. kern then positions that
 // same retained descriptor. Unused later digit/comma mappings remain faulty.
 // Public wire contracts only; no external font or implementation is copied.
-inline std::vector<std::byte> make_hinted_shape_font() {
+inline std::vector<std::byte> make_hinted_fixture_font(bool include_layout) {
     using bytes = std::vector<std::byte>;
     const auto original = make_hint_fault_font();
     const auto read16 = [&](std::size_t at) {
@@ -52,10 +52,32 @@ inline std::vector<std::byte> make_hinted_shape_font() {
             original.begin() + static_cast<std::ptrdiff_t>(offset + length))};
         if (value.tag == 0x68656164U) put32(value.data, 8U, 0U);
         if (value.tag == 0x636D6170U) {
-            for (const auto character : {32U, 46U, 48U})
-                value.data[18U + character] = std::byte{1};
-            for (const auto character : {44U, 49U})
-                value.data[18U + character] = std::byte{2};
+            // The capture-only fixture's Macintosh format zero is accepted by
+            // FreeType, but native shaping needs a supported Unicode cmap.
+            // Keep every authored source/auxiliary mapping and fault identity.
+            struct segment final { std::uint16_t first, last, first_glyph; };
+            constexpr std::array segments{
+                segment{0x20U, 0x20U, 1U}, segment{0x2CU, 0x2CU, 2U},
+                segment{0x2EU, 0x2EU, 1U}, segment{0x30U, 0x31U, 1U},
+                segment{0x41U, 0x42U, 1U}, segment{0xFFFFU, 0xFFFFU, 0U}};
+            value.data.assign(76U, std::byte{0});
+            put16(value.data, 2U, 1U);
+            put16(value.data, 4U, 3U); // Windows Unicode BMP
+            put16(value.data, 6U, 1U);
+            put32(value.data, 8U, 12U);
+            put16(value.data, 12U, 4U);
+            put16(value.data, 14U, 64U);
+            put16(value.data, 18U, 12U); // six segments
+            put16(value.data, 20U, 8U);
+            put16(value.data, 22U, 2U);
+            put16(value.data, 24U, 4U);
+            for (std::size_t segment_index = 0U; segment_index < segments.size(); ++segment_index) {
+                const auto& mapping = segments[segment_index];
+                put16(value.data, 26U + segment_index * 2U, mapping.last);
+                put16(value.data, 40U + segment_index * 2U, mapping.first);
+                put16(value.data, 52U + segment_index * 2U, static_cast<std::uint16_t>(
+                    static_cast<std::int32_t>(mapping.first_glyph) - mapping.first));
+            }
         }
         tables.push_back(std::move(value));
     }
@@ -100,8 +122,10 @@ inline std::vector<std::byte> make_hinted_shape_font() {
         }
         return data;
     };
-    tables.push_back({0x47535542U, layout(true)});
-    tables.push_back({0x47504F53U, layout(false)});
+    if (include_layout) {
+        tables.push_back({0x47535542U, layout(true)});
+        tables.push_back({0x47504F53U, layout(false)});
+    }
     std::sort(tables.begin(), tables.end(), [](const table& left, const table& right) {
         return left.tag < right.tag;
     });
@@ -112,7 +136,7 @@ inline std::vector<std::byte> make_hinted_shape_font() {
     put16(result, 4U, static_cast<std::uint16_t>(tables.size()));
     put16(result, 6U, 128U);
     put16(result, 8U, 3U);
-    put16(result, 10U, 32U);
+    put16(result, 10U, static_cast<std::uint16_t>(tables.size() * 16U - 128U));
     std::size_t cursor = 12U + tables.size() * 16U;
     std::size_t head_offset = 0U;
     for (std::size_t index = 0U; index < tables.size(); ++index) {
@@ -129,5 +153,13 @@ inline std::vector<std::byte> make_hinted_shape_font() {
     }
     put32(result, head_offset + 8U, 0xB1B0AFBAU - checksum(result));
     return result;
+}
+
+inline std::vector<std::byte> make_hinted_mapping_font() {
+    return make_hinted_fixture_font(false);
+}
+
+inline std::vector<std::byte> make_hinted_shape_font() {
+    return make_hinted_fixture_font(true);
 }
 } // namespace progpu::native::tests
