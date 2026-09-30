@@ -74,7 +74,7 @@ the latter are not exact glyph bounds or an application line-height policy.
 Independent face controls compare every field for both interpreters, nonuniform
 fractional sizes, phase changes and retained snapshots after adapter disposal.
 The producer receipt requires these controls on every RID. Capturing this frame
-does not yet connect hinted shaping, fitting, interaction or GPU rasterization.
+alone does not qualify its subsequent shaping, fitting, interaction or GPU use.
 
 The private design-vector projection now consumes those retained scales in one
 allocation-free span operation. Automatic selection uses baseline SSE2/ARM64 NEON;
@@ -119,10 +119,10 @@ Independent face controls compare every actual contour point for both policies,
 phase changes, fractional sizes and snapshots after adapter disposal. Separate
 unpacked descriptors with repeated IDs but different points reject ID-based
 substitution; out-of-range/empty/extreme/invalid-phase controls remain separate.
-The producer receipt requires retained-anchor evidence on every RID. Actual GPOS
-device-value/anchor dispatch, attachment arithmetic, pre-positioning hinted
-advances and fallback geometry still require coordinated integration. This
-accessor does not enable Display or qualify source layout/interaction/raster.
+The producer receipt requires retained-anchor evidence on every RID. The private
+owned shaping path below connects GPOS device values, attachment arithmetic,
+initial hinted advances and fallback geometry to this same batch. This accessor
+alone does not enable Display or qualify source layout/interaction/raster.
 
 The producer builds this original adapter and executes focused controls against
 the host's actual Arial (Windows/macOS) or DejaVu Sans (Linux), without packaging
@@ -310,11 +310,13 @@ The existing managed contract generator adds exact `int64_t` -> `long` support
 and owns marked hinting records. A read-only hosted generation workflow emits
 the original generator outputs with exact producer commit and input-header hash;
 no local build or handwritten generated output is used. Hosted run36744475000
-succeeded at730822ff04555f0c9670a0873fe9ac54bbdb9987. Its header SHA-256
+succeeded at730822ff04555f0c9670a0873fe9ac54bbdb9987. That run's header SHA-256
 `d7b0be1416a02e18fa9a228ed1a80048f668b141aae8c0607f795b1867864fbe`
-matches the unchanged current header; every previous generated contract was
-byte-identical. `NativeTextHintingContract.g.cs` is imported byte-for-byte from
-that successful generator artifact, and the ordinary verifier now checks it.
+records the original capture-only header; every previous generated contract was
+byte-identical. The later opaque shaped-run entrypoints change that header but
+introduce no marked record or wire-layout change. `NativeTextHintingContract.g.cs`
+is imported byte-for-byte from that successful generator artifact, and the
+ordinary verifier continues checking it against the current public records.
 Generator provenance is not native product/runtime qualification.
 
 `NativeTextShapingContext.CaptureHintedBatch` retains the existing context use
@@ -338,11 +340,12 @@ and post-context/batch disposal. The existing JIT/NativeAOT package processes an
 deadlines remain intact; no new selector replaces an original independent case.
 These product consumers are authored, not yet qualified by current exact-head CI.
 
-The adapter is now explicitly linkable into the product text context and both
-renderers through the bounded cache. Next steps must retain original shaping
-identities, connect leased managed batch transport with generated wire bindings,
-and share its output across actual consumers. Linking alone does not prove that
-either renderer or a source application has consumed a hinted generation.
+The adapter is explicitly linkable into the product text context and both
+renderers through the bounded cache. Leased managed transport below uses those
+generated wire records. Subsequent consumers must retain original shaping
+identities and share one generation across actual layout, interaction and drawing.
+Linking alone does not prove that either renderer or a source application has
+consumed a hinted generation.
 No sampled width, isolated suffix reshape, per-glyph managed crossing, bitmap
 substitution or Ideal coercion admits source Display mode.
 
@@ -493,11 +496,105 @@ to the existing instruction-fault fixture: substitution avoids a pre-GSUB faulty
 glyph, and GPOS adjusts the captured valid descriptor. Hosted exact-head CI must
 qualify these controls; no local font/build/test/VM execution was performed.
 
-This private single-font run does not complete styled paragraph composition,
-fitting, continuation, interaction, either raster consumer, generated C/managed
-transport for shaped generations or WPF source Display admission. Those consumers
-must retain one fully formatted generation with original UTF-16, bidi, font/style
-and draw identities. Windows source/UI and full native package gates remain open.
+This single-font run now has an additive owned C/managed transport and the private
+fitting/outline adapters below. It does not complete styled paragraph composition,
+continuation, source interaction, either renderer's actual submission path or WPF
+Display admission. Those consumers must retain one fully formatted generation
+with original UTF-16, bidi, font/style and draw identities. Windows source/UI and
+full native package gates remain open.
+
+### Owned shaped-run C and managed boundary
+
+`progpu_native_text_context_shape_hinted_run` selects the exact context-owned
+primary/fallback font and calls the same private factory, not a second shaper.
+Source scalars, context scalars, features and normalized coordinates are borrowed
+under one context use and copied into call-owned preparation storage. Font bytes,
+collection face and normalization resources cannot silently replace that context:
+nonempty alternatives reject. The complete shaped generation and its original
+captured batch survive context retirement and cache eviction.
+
+The opaque handle exposes counts, atomic glyph-plus-descriptor copying, atomic
+outline copying and destruction. Final shaping records use the existing signed
+32-bit, Y-down convention in exact 26.6 device units; captured outline points and
+metrics retain their original Y-up convention. Y negation is proven representable
+before handle publication. Source/codepoint/cluster/flag fields stay exact, and
+descriptor indices preserve the original slot even when glyph IDs repeat or
+positions expand/reverse. Copies validate full capacities, pairwise overlap and
+every retained allocation before writing, preserving all unused caller tails.
+Four positioning lanes use baseline SIMD on the admitted x64/ARM64 targets.
+Outlines reuse the original exact bulk transport; neither copy executes a font,
+reshapes, allocates or submits GPU work. Unsupported dependency builds fail
+explicitly. The two renderer export allowlists carry the same five symbols.
+
+`NativeTextShapingContext.ShapeHintedRun` retains its existing exclusive context
+lease through capture and managed construction. `NativeHintedTextRun` owns a
+separate handle lease for both whole-run transfers; disposal cannot release a
+borrowed native generation. The existing generated wire records remain unchanged.
+Authored native controls compare complete output against independently captured
+raw slots, original source identities, both interpreters and all four directions;
+short/overlapping buffers, late faults, auxiliaries and retirement remain separate.
+Loaded JIT/NativeAOT package controls add LTR/RTL device metrics, phase, exact warm
+copies, caller tails and post-context ownership without replacing any prior case.
+These controls require successful exact-head hosted CI, not local execution.
+
+### Retained hinted fitting and interaction frames
+
+`try_layout_hinted_shaped_run` feeds the owned generation into the original
+`try_layout_measured_logical_shaped_text` writer. It does not reshape source text
+or replace already fitted advances. One explicit logical-units-per-physical-pixel
+value converts all four signed 26.6 positioning fields with the writer's existing
+SIMD lane conversion. Source ascent/descent metrics and paragraph metadata are
+required separately; rounded global native size metrics are not line-height policy.
+Caller widths/heights remain in logical units, with no design-unit em scaling.
+
+The snapshot owns run-order metadata, original logical cluster restoration,
+positioned glyphs, lines, exact descriptor maps and advance-based line origins.
+RTL cluster groups preserve their original within-cluster ordering. The original
+writer and adapter share the same alignment/pen-origin arithmetic, including RTL
+justification and trailing widths; glyph ink offsets do not own caret geometry.
+Original output glyph indices map back to the retained run, not to an ID lookup.
+Caller metadata mutation and context disposal cannot invalidate the snapshot.
+Complete borrow/publication and retained-capacity alias checks precede any write.
+
+This private adapter currently admits horizontal LTR/RTL with the original
+wrapping, alignment, justification and line limits. Vertical writing and trimming
+reject explicitly; source styles, multiline bidi composition, continuations and
+hard-row source editing still require their contracts. Authored controls compare
+the actual writer's raw output, extents and original advance-interaction API with
+independent unpacked slots, large ink offsets, both directions, fractional logical
+units, aliases and actual owned hinted runs. This is native fitting evidence when
+executed, not source Display/UI or loaded public-layout ABI qualification.
+
+### Shared native renderer outline records
+
+`write_hinted_run_outlines` converts the same retained batch into the actual
+`progpu_native_glyph_outline` and `progpu_native_path_segment` record formats
+consumed by the shared native glyph executor in both renderer providers. It keeps
+one source-indexed outline slice per ink descriptor and explicit source/positioned
+maps. Repeated IDs stay separate; auxiliary space descriptors are not source
+draws, and no-ink slots retain an explicit sentinel. Actual renderer submission
+wiring remains required; producing these records alone is not rendered output.
+
+Original quadratic contour/implicit-point handling reuses the native TrueType
+writer. Explicit mixed cubic contours preserve the existing native cubic record
+policy and source contour order. Signed coordinates and implied midpoints require
+exact float physical projection before publication; captured phase is included
+once, with raster scale one and no second subpixel offset. Baseline SIMD converts
+independent point lanes with an explicit scalar reference and bounded tail. Forced
+GPU conversion rejects because this pre-raster CPU-visible transport would need
+a new readback contract; existing GPU coverage/composition stays unchanged.
+
+Topology, complete output/scratch capacities, all retained allocation ranges and
+pairwise overlap validate before publication. Original raw tags and flags remain
+in the batch. Nonzero coverage admits ownership/reverse-winding flags only;
+even-odd, scan/dropout and unknown policies reject. Curve tags admit only original
+curve kinds and documented internal bits, not per-contour SCANTYPE overrides.
+The public [FreeType outline contract](https://freetype.org/freetype2/docs/reference/ft2-outline_processing.html)
+defines those tag/flag distinctions; a vector record adapter is not grayscale/BW
+raster parity. Authored quadratic/cubic/winding and original-writer differential
+controls retain scalar/SIMD comparisons, duplicate slots, all tails, later invalid
+topology/policy/precision and spare-capacity aliases. Both real raster consumers,
+atlas retention, full package/image and independent Windows gates remain open.
 
 The original normalized instance check uses public
 [fvar](https://learn.microsoft.com/en-us/typography/opentype/spec/fvar) and
@@ -531,9 +628,10 @@ Creation is lazy/explicit and owns a font copy; capture is O(H + G + P + C), whe
 H is dependent instruction execution, G glyphs, P points and C contours, with
 O(F + G + P + C) owned storage including F original font bytes. Startup, worker
 preparation, scene visibility, demand uploads, cache eviction, atlas generations
-and device-loss ownership are unchanged until actual product wiring. The future
-bounded context cache must avoid repeated font copies/captures without confusing
-font identity, positioned scene revisions or live atlas generations. Cold/warm
+and device-loss ownership are unchanged until actual product wiring. Subsequent
+consumers of the existing bounded context cache must avoid repeated font copies/
+captures without confusing font identity, positioned scene revisions or live
+atlas generations. Cold/warm
 application timings, allocation/residency evidence, native package/NativeAOT and
 independent image gates remain outstanding; no performance benefit is claimed.
 
