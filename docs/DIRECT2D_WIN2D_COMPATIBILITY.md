@@ -5000,13 +5000,18 @@ factory or bitmap-copy implementation to change.
 Authored controls are shared between the portable factory test and the Windows
 provider test: original COM identity, five format/alpha combinations, legacy
 formatless rejection, active/completed snapshots, physical crop/DPI metadata,
-source mutation/disposal, prior-generation self-reference, cross-factory/format
+source mutation/disposal, prior-generation self-reference, cross-factory/format/alpha
 rejection, clip/error/DPI rejection, untouched destination snapshots and creation
 output clearing. Windows layout assertions compare the new descriptor to the
 SDK. GPU fixtures independently check every pixel of the captured 16-by-16 region
 for those five formats after source mutation/disposal. These controls have not
 been executed, and no native rebuild, GPU run or Windows qualification was done
-for this implementation-first change. Full provider/package gates, independent
+for this implementation-first change. After the substantive commit, Apple Clang
+strict C++20 syntax checks (`-Wall -Wextra -Wpedantic -Werror -fsyntax-only`) passed
+for the portable factory, shared target implementation and complete portable
+compatibility test translation unit. This produced no binary and ran no native
+library. Windows provider/SDK and GPU translation units remain uncompiled here.
+Full provider/package gates, independent
 Windows behavior/pixels, performance and application qualification remain open.
 No pending native artifacts are staged or claimed as qualified.
 

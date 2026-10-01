@@ -166,6 +166,16 @@ inline bool formatted_scene_copy_contract(compat::factory* owner, compat::factor
             bitmap->CopyFromRenderTarget(nullptr, foreign_source.get(), nullptr) != compat::wrong_factory ||
             bitmap->CopyFromRenderTarget(nullptr, mismatched_source.get(), nullptr) != com::invalid_argument ||
             !export_copy_scene(child_scene.get(), after) || after != completed) return false;
+        if (format.format != 65U) {
+            const compat::pixel_format other_alpha{format.format,
+                format.alpha == compat::alpha_mode::ignore ? compat::alpha_mode::premultiplied : compat::alpha_mode::ignore};
+            if (factory->CreateFormattedSceneRenderTarget(&properties, &other_alpha, mismatched_source.put()) != com::ok)
+                return false;
+            mismatched_source->BeginDraw();
+            if (mismatched_source->EndDraw(nullptr, nullptr) != com::ok ||
+                bitmap->CopyFromRenderTarget(nullptr, mismatched_source.get(), nullptr) != com::invalid_argument ||
+                !export_copy_scene(child_scene.get(), after) || after != completed) return false;
+        }
 
         // A source recording may itself draw this destination. The immutable
         // capture contains an older generation, never a target ownership cycle.
