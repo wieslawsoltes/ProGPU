@@ -196,6 +196,14 @@ not decrement that use again. Preserve every original format/interaction/font,
 axis, source-owner and physical-geometry record without new shaping or copies.
 This consumer ownership seam does not qualify either renderer or select Display.
 
+Optional source hinted formatting carries explicit device styles and both original
+16.16 axes and normalized shaping coordinates through the shared UTF-16 mapper.
+Keep original occurrence/run/style identities and measured baseline/height/pen
+origins; do not synthesize empty-row tops or expose a design-font alias. Independent
+source references retain the live native resource until final retirement, with
+once-ended uses and exact failed teardown retry. Source GlyphRun/replay wiring,
+continuation and Display selection remain separate. See docs/source-hinted-text-ownership.md.
+
 Recorded hinted replay retains original producer uses through pictures, compiled
 scenes and frame resources, not merely managed geometry references. Keep explicit
 occurrence ranges, source brush bounds, physical Y-up records, exact target DPI

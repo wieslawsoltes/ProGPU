@@ -50,6 +50,19 @@ internal static unsafe class TextHintedParagraphValidation
             VerifySources(paragraph, original, styles, metrics, fixture.Digits, fixture.SourceBidi, direction);
             VerifyOwners(paragraph, original);
             VerifyInteraction(paragraph);
+            // The source-facing UTF-16 overload must retain the exact original
+            // scalar/style transport, not introduce a second shaping result.
+            int styleBoundary = checked((int)original[2].InputIndex);
+            NativeTextParagraphStyle[] utf16Styles =
+            [
+                new(0, styleBoundary, 0, styles[0].Scale, FeatureCount: 1,
+                    DigitZero: fixture.Digits ? 0x0660U : 0U, PreserveSourceDigitBidi: fixture.SourceBidi),
+                new(styleBoundary, fixture.Text.Length - styleBoundary, 1, styles[1].Scale, FeatureCount: 1,
+                    DigitZero: fixture.Digits ? 0x0660U : 0U, PreserveSourceDigitBidi: fixture.SourceBidi),
+            ];
+            using (var utf16 = context.LayoutHintedParagraph(fixture.Text.AsSpan(), direction,
+                in options, utf16Styles, metrics, devices, features))
+                EqualSnapshot(Snapshot(paragraph), utf16);
             observedLineReset |= VerifyLineFrames(paragraph, direction);
             if (fixture.Text == "AVA A A A A A ") VerifyOriginalRuns(context, paragraph, original, features, devices, policy);
             if (fixture.Hard)
