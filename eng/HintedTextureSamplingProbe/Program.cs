@@ -242,7 +242,7 @@ internal static unsafe class Program
                         ? "Derived authentic native frame with controlled synthetic coverage, NOT original atlas coverage; not native font, renderer, package or Display qualification."
                         : "Synthetic shared-shader sampling diagnostic; not native font, renderer, package or Display qualification.",
                     FrameControl = nativeFrame ? "native-frame" : "synthetic-frame",
-                    CanonicalCoverageGate = canonicalFrame ? 1 : 0,
+                    CanonicalCoverageGate = canonicalFrame ? -1 : 0,
                     CoverageInput = binaryOracle ? "binary-checkerboard-oracle" : "nonuniform-synthetic-regression",
                     NativeFrameReference = nativeFrame ? NativeFrameControl.Provenance() : null,
                     ReviewedShaderBaselineCommit = ShaderDiagnostics.BaselineCommit,
@@ -316,9 +316,10 @@ internal static unsafe class Program
         for (int matrix = 1; matrix < 3; matrix++)
             for (int diagonal = 0; diagonal < 4; diagonal++) values[matrix * 16 + diagonal * 5] = 1;
         values[48] = size / Dpi; values[49] = size / Dpi; values[50] = Dpi;
-        // Private native host certificate at unchanged uniform byte204. Only
-        // the explicit proven full-target native-frame probe opts into it.
-        values[51] = canonicalFrame ? 1 : 0;
+        // Private native host certificate at unchanged uniform byte204. Exact
+        // -1 is disjoint from existing positive texture scratch-pass tags.
+        // Only the proven full-target native-frame probe opts into it.
+        values[51] = canonicalFrame ? -1 : 0;
         return bytes;
     }
 
