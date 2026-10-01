@@ -477,6 +477,14 @@ jobs:
           -BenchmarkProfile Smoke
           -FontManifest "${{ env.PROGPU_FREETYPE_WORKSPACE }}/install/progpu-freetype.json"
 
+      - name: Upload failed managed-picture allocation diagnostics
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-managed-picture-diagnostics-${{ matrix.rid }}
+          path: artifacts/progpu-native/diagnostics/managed-picture
+          if-no-files-found: warn
+
       - name: Upload native MIL ImageBrush frames
         if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'
         uses: actions/upload-artifact@v7
