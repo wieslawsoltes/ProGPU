@@ -6,6 +6,7 @@
 #include <iostream>
 #include <source_location>
 #include <stdexcept>
+#include <string>
 
 namespace {
 using namespace progpu::native::text;
@@ -57,19 +58,40 @@ void controls() {
     require(copy_hinted_source_offsets(view, nominal, indices, 10.0F, copied) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
         std::memcmp(copied.data(), saved_copy.data(), sizeof(copied)) == 0);
     indices.back() = 2U;
-    const auto rejected = [&](progpu_native_status expected) {
-        require(invoke() == expected && std::memcmp(&output, &sentinel, sizeof(output)) == 0);
+    const auto rejected = [&](const char* name, progpu_native_status expected) {
+        const auto actual = invoke();
+        const bool unchanged = std::memcmp(&output, &sentinel, sizeof(output)) == 0;
+        if (actual != expected || !unchanged) {
+            throw std::runtime_error(std::string("source frame control ") + name +
+                ": expected status=" + std::to_string(expected) +
+                ", actual status=" + std::to_string(actual) +
+                ", output unchanged=" + std::to_string(unchanged));
+        }
     };
-    offsets.back().x = std::nextafter(-16.0, 0.0); rejected(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT); offsets.back().x = -16.0;
-    advances.back() = std::nextafter(7.0, 0.0); rejected(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT); advances.back() = 7.0;
-    indices.back() = 3U; rejected(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT); indices.back() = 2U;
-    levels.back() = 0; rejected(PROGPU_NATIVE_STATUS_UNSUPPORTED); levels.back() = 1;
+    offsets.back().x = std::nextafter(-16.0, 0.0); rejected("changed offset", PROGPU_NATIVE_STATUS_INVALID_ARGUMENT); offsets.back().x = -16.0;
+    advances.back() = std::nextafter(7.0, 0.0); rejected("changed advance", PROGPU_NATIVE_STATUS_INVALID_ARGUMENT); advances.back() = 7.0;
+    indices.back() = 3U; rejected("outside glyph", PROGPU_NATIVE_STATUS_INVALID_ARGUMENT); indices.back() = 2U;
+    // The first selected occurrence owns the frame. Changing its level without
+    // replacing its RTL offsets is invalid before a later mixed-level owner.
+    levels.back() = 0; rejected("stale leading bidi offsets", PROGPU_NATIVE_STATUS_INVALID_ARGUMENT); levels.back() = 1;
+    levels[1] = 0; rejected("mixed bidi after valid prefix", PROGPU_NATIVE_STATUS_UNSUPPORTED); levels[1] = 1;
     view.layout.direction = PROGPU_NATIVE_TEXT_DIRECTION_TOP_TO_BOTTOM;
-    rejected(PROGPU_NATIVE_STATUS_UNSUPPORTED); view.layout.direction = PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT;
-    glyphs.back().advance_y = 1.0F; rejected(PROGPU_NATIVE_STATUS_UNSUPPORTED); glyphs.back().advance_y = 0.0F;
+    rejected("vertical layout", PROGPU_NATIVE_STATUS_UNSUPPORTED); view.layout.direction = PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT;
+    glyphs.back().advance_y = 1.0F; rejected("vertical glyph advance", PROGPU_NATIVE_STATUS_UNSUPPORTED); glyphs.back().advance_y = 0.0F;
     view.counts.line_count = 2U; lines[0].glyph_count = 2U;
-    rejected(PROGPU_NATIVE_STATUS_UNSUPPORTED); view.counts.line_count = 1U; lines[0].glyph_count = 3U;
-    lines[0].baseline_y = 0.1F; rejected(PROGPU_NATIVE_STATUS_UNSUPPORTED); lines[0].baseline_y = 20.0F;
+    // Index 2 now owns baseline 40, so its unchanged baseline-20 offset is
+    // invalid before the later selected index can cross the owning line.
+    rejected("stale owning-line offsets", PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    // Use the writer's contiguous two-line partition and a valid line-0 prefix
+    // to reach the actual cross-line domain, without inventing a new frame.
+    indices.front() = 0U; offsets.front().x = -17.0; glyphs.back().y = 40.0F;
+    progpu_native_hinted_source_glyph_frame prefix_frame{};
+    require(validate_hinted_source_frame(view, nominal, std::span(indices).first(2U), 10.0F, {5.0F, 7.0F},
+        std::span(advances).first(2U), std::span(offsets).first(2U), prefix_frame) == PROGPU_NATIVE_STATUS_SUCCESS);
+    rejected("cross line after valid prefix", PROGPU_NATIVE_STATUS_UNSUPPORTED);
+    indices.front() = 2U; offsets.front().x = -9.0; glyphs.back().y = 20.0F;
+    view.counts.line_count = 1U; lines[0].glyph_count = 3U;
+    lines[0].baseline_y = 0.1F; rejected("unrepresentable baseline translation", PROGPU_NATIVE_STATUS_UNSUPPORTED); lines[0].baseline_y = 20.0F;
     // LTR uses the same original selected glyphs and exact measured prefix.
     levels.fill(0); offsets = {{{4.0, 0.0}, {-3.0, -1.5}, {-3.0, 0.0}}};
     require(invoke() == PROGPU_NATIVE_STATUS_SUCCESS && output.bidi_level == 0);
