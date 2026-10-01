@@ -164,6 +164,19 @@ admit the still-unresolved classifier policies or ordinary Forms capability.
 
 ### Hosted result and isolated joiner policy
 
+The observer also has a separate `source-roles` phase of 128 unknown original
+EDIT observations: 32 unchanged inputs in bare/Latin-prefix contexts and both
+paragraph directions. Sixteen Myanmar inputs distinguish base pairs, vowels,
+medials, asat, stacks, kinzi, tones, leading marks, joiners and digits. The other
+inputs distinguish complex-script digits/marks, presentation and supplementary
+letters, two still-unresolved symbol families and leading Inherited marks.
+The original24, contextual72, item128 and symbol sweep are unchanged. This phase
+uses the same original whole-item calls, exact UTF-16 positions, unavailable
+coordinate recording and 30/60-second limits. No expected endpoints, syllable
+rule or new classifier admission is derived merely from this input inventory.
+Its 14 schema checks are synthetic rejection controls, not Windows results;
+the pinned .NET 11 reference must build and execute on the hosted Windows job.
+
 [Run 36862800693](https://github.com/wieslawsoltes/ProGPU/actions/runs/36862800693)
 succeeded at exact source `6e7286564e1e44d1fce4e398769aa9805ecac9fb`.
 All original24 controls and contextual72 observations completed. The contextual

@@ -93,6 +93,62 @@ internal static partial class WordSelectionReference
         }
     }
 
+    internal static int RunSourceRoleContexts(string path)
+    {
+        // Unknown original-API observations, not expected word/cluster tables.
+        // Distinguish Myanmar base/mark/stacked sequences from ordinary item
+        // entry, and source roles still rejected by the portable classifier.
+        (string Name, string Text)[] inputs = [
+            ("myanmar-bases", "\u1000\u1001\u1002"),
+            ("myanmar-vowel", "\u1000\u102D\u1001"),
+            ("myanmar-medial-ya", "\u1000\u103B\u1001"),
+            ("myanmar-medial-ra", "\u1000\u103C\u1001"),
+            ("myanmar-medial-wa-ha", "\u1000\u103D\u103E\u1001"),
+            ("myanmar-asat", "\u1000\u103A\u1001"),
+            ("myanmar-stack", "\u1000\u1039\u1001\u1002"),
+            ("myanmar-kinzi", "\u1004\u103A\u1039\u1000\u1001"),
+            ("myanmar-tone", "\u1000\u1037\u1001"),
+            ("myanmar-visarga", "\u1000\u1038\u1001"),
+            ("myanmar-pre-vowel", "\u1000\u1031\u1001"),
+            ("myanmar-vowel-asat", "\u1000\u102D\u103A\u1001"),
+            ("myanmar-leading-mark", "\u102D\u1000\u1001"),
+            ("myanmar-stack-zwnj", "\u1000\u1039\u200C\u1001"),
+            ("myanmar-stack-zwj", "\u1000\u1039\u200D\u1001"),
+            ("myanmar-digits", "\u1040\u1041\u1000\u1001"),
+            ("arabic-mark", "\u0628\u064E\u062A"),
+            ("arabic-leading-mark", "\u064E\u0628"),
+            ("arabic-presentation", "\uFE8F\u062A"),
+            ("hebrew-presentation", "\uFB1D\u05D1"),
+            ("arabic-supplementary", "\U0001EE00\U0001EE01"),
+            ("arabic-digits", "\u0661\u0662\u0628"),
+            ("arabic-extended-digits", "\u06F1\u06F2\u0628"),
+            ("devanagari-digits", "\u0966\u0967\u0915"),
+            ("thai-digits", "\u0E50\u0E51\u0E01"),
+            ("lao-digits", "\u0ED0\u0ED1\u0E81"),
+            ("khmer-digits", "\u17E0\u17E1\u1780"),
+            ("syriac-mark", "\u0710\u0730\u0712"),
+            ("devanagari-conjunct", "\u0915\u094D\u0937"),
+            ("enclosed-hangul", "\u3200\u3201"),
+            ("balinese-symbols", "\u1B61\u1B62"),
+            ("inherited-leading-mark", "\u0301a")
+        ];
+        var cases = new List<Case>();
+        foreach (var input in inputs)
+        foreach ((string context, string prefix) in new[] { ("bare", ""), ("latin", "x") })
+        foreach (bool rightToLeft in new[] { false, true })
+        {
+            string text = prefix + input.Text + "y ";
+            if (text.Length is < 2 or > 16)
+                throw new InvalidOperationException("Unbounded source-role input.");
+            string name = $"role-{input.Name}-{context}-{(rightToLeft ? "rtl" : "ltr")}";
+            cases.Add(new Case(name, text, Enumerable.Range(0, text.Length).ToArray(),
+                RightToLeft: rightToLeft));
+        }
+        if (inputs.Length != 32 || cases.Count != 128)
+            throw new InvalidOperationException("Source-role inventory changed.");
+        return RunCases(path, "PerMonitorV2", "true", cases.ToArray());
+    }
+
     internal static int RunSymbolAttributes(string path)
     {
         using FileStream file = new(Path.GetFullPath(path), FileMode.CreateNew, FileAccess.Write);
