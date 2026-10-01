@@ -268,13 +268,19 @@ progpu_native_status encode_semantic_glyph_draw(
         mask_chain_bind_group != nullptr;
     const bool chained = mask_chain_bind_group != nullptr;
     if (painted) {
-        if (draw.paint_index >= engine.glyph_paint_texture_bindings.size() ||
-            engine.glyph_paint_texture_bindings[draw.paint_index].bind_group == nullptr ||
-            !semantic::ensure_glyph_paint_pipeline(engine, masked, chained))
+        if (draw.paint_index >= engine.semantic_glyph_cache.paints.size() ||
+            draw.paint_index >= engine.glyph_paint_texture_bindings.size() ||
+            engine.glyph_paint_texture_bindings[draw.paint_index].bind_group == nullptr)
             return engine.fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The original hinted glyph paint binding is incomplete.");
-        Commands::set_pipeline(encoder, chained ? engine.glyph_paint_chain_pipeline :
-            masked ? engine.glyph_paint_masked_pipeline : engine.glyph_paint_pipeline);
+        const bool premultiplied_output = semantic::glyph_paint_premultiplied_output(
+            engine.semantic_glyph_cache.paints[draw.paint_index],
+            engine.target_format == WGPUTextureFormat_R8Unorm);
+        if (!semantic::ensure_glyph_paint_pipeline(engine, masked, chained, premultiplied_output))
+            return engine.fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The original hinted glyph paint pipeline is incomplete.");
+        Commands::set_pipeline(encoder, semantic::select_glyph_paint_pipeline(
+            engine, masked, chained, premultiplied_output));
         Commands::set_bind_group(encoder, 0U, uniform_group);
         Commands::set_bind_group(encoder, 1U, engine.text_atlas_bind_group);
         Commands::set_bind_group(encoder, 2U,

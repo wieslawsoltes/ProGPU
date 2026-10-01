@@ -10,6 +10,28 @@ report first differing coordinates/channel and maximum byte delta on failure.
 Scene submission metrics are per-call; the original glyph metric is cumulative.
 Their independent assertions require exactly one submission under each contract.
 
+Native color paint preserves the original source alpha representation per command.
+Materials and straight-alpha textures use the existing straight fragment
+entrypoints with color `SrcAlpha` and alpha `One`, matching ordinary native Text.
+Premultiplied texture inputs retain their direct premultiplied fragment output
+and color `One`; they never take an unpremultiply/reblend round trip. R8 mask
+targets retain the original mask entrypoints and `One` for both components.
+Preparation and encoding use the same retained kind/flag policy, preserving
+source draw order and lazy engine-owned unmasked/single/chained variants.
+
+This restores the original multiplication stage as well as its real-number
+source-over equation. Shader RGB multiplication followed by blend `One` is not
+byte-equivalent to original straight RGB with fixed-function `SrcAlpha` on UNORM
+targets: the actual packaged DX12 x64/ARM64 overlap controls differed in 99 RGBA
+bytes by one, including red 3 versus 2 at (11, 13). Stock Linux and Dawn Windows
+controls also reported this class of exact-byte difference. The original
+constant-gradient, fractional, overlap and cold/warm full-RGBA gates remain
+unchanged. Device-free native policy and managed wiring/retirement controls do
+not establish GPU correction; the final package binaries must pass those gates.
+Managed paint already selects output/blend representation from its actual
+texture alpha mode, with ordinary materials remaining straight, so this native
+pipeline correction does not change managed policy or the canonical shaders.
+
 This explicit consumer API preserves one original prepared paragraph generation.
 It is implementation work, not Display selection, source-editor/input admission,
 native/package qualification or an application performance claim.

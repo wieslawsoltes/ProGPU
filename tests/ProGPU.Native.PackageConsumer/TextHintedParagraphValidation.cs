@@ -19,6 +19,7 @@ internal static unsafe class TextHintedParagraphValidation
             (Text: "A12 A34 ", Hard: false, Digits: true, SourceBidi: true),
         })
         {
+            string caseName = $"{policy}/{direction}, case {cases + 1}";
             byte[] font = File.ReadAllBytes(fontPath);
             using var context = new NativeTextShapingContext(font);
             Check(context.AddFallbackFont(font, out uint second, identity: 0x7712) == NativeRendererStatus.Success && second == 1,
@@ -50,9 +51,12 @@ internal static unsafe class TextHintedParagraphValidation
             VerifySources(paragraph, original, styles, metrics, fixture.Digits, fixture.SourceBidi, direction);
             VerifyOwners(paragraph, original);
             VerifyInteraction(paragraph);
-            // The source-facing UTF-16 overload must retain the exact original
-            // scalar/style transport, not introduce a second shaping result.
-            int styleBoundary = checked((int)original[2].InputIndex);
+            // UTF-16 input is local to the supplied span. Compare it with a
+            // separate zero-based scalar reference; retain the nonzero source
+            // frame above for all original ownership/retirement controls.
+            NativeTextScalar[] localSource = Decode(fixture.Text, 0);
+            var localInput = new NativeTextShapeInput([], localSource, direction: direction, features: features);
+            int styleBoundary = checked((int)localSource[2].InputIndex);
             NativeTextParagraphStyle[] utf16Styles =
             [
                 new(0, styleBoundary, 0, styles[0].Scale, FeatureCount: 1,
@@ -60,9 +64,10 @@ internal static unsafe class TextHintedParagraphValidation
                 new(styleBoundary, fixture.Text.Length - styleBoundary, 1, styles[1].Scale, FeatureCount: 1,
                     DigitZero: fixture.Digits ? 0x0660U : 0U, PreserveSourceDigitBidi: fixture.SourceBidi),
             ];
+            using (var scalarReference = context.LayoutHintedParagraph(in localInput, in options, styles, metrics, devices))
             using (var utf16 = context.LayoutHintedParagraph(fixture.Text.AsSpan(), direction,
                 in options, utf16Styles, metrics, devices, features))
-                EqualSnapshot(Snapshot(paragraph), utf16);
+                EqualSnapshot(Snapshot(scalarReference), utf16, $"{caseName}: local scalar/UTF-16 equivalence");
             observedLineReset |= VerifyLineFrames(paragraph, direction);
             if (fixture.Text == "AVA A A A A A ") VerifyOriginalRuns(context, paragraph, original, features, devices, policy);
             if (fixture.Hard)
@@ -84,35 +89,35 @@ internal static unsafe class TextHintedParagraphValidation
             try { using var invalid = context.LayoutHintedParagraph(in input, in options, styles, metrics, invalidDevices); }
             catch (ArgumentException) { rejected = true; }
             Check(rejected, "late invalid device metadata rejected");
-            EqualSnapshot(saved, paragraph);
+            EqualSnapshot(saved, paragraph, $"{caseName}: after invalid device rejection");
             var invalidSource = original.ToArray(); invalidSource[^1].CodePoint = 0x110000;
             var invalidInput = new NativeTextShapeInput([], invalidSource, direction: direction, features: features);
             rejected = false;
             try { using var invalid = context.LayoutHintedParagraph(in invalidInput, in options, styles, metrics, devices); }
             catch (ArgumentException) { rejected = true; }
             Check(rejected, "late invalid original scalar rejected");
-            EqualSnapshot(saved, paragraph);
+            EqualSnapshot(saved, paragraph, $"{caseName}: after invalid scalar rejection");
 
             context.Dispose();
             Array.Clear(source); Array.Clear(styles); Array.Clear(metrics); Array.Clear(devices); Array.Clear(features);
-            EqualSnapshot(saved, paragraph);
+            EqualSnapshot(saved, paragraph, $"{caseName}: after context/input retirement");
             VerifyOwners(paragraph, original); VerifyInteraction(paragraph);
             rejected = false;
             try { using var invalid = context.LayoutHintedParagraph(in input, in options, styles, metrics, devices); }
             catch (ObjectDisposedException) { rejected = true; }
             Check(rejected, "retired source context cannot publish another paragraph");
             paragraph.Dispose();
-            EqualSnapshot(saved, paragraph); // managed snapshots independently own their original arrays
+            EqualSnapshot(saved, paragraph, $"{caseName}: after paragraph retirement"); // independently owned managed arrays
             cases++;
         }
         Check(observedLineReset, "RTL internal trailing whitespace exercises actual writer-used L1 levels");
         Console.WriteLine($"package-consumer: retained hinted paragraph passed ({cases} loaded-library layouts, source/run owners, UTF-16/bidi/hard breaks, measured interaction, retirement)");
     }
 
-    private static NativeTextScalar[] Decode(string text)
+    private static NativeTextScalar[] Decode(string text, uint position = 9)
     {
         var result = new List<NativeTextScalar>();
-        uint position = 9; // original source frame is deliberately not zero-based
+        // The original lifetime fixture deliberately defaults to a nonzero frame.
         foreach (Rune rune in text.EnumerateRunes())
         {
             result.Add(new NativeTextScalar { CodePoint = checked((uint)rune.Value), InputIndex = position,
@@ -281,24 +286,43 @@ internal static unsafe class TextHintedParagraphValidation
             hit.InputPosition >= box.InputStart && hit.InputPosition <= box.InputEnd, "retired-generation hit remains in original source box");
     }
 
-    private static byte[][] Snapshot(NativeHintedParagraph paragraph) =>
+    private static (string Name, byte[] Bytes)[] Snapshot(NativeHintedParagraph paragraph) =>
     [
-        MemoryMarshal.AsBytes(paragraph.SourceScalars).ToArray(), MemoryMarshal.AsBytes(paragraph.AdmittedScalars).ToArray(),
-        MemoryMarshal.AsBytes(paragraph.ScalarLevels).ToArray(), MemoryMarshal.AsBytes(paragraph.Styles).ToArray(),
-        MemoryMarshal.AsBytes(paragraph.SourceMetrics).ToArray(), MemoryMarshal.AsBytes(paragraph.Runs).ToArray(),
-        MemoryMarshal.AsBytes(paragraph.LogicalGlyphs).ToArray(), MemoryMarshal.AsBytes(paragraph.LogicalOwners).ToArray(),
-        MemoryMarshal.AsBytes(paragraph.LogicalClusterEnds).ToArray(), MemoryMarshal.AsBytes(paragraph.LogicalBidiLevels).ToArray(),
-        MemoryMarshal.AsBytes(paragraph.GlyphScales).ToArray(), MemoryMarshal.AsBytes(paragraph.Glyphs).ToArray(),
-        MemoryMarshal.AsBytes(paragraph.PositionedOwners).ToArray(), MemoryMarshal.AsBytes(paragraph.ClusterEnds).ToArray(),
-        MemoryMarshal.AsBytes(paragraph.BidiLevels).ToArray(), MemoryMarshal.AsBytes(paragraph.Lines).ToArray(),
-        MemoryMarshal.AsBytes(paragraph.LineOrigins).ToArray(), MemoryMarshal.AsBytes(paragraph.Boxes).ToArray(), MemoryMarshal.AsBytes(paragraph.Carets).ToArray(),
+        (nameof(paragraph.SourceScalars), MemoryMarshal.AsBytes(paragraph.SourceScalars).ToArray()),
+        (nameof(paragraph.AdmittedScalars), MemoryMarshal.AsBytes(paragraph.AdmittedScalars).ToArray()),
+        (nameof(paragraph.ScalarLevels), MemoryMarshal.AsBytes(paragraph.ScalarLevels).ToArray()),
+        (nameof(paragraph.Styles), MemoryMarshal.AsBytes(paragraph.Styles).ToArray()),
+        (nameof(paragraph.SourceMetrics), MemoryMarshal.AsBytes(paragraph.SourceMetrics).ToArray()),
+        (nameof(paragraph.Runs), MemoryMarshal.AsBytes(paragraph.Runs).ToArray()),
+        (nameof(paragraph.LogicalGlyphs), MemoryMarshal.AsBytes(paragraph.LogicalGlyphs).ToArray()),
+        (nameof(paragraph.LogicalOwners), MemoryMarshal.AsBytes(paragraph.LogicalOwners).ToArray()),
+        (nameof(paragraph.LogicalClusterEnds), MemoryMarshal.AsBytes(paragraph.LogicalClusterEnds).ToArray()),
+        (nameof(paragraph.LogicalBidiLevels), MemoryMarshal.AsBytes(paragraph.LogicalBidiLevels).ToArray()),
+        (nameof(paragraph.GlyphScales), MemoryMarshal.AsBytes(paragraph.GlyphScales).ToArray()),
+        (nameof(paragraph.Glyphs), MemoryMarshal.AsBytes(paragraph.Glyphs).ToArray()),
+        (nameof(paragraph.PositionedOwners), MemoryMarshal.AsBytes(paragraph.PositionedOwners).ToArray()),
+        (nameof(paragraph.ClusterEnds), MemoryMarshal.AsBytes(paragraph.ClusterEnds).ToArray()),
+        (nameof(paragraph.BidiLevels), MemoryMarshal.AsBytes(paragraph.BidiLevels).ToArray()),
+        (nameof(paragraph.Lines), MemoryMarshal.AsBytes(paragraph.Lines).ToArray()),
+        (nameof(paragraph.LineOrigins), MemoryMarshal.AsBytes(paragraph.LineOrigins).ToArray()),
+        (nameof(paragraph.Boxes), MemoryMarshal.AsBytes(paragraph.Boxes).ToArray()),
+        (nameof(paragraph.Carets), MemoryMarshal.AsBytes(paragraph.Carets).ToArray()),
     ];
 
-    private static void EqualSnapshot(byte[][] expected, NativeHintedParagraph paragraph)
+    private static void EqualSnapshot((string Name, byte[] Bytes)[] expected, NativeHintedParagraph paragraph, string stage)
     {
         var actual = Snapshot(paragraph);
-        Check(expected.Length == actual.Length && expected.Zip(actual).All(pair => pair.First.AsSpan().SequenceEqual(pair.Second)),
-            "all original snapshots survive later rejection/context/input/paragraph retirement");
+        Check(expected.Length == actual.Length, $"{stage}: snapshot field count");
+        for (int field = 0; field < expected.Length; field++)
+        {
+            var before = expected[field]; var after = actual[field];
+            Check(before.Name == after.Name, $"{stage}: snapshot field identity at {field}");
+            if (before.Bytes.AsSpan().SequenceEqual(after.Bytes)) continue;
+            int first = 0;
+            while (first < Math.Min(before.Bytes.Length, after.Bytes.Length) && before.Bytes[first] == after.Bytes[first]) first++;
+            Check(false, $"{stage}: {before.Name} differs at byte {first} " +
+                $"(expected length {before.Bytes.Length}, actual length {after.Bytes.Length})");
+        }
     }
 
     private static bool Same<T>(ReadOnlySpan<T> expected, ReadOnlySpan<T> actual) where T : unmanaged
