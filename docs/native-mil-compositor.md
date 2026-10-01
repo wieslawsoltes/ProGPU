@@ -54,6 +54,12 @@ independent channels, repeated empty cleanup, subsequent source batches and the
 shared C ABI. Managed encoding checks preserve preceding packets. Validation is
 deferred until after the implementation commit, per the current work policy;
 full provider/package and application checks remain required before merge.
+The first hosted native execution caught omitted wire fields in the new reset
+producer and glyph-deletion control: the former requires a channel tag, and the
+latter requires its resource type. Both writers now retain those canonical fields;
+the decoder's exact generated size checks and expected failure statuses were not
+relaxed. Explicit truncated/oversized reset controls and managed channel-tag
+round trips accompany the correction. The corrected hosted run remains required.
 
 ## Goal
 

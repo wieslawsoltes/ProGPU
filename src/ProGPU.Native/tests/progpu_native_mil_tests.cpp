@@ -1850,6 +1850,8 @@ bool channel_resource_reset_is_atomic_and_retires_sidebands() {
     const auto original_generation = state.resource_generation(visual);
 
     std::vector<std::byte> reset;
+    static_assert(command_layouts::transport_destroy_resources_on_channel::fixed_size == 8U);
+    static_assert(command_layouts::transport_destroy_resources_on_channel::h_channel_offset == 4U);
     append_command(reset, command::transport_destroy_resources_on_channel, 17U);
     PROGPU_REQUIRE(reset.size() == 12U);
     std::vector<std::byte> invalid = reset;
