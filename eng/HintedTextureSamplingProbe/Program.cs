@@ -13,6 +13,8 @@ namespace HintedTextureSamplingProbe;
 internal static unsafe class Program
 {
     private const uint AtlasSize = 1024;
+    private const int AtlasTileX = 2;
+    private const int AtlasTileY = 2;
     private const float Dpi = 2;
     private const float Opacity = .46875f;
     private static readonly ConcurrentQueue<string> Errors = new();
@@ -30,7 +32,7 @@ internal static unsafe class Program
         {
             if (args.Length == 1 && args[0] == "--verify-source-only")
             {
-                Console.WriteLine($"PASS {ShaderSourceControls.Run()} deterministic LF/CRLF source and instrumentation controls; no GPU initialization.");
+                Console.WriteLine($"PASS {ShaderSourceControls.Run()} deterministic source, instrumentation and atlas-translation controls; no GPU initialization.");
                 return 0;
             }
             string? output = null;
@@ -227,6 +229,8 @@ internal static unsafe class Program
                     ShaderSha256 = sources.ToDictionary(x => x.Key, x => ShaderDiagnostics.Hash(x.Value)),
                     CanonicalLfShaderSha256 = sources.ToDictionary(x => x.Key, x => ShaderDiagnostics.CanonicalHash(x.Value)),
                     Size = size, Dpi, Opacity, AtlasWidth = AtlasSize, AtlasHeight = AtlasSize, InstanceStride = 96,
+                    AtlasTileOrigin = new[] { AtlasTileX, AtlasTileY }, AtlasTileExtent = new[] { 23, 25 },
+                    AtlasPlacementControl = "Original (17,11) at cc1fbdf33f9580a9804a898f528dfe3b32b65aeb, Windows run36877876254; only atlas placement changes to(2,2).",
                     AtlasSha256 = ShaderDiagnostics.Hash(atlasBytes), InstanceSha256 = ShaderDiagnostics.Hash(instanceBytes),
                     AtlasSampler = "linear min/mag, nearest mip, clamp-to-edge, LOD 0, anisotropy 1; shared by all paths",
                     TargetPolicy = "one shared RGBA8Unorm target with straight source-over; one shared unblended RGBA32Float diagnostic target",
@@ -275,7 +279,7 @@ internal static unsafe class Program
         return bytes;
     }
 
-    private static byte[] Instances()
+    internal static byte[] Instances(int atlasX = AtlasTileX, int atlasY = AtlasTileY)
     {
         byte[] bytes = new byte[192];
         for (int occurrence = 0; occurrence < 2; occurrence++)
@@ -287,7 +291,7 @@ internal static unsafe class Program
             value[1] = (8.375f + occurrence * .125f) / Dpi;
             value[2] = 1; value[5] = 1;
             value[6] = 2; value[7] = 3; value[8] = 23; value[9] = 25;
-            value[10] = 17; value[11] = 11; value[12] = 40; value[13] = 36;
+            value[10] = atlasX; value[11] = atlasY; value[12] = atlasX + 23; value[13] = atlasY + 25;
             value[14] = 64 / 255f; value[15] = 192 / 255f; value[16] = 128 / 255f; value[17] = Opacity;
             value[18] = 1; value[22] = -1;
         }
@@ -306,11 +310,18 @@ internal static unsafe class Program
         return bytes;
     }
 
-    private static byte[] Atlas()
+    internal static byte[] Atlas(int atlasX = AtlasTileX, int atlasY = AtlasTileY)
     {
         byte[] bytes = new byte[AtlasSize * AtlasSize];
-        for (int y = 12; y < 35; y++)
-            for (int x = 18; x < 39; x++) bytes[y * AtlasSize + x] = (byte)(1 + (x * 37 + y * 73 + x * y * 11) % 254);
+        for (int localY = 1; localY < 24; localY++)
+            for (int localX = 1; localX < 22; localX++)
+            {
+                // Preserve the exact original coverage formula at its original
+                // (17,11) coordinates; translate storage only, never the values.
+                int originalX = 17 + localX, originalY = 11 + localY;
+                bytes[(atlasY + localY) * AtlasSize + atlasX + localX] =
+                    (byte)(1 + (originalX * 37 + originalY * 73 + originalX * originalY * 11) % 254);
+            }
         return bytes;
     }
 
