@@ -110,8 +110,9 @@ DXC runtime, original provider DLL, import library or generated header is packag
 
 ## Runtime ownership and remaining gates
 
-Explicit availability performs bounded startup receipt/PE/SHA-256 checks, loads
-the original provider and companion, and checks the actual executing companion's
+Explicit availability performs bounded startup receipt/PE/SHA-256 checks, selects
+the original provider through the shared managed-import owner, loads the companion,
+and checks the actual executing companion's
 imported provider module identities against the inspected modules. P/Invoke/module
 references remain process-pinned; borrowed module identity handles are never
 released. A failed binding freezes this optional capability and cannot unload a
@@ -130,7 +131,7 @@ native work still retains it. The creating factory keeps device-loss userdata
 until complete instance shutdown, drains all acquired owners and preserves the
 first setup error. Existing waits and deadlines are not lengthened or bypassed.
 
-Custom managed FFI/provider binding, failed-request cancellation and device-loss
+Foreign-resolver rejection, failed-request cancellation and device-loss
 paths still require runtime evidence. Existing independent package/RID,
 ordered-query, DX12, full-capacity/raw-result, deadline and application assertions
 remain mandatory. A selected system WARP adapter or a successful companion Build
@@ -147,10 +148,18 @@ controls produced the receipt linked above. They use project references
 and explicitly copied companion files, not the optional NuGet asset-selection
 path, and do not replace the complete package or application gates.
 
-The companion's imported-provider check is distinct from proving a host's custom
-WebGPUSharp P/Invoke resolver. Custom resolver/load-context binding and failure
-cancellation remain open integration gates; a normal-runner readback cannot
-qualify those configurations.
+Provider selection now reuses original ProGPU ownership work from commits
+`dae8862fd` and `d6fc57955`: one process-pinned module serves both WebGPUSharp and
+ProGPU native imports, and native compositors borrow that same module. Companion
+validation selects through this owner rather than an independent NativeLibrary
+load, then compares the companion's actual imported module against it before any
+instance is created. Foreign resolvers are rejected, never replaced. Configuration
+must precede any direct FFI use; arbitrary already-cached foreign imports cannot
+be detected or retroactively rebound. A new isolated-process control installs a
+foreign resolver and requires rejection before that resolver executes. Both JIT
+and NativeAOT run this alongside the unchanged readback controls. These ownership
+changes and negative controls await their own final-head hosted receipt; earlier
+successful runs do not prove them. Failure cancellation remains a separate gate.
 
 The complete Build now calls that same producer workflow and waits for both
 native Windows RID producers before optional companion packing. Separate Windows

@@ -3,9 +3,31 @@ using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using Silk.NET.WebGPU;
 
-if (!OperatingSystem.IsWindows() || args.Length != 1 ||
+if (!OperatingSystem.IsWindows() || args.Length is < 1 or > 2 ||
     !string.Equals(RuntimeInformation.ProcessArchitecture.ToString(), args[0], StringComparison.OrdinalIgnoreCase))
     throw new InvalidOperationException("Run on the requested native Windows architecture.");
+
+if (args.Length == 2)
+{
+    if (args[1] != "--foreign-resolver") throw new ArgumentException("Unknown isolated control.");
+    int resolverInvocations = 0;
+    NativeLibrary.SetDllImportResolver(typeof(WebGpuSharp.FFI.WebGPU_FFI).Assembly,
+        (_, _, _) => { resolverInvocations++; return 0; });
+    try
+    {
+        using DawnGpuContext rejected = DawnGpuContext.CreateSystemWarpOffscreen();
+        throw new InvalidOperationException("A foreign resolver was admitted.");
+    }
+    catch (TypeInitializationException error) when (
+        error.InnerException is InvalidOperationException ownership &&
+        ownership.Message.Contains("ownership of both native import resolvers", StringComparison.Ordinal))
+    {
+        if (resolverInvocations != 0)
+            throw new InvalidOperationException("Foreign imports executed before provider rejection.");
+        Console.WriteLine("Dawn system WARP foreign resolver rejected before native imports.");
+        return;
+    }
+}
 
 // Exercise fresh device ownership twice and real color replacement on each
 // device. Every pixel and untouched caller tail is independently specified;

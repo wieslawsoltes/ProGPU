@@ -52,18 +52,26 @@ foreach ($kind in @('jit','aot')) {
             Copy-Item -LiteralPath (Join-Path $payload $name) -Destination $destination
         }
     }
-    $stdout = Join-Path $evidence "$kind-stdout.log"
-    $stderr = Join-Path $evidence "$kind-stderr.log"
-    $process = Start-Process -FilePath (Join-Path $publish 'ProGPU.DawnSystemWarp.Conformance.exe') -ArgumentList $architecture -WorkingDirectory $publish -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-    try {
-        if (-not $process.WaitForExit(120000)) { throw "The $kind WARP consumer exceeded its 120-second process bound." }
-        if ($process.ExitCode -ne 0) { throw "The $kind WARP consumer failed: $($process.ExitCode). See $stderr" }
-        if (-not (Select-String -LiteralPath $stdout -SimpleMatch 'Dawn system WARP conformance passed: 2 device lifetimes, 4 full RGBA readbacks, 0 skipped.' -Quiet)) {
-            throw "The $kind consumer did not execute every readback."
+    foreach ($control in @('readback','foreign-resolver')) {
+        $stdout = Join-Path $evidence "$kind-$control-stdout.log"
+        $stderr = Join-Path $evidence "$kind-$control-stderr.log"
+        $arguments = @($architecture)
+        $expected = 'Dawn system WARP conformance passed: 2 device lifetimes, 4 full RGBA readbacks, 0 skipped.'
+        if ($control -eq 'foreign-resolver') {
+            $arguments += '--foreign-resolver'
+            $expected = 'Dawn system WARP foreign resolver rejected before native imports.'
         }
-    } finally {
-        if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
-        $process.Dispose()
+        $process = Start-Process -FilePath (Join-Path $publish 'ProGPU.DawnSystemWarp.Conformance.exe') -ArgumentList $arguments -WorkingDirectory $publish -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        try {
+            if (-not $process.WaitForExit(120000)) { throw "The $kind/$control WARP consumer exceeded its 120-second process bound." }
+            if ($process.ExitCode -ne 0) { throw "The $kind/$control WARP consumer failed: $($process.ExitCode). See $stderr" }
+            if (-not (Select-String -LiteralPath $stdout -SimpleMatch $expected -Quiet)) {
+                throw "The $kind/$control consumer did not execute every required check."
+            }
+        } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            $process.Dispose()
+        }
     }
 }
 if (-not $packageMode) {

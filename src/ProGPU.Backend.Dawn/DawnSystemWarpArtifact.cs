@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
-using WebGpuSharp.FFI;
 
 namespace ProGPU.Backend.Dawn;
 
@@ -77,7 +76,7 @@ internal static unsafe partial class DawnSystemWarpArtifact
                     root.GetProperty("companionBytes").GetInt64());
                 // Retain actual original modules for process lifetime, like native
                 // P/Invoke binding caches. Returned identity handles are borrowed.
-                s_provider = NativeLibrary.Load("webgpu_dawn", typeof(WebGPU_FFI).Assembly, null);
+                s_provider = DawnNativeProvider.SelectModule();
                 string actualProviderPath = GetModulePath(s_provider);
                 ValidateFile(actualProviderPath, machine, providerHash, providerBytes);
                 s_companion = NativeLibrary.Load(companionPath);
