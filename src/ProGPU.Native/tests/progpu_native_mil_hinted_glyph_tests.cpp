@@ -508,13 +508,13 @@ void flat_controls(font_hint_policy policy, bool rtl, std::uint32_t coverage = P
         };
         bytes recreate;
         content(recreate, {}); // Remove the real dependency before individual deletion.
-        cmd(recreate, command::channel_delete_resource, 5U);
+        cmd(recreate, command::channel_delete_resource, 5U, 42U);
         glyph_packet(recreate, 5U, e);
         require(reset_state.apply_with_hinted_glyph_resources(recreate, {&view,1U}, {&binding,1U}, e.selected)
             == status::invalid_argument);
         reset_preserved();
 
-        bytes reset_batch; cmd(reset_batch, command::transport_destroy_resources_on_channel);
+        bytes reset_batch; cmd(reset_batch, command::transport_destroy_resources_on_channel, 0U);
         reset_batch.insert(reset_batch.end(), canonical.begin(), canonical.end());
         require(reset_state.apply_with_hinted_glyph_resources(reset_batch, {&view,1U}, {&binding,1U}, slots)
             == status::invalid_argument);

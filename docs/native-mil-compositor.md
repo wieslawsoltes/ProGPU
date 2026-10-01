@@ -31,8 +31,10 @@ No renderer engine, queue, GPU submission, external texture owner or native wind
 is destroyed or synchronously drained. The channel object remains usable for
 later batches; this is resource cleanup, not a claim to implement Microsoft's
 whole connection/partition shutdown or cross-channel resource duplication.
-`NativeMilBatchBuilder.DestroyResourcesOnChannel` emits the same eight-byte record
-inside a caller's current batch; it does not clear the authored command buffer.
+`NativeMilBatchBuilder.DestroyResourcesOnChannel` emits the canonical twelve-byte
+record (length, opcode and transport channel tag) inside a caller's current batch;
+it does not clear the authored command buffer. The receiving channel object owns
+the graph; the preserved transport tag does not route into a different channel.
 
 This is an original extension of ProGPU's existing transactional channel and
 complete typed graph, informed only by the canonical generated wire layout and

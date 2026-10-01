@@ -31,8 +31,13 @@ public sealed class NativeMilBatchBuilder
     /// when the batch commits. Does not destroy the channel or wait for GPU
     /// submissions; previously compiled scene ownership remains independent.
     /// </summary>
-    public void DestroyResourcesOnChannel()
-        => NativeMilBatchEncoding.Allocate(_writer, NativeMilCommand.DestroyResourcesOnChannel, 4);
+    /// <param name="channelHandle">Canonical transport channel tag. The receiving
+    /// channel object owns the graph; this tag does not select another channel.</param>
+    public void DestroyResourcesOnChannel(uint channelHandle = 0)
+    {
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(_writer, NativeMilCommand.DestroyResourcesOnChannel, 8);
+        NativeMilBatchEncoding.WriteUInt32(packet, 4, channelHandle);
+    }
 
     public void CreateResource(uint handle, NativeMilResourceType resourceType)
     {

@@ -1850,8 +1850,8 @@ bool channel_resource_reset_is_atomic_and_retires_sidebands() {
     const auto original_generation = state.resource_generation(visual);
 
     std::vector<std::byte> reset;
-    append_command(reset, command::transport_destroy_resources_on_channel);
-    PROGPU_REQUIRE(reset.size() == 8U);
+    append_command(reset, command::transport_destroy_resources_on_channel, 17U);
+    PROGPU_REQUIRE(reset.size() == 12U);
     std::vector<std::byte> invalid = reset;
     append_command(invalid, command::visual_set_offset, visual, 0.0, 0.0);
     PROGPU_REQUIRE(state.apply(invalid) == status::invalid_handle);
@@ -1862,10 +1862,14 @@ bool channel_resource_reset_is_atomic_and_retires_sidebands() {
     PROGPU_REQUIRE(state.build_scene(request, retained) == status::success);
     PROGPU_REQUIRE(std::ranges::equal(retained, original_stream));
 
-    // Exact canonical framing; a larger otherwise well-framed packet cannot
-    // silently reset anything, even if its extra word is zero.
+    // Exact canonical framing includes the transport channel tag. Neither a
+    // truncated command nor an extra zero word may silently reset anything.
+    std::vector<std::byte> truncated;
+    append_command(truncated, command::transport_destroy_resources_on_channel);
+    PROGPU_REQUIRE(state.apply(truncated) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_count() == 5U);
     std::vector<std::byte> oversized;
-    append_command(oversized, command::transport_destroy_resources_on_channel, 0U);
+    append_command(oversized, command::transport_destroy_resources_on_channel, 17U, 0U);
     PROGPU_REQUIRE(state.apply(oversized) == status::malformed_batch);
     PROGPU_REQUIRE(state.resource_count() == 5U);
 
