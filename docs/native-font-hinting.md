@@ -954,3 +954,42 @@ The authored fault fixture follows the public
 [TrueType instruction contract](https://developer.apple.com/fonts/TrueType-Reference-Manual/RM05/Chap5.html).
 It assembles independent valid table/file checksums and uses original test-only
 bytes, rather than modifying an external font or reproducing an interpreter.
+
+### Target-independent resource transport and atomic MIL imports
+
+`progpu_native_hinted_paragraph_prepare_glyph_resource` prepares the existing
+original geometry owner without a target view, paint, clear color or invented
+source origin. The original paragraph, interaction, source/font bytes and every
+positioned occurrence remain retained, including no-ink descriptor mappings.
+`progpu_native_hinted_glyph_resource_borrow` publishes one immutable flat view;
+the original producer-library lifetime lease excludes destruction while any
+consumer reads it. Borrowing neither executes fonts nor allocates geometry.
+
+The public C header owns all eligible layouts; the hosted contract generator
+produces their checked-in C# records. `NativeHintedGlyphResource` caches the view
+once and uses short lifetime-counted leases for concurrent readers. It does not
+hold multiple owner locks across import, so reversed resource order cannot
+deadlock. Preparation, borrow and destruction remain stock text-library calls;
+only flat records enter the selected stock or Dawn MIL library. Disposal keeps
+an active resource alive, drains every acquired lease on update failure and
+suppresses finalization only after actual release.
+
+`progpu_native_mil_channel_apply_with_hinted_glyph_resources` stages the canonical
+batch, owned record imports and explicit positioned-index bindings on one graph
+clone. Native MIL statuses retain their existing meaning. A late failure leaves
+the prior graph, generation and compiled cache unchanged. Successful imports own
+all format, source, geometry and interaction records after the producer retires;
+they never fabricate a hinted paragraph, device identity or font-driver context.
+The original private MIL brush/clip consumer remains authoritative. Identity
+basis, exact source-scale/em ratio, DPI, original font bytes/face and containment
+within unchanged source-provided ink bounds remain explicit requirements.
+
+Preparation/import cost is bounded by original font bytes, metadata, positioned
+glyphs and segments. A changed scene has one MIL update crossing; preparation and
+first borrow are separate CPU resource-creation calls, not per-glyph calls.
+Cold/warm copies, pins, allocations and latency still require measurement.
+Native producer/import controls and loaded stock/Dawn package controls are
+authored separately; no local execution or pixel/performance qualification is
+claimed here. Nonempty variable-instance transport controls remain outstanding.
+Managed Compositor/recorded-scene consumers, source Display and independent
+Windows application/UI qualification remain required before source selection.

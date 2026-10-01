@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include "progpu_native.h"
+#include "progpu_native_mil.h"
 #include "progpu_native_text_styles.h"
 #include "progpu_native_text_flow.h"
 #include "progpu_native_text_interaction.h"
@@ -457,7 +458,7 @@ PROGPU_NATIVE_API void progpu_native_hinted_glyph_resource_destroy(progpu_native
  * update. Any later invalid record preserves prior graph/cache/metrics. No
  * producer handle crosses providers, no per-glyph native calls are required,
  * and there is no external output buffer to alias immutable input storage. */
-PROGPU_NATIVE_API progpu_native_status progpu_native_mil_channel_apply_with_hinted_glyph_resources(
+PROGPU_NATIVE_API progpu_native_mil_status progpu_native_mil_channel_apply_with_hinted_glyph_resources(
     progpu_native_mil_channel* channel,
     const uint8_t* batch_bytes, size_t batch_size,
     const progpu_native_hinted_glyph_resource_view* resources, uint32_t resource_count,

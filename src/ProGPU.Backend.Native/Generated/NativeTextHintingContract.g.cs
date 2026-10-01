@@ -83,6 +83,81 @@ internal static unsafe partial class NativeMethods
         internal uint Coverage;
         internal uint Reserved;
     }
+
+    // Native source: progpu_native_hinted_glyph_resource_request.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct HintedGlyphResourceRequest
+    {
+        internal uint AbiVersion;
+        internal uint StructSize;
+        internal float DpiScale;
+        internal uint ProjectionPolicy;
+        internal uint Coverage;
+        internal uint Reserved;
+    }
+
+    // Native source: progpu_native_hinted_glyph_resource_view.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct HintedGlyphResourceView
+    {
+        internal uint AbiVersion;
+        internal uint StructSize;
+        internal float DpiScale;
+        internal uint ProjectionPolicy;
+        internal uint Coverage;
+        internal uint SourceDigitBidi;
+        internal int ParagraphLevel;
+        internal uint ShapingDirection;
+        internal uint ShapingFlags;
+        internal NativeHintedParagraphCounts Counts;
+        internal NativeTextParagraphResult Result;
+        internal NativeTextLayoutOptions Layout;
+        internal nuint FontSources;
+        internal uint FontSourceCount;
+        internal nuint FontBytes;
+        internal uint FontByteCount;
+        internal nuint DeviceStyles;
+        internal nuint VariationCoordinates1616;
+        internal uint VariationCoordinateCount;
+        internal nuint NormalizedCoordinates;
+        internal uint NormalizedCoordinateCount;
+        internal nuint Outlines;
+        internal uint OutlineCount;
+        internal nuint Segments;
+        internal uint SegmentCount;
+        internal nuint RunSlices;
+        internal nuint SourceOutlineIndices;
+        internal uint SourceOutlineCount;
+        internal nuint RunOutlineIndices;
+        internal uint RunOutlineCount;
+        internal nuint OutlineOwners;
+        internal nuint PositionedOutlineIndices;
+        internal nuint SourceScalars;
+        internal nuint AdmittedScalars;
+        internal nuint ScalarLevels;
+        internal nuint Styles;
+        internal nuint SourceMetrics;
+        internal nuint Runs;
+        internal nuint LogicalGlyphs;
+        internal nuint LogicalOwners;
+        internal nuint LogicalClusterEnds;
+        internal nuint LogicalBidiLevels;
+        internal nuint GlyphScales;
+        internal nuint PositionedGlyphs;
+        internal nuint PositionedOwners;
+        internal nuint PositionedClusterEnds;
+        internal nuint PositionedBidiLevels;
+        internal nuint Lines;
+        internal nuint LineOrigins;
+        internal nuint Boxes;
+        internal nuint Carets;
+        internal nuint PreContext;
+        internal uint PreContextCount;
+        internal nuint PostContext;
+        internal uint PostContextCount;
+        internal nuint Features;
+        internal uint FeatureCount;
+    }
 }
 // Native source: progpu_native_hinted_point.
 [StructLayout(LayoutKind.Sequential)]
@@ -182,4 +257,50 @@ public partial struct NativeHintedParagraphGlyphOwner
     public uint RunIndex;
     public uint RunGlyphIndex;
     public uint DescriptorIndex;
+}
+
+// Native source: progpu_native_hinted_glyph_font_source.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedGlyphFontSource
+{
+    public uint ByteOffset;
+    public uint ByteCount;
+    public uint FaceIndex;
+    public uint UnitsPerEm;
+}
+
+// Native source: progpu_native_hinted_glyph_run_slice.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedGlyphRunSlice
+{
+    public uint SourceStart;
+    public uint SourceCount;
+    public uint RunStart;
+    public uint RunCount;
+    public uint OutlineStart;
+    public uint OutlineCount;
+    public uint SegmentStart;
+    public uint SegmentCount;
+}
+
+// Native source: progpu_native_hinted_glyph_outline_owner.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedGlyphOutlineOwner
+{
+    public uint RunIndex;
+    public uint DescriptorIndex;
+}
+
+// Native source: progpu_native_mil_hinted_glyph_binding.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeMilHintedGlyphBinding
+{
+    public uint GlyphRunHandle;
+    public uint ResourceIndex;
+    public uint FontIndex;
+    public uint PositionedIndexStart;
+    public uint PositionedIndexCount;
+    public uint Reserved;
+    public Vector2 LogicalOrigin;
+    public Matrix3x2 Basis;
 }

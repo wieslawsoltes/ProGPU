@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 
 namespace ProGPU.Backend.Native;
 
@@ -77,6 +79,85 @@ public sealed unsafe class NativeMilChannel : IDisposable
             metrics.DeletedResourceCount,
             metrics.UpdatedResourceCount,
             metrics.TotalBytes);
+    }
+
+    /// <summary>
+    /// Atomically applies canonical commands and all original hinted-glyph
+    /// bindings in one native update. Resources remain leased through complete
+    /// import; only flat records enter the selected renderer library. A later
+    /// invalid binding preserves the previous graph, metrics and compiled view.
+    /// </summary>
+    public void ApplyWithHintedGlyphResources(ReadOnlySpan<byte> batch,
+        ReadOnlySpan<NativeHintedGlyphResource> resources,
+        ReadOnlySpan<NativeMilHintedGlyphBinding> bindings,
+        ReadOnlySpan<uint> positionedIndices)
+    {
+        nint channel = GetChannel();
+        if (_backend is not (NativeMilBackend.WgpuNative or NativeMilBackend.Dawn))
+            throw new NotSupportedException("The MIL resource import requires an exact supported native provider.");
+        var views = ArrayPool<NativeMethods.HintedGlyphResourceView>.Shared.Rent(Math.Max(1, resources.Length));
+        NativeHintedGlyphResource[]? leases = null;
+        int acquired = 0;
+        Exception? primaryError = null;
+        try
+        {
+            leases = ArrayPool<NativeHintedGlyphResource>.Shared.Rent(Math.Max(1, resources.Length));
+            for (int index = 0; index < resources.Length; index++)
+            {
+                var resource = resources[index];
+                ArgumentNullException.ThrowIfNull(resource);
+                views[index] = resource.AcquireForImport();
+                leases[index] = resource;
+                acquired++;
+            }
+            fixed (byte* batchPointer = batch)
+            fixed (NativeMethods.HintedGlyphResourceView* viewPointer = views)
+            fixed (NativeMilHintedGlyphBinding* bindingPointer = bindings)
+            fixed (uint* indexPointer = positionedIndices)
+            {
+                NativeMilStatus status = _backend == NativeMilBackend.Dawn
+                    ? NativeMilDawnMethods.ApplyWithHintedGlyphResources(channel, batchPointer, (nuint)batch.Length,
+                        viewPointer, checked((uint)resources.Length), bindingPointer, checked((uint)bindings.Length),
+                        indexPointer, checked((uint)positionedIndices.Length))
+                    : NativeMilMethods.ApplyWithHintedGlyphResources(channel, batchPointer, (nuint)batch.Length,
+                        viewPointer, checked((uint)resources.Length), bindingPointer, checked((uint)bindings.Length),
+                        indexPointer, checked((uint)positionedIndices.Length));
+                if (status != NativeMilStatus.Success)
+                    throw new NativeMilException(status, $"The atomic hinted MIL update was rejected with {status}.");
+            }
+        }
+        catch (Exception error)
+        {
+            primaryError = error;
+            throw;
+        }
+        finally
+        {
+            Exception? cleanupError = null;
+            try
+            {
+                if (leases != null)
+                {
+                    for (int index = acquired - 1; index >= 0; index--)
+                    {
+                        try { leases[index].EndImport(); }
+                        catch (Exception error) { cleanupError ??= error; }
+                    }
+                    ArrayPool<NativeHintedGlyphResource>.Shared.Return(leases, clearArray: true);
+                }
+            }
+            finally
+            {
+                ArrayPool<NativeMethods.HintedGlyphResourceView>.Shared.Return(views, clearArray: true);
+            }
+            if (cleanupError != null)
+            {
+                // Drain every owner even after a teardown fault. Preserve the
+                // original update error and retain cleanup evidence on it.
+                if (primaryError == null) ExceptionDispatchInfo.Capture(cleanupError).Throw();
+                else primaryError.Data["HintedGlyphResourceCleanupFailure"] = cleanupError;
+            }
+        }
     }
 
     /// <summary>

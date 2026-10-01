@@ -5,6 +5,12 @@ namespace ProGPU.Backend.Native;
 
 internal static unsafe partial class NativeMilMethods
 {
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_apply_with_hinted_glyph_resources")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus ApplyWithHintedGlyphResources(nint channel,
+        byte* batch, nuint batchSize, NativeMethods.HintedGlyphResourceView* resources, uint resourceCount,
+        NativeMilHintedGlyphBinding* bindings, uint bindingCount, uint* positionedIndices, uint positionedIndexCount);
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct BatchMetrics
     {
@@ -325,6 +331,12 @@ internal static unsafe partial class NativeMilMethods
 
 internal static unsafe partial class NativeMilDawnMethods
 {
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_apply_with_hinted_glyph_resources")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus ApplyWithHintedGlyphResources(nint channel,
+        byte* batch, nuint batchSize, NativeMethods.HintedGlyphResourceView* resources, uint resourceCount,
+        NativeMilHintedGlyphBinding* bindings, uint bindingCount, uint* positionedIndices, uint positionedIndexCount);
+
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_create")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus Create(nint* channel);

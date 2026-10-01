@@ -149,6 +149,38 @@ public sealed unsafe class NativeHintedParagraph : IDisposable
     }
 
     /// <summary>
+    /// Retains geometry, every original occurrence and measured interaction
+    /// without requiring a GPU target, paint or fabricated source origin.
+    /// Renderer imports copy flat records while the original owner is leased.
+    /// </summary>
+    public NativeHintedGlyphResource PrepareGlyphResource(float dpiScale,
+        NativeHintedProjectionPolicy projection = NativeHintedProjectionPolicy.Automatic,
+        NativeHintedCoverage coverage = NativeHintedCoverage.Strict)
+    {
+        if (!float.IsFinite(dpiScale) || dpiScale <= 0)
+            throw new ArgumentOutOfRangeException(nameof(dpiScale));
+        using var use = _owner.Acquire();
+        NativeMethods.HintedGlyphResourceRequest request = new()
+        {
+            AbiVersion = NativeMethods.AbiVersion,
+            StructSize = (uint)sizeof(NativeMethods.HintedGlyphResourceRequest),
+            DpiScale = dpiScale, ProjectionPolicy = (uint)projection, Coverage = (uint)coverage,
+        };
+        nint resource = 0;
+        try
+        {
+            ThrowForStatus(NativeMethods.PrepareHintedGlyphResource(use.Handle, &request, &resource), "glyph resource preparation");
+            if (resource == 0) throw new InvalidOperationException("Native glyph preparation returned no owner.");
+            return new NativeHintedGlyphResource(resource, dpiScale, projection, coverage);
+        }
+        catch
+        {
+            if (resource != 0) NativeMethods.DestroyHintedGlyphResource(resource);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Pure CPU frame preparation over this same generation. The returned frame
     /// owns its native data independently of this paragraph/context. The target
     /// stays caller-owned and must retain its exact view until rendering.

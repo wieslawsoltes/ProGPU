@@ -172,6 +172,14 @@ and DPI before atomic publication. Consume hinted outlines inside existing seman
 brush/clip scopes without design-outline decoding, ID/phase lookup or second snap.
 Identity basis and no added guidelines remain explicit gates; private C++ binding
 does not admit public transport, managed/source replay or Display selection.
+Public hinted-glyph resources retain original format, interaction and font bytes
+without fabricating a target or source generation. Prepare/borrow/destroy stay
+in the producer library under a destruction-excluding lifetime lease; a selected
+stock/Dawn renderer imports only immutable flat records. Canonical commands and
+all explicit occurrence bindings share one candidate and preserve prior graph,
+cache and native status on any later failure. Drain every managed resource lease
+even when teardown faults. Public transport does not admit managed compositor,
+recorded/source replay, nonidentity bases or Display selection.
 
 Retained DrawingTextLayout painting and interaction must share one original
 formatted generation. Own exact glyph/font runs and interaction geometry; do not
