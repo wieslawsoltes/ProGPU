@@ -156,6 +156,41 @@ other provider/architecture lanes, folded/near-singular edges and complete
 package/application qualification remain separate gates. No runtime from the
 failed parent Build was downloaded or staged for this analysis.
 
+### Independent dyadic affine oracle
+
+`HintedTextureSamplingProbe --output <fresh directory> --fallback
+--canonical-frame --affine-binary-oracle` selects a separate, purpose-specific
+synthetic input. Do not combine it with `--native-frame`, `--affine-frame` or the
+axis `--binary-oracle`. The authentic non-binary italic/shear input and its
+gate-zero output comparisons above are unchanged.
+
+This control has two original 16-by-16 physical frames: a half-X shear and a
+reflected half-X shear, at DPI two. All four corners are authored independently
+in eighth-pixel units. The original triangles 012 and 023 have signed physical
+areas represented by determinants +256 and -256. An independent checked-integer
+signed-area evaluator computes barycentric atlas addresses from those corners,
+including exact half-open edge ownership. It does not reuse the shader's inverse
+rows. A separate binary 0/255 atlas tile at (2,2), with four clear padding texels,
+gives exactly representable dyadic bilinear weights. The original 96-byte
+instances have independent little-endian assembly hash
+`CD1BE60F18411A388B64373285D4226AC295E5860F2CB3DDFF7EBAB1F2AECA4F`.
+
+For every captured pixel, both original triangle maps, outside output, texel
+addresses, clamped normalized addresses and raw bilinear coverage are checked
+with exact float-bit comparisons. Gamma and alpha retain the real shader
+arithmetic and paired exact RGBA controls; there is no CPU `pow` tolerance or
+claim of cross-driver gamma identity. Both target sizes and the existing
+single/overlapping, cold/warm and raw-output captures remain intact. This is an
+independent synthetic geometry/sampling control, not authentic font coverage.
+
+The probe compiles and all 229 device-free controls pass, including independent
+hand-derived samples in both triangles and windings, one-owner shared-diagonal
+coverage, every original physical corner, finite/outside output and one-bit
+coverage corruption rejection. This checkpoint has **not executed the new
+affine oracle on a GPU**. It cannot qualify the affine correction by itself,
+replace the legacy-output differences above or relax any original native
+pixel assertion.
+
 ## Design references and preserved contracts
 
 This is original ProGPU code, informed by public architectural contracts, not

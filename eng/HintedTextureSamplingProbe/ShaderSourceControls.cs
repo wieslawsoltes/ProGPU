@@ -179,7 +179,7 @@ internal static class ShaderSourceControls
             "Original physical-triangle profile lost its certificate or twelve-vertex paint contract.");
         Reject(() => Program.DrawVertexCount("unreviewed", true, boundedPaint),
             "Unknown shader profile selected a draw contract.");
-        return passed + CanonicalCoverageOracle.RunControls();
+        return passed + CanonicalCoverageOracle.RunControls() + AffineCoverageOracle.RunControls();
 
         void Check(bool condition, string message)
         {
