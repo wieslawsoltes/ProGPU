@@ -354,6 +354,10 @@ public sealed class CocoaOwnedPopupSurfaceTests
         public bool Show() { Events.Add("show"); Input.SetVisible(true); OnShow?.Invoke(); return true; }
         public bool Hide() { Events.Add("hide"); Input.SetVisible(false); return HideAccepted; }
         public bool SetBounds(NativeWindowBounds bounds) => true;
+        public bool SetTopMost(bool value) => true;
+        public bool SetOpacity(double value) => true;
+        public bool SetZOrder(NativeWindowZOrder value) => true;
+        public bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum) => true;
         public bool TryGetGeometry(out NativeWindowGeometrySnapshot snapshot)
         { OnGeometry?.Invoke(); snapshot = Geometry; return true; }
         public void Dispose() => Events.Add("release");

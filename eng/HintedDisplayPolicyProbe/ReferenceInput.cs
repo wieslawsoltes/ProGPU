@@ -97,6 +97,7 @@ internal static class ReferenceInput
                     int start = run.GetProperty("TextSourceCharacterIndex").GetInt32(), runLength = run.GetProperty("TextSourceLength").GetInt32();
                     if (count == 0 || count != run.GetProperty("Advances").GetArrayLength() ||
                         run.GetProperty("Offsets").GetArrayLength() != count || run.GetProperty("IsSideways").GetBoolean() ||
+                        run.GetProperty("BidiLevel").GetInt32() is not (0 or 1) ||
                         run.GetProperty("PixelsPerDip").GetDouble() != dpi || run.GetProperty("FontRenderingEmSize").GetDouble() != em ||
                         run.GetProperty("StyleSimulations").GetString() != "None" || start < sourceStart || runLength <= 0 ||
                         start + runLength > Math.Min(text.Length, sourceStart + length))

@@ -94,7 +94,7 @@ adapter can finish disposal after native callbacks or render leases end.
 
 The adapter is intentionally restricted to a nonactivating, untitled, hidden-
 created, borderless NoAPI popup. It does not promise fullscreen, independent
-topmost/focus, GL/Vulkan contexts, native file drops, a separate run loop, or a
+focus, GL/Vulkan contexts, native file drops, a separate run loop, or a
 source dispatcher. It reports unsupported mutations instead of applying them to
 the owner's GLFW window. Source factories must supply this contract explicitly.
 
@@ -179,6 +179,51 @@ failed native retirement available for an explicit retry.
 These factories are still explicit, unselected building blocks. Source framework
 factory/input integration, real native owner lifetime and rendering qualification
 below remain required; this API does not choose a wheel compatibility policy.
+
+### Owned panel options
+
+Forms dropdown and tooltip requests include `TopMost=true`; their host also
+applies opacity and content-size constraints. The owned adapter accepts the
+topmost creation option and sets the actual panel level before publishing geometry
+or invoking `Load`. Initial rejection disposes the unpublished popup, retaining
+failed native retirement and the original failure. Context control must still be
+explicitly disabled; hidden, untitled, borderless NoAPI admission is unchanged.
+
+`CocoaPopupNativeWindowPlatform` delegates topmost, opacity, content constraints
+and ordering to the owned surface. Level selection reuses original ProGPU
+`MacOsNativeWindowPlatform` normal/floating constants (0/3), without changing
+`isFloatingPanel`, nonactivation, works-when-modal or owner identity. Level,
+`alphaValue`, `contentMinSize` and `contentMaxSize` must read back exactly before
+success. Opacity is finite in [0,1]; content sizes are nonnegative ordered integer
+points, preserving zero minima and `int.MaxValue` unbounded maxima without backing
+scale conversion. Constraint updates do not replace geometry with requested
+values; the existing native geometry drain observes any resulting resize.
+
+Every setter retains panel/view ownership through native callbacks and checks
+identity, visibility and attachment before and after mutation. Hidden property
+updates must stay hidden and detached. Front/back ordering is rejected while
+hidden, since AppKit ordering can show a window. A visible request requires the
+same live attached owner before and after `orderFront:`/`orderBack:`; neither
+operation requests key/main focus. Success records accepted ordering with those
+ownership checks, not a synchronous observable global stack rank.
+
+Reentrant close/disposal rejects option success, cancels held input and preserves
+renderer leases. Close hides after the option transition; native retirement waits
+for dispatch and view leases. Nested mutation and native-callback entry reject.
+Cleanup failure cannot replace an original option/initialization exception.
+These are O(1) option transitions plus the existing live-owner application-window
+lookup, with constant workspace and no rendering, polling, GPU crossing or device
+selection. Both managed and native renderers use this same window platform.
+
+The device-free owned-popup test group passed 217 cases using the real backend
+assembly and fake native operations, with zero build warnings/errors. The new
+option cases cover initialization, native rejection, invalid input, hidden
+ordering, exact values/identity, reentrant close/disposal, failed cleanup, thread
+and callback admission and view leases. Public installed SDK `NSWindow.h`
+declarations supply the CGFloat, NSSize and NSWindowLevel ABI; no third-party
+implementation was used. Real AppKit property/ordering readback, panel rendering,
+both source factory integrations and package/application qualification remain
+required. This slice selects neither source factory nor automatic native modality.
 
 ### Source-host retirement completion
 

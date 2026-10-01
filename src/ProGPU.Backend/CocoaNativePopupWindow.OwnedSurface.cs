@@ -9,6 +9,8 @@ internal static unsafe partial class CocoaNativePopupWindow
     // AppKit's public NSWindowStyleMaskNonactivatingPanel. This is legal only
     // for a real NSPanel; never apply it to or replace a GLFW window's class.
     private const nuint NonactivatingPanelStyle = 1u << 7;
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly record struct CocoaPopupSize(double Width, double Height);
 
     internal static ICocoaOwnedPopupOperations? TryCreateOwned(NativeWindowHandle owner,
         NativeWindowBounds bounds, bool transparent)
@@ -216,6 +218,68 @@ internal static unsafe partial class CocoaNativePopupWindow
             return TryGetGeometry(out var geometry) && geometry.ContentBounds == bounds;
         }
 
+        public bool SetTopMost(bool value)
+        {
+            using var pool = new Pool();
+            if (!TryCapturePresentationState(out bool visible, out nint parent)) return false;
+            nint level = (nint)(value ? MacOsNativeWindowPlatform.FloatingWindowLevel : MacOsNativeWindowPlatform.NormalWindowLevel);
+            MessageVoidArgument(panel, Selector("setLevel:\0"u8), level);
+            return OwnedMessageInteger(panel, Selector("level\0"u8)) == level && HasPresentationState(visible, parent);
+        }
+
+        public bool SetOpacity(double value)
+        {
+            if (!double.IsFinite(value) || value is < 0 or > 1) return false;
+            using var pool = new Pool();
+            if (!TryCapturePresentationState(out bool visible, out nint parent)) return false;
+            OwnedMessageSetDouble(panel, Selector("setAlphaValue:\0"u8), value);
+            return OwnedMessageDouble(panel, Selector("alphaValue\0"u8)) == value && HasPresentationState(visible, parent);
+        }
+
+        public bool SetZOrder(NativeWindowZOrder value)
+        {
+            if (value is not NativeWindowZOrder.Front and not NativeWindowZOrder.Back) return false;
+            using var pool = new Pool();
+            // AppKit orderFront/orderBack can show a hidden window. Ordering is
+            // available only after Show attached this panel to its live owner.
+            if (!TryCapturePresentationState(out bool visible, out nint parent) || !visible) return false;
+            MessageVoidArgument(panel, Selector(value == NativeWindowZOrder.Front ? "orderFront:\0"u8 : "orderBack:\0"u8), 0);
+            // This verifies identity/visibility/ownership, not an observable
+            // global stack rank: AppKit exposes no synchronous ordering receipt.
+            return HasPresentationState(visible, parent);
+        }
+
+        public bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum)
+        {
+            if (minimum.Width < 0 || minimum.Height < 0 || maximum.Width < minimum.Width || maximum.Height < minimum.Height)
+                return false;
+            using var pool = new Pool();
+            if (!TryCapturePresentationState(out bool visible, out nint parent)) return false;
+            // NativeWindowSize uses content points, independently of backing
+            // scale. Both zero minima and the exact int.MaxValue bound survive.
+            var min = new CocoaPopupSize(minimum.Width, minimum.Height);
+            var max = new CocoaPopupSize(maximum.Width, maximum.Height);
+            OwnedMessageSetSize(panel, Selector("setContentMinSize:\0"u8), min);
+            if (!HasPresentationState(visible, parent)) return false;
+            OwnedMessageSetSize(panel, Selector("setContentMaxSize:\0"u8), max);
+            return OwnedMessageSize(panel, Selector("contentMinSize\0"u8)) == min &&
+                OwnedMessageSize(panel, Selector("contentMaxSize\0"u8)) == max && HasPresentationState(visible, parent);
+        }
+
+        private bool TryCapturePresentationState(out bool visible, out nint parent)
+        {
+            visible = false;
+            parent = 0;
+            if (!IsCurrent) return false;
+            visible = GetOwnedBool(panel, "isVisible\0"u8);
+            parent = Send(panel, "parentWindow\0"u8);
+            return HasPresentationState(visible, parent);
+        }
+
+        private bool HasPresentationState(bool visible, nint parent) => IsCurrent &&
+            (visible ? _owner is not null && parent == _owner.Window.Handle : parent == 0) &&
+            GetOwnedBool(panel, "isVisible\0"u8) == visible && Send(panel, "parentWindow\0"u8) == parent && IsCurrent;
+
         public bool SupportsCursor(StandardCursor cursor)
         {
             using var pool = new Pool();
@@ -335,4 +399,16 @@ internal static unsafe partial class CocoaNativePopupWindow
     [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     private static partial void OwnedMessageSetFrame(nint receiver, nint selector, CocoaMenuRect rectangle, byte display);
+    [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial double OwnedMessageDouble(nint receiver, nint selector);
+    [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial void OwnedMessageSetDouble(nint receiver, nint selector, double value);
+    [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial CocoaPopupSize OwnedMessageSize(nint receiver, nint selector);
+    [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial void OwnedMessageSetSize(nint receiver, nint selector, CocoaPopupSize value);
 }

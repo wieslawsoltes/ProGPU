@@ -48,10 +48,23 @@ The probe does not repair product outputs or compare ink pixels.
 observations to its original Microsoft Display case. It retains every source
 line/run, original occurrence count and unmatched native positioned index.
 Different fitting ranges, glyph counts/sequences, physical font owners,
-per-run bidi levels or original UTF-16 cluster coverage produce named unmatched
+run direction/embedding identity or original UTF-16 cluster coverage produce named unmatched
 results, never a skipped or passing case. Native original logical indices own
 the comparison order; glyph-ID search cannot make a different sequence match.
 The original full Microsoft receipt still retains all 192 Ideal/Display inputs.
+
+Original WPF shaped `GlyphRun.BidiLevel` is the public direction 0/1, not the
+full native embedding level. Before comparing `nativeLevel & 1` with that source
+value, every candidate inside the **original** source run must have one identical
+full native level. Mixed 0/2 or 1/3 runs reject even though their parity agrees;
+no source boundary or native grouping is changed to obtain alignment. The input
+oracle rejects public levels outside 0/1. Existing raw `BidiLevel` fields remain
+unchanged. Additive `SourceGlyphRunBidiLevel` and
+`NativeProjectedSourceGlyphRunBidiLevel` fields label the comparison explicitly;
+run summaries also retain `NativeBidiLevel`, null when no single native level
+exists. The original `TextShapeableCharacters.ComputeShapedGlyphRun` publishes
+`rightToLeft ? 1 : 0`; this comparison follows that source contract, not a general
+restriction on publicly constructed WPF GlyphRuns.
 
 The Microsoft final line may include exactly one virtual `TextEndOfParagraph`
 unit beyond the original UTF-16 text. Raw length and virtual length are recorded
@@ -118,7 +131,7 @@ PROGPU_WPF_DISPLAY_REFERENCE=/absolute/reference.json \
   dotnet test eng/HintedDisplayPolicyProbe.Tests -c Release -m:1
 ```
 
-On 2026-10-01 the managed probe compiled with zero warnings/errors, and both
+Before qualified runtime staging on 2026-10-01, the managed probe compiled with zero warnings/errors, and both
 unchanged original x64/ARM64 receipts passed input validation without native loads.
 The original 19 focused receipt/identity/signed-conversion tests passed against
 each original receipt, zero skipped. Eight follow-up controls cover exact-byte
@@ -129,7 +142,77 @@ The complete 27-test suite passes against all four accepted original receipts,
 zero skipped; the extended probe compiles with zero warnings/errors. New source
 receipts and immutable provenance notes are retained internally under
 `/private/tmp/progpu-display-source-inputs.8m8manYP`; no native runtime was staged.
-Local execution is blocked by the absence of a verified internal native runtime;
+At that checkpoint local execution was blocked by the absence of a verified internal native runtime;
 the reviewed signed FreeType preparation also requires unavailable GnuPG. No
 signature bypass, tool installation, failed-Build staging or native metric result
 is claimed. The exact runtime/whole-Build gate remains required before observations.
+
+## Qualified direction-comparison observations
+
+The subsequent bounded CPU execution used exact native source
+`60347a5f1026b8f95582535e6b7cfc8431a04499`, package `0.1.0-preview.3435.ci`, and
+whole-successful [Build 36915664259](https://github.com/wieslawsoltes/ProGPU/actions/runs/36915664259)
+(59 jobs / 74 checks). The merge `0565c0b4fb3bdca0ab41cf30b64e73e0b71f33f2`
+has the same tree. The probe compiled with zero warnings/errors against the
+qualified feed in a separate managed package cache. All 64 tests passed, zero
+skipped, against each unchanged original x64 and ARM64 reference from producer
+`432f5d5d5ef587681dd64adfde0be863979c9724`. Controls include native levels 2/3
+projecting to 0/1, mixed full-level rejection, wrong parity, unsupported source
+levels and unchanged raw serialized fields.
+
+Each reference produced 192 observations (96 Display cases times two explicit
+interpreter policies). These are local macOS ARM64 native executions compared
+with the original Windows references, not new Windows runtime qualification.
+Both reference comparisons yielded identical counts:
+
+| Comparison | Previous full-level comparison | Direction comparison |
+| --- | ---: | ---: |
+| Cases aligned with exact logical and positioned advances | 24 | 40 |
+| Cases aligned with advance differences | 38 | 70 |
+| Cases with explicit unmatched domains | 130 | 82 |
+| Exact-fitting cases | 124 | 124 |
+| Aligned original runs / 452 | 176 | 254 |
+| Compared original occurrences / 1,600 | 648 | 1,046 |
+| Exact logical advances | 528 | 826 |
+| Exact positioned advances | 384 | 598 |
+
+The new run reasons retain 162 different/ambiguous-fitting results and explicitly
+reject 56 mixed-native-level runs. These reasons may overlap. All 192 raw case
+payloads are exactly unchanged after excluding only `SourceContextComparison`;
+all previously aligned comparison values are unchanged after excluding the new
+metadata fields. This improvement corrects diagnostic alignment, not native
+metrics, fitting, positioning or Display admission.
+
+Original receipts and previous observations remain untouched. Fresh `CreateNew`
+outputs and both test receipts are under
+`/private/tmp/progpu-source-bidi-results.uRGIRrJN`:
+
+- `display-observations-x64-reference.json`: SHA-256
+  `ba845384a319e0e1454ae24e6982b76f906f346b6762863b9c52c8af72cf56a0`.
+- `display-observations-arm64-reference.json`: SHA-256
+  `f9c850ec36eefb60296ac502ceeb8eeb6031abc498b6da9bf9bd5b0d432e1136`.
+
+No interpreter defaults, native policy, source metrics or references changed;
+there was no GPU execution or native build.
+
+### Separate device-em hypothesis, not an implemented policy
+
+A separate complete-original-text diagnostic using the same qualified runtime
+aligned all 800 original glyph occurrences across 96 source cases. Original
+fractional physical em with source `ToEven` physical-advance rounding matched
+696/800 advances; nearest-integer physical em with the same advance rounding
+matched 800/800. The source's ordinary advance conversion uses `ToEven`
+(`TextFormatterImp.cs`, lines 719–726); its justified conversion is distinct.
+The independent receipt is
+`/private/tmp/progpu-device-em-check.T3MiUc5u/device-em-source-rounding-hypotheses.json`,
+SHA-256 `81d9b35953ecfdcfb434c382f38abb3a9d2046fa55843f938064fb75fb237f24`;
+the accompanying `Program.cs` SHA-256 is
+`c49b8d278d5ed950037aec71ce47bf3b57e63e5ef4427723a9f596cb56b5f704`.
+
+This probe does not apply that hypothesis. Physical-em midpoint policy remains
+unproved, and offsets, positions, line metrics and wrapping remain unqualified;
+unsafe shaping-boundary flags still prevent the observed narrow-line fitting.
+Any future explicit native capture policy must own device em, advances and
+offsets together with same-generation layout/interaction, while preserving the
+original source em/DPI. Reader-local rounding or changing source font size is
+not an implementation of that contract.

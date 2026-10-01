@@ -75,6 +75,15 @@ public sealed class ReferenceInputTests
     public void OriginalReceiptIsAcceptedWithoutNativeExecution() => Validate(Original());
 
     [Theory]
+    [InlineData(-1)] [InlineData(2)] [InlineData(3)] [InlineData(126)]
+    public void SourceShapedRunRequiresItsOriginalPublicDirection(int level)
+    {
+        var original = Original();
+        original["Cases"]![0]!["Lines"]![0]!["Runs"]![0]!["BidiLevel"] = level;
+        Assert.Throws<InvalidDataException>(() => Validate(original));
+    }
+
+    [Theory]
     [InlineData("commit")] [InlineData("font")] [InlineData("assembly")]
     [InlineData("duplicate")] [InlineData("dpi")] [InlineData("glyph")]
     [InlineData("offset")] [InlineData("utf16")] [InlineData("cluster")]
