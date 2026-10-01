@@ -59,6 +59,41 @@ against the new complete package binaries before this correction is qualified.
 Failure diagnostics additionally report per-channel counts and the first whole
 pixel; no byte delta is waived.
 
+## Isolating the Windows bounded-texture difference
+
+Build `36868922108` at `8adb63509` repeated the exact 62-byte/max-two difference
+in all six Windows consumers (stock, optional DX12 and Dawn on both architectures),
+after all four original solid-paint controls passed. The new RGBA counts are
+`12,18,12,20`, with maximum
+deltas `1,1,1,2`. Those alpha differences do not support a purely RGB blend
+conversion explanation. The fragment-coordinate rewrite is not a qualified fix,
+and this Build does not qualify runtime artifact staging.
+
+The package-free `eng/HintedTextureSamplingProbe` isolates the shared Text and
+HintedGlyphPaint shaders with one controlled R8 atlas, original 96-byte instance
+layout, explicit fractional/overlapping occurrences and a constant opaque image.
+It holds physical glyph geometry and DPI fixed while comparing 96- and 128-pixel
+targets, with independent single-occurrence and overlapping-occurrence controls.
+Its unmodified color paths are compared separately from diagnostic-only shader
+variants that expose coordinates and coverage to floating-point targets. The
+variants require exact source anchors rather than silently instrumenting a
+different shader. They are observations, not replacement production shaders.
+
+Run the existing `Native path diagnostics` workflow on the diagnostic PR head
+with `probe_set=hinted-texture` and `package_run_id=0`. Only the Windows x64
+package-free job runs; it does not resolve/download a previous native package.
+The software adapter is an explicit probe choice, not a product default or
+renderer fallback. Its artifact contains a `probe.log` and a separate `data`
+directory with per-target `report.json`, exact shader sources, raw pixel/float
+readbacks and input bytes. The reports retain actual loaded native-library hashes
+and separate helper sampling from the final caller alpha. The job has
+a ten-minute bound and does not rerun the full producer/package matrix.
+
+This controlled atlas does not stand in for authentic hinted font coverage,
+either native provider's compiled engine, source rendering or complete package
+qualification. A diagnostic difference must identify the next product change;
+passing synthetic samples cannot close the original full-RGBA package gate.
+
 This explicit consumer API preserves one original prepared paragraph generation.
 It is implementation work, not Display selection, source-editor/input admission,
 native/package qualification or an application performance claim.
