@@ -116,8 +116,14 @@ first allocation starts at `(2,2)` and authentic glyphs have their own padded
 bounds and retained baseline. The synthetic success therefore does not reproduce
 or close the native package failure. The next controlled check translates only
 the tile and its coordinates to the native first-allocation origin, retaining the
-same relative coverage bytes and physical geometry; no shader correction is
-justified by this result alone.
+same relative coverage bytes and physical geometry. Run `36879482932` at
+`815e52885` completed that check: every production RGBA8 frame and every sampled
+coverage/gamma/final-alpha component was unchanged. UVs shifted by exactly the
+expected translation. Both targets retained the same transparent boundary-only
+differences. This low-UV hypothesis did not reproduce the failure; further
+synthetic variations are not justified in place of capturing the authentic
+native glyph inputs and bounds. Neither successful diagnostic run qualifies
+the original package or justifies changing its exact pixel assertion.
 
 This explicit consumer API preserves one original prepared paragraph generation.
 It is implementation work, not Display selection, source-editor/input admission,
