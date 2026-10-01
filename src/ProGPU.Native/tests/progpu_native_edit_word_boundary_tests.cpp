@@ -113,6 +113,29 @@ void original_source_role_inventories()
     }
 }
 
+void original_mark_source_role_inventories()
+{
+    // Fourteen independent literal source-role inventories from original
+    // Windows run36900452884, source-roles.json SHA256
+    // 858e7c8e34a694a1ff4e153b7a4c6946f451daaf6dc371cc0296519a468048b8.
+    // Arabic leading bare items remain unqualified; a Latin prefix is actual
+    // preceding context, not permission to infer a forward Arabic family.
+    for (const auto level : {std::int8_t{0}, std::int8_t{1}}) {
+        check(u"\u0301ay ", {0, 4}, 0, level);
+        check(u"x\u0301ay ", {0, 5}, 0, level);
+        check(u"x\u064E\u0628y ", {0, 2, 5}, 0, level);
+        check(u"\u0628\u064E\u062Ay ", {0, 5}, 0, level);
+        check(u"x\u0628\u064E\u062Ay ", {0, 1, 6}, 0, level);
+        check(u"\u0710\u0730\u0712y ", {0, 5}, 0, level);
+        check(u"x\u0710\u0730\u0712y ", {0, 1, 6}, 0, level);
+        // Property/run algorithm controls, not additional Windows receipts:
+        // preserve the former rejected request as a positive Latin bridge and
+        // extend the whole leading role without fabricating a mark owner.
+        check(u"\u0301y ", {0, 3}, 0, level);
+        check(u"\u0300\u0301ay ", {0, 5}, 0, level);
+    }
+}
+
 void missing_contracts_are_atomic()
 {
     const auto check_failure = [](std::u16string_view text, edit_word_boundary_error expected,
@@ -147,8 +170,11 @@ void missing_contracts_are_atomic()
         edit_word_boundary_error::unqualified_script_item_transition_policy);
     check_failure(u"\u0628 \u064By ",
         edit_word_boundary_error::unqualified_script_item_transition_policy);
-    check_failure(u"\u0301y ",
-        edit_word_boundary_error::unqualified_script_item_transition_policy);
+    for (const auto level : {std::int8_t{0}, std::int8_t{1}})
+        for (const auto source : {u"\u0301", u"\u0301\u0628y ", u"\u064E\u0628y ",
+                u"\u0301\u4E00y ", u"\u0301\u0711y ", u" \u0301ay ",
+                u"\t\u0301ay ", u"\u202B\u0301ay ", u"\u0301\u200Day ", u"\U0001D185ay "})
+            check_failure(source, edit_word_boundary_error::unqualified_script_item_transition_policy, level);
     check_failure(u"\u200D\u0301y ",
         edit_word_boundary_error::unqualified_script_item_transition_policy);
     check_failure(u"\u0628 \u200D\u064By ",
@@ -177,6 +203,9 @@ void missing_contracts_are_atomic()
     // when the following nominal Thai item has more than one original unit.
     for (const auto level : {std::int8_t{0}, std::int8_t{1}})
         check_failure(u"\u0E50\u0E51\u0E01\u0E02y ",
+            edit_word_boundary_error::dependency_unavailable, level);
+    for (const auto level : {std::int8_t{0}, std::int8_t{1}})
+        check_failure(u"\u0301a\u0E01\u0E02y ",
             edit_word_boundary_error::dependency_unavailable, level);
 #endif
 }
@@ -549,6 +578,7 @@ int main()
         concurrent_snapshots_own_independent_outputs();
         original_reference_inventories();
         original_source_role_inventories();
+        original_mark_source_role_inventories();
         missing_contracts_are_atomic();
         reusable_property_profiles_are_not_observed_scalar_admission();
         independently_observed_joiner_contexts();

@@ -840,3 +840,52 @@ controls. No ICU download, native product build, packaged execution, GPU, VM,
 CI dispatch or source application run was performed for this checkpoint. This
 does not qualify Windows versions beyond the original receipt, editor geometry,
 ordinary Forms capability admission or source UI behavior.
+
+## Original leading and compatible mark roles
+
+The original `source-roles.json` receipt from Windows reference36900452884
+above also measures leading Inherited marks, Latin-owned Arabic marks and
+compatible Arabic/Syriac marks. Fourteen supported literal inventories, under
+both paragraph directions, now have separate snapshot, actual C-export and
+stock/Dawn package controls. Their raw soft-break inventories and all 106
+available EDIT double-down selections agree exactly; the 38 unavailable
+coordinates remain unclaimed. These are original source observations, not
+endpoints regenerated from the native classifier or a font.
+
+The new bounded leading-item rule permits a complete leading BMP default-script
+Mn/NSM/CM mark run only before an actual Latin-script letter with L bidi and the
+expected complete-source resolved level (0 in LTR, 2 in RTL). The leading marks
+must retain the actual paragraph level. They remain paragraph bridges with no
+attachment owner: no forward nominal family, fabricated base, rewritten scalar,
+suffix bidi pass or item-level override is introduced. Original U+0301 followed
+by `ay ` yields `[0,4]` in either direction. Original `x` + U+0301 + `ay ` retains
+`[0,5]` through the existing backward attachment rule. Extension to other members
+of that exact property intersection and to multiple leading marks is explicitly
+an inference; the extra grave/acute run is an algorithm control, not a new
+Microsoft observation. This does not assert Windows item identity or equality
+between owned UAX bidi levels and Windows `ScriptItemize` levels.
+
+An actual preceding Latin owner remains different from leading source: original
+`x` + U+064E + U+0628 + `y ` retains `[0,2,5]`. Compatible marks between original
+Arabic or Syriac letters retain their established item and entry policy. Mark
+source following whitespace, hard/format barriers or an ownerless joiner still
+fails atomically. Foreign following families, isolated mark-only input and
+unqualified supplementary leading marks do not enter the new bridge. The complete
+source still reaches the original Thai dependency check; no leading-prefix
+admission bypasses an unsupported suffix.
+
+**The Arabic-leading bare contract remains missing.** Original U+064E, U+0628
+and `y ` have `[0,4]`: Windows places the initial mark and letter in one Arabic
+item at level1, with direct attributes `[21,4]`. In contrast, the Latin-prefixed
+request places the mark with the existing Latin item. Owned `get_unicode_script`
+maps both U+064E and U+0301 to DFLT and does not expose their Script_Extensions;
+the owned leading NSM bidi level alone does not identify this original forward
+item assignment. The classifier therefore retains the precise unsupported
+item-transition result rather than guessing the following Arabic family or
+adding a scalar/combining-class exception. Leading marks before non-Latin source
+remain explicit until that reusable context contract is implemented.
+
+The strict AppleClang21 C++20 no-ICU focused harness passed 1/1, retaining all
+earlier symbol, Myanmar, original24, alias, tail and error controls. This source
+checkpoint adds no observer, pin, CI change or Forms admission marker and claims
+no native product build, packaged execution or source UI qualification.

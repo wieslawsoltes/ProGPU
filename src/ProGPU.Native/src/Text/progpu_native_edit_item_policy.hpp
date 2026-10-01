@@ -270,4 +270,42 @@ inline bool try_attach_edit_item_properties(
     return true;
 }
 
+inline std::size_t get_edit_leading_mark_item_length(
+    std::span<const unicode_scalar> scalars,
+    std::span<const edit_item_properties> properties,
+    std::span<const unicode_bidi_level> levels,
+    std::int8_t paragraph_level) noexcept
+{
+    // An original leading Inherited mark item before Latin has no soft entry
+    // or exit. It remains a paragraph bridge, not an invented attachment owner
+    // or a forward-selected nominal family. Inspect only the complete source's
+    // already classified roles and actual bidi levels; never resolve a suffix.
+    std::size_t count = 0U;
+    while (count < scalars.size()) {
+        const auto& scalar = scalars[count];
+        if (properties[count].role != edit_item_source_role::inherited_mark ||
+            properties[count].profile != edit_item_profile::paragraph_bridge ||
+            properties[count].flags != 0U || properties[count].has_attachment_owner ||
+            scalar.code_point > 0xFFFFU ||
+            scalar.script != open_type_tag::from_chars('D', 'F', 'L', 'T') ||
+            get_unicode_general_category(scalar.code_point) != unicode_general_category::nonspacing_mark ||
+            get_unicode_bidi_class(scalar.code_point) != unicode_bidi_class::nonspacing_mark ||
+            get_unicode_line_break_class(scalar.code_point) != unicode_line_break_class::combining_mark ||
+            levels[count].level != paragraph_level) break;
+        ++count;
+    }
+    if (count == 0U || count == scalars.size()) return 0U;
+    const auto& following = scalars[count];
+    // The observed Latin bridge is not a license to borrow Arabic/Syriac or
+    // another following nominal item. Owned Script collapses Common/Inherited
+    // and does not expose the Script_Extensions needed for that distinction.
+    if (following.script != open_type_tag::from_chars('l', 'a', 't', 'n') ||
+        !is_edit_letter(get_unicode_general_category(following.code_point)) ||
+        get_unicode_bidi_class(following.code_point) != unicode_bidi_class::left_to_right ||
+        properties[count].role != edit_item_source_role::ordinary ||
+        properties[count].profile != edit_item_profile::paragraph_bridge ||
+        levels[count].level != (paragraph_level == 0 ? 0 : 2)) return 0U;
+    return count;
+}
+
 } // namespace progpu::native::text::detail
