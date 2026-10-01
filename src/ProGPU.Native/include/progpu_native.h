@@ -230,7 +230,8 @@ typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH = 22,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH = 23,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH = 24,
-    PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH = 25
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH = 25,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN = 26
 } progpu_native_scene_command_kind;
 
 typedef enum progpu_native_scene_validation_error {
@@ -1631,6 +1632,48 @@ typedef struct progpu_native_scene_glyph_draw {
     uint32_t reserved0;
     uint32_t reserved1;
 } progpu_native_scene_glyph_draw;
+
+/* Dedicated direct glyph-paint GPU ABI. Legacy glyph/style records do not
+ * consume this record. Texture mode is the original managed texture enum
+ * (linear=0, nearest=1, cubic=2, then modes3..9), encoded in flags bits8..15.
+ * Every other flag/reserved bit must remain zero. */
+enum {
+    PROGPU_NATIVE_SCENE_GLYPH_PAINT_MATERIAL = 0U,
+    PROGPU_NATIVE_SCENE_GLYPH_PAINT_TEXTURE = 1U,
+    PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED = 1U,
+    PROGPU_NATIVE_SCENE_GLYPH_PAINT_BOUNDED = 2U,
+    PROGPU_NATIVE_SCENE_GLYPH_PAINT_CUBIC = 4U,
+    PROGPU_NATIVE_SCENE_GLYPH_PAINT_OPAQUE = 8U,
+    PROGPU_NATIVE_SCENE_GLYPH_PAINT_SAMPLING_SHIFT = 8U,
+    PROGPU_NATIVE_SCENE_GLYPH_PAINT_SAMPLING_MASK = 0xFF00U
+};
+
+typedef struct progpu_native_scene_glyph_paint {
+    uint32_t kind;
+    uint32_t brush_index;
+    uint32_t flags;
+    uint32_t reserved;
+    float source_offset_opacity[4];
+    float uv_bounds[4];
+    float texture_quad01[4];
+    float texture_quad23[4];
+    float sampling[4];
+} progpu_native_scene_glyph_paint;
+
+/* Additive DRAW_PAINTED_GLYPH_RUN only: prefix, one exact glyph-paint record,
+ * then glyph_count original positioned records. Material references a brush
+ * table/local index; texture references an original external IMAGE/index0.
+ * Paint index remapping never changes original occurrence order or geometry. */
+typedef struct progpu_native_scene_painted_glyph_draw {
+    uint32_t struct_size;
+    uint32_t glyph_count;
+    uint32_t paint_resource_index;
+    uint32_t paint_index;
+    uint32_t rendering_mode;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    uint32_t reserved2;
+} progpu_native_scene_painted_glyph_draw;
 
 /*
  * Semantic path/glyph resource records use fixed 64-bit arena indices rather

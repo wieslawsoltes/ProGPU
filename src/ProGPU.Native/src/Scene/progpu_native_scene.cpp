@@ -96,12 +96,12 @@ bool is_known_command(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
         kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER ||
         (kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH);
+            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN);
 }
 
 bool is_draw_command(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH;
+        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN;
 }
 
 std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
@@ -111,6 +111,7 @@ std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH:
             return PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH;
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN:
+        case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN:
             return PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN;
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE:
             return PROGPU_NATIVE_SCENE_RESOURCE_IMAGE;
@@ -1365,6 +1366,12 @@ validation_result validate(
                         PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
                         brush_error_offset);
                 }
+            }
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
+                std::uint32_t paint_error_offset = command.payload_offset;
+                if ((resource.flags & PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS) != 0U ||
+                    !semantic::validate_painted_glyph_draw(bytes, header, command, paint_error_offset))
+                    return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, paint_error_offset);
             }
             if (command.kind ==
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN &&

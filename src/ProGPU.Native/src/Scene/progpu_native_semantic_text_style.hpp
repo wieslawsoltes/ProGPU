@@ -8,6 +8,11 @@
 
 namespace progpu::native::semantic {
 
+inline constexpr bool is_glyph_command(std::uint32_t kind) noexcept {
+    return kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN ||
+        kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN;
+}
+
 struct semantic_text_style_page final {
     std::uint64_t scene_hash = 0U;
     bool cache_valid = false;
@@ -25,6 +30,14 @@ bool validate_styled_glyph_draw(
     const progpu_native_scene_header& header,
     const progpu_native_scene_command& command,
     std::uint32_t& error_offset) noexcept;
+
+bool validate_painted_glyph_draw(
+    const std::byte* bytes,
+    const progpu_native_scene_header& header,
+    const progpu_native_scene_command& command,
+    std::uint32_t& error_offset) noexcept;
+
+bool is_valid_glyph_paint(const progpu_native_scene_glyph_paint& paint) noexcept;
 
 bool try_get_glyph_payload(
     const std::byte* bytes,

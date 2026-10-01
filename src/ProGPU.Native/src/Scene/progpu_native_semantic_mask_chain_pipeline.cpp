@@ -257,6 +257,10 @@ bool create_image_chain_pipelines(progpu_native_engine& engine) {
 
 } // namespace
 
+bool create_semantic_mask_chain_layout(progpu_native_engine& engine) {
+    return create_chain_layouts(engine);
+}
+
 WGPUBindGroup create_semantic_mask_chain_bind_group(
     progpu_native_engine& engine,
     WGPUSampler sampler,

@@ -63,6 +63,86 @@ static_assert(offsetof(progpu_native_scene_text_style, color) == 0U);
 static_assert(offsetof(
     progpu_native_scene_text_style, text_rendering_mode) == 16U);
 static_assert(sizeof(progpu_native_scene_glyph_draw) == 24U);
+static_assert(sizeof(progpu_native_scene_painted_glyph_draw) == 32U);
+static_assert(sizeof(progpu_native_scene_glyph_paint) == 96U);
+static_assert(offsetof(progpu_native_scene_glyph_paint, source_offset_opacity) == 16U);
+static_assert(offsetof(progpu_native_scene_glyph_paint, uv_bounds) == 32U);
+static_assert(offsetof(progpu_native_scene_glyph_paint, texture_quad01) == 48U);
+static_assert(offsetof(progpu_native_scene_glyph_paint, texture_quad23) == 64U);
+static_assert(offsetof(progpu_native_scene_glyph_paint, sampling) == 80U);
+
+bool is_valid_glyph_paint(const progpu_native_scene_glyph_paint& paint) noexcept {
+    if (paint.kind > PROGPU_NATIVE_SCENE_GLYPH_PAINT_TEXTURE || paint.reserved != 0U ||
+        paint.source_offset_opacity[3] != 0.0F) return false;
+    const auto finite4 = [](const float (&values)[4]) noexcept {
+        for (const float value : values) if (!std::isfinite(value)) return false;
+        return true;
+    };
+    if (!finite4(paint.source_offset_opacity) || !finite4(paint.uv_bounds) ||
+        !finite4(paint.texture_quad01) || !finite4(paint.texture_quad23) ||
+        !finite4(paint.sampling)) return false;
+    if (paint.kind == PROGPU_NATIVE_SCENE_GLYPH_PAINT_MATERIAL) {
+        const auto zero4 = [](const float (&values)[4]) noexcept {
+            for (const float value : values) if (value != 0.0F) return false;
+            return true;
+        };
+        return paint.flags == 0U && paint.source_offset_opacity[2] == 0.0F &&
+            zero4(paint.uv_bounds) && zero4(paint.texture_quad01) &&
+            zero4(paint.texture_quad23) && zero4(paint.sampling);
+    }
+    constexpr std::uint32_t known = PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED |
+        PROGPU_NATIVE_SCENE_GLYPH_PAINT_BOUNDED | PROGPU_NATIVE_SCENE_GLYPH_PAINT_CUBIC |
+        PROGPU_NATIVE_SCENE_GLYPH_PAINT_OPAQUE |
+        PROGPU_NATIVE_SCENE_GLYPH_PAINT_SAMPLING_MASK;
+    const auto mode = (paint.flags & PROGPU_NATIVE_SCENE_GLYPH_PAINT_SAMPLING_MASK) >>
+        PROGPU_NATIVE_SCENE_GLYPH_PAINT_SAMPLING_SHIFT;
+    const auto address = [](float value) noexcept {
+        return value == 0.0F || value == 1.0F || value == 2.0F;
+    };
+    const bool coefficients = mode == 2U
+        ? std::abs(paint.sampling[0]) <= 16.0F && std::abs(paint.sampling[1]) <= 16.0F
+        : paint.sampling[1] == 0.5F && (paint.sampling[0] == 0.0F ||
+            (mode == 0U && paint.sampling[0] == -64.0F) ||
+            (mode == 1U && paint.sampling[0] == -128.0F));
+    return paint.brush_index == 0U && (paint.flags & ~known) == 0U && mode <= 9U &&
+        (paint.flags & (PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED | PROGPU_NATIVE_SCENE_GLYPH_PAINT_OPAQUE)) !=
+            (PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED | PROGPU_NATIVE_SCENE_GLYPH_PAINT_OPAQUE) &&
+        ((paint.flags & PROGPU_NATIVE_SCENE_GLYPH_PAINT_CUBIC) != 0U) == (mode == 2U) &&
+        paint.source_offset_opacity[2] >= 0.0F && paint.source_offset_opacity[2] <= 1.0F &&
+        paint.uv_bounds[2] >= paint.uv_bounds[0] && paint.uv_bounds[3] >= paint.uv_bounds[1] &&
+        coefficients &&
+        address(paint.sampling[2]) && address(paint.sampling[3]);
+}
+
+bool validate_painted_glyph_draw(const std::byte* bytes,
+    const progpu_native_scene_header& header,
+    const progpu_native_scene_command& command,
+    std::uint32_t& error_offset) noexcept {
+    error_offset = command.payload_offset;
+    if (bytes == nullptr || command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN ||
+        (command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U ||
+        command.payload_size < sizeof(progpu_native_scene_painted_glyph_draw) +
+            sizeof(progpu_native_scene_glyph_paint)) return false;
+    const auto draw = read_record<progpu_native_scene_painted_glyph_draw>(bytes, command.payload_offset);
+    const auto paint = read_record<progpu_native_scene_glyph_paint>(bytes,
+        command.payload_offset + sizeof(draw));
+    const std::uint64_t expected = sizeof(draw) + sizeof(paint) +
+        static_cast<std::uint64_t>(draw.glyph_count) * sizeof(progpu_native_positioned_glyph);
+    if (draw.struct_size != sizeof(draw) || draw.glyph_count == 0U || draw.glyph_count > (1U << 24U) ||
+        draw.rendering_mode > PROGPU_NATIVE_SCENE_TEXT_ALIASED ||
+        draw.reserved0 != 0U || draw.reserved1 != 0U || draw.reserved2 != 0U ||
+        expected != command.payload_size || draw.paint_resource_index >= header.resource_count ||
+        !is_valid_glyph_paint(paint)) return false;
+    const auto resource = read_resource(bytes, header, draw.paint_resource_index);
+    if (paint.kind == PROGPU_NATIVE_SCENE_GLYPH_PAINT_MATERIAL)
+        return resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE &&
+            resource.payload_size % sizeof(progpu_native_scene_brush) == 0U &&
+            draw.paint_index < resource.payload_size / sizeof(progpu_native_scene_brush) &&
+            paint.brush_index == draw.paint_index;
+    return draw.paint_index == 0U && resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE &&
+        (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U &&
+        resource.payload_size == 0U && resource.auxiliary_size == 0U;
+}
 
 bool validate_text_style_table(
     const std::byte* bytes,
@@ -136,6 +216,18 @@ bool try_get_glyph_payload(
     std::uint32_t& glyph_count) noexcept {
     payload_offset = command.payload_offset;
     glyph_count = 0U;
+    if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
+        if (bytes == nullptr || command.payload_size < sizeof(progpu_native_scene_painted_glyph_draw) +
+                sizeof(progpu_native_scene_glyph_paint)) return false;
+        const auto draw = read_record<progpu_native_scene_painted_glyph_draw>(bytes, command.payload_offset);
+        const std::uint64_t prefix = sizeof(draw) + sizeof(progpu_native_scene_glyph_paint);
+        if (draw.struct_size != sizeof(draw) || draw.glyph_count == 0U ||
+            prefix + static_cast<std::uint64_t>(draw.glyph_count) *
+                sizeof(progpu_native_positioned_glyph) != command.payload_size) return false;
+        payload_offset += static_cast<std::uint32_t>(prefix);
+        glyph_count = draw.glyph_count;
+        return true;
+    }
     if ((command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) == 0U) {
         if (command.payload_size == 0U ||
             command.payload_size % sizeof(progpu_native_positioned_glyph) !=

@@ -62,6 +62,7 @@ inline bool try_merge_semantic_path_draw(
 struct semantic_glyph_draw {
     std::uint32_t first_instance = 0U;
     std::uint32_t instance_count = 0U;
+    std::uint32_t paint_index = PROGPU_NATIVE_SCENE_NO_INDEX;
 
     bool operator==(const semantic_glyph_draw&) const = default;
 };
@@ -69,7 +70,8 @@ struct semantic_glyph_draw {
 inline bool try_merge_semantic_glyph_draw(
     semantic_glyph_draw& retained,
     const semantic_glyph_draw& next) noexcept {
-    if (retained.instance_count == 0U || next.instance_count == 0U ||
+    if (retained.paint_index != next.paint_index ||
+        retained.instance_count == 0U || next.instance_count == 0U ||
         retained.instance_count >
             std::numeric_limits<std::uint32_t>::max() - next.instance_count ||
         retained.first_instance + retained.instance_count !=

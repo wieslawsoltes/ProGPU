@@ -56,6 +56,7 @@ owners = [
     ("Scene/progpu_native_semantic_replay.hpp", "semantic_3d_page", "semantic_3d_cache", None),
     ("Scene/progpu_native_semantic_replay.hpp", "semantic_picture_backing", "picture", None),
     ("Scene/progpu_native_semantic_replay.hpp", "semantic_render_bundle_span", "span", None),
+    ("Scene/progpu_native_semantic_replay.hpp", "semantic_glyph_paint_uniform_binding", "binding", None),
 ]
 aliases = {"bound_analytic_brush_buffer", "bound_analytic_gradient_buffer", "bound_text_style_buffer"}
 count = 0
@@ -65,6 +66,13 @@ for path, name, prefix, visitor in owners:
         if not aliases <= declared:
             raise ValueError("Binding-cache alias exemptions need review")
         declared -= aliases
+    if name == "semantic_glyph_paint_uniform_binding":
+        paint_keys = {"uniform", "brushes", "stops", "paints"}
+        if declared != paint_keys:
+            raise ValueError("Original hinted-paint binding-cache keys need review")
+        # Bind groups retain the actual resources. These fields are identity
+        # comparisons only and can outlive source-container invalidation.
+        declared -= paint_keys
     scope = collector
     if visitor:
         match = re.search(r"const\s+" + visitor + r"&\s+value\)", collector)
@@ -77,4 +85,4 @@ for path, name, prefix, visitor in owners:
         if not re.search(access + "|" + macro, scope):
             raise ValueError(f"Native memory inventory omits {name}.{field}")
         count += 1
-print(f"Native memory inventory covers {count} declared owned buffer/texture fields; 3 non-owning cache identities excluded.")
+print(f"Native memory inventory covers {count} declared owned buffer/texture fields; 7 non-owning cache identities excluded.")

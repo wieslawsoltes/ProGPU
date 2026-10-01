@@ -27,6 +27,7 @@
 #include "progpu_native_submission_resources.hpp"
 
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -702,6 +703,12 @@ void semantic_contiguous_draws_merge_without_reordering() {
         0U,
         std::numeric_limits<std::uint32_t>::max()};
     require(!try_merge_semantic_glyph_draw(overflow, {0U, 1U}));
+    semantic_glyph_draw painted{7U, 3U, 4U};
+    require(try_merge_semantic_glyph_draw(painted, {10U, 2U, 4U}));
+    const auto retained_painted = painted;
+    require(!try_merge_semantic_glyph_draw(painted, {12U, 1U, 5U}));
+    require(!try_merge_semantic_glyph_draw(painted, {12U, 1U}));
+    require(painted == retained_painted);
 }
 
 progpu_native_group_effect effect(std::uint32_t kind) noexcept {
@@ -1217,6 +1224,135 @@ void semantic_text_style_page_is_validated_deduplicated_and_retained() {
         sizeof(invalid_style));
     require(!progpu::native::semantic::validate_text_style_table(
         storage.data(), style_resource, error_offset));
+}
+
+void semantic_original_glyph_paint_wire_is_exact_and_independent() {
+    using namespace progpu::native::semantic;
+    static_assert(sizeof(progpu_native_scene_glyph_paint) == 96U);
+    static_assert(sizeof(progpu_native_scene_painted_glyph_draw) == 32U);
+    std::array<std::byte, 2048U> storage{};
+    progpu_native_scene_header header{};
+    header.resource_offset = 80U;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.resource_count = 3U;
+    header.command_offset = 224U;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.command_count = 1U;
+    progpu_native_scene_resource outline_resource{};
+    outline_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN;
+    outline_resource.resource_id = 10U; outline_resource.generation = 7U;
+    progpu_native_scene_resource brush_resource{};
+    brush_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE;
+    brush_resource.resource_id = 20U; brush_resource.generation = 7U;
+    brush_resource.payload_offset = 320U;
+    brush_resource.payload_size = sizeof(progpu_native_scene_brush);
+    progpu_native_scene_resource image_resource{};
+    image_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_IMAGE;
+    image_resource.flags = PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE;
+    image_resource.resource_id = 30U; image_resource.generation = 7U;
+    std::memcpy(storage.data() + 80U, &outline_resource, sizeof(outline_resource));
+    std::memcpy(storage.data() + 128U, &brush_resource, sizeof(brush_resource));
+    std::memcpy(storage.data() + 176U, &image_resource, sizeof(image_resource));
+    progpu_native_scene_brush brush{};
+    brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+    brush.opacity = 0.75F;
+    brush.colors[0] = {0.2F, 0.4F, 0.6F, 0.8F};
+    std::memcpy(storage.data() + brush_resource.payload_offset, &brush, sizeof(brush));
+    progpu_native_scene_command command{};
+    command.kind = PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN;
+    command.resource_index = 0U; command.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    command.payload_offset = 640U;
+    command.payload_size = sizeof(progpu_native_scene_painted_glyph_draw) +
+        sizeof(progpu_native_scene_glyph_paint) + 2U * sizeof(progpu_native_positioned_glyph);
+    progpu_native_scene_painted_glyph_draw draw{sizeof(draw), 2U, 1U, 0U,
+        PROGPU_NATIVE_SCENE_TEXT_ALIASED, 0U, 0U, 0U};
+    progpu_native_scene_glyph_paint paint{};
+    paint.source_offset_opacity[0] = 3.25F;
+    paint.source_offset_opacity[1] = -2.5F;
+    const auto write = [&] {
+        std::memcpy(storage.data() + header.command_offset, &command, sizeof(command));
+        std::memcpy(storage.data() + command.payload_offset, &draw, sizeof(draw));
+        std::memcpy(storage.data() + command.payload_offset + sizeof(draw), &paint, sizeof(paint));
+    };
+    write();
+    std::uint32_t error = 0U, glyph_offset = 0U, glyph_count = 0U;
+    require(validate_painted_glyph_draw(storage.data(), header, command, error));
+    require(try_get_glyph_payload(storage.data(), command, glyph_offset, glyph_count));
+    require(glyph_count == 2U && glyph_offset == command.payload_offset + 128U);
+    semantic_brush_page page{};
+    require(compile_brush_page(storage.data(), header, 123U, page));
+    require(page.brushes.size() == 2U && page.remapped_indices.size() == 1U);
+    require(page.brushes[page.remapped_indices[0]].opacity == 0.75F);
+    const auto original = compute_content_hashes(storage.data(), header);
+    brush.colors[0].r += 0.125F;
+    std::memcpy(storage.data() + brush_resource.payload_offset, &brush, sizeof(brush));
+    const auto material_changed = compute_content_hashes(storage.data(), header);
+    require(material_changed.brush != original.brush && material_changed.glyph != original.glyph);
+    brush.colors[0].r -= 0.125F;
+    std::memcpy(storage.data() + brush_resource.payload_offset, &brush, sizeof(brush));
+    paint.source_offset_opacity[0] += 0.125F; write();
+    const auto moved = compute_content_hashes(storage.data(), header);
+    require(moved.glyph != original.glyph && moved.brush != original.brush);
+    const auto valid_draw = draw;
+    for (auto* reserved : {&draw.reserved0, &draw.reserved1, &draw.reserved2}) {
+        *reserved = 1U; write();
+        require(!validate_painted_glyph_draw(storage.data(), header, command, error));
+        draw = valid_draw;
+    }
+    draw.rendering_mode = PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE; write();
+    require(!validate_painted_glyph_draw(storage.data(), header, command, error));
+    draw = valid_draw;
+    paint.kind = PROGPU_NATIVE_SCENE_GLYPH_PAINT_TEXTURE;
+    paint.source_offset_opacity[2] = 0.5F;
+    paint.uv_bounds[0] = -0.25F; paint.uv_bounds[1] = 0.125F;
+    paint.uv_bounds[2] = 1.25F; paint.uv_bounds[3] = 0.875F;
+    paint.texture_quad01[0] = 1.25F; paint.texture_quad01[1] = 2.5F;
+    paint.texture_quad01[2] = 9.75F; paint.texture_quad01[3] = 3.5F;
+    paint.texture_quad23[0] = 8.25F; paint.texture_quad23[1] = 12.5F;
+    paint.texture_quad23[2] = 0.5F; paint.texture_quad23[3] = 11.25F;
+    paint.sampling[1] = 0.5F; paint.sampling[2] = 1.0F; paint.sampling[3] = 2.0F;
+    draw.paint_resource_index = 2U;
+    for (std::uint32_t mode = 0U; mode <= 9U; ++mode) {
+        paint.flags = PROGPU_NATIVE_SCENE_GLYPH_PAINT_BOUNDED | (mode << 8U) |
+            (mode == 2U ? PROGPU_NATIVE_SCENE_GLYPH_PAINT_CUBIC : 0U);
+        write(); require(validate_painted_glyph_draw(storage.data(), header, command, error));
+    }
+    paint.flags = PROGPU_NATIVE_SCENE_GLYPH_PAINT_OPAQUE;
+    paint.sampling[0] = -64.0F; write();
+    require(validate_painted_glyph_draw(storage.data(), header, command, error));
+    paint.flags = 1U << 8U; paint.sampling[0] = -128.0F; write();
+    require(validate_painted_glyph_draw(storage.data(), header, command, error));
+    paint.flags = 0U; write();
+    require(!validate_painted_glyph_draw(storage.data(), header, command, error));
+    paint.sampling[0] = -65.0F; write();
+    require(!validate_painted_glyph_draw(storage.data(), header, command, error));
+    paint.sampling[0] = 0.0F;
+    const auto valid_texture = paint;
+    for (const auto flags : std::array<std::uint32_t, 4U>{{0x10U, 10U << 8U,
+            PROGPU_NATIVE_SCENE_GLYPH_PAINT_CUBIC,
+            PROGPU_NATIVE_SCENE_GLYPH_PAINT_OPAQUE | PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED}}) {
+        paint.flags = flags; write();
+        require(!validate_painted_glyph_draw(storage.data(), header, command, error));
+    }
+    paint = valid_texture; paint.reserved = 1U; write();
+    require(!validate_painted_glyph_draw(storage.data(), header, command, error));
+    paint = valid_texture; paint.sampling[2] = 0.5F; write();
+    require(!validate_painted_glyph_draw(storage.data(), header, command, error));
+    paint = valid_texture; paint.source_offset_opacity[0] = std::numeric_limits<float>::infinity(); write();
+    require(!validate_painted_glyph_draw(storage.data(), header, command, error));
+    paint = valid_texture; write();
+    const auto image_original = compute_content_hashes(storage.data(), header);
+    ++image_resource.generation;
+    std::memcpy(storage.data() + 176U, &image_resource, sizeof(image_resource));
+    const auto image_replaced = compute_content_hashes(storage.data(), header);
+    require(image_replaced.glyph != image_original.glyph);
+    // Wire-only identity control: legacy style/brush location7 remains intact,
+    // and new location8 reads the complete uint bits, not a rounded float index.
+    const std::uint32_t index = 0xfedcba98U;
+    progpu::native::gpu_glyph_instance instance{};
+    instance.brush_index = -1.0F;
+    instance.padding = std::bit_cast<float>(index);
+    require(std::bit_cast<std::uint32_t>(instance.padding) == index && instance.brush_index == -1.0F);
 }
 
 void semantic_color_glyph_resource_is_strictly_validated() {
@@ -2077,6 +2213,7 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_content_hashes_isolate_image_updates());
     semantic_text_style_page_is_validated_deduplicated_and_retained();
+    semantic_original_glyph_paint_wire_is_exact_and_independent();
     compute_trace_is_opt_in_bounded_and_encoding_only();
     semantic_glyph_resource_identity_requires_exact_raster_bytes();
     glyph_raster_identity_uses_exact_selected_bytes_not_arena_offsets();

@@ -26,6 +26,7 @@
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_semantic_image.hpp"
 #include "progpu_native_semantic_image_resources.hpp"
+#include "progpu_native_semantic_glyph_paint.hpp"
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_validation.hpp"
 #include "progpu_native_webgpu_resources.hpp"

@@ -1,6 +1,7 @@
 #include "progpu_native_semantic_identity.hpp"
 
 #include "progpu_native_draw_state.hpp"
+#include "progpu_native_semantic_text_style.hpp"
 
 #include <array>
 #include <bit>
@@ -335,6 +336,16 @@ std::uint64_t append_glyph_command(
     if (command.payload_size == 0U) {
         return hash;
     }
+    if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN &&
+        command.payload_size >= sizeof(progpu_native_scene_painted_glyph_draw)) {
+        auto draw = read_record<progpu_native_scene_painted_glyph_draw>(bytes, command.payload_offset);
+        const auto paint_resource_index = draw.paint_resource_index;
+        draw.paint_resource_index = 0U;
+        hash = append_fnv1a64(hash, &draw, sizeof(draw));
+        hash = append_resource_reference(hash, bytes, header, paint_resource_index);
+        return append_fnv1a64(hash, bytes + command.payload_offset + sizeof(draw),
+            command.payload_size - sizeof(draw));
+    }
     if ((command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) == 0U ||
         command.payload_size < sizeof(progpu_native_scene_glyph_draw)) {
         return append_fnv1a64(
@@ -439,6 +450,7 @@ semantic_content_hashes compute_content_hashes(
     std::uint64_t image_commands = fnv_offset;
     std::uint64_t three_d_commands = fnv_offset;
     bool glyph_uses_text_styles = false;
+    bool glyph_uses_material_paints = false;
     std::array<progpu_native_scene_command,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> active_scopes{};
     std::array<std::uint32_t,
@@ -507,14 +519,23 @@ semantic_content_hashes compute_content_hashes(
                 index,
                 command,
                 effective_state_index);
-        } else if (command.kind ==
-            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+        } else if (is_glyph_command(command.kind)) {
             glyph_commands = append_active_layers(
                 glyph_commands, bytes, header, active_scopes, scope_depth);
             glyph_commands = append_glyph_command(
                 glyph_commands, bytes, header, command);
             glyph_commands = append_effective_state(
                 glyph_commands, bytes, header, effective_state_index);
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
+                // Paint variants retain global command ownership and effective
+                // opacity; a family-local geometry identity is insufficient.
+                brush_commands = append_fnv1a64(brush_commands, &index, sizeof(index));
+                brush_commands = append_glyph_command(brush_commands, bytes, header, command);
+                brush_commands = append_effective_state(brush_commands, bytes, header, effective_state_index);
+                const auto paint = read_record<progpu_native_scene_glyph_paint>(bytes,
+                    command.payload_offset + sizeof(progpu_native_scene_painted_glyph_draw));
+                glyph_uses_material_paints |= paint.kind == PROGPU_NATIVE_SCENE_GLYPH_PAINT_MATERIAL;
+            }
             if ((command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U) {
                 style_commands = append_style_mapping(
                     style_commands,
@@ -605,15 +626,18 @@ semantic_content_hashes compute_content_hashes(
         fnv_offset ^ 0x03U, analytic_commands, analytics, result.brush);
     result.path = combine(
         fnv_offset ^ 0x04U, path_commands, paths, result.brush);
-    // Positioned glyphs carry their color directly. Only the optional styled
-    // command form reads the text-style page; neither glyph form reads the
-    // analytic brush table. Keep unrelated material updates out of the glyph
-    // page identity so its retained coverage survives analytic-only changes.
+    // Legacy positioned glyphs/style remain independent of analytic materials.
+    // New material-painted glyphs retain packed brush indices, so that exact
+    // remap identity must participate even after another family's insertion.
     result.glyph = combine(
         fnv_offset ^ 0x05U, glyph_commands, glyphs);
     if (glyph_uses_text_styles) {
         result.glyph = finish(append_fnv1a64(
             result.glyph, &result.text_style, sizeof(result.text_style)));
+    }
+    if (glyph_uses_material_paints) {
+        result.glyph = finish(append_fnv1a64(
+            result.glyph, &result.brush, sizeof(result.brush)));
     }
     result.image = combine(
         fnv_offset ^ 0x06U, image_commands, images);

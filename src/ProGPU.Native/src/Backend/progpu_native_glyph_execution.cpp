@@ -1277,6 +1277,20 @@ progpu_native_status render_glyphs(
                 } else {
                     instance.brush_index = -1.0F;
                 }
+                if (engine->semantic_glyph_draw_active &&
+                    engine->semantic_glyph_cache.paint_indices.size() == frame->glyph_count &&
+                    engine->semantic_glyph_cache.paint_indices[index] != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                    const auto paint_index = engine->semantic_glyph_cache.paint_indices[index];
+                    if (paint_index >= engine->semantic_glyph_cache.paints.size() ||
+                        engine->semantic_glyph_cache.rendering_modes.size() != frame->glyph_count ||
+                        engine->semantic_glyph_cache.rendering_modes[index] > PROGPU_NATIVE_SCENE_TEXT_ALIASED)
+                        return engine->fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                            "An original hinted glyph paint occurrence is incomplete.");
+                    instance.padding = std::bit_cast<float>(paint_index);
+                    instance.scale_bold_italic_flags[3] =
+                        engine->semantic_glyph_cache.rendering_modes[index] == PROGPU_NATIVE_SCENE_TEXT_ALIASED
+                        ? -1.0F : 0.0F;
+                }
                 engine->glyph_instances.push_back(instance);
                 engine->glyph_source_alphas.push_back(glyph.color.a);
             }

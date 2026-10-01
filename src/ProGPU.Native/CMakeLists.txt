@@ -674,6 +674,8 @@ set(PROGPU_NATIVE_BACKEND_SOURCES
     src/HitTesting/progpu_native_hit_testing_execution.hpp)
 
 set(PROGPU_NATIVE_SCENE_SOURCES
+    src/Scene/progpu_native_semantic_glyph_paint.cpp
+    src/Scene/progpu_native_semantic_glyph_paint.hpp
     src/Scene/progpu_native_semantic_masked_text_pipeline.cpp
     src/Scene/progpu_native_semantic_masked_vector_pipeline.cpp
     src/Scene/progpu_native_semantic_brush_mask_pipeline.cpp

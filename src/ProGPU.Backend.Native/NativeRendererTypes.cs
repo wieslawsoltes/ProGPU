@@ -704,7 +704,8 @@ public enum NativeSceneCommandKind : uint
     DrawVertexMesh = 22,
     DrawStrokeBatch = 23,
     DrawLine3DBatch = 24,
-    DrawMesh3DBatch = 25
+    DrawMesh3DBatch = 25,
+    DrawPaintedGlyphRun = 26
 }
 
 public enum NativeMesh3DTopology : uint
@@ -1489,6 +1490,87 @@ internal readonly struct NativeSceneGlyphDraw
     internal readonly uint GlyphCount;
     private readonly uint Reserved0;
     private readonly uint Reserved1;
+}
+
+/// <summary>Exact direct glyph paint record; legacy text styles are independent.</summary>
+[StructLayout(LayoutKind.Explicit, Size = 96)]
+public readonly struct NativeSceneGlyphPaint
+{
+    public const uint Material = 0U;
+    public const uint Texture = 1U;
+    public const uint PremultipliedTexture = 1U;
+    public const uint BoundedTexture = 2U;
+    public const uint CubicTexture = 4U;
+    public const uint OpaqueTexture = 8U;
+    public const int SamplingModeShift = 8;
+
+    public NativeSceneGlyphPaint(uint kind, uint brushIndex, uint flags,
+        Vector4 sourceOffsetOpacity, Vector4 uvBounds = default,
+        Vector4 textureQuad01 = default, Vector4 textureQuad23 = default,
+        Vector4 sampling = default)
+    {
+        Kind = kind; BrushIndex = brushIndex; Flags = flags; Reserved = 0U;
+        SourceOffsetOpacity = sourceOffsetOpacity; UVBounds = uvBounds;
+        TextureQuad01 = textureQuad01; TextureQuad23 = textureQuad23; Sampling = sampling;
+    }
+
+    [FieldOffset(0)] public readonly uint Kind;
+    [FieldOffset(4)] public readonly uint BrushIndex;
+    [FieldOffset(8)] public readonly uint Flags;
+    [FieldOffset(12)] private readonly uint Reserved;
+    [FieldOffset(16)] public readonly Vector4 SourceOffsetOpacity;
+    [FieldOffset(32)] public readonly Vector4 UVBounds;
+    [FieldOffset(48)] public readonly Vector4 TextureQuad01;
+    [FieldOffset(64)] public readonly Vector4 TextureQuad23;
+    [FieldOffset(80)] public readonly Vector4 Sampling;
+
+    internal bool IsCanonical
+    {
+        get
+        {
+            if (Kind > Texture || Reserved != 0U || SourceOffsetOpacity.W != 0f ||
+                !Finite(SourceOffsetOpacity) || !Finite(UVBounds) || !Finite(TextureQuad01) ||
+                !Finite(TextureQuad23) || !Finite(Sampling)) return false;
+            if (Kind == Material)
+                return Flags == 0U && SourceOffsetOpacity.Z == 0f && UVBounds == default &&
+                    TextureQuad01 == default && TextureQuad23 == default && Sampling == default;
+            const uint known = PremultipliedTexture | BoundedTexture | CubicTexture | OpaqueTexture | 0xFF00U;
+            uint mode = (Flags >> SamplingModeShift) & 0xFFU;
+            bool coefficients = mode == 2U
+                ? MathF.Abs(Sampling.X) <= 16f && MathF.Abs(Sampling.Y) <= 16f
+                : Sampling.Y == 0.5f && (Sampling.X == 0f ||
+                    (mode == 0U && Sampling.X == -64f) || (mode == 1U && Sampling.X == -128f));
+            return BrushIndex == 0U && (Flags & ~known) == 0U && mode <= 9U &&
+                (Flags & (PremultipliedTexture | OpaqueTexture)) != (PremultipliedTexture | OpaqueTexture) &&
+                ((Flags & CubicTexture) != 0U) == (mode == 2U) &&
+                SourceOffsetOpacity.Z is >= 0f and <= 1f && UVBounds.Z >= UVBounds.X && UVBounds.W >= UVBounds.Y &&
+                coefficients &&
+                Address(Sampling.Z) && Address(Sampling.W);
+        }
+    }
+    private static bool Finite(Vector4 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) &&
+        float.IsFinite(v.Z) && float.IsFinite(v.W);
+    private static bool Address(float value) => value is 0f or 1f or 2f;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal readonly struct NativeScenePaintedGlyphDraw
+{
+    internal NativeScenePaintedGlyphDraw(uint glyphCount, uint paintResourceIndex,
+        uint paintIndex, uint renderingMode)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeScenePaintedGlyphDraw>();
+        GlyphCount = glyphCount; PaintResourceIndex = paintResourceIndex; PaintIndex = paintIndex;
+        RenderingMode = renderingMode; Reserved0 = Reserved1 = Reserved2 = 0U;
+    }
+    internal readonly uint StructSize;
+    internal readonly uint GlyphCount;
+    internal readonly uint PaintResourceIndex;
+    internal readonly uint PaintIndex;
+    internal readonly uint RenderingMode;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+    private readonly uint Reserved2;
 }
 
 /// <summary>
