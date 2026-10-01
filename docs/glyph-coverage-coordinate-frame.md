@@ -106,6 +106,91 @@ validations pass. No draw/dispatch/font or ProGPU-native renderer ran locally;
 the shader check used the existing four-byte WebGPU initialization queue probe.
 Actual affine pixels and authentic package qualification remain pending.
 
+### Windows shared-shader observations
+
+At exact candidate `31e95cfbd414bff3e5dc6ebdcda147a70764f041`, the
+[Windows shared-shader job](https://github.com/wieslawsoltes/ProGPU/actions/runs/36906881895/job/110519551269)
+passed on SilkNative/D3D12/FXC, Microsoft Basic Render Driver. This is the job
+result, not a claim that its containing workflow succeeded: unrelated package
+jobs were incorrectly selected and failed; later routing correction `bd7cc7f20`
+does not change these product shaders. Artifact `11184926920` has archive digest
+`4322ce75805e9ab7bb3acca47d17d05826f2bdd225ed3cefcfb9927c173b7385`.
+
+All 240 saved output hashes, 60 compiled shader-source hashes and 20 atlas/instance
+hashes were verified. All 180 reported comparisons were independently recomputed
+from original bytes/floats. Each of ten reports records 24 real submissions and
+24 completions, nonempty ink and stable cold/warm output. Both production modules
+match the separately pinned physical-triangle source profile; exact compiled
+CRLF hashes and canonical-LF hashes remain distinct in the receipts.
+
+For the **derived italic/shear frame with synthetic coverage**, both 96- and
+128-pixel targets observe:
+
+| Same-head input | Text versus bounded texture, single | Text versus bounded texture, overlap | Raw sampled coverage differences, glyphs 0/1 |
+| --- | ---: | ---: | ---: |
+| Gate zero | 37 RGBA bytes | 46 RGBA bytes | 52 / 44 |
+| Certified physical triangles | 0 | 0 | 0 / 0 |
+
+The certified paths also match every raw UV, clamped normalized UV, gamma-adjusted
+sample and final-alpha component, for Text/material/bounded paint. Material
+already matched Text at gate zero. Crucially, certified bounded-texture RGBA is
+unchanged from its own gate-zero output; Text/material move to the common physical
+address. Relative to legacy Text this changes 37 single-occurrence bytes (maximum
+one) and 46 overlap bytes (maximum two), without changing any nonzero-alpha support.
+This is **not bit preservation of legacy affine Text sampling**. The observed
+legacy UV discrepancy reaches about 0.00227 atlas texels; no coordinate epsilon,
+sampler tolerance or final-color allowance was introduced to accept it.
+
+The original axis gate-zero control preserves all 48 output hashes from immutable
+run `36884526788`. All 144 outputs across the three axis modes also match the prior
+axis-correction receipts. All 24 saved binary-oracle captures were independently
+rechecked against the exact dyadic CPU coordinate/bilinear oracle, including
+outside support and zero-coverage boundaries. The original 43 boundary positions
+with coordinate-only differences remain unchanged. **There is no binary-oracle
+claim for the non-dyadic affine case.**
+
+These data establish the chosen shared-shader affine reproduction and unchanged
+axis controls, not original hinted-font coverage, native provider parity or a
+successful product Build. The fresh authentic native consumer, Metal pixels,
+other provider/architecture lanes, folded/near-singular edges and complete
+package/application qualification remain separate gates. No runtime from the
+failed parent Build was downloaded or staged for this analysis.
+
+### Independent dyadic affine oracle
+
+`HintedTextureSamplingProbe --output <fresh directory> --fallback
+--canonical-frame --affine-binary-oracle` selects a separate, purpose-specific
+synthetic input. Do not combine it with `--native-frame`, `--affine-frame` or the
+axis `--binary-oracle`. The authentic non-binary italic/shear input and its
+gate-zero output comparisons above are unchanged.
+
+This control has two original 16-by-16 physical frames: a half-X shear and a
+reflected half-X shear, at DPI two. All four corners are authored independently
+in eighth-pixel units. The original triangles 012 and 023 have signed physical
+areas represented by determinants +256 and -256. An independent checked-integer
+signed-area evaluator computes barycentric atlas addresses from those corners,
+including exact half-open edge ownership. It does not reuse the shader's inverse
+rows. A separate binary 0/255 atlas tile at (2,2), with four clear padding texels,
+gives exactly representable dyadic bilinear weights. The original 96-byte
+instances have independent little-endian assembly hash
+`CD1BE60F18411A388B64373285D4226AC295E5860F2CB3DDFF7EBAB1F2AECA4F`.
+
+For every captured pixel, both original triangle maps, outside output, texel
+addresses, clamped normalized addresses and raw bilinear coverage are checked
+with exact float-bit comparisons. Gamma and alpha retain the real shader
+arithmetic and paired exact RGBA controls; there is no CPU `pow` tolerance or
+claim of cross-driver gamma identity. Both target sizes and the existing
+single/overlapping, cold/warm and raw-output captures remain intact. This is an
+independent synthetic geometry/sampling control, not authentic font coverage.
+
+The probe compiles and all 229 device-free controls pass, including independent
+hand-derived samples in both triangles and windings, one-owner shared-diagonal
+coverage, every original physical corner, finite/outside output and one-bit
+coverage corruption rejection. This checkpoint has **not executed the new
+affine oracle on a GPU**. It cannot qualify the affine correction by itself,
+replace the legacy-output differences above or relax any original native
+pixel assertion.
+
 ## Design references and preserved contracts
 
 This is original ProGPU code, informed by public architectural contracts, not
