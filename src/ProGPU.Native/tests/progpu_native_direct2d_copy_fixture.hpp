@@ -92,7 +92,14 @@ inline bool formatted_axis_scene_copy_contract(compat::factory* owner, compat::f
             // Full-copy flattening retains the original source axes, not child DPI.
             if (draw.destination_rect.width != 8 || draw.destination_rect.height != 12) return false;
             captured = after;
-            if (next_bitmap->CopyFromBitmap(nullptr, next_bitmap.get(), nullptr) != com::ok ||
+            const compat::bitmap_properties alias_properties{format, 120.0F, 168.0F};
+            com::pointer<compat::bitmap> alias;
+            if (child->CreateSharedBitmap(compat::bitmap_interface_id, next_bitmap.get(),
+                    &alias_properties, alias.put()) != com::ok) return false;
+            alias->GetDpi(&dpi_x, &dpi_y);
+            if (dpi_x != 120 || dpi_y != 168 ||
+                next_bitmap->CopyFromBitmap(nullptr, alias.get(), nullptr) != com::ok ||
+                next_bitmap->CopyFromBitmap(nullptr, next_bitmap.get(), nullptr) != com::ok ||
                 !export_copy_scene(next_scene.get(), after) || after != captured) return false;
             // Overlap snapshots old pixels, not an ownership cycle or live alias.
             const compat::point_2u overlap{4, 4};
