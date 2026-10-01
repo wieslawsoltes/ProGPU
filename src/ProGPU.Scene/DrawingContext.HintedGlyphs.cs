@@ -1,5 +1,6 @@
 using System.Numerics;
 using ProGPU.Text;
+using ProGPU.Vector;
 
 namespace ProGPU.Scene;
 
