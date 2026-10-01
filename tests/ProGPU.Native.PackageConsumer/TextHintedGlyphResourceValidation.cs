@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using ProGPU.Backend.Native;
 
 // Original ProGPU public-package CPU controls. Canonical packets use the owned
@@ -31,14 +32,34 @@ internal static class TextHintedGlyphResourceValidation
             RunCase(fontPath, backend, interpreter, dpi, noInk);
             cases++;
         }
+        // Required reviewed asset: absence or changed bytes fail this positive
+        // gate. Keep the original eight static-font scenarios above intact.
+        string variablePath = Path.Combine(AppContext.BaseDirectory, "InterVariable.ttf");
+        var variable = VariableIdentity.Read(File.ReadAllBytes(variablePath));
+        int variableCases = 0;
+        foreach (var interpreter in new[] { NativeFontHintInterpreter.TrueType35, NativeFontHintInterpreter.TrueType40 })
+        foreach (float dpi in new[] { 1f, 2f })
+        foreach (bool noInk in new[] { false, true })
+        {
+            RunCase(variablePath, backend, interpreter, dpi, noInk, variable);
+            variableCases++;
+        }
         Console.WriteLine($"package-consumer: loaded hinted glyph resource/MIL CPU transport passed ({cases} layouts, " +
             $"actual {backend}, module={info.Name}); original occurrence/raw records, full public stream/metric rollback and retirement; " +
             "public API does not decode compiled geometry/owner maps or qualify pixels/Display");
+        Console.WriteLine($"package-consumer: genuine reviewed variable hinted resource/MIL CPU transport passed ({variableCases} additional layouts, " +
+            $"actual {backend}, original axes opsz=23/wght=700, normalized=(8192,8847)); " +
+            "nonempty two-axis identity, nondefault raw ink, unchanged original records and all original transaction/lifetime controls");
     }
 
-    private static void RunCase(string fontPath, NativeMilBackend backend, NativeFontHintInterpreter interpreter, float dpi, bool noInk)
+    private static void RunCase(string fontPath, NativeMilBackend backend, NativeFontHintInterpreter interpreter, float dpi, bool noInk,
+        VariableIdentity? variable = null)
     {
         byte[] font = File.ReadAllBytes(fontPath);
+        if (variable != null) VariableIdentity.CheckReviewedBytes(font);
+        int[] variations = variable?.DesignCoordinates.ToArray() ?? [];
+        short[] normalized = variable?.NormalizedCoordinates.ToArray() ?? [];
+        int[] originalVariations = variations.ToArray(); short[] originalNormalized = normalized.ToArray();
         uint upm = ReadUnitsPerEm(font); // Actual original SFNT metadata, not a fixture-specific guessed UPM.
         float units = 1 / dpi, em = 13 * units;
         using var context = new NativeTextShapingContext(font);
@@ -54,15 +75,43 @@ internal static class TextHintedGlyphResourceValidation
             FontIndex = 0, SourceScale = styles[0].Scale, LogicalUnitsPerPhysicalPixel = units,
             XPixelsPerEm266 = 13 * 64, YPixelsPerEm266 = 13 * 64, Interpreter = (uint)interpreter,
             XPhase266 = 7, YPhase266 = 11,
+            VariationCount = checked((uint)variations.Length),
         }];
         Vector2 origin = new(4 * units, 4 * units);
         var shaping = new NativeTextShapeInput([], source, direction: NativeTextDirection.LeftToRight,
-            unicodeScript: 0x6C61746E, features: features);
+            unicodeScript: 0x6C61746E, features: features, normalizedCoordinates: normalized);
         var options = new NativeTextParagraphOptions(1, 200 * units, Alignment: NativeTextAlignment.Center);
-        using var paragraph = context.LayoutHintedParagraph(in shaping, in options, styles, metrics, devices);
+        using var paragraph = context.LayoutHintedParagraph(in shaping, in options, styles, metrics, devices, variations);
         using var original = context.ShapeHintedRun(in shaping, 0, devices[0].XPixelsPerEm266, devices[0].YPixelsPerEm266,
-            interpreter, devices[0].XPhase266, devices[0].YPhase266);
+            interpreter, devices[0].XPhase266, devices[0].YPhase266, variations);
         var raw = RawSnapshot.Copy(original);
+        if (variable != null)
+        {
+            Check(variations.Length == 2 && normalized.Length == 2 && devices[0].VariationStart == 0 && devices[0].VariationCount == 2,
+                "genuine original nonempty two-axis device/shaping identity");
+            using (var warm = context.ShapeHintedRun(in shaping, 0, devices[0].XPixelsPerEm266, devices[0].YPixelsPerEm266,
+                interpreter, devices[0].XPhase266, devices[0].YPhase266, variations)) raw.Unchanged(warm);
+            if (!noInk)
+            {
+                short[] defaultNormalized = [0, 0]; int[] defaultDesign = [14 * 65536, 400 * 65536];
+                var defaultInput = new NativeTextShapeInput([], source, direction: NativeTextDirection.LeftToRight,
+                    unicodeScript: 0x6C61746E, features: features, normalizedCoordinates: defaultNormalized);
+                using var defaultRun = context.ShapeHintedRun(in defaultInput, 0, devices[0].XPixelsPerEm266, devices[0].YPixelsPerEm266,
+                    interpreter, devices[0].XPhase266, devices[0].YPhase266, defaultDesign);
+                var defaultRaw = RawSnapshot.Copy(defaultRun);
+                Check(!Same<NativeHintedPoint>(raw.Points, defaultRaw.Points),
+                    "actual selected nondefault axes change original captured ink, not an ignored or empty variable-font positive");
+            }
+            var invalidNormalized = normalized.ToArray(); invalidNormalized[^1]++;
+            Reject<NotSupportedException>(() =>
+            {
+                var invalidInput = new NativeTextShapeInput([], source, direction: NativeTextDirection.LeftToRight,
+                    unicodeScript: 0x6C61746E, features: features, normalizedCoordinates: invalidNormalized);
+                using var invalid = context.ShapeHintedRun(in invalidInput, 0, devices[0].XPixelsPerEm266, devices[0].YPixelsPerEm266,
+                    interpreter, devices[0].XPhase266, devices[0].YPhase266, variations);
+            }, "mismatched original normalized/design variation identity");
+            raw.Unchanged(original);
+        }
         Check(paragraph.Runs.Length == 1 && paragraph.Runs[0].FontIndex == 0 && paragraph.Runs[0].StyleIndex == 0 &&
             paragraph.Runs[0].SourceScale == em / upm && paragraph.Runs[0].LogicalUnitsPerPhysicalPixel == units &&
             paragraph.Runs[0].LogicalStart == 0 && paragraph.Runs[0].LogicalCount == original.GlyphCount &&
@@ -174,6 +223,8 @@ internal static class TextHintedGlyphResourceValidation
         channel.ApplyWithHintedGlyphResources(recreation.WrittenSpan, [scalar], bindings, indices);
         Unchanged(channel, Compile, backend, noInk, baseline);
         raw.Unchanged(original);
+        Check(originalVariations.AsSpan().SequenceEqual(variations) && originalNormalized.AsSpan().SequenceEqual(normalized),
+            "all original design and normalized coordinate bytes remain unchanged through actual imports");
         scalar.Dispose();
         Reject<ObjectDisposedException>(() => channel.ApplyWithHintedGlyphResources(lateBinding.WrittenSpan,
             [resource, scalar], twoBindings, twoIndices), "disposed later resource after acquiring the first import lease");
@@ -183,6 +234,7 @@ internal static class TextHintedGlyphResourceValidation
 
         original.Dispose(); context.Dispose(); paragraph.Dispose(); resource.Dispose();
         Array.Clear(font); Array.Clear(source); Array.Clear(features); Array.Clear(styles); Array.Clear(metrics); Array.Clear(devices);
+        Array.Clear(variations); Array.Clear(normalized);
         Array.Clear(batch); Array.Clear(bindings); Array.Clear(indices); Array.Clear(selected.GlyphIds); Array.Clear(selected.Advances);
         Array.Clear(selected.Offsets); Array.Clear(selected.Indices);
         Check(resource.IsDisposed && scalar.IsDisposed && positionedBytes.AsSpan().SequenceEqual(MemoryMarshal.AsBytes(paragraph.Glyphs)) &&
@@ -349,19 +401,102 @@ internal static class TextHintedGlyphResourceValidation
 
     private static uint ReadUnitsPerEm(ReadOnlySpan<byte> bytes)
     {
+        var head = ReadSfntTable(bytes, 0x68656164); // head
+        Check(head.Length >= 20, "complete original head table");
+        uint upm = BinaryPrimitives.ReadUInt16BigEndian(head[18..]);
+        Check(upm > 0, "actual original font units per em"); return upm;
+    }
+
+    private static ReadOnlySpan<byte> ReadSfntTable(ReadOnlySpan<byte> bytes, uint tag)
+    {
         Check(bytes.Length >= 12 && BinaryPrimitives.ReadUInt32BigEndian(bytes) == 0x00010000, "actual standalone TrueType SFNT");
         int count = BinaryPrimitives.ReadUInt16BigEndian(bytes[4..]);
         Check(count > 0 && count <= (bytes.Length - 12) / 16, "bounded original SFNT directory");
         for (int i = 0; i < count; i++)
         {
             var table = bytes.Slice(12 + i * 16, 16);
-            if (BinaryPrimitives.ReadUInt32BigEndian(table) != 0x68656164) continue; // head
+            if (BinaryPrimitives.ReadUInt32BigEndian(table) != tag) continue;
             uint offset = BinaryPrimitives.ReadUInt32BigEndian(table[8..]), length = BinaryPrimitives.ReadUInt32BigEndian(table[12..]);
-            Check(offset <= bytes.Length && length >= 20 && length <= (uint)bytes.Length - offset, "complete original head table");
-            uint upm = BinaryPrimitives.ReadUInt16BigEndian(bytes.Slice(checked((int)offset + 18), 2));
-            Check(upm > 0, "actual original font units per em"); return upm;
+            Check(offset <= bytes.Length && length <= (uint)bytes.Length - offset, "complete original SFNT table extent");
+            return bytes.Slice(checked((int)offset), checked((int)length));
         }
-        throw new InvalidOperationException("Hinted glyph resource fixture requires the original font's head table.");
+        throw new InvalidOperationException($"Hinted glyph resource fixture requires original SFNT table 0x{tag:X8}.");
+    }
+
+    // Independent bounded metadata checks for this reviewed asset/checkpoint,
+    // not a new general-purpose axis parser or normalization oracle. Original
+    // table formats: https://learn.microsoft.com/en-us/typography/opentype/spec/fvar
+    // and https://learn.microsoft.com/en-us/typography/opentype/spec/avar.
+    // The 23/700 native checkpoint is independently covered by
+    // production_inter_variable_font_matches_fvar_axes in the original native tests.
+    private sealed record VariableIdentity(int[] DesignCoordinates, short[] NormalizedCoordinates)
+    {
+        internal static void CheckReviewedBytes(ReadOnlySpan<byte> bytes) => Check(
+            Convert.ToHexString(SHA256.HashData(bytes)).Equals(
+                "4989B125924991B90D05B2D16E0E388C48F7D5BB8B30539BBF9C755278D0CCAF", StringComparison.Ordinal),
+            "exact reviewed unmodified InterVariable.ttf bytes from Fonts/SOURCES.md");
+
+        internal static VariableIdentity Read(ReadOnlySpan<byte> bytes)
+        {
+            CheckReviewedBytes(bytes);
+            var fvar = ReadSfntTable(bytes, 0x66766172);
+            Check(fvar.Length >= 16 && BinaryPrimitives.ReadUInt32BigEndian(fvar) == 0x00010000 &&
+                BinaryPrimitives.ReadUInt16BigEndian(fvar[6..]) == 2 && BinaryPrimitives.ReadUInt16BigEndian(fvar[8..]) == 2,
+                "actual original fvar version and two declared axes");
+            int offset = BinaryPrimitives.ReadUInt16BigEndian(fvar[4..]), stride = BinaryPrimitives.ReadUInt16BigEndian(fvar[10..]);
+            Check(offset >= 16 && stride == 20 && offset <= fvar.Length - stride * 2, "complete original ordered fvar axis records");
+            uint[] tags = [0x6F70737A, 0x77676874]; int[] minima = [14 * 65536, 100 * 65536];
+            int[] defaults = [14 * 65536, 400 * 65536], maxima = [32 * 65536, 900 * 65536];
+            int[] design = [23 * 65536, 700 * 65536]; short[] from = [8192, 9830], normalized = [0, 0];
+            for (int axis = 0; axis < 2; axis++)
+            {
+                var record = fvar.Slice(offset + axis * stride, stride);
+                Check(BinaryPrimitives.ReadUInt32BigEndian(record) == tags[axis] &&
+                    BinaryPrimitives.ReadInt32BigEndian(record[4..]) == minima[axis] &&
+                    BinaryPrimitives.ReadInt32BigEndian(record[8..]) == defaults[axis] &&
+                    BinaryPrimitives.ReadInt32BigEndian(record[12..]) == maxima[axis] &&
+                    BinaryPrimitives.ReadUInt16BigEndian(record[16..]) == 0 &&
+                    BinaryPrimitives.ReadUInt16BigEndian(record[18..]) == 256 + axis,
+                    "actual original opsz/wght order, ranges, defaults, flags and names");
+                Check(design[axis] > defaults[axis] && design[axis] < maxima[axis] &&
+                    Math.Round((double)(design[axis] - defaults[axis]) * 16384 / (maxima[axis] - defaults[axis]),
+                        MidpointRounding.AwayFromZero) == from[axis], "reviewed nondefault original design checkpoint");
+            }
+            var avar = ReadSfntTable(bytes, 0x61766172);
+            Check(avar.Length >= 8 && BinaryPrimitives.ReadUInt32BigEndian(avar) == 0x00010000 &&
+                BinaryPrimitives.ReadUInt16BigEndian(avar[4..]) == 0 && BinaryPrimitives.ReadUInt16BigEndian(avar[6..]) == 2,
+                "actual original two-axis avar mapping");
+            int cursor = 8;
+            for (int axis = 0; axis < 2; axis++)
+            {
+                Check(cursor <= avar.Length - 2, "original avar segment-map count extent");
+                int count = BinaryPrimitives.ReadUInt16BigEndian(avar[cursor..]); cursor += 2;
+                Check(count >= 3 && count <= (avar.Length - cursor) / 4, "complete original avar point records");
+                var map = avar.Slice(cursor, count * 4); cursor += map.Length;
+                int previousFrom = int.MinValue, previousTo = int.MinValue; bool zero = false, selected = false;
+                for (int i = 0; i < count; i++)
+                {
+                    int x = BinaryPrimitives.ReadInt16BigEndian(map[(i * 4)..]), y = BinaryPrimitives.ReadInt16BigEndian(map[(i * 4 + 2)..]);
+                    Check(x is >= -16384 and <= 16384 && y is >= -16384 and <= 16384 && x > previousFrom && y >= previousTo,
+                        "ordered original signed F2DOT14 avar records");
+                    if (i == 0) Check(x == -16384 && y == -16384, "original avar minimum anchor");
+                    if (i == count - 1) Check(x == 16384 && y == 16384, "original avar maximum anchor");
+                    zero |= x == 0 && y == 0;
+                    if (axis == 0) Check(x == y, "actual reviewed optical-size identity mapping");
+                    if (x == from[axis]) { normalized[axis] = checked((short)y); selected = true; }
+                    previousFrom = x; previousTo = y;
+                }
+                Check(zero, "original avar default anchor");
+                if (axis == 0) { normalized[axis] = from[axis]; selected = true; }
+                Check(selected, "actual reviewed weight checkpoint exists in original avar bytes");
+            }
+            Check(cursor == avar.Length && normalized[0] == 8192 && normalized[1] == 8847,
+                "complete original reviewed optical-size/weight normalized checkpoint");
+            var gvar = ReadSfntTable(bytes, 0x67766172);
+            Check(gvar.Length > 20 && BinaryPrimitives.ReadUInt16BigEndian(gvar[4..]) == 2 &&
+                BinaryPrimitives.ReadUInt16BigEndian(gvar[12..]) > 0, "genuine original two-axis glyph-variation data");
+            return new(design, normalized);
+        }
     }
 
     private static bool Same<T>(ReadOnlySpan<T> first, ReadOnlySpan<T> second) where T : unmanaged =>

@@ -1026,6 +1026,12 @@ first borrow are separate CPU resource-creation calls, not per-glyph calls.
 Cold/warm copies, pins, allocations and latency still require measurement.
 Native producer/import controls and loaded stock/Dawn package controls are
 authored separately; no local execution or pixel/performance qualification is
-claimed here. Nonempty variable-instance transport controls remain outstanding.
+claimed here. Nonempty variable-instance controls use the already reviewed
+`ProGPU.Fonts.Inter/Fonts/InterVariable.ttf`, preserving its original `opsz` and
+`wght` order. The explicit 23/700 fixture checks the nonzero normalized values
+8192/8847 against the original font metadata and retains both device-coordinate
+arrays through resource import and source retirement. This tests that exact
+instance, not arbitrary variable-font parity; exact-head hosted execution and
+the complete package gates remain required.
 Managed Compositor/recorded-scene consumers, source Display and independent
 Windows application/UI qualification remain required before source selection.
