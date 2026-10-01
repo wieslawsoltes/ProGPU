@@ -76,7 +76,12 @@ lengths, comments, END and atomic output. Exact instruction and byte budgets hav
 both positive and rejected-overflow controls.
 
 These controls are translator contracts, not a shader interpreter, compiler or
-pixel oracle. No renderer/native build, GPU, VM, runtime staging or original
-application execution has occurred for this implementation checkpoint. Required
-follow-up remains genuine compiled-source bytecode and independent Windows pixels,
-source/MIL updates, both providers, full package/NativeAOT and original UI gates.
+pixel oracle. After implementation commit `15a0023a9c2514fc6710221b7702f0a66ac8a255`,
+Apple Clang 21.0.0 passed C++20 syntax checks with `-Wall -Wextra -Wpedantic -Werror`
+for the translator and fixture. The same two translation units then linked into
+a CPU-only executable (a minimal entry point includes the unchanged fixture),
+and all **110 controls passed**, exit zero, under an explicit ten-second process
+timeout. No renderer or native dependency build, GPU/device/provider, VM, runtime
+staging or original application execution was involved. Required follow-up remains
+genuine compiled-source bytecode and independent Windows pixels, source/MIL
+updates, both providers, full package/NativeAOT and original UI gates.
