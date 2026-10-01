@@ -164,6 +164,23 @@ controls pass, including an independently packed 192-byte instance digest and th
 original captured paint digest. The mode isolates arithmetic at an evidence-based
 frame without rebuilding or downloading a native renderer.
 
+Run `36884526788` at `c0e9d8396` reproduced a shared-shader difference with that
+frame: 65 differing RGBA bytes for one occurrence (maximum one), 111 for two
+(maximum two), identically at 96- and 128-pixel targets. Text and material
+outputs agree exactly. The raw sampled coverage and resulting alpha differ,
+not merely coordinates outside the ink. Artifact `11173576971` contains those
+original and instrumented outputs. At `(10,12)` for occurrence zero, ordinary
+Text reports texel coordinates `(7.374999523162842,6.125)` and raw coverage
+`0.44105392694473267`; bounded paint reports `(7.375,6.125)` and
+`0.4430147111415863`. An independent double-precision four-tap calculation over
+the captured synthetic atlas gives respectively `0.4430144698012109` and
+`0.4430147058823529`. Thus a sub-microtexel coordinate difference accompanies a
+much larger sampler-output difference on this actual Windows device. This is
+observed behavior, not an inferred cross-driver precision specification. A fix
+must preserve filtering and original geometry while making coverage coordinates
+consistent; biasing UVs, weakening pixel assertions or claiming the synthetic
+atlas is authentic would not establish the required contract.
+
 This explicit consumer API preserves one original prepared paragraph generation.
 It is implementation work, not Display selection, source-editor/input admission,
 native/package qualification or an application performance claim.
