@@ -6,6 +6,11 @@
 
 namespace progpu::native::text {
 
+// Original immutable font bytes/face and positioned owners only; no hinting or
+// shaping execution. Publishes the complete vector only after all metrics exist.
+progpu_native_status capture_hinted_nominal_metrics(const hinted_paragraph_generation& paragraph,
+    std::vector<progpu_native_hinted_glyph_nominal_metrics>& result) noexcept;
+
 // Same-module read-only diagnostics/native controls under the caller's handle
 // lease. These are not a public ABI, provider crossing or mutable generation.
 std::shared_ptr<const hinted_paragraph_generation> select_hinted_paragraph_generation(

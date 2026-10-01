@@ -474,6 +474,10 @@ void variable_font_controls() {
         }
         require(progpu_native_hinted_paragraph_prepare_glyph_resource(paragraph.value, &request, &resource.value) == PROGPU_NATIVE_STATUS_SUCCESS &&
             progpu_native_hinted_glyph_resource_borrow(resource.value, &wire.value) == PROGPU_NATIVE_STATUS_SUCCESS && wire.tail == tail);
+        auto rejected = sentinel<progpu_native_hinted_glyph_resource*>(); rejected.value = resource.value;
+        const auto previous = rejected;
+        require(progpu_native_hinted_paragraph_prepare_glyph_resource_with_nominal_metrics(paragraph.value, &request, &rejected.value) ==
+            PROGPU_NATIVE_STATUS_UNSUPPORTED && same_bytes(previous, rejected));
         const auto independent = create_hinted_paragraph_glyph_resource(p, request.dpi_scale,
             hinted_projection_policy::scalar_reference, hinted_outline_coverage::antialiased_vector);
         require(independent.status == PROGPU_NATIVE_STATUS_SUCCESS && independent.generation != nullptr);
@@ -506,6 +510,59 @@ void variable_font_controls() {
     }
     progpu_native_hinted_glyph_resource_destroy(resource.value); resource.value = nullptr;
     require(paragraph_weak.expired() && interaction_weak.expired() && font_weak.expired());
+}
+
+void nominal_metric_controls() {
+    paragraph_owner paragraph; resource_owner resource, ordinary;
+    auto metrics = sentinel<progpu_native_hinted_glyph_nominal_metrics_view>(); const auto tail = metrics.tail;
+    {
+        fixture source(font_hint_policy::truetype_40, true);
+        source.produce(paragraph);
+        const auto request = request_for(hinted_projection_policy::scalar_reference);
+        require(progpu_native_hinted_paragraph_prepare_glyph_resource(paragraph.value, &request, &ordinary.value) == PROGPU_NATIVE_STATUS_SUCCESS);
+        const auto unchanged = metrics;
+        require(progpu_native_hinted_glyph_resource_borrow_nominal_metrics(ordinary.value, &metrics.value) ==
+            PROGPU_NATIVE_STATUS_UNSUPPORTED && same_bytes(metrics, unchanged));
+        require(progpu_native_hinted_paragraph_prepare_glyph_resource_with_nominal_metrics(paragraph.value, &request, &resource.value) ==
+            PROGPU_NATIVE_STATUS_SUCCESS);
+        require(progpu_native_hinted_glyph_resource_borrow_nominal_metrics(resource.value, &metrics.value) == PROGPU_NATIVE_STATUS_SUCCESS && metrics.tail == tail);
+        progpu_native_hinted_glyph_resource_view original{};
+        require(progpu_native_hinted_glyph_resource_borrow(resource.value, &original) == PROGPU_NATIVE_STATUS_SUCCESS);
+        require(metrics.value.abi_version == PROGPU_NATIVE_ABI_VERSION && metrics.value.struct_size == sizeof(metrics.value) &&
+            metrics.value.reserved == 0U && metrics.value.metric_count == original.counts.positioned_glyph_count);
+        bool no_ink = false, repeated = false, positioned_differs = false;
+        for (std::uint32_t i = 0U; i < metrics.value.metric_count; ++i) {
+            const auto& metric = metrics.value.metrics[i]; const auto& glyph = original.positioned_glyphs[i];
+            // Every original hmtx entry is independently authored as 500 in
+            // progpu_native_hint_fault_fixture.hpp, including its empty glyph.
+            require(metric.positioned_index == i && metric.font_index == glyph.font_index &&
+                metric.glyph_id == glyph.glyph_id && metric.advance_width_design_units == 500U);
+            no_ink |= original.positioned_outline_indices[i] == hinted_no_outline;
+            positioned_differs |= glyph.advance_x != 500.0F;
+            for (std::uint32_t prior = 0U; prior < i; ++prior)
+                repeated |= metrics.value.metrics[prior].glyph_id == metric.glyph_id;
+        }
+        require(no_ink && repeated && positioned_differs);
+        // Both old and additive borrows reject aliases into the new allocation,
+        // including an output larger than the remaining selected storage.
+        const auto* storage = metrics.value.metrics;
+        require(progpu_native_hinted_glyph_resource_borrow_nominal_metrics(resource.value,
+            reinterpret_cast<progpu_native_hinted_glyph_nominal_metrics_view*>(const_cast<progpu_native_hinted_glyph_nominal_metrics*>(storage))) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        require(progpu_native_hinted_glyph_resource_borrow(resource.value,
+            reinterpret_cast<progpu_native_hinted_glyph_resource_view*>(const_cast<progpu_native_hinted_glyph_nominal_metrics*>(storage))) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        require(progpu_native_hinted_glyph_resource_borrow_nominal_metrics(resource.value,
+            reinterpret_cast<progpu_native_hinted_glyph_nominal_metrics_view*>(const_cast<std::uint8_t*>(original.font_bytes))) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        std::fill(source.bytes.begin(), source.bytes.end(), std::byte{0});
+    }
+    const auto before = metrics;
+    const std::vector saved(metrics.value.metrics, metrics.value.metrics + metrics.value.metric_count);
+    progpu_native_hinted_paragraph_destroy(paragraph.value); paragraph.value = nullptr;
+    require(progpu_native_hinted_glyph_resource_borrow_nominal_metrics(resource.value, &metrics.value) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        same_bytes(metrics, before) && same_span<progpu_native_hinted_glyph_nominal_metrics>(
+            {metrics.value.metrics, metrics.value.metric_count}, saved));
 }
 
 void empty_controls() {
@@ -554,6 +611,7 @@ int main() {
         producer_controls(font_hint_policy::truetype_40, true, hinted_projection_policy::scalar_reference, false,
             hinted_outline_coverage::antialiased_vector);
         variable_font_controls();
+        nominal_metric_controls();
         empty_controls();
 #endif
         return 0;

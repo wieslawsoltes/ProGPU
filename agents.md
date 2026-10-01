@@ -203,6 +203,13 @@ origins; do not synthesize empty-row tops or expose a design-font alias. Indepen
 source references retain the live native resource until final retirement, with
 once-ended uses and exact failed teardown retry. Source GlyphRun/replay wiring,
 continuation and Display selection remain separate. See docs/source-hinted-text-ownership.md.
+Explicit nominal-metric preparation reads original hmtx advances through retained
+font bytes/collection faces, never half-em, device or GPOS substitutes. Keep its
+immutable view additive to existing resource/import layouts, preserve every
+positioned/no-ink identity and reject missing metrics or coordinate-bearing
+instances before publication. Borrow spans under the original resource lease and
+guard their complete allocation against output aliases. Nominal metadata alone
+does not connect source baseline frames, offsets, carets or Display selection.
 
 Recorded hinted replay retains original producer uses through pictures, compiled
 scenes and frame resources, not merely managed geometry references. Keep explicit

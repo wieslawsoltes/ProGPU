@@ -67,6 +67,55 @@ The original void API still performs only its original update call.
 
 ## Architecture and qualification
 
+### Original nominal design advances
+
+`NativeHintedParagraph.PrepareGlyphResourceWithNominalMetrics` explicitly retains
+one horizontal design advance per original positioned occurrence, including
+repeated and no-ink glyphs. The C preparation export and separate immutable borrow
+view are additive: existing resource/import layouts and ordinary preparation are
+unchanged. `NativeHintedGlyphResourceReadLease.NominalMetrics` shares the original
+resource's destruction-excluding use; access copies nothing and makes no native
+call. An ordinary resource rejects this property instead of inventing metrics.
+
+Capture reuses the original ProGPU `sfnt_font_view::try_get_horizontal_glyph_metrics`
+against retained immutable font bytes and the exact collection face. The original
+positioned-to-logical font map selects the palette slot; records preserve both
+glyph and positioned identity. This deliberately does not use
+`try_get_design_advance_width`, whose legacy absent-table path supplies half an em.
+Unavailable original advances and coordinate-bearing styles/shared shaping
+contexts reject before any resource publication, even for explicitly zero axes.
+These are raw default horizontal `hmtx` values, not HVAR-instance, hinted 26.6,
+measured/GPOS, ink or caret metrics. Source variation admission remains closed.
+
+The existing [OpenType hmtx contract](https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx)
+defines nominal advance in design units, including last-long-metric reuse, and
+[DirectWrite design metrics](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritefontface-getdesignglyphmetrics)
+distinguish these resolution-independent values from hinted positioning. The
+cross-engine retained-layout/instance research below was rechecked; this change
+adopts original generation retention, not another layout engine. No foreign source
+implementation was copied. Raster caching, startup, culling, uploads, worker
+scheduling and device loss are unchanged for both managed and native renderers;
+the additive metrics remain producer/source metadata, not new raster inputs.
+
+Preparation is O(T + F + G) time and O(F + G) storage in retained faces F,
+their table-directory entries T and positioned occurrences G, using cached parser
+table views and dependency-bound original owner/font gathers.
+Read-lease acquisition and span access remain O(1). The complete new allocation is
+included in both old and new borrow alias guards. No hinting/font program is
+executed to obtain or copy these advances, and no per-glyph boundary call is added.
+Source baseline versus paragraph draw origin, exact offsets and owning-line/source
+maps still need their separate original-frame contract before formatter selection.
+
+Validation for this unit: 20 focused managed lease/metadata tests passed without a
+native module, font parser or GPU. The actual managed native backend built Release
+with zero warnings/errors; actual native capture/interop and both native test sources
+passed strict C++20 syntax checks. Authored native controls use independent hmtx
+entries and TTC faces, last-long-metric reuse, exact repeats/zero-width/no-ink slots,
+late missing-metric rollback, coordinate rejection, original producer retirement
+and old/new alias failures. Native/font execution and complete package/application
+qualification were not run. The prior source Display, caret and outline gates stay
+closed; this metadata is not interaction or rendering parity.
+
 This adapter follows the separation already researched in
 [retained hinted glyph replay](retained-hinted-glyph-replay.md). The public
 [Skia shaped-text model](https://docs.skia.org/docs/dev/design/text_shaper/),

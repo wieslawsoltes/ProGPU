@@ -96,6 +96,17 @@ internal static unsafe partial class NativeMethods
         internal uint Reserved;
     }
 
+    // Native source: progpu_native_hinted_glyph_nominal_metrics_view.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct HintedGlyphNominalMetricsView
+    {
+        internal uint AbiVersion;
+        internal uint StructSize;
+        internal uint MetricCount;
+        internal uint Reserved;
+        internal nuint Metrics;
+    }
+
     // Native source: progpu_native_hinted_glyph_resource_view.
     [StructLayout(LayoutKind.Sequential)]
     internal partial struct HintedGlyphResourceView
@@ -289,6 +300,16 @@ public partial struct NativeHintedGlyphOutlineOwner
 {
     public uint RunIndex;
     public uint DescriptorIndex;
+}
+
+// Native source: progpu_native_hinted_glyph_nominal_metrics.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedGlyphNominalMetrics
+{
+    public uint PositionedIndex;
+    public uint FontIndex;
+    public uint GlyphId;
+    public uint AdvanceWidthDesignUnits;
 }
 
 // Native source: progpu_native_mil_hinted_glyph_binding.

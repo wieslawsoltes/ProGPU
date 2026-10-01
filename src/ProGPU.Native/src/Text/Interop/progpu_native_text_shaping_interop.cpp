@@ -81,6 +81,8 @@ struct progpu_native_hinted_glyph_resource final {
     std::vector<progpu_native_text_cluster_box> boxes{};
     std::vector<progpu_native_text_caret_stop> carets{};
     progpu_native_hinted_glyph_resource_view view{};
+    std::vector<progpu_native_hinted_glyph_nominal_metrics> nominal_metrics{};
+    bool has_nominal_metrics = false;
 };
 
 struct progpu_native_text_plan_entry final {
@@ -4597,6 +4599,7 @@ bool hinted_glyph_resource_aliases(const progpu_native_hinted_glyph_resource& ha
         range.overlaps(handle.scalar_levels) || range.overlaps(handle.logical_glyphs) ||
         range.overlaps(handle.logical_owners) || range.overlaps(handle.positioned_owners) ||
         range.overlaps(handle.lines) || range.overlaps(handle.boxes) || range.overlaps(handle.carets) ||
+        range.overlaps(handle.nominal_metrics) ||
         handle.generation->allocation_aliases(output, bytes) || handle.interaction->allocation_aliases(output, bytes) ||
         progpu::native::text::hinted_paragraph_aliases(*handle.generation->paragraph(), output, bytes);
 }
@@ -4824,10 +4827,10 @@ progpu_native_status progpu_native_hinted_paragraph_copy_interaction(const progp
 
 void progpu_native_hinted_paragraph_destroy(progpu_native_hinted_paragraph* paragraph) { delete paragraph; }
 
-progpu_native_status progpu_native_hinted_paragraph_prepare_glyph_resource(
+static progpu_native_status prepare_hinted_glyph_resource(
     const progpu_native_hinted_paragraph* paragraph,
     const progpu_native_hinted_glyph_resource_request* request,
-    progpu_native_hinted_glyph_resource** resource) {
+    progpu_native_hinted_glyph_resource** resource, bool nominal_metrics) {
     static_assert(static_cast<std::uint32_t>(hinted_projection_policy::scalar_reference) == PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE);
     static_assert(static_cast<std::uint32_t>(hinted_outline_coverage::nonzero_vector) == PROGPU_NATIVE_HINTED_COVERAGE_NONZERO_VECTOR);
     static_assert(static_cast<std::uint32_t>(hinted_outline_coverage::antialiased_vector) == PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR);
@@ -4851,6 +4854,11 @@ progpu_native_status progpu_native_hinted_paragraph_prepare_glyph_resource(
         if (candidate->generation == nullptr || candidate->generation->paragraph() != paragraph->generation ||
             !cache_hinted_glyph_resource_view(*candidate) || !valid_hinted_glyph_resource(candidate.get()))
             return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+        if (nominal_metrics) {
+            const auto status = capture_hinted_nominal_metrics(*paragraph->generation, candidate->nominal_metrics);
+            if (status != PROGPU_NATIVE_STATUS_SUCCESS) return status;
+            candidate->has_nominal_metrics = true;
+        }
         // Never read the old caller slot. Original geometry, interaction and
         // every immutable wire cache exist before the sole publication write.
         *resource = candidate.release();
@@ -4862,11 +4870,37 @@ progpu_native_status progpu_native_hinted_paragraph_prepare_glyph_resource(
     }
 }
 
+progpu_native_status progpu_native_hinted_paragraph_prepare_glyph_resource(
+    const progpu_native_hinted_paragraph* paragraph,
+    const progpu_native_hinted_glyph_resource_request* request,
+    progpu_native_hinted_glyph_resource** resource) {
+    return prepare_hinted_glyph_resource(paragraph, request, resource, false);
+}
+
+progpu_native_status progpu_native_hinted_paragraph_prepare_glyph_resource_with_nominal_metrics(
+    const progpu_native_hinted_paragraph* paragraph,
+    const progpu_native_hinted_glyph_resource_request* request,
+    progpu_native_hinted_glyph_resource** resource) {
+    return prepare_hinted_glyph_resource(paragraph, request, resource, true);
+}
+
 progpu_native_status progpu_native_hinted_glyph_resource_borrow(
     const progpu_native_hinted_glyph_resource* resource, progpu_native_hinted_glyph_resource_view* view) {
     if (!valid_hinted_glyph_resource(resource) || !valid_hinted_buffer(view, 1U) ||
         hinted_glyph_resource_aliases(*resource, view, sizeof(*view))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     *view = resource->view; // No allocation or new projection under the caller's producer-library lease.
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_hinted_glyph_resource_borrow_nominal_metrics(
+    const progpu_native_hinted_glyph_resource* resource, progpu_native_hinted_glyph_nominal_metrics_view* view) {
+    if (!valid_hinted_glyph_resource(resource) || !valid_hinted_buffer(view, 1U) ||
+        hinted_glyph_resource_aliases(*resource, view, sizeof(*view))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (!resource->has_nominal_metrics) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    const progpu_native_hinted_glyph_nominal_metrics_view candidate{PROGPU_NATIVE_ABI_VERSION,
+        sizeof(*view), static_cast<std::uint32_t>(resource->nominal_metrics.size()), 0U,
+        hinted_glyph_wire_data(resource->nominal_metrics)};
+    *view = candidate;
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 

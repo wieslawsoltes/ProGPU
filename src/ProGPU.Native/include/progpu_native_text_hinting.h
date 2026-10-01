@@ -322,6 +322,30 @@ typedef struct progpu_native_hinted_glyph_outline_owner {
     uint32_t descriptor_index;
 } progpu_native_hinted_glyph_outline_owner;
 
+/* Original hmtx horizontal advance, NOT hinted device or positioned/GPOS advance.
+ * Each record addresses one original positioned occurrence, including no-ink
+ * and repeated glyphs. Font/face/UPM and owner identity remain in the same
+ * resource's ordinary view. Coordinate-bearing instances are not admitted. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedGlyphNominalMetrics */
+typedef struct progpu_native_hinted_glyph_nominal_metrics {
+    uint32_t positioned_index;
+    uint32_t font_index;
+    uint32_t glyph_id;
+    uint32_t advance_width_design_units;
+} progpu_native_hinted_glyph_nominal_metrics;
+
+/* Separate additive view: no existing resource record or import ABI changes.
+ * Borrow under the original destruction-excluding resource lease. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.HintedGlyphNominalMetricsView */
+typedef struct progpu_native_hinted_glyph_nominal_metrics_view {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    uint32_t metric_count;
+    uint32_t reserved;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_hinted_glyph_nominal_metrics* metrics;
+} progpu_native_hinted_glyph_nominal_metrics_view;
+
 /* A read-only flat borrow held by an ORIGINAL producer-library lifetime lease
  * excluding destruction. Immutable cached records admit concurrent readers.
  * A renderer receives only these records, never the producer's opaque handle.
@@ -449,9 +473,21 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_paragraph_prepare_gl
     const progpu_native_hinted_paragraph* paragraph,
     const progpu_native_hinted_glyph_resource_request* request,
     progpu_native_hinted_glyph_resource** resource);
+/* Explicit nominal-metric preparation. Missing original hmtx advances or any
+ * selected design/context normalized coordinates return Unsupported, never an
+ * invented advance. All preparation must succeed before publishing resource. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_paragraph_prepare_glyph_resource_with_nominal_metrics(
+    const progpu_native_hinted_paragraph* paragraph,
+    const progpu_native_hinted_glyph_resource_request* request,
+    progpu_native_hinted_glyph_resource** resource);
 PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_borrow(
     const progpu_native_hinted_glyph_resource* resource,
     progpu_native_hinted_glyph_resource_view* view);
+/* Ordinary preparation has no nominal view and returns Unsupported. Failures
+ * leave the output untouched, including aliases into all retained storage. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_borrow_nominal_metrics(
+    const progpu_native_hinted_glyph_resource* resource,
+    progpu_native_hinted_glyph_nominal_metrics_view* view);
 PROGPU_NATIVE_API void progpu_native_hinted_glyph_resource_destroy(progpu_native_hinted_glyph_resource* resource);
 
 /* Canonical commands, flat resource imports and all bindings form ONE staged
