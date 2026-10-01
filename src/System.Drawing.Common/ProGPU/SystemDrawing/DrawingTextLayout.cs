@@ -109,7 +109,7 @@ public sealed class DrawingTextLayout
         return new PointF(position.X, position.Y);
     }
 
-    /// <summary>EDIT source point for the same original owner; true boundaries retain ordinary source mapping.</summary>
+    /// <summary>EDIT source point for the same original owner; qualified boundaries retain ordinary source mapping.</summary>
     public PointF GetEditSourcePositionPoint(int textPosition)
     {
         Vector2 position = _editInteraction.Value.GetSourcePositionPoint(textPosition) + Offset;

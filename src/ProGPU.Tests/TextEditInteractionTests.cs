@@ -83,8 +83,10 @@ public sealed class TextEditInteractionTests
     public void AClusterAcrossOriginalGraphemesDoesNotInventAnInteriorCaretOrReassignOwners()
     {
         (TextLayout.ClusterBox[] Boxes, int[] Boundaries)[] cases =
-        [([new(0, 2, 0, 3, 0, 11, 13, 0)], [0, 1, 2]),
-            ([new(0, 2, 0, 3, 0, 11, 13, 0), new(2, 3, 0, 14, 0, 11, 13, 0)], [0, 1, 3])];
+        [([new(0, 2, 0, 3, 0, 11, 13, 0), new(2, 3, 0, 14, 0, 11, 13, 0)], [0, 1, 3]),
+            ([new(2, 3, 1, 3, 0, 11, 13, 0), new(0, 2, 1, 14, 0, 11, 13, 0)], [0, 1, 3]),
+            ([new(0, 2, 0, 3, 0, 11, 13, 0), new(1, 2, 0, 14, 0, 11, 13, 0)], [0, 1, 2]),
+            ([new(1, 2, 1, 3, 0, 11, 13, 0), new(0, 2, 1, 14, 0, 11, 13, 0)], [0, 1, 2])];
         foreach (var item in cases)
         {
             var original = new TextInteractionSnapshot(item.Boundaries[^1], 13, item.Boxes, [], true, [0], item.Boundaries);
@@ -93,6 +95,85 @@ public sealed class TextEditInteractionTests
             Assert.Equal(carets, original.CaretStops.ToArray());
             Assert.Throws<NotSupportedException>(() => original.CreateEditInteractionSnapshot());
         }
+    }
+
+    [Fact]
+    public void AnUnrelatedLigatureDoesNotDisableQualifiedQueriesOrInventItsInteriorEdges()
+    {
+        TextLayout.ClusterBox[] boxes =
+        [new(0, 2, 0, 0, 0, 10, 13, 0), new(2, 3, 0, 10, 0, 6, 13, 0),
+            new(3, 5, 0, 16, 0, 8, 13, 0), new(5, 6, 0, 24, 0, 7, 13, 0)];
+        var original = new TextInteractionSnapshot(6, 13, boxes, [], true, [0], [0, 1, 2, 5, 6]);
+        TextCaretStop[] carets = original.CaretStops.ToArray();
+        TextEditInteractionSnapshot edit = original.CreateEditInteractionSnapshot();
+        Assert.Equal(edit.GetSelectionRectangles(2, 3), edit.GetSelectionRectangles(3, 2));
+        Assert.Equal(original.GetCaretStop(5, true).Position, edit.GetCaretStop(3).Position);
+        Assert.Equal(original.GetCaretStop(5, true).Position, edit.GetSourcePositionPoint(3));
+        Assert.Equal(5, edit.HitTestPoint(new(20, 6)).TextPosition);
+        Assert.Equal(original.GetSelectionRectangles(0, 2), edit.GetSelectionRectangles(0, 2));
+        Assert.Equal(original.GetSelectionRectangles(0, 6), edit.GetSelectionRectangles(0, 6));
+        foreach (int boundary in new[] { 0, 2, 5, 6 })
+        {
+            Assert.Equal(original.GetCaretStop(boundary), edit.GetCaretStop(boundary));
+            Assert.Equal(original.GetSourcePositionPoint(boundary), edit.GetSourcePositionPoint(boundary));
+        }
+        Assert.Contains("[0,2)", Assert.Throws<NotSupportedException>(() => edit.GetCaretStop(1)).Message);
+        Assert.Contains("[0,2)", Assert.Throws<NotSupportedException>(() => edit.GetSourcePositionPoint(1)).Message);
+        Assert.Throws<NotSupportedException>(() => edit.GetSelectionRectangles(0, 1));
+        Assert.Throws<NotSupportedException>(() => edit.GetSelectionRectangles(2, -1));
+        Assert.Throws<NotSupportedException>(() => edit.HitTestPoint(new(5, 6)));
+        Assert.Empty(edit.GetSelectionRectangles(1, 0));
+        Assert.Equal(carets, original.CaretStops.ToArray());
+        Assert.Equal(edit.GetSelectionRectangles(2, 3), edit.GetSelectionRectangles(3, 2));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AClusterCuttingAnOriginalOuterEdgeRejectsTheCompleteGeneration(bool leading)
+    {
+        TextLayout.ClusterBox[] boxes = [leading ? new(1, 3, 0, 0, 0, 10, 13, 0) : new(0, 2, 0, 0, 0, 10, 13, 0)];
+        var original = new TextInteractionSnapshot(3, 13, boxes, [], true, [0], leading ? [0, 2, 3] : [0, 1, 3]);
+        TextCaretStop[] carets = original.CaretStops.ToArray();
+        Assert.Contains("outer edge", Assert.Throws<NotSupportedException>(() => original.CreateEditInteractionSnapshot()).Message);
+        Assert.Equal(carets, original.CaretStops.ToArray());
+    }
+
+    [Fact]
+    public void HitAdmissionUsesTheSelectedOwnerNotCoincidentZeroWidthBounds()
+    {
+        TextLayout.ClusterBox[] boxes = [new(2, 3, 1, 0, 0, 0, 13, 0), new(0, 2, 1, 0, 0, 0, 13, 0)];
+        var original = new TextInteractionSnapshot(3, 13, boxes, [], true, [0], [0, 1, 2, 3]);
+        TextEditInteractionSnapshot edit = original.CreateEditInteractionSnapshot();
+        TextHitTestResult hit = original.HitTestPoint(new(0, 6), out int selected);
+        Assert.Equal(0, selected);
+        Assert.Equal(2, hit.TextPosition);
+        Assert.Equal(hit, edit.HitTestPoint(new(0, 6)));
+        TextLayout.EmptyLineCaret[] empty = [new(1, new(2, false, new(0, 13), 13, 0), 1)];
+        var withEmpty = new TextInteractionSnapshot(2, 13, [new(0, 2, 0, 0, 0, 0, 13, 0)], empty,
+            true, [0, 2], [0, 1, 2]);
+        hit = withEmpty.HitTestPoint(new(0, 19), out selected);
+        Assert.Equal(-1, selected);
+        Assert.Equal(hit, withEmpty.CreateEditInteractionSnapshot().HitTestPoint(new(0, 19)));
+    }
+
+    [Fact]
+    public void OriginalFullCombiningFixtureKeepsItsOwnedFontAndGlyphGeneration()
+    {
+        var writer = new TextLayout("go A\U0001F600 e\u0301 fin ", InterFontFamily.Regular, 11, 500,
+            formattingOptions: new() { RetainOriginalGraphemeOwnership = true });
+        TextRunGlyph[] glyphs = writer.Glyphs.ToArray();
+        TextInteractionSnapshot original = writer.CreateInteractionSnapshot();
+        TextCaretStop[] carets = original.CaretStops.ToArray();
+        TextEditInteractionSnapshot edit = original.CreateEditInteractionSnapshot();
+        Assert.Equal(edit.GetSelectionRectangles(7, 2), edit.GetSelectionRectangles(8, 1));
+        Assert.Equal(original.GetCaretStop(9, true).Position, edit.GetCaretStop(8).Position);
+        Assert.Equal(original.GetSourcePositionPoint(9), edit.GetSourcePositionPoint(8));
+        Assert.Same(InterFontFamily.Regular, writer.Font);
+        Assert.Same(TextShapingOptions.Default, writer.ShapingOptions);
+        Assert.Equal("go A\U0001F600 e\u0301 fin ", writer.Text);
+        Assert.Equal(glyphs, writer.Glyphs.ToArray());
+        Assert.Equal(carets, original.CaretStops.ToArray());
     }
 
     [Fact]

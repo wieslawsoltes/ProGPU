@@ -22,21 +22,32 @@ prefix, change a glyph cluster or borrow mutable font/format state. Point hits
 use the whole-owner start/end inventory, which remains distinct from word stops.
 The explicit EDIT source-point query changes only a strict original-grapheme
 interior's X to that exact retained trailing X; Y stays the original source row's
-top, not a native caret raster offset. True boundaries and no-draw hard-delimiter
+top, not a native caret raster offset. Qualified boundaries and no-draw hard-delimiter
 positions delegate unchanged ordinary source mapping. Forms keeps its original
 single-line `EM_POSFROMCHAR` Y=0 policy and client/viewport/scroll conversion.
 
 Missing ownership, malformed UTF-16, vertical frames, a grapheme crossing rows or
-bidi frames, gaps/noncontiguous visual ownership, a shaping cluster spanning
-different original graphemes, or a missing/ambiguous trailing edge
-reject explicitly. The complete candidate is validated before publication;
+bidi frames, gaps/noncontiguous visual ownership, or a missing/ambiguous trailing
+edge reject the complete generation explicitly. A multi-grapheme shaping cluster
+sharing an original grapheme with another box also rejects; it cannot absorb
+that fallback owner transitively. The complete candidate is validated before publication;
 rejection never publishes a partial geometry view. Wrapping that separates one
 original owner is not repaired by this API. Interior CRLF positions without a
 writer-owned caret remain explicitly unsupported, while retained empty/hard rows
 and shared-wrap affinities keep their ordinary exact frames. Empty-row insertion
 indices are remapped from original boxes to merged owners, retaining their order
-after a preceding fallback owner coalesces. Cross-original-grapheme ligatures
-remain a source admission requirement; rejection is not full EDIT support.
+after a preceding fallback owner coalesces.
+
+An otherwise independent cluster spanning multiple original graphemes remains
+the exact original shaped box, with its missing interior edges recorded. It does
+not disable queries over unrelated validated owners. Whole-edge selection keeps
+the known original box; partial selection, interior caret/source-point requests
+and pointer queries selecting that box reject with its exact source interval.
+Hit admission uses the selected box index from the unchanged canonical traversal,
+not rectangle or endpoint equality; empty rows have no selected box. No original
+glyph, cluster, font, feature, position or ordinary navigation changes. Complete
+ligature-interior behavior remains a source admission requirement; this explicit
+query-domain limitation is not full EDIT support.
 
 The native Windows geometry receipt from run `36903729345`, SHA-256
 `301650a7ba564d28783fc98d954fa23b4f71e16a9a6e19f4454bca927d2630c9`, independently
@@ -91,3 +102,20 @@ failed against `ce48bd4a` before this change: emoji/joiner subranges had separat
 half-span rectangles and different interior/end X values; combining selection
 already covered its owner, but caret 8 returned source 7 at the leading edge.
 No expected coordinates, tolerances or source indices were relaxed.
+
+The exact-head Ubuntu quality job `110536636309` in Build `36911990959` at
+`87e932609cb0` passed 840 of 841 tests. Its sole failure was the unchanged complete
+combining source `go A😀 é fin `: view construction rejected a multi-grapheme
+shaping cluster elsewhere in that generation. The original log did not record
+its exact span or font identity, so identifying the trailing `fi` specifically
+remains an inference. The query-domain fix changes no fixture string, font,
+feature or assertion. A focused managed-source harness passes 47 cases, including
+the original 42 and new disjoint/affected-domain, outer-edge and exact-hit-owner
+controls. Synthetic intervals prove policy mechanics, not Windows ligature
+behavior; the unchanged Ubuntu fixture still requires fresh hosted validation.
+
+The bounded check is `dotnet test artifacts/edit-query-controls/ProGPU.Tests.csproj
+-c Release --nologo -v minimal -m:1`, linking only these interaction controls and
+the unchanged retained Drawing cases against actual managed source. Its final
+`--no-build --no-restore` receipt is
+`artifacts/edit-query-controls/results/focused.trx` (47 passed, zero failed/skipped).

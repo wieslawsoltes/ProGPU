@@ -13,14 +13,16 @@ public sealed class TextEditInteractionSnapshot
     private readonly TextInteractionSnapshot _original;
     private readonly TextLayout.ClusterBox[] _boxes;
     private readonly TextCaretStop[] _trailingCarets;
+    private readonly bool[] _missingInteriorEdges;
 
     internal TextEditInteractionSnapshot(TextInteractionSnapshot original, TextInteractionSnapshot geometry,
-        TextLayout.ClusterBox[] boxes, TextCaretStop[] trailingCarets)
+        TextLayout.ClusterBox[] boxes, TextCaretStop[] trailingCarets, bool[] missingInteriorEdges)
     {
         _geometry = geometry;
         _original = original;
         _boxes = boxes;
         _trailingCarets = trailingCarets;
+        _missingInteriorEdges = missingInteriorEdges;
     }
 
     public int TextLength => _geometry.TextLength;
@@ -32,7 +34,10 @@ public sealed class TextEditInteractionSnapshot
         {
             TextLayout.ClusterBox box = _boxes[index];
             if (textPosition > box.Start && textPosition < box.End)
+            {
+                if (_missingInteriorEdges[index]) throw MissingInteriorEdge(box);
                 return _trailingCarets[index] with { TextPosition = textPosition, IsTrailing = trailingAffinity };
+            }
         }
         TextCaretStop caret = _original.GetCaretStop(textPosition, trailingAffinity);
         if (caret.TextPosition != textPosition)
@@ -40,7 +45,13 @@ public sealed class TextEditInteractionSnapshot
         return caret;
     }
 
-    public TextHitTestResult HitTestPoint(Vector2 point) => _geometry.HitTestPoint(point);
+    public TextHitTestResult HitTestPoint(Vector2 point)
+    {
+        TextHitTestResult hit = _geometry.HitTestPoint(point, out int boxIndex);
+        if (boxIndex >= 0 && _missingInteriorEdges[boxIndex])
+            throw MissingInteriorEdge(_boxes[boxIndex]);
+        return hit;
+    }
 
     /// <summary>Retained source point; only an original grapheme interior uses its exact trailing edge.</summary>
     public Vector2 GetSourcePositionPoint(int textPosition)
@@ -50,13 +61,33 @@ public sealed class TextEditInteractionSnapshot
         {
             TextLayout.ClusterBox box = _boxes[index];
             if (textPosition > box.Start && textPosition < box.End)
+            {
+                if (_missingInteriorEdges[index]) throw MissingInteriorEdge(box);
                 return new Vector2(_trailingCarets[index].Position.X, box.Top);
+            }
         }
         return _original.GetSourcePositionPoint(textPosition);
     }
 
     public IReadOnlyList<TextBounds> GetSelectionRectangles(int textStart, int textLength)
-        => _geometry.GetSelectionRectangles(textStart, textLength);
+    {
+        int start = Math.Clamp(Math.Min(textStart, textStart + textLength), 0, TextLength);
+        int end = Math.Clamp(Math.Max(textStart, textStart + textLength), 0, TextLength);
+        if (start != end)
+        {
+            for (int index = 0; index < _boxes.Length; index++)
+            {
+                TextLayout.ClusterBox box = _boxes[index];
+                if (_missingInteriorEdges[index] &&
+                    ((start > box.Start && start < box.End) || (end > box.Start && end < box.End)))
+                    throw MissingInteriorEdge(box);
+            }
+        }
+        return _geometry.GetSelectionRectangles(textStart, textLength);
+    }
+
+    private static NotSupportedException MissingInteriorEdge(TextLayout.ClusterBox box)
+        => new($"The EDIT query requires unretained interior ownership in source span [{box.Start},{box.End}).");
 }
 
 public sealed partial class TextInteractionSnapshot
@@ -73,6 +104,7 @@ public sealed partial class TextInteractionSnapshot
             ?? throw new NotSupportedException("This generation did not retain well-formed original grapheme ownership.");
         var owners = new Dictionary<int, (int Row, sbyte Level, int Group)>();
         var groups = new List<TextLayout.ClusterBox>(_boxes.Length);
+        var missingInteriorEdges = new List<bool>(_boxes.Length);
         var originalBoxGroups = new int[_boxes.Length + 1];
         for (int boxIndex = 0; boxIndex < _boxes.Length; boxIndex++)
         {
@@ -80,13 +112,32 @@ public sealed partial class TextInteractionSnapshot
             int first = FindOriginalGrapheme(boundaries, box.Start);
             int last = FindOriginalGrapheme(boundaries, box.End - 1);
             if (box.RowIndex < 0 || first < 0 || last < first)
-                throw new NotSupportedException("The EDIT owner has no original horizontal source frame.");
+                throw new NotSupportedException($"The EDIT owner [{box.Start},{box.End}) has no original horizontal source frame.");
             if (first != last)
-                throw new NotSupportedException("A shaping cluster spans multiple original graphemes without an EDIT interior-edge contract.");
+            {
+                if (box.Start != boundaries[first] || box.End != boundaries[last + 1])
+                    throw new NotSupportedException($"The multi-grapheme cluster [{box.Start},{box.End}) cuts an original grapheme at its outer edge.");
+                // Keep the original shaped interval intact. Its missing interior
+                // contract affects only queries resolving inside it, never an
+                // unrelated source owner. Sharing one of these graphemes with
+                // another box would require unproved transitive ownership.
+                for (int owner = first; owner <= last; owner++)
+                {
+                    if (owners.ContainsKey(owner))
+                        throw new NotSupportedException($"A multi-grapheme cluster [{box.Start},{box.End}) shares an original owner with another retained box.");
+                    owners[owner] = (box.RowIndex, box.Level, groups.Count);
+                }
+                originalBoxGroups[boxIndex] = groups.Count;
+                groups.Add(box);
+                missingInteriorEdges.Add(true);
+                continue;
+            }
             bool joinsPrevious = false;
             for (int owner = first; owner <= last; owner++)
             {
                 if (!owners.TryGetValue(owner, out var frame)) continue;
+                if (missingInteriorEdges[frame.Group])
+                    throw new NotSupportedException($"The EDIT owner [{box.Start},{box.End}) overlaps an unqualified multi-grapheme cluster.");
                 if (frame.Row != box.RowIndex || frame.Level != box.Level)
                     throw new NotSupportedException("An original grapheme crosses retained rows or bidi frames.");
                 if (frame.Group != groups.Count - 1)
@@ -117,6 +168,7 @@ public sealed partial class TextInteractionSnapshot
                 }
             }
             groups.Add(new(start, end, box.Level, box.Left, box.Top, box.Width, box.Height, box.RowIndex));
+            missingInteriorEdges.Add(false);
         }
         originalBoxGroups[^1] = groups.Count;
         TextLayout.ClusterBox[] boxes = groups.ToArray();
@@ -136,12 +188,12 @@ public sealed partial class TextInteractionSnapshot
         {
             TextLayout.ClusterBox box = boxes[index];
             if (!retainedTrailing.TryGetValue((box.End, box.RowIndex, box.Level), out trailing[index]))
-                throw new NotSupportedException("The EDIT owner has no exact retained trailing caret.");
+                throw new NotSupportedException($"The EDIT owner [{box.Start},{box.End}) has no exact retained trailing caret.");
         }
         TextLayout.EmptyLineCaret[] emptyLines = RemapEditEmptyLines(_emptyLines, originalBoxGroups);
         var geometry = new TextInteractionSnapshot(TextLength, _emptyHeight, boxes, emptyLines,
             _horizontal, _sourceRowStarts);
-        return new(this, geometry, boxes, trailing);
+        return new(this, geometry, boxes, trailing, missingInteriorEdges.ToArray());
     }
 
     internal static TextLayout.EmptyLineCaret[] RemapEditEmptyLines(
