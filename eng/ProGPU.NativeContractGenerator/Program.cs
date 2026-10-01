@@ -92,7 +92,7 @@ static string Generate(string header, string sourceName)
 
             Match field = Regex.Match(
                 value,
-                @"^(?:const\s+)?(?<type>[A-Za-z_][A-Za-z0-9_]*)(?:\s*\*)?\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)$",
+                @"^(?:const\s+)?(?<type>[A-Za-z_][A-Za-z0-9_]*)(?<pointer>\s*\*)?\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)(?:\[(?<count>[0-9]+)\])?$",
                 RegexOptions.CultureInvariant);
             if (!field.Success)
             {
@@ -100,6 +100,19 @@ static string Generate(string header, string sourceName)
                     $"Unsupported field declaration in {target}: {value}.");
             }
 
+            // Literal primitive arrays flatten to sequential unmanaged fields;
+            // no managed reference or independently maintained wire layout.
+            if (field.Groups["count"].Success)
+            {
+                string elementType = field.Groups["type"].Value;
+                if ((elementType != "uint32_t" && elementType != "float") ||
+                    field.Groups["pointer"].Success || typeOverride.Success ||
+                    !int.TryParse(field.Groups["count"].Value, out int count) || count is < 1 or > 128)
+                    throw new InvalidDataException($"Unsupported inline array in {target}: {value}.");
+                for (int index = 0; index < count; ++index)
+                    fields.Add(new ContractField(MapType(elementType), ToPascalCase(field.Groups["name"].Value) + index));
+                continue;
+            }
             fields.Add(new ContractField(
                 typeOverride.Success
                     ? typeOverride.Groups["type"].Value

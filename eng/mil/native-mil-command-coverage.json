@@ -13,15 +13,15 @@
     },
     "decoder": {
       "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
-      "sha256": "a1b637683dec0a58d6a454f0b44e2de91f32c3cadc89d975cf8b35d08d8717d7"
+      "sha256": "06a15a7e35ce0e598f2bb0e990a16291e155fef2dd230e845db89598b640baf8"
     }
   },
   "summary": {
     "commandCount": 143,
     "sentinel": 2,
-    "topLevelDecoder": 106,
+    "topLevelDecoder": 109,
     "nestedRenderDataDispatch": 25,
-    "notDispatched": 10
+    "notDispatched": 7
   },
   "commands": [
     {
@@ -783,14 +783,14 @@
       "name": "pixel_shader",
       "wpfName": "MilCmdPixelShader",
       "value": 108,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_PIXELSHADER"
     },
     {
       "name": "implicit_input_brush",
       "wpfName": "MilCmdImplicitInputBrush",
       "value": 109,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_IMPLICITINPUTBRUSH"
     },
     {
@@ -811,7 +811,7 @@
       "name": "shader_effect",
       "wpfName": "MilCmdShaderEffect",
       "value": 112,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_SHADEREFFECT"
     },
     {

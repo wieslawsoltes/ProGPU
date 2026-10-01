@@ -358,6 +358,7 @@ progpu_native_status render_scene(
     std::uint32_t semantic_layer_mask_kind =
         PROGPU_NATIVE_GROUP_MASK_NONE;
     bool semantic_has_layer_effects = false;
+    bool semantic_has_builtin_effects = false;
     bool semantic_has_drop_shadows = false;
     std::uint32_t semantic_materialized_layer_count = 0U;
     std::uint32_t semantic_backdrop_layer_count = 0U;
@@ -367,6 +368,7 @@ progpu_native_status render_scene(
     std::uint32_t semantic_advanced_source_height = 0U;
     std::uint32_t semantic_effect_node_count = 0U;
     std::uint32_t semantic_effect_pass_count = 0U;
+    std::uint32_t semantic_shader_effect_count = 0U;
     std::uint32_t semantic_effect_chain_revision = 0U;
     std::uint64_t semantic_layer_coverage_texture_bytes = 0U;
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
@@ -482,6 +484,32 @@ progpu_native_status render_scene(
             if (effected) {
                 const auto effect_resource = read_resource(
                     layer.effect_resource_index);
+                if (effect_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
+                    // Version 1 retains an exact, completely captured input.
+                    // Fractional/cropped source frames and backdrop/custom
+                    // mappings need a separate sampling contract, not UV repair.
+                    const auto source_presentation = layer_budget_cursor.current_presentation();
+                    const double left = static_cast<double>(layer.bounds.x) * source_presentation.dpi_scale_x + source_presentation.viewport_x;
+                    const double top = static_cast<double>(layer.bounds.y) * source_presentation.dpi_scale_y + source_presentation.viewport_y;
+                    const double width = static_cast<double>(layer.bounds.width) * source_presentation.dpi_scale_x;
+                    const double height = static_cast<double>(layer.bounds.height) * source_presentation.dpi_scale_y;
+                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U ||
+                        (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP | PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U ||
+                        left != target_extent.x || top != target_extent.y ||
+                        width != target_extent.width || height != target_extent.height ||
+                        width <= 0.0 || height <= 0.0 ||
+                        semantic_effect_node_count == semantic_max_effect_passes ||
+                        semantic_effect_pass_count == semantic_max_effect_passes)
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "WPF bytecode effects require a complete integral physical source capture.");
+                    ++semantic_effect_node_count;
+                    ++semantic_effect_pass_count;
+                    ++semantic_shader_effect_count;
+                    progpu_native_scene_shader_effect shader{};
+                    std::memcpy(&shader, bytes + effect_resource.payload_offset, sizeof(shader));
+                    semantic_effect_chain_revision = shader.revision;
+                } else {
+                semantic_has_builtin_effects = true;
                 progpu_native_scene_effect_chain chain{};
                 std::memcpy(
                     &chain,
@@ -524,6 +552,7 @@ progpu_native_status render_scene(
                             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                             "A semantic effect exceeds the finite physical kernel contract.");
                     }
+                }
                 }
             }
             if (materialized && semantic_materialized_layer_count ==
@@ -1610,8 +1639,10 @@ progpu_native_status render_scene(
     }
 
     const std::uint64_t semantic_effect_uniform_bytes =
-        static_cast<std::uint64_t>(semantic_effect_pass_count) *
+        static_cast<std::uint64_t>(semantic_effect_pass_count - semantic_shader_effect_count) *
             semantic_effect_uniform_alignment;
+    const std::uint64_t semantic_all_effect_uniform_bytes = semantic_effect_uniform_bytes +
+        static_cast<std::uint64_t>(semantic_shader_effect_count) * 528U;
     const std::uint64_t pooled_layer_bytes = layer_budget.pooled_bytes();
     const std::uint64_t pooled_effect_bytes =
         layer_budget.pooled_effect_bytes();
@@ -1728,11 +1759,11 @@ progpu_native_status render_scene(
         ? std::numeric_limits<std::uint64_t>::max()
         : compiled_payload_bytes + semantic_material_bytes;
     if (invalid_compiled_materials || invalid_layer_pool ||
-        semantic_effect_uniform_bytes >
+        semantic_all_effect_uniform_bytes >
             semantic_max_total_compiled_bytes - compiled_bytes ||
         std::max(layer_budget.peak_bytes, retained_layer_bytes) >
             semantic_max_total_compiled_bytes - compiled_bytes -
-                semantic_effect_uniform_bytes) {
+                semantic_all_effect_uniform_bytes) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
             "The semantic scene exceeds the combined layer, effect, and compiled-payload budget.");
@@ -3934,7 +3965,7 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The retained semantic layer-mask pipeline could not be prepared.");
         }
-        if (semantic_has_layer_effects &&
+        if (semantic_has_builtin_effects &&
             (!create_gaussian_effect_resources(*engine) ||
              (semantic_has_drop_shadows &&
                 !create_drop_shadow_effect_resources(*engine)) ||
@@ -4297,11 +4328,26 @@ progpu_native_status render_scene(
         };
         const auto append_effect_program = [&](
             std::uint32_t resource_index,
-            semantic_render_bundle_span& operation) {
+            semantic_render_bundle_span& operation,
+            const semantic_scissor& source_extent) {
             if (resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) {
                 return true;
             }
             const auto resource = read_resource(resource_index);
+            if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
+                if (operation.source_layer >= engine->semantic_layer_slots.size()) return false;
+                progpu_native_scene_shader_effect shader{};
+                std::memcpy(&shader, bytes + resource.payload_offset, sizeof(shader));
+                operation.shader_effect = create_semantic_shader_binding(*engine, shader,
+                    std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
+                    engine->semantic_layer_slots[operation.source_layer], source_extent.width, source_extent.height);
+                if (!operation.shader_effect) return false;
+                operation.effect_count = 1U;
+                operation.final_effect_texture = 0U;
+                semantic_layer_uniform_upload_bytes += 528U;
+                semantic_layer_effect_uniform_upload_bytes += 528U;
+                return true;
+            }
             progpu_native_scene_effect_chain chain{};
             std::memcpy(
                 &chain,
@@ -4525,7 +4571,7 @@ progpu_native_status render_scene(
                             target_extent.y - parent_extent.y;
                         if (!append_effect_program(
                             layer.effect_resource_index,
-                            operation))
+                            operation, target_extent))
                             return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
                         if (operation.effect_count != 0U) {
                             operation.first_backdrop_resolve_vertex =
@@ -4757,7 +4803,7 @@ progpu_native_status render_scene(
                     if (!operation.backdrop) {
                         if (!append_effect_program(
                             layer.effect_resource_index,
-                            operation))
+                            operation, source_extent))
                             return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
                     }
                     if (operation.effect_count != 0U &&
@@ -5269,7 +5315,7 @@ progpu_native_status render_scene(
                     semantic_effected_backdrop_layer_count) * 4U ||
             advanced_operation_index != semantic_advanced_layer_count ||
             compiled_effect_dispatches.size() !=
-                semantic_effect_node_count ||
+                semantic_effect_node_count - semantic_shader_effect_count ||
             semantic_effect_uniform_cursor !=
                 semantic_effect_uniform_bytes) {
             return fail_bundle(engine->fail(
@@ -5314,7 +5360,7 @@ progpu_native_status render_scene(
                 0U,
                 semantic_effect_uniform_data.data(),
                 semantic_effect_uniform_data.size());
-            semantic_layer_effect_uniform_upload_bytes =
+            semantic_layer_effect_uniform_upload_bytes +=
                 semantic_effect_uniform_data.size();
             semantic_layer_uniform_upload_bytes +=
                 semantic_effect_uniform_data.size();
@@ -5954,7 +6000,9 @@ progpu_native_status render_scene(
         engine->last_layer_metrics.mask_uniform_upload_bytes =
             semantic_layer_mask_uniform_upload_bytes;
         engine->last_layer_metrics.effect_kind =
-            semantic_has_layer_effects
+            semantic_shader_effect_count != 0U
+                ? PROGPU_NATIVE_GROUP_EFFECT_WPF_SHADER
+                : semantic_has_layer_effects
                 ? semantic_has_drop_shadows
                     ? PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW
                     : PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR

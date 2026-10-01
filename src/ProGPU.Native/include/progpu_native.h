@@ -141,7 +141,9 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX = 16,
     /* Device-space WPF/MIL pixel-snapping coordinates referenced by state. */
     PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET = 17,
-    PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE = 18
+    PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE = 18,
+    /* Versioned validated D3D9 pixel program; older readers reject it as required. */
+    PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT = 19
 } progpu_native_scene_resource_kind;
 
 typedef enum progpu_native_scene_text_rendering_mode {
@@ -380,7 +382,10 @@ typedef enum progpu_native_group_effect_kind {
     PROGPU_NATIVE_GROUP_EFFECT_NONE = 0,
     PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR = 1,
     PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW = 2,
-    PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR = 3
+    PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR = 3,
+    /* Diagnostic kind only; supplied through versioned scene resource 19,
+       never admitted as a progpu_native_group_effect descriptor. */
+    PROGPU_NATIVE_GROUP_EFFECT_WPF_SHADER = 4
 } progpu_native_group_effect_kind;
 
 /* Values intentionally match ProGPU.Backend.GpuBlendMode. */
@@ -2766,6 +2771,25 @@ typedef struct progpu_native_scene_effect_chain {
     uint32_t revision;
     uint32_t reserved;
 } progpu_native_scene_effect_chain;
+
+/* Version 1: bounded ps_2_0 float program and one implicit-input 2D sampler.
+ * Original little-endian bytecode is the resource auxiliary payload. Constants
+ * retain c0..c31 component order. Sampling is 0=nearest, 1=linear with clamp.
+ * No pointer, WGSL replacement, animation handle or source object crosses here.
+ * Unsupported bytecode/resource forms fail complete scene validation.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderEffect */
+typedef struct progpu_native_scene_shader_effect {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t bytecode_size;
+    uint32_t source_sampler;
+    uint32_t sampling_mode;
+    uint32_t revision;
+    uint32_t flags;
+    uint32_t reserved;
+    float constants[128];
+} progpu_native_scene_shader_effect;
 
 /*
  * A bounded linear retained effect chain. Effects are evaluated in array

@@ -47,6 +47,7 @@ def fields(text, name):
 
 collector = source(root / "Backend/progpu_native_engine_memory.hpp")
 owners = [
+    ("Scene/progpu_native_shader_effect_execution.hpp", "semantic_shader_binding", "value", "semantic_shader_binding"),
     ("Backend/progpu_native_engine.hpp", "progpu_native_engine", "engine", None),
     ("Backend/progpu_native_webgpu_resources.hpp", "path_raster_resources", "value", "path_raster_resources"),
     ("Scene/progpu_native_semantic_replay.hpp", "semantic_layer_slot", "value", "semantic_layer_slot"),

@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Native WPF shader effects retain original validated bytecode and constant values,
+not WGSL registry substitutions. The bounded ps_2_0 family uses an owned fragment
+pipeline in both native providers; reject unsupported tokens, resources and
+capture frames before publication. Preserve exact-byte program identity, live
+binding ownership, budgets and final source clipping. No CPU shader fallback or
+identity hit-test annotation is admitted. See docs/native-mil-shader-effects.md;
+the first family is not complete ShaderEffect or application qualification.
+
 The isolated drawing package group includes the real Native and Dawn backend
 dependencies in source-reference order. Preserve exact version closure and native
 runtime validation; consumers stage real payloads only from the exact successful

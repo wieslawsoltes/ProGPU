@@ -397,6 +397,11 @@ bool encode_semantic_effect_chain(
     if (operation.effect_count == 0U) {
         return true;
     }
+    if (operation.shader_effect) {
+        return operation.source_layer < engine.semantic_layer_slots.size() &&
+            encode_semantic_shader_effect(engine, encoder, *operation.shader_effect,
+                engine.semantic_layer_slots[operation.source_layer], pass_count);
+    }
     if (operation.source_layer >= engine.semantic_layer_slots.size() ||
         operation.first_effect_dispatch >
             engine.semantic_effect_dispatches.size() ||

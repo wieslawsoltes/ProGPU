@@ -7,6 +7,7 @@
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_draw_merge.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
+#include "progpu_native_shader_effect_execution.hpp"
 
 #include <array>
 #include <cstdint>
@@ -290,6 +291,7 @@ struct semantic_effect_dispatch {
 };
 
 struct semantic_render_bundle_span {
+    std::shared_ptr<semantic_shader_binding> shader_effect;
     semantic_replay_kind kind = semantic_replay_kind::bundle;
     WGPURenderBundle bundle = nullptr;
     std::uint32_t clip_x = 0U;

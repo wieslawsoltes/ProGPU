@@ -5,6 +5,7 @@
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_shader_effect.hpp"
 
 #include <algorithm>
 #include <array>
@@ -87,7 +88,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
@@ -747,6 +748,13 @@ validation_result validate(
                     }
                 }
             }
+        }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
+            if (resource.payload_size != sizeof(progpu_native_scene_shader_effect) ||
+                !shader_effect::validate(read_record<progpu_native_scene_shader_effect>(
+                    bytes, resource.payload_offset),
+                    std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size)))
+                return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) {
             if (resource.payload_size !=
@@ -1435,9 +1443,11 @@ validation_result validate(
             if (!valid_layer_resource(
                     layer.mask_resource_index,
                     PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) ||
-                !valid_layer_resource(
+                (!valid_layer_resource(
                     layer.effect_resource_index,
-                    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) ||
+                    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) &&
+                 !valid_layer_resource(layer.effect_resource_index,
+                     PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT)) ||
                 (((layer.flags &
                         (PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
                             PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE)) !=

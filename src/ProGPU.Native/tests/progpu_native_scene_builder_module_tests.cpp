@@ -7,6 +7,14 @@ import progpu.native.scene_builder;
 
 int main() {
     {
+        progpu::native::semantic_scene_builder shader_builder(9840U, 1U);
+        progpu::native::progpu_native_scene_shader_effect shader{};
+        unsigned int resource = 123U;
+        // The new versioned resource remains fail-closed for an absent program.
+        if (shader_builder.add_shader_effect(shader, {}, resource) ||
+            resource != progpu::native::PROGPU_NATIVE_SCENE_NO_INDEX) return 1;
+    }
+    {
         progpu::native::semantic_scene_builder cache_builder(9832U, 1U);
         auto composite = cache_builder.identity_state();
         unsigned int composite_index{}, hit_index{};
