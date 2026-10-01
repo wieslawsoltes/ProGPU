@@ -194,3 +194,19 @@ boundary catches them. No managed completion is synthesized and no timeout is
 extended. Source and NuGet JIT/NativeAOT consumers execute both stages under the
 existing process bound. These new controls require hosted runtime evidence;
 arbitrary external callback faults and complete application gates remain separate.
+
+Dawn's shared native error/loss entry points now contain managed event-handler
+and diagnostic-writer exceptions at the ABI boundary. Terminal device state is
+published before application error handlers; a throwing loss subscriber cannot
+suppress the independent error notification. Native message decoding failure
+retains an explicit diagnostic message, and console failures cannot prevent loss
+publication or unwind into native code. Direct managed event-invocation APIs keep
+their existing behavior.
+
+The isolated `--callback-fault` control installs both a throwing loss subscriber
+and a throwing `Console.Error` writer, forces real native device loss and retains
+the original lost-handle rejection, independent replacement readback and disposal
+checks. It requires the writer to have actually run and restores caller state.
+Both source and NuGet JIT/NativeAOT modes run it under the unchanged process bound.
+Hosted proof is pending; this specifically exercises device-loss subscriber and
+writer faults, not every possible native error or invalid foreign pointer.

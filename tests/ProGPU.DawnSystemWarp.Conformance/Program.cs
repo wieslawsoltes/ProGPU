@@ -22,6 +22,19 @@ if (args.Length == 2 && args[1] == "--device-loss")
     return;
 }
 
+if (args.Length == 2 && args[1] == "--callback-fault")
+{
+    TextWriter originalError = Console.Error;
+    var throwingWriter = new ThrowingDiagnosticWriter();
+    Console.SetError(throwingWriter);
+    try { ExerciseDeviceLoss(throwFromCallback: true); }
+    finally { Console.SetError(originalError); }
+    if (throwingWriter.Attempts == 0)
+        throw new InvalidOperationException("The throwing native diagnostic writer was not exercised.");
+    Console.WriteLine("Dawn system WARP throwing loss subscriber and diagnostic writer preserved native retirement.");
+    return;
+}
+
 if (args.Length == 2)
 {
     if (args[1] != "--foreign-resolver") throw new ArgumentException("Unknown isolated control.");
@@ -85,7 +98,7 @@ for (int lifetime = 0; lifetime < 2; lifetime++)
 }
 Console.WriteLine("Dawn system WARP conformance passed: 2 device lifetimes, 4 full RGBA readbacks, 0 skipped.");
 
-static void ExerciseDeviceLoss()
+static void ExerciseDeviceLoss(bool throwFromCallback = false)
 {
     // Reuse the original shared-memory probe's real Dawn loss diagnostic and
     // bounded nonblocking event drain; no managed synthetic loss notification.
@@ -95,7 +108,10 @@ static void ExerciseDeviceLoss()
     {
         if (reason == DeviceLostReason.Unknown &&
             message.Contains("ProGPU forced native device-loss qualification", StringComparison.Ordinal))
+        {
             Interlocked.Increment(ref nativeLoss);
+            if (throwFromCallback) throw new InvalidOperationException("Injected application loss subscriber failure.");
+        }
     }
     WgpuContext.OnWebGpuDeviceLost += OnLoss;
     try
@@ -151,4 +167,16 @@ static unsafe void Clear(WgpuContext context, GpuTexture target, Color color)
         finally { api.CommandBufferRelease(commands); }
     }
     finally { api.CommandEncoderRelease(encoder); }
+}
+
+sealed class ThrowingDiagnosticWriter : TextWriter
+{
+    private int _attempts;
+    public int Attempts => Volatile.Read(ref _attempts);
+    public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+    public override void WriteLine(string? value)
+    {
+        Interlocked.Increment(ref _attempts);
+        throw new IOException("Injected application diagnostic writer failure.");
+    }
 }

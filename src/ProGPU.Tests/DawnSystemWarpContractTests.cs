@@ -96,8 +96,26 @@ public sealed class DawnSystemWarpContractTests
         Assert.Contains("VerifySystemWarpRequestCancellationForDiagnostics(deviceRequest: false);", consumer, StringComparison.Ordinal);
         Assert.Contains("VerifySystemWarpRequestCancellationForDiagnostics(deviceRequest: true);", consumer, StringComparison.Ordinal);
         string script = Read("eng", "test-dawn-system-warp-windows.ps1");
-        Assert.Contains("@('readback','foreign-resolver','device-loss','request-cancellation')", script, StringComparison.Ordinal);
+        Assert.Contains("@('readback','foreign-resolver','device-loss','request-cancellation','callback-fault')", script, StringComparison.Ordinal);
         Assert.Contains("$arguments += '--request-cancellation'", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NativeLossAndErrorCallbacksContainApplicationAndDiagnosticFaults()
+    {
+        string source = Read("src", "ProGPU.Backend.Dawn", "DawnGpuContext.cs");
+        int errorCallback = source.IndexOf("private static void OnUncapturedError(", StringComparison.Ordinal);
+        int lossCallback = source.IndexOf("private static void OnDeviceLost(", errorCallback, StringComparison.Ordinal);
+        string errorBody = source[errorCallback..lossCallback];
+        int report = errorBody.IndexOf("state.Report(errorMessage);", StringComparison.Ordinal);
+        int notify = errorBody.IndexOf("WgpuContext.RaiseWebGpuError(ErrorType(type), errorMessage);", StringComparison.Ordinal);
+        Assert.True(report >= 0 && notify > report, "Terminal state must precede application error handlers.");
+        Assert.Contains("catch (Exception error) { ReportCallbackFailure(error); }", errorBody, StringComparison.Ordinal);
+        Assert.Contains("try { Console.Error.WriteLine(message); }", source, StringComparison.Ordinal);
+        string consumer = Read("tests", "ProGPU.DawnSystemWarp.Conformance", "Program.cs");
+        Assert.Contains("ExerciseDeviceLoss(throwFromCallback: true)", consumer, StringComparison.Ordinal);
+        Assert.Contains("finally { Console.SetError(originalError); }", consumer, StringComparison.Ordinal);
+        Assert.Contains("if (throwingWriter.Attempts == 0)", consumer, StringComparison.Ordinal);
     }
 
     [Fact]
