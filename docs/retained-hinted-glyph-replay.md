@@ -129,3 +129,14 @@ Static-buffer refresh and optional incremental pages need their own transactiona
 producer/atlas ownership contracts before those routes are admitted. Ordinary
 compiled-scene retained replay must preserve
 the full brush contract without weakening assertions, deadlines or defaults.
+
+The Windows Dawn hinted-text package fixture now explicitly selects the owned
+system-WARP factory from PR #238. Its selected RID opts into the optional Dawn
+NuGet payload for both ordinary and NativeAOT publication. Generic forced
+fallback, non-Windows Dawn selection and all stock-provider cases are unchanged.
+The complete Build requires both companion producers before packing, then runs
+every original hinted paragraph case and the direct-paint differentials against
+the actual packaged native Dawn renderer. No scenario, pixel assertion, deadline
+or independent stock-provider check is removed. The successful narrow WARP
+readback receipts are prerequisites, not proof of these full renderer cases.
+This integration now depends on both the hinted-resource stack and PR #238.

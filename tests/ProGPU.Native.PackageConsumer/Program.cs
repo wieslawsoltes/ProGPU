@@ -51,9 +51,13 @@ if (args.Contains("--text-hinted-paragraph-dawn-render-only", StringComparer.Ord
         : OperatingSystem.IsWindows() ? BackendType.D3D12
         : OperatingSystem.IsLinux() ? BackendType.Vulkan
         : throw new PlatformNotSupportedException("This Dawn offscreen package control requires a desktop native backend.");
-    using var dawn = DawnGpuContext.CreateOffscreen(backend,
-        forceFallbackAdapter: OperatingSystem.IsWindows() ||
-            args.Contains("--software-adapter", StringComparer.Ordinal));
+    // The original Dawn D3D12 backend rejects generic forced fallback before
+    // processing adapter LUIDs. Select the independently verified system WARP
+    // policy explicitly for this Windows software-rendering fixture instead.
+    using var dawn = OperatingSystem.IsWindows()
+        ? DawnGpuContext.CreateSystemWarpOffscreen()
+        : DawnGpuContext.CreateOffscreen(backend,
+            forceFallbackAdapter: args.Contains("--software-adapter", StringComparer.Ordinal));
     TextHintedParagraphRenderingValidation.Run(dawn.Context,
         Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"),
         () => NativeDawnAdapter.CreateCompositor(dawn, TextureFormat.Rgba8Unorm));

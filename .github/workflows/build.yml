@@ -964,6 +964,8 @@ jobs:
     needs: native-package
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    env:
+      ProGpuDawnSystemWarpTestRid: ${{ matrix.suite == 'text-dawn' && matrix.rid || '' }}
     strategy:
       fail-fast: false
       matrix:

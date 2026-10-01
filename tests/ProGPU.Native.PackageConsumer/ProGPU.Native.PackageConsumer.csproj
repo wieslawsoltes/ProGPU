@@ -5,6 +5,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Only the explicit Windows Dawn fixture opts into the optional payload.
+         Keep ordinary/default/stock and non-Windows consumers unchanged. -->
+    <RuntimeIdentifier Condition="'$(ProGpuDawnSystemWarpTestRid)' != ''">$(ProGpuDawnSystemWarpTestRid)</RuntimeIdentifier>
+    <ProGpuEnableDawnSystemWarp Condition="'$(ProGpuDawnSystemWarpTestRid)' != ''">true</ProGpuEnableDawnSystemWarp>
     <RestoreSources>$(ProGpuNativePackageSource);https://api.nuget.org/v3/index.json</RestoreSources>
   </PropertyGroup>
   <ItemGroup Condition="'$(ProGpuNativeUseProjectReference)' != 'true'">
