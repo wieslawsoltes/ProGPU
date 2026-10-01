@@ -150,8 +150,12 @@ internal static class TextHintedGlyphPaintRenderingValidation
                 Console.WriteLine($"package-consumer: authentic native hinted direct paint provider={context.BackendKind}, " +
                     $"dpi={dpi}, authoredOverlap={overlap}, cold/warm full RGBA vs original solid text passed");
                 if (dpi == 2 && overlap == 1)
+                {
                     VerifyTextureReplacement(context, createCompositor, original.Outlines, original.Segments,
                         glyphs, dpi, solidColor.W, fontSha256, writerBytes);
+                    VerifyAffinePaints(context, createCompositor, original.Outlines, original.Segments,
+                        glyphs, dpi, solidColor.W);
+                }
             }
         }
         Check(cases == 4, "all additive DPI/fractional/overlap controls ran");
@@ -173,30 +177,8 @@ internal static class TextHintedGlyphPaintRenderingValidation
             alphaMode: GpuTextureAlphaMode.Straight);
         byte[][] sourcePixels = [[64, 192, 128, 255], [192, 64, 32, 255]];
         first.WritePixels<byte>(sourcePixels[0]); second.WritePixels<byte>(sourcePixels[1]);
-        var sceneOutlines = new NativeSceneGlyphOutline[outlines.Length];
-        for (int i = 0; i < outlines.Length; i++)
-        {
-            ref readonly var outline = ref outlines[i];
-            sceneOutlines[i] = new(checked((ulong)outline.SegmentOffset), checked((ulong)outline.SegmentCount),
-                outline.Minimum, outline.Maximum, outline.RasterScale, outline.SubpixelX);
-        }
         const ulong sceneId = 0x771A;
-        byte[] storage = new byte[NativeSceneStreamBuilder.GetRequiredBufferSize(1, 2,
-            checked(MemoryMarshal.AsBytes(sceneOutlines.AsSpan()).Length +
-                MemoryMarshal.AsBytes(segments.AsSpan()).Length + MemoryMarshal.AsBytes(glyphs.AsSpan()).Length + 192))];
-        var builder = new NativeSceneStreamBuilder(storage, sceneId, 1, commandCapacity: 1, resourceCapacity: 2);
-        Check(builder.TryAddGlyphResource(1, 1, sceneOutlines, segments, out uint glyphResource),
-            "texture control shares exact independently unpacked original glyph geometry");
-        Check(builder.TryAddExternalImageResource(2, 1, out uint imageResource), "original external IMAGE resource");
-        float extent = 96 / dpi;
-        var paint = new NativeSceneGlyphPaint(NativeSceneGlyphPaint.Texture, 0,
-            NativeSceneGlyphPaint.BoundedTexture,
-            new(0, 0, opacity, 0), new(0, 0, 1, 1), new(0, 0, extent, 0),
-            new(extent, extent, 0, extent), new(0, 0.5f, 0, 0));
-        Check(builder.TryDrawPaintedGlyphRun(1, glyphResource, new(0, 0, extent, extent), glyphs,
-            imageResource, 0, in paint), "bounded original image-quad direct glyph paint");
-        Check(builder.TryBuild(out var stream), "complete pointer-free texture paint scene");
-        byte[] scene = stream.ToArray();
+        byte[] scene = CreateTextureScene(sceneId, dpi, outlines, segments, glyphs, opacity);
         var update = subject.UpdateScene(scene);
         Check(update.CommandCount == 1 && update.ResourceCount == 2 && update.DrawCount == 1,
             "one original glyph draw and one external IMAGE binding slot");
@@ -262,6 +244,136 @@ internal static class TextHintedGlyphPaintRenderingValidation
         }
         Console.WriteLine($"package-consumer: authentic native hinted opaque bounded texture provider={context.BackendKind}, " +
             "same-count original-view replacement and both cold/warm full RGBA solid controls passed");
+    }
+
+    private static void VerifyAffinePaints(WgpuContext context, Func<NativeCompositor> createCompositor,
+        NativeGlyphOutline[] outlines, NativePathSegment[] segments, NativePositionedGlyph[] original,
+        float dpi, float opacity)
+    {
+        // Reuse two actual engines across all new cases. Authored presentation
+        // transforms never change the independently unpacked hinted contours.
+        using var subject = createCompositor();
+        using var reference = createCompositor();
+        Check(!ReferenceEquals(subject, reference), "independent affine paint and original Text engines");
+        using var target = CreateTarget(context, "Original hinted affine paint subject");
+        using var referenceTarget = CreateTarget(context, "Original affine solid Text reference");
+        using var texture = new GpuTexture(context, 1, 1, TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst, "Original opaque affine paint image",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        byte[] texel = [64, 192, 128, 255];
+        texture.WritePixels<byte>(texel);
+        var color = new Vector4(texel[0] / 255f, texel[1] / 255f, texel[2] / 255f, opacity);
+        (string Name, Vector2 X, Vector2 Y, float Italic, bool Singular)[] transforms =
+        [
+            ("quarter-turn", new(0, 1), new(-1, 0), 0, false),
+            ("reflection", new(-1, 0), new(0, 1), 0, false),
+            // Non-binary coefficients exercise actual independently rounded
+            // canonical corners, not an assumed exact parallelogram.
+            ("italic-shear", new(1, 0.23f), new(0.61f, 1), 0.37f, false),
+            ("singular", new(1, 0), new(2, 0), 0, true)
+        ];
+        byte[] outlineBytes = MemoryMarshal.AsBytes(outlines.AsSpan()).ToArray();
+        byte[] segmentBytes = MemoryMarshal.AsBytes(segments.AsSpan()).ToArray();
+        byte[] originalBytes = MemoryMarshal.AsBytes(original.AsSpan()).ToArray();
+        ulong referenceSubmissions = 0;
+        int cases = 0;
+        foreach (var transform in transforms)
+        {
+            var glyphs = new NativePositionedGlyph[original.Length];
+            for (int i = 0; i < glyphs.Length; i++)
+            {
+                ref readonly var glyph = ref original[i];
+                Vector2 relative = glyph.Position - original[0].Position;
+                Vector2 position = new Vector2(48.125f / dpi, 48.375f / dpi) +
+                    relative.X * transform.X + relative.Y * transform.Y;
+                glyphs[i] = new(glyph.OutlineIndex, position, transform.X, transform.Y,
+                    color, glyph.AtlasToLogicalScale, glyph.BoldOffset, transform.Italic);
+            }
+            byte[] glyphBytes = MemoryMarshal.AsBytes(glyphs.AsSpan()).ToArray();
+            foreach (bool boundedTexture in new[] { false, true })
+            {
+                ulong sceneId = 0x7720UL + (ulong)cases;
+                byte[] scene = boundedTexture
+                    ? CreateTextureScene(sceneId, dpi, outlines, segments, glyphs, opacity)
+                    : CreateScene(sceneId, dpi, outlines, segments, glyphs, Vector2.Zero, color, 1f);
+                byte[] sceneBytes = scene.ToArray();
+                var beforeUpdate = subject.GetLastSubmissionToken();
+                var update = subject.UpdateScene(scene);
+                if (boundedTexture) subject.BindSceneExternalImages([new(2, 1, texture)]);
+                Check(update.CommandCount == 1 && update.ResourceCount == 2 && update.DrawCount == 1 &&
+                    update.SceneId == sceneId && subject.GetLastSubmissionToken().Equals(beforeUpdate),
+                    $"{transform.Name}: exact affine scene/material/image publication does not submit");
+                byte[]? coldPixels = null;
+                for (int frame = 0; frame < 2; frame++)
+                {
+                    string name = $"affine={transform.Name}, boundedTexture={boundedTexture}, frame={frame}, dpi={dpi}";
+                    var before = subject.GetLastSubmissionToken();
+                    uint generation = target.Generation, view = target.ViewGeneration;
+                    var actual = subject.RenderScene(target, dpi, sceneId, 1, Vector4.Zero);
+                    byte[] pixels = CompleteAndRead(subject, target, before);
+                    var referenceBefore = reference.GetLastSubmissionToken();
+                    // Identical original positioned records, including both
+                    // canonical triangles, through the original Text path.
+                    var expected = reference.RenderGlyphs(referenceTarget, dpi, outlines, segments, glyphs, Vector4.Zero);
+                    byte[] expectedPixels = CompleteAndRead(reference, referenceTarget, referenceBefore);
+                    referenceSubmissions++;
+                    CheckPixels(pixels, expectedPixels, name + ": complete original Text RGBA differential");
+                    Check(actual.CommandCount == 1 && actual.DrawCallCount == 1 && actual.SubmissionCount == 1 &&
+                        expected.DrawCallCount == 1 && expected.GlyphCount == glyphs.Length &&
+                        expected.SubmissionCount == referenceSubmissions && expected.RasterizedGlyphCount != 0 &&
+                        expected.PayloadHash == 0 && target.Generation == generation + 1 && target.ViewGeneration == view,
+                        name + $": real independent submissions and uncached reference, " +
+                        $"scene commands/draws/submissions={actual.CommandCount}/{actual.DrawCallCount}/{actual.SubmissionCount}, " +
+                        $"glyph draws/count/submissions/rasterized/hash={expected.DrawCallCount}/{expected.GlyphCount}/{expected.SubmissionCount}/{expected.RasterizedGlyphCount}/{expected.PayloadHash}");
+                    if (transform.Singular)
+                        Check(pixels.All(value => value == 0), name + ": exact zero-area canonical triangles emit no ink");
+                    else VerifyInk(pixels, opacity);
+                    if (frame != 0)
+                        Check(coldPixels!.AsSpan().SequenceEqual(pixels) && actual.CoverageStagingBytes == 0 &&
+                            actual.BrushUploadBytes == 0 && actual.GradientStopUploadBytes == 0,
+                            name + ": exact warm replay without coverage/material restaging");
+                    coldPixels ??= pixels;
+                    Check(sceneBytes.AsSpan().SequenceEqual(scene) &&
+                        glyphBytes.AsSpan().SequenceEqual(MemoryMarshal.AsBytes(glyphs.AsSpan())) &&
+                        outlineBytes.AsSpan().SequenceEqual(MemoryMarshal.AsBytes(outlines.AsSpan())) &&
+                        segmentBytes.AsSpan().SequenceEqual(MemoryMarshal.AsBytes(segments.AsSpan())) &&
+                        originalBytes.AsSpan().SequenceEqual(MemoryMarshal.AsBytes(original.AsSpan())),
+                        name + ": original contours, occurrences and scene bytes stay immutable");
+                }
+                cases++;
+            }
+        }
+        Check(cases == 8 && referenceSubmissions == 16, "all affine material/image cold/warm controls ran");
+        Console.WriteLine($"package-consumer: authentic native hinted affine paint provider={context.BackendKind}, " +
+            "quarter-turn/reflection/italic-shear/singular material and bounded image cold/warm full RGBA controls passed");
+    }
+
+    private static byte[] CreateTextureScene(ulong sceneId, float dpi, NativeGlyphOutline[] outlines,
+        NativePathSegment[] segments, NativePositionedGlyph[] glyphs, float opacity)
+    {
+        var sceneOutlines = new NativeSceneGlyphOutline[outlines.Length];
+        for (int i = 0; i < outlines.Length; i++)
+        {
+            ref readonly var outline = ref outlines[i];
+            sceneOutlines[i] = new(checked((ulong)outline.SegmentOffset), checked((ulong)outline.SegmentCount),
+                outline.Minimum, outline.Maximum, outline.RasterScale, outline.SubpixelX);
+        }
+        byte[] storage = new byte[NativeSceneStreamBuilder.GetRequiredBufferSize(1, 2,
+            checked(MemoryMarshal.AsBytes(sceneOutlines.AsSpan()).Length +
+                MemoryMarshal.AsBytes(segments.AsSpan()).Length + MemoryMarshal.AsBytes(glyphs.AsSpan()).Length + 192))];
+        var builder = new NativeSceneStreamBuilder(storage, sceneId, 1, commandCapacity: 1, resourceCapacity: 2);
+        Check(builder.TryAddGlyphResource(1, 1, sceneOutlines, segments, out uint glyphResource),
+            "texture control shares exact independently unpacked original glyph geometry");
+        Check(builder.TryAddExternalImageResource(2, 1, out uint imageResource), "original external IMAGE resource");
+        float extent = 96 / dpi;
+        var paint = new NativeSceneGlyphPaint(NativeSceneGlyphPaint.Texture, 0,
+            NativeSceneGlyphPaint.BoundedTexture,
+            new(0, 0, opacity, 0), new(0, 0, 1, 1), new(0, 0, extent, 0),
+            new(extent, extent, 0, extent), new(0, 0.5f, 0, 0));
+        Check(builder.TryDrawPaintedGlyphRun(1, glyphResource, new(0, 0, extent, extent), glyphs,
+            imageResource, 0, in paint), "bounded original image-quad direct glyph paint");
+        Check(builder.TryBuild(out var stream), "complete pointer-free texture paint scene");
+        return stream.ToArray();
     }
 
     private static byte[] CreateScene(ulong sceneId, float dpi, NativeGlyphOutline[] outlines,

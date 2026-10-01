@@ -1,4 +1,4 @@
-// Algorithm: Paint each original hinted glyph occurrence directly with the shared registered material or original image sampler, then apply canonical Text coverage. Bounded image paint emits its original two hardware triangles, including independently snapped corners; extended paint retains its original admitted axis mapping. No coverage union or R8 intermediate is used.
+// Algorithm: Paint each original hinted glyph occurrence directly with the shared registered material or original image sampler, then apply canonical Text coverage. Bounded image paint retains its original triangle pair for each canonical affine glyph triangle; exact positive-axis frames use one pair. Extended paint retains its original axis mapping. No coverage union or R8 intermediate is used.
 // Time complexity: O(1) vertex work plus the original bounded material/sampling work per fragment; bounded paint deliberately preserves original image geometry rather than approximating its edges.
 // Space complexity: One immutable 96-byte paint record per command and one original 96-byte glyph instance per occurrence; O(1) fragment storage including a flat four-float physical coverage frame plus admission bit, no new coverage texture.
 struct Uniforms {
@@ -57,9 +57,56 @@ struct VertexOutput {
     @location(5) @interpolate(flat) paintIndex: u32,
     @location(6) @interpolate(flat) glyphLogicalFrame: vec4<f32>,
     @location(7) @interpolate(flat) liveGlyphFrame: u32,
-    @location(8) @interpolate(flat) physicalGlyphFrame: vec4<f32>,
-    @location(9) @interpolate(flat) canonicalPhysicalFrame: u32,
+    @location(8) @interpolate(flat) glyphTriangle012: vec4<f32>,
+    @location(9) @interpolate(flat) glyphTriangle023: vec4<f32>,
+    @location(10) @interpolate(flat) glyphMappingFlags: u32,
+    @location(11) @interpolate(flat) glyphDiagonal: vec2<f32>,
+    @location(12) @interpolate(flat) glyphOtherCorners: vec4<f32>,
+    @location(13) @interpolate(flat) physicalGlyphFrame: vec4<f32>,
+    @location(14) @interpolate(flat) canonicalPhysicalFrame: u32,
 };
+
+struct HintedGlyphTriangle {
+    inverse: vec4<f32>,
+    valid: bool,
+    positive: bool,
+};
+
+fn hinted_glyph_triangle(edge1: vec2<f32>, edge2: vec2<f32>) -> HintedGlyphTriangle {
+    let determinant = edge1.x * edge2.y - edge1.y * edge2.x;
+    // Exact degeneracy, not a tolerance that discards small invertible frames.
+    // Select a safe divisor before evaluating invalid/empty triangles.
+    let finiteLimit = 0x1.fffffep+127f;
+    let live = determinant != 0.0 && abs(determinant) <= finiteLimit;
+    let safeDeterminant = select(1.0, determinant, live);
+    let inverse = vec4<f32>(edge2.y, -edge2.x, -edge1.y, edge1.x) / safeDeterminant;
+    let valid = live && all(abs(inverse) <= vec4<f32>(finiteLimit));
+    return HintedGlyphTriangle(select(vec4<f32>(0.0), inverse, valid), valid, determinant > 0.0);
+}
+
+fn hinted_glyph_triangle_weights(inverse: vec4<f32>, local: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(dot(inverse.xy, local), dot(inverse.zw, local));
+}
+
+fn hinted_glyph_cross(a: vec2<f32>, b: vec2<f32>) -> f32 {
+    return a.x * b.y - a.y * b.x;
+}
+
+fn hinted_glyph_inside_edge(value: f32, edge: vec2<f32>) -> bool {
+    // Canonical logical coordinates map to a top-left-origin framebuffer.
+    // Shared edges have one owner; reflected winding reverses the edge too.
+    let topLeft = edge.y < 0.0 || (edge.y == 0.0 && edge.x > 0.0);
+    return value > 0.0 || (value == 0.0 && topLeft);
+}
+
+fn hinted_glyph_inside_triangle(local: vec2<f32>, edge1: vec2<f32>, edge2: vec2<f32>, positive: bool) -> bool {
+    let direction = select(-1.0, 1.0, positive);
+    // The common diagonal uses cross(diagonal, local) in BOTH triangles,
+    // with exact negation, never a separately rounded local-minus-diagonal.
+    return hinted_glyph_inside_edge(hinted_glyph_cross(edge1, local) * direction, edge1 * direction) &&
+        hinted_glyph_inside_edge(hinted_glyph_cross(edge2 - edge1, local - edge1) * direction, (edge2 - edge1) * direction) &&
+        hinted_glyph_inside_edge(-hinted_glyph_cross(edge2, local) * direction, -edge2 * direction);
+}
 
 fn glyph_instance(input: VertexInput, vertexIndex: u32) -> TextGlyphInstance {
     return TextGlyphInstance(vertexIndex, input.snappedLogicalPos,
@@ -77,24 +124,41 @@ fn original_quad_uv(vertexIndex: u32) -> vec2<f32> {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     let paint = glyphPaints[input.paintIndex];
-    let frame = text_glyph_vertex(glyph_instance(input, input.vertexIndex), vec4<f32>(1.0), 0u, false);
+    let vertexIndex = input.vertexIndex % 6u;
+    let secondTriangle = input.vertexIndex >= 6u;
+    let boundedTexture = paint.kind == 1u && (paint.flags & 2u) != 0u;
+    let frame = text_glyph_vertex(glyph_instance(input, vertexIndex), vec4<f32>(1.0), 0u, false);
     let minimum = text_glyph_vertex(glyph_instance(input, 0u), vec4<f32>(1.0), 0u, false).logicalPosition;
+    let corner1 = text_glyph_vertex(glyph_instance(input, 1u), vec4<f32>(1.0), 0u, false).logicalPosition;
     let maximum = text_glyph_vertex(glyph_instance(input, 2u), vec4<f32>(1.0), 0u, false).logicalPosition;
+    let corner3 = text_glyph_vertex(glyph_instance(input, 5u), vec4<f32>(1.0), 0u, false).logicalPosition;
     let extent = maximum - minimum;
-    var liveFrame = all(extent > vec2<f32>(0.0));
+    let axisFrame = all(extent > vec2<f32>(0.0)) &&
+        corner1.y == minimum.y && corner3.x == minimum.x &&
+        corner1.x == maximum.x && corner3.y == maximum.y;
+    let triangle012 = hinted_glyph_triangle(corner1 - minimum, maximum - minimum);
+    let triangle023 = hinted_glyph_triangle(maximum - minimum, corner3 - minimum);
+    let mappingFlags = select(0u, 1u, triangle012.valid) |
+        select(0u, 2u, triangle023.valid) | select(0u, 4u, axisFrame) |
+        select(0u, 8u, triangle012.positive) | select(0u, 16u, triangle023.positive) |
+        select(0u, 32u, secondTriangle);
+    // Material/extended paint already emits the canonical glyph triangles.
+    // A rotated or mirrored diagonal is not a reason to discard those draws.
+    var liveFrame = true;
     let safeExtent = select(vec2<f32>(1.0), extent, extent > vec2<f32>(0.0));
-    let cornerUV = original_quad_uv(input.vertexIndex);
+    let cornerUV = original_quad_uv(vertexIndex);
     var world = frame.logicalPosition;
     var texCoord = frame.texCoord;
     var paintUV = vec2<f32>(0.0);
     if (paint.kind == 1u) {
         if ((paint.flags & 2u) != 0u) {
+            liveFrame = (mappingFlags & 7u) != 0u;
             world = paint.textureQuad01.xy;
-            if (input.vertexIndex == 1u) {
+            if (vertexIndex == 1u) {
                 world = paint.textureQuad01.zw;
-            } else if (input.vertexIndex == 2u || input.vertexIndex == 4u) {
+            } else if (vertexIndex == 2u || vertexIndex == 4u) {
                 world = paint.textureQuad23.xy;
-            } else if (input.vertexIndex == 5u) {
+            } else if (vertexIndex == 5u) {
                 world = paint.textureQuad23.zw;
             }
             paintUV = mix(paint.uvBounds.xy, paint.uvBounds.zw, cornerUV);
@@ -111,6 +175,11 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     }
     var output: VertexOutput;
     output.position = uniforms.projection * vec4<f32>(world, 0.0, 1.0);
+    if (secondTriangle && (!boundedTexture || axisFrame)) {
+        // Positive-axis coverage keeps its original single image quad and
+        // arithmetic. The extra vertices collapse without fragment/blend work.
+        output.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
     output.texCoord = texCoord;
     output.texelBounds = frame.texelBounds;
     output.textPolicy = vec3<f32>(frame.cornerRadius, frame.strokeThickness, frame.textMode);
@@ -123,6 +192,11 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.liveGlyphFrame = select(0u, 1u, liveFrame);
     output.physicalGlyphFrame = frame.physicalGlyphFrame;
     output.canonicalPhysicalFrame = frame.canonicalPhysicalFrame;
+    output.glyphTriangle012 = triangle012.inverse;
+    output.glyphTriangle023 = triangle023.inverse;
+    output.glyphMappingFlags = mappingFlags;
+    output.glyphDiagonal = maximum - minimum;
+    output.glyphOtherCorners = vec4<f32>(corner1 - minimum, corner3 - minimum);
     return output;
 }
 
@@ -131,16 +205,42 @@ fn hinted_glyph_paint_color(input: VertexOutput, maskAlpha: f32, premultipliedOu
     let boundedTexture = paint.kind == 1u && (paint.flags & 2u) != 0u;
     var texCoord = input.texCoord;
     var glyphFrameUV = vec2<f32>(0.0);
+    var outsideGlyph = false;
     if (boundedTexture) {
         // Keep the original image triangles and UV interpolation. Evaluate
         // glyph coverage in its own retained frame at the actual fragment,
         // instead of extrapolating atlas coordinates to distant image corners
         // and interpolating those large values back into the small glyph.
         let glyphLocal = input.sourceLogical - input.glyphLogicalFrame.xy;
-        glyphFrameUV = glyphLocal / input.glyphLogicalFrame.zw;
         let atlasMinimum = input.texelBounds.xy - vec2<f32>(0.5);
         let atlasSpan = input.texelBounds.zw + vec2<f32>(0.5) - atlasMinimum;
-        texCoord = atlasMinimum + glyphLocal * (atlasSpan / input.glyphLogicalFrame.zw);
+        if ((input.glyphMappingFlags & 4u) != 0u) {
+            // Preserve the original positive-axis arithmetic exactly.
+            glyphFrameUV = glyphLocal / input.glyphLogicalFrame.zw;
+            texCoord = atlasMinimum + glyphLocal * (atlasSpan / input.glyphLogicalFrame.zw);
+            outsideGlyph = any(glyphFrameUV < vec2<f32>(0.0)) || any(glyphFrameUV > vec2<f32>(1.0));
+        } else {
+            // Match both actual canonical triangles. Rounded corner positions
+            // need not form one exact parallelogram; do not invent corner 3.
+            // Each original glyph triangle has its own image-quad primitive.
+            // Rounded/folded triangles therefore retain both contributions;
+            // they are never unioned or reduced to one selected coverage value.
+            let secondTriangle = (input.glyphMappingFlags & 32u) != 0u;
+            if (secondTriangle) {
+                let second = hinted_glyph_triangle_weights(input.glyphTriangle023, glyphLocal);
+                glyphFrameUV = vec2<f32>(second.x, second.x + second.y);
+                outsideGlyph = (input.glyphMappingFlags & 2u) == 0u ||
+                    !hinted_glyph_inside_triangle(glyphLocal, input.glyphDiagonal,
+                        input.glyphOtherCorners.zw, (input.glyphMappingFlags & 16u) != 0u);
+            } else {
+                let first = hinted_glyph_triangle_weights(input.glyphTriangle012, glyphLocal);
+                glyphFrameUV = vec2<f32>(first.x + first.y, first.y);
+                outsideGlyph = (input.glyphMappingFlags & 1u) == 0u ||
+                    !hinted_glyph_inside_triangle(glyphLocal, input.glyphOtherCorners.xy,
+                        input.glyphDiagonal, (input.glyphMappingFlags & 8u) != 0u);
+            }
+            texCoord = atlasMinimum + glyphFrameUV * atlasSpan;
+        }
     }
     texCoord = text_glyph_coverage_tex_coord(texCoord, input.position.xy,
         input.texelBounds, input.physicalGlyphFrame, input.canonicalPhysicalFrame);
@@ -153,8 +253,6 @@ fn hinted_glyph_paint_color(input: VertexOutput, maskAlpha: f32, premultipliedOu
     let sourceDy = dpdy(input.sourceLogical);
     let paintDx = dpdx(input.paintUV);
     let paintDy = dpdy(input.paintUV);
-    let outsideGlyph = any(glyphFrameUV < vec2<f32>(0.0)) ||
-        any(glyphFrameUV > vec2<f32>(1.0));
     if (maskAlpha <= 0.0 || input.liveGlyphFrame == 0u ||
         (boundedTexture && outsideGlyph)) {
         discard;

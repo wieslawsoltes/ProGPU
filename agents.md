@@ -6,6 +6,14 @@ each fragment. Never extrapolate atlas coordinates to distant image corners,
 replace fractional coverage with integer loads, or waive exact package pixel
 differences. Material/extended paint, original alpha policy and derivatives before
 discard remain unchanged; host shader compilation is not Windows pixel parity.
+Raw affine glyph paint uses all four canonical Text corners, preserving both
+signed triangle mappings and per-triangle contributions rather than a bbox,
+invented parallelogram or coverage union. Keep positive-axis arithmetic behind
+exact four-corner equality; material/extended glyph geometry must not reject a
+negative diagonal. Bounded paint retains each original image triangle pair,
+half-open shared edges and derivatives before discard. Both renderers must use
+the matching vertex count. Folded/near-singular edges, multisampling and complete
+provider/package pixels remain explicit gates; shader compilation is not parity.
 
 Local source visibility is independent of opacity and presentation attachment.
 Carry Visible/Hidden/Collapsed through typed state and native snapshot transport;

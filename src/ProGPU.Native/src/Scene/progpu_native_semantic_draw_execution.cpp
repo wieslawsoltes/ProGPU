@@ -289,7 +289,10 @@ progpu_native_status encode_semantic_glyph_draw(
         Commands::set_bind_group(encoder, 3U,
             engine.glyph_paint_texture_bindings[draw.paint_index].bind_group);
         Commands::set_vertex_buffer(encoder, engine.text_vertex_buffer, instance_bytes);
-        Commands::draw(encoder, 6U, draw.instance_count, 0U, draw.first_instance);
+        const auto& paint = engine.semantic_glyph_cache.paints[draw.paint_index];
+        const std::uint32_t vertex_count = paint.kind == PROGPU_NATIVE_SCENE_GLYPH_PAINT_TEXTURE &&
+            (paint.flags & PROGPU_NATIVE_SCENE_GLYPH_PAINT_BOUNDED) != 0U ? 12U : 6U;
+        Commands::draw(encoder, vertex_count, draw.instance_count, 0U, draw.first_instance);
         return PROGPU_NATIVE_STATUS_SUCCESS;
     }
     if (masked && !chained && engine.text_masked_pipeline == nullptr &&

@@ -208,7 +208,9 @@ public unsafe partial class Compositor
         _context.Api.RenderPassEncoderSetBindGroup(pass, 3, paintTextureGroup, 0, null);
         _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, _textVertexBuffer.BufferPtr,
             (ulong)drawCall.IndexStart * GlyphInstanceStride, (ulong)drawCall.IndexCount * GlyphInstanceStride);
-        _context.Api.RenderPassEncoderDraw(pass, 6, drawCall.IndexCount, 0, 0);
+        uint paintIndex = BitConverter.SingleToUInt32Bits(_textVerticesList[checked((int)drawCall.IndexStart)].Padding);
+        uint vertexCount = _hintedGlyphPaints![checked((int)paintIndex)].VertexCount;
+        _context.Api.RenderPassEncoderDraw(pass, vertexCount, drawCall.IndexCount, 0, 0);
     }
 
     private bool TryGetHintedGlyphPaintSourceBounds(in CompositorDrawCall drawCall,
