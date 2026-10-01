@@ -1,0 +1,52 @@
+name: Dawn system WARP
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/dawn-system-warp.yml'
+      - 'eng/*dawn-system-warp*'
+      - 'eng/dawn-system-warp/**'
+      - 'src/ProGPU.Backend.Dawn/**'
+      - 'src/ProGPU.Backend/**'
+      - 'tests/ProGPU.DawnSystemWarp.Conformance/**'
+      - 'Directory.*.props'
+      - 'global.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-warp:
+    name: Original Dawn WARP (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Build original-header companion and run independent JIT and NativeAOT readbacks
+        shell: pwsh
+        run: ./eng/test-dawn-system-warp-windows.ps1 -Rid '${{ matrix.rid }}'
+      - name: Preserve exact startup and readback evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dawn-system-warp-${{ matrix.rid }}
+          path: artifacts/dawn-system-warp/${{ matrix.rid }}/
+          if-no-files-found: warn

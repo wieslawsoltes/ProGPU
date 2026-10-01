@@ -64,7 +64,7 @@ no third-party renderer implementation is incorporated.
 
 ## Explicit preparation and packaging
 
-`eng/build-dawn-system-warp-windows.ps1` is a standalone future Windows CI
+`eng/build-dawn-system-warp-windows.ps1` is a standalone Windows CI
 preparation entry point, independent of the existing native renderer CMake/jobs.
 It requires PowerShell 7.2+, Python, CMake 3.28+, Ninja, clang-cl with the target MSVC
 ABI, and the matching Windows SDK/MSVC link environment. It checks committed,
@@ -128,3 +128,19 @@ NativeAOT paths still require runtime evidence. Existing independent package/RID
 ordered-query, DX12, full-capacity/raw-result, deadline and application assertions
 remain mandatory. A selected system WARP adapter or a successful companion Build
 would not prove GPU readback completion or permit default-policy changes.
+
+The `Dawn system WARP` workflow now schedules separate native Windows x64 and
+ARM64 jobs. Each builds the companion from the pinned original headers and then
+publishes independent JIT and NativeAOT consumers. Each consumer creates and
+disposes two devices, verifies retained D3D12/CPU/LUID identity, and clears a 7x3
+RGBA target to two independently specified colors. All pixels and 17 untouched
+caller-tail bytes must match after actual mapped readback. A 120-second child
+process bound cannot turn an incomplete callback into success. These authored
+controls have not yet produced a passing receipt. They use project references
+and explicitly copied companion files, not the optional NuGet asset-selection
+path, and do not replace the complete package or application gates.
+
+The companion's imported-provider check is distinct from proving a host's custom
+WebGPUSharp P/Invoke resolver. Custom resolver/load-context binding and failure
+cancellation remain open integration gates; a normal-runner readback cannot
+qualify those configurations.
