@@ -1,0 +1,407 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Globalization;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using ProGPU.Backend;
+using Silk.NET.WebGPU;
+
+namespace HintedTextureSamplingProbe;
+
+internal static unsafe class Program
+{
+    private const uint AtlasSize = 1024;
+    private const float Dpi = 2;
+    private const float Opacity = .46875f;
+    private static readonly ConcurrentQueue<string> Errors = new();
+    private static int _scopeDone, _queueDone, _queueStatus;
+    private static int _submissions, _completed;
+
+    private static int Main(string[] args)
+    {
+        CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+        CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
+        // A hung initialization/driver/teardown must not consume a CI job forever.
+        using var deadline = new Timer(_ => Environment.FailFast("Synthetic hinted sampling probe exceeded 180 seconds."),
+            null, TimeSpan.FromSeconds(180), Timeout.InfiniteTimeSpan);
+        try
+        {
+            string? output = null;
+            bool fallback = false;
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (args[i] == "--output" && i + 1 < args.Length) output = args[++i];
+                else if (args[i] == "--fallback") fallback = true;
+                else throw new ArgumentException("Usage: HintedTextureSamplingProbe --output <new directory> [--fallback]");
+            }
+            if (output is null) throw new ArgumentException("--output is required.");
+            if (fallback && !OperatingSystem.IsWindows()) throw new ArgumentException("--fallback explicitly requires Windows D3D12.");
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("Probe targets Windows/D3D12 or macOS/Metal.");
+            output = Path.GetFullPath(output);
+            if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any())
+                throw new IOException("Refusing to overwrite an existing diagnostic artifact directory.");
+            Directory.CreateDirectory(output);
+            foreach (uint size in new uint[] { 96, 128 })
+            {
+                string caseOutput = Path.Combine(output, "target-" + size);
+                Directory.CreateDirectory(caseOutput);
+                Run(caseOutput, fallback, size);
+                ThrowErrors(); // Includes errors queued during all resource/context retirement.
+            }
+            return 0;
+        }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine(error);
+            return 1;
+        }
+    }
+
+    private static void Run(string output, bool fallback, uint size)
+    {
+        int initialSubmissions = _submissions, initialCompletions = _completed;
+        string text = ShaderDiagnostics.VerifySource(false), paint = ShaderDiagnostics.VerifySource(true);
+        string textDiagnostic = ShaderDiagnostics.Instrument(text, false);
+        string paintDiagnostic = ShaderDiagnostics.Instrument(paint, true);
+        var sources = new Dictionary<string, string>
+        {
+            ["text-production"] = text, ["paint-production"] = paint,
+            ["text-diagnostic"] = textDiagnostic, ["paint-diagnostic"] = paintDiagnostic,
+            ["text-sample-diagnostic"] = ShaderDiagnostics.Instrument(text, false, true),
+            ["paint-sample-diagnostic"] = ShaderDiagnostics.Instrument(paint, true, true)
+        };
+        foreach (var source in sources) File.WriteAllText(Path.Combine(output, source.Key + ".wgsl"), source.Value);
+
+        WgpuContext.OnWebGpuError += OnError;
+        WgpuContext.OnWebGpuDeviceLost += OnLost;
+        try
+        {
+            using var context = new WgpuContext
+            {
+                ForceFallbackAdapter = fallback,
+                NativeBackendOptions = new(OperatingSystem.IsWindows() ? WgpuNativeBackend.D3D12 : WgpuNativeBackend.Metal),
+                Dx12CompilerOptions = WgpuDx12CompilerOptions.Default
+            };
+            context.Initialize(null);
+            ThrowErrors();
+            Console.WriteLine($"Actual provider={context.BackendKind}, backend={context.AdapterBackendType}, adapter={context.AdapterName}, compiler={context.SelectedDx12ShaderCompiler}, requestedFallback={fallback}");
+            if (context.BackendKind != WgpuBackendKind.SilkNative) throw new InvalidOperationException("Unexpected provider.");
+            BackendType expectedBackend = OperatingSystem.IsWindows() ? BackendType.D3D12 : BackendType.Metal;
+            if (context.AdapterBackendType != expectedBackend) throw new InvalidOperationException("Requested backend was not selected; no fallback is admitted.");
+            string providerPath = ProviderLibrary.Find(context.Wgpu.Context.GetProcAddress("wgpuDevicePoll"));
+            var libraries = LoadedLibraries().Append(new LibraryIdentity(providerPath,
+                ShaderDiagnostics.Hash(File.ReadAllBytes(providerPath)))).Distinct().ToArray();
+
+            using var cache = new RenderPipelineCache(context);
+            using var uniforms = Buffer(context, UniformBytes(size), BufferUsage.Uniform);
+            using var styles = Buffer(context, new byte[32], BufferUsage.Storage);
+            byte[] brushBytes = new byte[256];
+            Span<float> brush = MemoryMarshal.Cast<byte, float>(brushBytes.AsSpan());
+            brush[1] = 1;
+            brush[16] = 64 / 255f; brush[17] = 192 / 255f; brush[18] = 128 / 255f; brush[19] = Opacity;
+            using var brushes = Buffer(context, brushBytes, BufferUsage.Storage);
+            using var stops = Buffer(context, new byte[32], BufferUsage.Storage);
+            using var paints = Buffer(context, PaintBytes(false, size), BufferUsage.Storage);
+            byte[] instanceBytes = Instances();
+            using var instances = Buffer(context, instanceBytes, BufferUsage.Vertex);
+
+            using var atlas = new GpuTexture(context, AtlasSize, AtlasSize, TextureFormat.R8Unorm, TextureUsage.TextureBinding | TextureUsage.CopyDst);
+            byte[] atlasBytes = Atlas();
+            atlas.WritePixels<byte>(atlasBytes);
+            byte[] textureBytes = [64, 192, 128, 255];
+            using var texture = new GpuTexture(context, 1, 1, TextureFormat.Rgba8Unorm, TextureUsage.TextureBinding | TextureUsage.CopyDst);
+            texture.WritePixels<byte>(textureBytes);
+            // The unused color-atlas binding is real and identical for all paths.
+            using var colorAtlas = new GpuTexture(context, AtlasSize, AtlasSize, TextureFormat.Rgba8Unorm, TextureUsage.TextureBinding | TextureUsage.CopyDst);
+            colorAtlas.WritePixels<byte>(new byte[AtlasSize * AtlasSize * 4]);
+            using var target = new GpuTexture(context, size, size, TextureFormat.Rgba8Unorm, TextureUsage.RenderAttachment | TextureUsage.CopySrc);
+            using var diagnosticTarget = new GpuTexture(context, size, size, TextureFormat.Rgba32float, TextureUsage.RenderAttachment | TextureUsage.CopySrc);
+            using var readback = new GpuTextureReadbackBuffer(context);
+            using var diagnosticReadback = new GpuTextureReadbackBuffer(context);
+            SamplerDescriptor samplerDescription = new()
+            {
+                AddressModeU = AddressMode.ClampToEdge, AddressModeV = AddressMode.ClampToEdge, AddressModeW = AddressMode.ClampToEdge,
+                MinFilter = FilterMode.Linear, MagFilter = FilterMode.Linear, MipmapFilter = MipmapFilterMode.Nearest,
+                LodMinClamp = 0, LodMaxClamp = 0, MaxAnisotropy = 1
+            };
+            Sampler* sampler = context.Api.DeviceCreateSampler(context.Device, &samplerDescription);
+            if (sampler == null) throw new InvalidOperationException("Sampler creation failed.");
+            var pipelines = new List<ProbePipeline>();
+            try
+            {
+                foreach (var source in sources)
+                {
+                    bool isPaint = source.Key.StartsWith("paint", StringComparison.Ordinal);
+                    bool diagnostic = source.Key.EndsWith("diagnostic", StringComparison.Ordinal);
+                    BeginScope(context);
+                    var pipeline = new ProbePipeline(context, cache, source.Key, source.Value, isPaint, diagnostic,
+                        uniforms, styles, brushes, stops, paints, atlas, colorAtlas, texture, sampler);
+                    pipelines.Add(pipeline);
+                    EndScope(context, "pipeline " + source.Key);
+                }
+
+                var frames = new Dictionary<string, byte[]>();
+                var missingInk = new List<string>();
+                string[] paths = ["text", "material", "bounded-texture"];
+                foreach (string path in paths)
+                {
+                    bool isPaint = path != "text";
+                    paints.WriteBytes(PaintBytes(path == "bounded-texture", size));
+                    ProbePipeline pipeline = pipelines[isPaint ? 1 : 0];
+                    for (uint count = 1; count <= 2; count++)
+                    for (int frame = 0; frame < 2; frame++)
+                    {
+                        string name = path + (count == 1 ? "-single" : "-overlap") + (frame == 0 ? "-cold" : "-warm");
+                        byte[] pixels = Draw(context, pipeline, instances, target, readback, 0, count, false);
+                        if (!pixels.Where((_, index) => index % 4 == 3).Any(alpha => alpha > 0))
+                            missingInk.Add(name);
+                        frames.Add(name, pixels);
+                        File.WriteAllBytes(Path.Combine(output, name + ".rgba8"), pixels);
+                    }
+                    for (int sample = 0; sample < 2; sample++)
+                    for (uint occurrence = 0; occurrence < 2; occurrence++)
+                    {
+                        ProbePipeline diagnosticPipeline = pipelines[(isPaint ? 3 : 2) + sample * 2];
+                        string name = path + (sample == 0 ? "-caller" : "-sample") + "-glyph-" + occurrence;
+                        byte[] pixels = Draw(context, diagnosticPipeline, instances, diagnosticTarget, diagnosticReadback, occurrence, 1, true);
+                        foreach (float value in MemoryMarshal.Cast<byte, float>(pixels))
+                            if (!float.IsFinite(value)) throw new InvalidOperationException("Nonfinite diagnostic output: " + name);
+                        frames.Add(name, pixels);
+                        File.WriteAllBytes(Path.Combine(output, name + ".rgba32f"), pixels);
+                    }
+                }
+                var comparisons = new List<object>();
+                foreach (string path in paths)
+                foreach (string placement in new[] { "-single", "-overlap" })
+                {
+                    string key = path + placement;
+                    var stable = Difference(frames[key + "-cold"], frames[key + "-warm"], false, size);
+                    if (stable.DifferentComponents != 0) throw new InvalidOperationException("Cold/warm output changed: " + path);
+                    comparisons.Add(new { Reference = key + "-cold", Subject = key + "-warm", Difference = stable });
+                }
+                foreach (string path in paths.Skip(1))
+                {
+                    foreach (string placement in new[] { "-single", "-overlap" })
+                    {
+                        string suffix = placement + "-cold";
+                        var difference = Difference(frames["text" + suffix], frames[path + suffix], false, size);
+                        Console.WriteLine($"{size}px RGBA8 text vs {path}{placement}: differentBytes={difference.DifferentComponents}, maxDelta={difference.MaximumAbsoluteDifference}");
+                        comparisons.Add(new { Reference = "text" + suffix, Subject = path + suffix, Difference = difference });
+                    }
+                    foreach (string diagnosticKind in new[] { "-caller", "-sample" })
+                    for (int occurrence = 0; occurrence < 2; occurrence++)
+                    {
+                        string suffix = diagnosticKind + "-glyph-" + occurrence;
+                        var floats = Difference(frames["text" + suffix], frames[path + suffix], true, size);
+                        Console.WriteLine($"{size}px RGBA32F text vs {path}{suffix}: differentComponents={floats.DifferentComponents}, channels={string.Join(',', floats.PerChannel)}, maxDelta={floats.MaximumAbsoluteDifference}");
+                        comparisons.Add(new { Reference = "text" + suffix, Subject = path + suffix, Difference = floats });
+                    }
+                }
+                File.WriteAllBytes(Path.Combine(output, "atlas.r8"), atlasBytes);
+                File.WriteAllBytes(Path.Combine(output, "instances.bin"), instanceBytes);
+                File.WriteAllBytes(Path.Combine(output, "uniforms.bin"), UniformBytes(size));
+                File.WriteAllBytes(Path.Combine(output, "material.bin"), brushBytes);
+                File.WriteAllBytes(Path.Combine(output, "bounded-paint.bin"), PaintBytes(true, size));
+                File.WriteAllBytes(Path.Combine(output, "texture.rgba8"), textureBytes);
+                var assembly = typeof(WgpuContext).Assembly;
+                var report = new
+                {
+                    Scope = "Synthetic shared-shader sampling diagnostic; not native font, renderer, package or Display qualification.",
+                    ShaderParent = "8adb6350927fa64d8d4a025cb8181ff111868b74",
+                    Provider = context.BackendKind.ToString(), Backend = context.AdapterBackendType.ToString(),
+                    context.AdapterName, Compiler = context.SelectedDx12ShaderCompiler?.ToString(), RequestedFallback = fallback,
+                    context.AdapterSelectionDiagnostics,
+                    Runtime = RuntimeInformation.FrameworkDescription, OS = RuntimeInformation.OSDescription,
+                    Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
+                    BackendAssembly = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
+                    BackendAssemblySha256 = ShaderDiagnostics.Hash(File.ReadAllBytes(assembly.Location)),
+                    LoadedLibraries = libraries,
+                    NativeProviderSymbol = "wgpuDevicePoll", NativeProviderSymbolOwner = providerPath,
+                    ShaderSha256 = sources.ToDictionary(x => x.Key, x => ShaderDiagnostics.Hash(x.Value)),
+                    Size = size, Dpi, Opacity, AtlasWidth = AtlasSize, AtlasHeight = AtlasSize, InstanceStride = 96,
+                    AtlasSha256 = ShaderDiagnostics.Hash(atlasBytes), InstanceSha256 = ShaderDiagnostics.Hash(instanceBytes),
+                    AtlasSampler = "linear min/mag, nearest mip, clamp-to-edge, LOD 0, anisotropy 1; shared by all paths",
+                    TargetPolicy = "one shared RGBA8Unorm target with straight source-over; one shared unblended RGBA32Float diagnostic target",
+                    CallerDiagnosticChannels = new[] { "atlas texel U (unclamped)", "atlas texel V (unclamped)", "sampled R8 coverage", "final source alpha" },
+                    SampleDiagnosticChannels = new[] { "actual clamped normalized atlas U", "actual clamped normalized atlas V", "actual sampled R8 coverage", "actual gamma-adjusted helper coverage (before paint multiplication)" },
+                    DrawSubmissions = _submissions - initialSubmissions, ActualQueueCompletions = _completed - initialCompletions,
+                    Readback = "Each returned row buffer followed a successful map callback; 15-second map and queue deadlines, 180-second process watchdog.",
+                    Comparisons = comparisons,
+                    MissingInk = missingInk,
+                    Artifacts = frames.ToDictionary(x => x.Key, x => ShaderDiagnostics.Hash(x.Value))
+                };
+                File.WriteAllText(Path.Combine(output, "report.json"), JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
+                ThrowErrors();
+                if (missingInk.Count != 0) throw new InvalidOperationException("No ink in: " + string.Join(", ", missingInk));
+                Console.WriteLine($"Completed {_completed} actual draw queue callbacks; differences reported without tolerance or parity admission. Artifacts: {output}");
+            }
+            finally
+            {
+                foreach (var pipeline in pipelines) pipeline.Dispose();
+                context.QueueSamplerDisposal((nint)sampler);
+            }
+        }
+        finally
+        {
+            WgpuContext.OnWebGpuError -= OnError;
+            WgpuContext.OnWebGpuDeviceLost -= OnLost;
+        }
+    }
+
+    private static GpuBuffer Buffer(WgpuContext context, byte[] bytes, BufferUsage usage)
+    {
+        var buffer = new GpuBuffer(context, checked((uint)bytes.Length), usage | BufferUsage.CopyDst);
+        try { buffer.WriteBytes(bytes); return buffer; }
+        catch { buffer.Dispose(); throw; }
+    }
+
+    private static byte[] UniformBytes(uint size)
+    {
+        byte[] bytes = new byte[224];
+        Span<float> values = MemoryMarshal.Cast<byte, float>(bytes.AsSpan());
+        values[0] = 2 / (size / Dpi); values[5] = -2 / (size / Dpi); values[10] = -1;
+        values[12] = -1; values[13] = 1; values[15] = 1;
+        for (int matrix = 1; matrix < 3; matrix++)
+            for (int diagonal = 0; diagonal < 4; diagonal++) values[matrix * 16 + diagonal * 5] = 1;
+        values[48] = size / Dpi; values[49] = size / Dpi; values[50] = Dpi;
+        return bytes;
+    }
+
+    private static byte[] Instances()
+    {
+        byte[] bytes = new byte[192];
+        for (int occurrence = 0; occurrence < 2; occurrence++)
+        {
+            Span<float> value = MemoryMarshal.Cast<byte, float>(bytes.AsSpan(occurrence * 96, 96));
+            // Original fixture phases and overlap delta; deliberately synthetic
+            // bearing/size and coverage tile, NOT a reconstructed native glyph.
+            value[0] = (8.125f + occurrence * .375f) / Dpi;
+            value[1] = (8.375f + occurrence * .125f) / Dpi;
+            value[2] = 1; value[5] = 1;
+            value[6] = 2; value[7] = 3; value[8] = 23; value[9] = 25;
+            value[10] = 17; value[11] = 11; value[12] = 40; value[13] = 36;
+            value[14] = 64 / 255f; value[15] = 192 / 255f; value[16] = 128 / 255f; value[17] = Opacity;
+            value[18] = 1; value[22] = -1;
+        }
+        return bytes;
+    }
+
+    private static byte[] PaintBytes(bool texture, uint size)
+    {
+        byte[] bytes = new byte[96];
+        Span<uint> integers = MemoryMarshal.Cast<byte, uint>(bytes.AsSpan());
+        integers[0] = texture ? 1u : 0u; integers[2] = texture ? 2u : 0u;
+        Span<float> values = MemoryMarshal.Cast<byte, float>(bytes.AsSpan());
+        values[6] = Opacity; values[10] = 1; values[11] = 1;
+        values[14] = size / Dpi; values[16] = size / Dpi; values[17] = size / Dpi; values[19] = size / Dpi;
+        values[21] = .5f;
+        return bytes;
+    }
+
+    private static byte[] Atlas()
+    {
+        byte[] bytes = new byte[AtlasSize * AtlasSize];
+        for (int y = 12; y < 35; y++)
+            for (int x = 18; x < 39; x++) bytes[y * AtlasSize + x] = (byte)(1 + (x * 37 + y * 73 + x * y * 11) % 254);
+        return bytes;
+    }
+
+    private static byte[] Draw(WgpuContext context, ProbePipeline pipeline, GpuBuffer instances,
+        GpuTexture target, GpuTextureReadbackBuffer readback, uint first, uint count, bool diagnostic)
+    {
+        BeginScope(context);
+        var encoderDescription = new CommandEncoderDescriptor();
+        var encoder = context.Api.DeviceCreateCommandEncoder(context.Device, &encoderDescription);
+        RenderPassColorAttachment attachment = new() { View = target.ViewPtr, LoadOp = LoadOp.Clear, StoreOp = StoreOp.Store, ClearValue = new Color(0, 0, 0, 0) };
+        RenderPassDescriptor description = new() { ColorAttachmentCount = 1, ColorAttachments = &attachment };
+        var pass = context.Api.CommandEncoderBeginRenderPass(encoder, &description);
+        context.Api.RenderPassEncoderSetPipeline(pass, pipeline.Handle);
+        for (uint group = 0; group < pipeline.Groups.Count; group++)
+            context.Api.RenderPassEncoderSetBindGroup(pass, group, (BindGroup*)pipeline.Groups[(int)group], 0, null);
+        context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, instances.BufferPtr, 0, instances.Size);
+        context.Api.RenderPassEncoderDraw(pass, 6, count, 0, first);
+        context.Api.RenderPassEncoderEnd(pass);
+        context.Api.RenderPassEncoderRelease(pass);
+        var commandsDescription = new CommandBufferDescriptor();
+        var commands = context.Api.CommandEncoderFinish(encoder, &commandsDescription);
+        context.Submit(1, &commands);
+        _submissions++;
+        context.Api.CommandBufferRelease(commands);
+        context.Api.CommandEncoderRelease(encoder);
+        Volatile.Write(ref _queueDone, 0);
+        context.Wgpu.QueueOnSubmittedWorkDone(context.Queue, new PfnQueueWorkDoneCallback(&QueueComplete), null);
+        Wait(context, () => Volatile.Read(ref _queueDone) != 0, "actual queue completion");
+        if ((QueueWorkDoneStatus)_queueStatus != QueueWorkDoneStatus.Success) throw new InvalidOperationException("Queue failed: " + (QueueWorkDoneStatus)_queueStatus);
+        _completed++;
+        EndScope(context, "draw " + pipeline.Name);
+        uint pixelSize = diagnostic ? 16u : 4u;
+        byte[] bytes = new byte[target.Width * target.Height * pixelSize];
+        fixed (byte* destination = bytes)
+            if (!readback.TryReadTextureRows(target, target.Width, target.Height, destination, target.Width * pixelSize, pixelSize, 15000))
+                throw new InvalidOperationException($"Readback failed: {readback.LastMapStatus}, timedOut={readback.LastMapTimedOut}");
+        ThrowErrors();
+        return bytes;
+    }
+
+    private sealed record DifferenceResult(int DifferentComponents, int[] PerChannel, double MaximumAbsoluteDifference, object[] FirstDifferences);
+    private static DifferenceResult Difference(byte[] reference, byte[] actual, bool floating, uint size)
+    {
+        if (reference.Length != actual.Length) throw new InvalidOperationException("Mismatched output dimensions.");
+        int different = 0; int[] channels = new int[4]; double maximum = 0;
+        var first = new List<object>();
+        int elementSize = floating ? 4 : 1;
+        for (int i = 0; i < reference.Length / elementSize; i++)
+        {
+            double expected = floating ? BitConverter.ToSingle(reference, i * 4) : reference[i];
+            double observed = floating ? BitConverter.ToSingle(actual, i * 4) : actual[i];
+            bool equal = reference.AsSpan(i * elementSize, elementSize).SequenceEqual(actual.AsSpan(i * elementSize, elementSize));
+            if (equal) continue;
+            different++; channels[i % 4]++; maximum = Math.Max(maximum, Math.Abs(expected - observed));
+            if (first.Count < 24) first.Add(new { X = i / 4 % size, Y = i / 4 / size, Channel = i % 4, Expected = expected, Actual = observed,
+                ExpectedBits = Convert.ToHexString(reference.AsSpan(i * elementSize, elementSize)), ActualBits = Convert.ToHexString(actual.AsSpan(i * elementSize, elementSize)) });
+        }
+        return new(different, channels, maximum, first.ToArray());
+    }
+
+    private sealed record LibraryIdentity(string Path, string Sha256);
+    private static LibraryIdentity[] LoadedLibraries()
+    {
+        using var process = Process.GetCurrentProcess();
+        return process.Modules.Cast<ProcessModule>().Where(module =>
+            new[] { "wgpu", "d3d12", "d3dcompiler", "dxcompiler", "metal" }.Any(name => module.ModuleName.Contains(name, StringComparison.OrdinalIgnoreCase)))
+            .Select(module => new LibraryIdentity(module.FileName, ShaderDiagnostics.Hash(File.ReadAllBytes(module.FileName)))).ToArray();
+    }
+
+    private static void OnError(ErrorType type, string message) => Errors.Enqueue(type + ": " + message);
+    private static void OnLost(DeviceLostReason reason, string message) => Errors.Enqueue("Device lost " + reason + ": " + message);
+    private static void ThrowErrors() { if (!Errors.IsEmpty) throw new InvalidOperationException(string.Join("\n", Errors)); }
+    private static void BeginScope(WgpuContext context)
+    { Volatile.Write(ref _scopeDone, 0); context.Wgpu.DevicePushErrorScope(context.Device, ErrorFilter.Validation); }
+    private static void EndScope(WgpuContext context, string stage)
+    {
+        context.Wgpu.DevicePopErrorScope(context.Device, new PfnErrorCallback(&ScopeComplete), null);
+        Wait(context, () => Volatile.Read(ref _scopeDone) != 0, "validation " + stage);
+        ThrowErrors();
+    }
+    private static void Wait(WgpuContext context, Func<bool> complete, string stage)
+    {
+        var timer = Stopwatch.StartNew();
+        while (!complete())
+        {
+            context.PollDevice(false);
+            if (timer.Elapsed > TimeSpan.FromSeconds(15)) Environment.FailFast("Timed out awaiting " + stage + "; pending callbacks are not completion.");
+            if (!complete()) Thread.Sleep(1);
+        }
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void ScopeComplete(ErrorType type, byte* message, void* state)
+    {
+        if (type != ErrorType.NoError) Errors.Enqueue(type + ": " + Marshal.PtrToStringUTF8((nint)message));
+        Volatile.Write(ref _scopeDone, 1);
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void QueueComplete(QueueWorkDoneStatus status, void* state)
+    { _queueStatus = (int)status; Volatile.Write(ref _queueDone, 1); }
+}
