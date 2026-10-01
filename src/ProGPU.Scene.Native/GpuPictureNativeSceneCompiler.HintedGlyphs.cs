@@ -160,8 +160,8 @@ public static partial class GpuPictureNativeSceneCompiler
         for (int i = 0; i < segments.Length; i++)
         {
             ref readonly GpuSegment s = ref sourceSegments[i];
-            segments[i] = new NativePathSegment(s.P0, s.P1, s.P2, s.P3,
-                (NativePathSegmentKind)s.SegmentType, s.Pad0, s.Pad1, s.Pad2);
+            segments[i] = new NativePathSegment((NativePathSegmentKind)s.SegmentType,
+                s.P0, s.P1, s.P2, s.P3, s.Pad0, s.Pad1, s.Pad2);
         }
         int destination = 0;
         Vector2 translation = new(transform.M31, transform.M32);
