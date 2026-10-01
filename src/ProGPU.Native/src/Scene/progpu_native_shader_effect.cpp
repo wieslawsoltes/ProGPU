@@ -30,13 +30,15 @@ bool translate(std::span<const std::byte> bytecode,
         std::memcpy(&value, bytecode.data() + index * 4U, 4U);
         return value;
     };
-    if (word(0U) != 0xFFFF0200U) return false;
+    const bool shader_model_three = word(0U) == 0xFFFF0300U;
+    if (!shader_model_three && word(0U) != 0xFFFF0200U) return false;
     try {
         std::string body;
         std::array<std::uint32_t, 12U> written{};
         std::array<bool, 32U> definitions{};
         std::uint32_t output_written = 0U, instructions = 0U;
         std::uint32_t input_mask = 0U;
+        std::uint32_t input_register = 0U;
         bool sampler_declared = false, executable = false, sampled = false;
         const auto append = [&](const std::string& text) {
             if (wgsl_body != nullptr) body += text;
@@ -67,7 +69,7 @@ bool translate(std::span<const std::byte> bytecode,
                 if (count != 0U) return false;
                 continue;
             }
-            if (opcode == 31U) { // dcl: t0 or the one 2D input sampler
+            if (opcode == 31U) { // dcl: version-specific UV input or one 2D sampler
                 if (count != 2U || executable) return false;
                 const auto declaration = word(first);
                 const auto destination = word(first + 1U);
@@ -76,8 +78,19 @@ bool translate(std::span<const std::byte> bytecode,
                 const auto type = register_type(destination);
                 const auto index = destination & 0x7FFU;
                 const auto mask = (destination >> 16U) & 15U;
-                if (type == 3U && index == 0U && declaration == 0x80000000U &&
+                if (!shader_model_three && type == 3U && index == 0U && declaration == 0x80000000U &&
                     mask != 0U && input_mask == 0U) input_mask = mask;
+                else if (shader_model_three && type == 1U && index < 10U &&
+                         declaration == 0x80000005U && mask == 3U && input_mask == 0U) {
+                    // ps_3_0 consolidates t# into declared v# inputs. The
+                    // retained source supplies only TEXCOORD0.xy; packed,
+                    // centroid, other semantics and extra components require
+                    // their own source contract. t0 here is the canonical
+                    // wrapper's UV value, never a ps_3_0 texture register.
+                    input_register = index;
+                    input_mask = mask;
+                    append("let input_v" + std::to_string(index) + " = t0;\n");
+                }
                 else if (type == 10U && index == source_sampler &&
                          declaration == 0x90000000U && mask == 15U && !sampler_declared)
                     sampler_declared = true;
@@ -121,7 +134,10 @@ bool translate(std::span<const std::byte> bytecode,
                 mask == 0U || modifier > 1U ||
                 !((destination_type == 0U && destination_index < 12U) ||
                   (destination_type == 8U && destination_index == 0U))) return false;
+            if (shader_model_three && opcode == 66U && destination_type != 0U)
+                return false; // The admitted TEXLD form writes a temporary.
             std::array<std::string, 3U> operands;
+            std::uint32_t constant_register = 32U;
             for (std::uint32_t index = 0U; index < sources; ++index) {
                 const auto token = word(first + index + 1U);
                 const auto type = register_type(token);
@@ -136,14 +152,25 @@ bool translate(std::span<const std::byte> bytecode,
                 }
                 if (source_modifier != 0U && source_modifier != 1U &&
                     source_modifier != 11U && source_modifier != 12U) return false;
+                if (shader_model_three && opcode == 66U &&
+                    (source_modifier != 0U || (type != 0U && type != 1U)))
+                    return false; // No modified/constant-coordinate texture form.
                 std::uint32_t available = 0U;
                 std::string expression;
                 if (type == 0U && number < 12U) {
                     available = written[number]; expression = "r[" + std::to_string(number) + "]";
                 } else if (type == 2U && number < 32U) {
+                    // Shader model 3 has one float-constant read port per
+                    // instruction, even when several source operands use it.
+                    if (shader_model_three && constant_register != 32U && constant_register != number)
+                        return false;
+                    constant_register = number;
                     available = 15U; expression = "c[" + std::to_string(number) + "]";
-                } else if (type == 3U && number == 0U) {
+                } else if (!shader_model_three && type == 3U && number == 0U) {
                     available = input_mask; expression = "t0";
+                } else if (shader_model_three && type == 1U && input_mask != 0U &&
+                           number == input_register) {
+                    available = input_mask; expression = "input_v" + std::to_string(number);
                 } else return false;
                 const auto required = opcode == 8U ? 7U : opcode == 9U ? 15U :
                     opcode == 66U ? 3U : mask;
