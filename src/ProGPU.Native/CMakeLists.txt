@@ -1669,7 +1669,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     target_compile_features(progpu_native_mil_hinted_glyph_tests PRIVATE cxx_std_20)
     target_include_directories(progpu_native_mil_hinted_glyph_tests PRIVATE
         ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
-    target_compile_definitions(progpu_native_mil_hinted_glyph_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_compile_definitions(progpu_native_mil_hinted_glyph_tests PRIVATE PROGPU_NATIVE_BUILD=1
+        "PROGPU_NATIVE_TEST_INTER_VARIABLE_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/InterVariable.ttf\"")
     target_link_libraries(progpu_native_mil_hinted_glyph_tests PRIVATE progpu_native_mil progpu_native_text)
     progpu_native_enable_warnings(progpu_native_mil_hinted_glyph_tests)
     progpu_native_enable_sanitizers(progpu_native_mil_hinted_glyph_tests)
@@ -2083,7 +2084,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         tests/progpu_native_hinted_glyph_resource_transport_tests.cpp
         src/Text/Interop/progpu_native_text_shaping_interop.cpp)
     target_compile_features(progpu_native_hinted_glyph_resource_transport_tests PRIVATE cxx_std_20)
-    target_compile_definitions(progpu_native_hinted_glyph_resource_transport_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_compile_definitions(progpu_native_hinted_glyph_resource_transport_tests PRIVATE PROGPU_NATIVE_BUILD=1
+        "PROGPU_NATIVE_TEST_INTER_VARIABLE_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/InterVariable.ttf\"")
     target_link_libraries(progpu_native_hinted_glyph_resource_transport_tests PRIVATE progpu_native_text)
     progpu_native_enable_warnings(progpu_native_hinted_glyph_resource_transport_tests)
     progpu_native_enable_sanitizers(progpu_native_hinted_glyph_resource_transport_tests)

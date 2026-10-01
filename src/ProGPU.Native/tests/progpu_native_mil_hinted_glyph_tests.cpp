@@ -4,6 +4,7 @@
 #include "../src/Scene/progpu_native_semantic_state.hpp"
 #include "progpu_native_mil.h"
 #include "progpu_native_hinted_shape_fixture.hpp"
+#include "progpu_native_hinted_variable_font_fixture.hpp"
 
 #include <algorithm>
 #include <array>
@@ -504,6 +505,131 @@ void flat_controls(font_hint_policy policy, bool rtl, std::uint32_t coverage = P
     verify_scene(c_scene,e);
 }
 
+void variable_flat_controls() {
+    progpu::native::tests::hinted_variable_font_fixture source;
+    progpu_native_hinted_paragraph* paragraph = nullptr;
+    progpu_native_hinted_glyph_resource* owner = nullptr;
+    struct producer_cleanup final {
+        progpu_native_hinted_paragraph*& paragraph; progpu_native_hinted_glyph_resource*& resource;
+        ~producer_cleanup() { progpu_native_hinted_glyph_resource_destroy(resource); progpu_native_hinted_paragraph_destroy(paragraph); }
+    } cleanup{paragraph,owner};
+    source.produce(paragraph);
+    auto original = select_hinted_paragraph_generation(paragraph);
+    require(original != nullptr);
+    const std::weak_ptr<const hinted_paragraph_generation> paragraph_weak = original;
+    const std::weak_ptr<const owned_font_source> font_weak = original->font_sources[0U];
+    auto reference = create_hinted_paragraph_glyph_resource(original,dpi,hinted_projection_policy::scalar_reference,
+        hinted_outline_coverage::antialiased_vector);
+    require(reference.status == PROGPU_NATIVE_STATUS_SUCCESS && reference.generation != nullptr);
+    const progpu_native_hinted_glyph_resource_request prepare{PROGPU_NATIVE_ABI_VERSION,sizeof(prepare),dpi,
+        PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE,PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR,0U};
+    require(progpu_native_hinted_paragraph_prepare_glyph_resource(paragraph,&prepare,&owner) == PROGPU_NATIVE_STATUS_SUCCESS);
+    progpu_native_hinted_glyph_resource_view view{};
+    require(progpu_native_hinted_glyph_resource_borrow(owner,&view) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(view.variation_coordinate_count == 4U && view.normalized_coordinate_count == 2U &&
+        std::memcmp(view.variation_coordinates_16_16,source.axes.data(),sizeof(source.axes)) == 0 &&
+        std::memcmp(view.normalized_coordinates,source.normalized.data(),sizeof(source.normalized)) == 0 &&
+        view.font_source_count == 1U && view.font_sources[0U].face_index == 0U && view.font_sources[0U].units_per_em == 2048U &&
+        view.font_byte_count == source.font.size() && std::memcmp(view.font_bytes,source.font.data(),source.font.size()) == 0);
+    for (std::uint32_t i = 0U; i < 2U; ++i)
+        require(view.device_styles[i].variation_start == i * 2U && view.device_styles[i].variation_count == 2U);
+    auto imported = import_hinted_paragraph_glyph_resource(view);
+    require(imported.status == PROGPU_NATIVE_STATUS_SUCCESS && imported.generation != nullptr && imported.generation->paragraph() == nullptr &&
+        imported.generation->coverage() == hinted_outline_coverage::antialiased_vector);
+    const auto original_binding = reference.generation->binding_view();
+    const bytes saved_font = source.font;
+    const std::vector saved_fonts(original_binding.fonts.begin(),original_binding.fonts.end());
+    const std::vector saved_runs(original_binding.runs.begin(),original_binding.runs.end());
+    const std::vector saved_glyphs(original_binding.glyphs.begin(),original_binding.glyphs.end());
+    const std::vector saved_outlines(reference.generation->outlines().begin(),reference.generation->outlines().end());
+    const std::vector saved_segments(reference.generation->segments().begin(),reference.generation->segments().end());
+    const std::vector saved_source_map(reference.generation->source_outline_indices().begin(),reference.generation->source_outline_indices().end());
+    const std::vector saved_run_map(reference.generation->run_outline_indices().begin(),reference.generation->run_outline_indices().end());
+    const std::vector saved_positioned_map(reference.generation->positioned_outline_indices().begin(),reference.generation->positioned_outline_indices().end());
+    const std::vector saved_slices(reference.generation->run_slices().begin(),reference.generation->run_slices().end());
+    const std::vector saved_outline_owners(reference.generation->outline_owners().begin(),reference.generation->outline_owners().end());
+    const std::vector saved_draw_owners(reference.generation->positioned_owners().begin(),reference.generation->positioned_owners().end());
+    const auto verify_import = [&] {
+        const auto b = imported.generation->binding_view();
+        const auto exact = [&](const auto& span, const auto& saved) {
+            equal_bytes(std::as_bytes(span),0U,span.size_bytes(),saved.data(),saved.size()*sizeof(saved[0U]));
+        };
+        exact(b.fonts,saved_fonts); exact(b.runs,saved_runs); exact(b.glyphs,saved_glyphs);
+        equal_bytes(std::as_bytes(b.font_bytes),0U,b.font_bytes.size_bytes(),saved_font.data(),saved_font.size());
+        exact(imported.generation->outlines(),saved_outlines); exact(imported.generation->segments(),saved_segments);
+        exact(imported.generation->source_outline_indices(),saved_source_map); exact(imported.generation->run_outline_indices(),saved_run_map);
+        exact(imported.generation->positioned_outline_indices(),saved_positioned_map); exact(imported.generation->run_slices(),saved_slices);
+        exact(imported.generation->outline_owners(),saved_outline_owners); exact(imported.generation->positioned_owners(),saved_draw_owners);
+    };
+    verify_import();
+    // This differential consumes the real original producer geometry, including
+    // quadratic contours; it does not reuse the synthetic four-ON-point oracle.
+    expected e;
+    for (const auto& o : saved_outlines)
+        e.outlines.push_back({o.segment_offset,o.segment_count,o.min_x,o.min_y,o.max_x,o.max_y,o.raster_scale,o.subpixel_x});
+    e.segments = saved_segments;
+    std::size_t noink = 0U;
+    for (std::uint32_t i = 0U; i < original->glyphs.size(); ++i) {
+        const auto& glyph = original->glyphs[i];
+        require(glyph.glyph_id <= UINT16_MAX && original->logical_font_indices[glyph.glyph_index] == 0U);
+        e.selected.push_back(i); e.ids.push_back(static_cast<std::uint16_t>(glyph.glyph_id));
+        e.positions.push_back({glyph.x + origin.x,glyph.y + origin.y});
+        const auto outline = saved_positioned_map[i];
+        if (outline == hinted_no_outline) { ++noink; continue; }
+        e.draw_outlines.push_back(outline); e.draw_positions.push_back(e.positions.back());
+    }
+    require(noink != 0U && e.draw_outlines.size() >= 4U);
+    const progpu_native_mil_hinted_glyph_binding binding{5U,0U,0U,0U,static_cast<std::uint32_t>(e.selected.size()),0U,origin,{1,0,0,1,0,0}};
+    const auto canonical = source_scene_batch(e);
+    channel state;
+    require(state.apply_with_hinted_glyph_resources(canonical,{&view,1U},{&binding,1U},e.selected) == status::success);
+    scene_build_request request{}; request.target_handle = 3U; request.scene_id = 17002U;
+    request.generation = request.request_serial = 1U; request.dpi_scale_x = request.dpi_scale_y = dpi;
+    std::span<const std::byte> compiled; require(state.build_scene(request,compiled) == status::success);
+    verify_scene(compiled,e); const bytes previous(compiled.begin(),compiled.end()); const auto* cached = compiled.data();
+    const auto generation = state.resource_generation(5U), visual_generation = state.resource_generation(1U);
+    bytes update; glyph_packet(update,9U,e); cmd(update,command::visual_set_alpha,1U,0.75);
+    const auto invalid = [&](const progpu_native_hinted_glyph_resource_view& bad) {
+        const auto rejected = import_hinted_paragraph_glyph_resource(bad);
+        require(rejected.status == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && rejected.generation == nullptr);
+        require(state.apply_with_hinted_glyph_resources(update,{&bad,1U},{&binding,1U},e.selected) == status::invalid_argument &&
+            state.resource_generation(5U) == generation && state.resource_generation(1U) == visual_generation && !state.has_resource(9U));
+        require(state.build_scene(request,compiled) == status::success && compiled.data() == cached);
+        equal_bytes(compiled,0U,compiled.size(),previous.data(),previous.size()); verify_import();
+    };
+    auto bad = view; bad.normalized_coordinate_count = 0U; bad.normalized_coordinates = nullptr; invalid(bad);
+    bad = view; bad.normalized_coordinate_count = 1U; invalid(bad);
+    auto normalized = source.normalized; ++normalized.back(); bad = view; bad.normalized_coordinates = normalized.data(); invalid(bad);
+    auto axes = source.axes; axes.back() += 65536; bad = view; bad.variation_coordinates_16_16 = axes.data(); invalid(bad);
+    bad = view; bad.variation_coordinate_count -= 1U; invalid(bad);
+    auto devices = source.devices; devices.back().variation_start -= 1U; bad = view; bad.device_styles = devices.data(); invalid(bad);
+    devices = source.devices; devices.back().variation_count -= 1U; invalid(bad);
+
+    progpu_native_mil_channel* c_channel = nullptr;
+    require(progpu_native_mil_channel_create(&c_channel) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    struct channel_cleanup final { progpu_native_mil_channel* value; ~channel_cleanup() { progpu_native_mil_channel_destroy(value); } } destroy{c_channel};
+    require(progpu_native_mil_channel_apply_with_hinted_glyph_resources(c_channel,
+        reinterpret_cast<const std::uint8_t*>(canonical.data()),canonical.size(),&view,1U,&binding,1U,e.selected.data(),
+        static_cast<std::uint32_t>(e.selected.size())) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    source.retire_inputs();
+    require(std::memcmp(view.variation_coordinates_16_16,original->device_styles[0U].variation_coordinates_16_16.data(),2U*sizeof(std::int32_t)) == 0 &&
+        std::memcmp(view.normalized_coordinates,original->normalized_coordinates.data(),2U*sizeof(std::int16_t)) == 0);
+    progpu_native_hinted_glyph_resource_destroy(owner); owner = nullptr;
+    progpu_native_hinted_paragraph_destroy(paragraph); paragraph = nullptr;
+    original.reset(); reference.generation.reset();
+    require(paragraph_weak.expired() && font_weak.expired()); // Flat imports own records, not forged original producer identities.
+    verify_import();
+    bytes recompile; cmd(recompile,command::matrix_transform,6U,1.0,0.0,0.0,1.0,3.5,-2.25,0U);
+    require(state.apply(recompile) == status::success && state.build_scene(request,compiled) == status::success); verify_scene(compiled,e);
+    progpu_native_mil_scene_build_request c_request{}; c_request.struct_size = sizeof(c_request); c_request.target_handle = 3U;
+    c_request.scene_id = request.scene_id; c_request.generation = c_request.request_serial = 1U; c_request.dpi_scale_x = c_request.dpi_scale_y = dpi;
+    std::size_t needed = 0U; progpu_native_mil_scene_build_result c_result{}; c_result.struct_size = sizeof(c_result);
+    require(progpu_native_mil_channel_build_scene_with_request(c_channel,&c_request,nullptr,0U,&needed,nullptr,&c_result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    bytes c_scene(needed);
+    require(progpu_native_mil_channel_build_scene_with_request(c_channel,&c_request,c_scene.data(),c_scene.size(),&needed,nullptr,&c_result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    verify_scene(c_scene,e);
+}
+
 void controls(font_hint_policy policy, bool rtl) {
     std::weak_ptr<const hinted_paragraph_generation> weak_paragraph;
     std::weak_ptr<const hinted_paragraph_glyph_resource> weak_resource;
@@ -612,6 +738,7 @@ int main() {
         interaction_visitor_controls();
         for (const auto policy : {font_hint_policy::truetype_35,font_hint_policy::truetype_40})
             for (const bool rtl : {false,true}) { controls(policy,rtl); flat_controls(policy,rtl); flat_controls(policy,rtl,PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR); }
+        variable_flat_controls();
 #endif
         std::cout << "MIL retained hinted glyph semantic controls passed\n"; return 0;
     } catch (const std::exception& failure) { std::cerr << failure.what() << '\n'; return 1; }

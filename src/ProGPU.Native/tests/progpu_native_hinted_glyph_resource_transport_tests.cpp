@@ -1,12 +1,14 @@
 #include "../include/progpu_native_text_hinting.h"
 #include "../src/Text/Interop/progpu_native_hinted_paragraph_transport_internal.hpp"
 #include "progpu_native_hinted_shape_fixture.hpp"
+#include "progpu_native_hinted_variable_font_fixture.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <source_location>
 #include <stdexcept>
 #include <string>
@@ -446,6 +448,66 @@ void producer_controls(font_hint_policy interpreter, bool source_bidi, hinted_pr
     require(paragraph_weak.expired() && interaction_weak.expired() && run_weak.expired() && font_weak.expired());
 }
 
+void variable_font_controls() {
+    paragraph_owner paragraph; resource_owner resource;
+    std::weak_ptr<const hinted_paragraph_generation> paragraph_weak;
+    std::weak_ptr<const hinted_paragraph_interaction> interaction_weak;
+    std::weak_ptr<const owned_font_source> font_weak;
+    auto wire = sentinel<progpu_native_hinted_glyph_resource_view>(); const auto tail = wire.tail;
+    std::unique_ptr<saved_borrow> saved;
+    auto request = request_for(hinted_projection_policy::scalar_reference);
+    request.coverage = PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR;
+    {
+        progpu::native::tests::hinted_variable_font_fixture source;
+        source.produce(paragraph.value);
+        const auto p = select_hinted_paragraph_generation(paragraph.value);
+        const auto interaction = select_hinted_paragraph_interaction(paragraph.value);
+        require(p != nullptr && interaction != nullptr && p->device_styles.size() == 2U && p->runs.size() >= 2U);
+        paragraph_weak = p; interaction_weak = interaction; font_weak = p->font_sources[0U];
+        require(same_span<std::int16_t>(p->normalized_coordinates, source.normalized));
+        std::vector<std::vector<hinted_glyph>> original_captures;
+        for (const auto& run : p->runs) {
+            require(same_span<std::int16_t>(run.generation->normalized_coordinates, source.normalized) &&
+                same_span<std::int32_t>(run.generation->batch->identity->variation_coordinates_16_16,
+                    std::span<const std::int32_t>(source.axes).first(2U)));
+            original_captures.push_back(run.generation->batch->glyphs);
+        }
+        require(progpu_native_hinted_paragraph_prepare_glyph_resource(paragraph.value, &request, &resource.value) == PROGPU_NATIVE_STATUS_SUCCESS &&
+            progpu_native_hinted_glyph_resource_borrow(resource.value, &wire.value) == PROGPU_NATIVE_STATUS_SUCCESS && wire.tail == tail);
+        const auto independent = create_hinted_paragraph_glyph_resource(p, request.dpi_scale,
+            hinted_projection_policy::scalar_reference, hinted_outline_coverage::antialiased_vector);
+        require(independent.status == PROGPU_NATIVE_STATUS_SUCCESS && independent.generation != nullptr);
+        compare_original(wire.value, *p, *interaction, *independent.generation);
+        require(wire.value.font_source_count == 1U && wire.value.font_sources[0U].face_index == 0U &&
+            wire.value.font_sources[0U].units_per_em == 2048U && wire.value.font_byte_count == source.font.size() &&
+            std::memcmp(wire.value.font_bytes, source.font.data(), source.font.size()) == 0 &&
+            wire.value.variation_coordinate_count == 4U && wire.value.normalized_coordinate_count == 2U &&
+            same_span<std::int32_t>({wire.value.variation_coordinates_16_16, 4U}, source.axes) &&
+            same_span<std::int16_t>({wire.value.normalized_coordinates, 2U}, source.normalized));
+        for (std::uint32_t i = 0U; i < 2U; ++i)
+            require(wire.value.device_styles[i].variation_start == i * 2U && wire.value.device_styles[i].variation_count == 2U);
+        require(std::find(wire.value.positioned_outline_indices,
+            wire.value.positioned_outline_indices + wire.value.counts.positioned_glyph_count, hinted_no_outline) !=
+            wire.value.positioned_outline_indices + wire.value.counts.positioned_glyph_count);
+        saved = std::make_unique<saved_borrow>(wire.value); aliases(paragraph, resource, request, *saved);
+        for (std::size_t i = 0U; i < original_captures.size(); ++i) require(p->runs[i].generation->batch->glyphs == original_captures[i]);
+        source.retire_inputs(); // Exact original bytes, raw axes and normalized coordinates are now solely retained.
+    }
+    require(!paragraph_weak.expired() && !interaction_weak.expired() && !font_weak.expired());
+    progpu_native_hinted_paragraph_destroy(paragraph.value); paragraph.value = nullptr;
+    for (unsigned i = 0U; i < 3U; ++i) {
+        require(progpu_native_hinted_glyph_resource_borrow(resource.value, &wire.value) == PROGPU_NATIVE_STATUS_SUCCESS && wire.tail == tail);
+        saved->unchanged(wire.value);
+    }
+    {
+        const auto retained = select_hinted_glyph_resource_generation(resource.value);
+        require(retained != nullptr && retained->paragraph() == paragraph_weak.lock());
+        compare_original(wire.value, *paragraph_weak.lock(), *interaction_weak.lock(), *retained);
+    }
+    progpu_native_hinted_glyph_resource_destroy(resource.value); resource.value = nullptr;
+    require(paragraph_weak.expired() && interaction_weak.expired() && font_weak.expired());
+}
+
 void empty_controls() {
     fixture source(font_hint_policy::truetype_40, false);
     source.shape.input = nullptr; source.shape.input_count = 0U;
@@ -491,6 +553,7 @@ int main() {
         producer_controls(font_hint_policy::truetype_40, true, hinted_projection_policy::intrinsic_simd, true);
         producer_controls(font_hint_policy::truetype_40, true, hinted_projection_policy::scalar_reference, false,
             hinted_outline_coverage::antialiased_vector);
+        variable_font_controls();
         empty_controls();
 #endif
         return 0;
