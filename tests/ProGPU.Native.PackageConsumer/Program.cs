@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using ProGPU.Backend.Native;
 using Silk.NET.WebGPU;
 
@@ -26,6 +27,36 @@ if (args.Contains("--text-digit-substitution-only", StringComparer.Ordinal))
 if (args.Length == 2 && args[0] == "--text-number-symbols-only")
 {
     TextDigitSubstitutionValidation.RunNumberSymbols(args[1]);
+    return;
+}
+
+if (args.Contains("--text-hinted-paragraph-render-only", StringComparer.Ordinal))
+{
+    using var hintedContext = new WgpuContext
+    {
+        ForceFallbackAdapter = OperatingSystem.IsWindows() ||
+            args.Contains("--software-adapter", StringComparer.Ordinal)
+    };
+    hintedContext.Initialize(window: null);
+    TextHintedParagraphRenderingValidation.Run(hintedContext,
+        Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"),
+        () => new NativeCompositor(hintedContext, TextureFormat.Rgba8Unorm));
+    return;
+}
+
+if (args.Contains("--text-hinted-paragraph-dawn-render-only", StringComparer.Ordinal))
+{
+    // Explicit fixture choices, not automatic source renderer/adapter policy.
+    BackendType backend = OperatingSystem.IsMacOS() ? BackendType.Metal
+        : OperatingSystem.IsWindows() ? BackendType.D3D12
+        : OperatingSystem.IsLinux() ? BackendType.Vulkan
+        : throw new PlatformNotSupportedException("This Dawn offscreen package control requires a desktop native backend.");
+    using var dawn = DawnGpuContext.CreateOffscreen(backend,
+        forceFallbackAdapter: OperatingSystem.IsWindows() ||
+            args.Contains("--software-adapter", StringComparer.Ordinal));
+    TextHintedParagraphRenderingValidation.Run(dawn.Context,
+        Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"),
+        () => NativeDawnAdapter.CreateCompositor(dawn, TextureFormat.Rgba8Unorm));
     return;
 }
 

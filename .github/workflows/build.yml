@@ -878,6 +878,12 @@ jobs:
             -p:ProGpuNativePackageSource="$env:GITHUB_WORKSPACE/artifacts/packages-native/Release" `
             -p:ProGpuNativePackageVersion="$version" -- --software-adapter
           if ($LASTEXITCODE -ne 0) { throw 'Full DX12 package consumer failed.' }
+          dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj `
+            --configuration Release --runtime '${{ matrix.rid }}' --no-build `
+            -p:ProGpuUseDx12Runtime=true `
+            -p:ProGpuNativePackageSource="$env:GITHUB_WORKSPACE/artifacts/packages-native/Release" `
+            -p:ProGpuNativePackageVersion="$version" -- --text-hinted-paragraph-render-only --software-adapter
+          if ($LASTEXITCODE -ne 0) { throw 'DX12 hinted paragraph package render consumer failed.' }
       - name: Publish and run full NativeAOT system-WARP consumer
         shell: pwsh
         run: |
@@ -891,6 +897,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'DX12 NativeAOT publication failed.' }
           & "$output/ProGPU.Native.PackageConsumer.exe" --software-adapter
           if ($LASTEXITCODE -ne 0) { throw 'Full DX12 NativeAOT consumer failed.' }
+          & "$output/ProGPU.Native.PackageConsumer.exe" --text-hinted-paragraph-render-only --software-adapter
+          if ($LASTEXITCODE -ne 0) { throw 'DX12 hinted paragraph NativeAOT render consumer failed.' }
 
   native-package-consumer:
     name: ${{ matrix.name }}
@@ -951,6 +959,22 @@ jobs:
             rid: win-arm64
             suite: guidelines
             name: Native package guidelines (win-arm64)
+          - os: windows-latest
+            rid: win-x64
+            suite: text
+            name: Native package text (win-x64)
+          - os: windows-latest
+            rid: win-x64
+            suite: text-dawn
+            name: Native package Dawn text (win-x64)
+          - os: windows-11-arm
+            rid: win-arm64
+            suite: text
+            name: Native package text (win-arm64)
+          - os: windows-11-arm
+            rid: win-arm64
+            suite: text-dawn
+            name: Native package Dawn text (win-arm64)
 
     steps:
       - name: Checkout

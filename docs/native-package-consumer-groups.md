@@ -61,8 +61,28 @@ adapter/compiler/query selection are unchanged. No paired product-code change
 is applicable: only the scheduling of the same native-package consumers changes.
 This change makes no product performance or completed qualification claim.
 
-Local validation: selector coverage/invalid-input checks, Bash syntax checks,
-ShellCheck, Actionlint, release documentation/package verification and diff
-whitespace checks. A fresh all-green exact-head Build, downstream dependency
-alignment and final LibreWPF package/application/platform gates remain required
-before ordered merges.
+## Additional owned hinted-text processes
+
+The original nine MIL selectors and core sequence remain unchanged. The shared
+selector additionally emits three independent processes under both JIT and
+NativeAOT: existing CPU device/hinted-paragraph controls, loaded stock paragraph
+rendering, and loaded typed-Dawn paragraph rendering. `text` groups the CPU and
+stock cases; `text-dawn` contains the Dawn case. Both Windows RIDs have those two
+additional independent jobs under the original 15-minute bound; non-Windows
+`all` retains the original nine cases and adds all three text processes.
+
+The verifier keeps a separate immutable inventory of the original nine cases
+and a separate inventory of the three text cases. All/group membership, duplicate
+or missing entries, exact group sizes, empty core and invalid arguments remain
+fail-closed. The separate DX12 job retains its original full JIT and NativeAOT
+consumers and additionally runs the stock hinted-render selector under both
+modes, retaining its original 20-minute bound and explicit system-WARP selection.
+No assertion, renderer policy, artifact qualification or deadline is waived.
+
+Original scheduling validation included selector coverage/invalid-input checks,
+Bash syntax checks, ShellCheck, Actionlint, release documentation/package
+verification and diff whitespace checks. The additional text routing received
+source review, Bash syntax and whitespace checks only; its selectors and GPU
+consumers have not been executed locally. A fresh all-green exact-head Build,
+downstream dependency alignment and final LibreWPF package/application/platform
+gates remain required before ordered merges.

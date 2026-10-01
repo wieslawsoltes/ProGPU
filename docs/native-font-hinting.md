@@ -805,6 +805,34 @@ independent public full measured writer, reread a destroyed native handle or
 fabricate a GPU target; native owner retirement and actual GPU/provider tests
 remain separate. Authored package cases still require successful exact-head CI.
 
+The independent loaded GPU selectors now prepare real `GpuTexture` frames and
+retire their original font bytes, source arrays, context and paragraph before
+drawing. Both TrueType interpreters retain two exact font/style owners, positive
+source metrics, repeated curved glyphs, phase/DPI/RTL and no-ink paragraphs. One
+fresh subject/reference engine pair retains identical call histories across the
+six cases. Every pixel and every metrics field, including cumulative submission
+counts, is compared after the original real submission wait and texture readback.
+Repeated automatic and scalar frames retain identical original output. Wrong
+target objects, recreated views and disposed targets/frames reject before GPU
+submission or content publication.
+
+The reference independently executes context-complete public hinted runs and
+decodes their original point/tag/contour records. It uses the retained actual
+measured writer positions, so this is a loaded packing/render/provider/lifetime
+differential, not an independent public full-writer comparison. Native controls
+above retain the separate independent original writer oracle. No source Display,
+Microsoft grayscale raster parity or application UI admission follows from this
+package fixture.
+
+Stock and Dawn use separate explicit JIT/NativeAOT processes on every desktop
+RID. `DawnGpuContext.CreateOffscreen` requires a backend and fallback choice;
+it verifies the actual adapter identity and device limits and owns the native
+instance/device chain. It creates no presentation surface or new source default.
+Only flat leased text records reach the selected Dawn compositor, never stock
+opaque text handles or foreign engines. Original MIL, ordered/default core and
+DX12 package processes remain required, with unchanged deadlines. Actual
+successful exact-head hosted package execution remains open.
+
 The original normalized instance check uses public
 [fvar](https://learn.microsoft.com/en-us/typography/opentype/spec/fvar) and
 [avar](https://learn.microsoft.com/en-us/typography/opentype/spec/avar) contracts,
