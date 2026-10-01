@@ -47,12 +47,185 @@ projection, logical/physical dimensions and the normalized viewport actually
 encoded by the pass. Multisampling and frames with GPU transforms remain on the
 original managed path. Offscreen and mask uniforms default to zero; bounded source
 scratch keeps its existing positive texture tag and is not glyph-certified.
-The shader additionally rejects late-MVP, ClearType/color and non-axis geometry.
-Those paths remain separate qualification work, not newly admitted by a padding
-field or successful source test. Scene-cache reuse retains existing viewport/DPI
+The shader additionally rejects late-MVP and ClearType/color geometry. Certified
+non-axis triangles use the separately described affine address below; their GPU
+qualification is not inherited from the original axis-only evidence. Scene-cache reuse retains existing viewport/DPI
 ownership and additionally keys the actual physical framebuffer dimensions, so a
 window-only framebuffer change cannot retain a stale certificate. Stable replay
 does not add a per-frame uniform write.
+
+## Affine physical coverage
+
+Exact parent `e4ab2a7b9` package checks reached the italic/shear bounded-texture
+case after passing the original canonical controls. Windows stock/Dawn x64/ARM64
+reported 11 differing bytes (maximum one), first pixel `(48,38)` green 79 versus
+78; native Metal ARM64 reported 24 bytes (maximum one). No failed Build runtime
+was staged to investigate this result.
+
+The axis-only helper left this occurrence on two different address calculations:
+ordinary Text interpolated atlas UVs over its glyph triangles, while bounded
+texture paint inverted separately interpolated image coordinates. The candidate
+correction extends the *existing actual-pass certificate* to each finite,
+nonsingular original physical triangle. It retains independently rounded corners
+012 and 023, computes each signed inverse in physical coordinates, and evaluates
+the same barycentric-to-atlas expression from the actual fragment center in Text,
+material and texture paint. It never reconstructs corner 3 as a parallelogram.
+
+Each bounded image copy carries one constant original glyph-triangle mapping;
+its own image diagonal does not switch that mapping. Separate copies, original
+paint UVs, logical half-open edge tests, contribution order, derivatives and
+filter/gamma/alpha policy remain unchanged. The qualified positive-axis expression
+is unchanged. Gate zero, late-MVP, unsupported text modes and non-finite/singular
+physical inverses retain the original path. Six flat frame floats and one mapping
+tag fit the existing paint pipeline's limit: 16 user locations, 41 components.
+No public/native record layout, target certificate, fixture or tolerance changes.
+
+Independent rational controls exercise the actual four corners, reflected and
+rotated signs, folded triangles with distinct contributions, origin/DPI placement
+and singular rejection. These controls and host shader compilation are not proof
+of original hardware interpolation or package pixels. Same-head affine gate-zero
+and certified observations, followed by the unchanged authentic full-RGBA fixture,
+remain required; matching two changed shader paths alone is not qualification.
+
+The bounded sampling probe keeps every historical source profile and adds an
+exact separately pinned physical-triangle profile. Its `--native-frame
+--affine-frame` control reuses the original derived padded tile and synthetic
+nonuniform coverage, applying the unchanged package fixture's italic/shear basis,
+skew and relative-position arithmetic. An independently packed 192-byte control
+binds those input bytes. Run once without `--canonical-frame` and once with it in
+fresh output directories; the original `--fallback` remains an explicit Windows
+diagnostic choice. The old axis-only receipt is not affine gate-zero evidence.
+
+This affine control saves the existing raw texel/sample/gamma/alpha and cold/warm
+RGBA comparisons without inventing a CPU gamma or hardware-sampler tolerance.
+`--binary-oracle` remains the unchanged axis-only independent dyadic control and
+rejects combination with `--affine-frame`. Production shader source is never
+rewritten for these input variants. At this checkpoint, 23 math/source controls,
+193 device-free probe controls and both shared modules/all 16 Metal pipeline
+validations pass. No draw/dispatch/font or ProGPU-native renderer ran locally;
+the shader check used the existing four-byte WebGPU initialization queue probe.
+Actual affine pixels and authentic package qualification remain pending.
+
+### Windows shared-shader observations
+
+At exact candidate `31e95cfbd414bff3e5dc6ebdcda147a70764f041`, the
+[Windows shared-shader job](https://github.com/wieslawsoltes/ProGPU/actions/runs/36906881895/job/110519551269)
+passed on SilkNative/D3D12/FXC, Microsoft Basic Render Driver. This is the job
+result, not a claim that its containing workflow succeeded: unrelated package
+jobs were incorrectly selected and failed; later routing correction `bd7cc7f20`
+does not change these product shaders. Artifact `11184926920` has archive digest
+`4322ce75805e9ab7bb3acca47d17d05826f2bdd225ed3cefcfb9927c173b7385`.
+
+All 240 saved output hashes, 60 compiled shader-source hashes and 20 atlas/instance
+hashes were verified. All 180 reported comparisons were independently recomputed
+from original bytes/floats. Each of ten reports records 24 real submissions and
+24 completions, nonempty ink and stable cold/warm output. Both production modules
+match the separately pinned physical-triangle source profile; exact compiled
+CRLF hashes and canonical-LF hashes remain distinct in the receipts.
+
+For the **derived italic/shear frame with synthetic coverage**, both 96- and
+128-pixel targets observe:
+
+| Same-head input | Text versus bounded texture, single | Text versus bounded texture, overlap | Raw sampled coverage differences, glyphs 0/1 |
+| --- | ---: | ---: | ---: |
+| Gate zero | 37 RGBA bytes | 46 RGBA bytes | 52 / 44 |
+| Certified physical triangles | 0 | 0 | 0 / 0 |
+
+The certified paths also match every raw UV, clamped normalized UV, gamma-adjusted
+sample and final-alpha component, for Text/material/bounded paint. Material
+already matched Text at gate zero. Crucially, certified bounded-texture RGBA is
+unchanged from its own gate-zero output; Text/material move to the common physical
+address. Relative to legacy Text this changes 37 single-occurrence bytes (maximum
+one) and 46 overlap bytes (maximum two), without changing any nonzero-alpha support.
+This is **not bit preservation of legacy affine Text sampling**. The observed
+legacy UV discrepancy reaches about 0.00227 atlas texels; no coordinate epsilon,
+sampler tolerance or final-color allowance was introduced to accept it.
+
+The original axis gate-zero control preserves all 48 output hashes from immutable
+run `36884526788`. All 144 outputs across the three axis modes also match the prior
+axis-correction receipts. All 24 saved binary-oracle captures were independently
+rechecked against the exact dyadic CPU coordinate/bilinear oracle, including
+outside support and zero-coverage boundaries. The original 43 boundary positions
+with coordinate-only differences remain unchanged. **There is no binary-oracle
+claim for the non-dyadic affine case.**
+
+These data establish the chosen shared-shader affine reproduction and unchanged
+axis controls, not original hinted-font coverage, native provider parity or a
+successful product Build. The fresh authentic native consumer, Metal pixels,
+other provider/architecture lanes, folded/near-singular edges and complete
+package/application qualification remain separate gates. No runtime from the
+failed parent Build was downloaded or staged for this analysis.
+
+### Independent dyadic affine oracle
+
+`HintedTextureSamplingProbe --output <fresh directory> --fallback
+--canonical-frame --affine-binary-oracle` selects a separate, purpose-specific
+synthetic input. Do not combine it with `--native-frame`, `--affine-frame` or the
+axis `--binary-oracle`. The authentic non-binary italic/shear input and its
+gate-zero output comparisons above are unchanged.
+
+This control has two original 16-by-16 physical frames: a half-X shear and a
+reflected half-X shear, at DPI two. All four corners are authored independently
+in eighth-pixel units. The original triangles 012 and 023 have signed physical
+areas represented by determinants +256 and -256. An independent checked-integer
+signed-area evaluator computes barycentric atlas addresses from those corners,
+including exact half-open edge ownership. It does not reuse the shader's inverse
+rows. A separate binary 0/255 atlas tile at (2,2), with four clear padding texels,
+gives exactly representable dyadic bilinear weights. The original 96-byte
+instances have independent little-endian assembly hash
+`CD1BE60F18411A388B64373285D4226AC295E5860F2CB3DDFF7EBAB1F2AECA4F`.
+
+For every captured pixel, both original triangle maps, outside output, texel
+addresses, clamped normalized addresses and raw bilinear coverage are checked
+with exact float-bit comparisons. Gamma and alpha retain the real shader
+arithmetic and paired exact RGBA controls; there is no CPU `pow` tolerance or
+claim of cross-driver gamma identity. Both target sizes and the existing
+single/overlapping, cold/warm and raw-output captures remain intact. This is an
+independent synthetic geometry/sampling control, not authentic font coverage.
+
+The probe compiles and all 229 device-free controls pass, including independent
+hand-derived samples in both triangles and windings, one-owner shared-diagonal
+coverage, every original physical corner, finite/outside output and one-bit
+coverage corruption rejection. This checkpoint has **not executed the new
+affine oracle on a GPU**. It cannot qualify the affine correction by itself,
+replace the legacy-output differences above or relax any original native
+pixel assertion.
+
+### Windows affine-oracle result
+
+The complete [focused workflow `36909775866`](https://github.com/wieslawsoltes/ProGPU/actions/runs/36909775866)
+passed at exact source `43fa2b591c0f8e5ac72c27630c189be5ba697050` on
+SilkNative/D3D12/FXC, Microsoft Basic Render Driver, Windows x64. Diagnostic
+artifact `11186611005` has ZIP SHA-256
+`2093aa029f51eaa0957d7e8696f47420532b355816de827598b91d179d2f76a1`;
+only data/logs were downloaded. The loaded Silk `wgpu_native.dll` identity in
+the receipt is `4971FCE5B4D93FC10B65D01CBCC57F9F35AD1BC479E654737974E4AD2E265BE6`.
+
+All 288 saved output hashes, 72 saved shader sources (exact compiled bytes and
+canonical-LF hashes), and 24 atlas/instance hashes were verified. All 216 reported
+byte/float comparisons were independently recomputed. The canonical production
+Text/paint source hashes remain respectively
+`5D0F0919B1F63FF8E7952877A9993FDA54410A85120E64AC84EB66D539DC9030` and
+`FA9C394116E20770DA7AA3BC152B7EB2DC0990E21E65A3B8D97C28555D058426`.
+All 240 outputs from the five earlier modes are byte-identical to run
+`36906881895`, including the explicitly documented legacy affine differences.
+
+A separate exact-rational signed-area/four-tap evaluator independently rechecked
+all **24 affine binary raw captures**, across Text, material and bounded texture
+at both 96- and 128-pixel targets. Every texel address, clamped normalized address,
+raw coverage and outside zero matches bit-for-bit. Each sheared occurrence owns
+256 interior pixels; each reflected occurrence owns 226 interior and 30 exact
+boundary pixels, including its single-owner shared diagonal. Gamma/alpha remain
+finite and preserve zero coverage; no CPU gamma approximation was introduced.
+All 36 new-mode paired and cold/warm comparisons have zero differences, including
+full RGBA8. Each of the twelve reports records 24 actual queue completions for
+24 submissions and nonempty ink.
+
+This qualifies the bounded dyadic affine address/coverage control on that host,
+not arbitrary affine geometry or bit preservation of legacy Text coverage. The
+authentic non-binary/native fixture is separate, and the complete product
+Build, other providers/architectures, Metal affine pixels and application gates
+remain required. No failed-Build runtime payload was used or staged.
 
 ## Design references and preserved contracts
 

@@ -11,7 +11,7 @@ on:
         description: Independent owner/path diagnosis or package-free allocation/shader probes
         type: choice
         default: all
-        options: [all, lifetime, atlas, raster, encoder, retirement, fence, owner, allocation-counter, hinted-texture, hinted-native-frame, hinted-canonical-frame, hinted-native-input]
+        options: [all, lifetime, atlas, raster, encoder, retirement, fence, owner, allocation-counter, hinted-texture, hinted-native-frame, hinted-canonical-frame, hinted-affine-frame, hinted-native-input]
 
 permissions:
   contents: read
@@ -27,7 +27,7 @@ jobs:
     uses: ./.github/workflows/runtime-allocation-diagnostics.yml
 
   hinted-texture:
-    if: inputs.probe_set == 'hinted-texture' || inputs.probe_set == 'hinted-native-frame' || inputs.probe_set == 'hinted-canonical-frame'
+    if: inputs.probe_set == 'hinted-texture' || inputs.probe_set == 'hinted-native-frame' || inputs.probe_set == 'hinted-canonical-frame' || inputs.probe_set == 'hinted-affine-frame'
     name: Windows hinted texture sampling
     runs-on: windows-latest
     timeout-minutes: 10
@@ -42,7 +42,8 @@ jobs:
         shell: pwsh
         env:
           USE_NATIVE_FRAME: ${{ inputs.probe_set == 'hinted-native-frame' }}
-          USE_CANONICAL_FRAME: ${{ inputs.probe_set == 'hinted-canonical-frame' }}
+          USE_CANONICAL_FRAME: ${{ inputs.probe_set == 'hinted-canonical-frame' || inputs.probe_set == 'hinted-affine-frame' }}
+          USE_AFFINE_FRAME: ${{ inputs.probe_set == 'hinted-affine-frame' }}
         run: |
           $outputDirectory = Join-Path $env:GITHUB_WORKSPACE 'artifacts/hinted-texture-sampling'
           $dataDirectory = Join-Path $outputDirectory 'data'
@@ -58,6 +59,16 @@ jobs:
               @{ Name = 'original-frame'; Arguments = @('--native-frame') },
               @{ Name = 'canonical-frame'; Arguments = @('--native-frame', '--canonical-frame') },
               @{ Name = 'binary-oracle'; Arguments = @('--native-frame', '--canonical-frame', '--binary-oracle') }
+            )
+          }
+          if ($env:USE_AFFINE_FRAME -eq 'true') {
+            # Preserve all original axis controls and its independent binary
+            # oracle and the unchanged non-binary affine captures. The separate
+            # dyadic control proves exact triangle addresses/binary coverage.
+            $probes += @(
+              @{ Name = 'original-affine-frame'; Arguments = @('--native-frame', '--affine-frame') },
+              @{ Name = 'canonical-affine-frame'; Arguments = @('--native-frame', '--affine-frame', '--canonical-frame') },
+              @{ Name = 'affine-binary-oracle'; Arguments = @('--canonical-frame', '--affine-binary-oracle') }
             )
           }
           $firstFailure = 0
@@ -171,7 +182,7 @@ jobs:
           retention-days: 14
 
   windows-path-stage:
-    if: inputs.probe_set != 'allocation-counter' && inputs.probe_set != 'hinted-texture' && inputs.probe_set != 'hinted-native-frame' && inputs.probe_set != 'hinted-canonical-frame' && inputs.probe_set != 'hinted-native-input'
+    if: inputs.probe_set != 'allocation-counter' && inputs.probe_set != 'hinted-texture' && inputs.probe_set != 'hinted-native-frame' && inputs.probe_set != 'hinted-canonical-frame' && inputs.probe_set != 'hinted-affine-frame' && inputs.probe_set != 'hinted-native-input'
     name: Windows path-stage diagnosis (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10

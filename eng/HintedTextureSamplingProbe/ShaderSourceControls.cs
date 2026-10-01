@@ -86,6 +86,24 @@ internal static class ShaderSourceControls
         // calculated by this C# instance helper, nor a captured GPU buffer.
         Check(ShaderDiagnostics.Hash(nativeInstances) == "7238032D7F006B96C46684366A4009DEA2C06B22A8C106D413BFE5EA49263314",
             "Native-frame instances differ from independently derived original96byte records.");
+        byte[] affineInstances = AffineFrameControl.Instances();
+        // Independent Python struct.pack('<24f') assembly with float32 rounding
+        // after each ORIGINAL fixture multiply/add, not a self-derived hash.
+        Check(ShaderDiagnostics.Hash(affineInstances) == "0274397EBA60B7AED654AD843C92ED6D24B7EFB884226A54E75A5E7C12647E36",
+            "Affine native-frame instances differ from the independent fixture arithmetic/byte assembly.");
+        for (int occurrence = 0; occurrence < 2; occurrence++)
+        {
+            int start = occurrence * 96;
+            Check(nativeInstances.AsSpan(start + 24, 56).SequenceEqual(affineInstances.AsSpan(start + 24, 56)) &&
+                nativeInstances.AsSpan(start + 84, 12).SequenceEqual(affineInstances.AsSpan(start + 84, 12)),
+                "Affine control changed original padded tile, atlas, color, scale/bold or flags/owner fields.");
+            Check(BitConverter.ToSingle(affineInstances, start + 8) == 1 &&
+                BitConverter.ToSingle(affineInstances, start + 12) == .23f &&
+                BitConverter.ToSingle(affineInstances, start + 16) == .61f &&
+                BitConverter.ToSingle(affineInstances, start + 20) == 1 &&
+                BitConverter.ToSingle(affineInstances, start + 80) == .37f,
+                "Affine control changed the actual failing fixture basis/skew.");
+        }
         Check(ShaderDiagnostics.Hash(Program.PaintBytes(true, 96)) == "2D56BE36B794AE5BBE080FB813F99677732A88329F606BD0000DA58532EDE807",
             "Bounded paint changed from the authentic frame0 receipt.");
         for (int occurrence = 0; occurrence < 2; occurrence++)
@@ -135,12 +153,13 @@ internal static class ShaderSourceControls
         extendedPaint[8] &= unchecked((byte)~2);
         taggedMaterial[8] |= 2;
         foreach (string profile in new[] { ShaderDiagnostics.BaselineProfile,
-            ShaderDiagnostics.CanonicalFrameProfile, ShaderDiagnostics.AffineCanonicalFrameProfile })
+            ShaderDiagnostics.CanonicalFrameProfile, ShaderDiagnostics.AffineCanonicalFrameProfile,
+            ShaderDiagnostics.PhysicalTriangleProfile })
         {
             Check(Program.DrawVertexCount(profile, false, []) == 6,
                 "Ordinary Text must retain its original six-vertex quad.");
             Check(Program.DrawVertexCount(profile, true, boundedPaint) ==
-                (profile == ShaderDiagnostics.AffineCanonicalFrameProfile ? 12u : 6u),
+                (profile is ShaderDiagnostics.AffineCanonicalFrameProfile or ShaderDiagnostics.PhysicalTriangleProfile ? 12u : 6u),
                 "Bounded texture count does not match its exact reviewed shader profile.");
             Check(Program.DrawVertexCount(profile, true, materialPaint) == 6,
                 "Registered material gained an extra glyph contribution.");
@@ -155,9 +174,12 @@ internal static class ShaderSourceControls
             "Reviewed coverage-frame profile lost its exact canonical capability.");
         Check(ShaderDiagnostics.HasCanonicalFrame(ShaderDiagnostics.AffineCanonicalFrameProfile),
             "Integrated affine paint profile lost its exact canonical capability.");
+        Check(ShaderDiagnostics.HasCanonicalFrame(ShaderDiagnostics.PhysicalTriangleProfile) &&
+            ShaderDiagnostics.HasAffinePaint(ShaderDiagnostics.PhysicalTriangleProfile),
+            "Original physical-triangle profile lost its certificate or twelve-vertex paint contract.");
         Reject(() => Program.DrawVertexCount("unreviewed", true, boundedPaint),
             "Unknown shader profile selected a draw contract.");
-        return passed + CanonicalCoverageOracle.RunControls();
+        return passed + CanonicalCoverageOracle.RunControls() + AffineCoverageOracle.RunControls();
 
         void Check(bool condition, string message)
         {

@@ -37,19 +37,25 @@ internal static unsafe class Program
                 return 0;
             }
             string? output = null;
-            bool fallback = false, nativeFrame = false, canonicalFrame = false, binaryOracle = false;
+            bool fallback = false, nativeFrame = false, canonicalFrame = false, binaryOracle = false, affineFrame = false, affineBinaryOracle = false;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--output" && i + 1 < args.Length) output = args[++i];
                 else if (args[i] == "--fallback") fallback = true;
                 else if (args[i] == "--native-frame") nativeFrame = true;
+                else if (args[i] == "--affine-frame") affineFrame = true;
                 else if (args[i] == "--canonical-frame") canonicalFrame = true;
                 else if (args[i] == "--binary-oracle") binaryOracle = true;
-                else throw new ArgumentException("Usage: HintedTextureSamplingProbe --output <new directory> [--fallback] [--native-frame [--canonical-frame [--binary-oracle]]]");
+                else if (args[i] == "--affine-binary-oracle") affineBinaryOracle = true;
+                else throw new ArgumentException("Usage: HintedTextureSamplingProbe --output <new directory> [--fallback] [--native-frame [--affine-frame] [--canonical-frame [--binary-oracle]]] | --canonical-frame --affine-binary-oracle");
             }
             if (output is null) throw new ArgumentException("--output is required.");
-            if (canonicalFrame && !nativeFrame) throw new ArgumentException("--canonical-frame requires the proven --native-frame control.");
+            if (canonicalFrame && !nativeFrame && !affineBinaryOracle) throw new ArgumentException("--canonical-frame requires an explicit original-native or dyadic-affine input control.");
             if (binaryOracle && !canonicalFrame) throw new ArgumentException("--binary-oracle requires --native-frame --canonical-frame.");
+            if (affineFrame && !nativeFrame) throw new ArgumentException("--affine-frame requires --native-frame.");
+            if (affineFrame && binaryOracle) throw new ArgumentException("The original dyadic binary oracle is axis-only; no affine sampler precision is inferred.");
+            if (affineBinaryOracle && (!canonicalFrame || nativeFrame || affineFrame || binaryOracle))
+                throw new ArgumentException("--affine-binary-oracle requires --canonical-frame and its own independent input, not native/non-binary/axis-oracle flags.");
             if (fallback && !OperatingSystem.IsWindows()) throw new ArgumentException("--fallback explicitly requires Windows D3D12.");
             if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("Probe targets Windows/D3D12 or macOS/Metal.");
             output = Path.GetFullPath(output);
@@ -60,7 +66,7 @@ internal static unsafe class Program
             {
                 string caseOutput = Path.Combine(output, "target-" + size);
                 Directory.CreateDirectory(caseOutput);
-                Run(caseOutput, fallback, size, nativeFrame, canonicalFrame, binaryOracle);
+                Run(caseOutput, fallback, size, nativeFrame, canonicalFrame, binaryOracle, affineFrame, affineBinaryOracle);
                 ThrowErrors(); // Includes errors queued during all resource/context retirement.
             }
             return 0;
@@ -72,13 +78,15 @@ internal static unsafe class Program
         }
     }
 
-    private static void Run(string output, bool fallback, uint size, bool nativeFrame, bool canonicalFrame, bool binaryOracle)
+    private static void Run(string output, bool fallback, uint size, bool nativeFrame, bool canonicalFrame, bool binaryOracle, bool affineFrame, bool affineBinaryOracle)
     {
         int initialSubmissions = _submissions, initialCompletions = _completed;
         string text = ShaderDiagnostics.VerifySource(false), paint = ShaderDiagnostics.VerifySource(true);
         string textProfile = ShaderDiagnostics.SourceProfile(text, false), paintProfile = ShaderDiagnostics.SourceProfile(paint, true);
         if (canonicalFrame && (!ShaderDiagnostics.HasCanonicalFrame(textProfile) || !ShaderDiagnostics.HasCanonicalFrame(paintProfile)))
             throw new InvalidOperationException("Canonical-frame opt-in requires both exact reviewed candidate modules.");
+        if (affineBinaryOracle && (textProfile != ShaderDiagnostics.PhysicalTriangleProfile || paintProfile != ShaderDiagnostics.PhysicalTriangleProfile))
+            throw new InvalidOperationException("Affine binary oracle requires the exact physical-triangle source profile.");
         string textDiagnostic = ShaderDiagnostics.Instrument(text, false);
         string paintDiagnostic = ShaderDiagnostics.Instrument(paint, true);
         var sources = new Dictionary<string, string>
@@ -120,11 +128,12 @@ internal static unsafe class Program
             using var brushes = Buffer(context, brushBytes, BufferUsage.Storage);
             using var stops = Buffer(context, new byte[32], BufferUsage.Storage);
             using var paints = Buffer(context, PaintBytes(false, size), BufferUsage.Storage);
-            byte[] instanceBytes = nativeFrame ? NativeFrameControl.Instances() : Instances();
+            byte[] instanceBytes = affineBinaryOracle ? AffineCoverageOracle.Instances()
+                : affineFrame ? AffineFrameControl.Instances() : nativeFrame ? NativeFrameControl.Instances() : Instances();
             using var instances = Buffer(context, instanceBytes, BufferUsage.Vertex);
 
             using var atlas = new GpuTexture(context, AtlasSize, AtlasSize, TextureFormat.R8Unorm, TextureUsage.TextureBinding | TextureUsage.CopyDst);
-            byte[] atlasBytes = binaryOracle ? CanonicalCoverageOracle.Atlas()
+            byte[] atlasBytes = affineBinaryOracle ? AffineCoverageOracle.Atlas() : binaryOracle ? CanonicalCoverageOracle.Atlas()
                 : nativeFrame ? NativeFrameControl.Atlas() : Atlas();
             atlas.WritePixels<byte>(atlasBytes);
             byte[] textureBytes = [64, 192, 128, 255];
@@ -221,14 +230,16 @@ internal static unsafe class Program
                     }
                 }
                 var oracle = new List<CanonicalCoverageOracle.Result>();
-                if (binaryOracle)
+                if (binaryOracle || affineBinaryOracle)
                     foreach (string path in paths)
                     foreach (string diagnosticKind in new[] { "-caller", "-sample" })
                     for (int occurrence = 0; occurrence < 2; occurrence++)
                     {
                         string capture = path + diagnosticKind + "-glyph-" + occurrence;
-                        var result = CanonicalCoverageOracle.Check(capture, frames[capture], size, occurrence,
-                            atlasBytes, normalized: diagnosticKind == "-sample", boundedTexture: path == "bounded-texture");
+                        var result = affineBinaryOracle
+                            ? AffineCoverageOracle.Check(capture, frames[capture], size, occurrence, atlasBytes, normalized: diagnosticKind == "-sample")
+                            : CanonicalCoverageOracle.Check(capture, frames[capture], size, occurrence,
+                                atlasBytes, normalized: diagnosticKind == "-sample", boundedTexture: path == "bounded-texture");
                         oracle.Add(result);
                         Console.WriteLine($"{size}px independent binary oracle {capture}: differences={result.DifferentComponents}, interior={result.InteriorPixels}, boundary={result.BoundaryPixels}, outside={result.OutsidePixels}");
                     }
@@ -241,18 +252,24 @@ internal static unsafe class Program
                 var assembly = typeof(WgpuContext).Assembly;
                 var report = new
                 {
-                    Scope = nativeFrame
+                    Scope = affineBinaryOracle ? "Independent synthetic dyadic affine binary oracle, not original font/atlas, native renderer/package or Display qualification."
+                        : nativeFrame
                         ? "Derived authentic native frame with controlled synthetic coverage, NOT original atlas coverage; not native font, renderer, package or Display qualification."
                         : "Synthetic shared-shader sampling diagnostic; not native font, renderer, package or Display qualification.",
-                    FrameControl = nativeFrame ? "native-frame" : "synthetic-frame",
+                    FrameControl = affineBinaryOracle ? "dyadic-shear-and-reflection" : affineFrame ? "derived-native-italic-shear" : nativeFrame ? "native-frame" : "synthetic-frame",
                     CanonicalCoverageGate = canonicalFrame ? -1 : 0,
-                    CoverageInput = binaryOracle ? "binary-checkerboard-oracle" : "nonuniform-synthetic-regression",
+                    CoverageInput = affineBinaryOracle ? "dyadic-affine-binary-oracle" : binaryOracle ? "binary-checkerboard-oracle" : "nonuniform-synthetic-regression",
                     NativeFrameReference = nativeFrame ? NativeFrameControl.Provenance() : null,
+                    AffineFrameReference = affineFrame ? AffineFrameControl.Provenance() : null,
+                    AffineBinaryOracleReference = affineBinaryOracle ? AffineCoverageOracle.Provenance() : null,
                     ReviewedShaderBaselineCommit = ShaderDiagnostics.BaselineCommit,
                     ShaderProfiles = new { Text = textProfile, HintedGlyphPaint = paintProfile },
                     DrawVertexCounts = paths.ToDictionary(path => path, path =>
                         DrawVertexCount(path == "text" ? textProfile : paintProfile, path != "text", PaintBytes(path == "bounded-texture", size))),
-                    OriginalGate0Comparison = "Immutable native-frame run36884526788 at c0e9d839644f9e46664cd51ee66e637828fe63cc; compare exact receipts separately, not a claim of cross-provider parity.",
+                    OriginalGate0Comparison = affineBinaryOracle ? "Independent integer-area/binary-weight oracle; no historical axis or authentic non-binary baseline is claimed for this purpose-specific input."
+                        : affineFrame
+                        ? "Compare this same source with --native-frame --affine-frame and no --canonical-frame; historical axis-only captures are NOT affine preservation evidence."
+                        : "Immutable native-frame run36884526788 at c0e9d839644f9e46664cd51ee66e637828fe63cc; compare exact receipts separately, not a claim of cross-provider parity.",
                     Provider = context.BackendKind.ToString(), Backend = context.AdapterBackendType.ToString(),
                     context.AdapterName, Compiler = context.SelectedDx12ShaderCompiler?.ToString(), RequestedFallback = fallback,
                     context.AdapterSelectionDiagnostics,
@@ -266,8 +283,10 @@ internal static unsafe class Program
                     CanonicalLfShaderSha256 = sources.ToDictionary(x => x.Key, x => ShaderDiagnostics.CanonicalHash(x.Value)),
                     Size = size, Dpi, Opacity, AtlasWidth = AtlasSize, AtlasHeight = AtlasSize, InstanceStride = 96,
                     AtlasTileOrigin = new[] { AtlasTileX, AtlasTileY },
-                    AtlasTileExtent = nativeFrame ? new[] { NativeFrameControl.Width, NativeFrameControl.Height } : new[] { 23, 25 },
-                    AtlasPlacementControl = nativeFrame
+                    AtlasTileExtent = affineBinaryOracle ? new[] { AffineCoverageOracle.TileSize, AffineCoverageOracle.TileSize }
+                        : nativeFrame ? new[] { NativeFrameControl.Width, NativeFrameControl.Height } : new[] { 23, 25 },
+                    AtlasPlacementControl = affineBinaryOracle ? "Authored16x16 binary tile at(2,2) with4texel clear padding, never an original font atlas capture."
+                        : nativeFrame
                         ? "Original native first-allocation origin(2,2), derived20x22 frame with4pixelpadding; interior coverage is controlled synthetic data, never captured original atlas data."
                         : "Original (17,11) at cc1fbdf33f9580a9804a898f528dfe3b32b65aeb, Windows run36877876254; only atlas placement changes to(2,2).",
                     AtlasSha256 = ShaderDiagnostics.Hash(atlasBytes), InstanceSha256 = ShaderDiagnostics.Hash(instanceBytes),
@@ -279,7 +298,10 @@ internal static unsafe class Program
                     Readback = "Each returned row buffer followed a successful map callback; 15-second map and queue deadlines, 180-second process watchdog.",
                     Comparisons = comparisons,
                     IndependentCoverageOracle = oracle,
-                    OraclePrecision = "Independent double physical frames and texel-center bilinear math; binary0/255 plus dyadic weights give exact representable values. Exact selected-host coordinate/raw-coverage assertions, not a universal R8 sampler guarantee. Gamma/alpha remain observed original arithmetic and paired RGBA controls; no CPU pow tolerance.",
+                    OraclePrecision = affineBinaryOracle ? "Independent checked integer signed triangle areas, power-of-two rational texel addresses and binary four-tap coverage; exact float-bit comparisons, no gamma/pow tolerance."
+                        : affineFrame
+                        ? "Independent exact-rational triangle math is CPU-tested separately; this non-dyadic affine input observes raw coordinates/samples without claiming exact CPU hardware-sampler/pow identity. Paired RGBA remains exact."
+                        : "Independent double physical frames and texel-center bilinear math; binary0/255 plus dyadic weights give exact representable values. Exact selected-host coordinate/raw-coverage assertions, not a universal R8 sampler guarantee. Gamma/alpha remain observed original arithmetic and paired RGBA controls; no CPU pow tolerance.",
                     MissingInk = missingInk,
                     Artifacts = frames.ToDictionary(x => x.Key, x => ShaderDiagnostics.Hash(x.Value))
                 };
@@ -377,7 +399,7 @@ internal static unsafe class Program
 
     internal static uint DrawVertexCount(string profile, bool paint, ReadOnlySpan<byte> paintBytes)
     {
-        if (profile is not (ShaderDiagnostics.BaselineProfile or ShaderDiagnostics.CanonicalFrameProfile or ShaderDiagnostics.AffineCanonicalFrameProfile))
+        if (profile is not (ShaderDiagnostics.BaselineProfile or ShaderDiagnostics.CanonicalFrameProfile or ShaderDiagnostics.AffineCanonicalFrameProfile or ShaderDiagnostics.PhysicalTriangleProfile))
             throw new InvalidOperationException("Unknown draw source profile.");
         if (!paint) return 6;
         if (paintBytes.Length != 96) throw new ArgumentException("Expected the original96-byte paint record.", nameof(paintBytes));
@@ -385,7 +407,7 @@ internal static unsafe class Program
         // retains its original image quad. Positive-axis copies are collapsed
         // by the shader, not omitted by guessing from the probe's instances.
         // Historical profiles retain their original six-vertex contract.
-        return profile == ShaderDiagnostics.AffineCanonicalFrameProfile &&
+        return ShaderDiagnostics.HasAffinePaint(profile) &&
             BinaryPrimitives.ReadUInt32LittleEndian(paintBytes) == 1 &&
             (BinaryPrimitives.ReadUInt32LittleEndian(paintBytes[8..]) & 2) != 0 ? 12u : 6u;
     }
