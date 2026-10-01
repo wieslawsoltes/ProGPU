@@ -11,6 +11,7 @@
 #include "../src/Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../src/Scene/progpu_native_semantic_state.hpp"
 #include "../src/Scene/progpu_native_scene.hpp"
+#include "../src/Scene/progpu_native_shader_effect_resource.hpp"
 #include "progpu_native_text.hpp"
 #include "../src/Geometry/progpu_native_arc.hpp"
 #include "../src/Backend/progpu_native_geometry_base.hpp"
@@ -21735,6 +21736,116 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
     std::span<const std::byte> rejected;
     PROGPU_REQUIRE(state.build_scene(request, rejected) != status::success);
     PROGPU_REQUIRE(rejected.empty()); // custom effect is not identity input
+
+    // The actual original source route owns one ImageBrush bitmap capture.
+    // Register before pixels arrive, but never publish a placeholder scene.
+    request.flags = scene_build_request_flags::none;
+    batch.clear(); append_create(batch, 8U, 80U); append_create(batch, 9U, 95U);
+    append_create(batch, 10U, 61U);
+    append_transform_group(batch, 10U, {});
+    const auto image_brush = [&](std::vector<std::byte>& target, double opacity = 0.5,
+        std::uint32_t transform = 0U) {
+        append_command(target, command::image_brush, 8U, opacity,
+            std::array{0.0, 0.0, 0.5, 1.0}, std::array{0.0, 0.0, 1.0, 1.0},
+            0.707, 1.414, 0U, transform, 0U, 1U, 1U, 0U, 0U, 1U, 4U, 1U, 1U, 0U, 9U);
+    };
+    image_brush(batch); append_effect(batch, 1.0F, 1U, 0.0, 8U);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(state.build_scene(request, rejected) != status::success && rejected.empty());
+    std::array<std::byte, 8U> pixels{std::byte{255}, std::byte{0}, std::byte{0}, std::byte{255},
+        std::byte{0}, std::byte{255}, std::byte{0}, std::byte{255}};
+    PROGPU_REQUIRE(state.set_bitmap_source_rgba8(9U, 2U, 1U, 8U, pixels, 144.0, 192.0) == status::success);
+    const auto captured = compile();
+    const auto captured_header = read_value<progpu_native_scene_header>(captured, 0U);
+    std::uint32_t shader_slot = PROGPU_NATIVE_SCENE_NO_INDEX;
+    for (std::uint32_t i = 0U; i < captured_header.resource_count; ++i) {
+        const auto resource = read_value<progpu_native_scene_resource>(captured,
+            captured_header.resource_offset + i * captured_header.resource_stride);
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
+            shader_resource = resource; shader_slot = i;
+        }
+    }
+    static_assert(sizeof(progpu_native_scene_shader_effect_picture) == 560U);
+    PROGPU_REQUIRE(shader_resource.payload_size == sizeof(progpu_native_scene_shader_effect_picture));
+    const auto wrapped = read_value<progpu_native_scene_shader_effect_picture>(captured, shader_resource.payload_offset);
+    PROGPU_REQUIRE(wrapped.version == 2U && wrapped.program.version == 1U &&
+        wrapped.sampler_resource_index < shader_slot && wrapped.program.sampling_mode == 0U);
+    const auto picture_resource = read_value<progpu_native_scene_resource>(captured,
+        captured_header.resource_offset + wrapped.sampler_resource_index * captured_header.resource_stride);
+    PROGPU_REQUIRE(picture_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE_PICTURE);
+    const auto picture = read_value<progpu_native_scene_picture_image>(captured, picture_resource.payload_offset);
+    PROGPU_REQUIRE(picture.width == 32U && picture.height == 24U && picture.dpi_scale == 1.0F);
+    PROGPU_REQUIRE(picture.clear_color.a == 0.0F); // Full RGBA transparent capture, not a mask.
+    PROGPU_REQUIRE(progpu::native::scene::validate(captured.data(), captured.size()).status ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    for (std::uint32_t variant = 0U; variant < 8U; ++variant) {
+        auto invalid = wrapped;
+        if (variant == 0U) invalid.version = 3U;
+        if (variant == 1U) invalid.struct_size -= 4U;
+        if (variant == 2U) invalid.reserved = 1U;
+        if (variant == 3U) invalid.program.version = 2U;
+        if (variant == 4U) invalid.sampler_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (variant == 5U) invalid.sampler_resource_index = shader_slot; // self cycle
+        if (variant == 6U) invalid.sampler_resource_index = captured_header.resource_count; // foreign/forward
+        if (variant == 7U) invalid.program.reserved = 1U;
+        auto damaged = captured;
+        write_value(damaged, shader_resource.payload_offset, invalid);
+        PROGPU_REQUIRE(progpu::native::scene::validate(damaged.data(), damaged.size()).status !=
+            PROGPU_NATIVE_STATUS_SUCCESS);
+        if (variant < 5U) {
+            auto output = shader; output.revision = 123U;
+            std::uint32_t output_index = 42U;
+            PROGPU_REQUIRE(!progpu::native::shader_effect::read_resource(std::as_bytes(std::span(&invalid, 1U)),
+                bytecode, output, output_index));
+            PROGPU_REQUIRE(output.revision == 123U && output_index == 42U);
+        }
+    }
+    for (const auto dependency : std::array{std::array{6U, 33U}, std::array{8U, 80U}, std::array{9U, 95U}}) {
+        batch.clear(); append_command(batch, command::channel_delete_resource, dependency[0], dependency[1]);
+        PROGPU_REQUIRE(state.apply(batch) == status::invalid_graph);
+        PROGPU_REQUIRE(compile() == captured);
+    }
+    // Typed builder cannot import a sampler index from an unrelated builder.
+    progpu::native::semantic_scene_builder foreign(9930U, 1U);
+    std::uint32_t untouched = 42U;
+    PROGPU_REQUIRE(!foreign.add_shader_effect(shader, bytecode, wrapped.sampler_resource_index, untouched));
+    PROGPU_REQUIRE(untouched == PROGPU_NATIVE_SCENE_NO_INDEX);
+    std::uint32_t wrong_kind{}, owned_picture{}, owned_effect{};
+    PROGPU_REQUIRE(foreign.add_shader_effect(shader, bytecode, wrong_kind));
+    PROGPU_REQUIRE(!foreign.add_shader_effect(shader, bytecode, wrong_kind, untouched));
+    PROGPU_REQUIRE(foreign.add_picture_image(picture,
+        std::span(captured.data() + picture_resource.auxiliary_offset, picture_resource.auxiliary_size), owned_picture));
+    PROGPU_REQUIRE(foreign.add_shader_effect(shader, bytecode, owned_picture, owned_effect));
+    std::vector<std::byte> wrong_kind_scene;
+    PROGPU_REQUIRE(foreign.build(wrong_kind_scene));
+    const auto wrong_header = read_value<progpu_native_scene_header>(wrong_kind_scene, 0U);
+    const auto wrong_resource = read_value<progpu_native_scene_resource>(wrong_kind_scene,
+        wrong_header.resource_offset + owned_effect * wrong_header.resource_stride);
+    auto wrong_wrapper = read_value<progpu_native_scene_shader_effect_picture>(wrong_kind_scene, wrong_resource.payload_offset);
+    wrong_wrapper.sampler_resource_index = wrong_kind;
+    write_value(wrong_kind_scene, wrong_resource.payload_offset, wrong_wrapper);
+    PROGPU_REQUIRE(progpu::native::scene::validate(wrong_kind_scene.data(), wrong_kind_scene.size()).status !=
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    // A later resource update does not mutate a previously retained picture.
+    pixels[0] = std::byte{0}; pixels[2] = std::byte{255};
+    PROGPU_REQUIRE(state.set_bitmap_source_rgba8(9U, 2U, 1U, 8U, pixels, 144.0, 192.0) == status::success);
+    PROGPU_REQUIRE(compile() != captured);
+    PROGPU_REQUIRE(state.set_bitmap_source_external_image(9U, 2U, 1U, 96.0, 96.0) == status::success);
+    PROGPU_REQUIRE(state.build_scene(request, rejected) != status::success && rejected.empty());
+    PROGPU_REQUIRE(state.set_bitmap_source_rgba8(9U, 2U, 1U, 8U, pixels, 144.0, 192.0) == status::success);
+    const auto before_cycle = compile();
+    batch.clear();
+    const std::array self{10U}; append_transform_group(batch, 10U, self);
+    image_brush(batch, 0.5, 10U);
+    PROGPU_REQUIRE(state.apply(batch) == status::invalid_graph);
+    PROGPU_REQUIRE(compile() == before_cycle);
+    batch.clear(); image_brush(batch); append_effect(batch); // detach the sampled source
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    batch.clear(); append_command(batch, command::channel_delete_resource, 8U, 80U);
+    append_command(batch, command::channel_delete_resource, 9U, 95U);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(progpu::native::scene::validate(captured.data(), captured.size()).status ==
+        PROGPU_NATIVE_STATUS_SUCCESS); // immutable picture survives original source disposal
     return true;
 }
 

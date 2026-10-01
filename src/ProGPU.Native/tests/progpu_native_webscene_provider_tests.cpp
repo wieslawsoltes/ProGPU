@@ -11,6 +11,7 @@
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
 #include "progpu_native_picture_axis_fixture.hpp"
 #include "progpu_native_shader_effect_pixel_fixture.hpp"
+#include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "progpu_native_webscene_state_mask_fixture.hpp"
@@ -3528,10 +3529,14 @@ int main(int argc, char** argv) {
             const auto stride = IOSurfaceGetBytesPerRow(surface);
             require(data != nullptr && IOSurfaceGetWidth(surface) == 64U &&
                 IOSurfaceGetHeight(surface) == 64U && stride >= 256U, "axis picture IOSurface storage is invalid");
-            // Oracle is grayscale, so BGRA/RGBA channel ordering is immaterial.
+            // The configured surface is explicitly BGRA8; normalize this
+            // readback to the shared fixture's RGBA byte order, without color
+            // conversion or changing the actual premultiplied values.
             std::vector<std::uint8_t> pixels(64U * 256U);
             for (std::size_t row = 0U; row < 64U; ++row)
                 std::memcpy(pixels.data() + row * 256U, data + row * stride, 256U);
+            for (std::size_t i = 0U; i < pixels.size(); i += 4U)
+                std::swap(pixels[i], pixels[i + 2U]);
             require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) == kIOReturnSuccess,
                 "axis picture IOSurface unlock failed");
             api.release_external(provider, &presented);
@@ -3546,6 +3551,11 @@ int main(int argc, char** argv) {
         [&](bool reference, const auto& stream, std::uint64_t generation,
             progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {
             return render_retained_scene(reference, stream, generation, 1U, 0x9493U, 1U, 3U, &layers, &frame);
+        }, require);
+    progpu::native::tests::verify_original_shader_sampler_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions,
+            std::uint32_t commands, progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {
+            return render_retained_scene(reference, stream, generation, submissions, 0x9494U, 1U, commands, &layers, &frame);
         }, require);
     for (auto* picture_engine : picture_engines) progpu_native_engine_destroy(picture_engine);
     progpu::native::tests::verify_path_pixel_mapping(

@@ -7,6 +7,7 @@
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
 #include "progpu_native_picture_axis_fixture.hpp"
 #include "progpu_native_shader_effect_pixel_fixture.hpp"
+#include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -2087,6 +2088,19 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(shader_reference_engine);
     phase("original bytecode shader effects passed");
+    auto* sampler_reference_engine = create_engine(gpu);
+    progpu::native::tests::verify_original_shader_sampler_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions,
+            std::uint32_t commands, progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            auto* selected = reference ? sampler_reference_engine : engine;
+            auto pixels = render_scene(gpu, selected, nullptr, 1U, commands, submissions,
+                stream, 0x9494U, generation, &metrics);
+            require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "owned sampler layer metrics unavailable");
+            return pixels;
+        }, require);
+    progpu_native_engine_destroy(sampler_reference_engine);
+    phase("original ImageBrush shader samplers passed");
     auto* glyph_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_semantic_glyph_sharing(
         [&](bool reference, const auto& stream, std::uint64_t generation,

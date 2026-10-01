@@ -5513,8 +5513,8 @@ struct channel::implementation {
             }
             for (const auto& [effect_handle, effect] : effects) {
                 if (effect_handle != handle &&
-                    std::ranges::find(effect.animations, handle) !=
-                        effect.animations.end()) {
+                    (effect.pixel_shader_handle == handle || effect.input_brush_handle == handle ||
+                     std::ranges::find(effect.animations, handle) != effect.animations.end())) {
                     return status::invalid_graph;
                 }
             }

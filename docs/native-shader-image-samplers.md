@@ -51,7 +51,22 @@ retirement reuse original ProGPU machinery from
 
 ## Qualification
 
-This implementation checkpoint precedes focused fixtures and contract checks.
+Authored source controls exercise the real original MIL ImageBrush route,
+registration before upload, physical capture dimensions despite different image
+DPI, malformed versions/indices, wrong resource kinds, atomic transform-cycle
+rejection, immutable bitmap revisions, external-source replacement and guarded
+dependency deletion. Captured bytes remain valid after source disposal.
+
+A shared fixture is wired into both native provider GPU suites. It constructs
+the original source packets and uploaded red/green or blue/green bitmap, then
+disposes the channel before rendering. Four cases cover brush opacity, repeated
+addressing, an actual brush translation, original shader sampling, final source
+clip and physical normalization. Every RGBA byte is checked independently over
+cold/warm/independent-engine replay, with two cold submissions (sampler capture
+plus parent) and one warm submission. BGRA surface readback is reordered to RGBA
+only; no value conversion or tolerance is applied.
+
+These fixtures and the implementation precede bounded contract checks.
 No native renderer build, GPU execution, runtime staging, VM, source application
 or package qualification has been performed for this extension. Fractional or
 cropped input captures, extra sampler registers and unsupported original shader
