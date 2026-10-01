@@ -237,6 +237,20 @@ bool semantic_scene_builder::try_get_full_image_copy(
     progpu_native_image_rect bounds, std::uint32_t pixel_width,
     std::uint32_t pixel_height, scene_full_image_copy& copy) const noexcept {
     copy = {};
+    scene_full_image_copy candidate{};
+    progpu_native_scene_presentation presentation{};
+    if (!try_get_full_image_copy(bounds, pixel_width, pixel_height, candidate, presentation) ||
+        (candidate.picture.flags & PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION) != 0U) return false;
+    copy = candidate;
+    return true;
+}
+
+bool semantic_scene_builder::try_get_full_image_copy(
+    progpu_native_image_rect bounds, std::uint32_t pixel_width,
+    std::uint32_t pixel_height, scene_full_image_copy& copy,
+    progpu_native_scene_presentation& presentation) const noexcept {
+    copy = {};
+    presentation = {};
     if (implementation_->stack_depth != 0U || implementation_->commands.size() != 3U ||
         !finite_rect(bounds) || bounds.width <= 0.0F || bounds.height <= 0.0F ||
         pixel_width == 0U || pixel_height == 0U) return false;
@@ -288,13 +302,15 @@ bool semantic_scene_builder::try_get_full_image_copy(
         !same_rect({draw.record.bounds_x, draw.record.bounds_y, draw.record.bounds_width, draw.record.bounds_height}, bounds) ||
         draw.payload.size() != sizeof(image) + (matrix ? sizeof(candidate.color_matrix) : 0U)) return false;
     if (matrix) std::memcpy(&candidate.color_matrix, draw.payload.data() + sizeof(image), sizeof(candidate.color_matrix));
+    progpu_native_scene_presentation candidate_presentation{};
     if (resource.picture_image) {
         if (!semantic::read_semantic_picture_image(resource.payload.data(), resource.payload.size(),
-                candidate.picture, candidate.presentation)) return false;
+                candidate.picture, candidate_presentation)) return false;
     }
     candidate.resource_index = draw.record.resource_index;
     candidate.resource_flags = resource.record.flags;
     copy = candidate;
+    presentation = candidate_presentation;
     return true;
 }
 

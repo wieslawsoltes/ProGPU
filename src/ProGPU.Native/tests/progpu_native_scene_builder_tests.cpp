@@ -16,6 +16,8 @@
 namespace progpu::native::tests {
 static_assert(sizeof(progpu_native_scene_picture_image) == 48U);
 static_assert(sizeof(progpu_native_scene_presentation) == 32U);
+static_assert(sizeof(scene_full_image_copy) == 8U + sizeof(progpu_native_scene_image_draw) +
+    sizeof(progpu_native_scene_image_color_matrix) + sizeof(progpu_native_scene_picture_image));
 namespace {
 
 template<class T>
@@ -1262,10 +1264,13 @@ bool semantic_scene_builder_reuses_retained_images() {
     exact_draw.opacity = 1.0F;
     semantic_scene_builder full_axis(7036U, 1U);
     scene_full_image_copy full_copy{};
+    progpu_native_scene_presentation full_presentation{};
     if (!full_axis.copy_image_from_builder(std::move(imported_axis), axis_index, exact_draw) ||
-        !full_axis.try_get_full_image_copy(exact_draw.destination_rect, 2U, 2U, full_copy) ||
-        std::memcmp(&full_copy.presentation, &axes, sizeof(axes)) != 0 ||
-        full_copy.picture.flags != axis_picture.flags) return false;
+        !full_axis.try_get_full_image_copy(exact_draw.destination_rect, 2U, 2U, full_copy, full_presentation) ||
+        std::memcmp(&full_presentation, &axes, sizeof(axes)) != 0 ||
+        full_copy.picture.flags != axis_picture.flags ||
+        full_axis.try_get_full_image_copy(exact_draw.destination_rect, 2U, 2U, full_copy) ||
+        full_copy.resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) return false;
     auto deep_scene = bgra_stream;
     for (unsigned int depth = 0U; depth <= PROGPU_NATIVE_SCENE_MAX_PICTURE_MASK_DEPTH; ++depth) {
         semantic_scene_builder nested(7040U + depth, 1U);

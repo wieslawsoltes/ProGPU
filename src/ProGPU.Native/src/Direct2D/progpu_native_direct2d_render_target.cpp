@@ -6161,9 +6161,10 @@ private:
         if (com::failed(result)) return result;
         if (for_copy) {
             scene_full_image_copy copy{};
+            progpu_native_scene_presentation copy_presentation{};
             const progpu_native_image_rect bounds{0.0F, 0.0F,
                 pixel_width_ * (96.0F / dpi_x_), pixel_height_ * (96.0F / dpi_y_)};
-            if (builder_.try_get_full_image_copy(bounds, pixel_width_, pixel_height_, copy)) {
+            if (builder_.try_get_full_image_copy(bounds, pixel_width_, pixel_height_, copy, copy_presentation)) {
                 const bool picture = (copy.resource_flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
                 const bool alpha_only = pixel_format_.format == dxgi_format_a8_unorm;
                 const auto expected_matrix = bitmap_alpha_matrix(picture);
@@ -6183,8 +6184,8 @@ private:
                         return destination.last_error() == scene_build_error::out_of_memory ? com::out_of_memory : failure;
                     snapshot.row_bytes = copy.image.row_bytes;
                     snapshot.picture_image = picture;
-                    snapshot.picture_raster_dpi_scale = picture ? copy.presentation.dpi_scale_x : 1.0F;
-                    snapshot.picture_raster_dpi_scale_y = picture ? copy.presentation.dpi_scale_y : 1.0F;
+                    snapshot.picture_raster_dpi_scale = picture ? copy_presentation.dpi_scale_x : 1.0F;
+                    snapshot.picture_raster_dpi_scale_y = picture ? copy_presentation.dpi_scale_y : 1.0F;
                     snapshot.copy_image_width = copy.image.image_width;
                     snapshot.copy_image_height = copy.image.image_height;
                     snapshot.copy_source_x = static_cast<std::uint32_t>(copy.image.source_rect.x);

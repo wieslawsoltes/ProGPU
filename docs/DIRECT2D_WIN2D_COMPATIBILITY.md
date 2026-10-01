@@ -5044,6 +5044,9 @@ suffix sizes, extra/missing bytes, mismatched extents, reserved words and axes
 whose logical viewport is not representable reject before publication. Uniform
 records still use exactly their original 48-byte payload. Existing COM interfaces,
 IIDs and native frame layouts do not change.
+The public C++ `scene_full_image_copy` layout also stays unchanged: a new overload
+returns presentation separately. Its original overload rejects flagged pictures
+instead of silently returning incomplete DPI metadata.
 
 The central payload reader publishes descriptor/presentation together. Builder
 import, scene export, copy-resource moves and full-copy flattening preserve all
