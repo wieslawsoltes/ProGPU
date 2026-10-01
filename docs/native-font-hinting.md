@@ -833,6 +833,15 @@ opaque text handles or foreign engines. Original MIL, ordered/default core and
 DX12 package processes remain required, with unchanged deadlines. Actual
 successful exact-head hosted package execution remains open.
 
+The managed Dawn adapter uses the actual packaged macOS/Linux basenames and
+native search paths anchored to the pinned FFI assembly, rather than test-only
+`lib` aliases or alternate provider names. This resolves the packaged lookup
+mismatch; it does not prove identity for an arbitrary host-installed
+`DllImportResolver`. The pinned FFI exposes no procedure-address query, and
+[assembly-aware native loading](https://learn.microsoft.com/en-us/dotnet/api/system.runtime.interopservices.nativelibrary.load?view=net-10.0#remarks)
+does not call that resolver. Custom redirect/module ownership qualification
+therefore remains separate and open.
+
 The original normalized instance check uses public
 [fvar](https://learn.microsoft.com/en-us/typography/opentype/spec/fvar) and
 [avar](https://learn.microsoft.com/en-us/typography/opentype/spec/avar) contracts,

@@ -140,17 +140,27 @@ public static unsafe class NativeDawnAdapter
             }
             else if (OperatingSystem.IsMacOS())
             {
-                library = "libwebgpu_dawn.dylib";
+                library = "webgpu_dawn.dylib";
+            }
+            else if (OperatingSystem.IsLinux())
+            {
+                library = "webgpu_dawn.so";
             }
             else
             {
                 library = "libwebgpu_dawn.so";
             }
-            if (!NativeLibrary.TryLoad(library, out s_dawnLibrary))
+            // Use the pinned FFI assembly's runtime/assembly native search
+            // paths and exact packaged basename, never an alternate provider
+            // name or a test-harness lib-prefix alias.
+            if (!NativeLibrary.TryLoad(library,
+                    typeof(WebGpuSharp.FFI.WebGPU_FFI).Assembly,
+                    searchPath: null, out nint module))
             {
                 throw new DllNotFoundException(
                     $"The exact Dawn procedure provider '{library}' could not be loaded.");
             }
+            s_dawnLibrary = module;
             return s_dawnLibrary;
         }
     }
