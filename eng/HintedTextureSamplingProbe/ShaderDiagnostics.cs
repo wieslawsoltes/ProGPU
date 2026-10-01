@@ -7,7 +7,12 @@ namespace HintedTextureSamplingProbe;
 internal static class ShaderDiagnostics
 {
     internal const string BaselineCommit = "8adb6350927fa64d8d4a025cb8181ff111868b74";
+    internal const string BaselineProfile = "original-interpolated-coverage";
     internal const string CanonicalFrameProfile = "canonical-physical-coverage-frame";
+    internal const string AffineCanonicalFrameProfile = "affine-canonical-physical-coverage-frame";
+
+    internal static bool HasCanonicalFrame(string profile) =>
+        profile is CanonicalFrameProfile or AffineCanonicalFrameProfile;
 
     internal static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes));
     internal static string Hash(string text) => Hash(Encoding.UTF8.GetBytes(text));
@@ -41,9 +46,9 @@ internal static class ShaderDiagnostics
 
     internal static string SourceProfile(string source, bool paint)
     {
-        // Admit only the original immutable control or the reviewed coverage-
-        // frame candidate. Never accept arbitrary changed shaders, normalize
-        // compilation input, or pretend the candidate is the original parent.
+        // Keep the original immutable control and reviewed coverage-frame
+        // profile separate from integrated affine paint. Never accept arbitrary
+        // changed shaders, normalize compilation input, or replace old proof.
         string baselineHash = paint
             ? "2EE776CD0912D979E24F65B201C2AAEA11AFFEFCA454A00418F80AB4C5BAADEC"
             : "008A9A9E0B8CDC4FAEFF422BA799E45896F18FBA2E5AB646DCAE6EC498BB25D1";
@@ -51,9 +56,11 @@ internal static class ShaderDiagnostics
             ? "E3B8284FDD96F0C93E6E17B05DED3D784B7A33FD56407415144DC72BF3E9A0B3"
             : "4B3F9627450762D4A0FF92CC83A960045178685E07E3483EB72BC47CC8086BBD";
         string hash = CanonicalHash(source);
-        if (hash == baselineHash) return "original-interpolated-coverage";
+        if (hash == baselineHash) return BaselineProfile;
         if (hash == canonicalFrameHash) return CanonicalFrameProfile;
-        throw new InvalidOperationException("Production shader differs from both reviewed sampling diagnostic source profiles.");
+        if (paint && hash == "124A87992503FD20771874316FA26306B9CBE0949B3553C200CE33AA16D18B26")
+            return AffineCanonicalFrameProfile;
+        throw new InvalidOperationException("Production shader differs from every reviewed sampling diagnostic source profile.");
     }
 
     // Diagnostic-only instrumentation. All original vertex arithmetic, coverage

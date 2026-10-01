@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
@@ -76,7 +77,7 @@ internal static unsafe class Program
         int initialSubmissions = _submissions, initialCompletions = _completed;
         string text = ShaderDiagnostics.VerifySource(false), paint = ShaderDiagnostics.VerifySource(true);
         string textProfile = ShaderDiagnostics.SourceProfile(text, false), paintProfile = ShaderDiagnostics.SourceProfile(paint, true);
-        if (canonicalFrame && (textProfile != ShaderDiagnostics.CanonicalFrameProfile || paintProfile != ShaderDiagnostics.CanonicalFrameProfile))
+        if (canonicalFrame && (!ShaderDiagnostics.HasCanonicalFrame(textProfile) || !ShaderDiagnostics.HasCanonicalFrame(paintProfile)))
             throw new InvalidOperationException("Canonical-frame opt-in requires both exact reviewed candidate modules.");
         string textDiagnostic = ShaderDiagnostics.Instrument(text, false);
         string paintDiagnostic = ShaderDiagnostics.Instrument(paint, true);
@@ -164,13 +165,15 @@ internal static unsafe class Program
                 foreach (string path in paths)
                 {
                     bool isPaint = path != "text";
-                    paints.WriteBytes(PaintBytes(path == "bounded-texture", size));
+                    byte[] paintBytes = PaintBytes(path == "bounded-texture", size);
+                    paints.WriteBytes(paintBytes);
+                    uint vertexCount = DrawVertexCount(isPaint ? paintProfile : textProfile, isPaint, paintBytes);
                     ProbePipeline pipeline = pipelines[isPaint ? 1 : 0];
                     for (uint count = 1; count <= 2; count++)
                     for (int frame = 0; frame < 2; frame++)
                     {
                         string name = path + (count == 1 ? "-single" : "-overlap") + (frame == 0 ? "-cold" : "-warm");
-                        byte[] pixels = Draw(context, pipeline, instances, target, readback, 0, count, false);
+                        byte[] pixels = Draw(context, pipeline, instances, target, readback, 0, count, vertexCount, false);
                         if (!pixels.Where((_, index) => index % 4 == 3).Any(alpha => alpha > 0))
                             missingInk.Add(name);
                         frames.Add(name, pixels);
@@ -181,7 +184,7 @@ internal static unsafe class Program
                     {
                         ProbePipeline diagnosticPipeline = pipelines[(isPaint ? 3 : 2) + sample * 2];
                         string name = path + (sample == 0 ? "-caller" : "-sample") + "-glyph-" + occurrence;
-                        byte[] pixels = Draw(context, diagnosticPipeline, instances, diagnosticTarget, diagnosticReadback, occurrence, 1, true);
+                        byte[] pixels = Draw(context, diagnosticPipeline, instances, diagnosticTarget, diagnosticReadback, occurrence, 1, vertexCount, true);
                         foreach (float value in MemoryMarshal.Cast<byte, float>(pixels))
                             if (!float.IsFinite(value)) throw new InvalidOperationException("Nonfinite diagnostic output: " + name);
                         frames.Add(name, pixels);
@@ -247,6 +250,8 @@ internal static unsafe class Program
                     NativeFrameReference = nativeFrame ? NativeFrameControl.Provenance() : null,
                     ReviewedShaderBaselineCommit = ShaderDiagnostics.BaselineCommit,
                     ShaderProfiles = new { Text = textProfile, HintedGlyphPaint = paintProfile },
+                    DrawVertexCounts = paths.ToDictionary(path => path, path =>
+                        DrawVertexCount(path == "text" ? textProfile : paintProfile, path != "text", PaintBytes(path == "bounded-texture", size))),
                     OriginalGate0Comparison = "Immutable native-frame run36884526788 at c0e9d839644f9e46664cd51ee66e637828fe63cc; compare exact receipts separately, not a claim of cross-provider parity.",
                     Provider = context.BackendKind.ToString(), Backend = context.AdapterBackendType.ToString(),
                     context.AdapterName, Compiler = context.SelectedDx12ShaderCompiler?.ToString(), RequestedFallback = fallback,
@@ -370,8 +375,23 @@ internal static unsafe class Program
         return bytes;
     }
 
+    internal static uint DrawVertexCount(string profile, bool paint, ReadOnlySpan<byte> paintBytes)
+    {
+        if (profile is not (ShaderDiagnostics.BaselineProfile or ShaderDiagnostics.CanonicalFrameProfile or ShaderDiagnostics.AffineCanonicalFrameProfile))
+            throw new InvalidOperationException("Unknown draw source profile.");
+        if (!paint) return 6;
+        if (paintBytes.Length != 96) throw new ArgumentException("Expected the original96-byte paint record.", nameof(paintBytes));
+        // Match both merged engine paths: each bounded affine glyph triangle
+        // retains its original image quad. Positive-axis copies are collapsed
+        // by the shader, not omitted by guessing from the probe's instances.
+        // Historical profiles retain their original six-vertex contract.
+        return profile == ShaderDiagnostics.AffineCanonicalFrameProfile &&
+            BinaryPrimitives.ReadUInt32LittleEndian(paintBytes) == 1 &&
+            (BinaryPrimitives.ReadUInt32LittleEndian(paintBytes[8..]) & 2) != 0 ? 12u : 6u;
+    }
+
     private static byte[] Draw(WgpuContext context, ProbePipeline pipeline, GpuBuffer instances,
-        GpuTexture target, GpuTextureReadbackBuffer readback, uint first, uint count, bool diagnostic)
+        GpuTexture target, GpuTextureReadbackBuffer readback, uint first, uint count, uint vertexCount, bool diagnostic)
     {
         BeginScope(context);
         var encoderDescription = new CommandEncoderDescriptor();
@@ -383,7 +403,7 @@ internal static unsafe class Program
         for (uint group = 0; group < pipeline.Groups.Count; group++)
             context.Api.RenderPassEncoderSetBindGroup(pass, group, (BindGroup*)pipeline.Groups[(int)group], 0, null);
         context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, instances.BufferPtr, 0, instances.Size);
-        context.Api.RenderPassEncoderDraw(pass, 6, count, 0, first);
+        context.Api.RenderPassEncoderDraw(pass, vertexCount, count, 0, first);
         context.Api.RenderPassEncoderEnd(pass);
         context.Api.RenderPassEncoderRelease(pass);
         var commandsDescription = new CommandBufferDescriptor();

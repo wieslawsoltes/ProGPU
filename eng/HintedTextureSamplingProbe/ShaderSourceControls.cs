@@ -127,6 +127,36 @@ internal static class ShaderSourceControls
             "Canonical-frame opt-in changed its exact negative token, defaultgate0, or unrelated uniforms.");
         Check(!(BitConverter.ToSingle(certified, 204) > .5f),
             "Coverage certificate accidentally selected the existing Texture boundedSourcePass policy.");
+        byte[] boundedPaint = Program.PaintBytes(true, 96), materialPaint = Program.PaintBytes(false, 96);
+        byte[] extendedPaint = boundedPaint.ToArray(), taggedMaterial = materialPaint.ToArray();
+        // Original kind/flags bytes, independently exercising both halves of
+        // the engine's bounded-texture predicate. These do not render or admit
+        // new extended/affine geometry in the existing axis-frame probe.
+        extendedPaint[8] &= unchecked((byte)~2);
+        taggedMaterial[8] |= 2;
+        foreach (string profile in new[] { ShaderDiagnostics.BaselineProfile,
+            ShaderDiagnostics.CanonicalFrameProfile, ShaderDiagnostics.AffineCanonicalFrameProfile })
+        {
+            Check(Program.DrawVertexCount(profile, false, []) == 6,
+                "Ordinary Text must retain its original six-vertex quad.");
+            Check(Program.DrawVertexCount(profile, true, boundedPaint) ==
+                (profile == ShaderDiagnostics.AffineCanonicalFrameProfile ? 12u : 6u),
+                "Bounded texture count does not match its exact reviewed shader profile.");
+            Check(Program.DrawVertexCount(profile, true, materialPaint) == 6,
+                "Registered material gained an extra glyph contribution.");
+            Check(Program.DrawVertexCount(profile, true, extendedPaint) == 6,
+                "Extended texture gained a bounded image-quad copy.");
+            Check(Program.DrawVertexCount(profile, true, taggedMaterial) == 6,
+                "Texture flag alone selected a second registered-material quad.");
+        }
+        Check(!ShaderDiagnostics.HasCanonicalFrame(ShaderDiagnostics.BaselineProfile),
+            "Original baseline profile gained canonical-frame admission.");
+        Check(ShaderDiagnostics.HasCanonicalFrame(ShaderDiagnostics.CanonicalFrameProfile),
+            "Reviewed coverage-frame profile lost its exact canonical capability.");
+        Check(ShaderDiagnostics.HasCanonicalFrame(ShaderDiagnostics.AffineCanonicalFrameProfile),
+            "Integrated affine paint profile lost its exact canonical capability.");
+        Reject(() => Program.DrawVertexCount("unreviewed", true, boundedPaint),
+            "Unknown shader profile selected a draw contract.");
         return passed + CanonicalCoverageOracle.RunControls();
 
         void Check(bool condition, string message)
