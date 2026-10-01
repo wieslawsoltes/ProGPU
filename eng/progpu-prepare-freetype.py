@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import struct
 import subprocess
+import time
 import urllib.request
 
 
@@ -28,10 +29,34 @@ LEGAL_PREFIXES = ("src/gzip/zlib.h", "src/base/fthash.c",
                   "src/autofit/hb-script-list.h")
 
 
-def run(command, *, cwd=None, env=None):
+def run(command, *, cwd=None, env=None, timeout=600):
     return subprocess.run(command, cwd=cwd, env=env, check=True,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          text=True, timeout=600)
+                          text=True, timeout=timeout)
+
+
+def fetch_release(source, tag):
+    # Retry only transient HTTP transport failures, against the SAME origin/tag.
+    # All attempts share the existing 600-second command budget. Signature,
+    # author, tag-object and commit verification still follow this fetch once.
+    command = ["git", "-C", str(source), "fetch", "--depth", "1", "origin", "tag", tag]
+    deadline = time.monotonic() + 600
+    for attempt in range(3):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(command, 600)
+        try:
+            return run(command, timeout=remaining)
+        except subprocess.CalledProcessError as error:
+            transient = re.search(r"The requested URL returned error: (429|502|503|504)(?:\s|$)",
+                                  error.stderr or "")
+            if transient is None or attempt == 2:
+                raise
+            delay = attempt + 1
+            if deadline - time.monotonic() <= delay:
+                raise
+            print(f"Pinned FreeType fetch returned HTTP {transient[1]}; retrying the same origin/tag.", flush=True)
+            time.sleep(delay)
 
 
 def gpg_environment(keyring, path_converter=None):
@@ -175,7 +200,7 @@ def prepare(args):
     run([args.gpg, "--batch", "--import", key_path.as_posix()], env=environment)
     run(["git", "init", "-q", str(source)])
     run(["git", "-C", str(source), "remote", "add", "origin", pin["repository"]])
-    run(["git", "-C", str(source), "fetch", "--depth", "1", "origin", "tag", pin["tag"]])
+    fetch_release(source, pin["tag"])
     tag = run(["git", "-C", str(source), "rev-parse", "refs/tags/" + pin["tag"]]).stdout.strip()
     commit = run(["git", "-C", str(source), "rev-parse", pin["tag"] + "^{}"]).stdout.strip()
     author = run(["git", "-C", str(source), "show", "-s", "--format=%an <%ae>", commit]).stdout.strip()

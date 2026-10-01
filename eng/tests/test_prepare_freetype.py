@@ -3,6 +3,7 @@ import json
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import os
 import struct
+import subprocess
 import tempfile
 import unittest
 import uuid
@@ -125,6 +126,42 @@ class FreeTypeArchiveTests(unittest.TestCase):
 
 
 class FreeTypeProvenanceTests(unittest.TestCase):
+    def test_transient_fetch_retries_same_origin_and_tag_with_one_deadline(self):
+        failure = subprocess.CalledProcessError(128, "git", stderr="fatal: The requested URL returned error: 502\n")
+        result = SimpleNamespace(stdout="fetched")
+        with patch.object(PREPARE, "run", side_effect=[failure, failure, result]) as fetch, \
+             patch.object(PREPARE.time, "monotonic", side_effect=[0, 0, 10, 11, 20, 22]), \
+             patch.object(PREPARE.time, "sleep") as sleep:
+            self.assertIs(result, PREPARE.fetch_release(Path("owned-source"), "pinned-tag"))
+            for invocation in fetch.call_args_list:
+                self.assertEqual(["git", "-C", "owned-source", "fetch", "--depth", "1", "origin", "tag", "pinned-tag"], invocation.args[0])
+            self.assertEqual([600, 589, 578], [call.kwargs["timeout"] for call in fetch.call_args_list])
+            self.assertEqual([1, 2], [call.args[0] for call in sleep.call_args_list])
+
+    def test_fetch_never_retries_security_errors_or_extends_exhausted_budget(self):
+        for message in ("The requested URL returned error: 403", "certificate verification failed", "missing remote tag"):
+            failure = subprocess.CalledProcessError(128, "git", stderr=message)
+            with self.subTest(message=message), patch.object(PREPARE, "run", side_effect=failure) as fetch, \
+                 patch.object(PREPARE.time, "sleep") as sleep, self.assertRaises(subprocess.CalledProcessError):
+                PREPARE.fetch_release(Path("owned-source"), "pinned-tag")
+            self.assertEqual(1, fetch.call_count)
+            sleep.assert_not_called()
+        failure = subprocess.CalledProcessError(128, "git", stderr="The requested URL returned error: 504")
+        with patch.object(PREPARE, "run", side_effect=failure) as fetch, \
+             patch.object(PREPARE.time, "monotonic", side_effect=[0, 0, 599.5]), \
+             patch.object(PREPARE.time, "sleep") as sleep, self.assertRaises(subprocess.CalledProcessError):
+            PREPARE.fetch_release(Path("owned-source"), "pinned-tag")
+        self.assertEqual(1, fetch.call_count)
+        sleep.assert_not_called()
+
+    def test_fetch_stops_after_three_transient_failures(self):
+        failure = subprocess.CalledProcessError(128, "git", stderr="The requested URL returned error: 503")
+        with patch.object(PREPARE, "run", side_effect=failure) as fetch, \
+             patch.object(PREPARE.time, "sleep"), self.assertRaises(subprocess.CalledProcessError) as raised:
+            PREPARE.fetch_release(Path("owned-source"), "pinned-tag")
+        self.assertIs(failure, raised.exception)
+        self.assertEqual(3, fetch.call_count)
+
     def test_gpg_paths_retain_the_owned_keyring_on_windows_and_unix(self):
         original = dict(os.environ)
         for path, spelling in ((PureWindowsPath(r"D:\runner temp\font\keyring"),
