@@ -739,9 +739,12 @@ jobs:
           -Compiler MSVC
           -SkipExtendedIntegration
 
+  dawn-system-warp:
+    uses: ./.github/workflows/dawn-system-warp.yml
+
   native-package:
     name: Native C++ NuGet package
-    needs: [native-cpp, dx12-runtime]
+    needs: [native-cpp, dx12-runtime, dawn-system-warp]
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -775,6 +778,13 @@ jobs:
           path: artifacts/progpu-dx12/package
           merge-multiple: true
 
+      - name: Download checked Windows Dawn companions
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-dawn-warp-runtime-*
+          path: artifacts/dawn-system-warp/payload
+          merge-multiple: true
+
       - name: Pack and run source-independent consumer
         shell: bash
         run: |
@@ -786,7 +796,9 @@ jobs:
             -p:Version="${version}" -p:PackageVersion="${version}"
           dotnet pack src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj \
             --configuration Release --output "${output}" \
-            -p:Version="${version}" -p:PackageVersion="${version}"
+            -p:Version="${version}" -p:PackageVersion="${version}" \
+            -p:ProGpuIncludeDawnSystemWarp=true \
+            -p:ProGpuDawnSystemWarpPayloadRoot="${GITHUB_WORKSPACE}/artifacts/dawn-system-warp/payload"
           dotnet pack src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj \
             --configuration Release --output "${output}" \
             -p:Version="${version}" -p:PackageVersion="${version}"
@@ -805,6 +817,44 @@ jobs:
             artifacts/packages-native/Release/*.nupkg
             artifacts/packages-native/Release/*.snupkg
           if-no-files-found: error
+
+  dawn-warp-package-consumer:
+    name: Dawn WARP NuGet consumer (${{ matrix.rid }})
+    needs: native-package
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: actions/download-artifact@v8
+        with:
+          name: progpu-native-package
+          path: artifacts/packages-native/Release
+      - name: Run NuGet-delivered JIT and NativeAOT WARP consumers
+        shell: pwsh
+        run: >-
+          ./eng/test-dawn-system-warp-windows.ps1 -Rid '${{ matrix.rid }}'
+          -PackageSource "$env:GITHUB_WORKSPACE/artifacts/packages-native/Release"
+          -PackageVersion "0.1.0-preview.$env:GITHUB_RUN_NUMBER.ci"
+      - name: Preserve package readback evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dawn-warp-package-${{ matrix.rid }}
+          path: artifacts/dawn-system-warp/${{ matrix.rid }}/
+          if-no-files-found: warn
 
   native-dx12-package-consumer:
     name: Native DX12 package consumer (${{ matrix.rid }})

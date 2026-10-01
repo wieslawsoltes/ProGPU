@@ -6,8 +6,13 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
+    <RestoreSources Condition="'$(ProGpuDawnUsePackage)' == 'true'">$(ProGpuDawnPackageSource);https://api.nuget.org/v3/index.json</RestoreSources>
+    <ProGpuEnableDawnSystemWarp Condition="'$(ProGpuDawnUsePackage)' == 'true'">true</ProGpuEnableDawnSystemWarp>
   </PropertyGroup>
-  <ItemGroup>
+  <ItemGroup Condition="'$(ProGpuDawnUsePackage)' != 'true'">
     <ProjectReference Include="../../src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ProGpuDawnUsePackage)' == 'true'">
+    <PackageReference Include="ProGPU.Backend.Dawn" VersionOverride="$(ProGpuDawnPackageVersion)" />
   </ItemGroup>
 </Project>

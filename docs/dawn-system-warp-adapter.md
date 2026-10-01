@@ -151,3 +151,14 @@ The companion's imported-provider check is distinct from proving a host's custom
 WebGPUSharp P/Invoke resolver. Custom resolver/load-context binding and failure
 cancellation remain open integration gates; a normal-runner readback cannot
 qualify those configurations.
+
+The complete Build now calls that same producer workflow and waits for both
+native Windows RID producers before optional companion packing. Separate Windows
+NuGet consumer jobs restore the exact CI-versioned Dawn package with no project
+reference, enable its build-transitive asset selection, and run the same JIT and
+NativeAOT readback cases. Package-mode execution never copies native files by hand
+or rebuilds the companion. Both consumers and all existing native/package jobs
+must pass before the complete Build is successful. This package path is newly
+authored and still awaiting its first receipt; the earlier project-reference
+receipt does not qualify it. Pull requests use only the complete Build's producer
+invocation, avoiding duplicate companion jobs on each push.

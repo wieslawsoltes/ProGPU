@@ -1,6 +1,10 @@
 #requires -Version 7.2
-[CmdletBinding()]
-param([Parameter(Mandatory)][ValidateSet('win-x64','win-arm64')][string]$Rid)
+[CmdletBinding(DefaultParameterSetName='Source')]
+param(
+    [Parameter(Mandatory)][ValidateSet('win-x64','win-arm64')][string]$Rid,
+    [Parameter(Mandatory,ParameterSetName='Package')][string]$PackageSource,
+    [Parameter(Mandatory,ParameterSetName='Package')][string]$PackageVersion
+)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $architecture = if ($Rid -eq 'win-arm64') { 'arm64' } else { 'x64' }
@@ -15,22 +19,38 @@ Import-Module (Join-Path $installation 'Common7/Tools/Microsoft.VisualStudio.Dev
 Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments "-arch=$architecture -host_arch=$architecture" | Out-Null
 $repo = Split-Path $PSScriptRoot -Parent
 $workspace = Join-Path ([IO.Path]::GetTempPath()) ('progpu-dawn-warp.' + [Guid]::NewGuid().ToString('N'))
-$build = Join-Path $workspace 'original-build'
-$payload = Join-Path $workspace "payload/$Rid/native"
-& (Join-Path $PSScriptRoot 'build-dawn-system-warp-windows.ps1') -Rid $Rid -BuildDirectory $build -OutputDirectory $payload
+$packageMode = $PSCmdlet.ParameterSetName -eq 'Package'
+$publicationArguments = @()
+$payload = $null
+if ($packageMode) {
+    if (-not [IO.Path]::IsPathFullyQualified($PackageSource) -or -not (Test-Path -LiteralPath $PackageSource -PathType Container)) {
+        throw 'Package qualification requires an absolute existing package source.'
+    }
+    $publicationArguments = @('-p:ProGpuDawnUsePackage=true', "-p:ProGpuDawnPackageSource=$PackageSource", "-p:ProGpuDawnPackageVersion=$PackageVersion")
+} else {
+    $build = Join-Path $workspace 'original-build'
+    $payload = Join-Path $workspace "payload/$Rid/native"
+    & (Join-Path $PSScriptRoot 'build-dawn-system-warp-windows.ps1') -Rid $Rid -BuildDirectory $build -OutputDirectory $payload
+}
 $evidence = Join-Path $repo "artifacts/dawn-system-warp/$Rid"
 if (Test-Path -LiteralPath $evidence) { throw 'Evidence must be fresh.' }
 New-Item -ItemType Directory -Path $evidence | Out-Null
-Copy-Item -LiteralPath (Join-Path $payload 'progpu-dawn-system-warp.json') -Destination $evidence
+if (-not $packageMode) {
+    Copy-Item -LiteralPath (Join-Path $payload 'progpu-dawn-system-warp.json') -Destination $evidence
+}
 foreach ($kind in @('jit','aot')) {
     $publish = Join-Path $workspace "consumer-$kind"
     $aot = if ($kind -eq 'aot') { 'true' } else { 'false' }
-    dotnet publish (Join-Path $repo 'tests/ProGPU.DawnSystemWarp.Conformance/ProGPU.DawnSystemWarp.Conformance.csproj') -c Release -r $Rid --self-contained true "-p:PublishAot=$aot" -o $publish
+    dotnet publish (Join-Path $repo 'tests/ProGPU.DawnSystemWarp.Conformance/ProGPU.DawnSystemWarp.Conformance.csproj') -c Release -r $Rid --self-contained true "-p:PublishAot=$aot" -o $publish @publicationArguments
     if ($LASTEXITCODE -ne 0) { throw "The $kind consumer did not publish." }
     foreach ($name in @('progpu_dawn_system_warp.dll','progpu-dawn-system-warp.json','Dawn-LICENSE.txt')) {
         $destination = Join-Path $publish $name
-        if (Test-Path -LiteralPath $destination) { throw "Refusing to replace consumer asset: $name" }
-        Copy-Item -LiteralPath (Join-Path $payload $name) -Destination $destination
+        if ($packageMode) {
+            if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) { throw "NuGet did not deliver $name for $kind." }
+        } else {
+            if (Test-Path -LiteralPath $destination) { throw "Refusing to replace consumer asset: $name" }
+            Copy-Item -LiteralPath (Join-Path $payload $name) -Destination $destination
+        }
     }
     $stdout = Join-Path $evidence "$kind-stdout.log"
     $stderr = Join-Path $evidence "$kind-stderr.log"
@@ -44,5 +64,15 @@ foreach ($kind in @('jit','aot')) {
     } finally {
         if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
         $process.Dispose()
+    }
+}
+if (-not $packageMode) {
+    # Publish only after both executable modes passed, retaining the RID directory
+    # so multiple producer artifacts can be merged without filename collisions.
+    $artifact = Join-Path $repo "artifacts/dawn-system-warp/payload/$Rid/native"
+    if (Test-Path -LiteralPath $artifact) { throw 'Companion artifact publication must be fresh.' }
+    New-Item -ItemType Directory -Path $artifact | Out-Null
+    foreach ($name in @('progpu_dawn_system_warp.dll','progpu-dawn-system-warp.json','Dawn-LICENSE.txt')) {
+        Copy-Item -LiteralPath (Join-Path $payload $name) -Destination $artifact
     }
 }
