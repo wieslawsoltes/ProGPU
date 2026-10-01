@@ -255,8 +255,12 @@ progpu_avalonia_runtime_package_purposes=(
 # Exact package closure required by the ProGPU System.Drawing.Common adapter.
 # Keep this topologically ordered so source-first consumers can produce a small,
 # internally version-aligned local feed without packing unrelated UI frameworks.
+# The native drawing/text adapter requires both native backends and their real
+# staged runtime payload; the ordinary native package validation remains required.
 progpu_drawing_runtime_package_ids=(
   ProGPU.Backend
+  ProGPU.Backend.Dawn
+  ProGPU.Backend.Native
   ProGPU.Text.Shaping
   ProGPU.Transpiler
   ProGPU.WinRT
@@ -270,6 +274,8 @@ progpu_drawing_runtime_package_ids=(
 
 progpu_drawing_runtime_package_projects=(
   src/ProGPU.Backend/ProGPU.Backend.csproj
+  src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj
+  src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj
   src/ProGPU.Text.Shaping/ProGPU.Text.Shaping.csproj
   src/ProGPU.Transpiler/ProGPU.Transpiler.csproj
   src/ProGPU.WinRT/ProGPU.WinRT.csproj
@@ -283,6 +289,8 @@ progpu_drawing_runtime_package_projects=(
 
 progpu_drawing_runtime_package_purposes=(
   "Drawing runtime closure: WebGPU device and platform backend."
+  "Drawing runtime closure: typed Dawn native presentation and shared-resource interop."
+  "Drawing runtime closure: typed native drawing/text host and validated desktop runtimes."
   "Drawing runtime closure: AOT-safe OpenType shaping."
   "Drawing runtime closure: shader/source transformation."
   "Drawing runtime closure: platform-neutral WinRT value contracts."

@@ -1,5 +1,11 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+The isolated drawing package group includes the real Native and Dawn backend
+dependencies in source-reference order. Preserve exact version closure and native
+runtime validation; consumers stage real payloads only from the exact successful
+whole producer Build. Source manifest checks do not qualify packages or permit
+fake runtimes. See docs/drawing-native-package-closure.md.
+
 EDIT boundary transport classifies the complete original UTF-16 source with its
 explicit paragraph direction once. Preserve the existing policy/dependency errors,
 original endpoints and interior-grapheme seams; never substitute UAX word stops,

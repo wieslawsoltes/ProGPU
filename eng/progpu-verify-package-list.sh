@@ -113,4 +113,6 @@ if [[ "${#classified_projects[@]}" -ne 94 ]]; then
   exit 1
 fi
 
+python3 "${repo_root}/eng/test-drawing-package-closure.py"
+
 echo "ProGPU package manifest verification succeeded: ${#progpu_package_ids[@]} runtime, ${#progpu_integration_lane_projects[@]} integration-lane, and ${#progpu_nonshipping_projects[@]} non-shipping projects."
