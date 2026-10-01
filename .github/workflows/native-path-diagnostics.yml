@@ -180,7 +180,7 @@ jobs:
           retention-days: 14
 
   windows-path-stage:
-    if: inputs.probe_set != 'allocation-counter' && inputs.probe_set != 'hinted-texture' && inputs.probe_set != 'hinted-native-frame' && inputs.probe_set != 'hinted-canonical-frame' && inputs.probe_set != 'hinted-native-input'
+    if: inputs.probe_set != 'allocation-counter' && inputs.probe_set != 'hinted-texture' && inputs.probe_set != 'hinted-native-frame' && inputs.probe_set != 'hinted-canonical-frame' && inputs.probe_set != 'hinted-affine-frame' && inputs.probe_set != 'hinted-native-input'
     name: Windows path-stage diagnosis (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10

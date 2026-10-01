@@ -158,6 +158,20 @@ class GlyphCoverageFrameMathTests(unittest.TestCase):
 
 
 class GlyphCoverageFrameSourceTests(unittest.TestCase):
+    def test_package_free_diagnostics_never_select_package_consumers(self):
+        workflow = (ROOT / ".github/workflows/native-path-diagnostics.yml").read_text()
+        options = re.search(r"options: \[([^\]]+)\]", workflow).group(1)
+        choices = {value.strip() for value in options.split(",")}
+        package_backed = {"all", "lifetime", "atlas", "raster", "encoder", "retirement", "fence", "owner"}
+        condition = workflow.split("  windows-path-stage:\n", 1)[1].splitlines()[0].strip()
+        self.assertTrue(condition.startswith("if: "))
+        exclusions = set()
+        for term in condition[4:].split(" && "):
+            match = re.fullmatch(r"inputs\.probe_set != '([^']+)'", term)
+            self.assertIsNotNone(match)
+            exclusions.add(match.group(1))
+        self.assertEqual(choices - package_backed, exclusions)
+
     def test_both_shader_routes_share_actual_fragment_address(self):
         geometry = (SHADERS / "TextGlyphGeometryCommon.wgsl").read_text()
         text = (SHADERS / "Text.wgsl").read_text()
