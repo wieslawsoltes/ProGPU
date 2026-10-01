@@ -20,6 +20,7 @@ internal static class Program
         string fontPath = Path.GetFullPath(args[validateOnly ? 2 : 1]);
         byte[] font = File.ReadAllBytes(fontPath);
         using var reference = ReferenceInput.Read(referencePath, font);
+        bool sourceInputs = ReferenceInput.HasIndependentSourceInputs(reference.RootElement);
         if (validateOnly)
         {
             Console.WriteLine("Original receipt validated: 192 cases / 386 lines / 450 runs; no native library loaded.");
@@ -87,6 +88,8 @@ internal static class Program
                     rawRuns.Add(new
                     {
                         SourceLineStart = line.GetProperty("SourceStart").GetInt32(), OriginalRun = run.Clone(),
+                        IndependentSourceFaceMetrics = sourceInputs ? run.GetProperty("FontMetrics").Clone() : (JsonElement?)null,
+                        IndependentNominalDesignAdvances = sourceInputs ? run.GetProperty("NominalDesignAdvances").Clone() : (JsonElement?)null,
                         RawGlyphs = glyphs,
                         RawHorizontalAdvancesDip = glyphs.Select(g => ReferenceInput.DeviceToDip(g.HorizontalAdvance266, dpi)).ToArray(),
                         RawSlotAdvancesDip = glyphs.Select(g => ReferenceInput.DeviceToDip(g.AdvanceX266, dpi)).ToArray(),
@@ -106,6 +109,7 @@ internal static class Program
                 cases.Add(new
                 {
                     OriginalCase = item.Clone(), Interpreter = (uint)interpreter, DeviceEm26_6 = ppem26_6,
+                    IndependentSourceFontInputs = sourceInputs ? item.GetProperty("SourceFont").Clone() : (JsonElement?)null,
                     ExactSourceDpi = dpi, NativeLogicalUnitsPerPhysicalPixel = logicalUnits,
                     NativeDirection = direction, FontIndex = 0, Phase26_6 = new uint[] { 0, 0 },
                     Features = Array.Empty<NativeTextFeature>(), VariationCoordinates16_16 = Array.Empty<int>(),
@@ -131,7 +135,9 @@ internal static class Program
         var receipt = new
         {
             Schema = 1, NativeSourceCommit = args[4], SuppliedSuccessfulBuild = args[5],
-            NativeLibrary = nativeIdentity, ReferenceReceipt = Identity(referencePath), ReferenceProvenance = reference.RootElement.Clone(),
+            HasIndependentSourceInputs = sourceInputs,
+            NativeLibrary = nativeIdentity, ReferenceReceipt = new { reference.Path, reference.Sha256 },
+            ReferenceProvenance = reference.RootElement.Clone(),
             Font = Identity(fontPath), FontFace = 0, UnitsPerEm = upm, HheaAscent = ascent, HheaDescent = descent, HheaLineGap = lineGap,
             Probe = Identity(Assembly.GetExecutingAssembly().Location), Backend = Identity(typeof(NativeTextShapingContext).Assembly.Location),
             Architecture = RuntimeInformation.ProcessArchitecture.ToString(), OperatingSystem = RuntimeInformation.OSDescription,

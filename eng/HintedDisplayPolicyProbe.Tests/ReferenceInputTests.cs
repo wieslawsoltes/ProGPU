@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text;
+using System.Security.Cryptography;
 using HintedDisplayPolicyProbe;
 using Xunit;
 
@@ -12,10 +14,61 @@ public sealed class ReferenceInputTests
         return JsonNode.Parse(File.ReadAllText(path))!.AsObject();
     }
 
+    private static byte[] OriginalBytes() => File.ReadAllBytes(Environment.GetEnvironmentVariable("PROGPU_WPF_DISPLAY_REFERENCE")
+        ?? throw new InvalidOperationException("Original reference path required."));
+
+    [Fact]
+    public void ExactByteHashAndParsedValuesSurviveCallerMutationWithoutPathReread()
+    {
+        byte[] bytes = OriginalBytes();
+        string expected = Convert.ToHexString(SHA256.HashData(bytes));
+        using var reference = ReferenceInput.ParseVerified(bytes, "not-a-live-path");
+        Array.Fill(bytes, (byte)0);
+        Assert.Equal(expected, reference.Sha256);
+        Assert.Equal("not-a-live-path", reference.Path);
+        Assert.Equal(192, reference.RootElement.GetProperty("CaseCount").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("advance")] [InlineData("baseline")] [InlineData("glyph")] [InlineData("formatting")]
+    public void PlausibleFiniteChangesCannotImpersonateAnOriginalReceipt(string mutation)
+    {
+        var original = Original();
+        var line = original["Cases"]![0]!["Lines"]![0]!;
+        var run = line["Runs"]![0]!;
+        switch (mutation)
+        {
+            case "advance": run["Advances"]![0] = 9.0; break;
+            case "baseline": line["Baseline"] = 12.0; break;
+            case "glyph": run["GlyphIds"]![0] = 162; break;
+            case "formatting": break; // Even reserialization is not the exact receipt.
+        }
+        Validate(original); // Plausible altered values still satisfy structural checks.
+        Assert.Throws<InvalidDataException>(() => ReferenceInput.ParseVerified(Encoding.UTF8.GetBytes(original.ToJsonString()), "unused"));
+    }
+
+    [Theory]
+    [InlineData("font")] [InlineData("face")] [InlineData("nominal")]
+    public void IndependentInputsRemainRequiredForTheirOriginalProducer(string mutation)
+    {
+        var original = Original();
+        // An older producer cannot claim new input coverage by changing its label.
+        original["SourceCommit"] = ReferenceInput.SourceInputCommit;
+        var item = original["Cases"]![0]!;
+        var run = item["Lines"]![0]!["Runs"]![0]!;
+        switch (mutation)
+        {
+            case "font": item.AsObject().Remove("SourceFont"); break;
+            case "face": run.AsObject().Remove("FontMetrics"); break;
+            case "nominal": run["NominalDesignAdvances"] = new JsonArray(); break;
+        }
+        Assert.Throws<InvalidDataException>(() => Validate(original));
+    }
+
     private static void Validate(JsonObject node)
     {
         using var document = JsonDocument.Parse(node.ToJsonString());
-        ReferenceInput.Validate(document.RootElement);
+        ReferenceInput.ValidateStructure(document.RootElement);
     }
 
     [Fact]

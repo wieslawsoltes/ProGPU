@@ -7,7 +7,13 @@ an observation, not permission to round source output, substitute Ideal or chang
 defaults.
 
 The unchanged original 192-case / 386-line / 450-run receipt and its font hash are
-validated before any native load. Every Display case is retained in full for each
+validated before any native load. Only the four exact x64/ARM64 receipt SHA-256
+values from whole-successful reference runs 36864998524 (3195c6e96) and
+36866824045 (432f5d5d5) are accepted. Self-declared commit/token/inventory alone is
+not original provenance: a finite changed advance, baseline, glyph ID or even
+reserialized receipt rejects. Hashing and parsing consume one privately copied
+snapshot, whose original hash is published without re-reading the path.
+Every Display case is retained in full for each
 policy. Each original Microsoft glyph-ID batch is captured without reshaping or
 reordering; signed slot metrics, advances, side-bearing deltas and all other raw
 26.6/16.16 fields remain separate from Microsoft output advances/offsets. The
@@ -21,6 +27,14 @@ output baseline/height values and are not asserted to equal WPF's source line
 policy. Neither fitting differences nor raw-slot advance agreement alone prove
 positioning parity. The retained original source records permit later alignment
 only where original source, cluster, bidi and glyph identities actually agree.
+
+The later reference's independent `SourceFont` inputs, physical `FontMetrics` and
+per-original-occurrence `NominalDesignAdvances` are separately validated and
+recorded. They do not replace the probe's explicit head/hhea diagnostic inputs.
+The earlier producer explicitly records absence, not synthetic values. The newer
+receipts match between architectures after only FontUri drive normalization;
+their original output arrays also match the earlier receipts. This is source
+reference evidence, not native Display metric qualification.
 
 Logical shaped values remain signed 26.6, independently of actual float-positioned
 output. Diagnostic double-DIP values divide by 64 then by the original double DPI;
@@ -63,9 +77,15 @@ PROGPU_WPF_DISPLAY_REFERENCE=/absolute/reference.json \
 
 On 2026-10-01 the managed probe compiled with zero warnings/errors, and both
 unchanged original x64/ARM64 receipts passed input validation without native loads.
-All 19 focused receipt/identity/signed-conversion tests passed against each original
-receipt, zero skipped. These include an exact control distinguishing 9.6 source
+The original 19 focused receipt/identity/signed-conversion tests passed against
+each original receipt, zero skipped. Eight follow-up controls cover exact-byte
+provenance, finite-value tampering, immutable snapshot hash reuse and required
+independent source metadata. These include an exact control distinguishing 9.6 source
 double from promotion of the native float projection, not a native observation.
+The complete 27-test suite passes against all four accepted original receipts,
+zero skipped; the extended probe compiles with zero warnings/errors. New source
+receipts and immutable provenance notes are retained internally under
+`/private/tmp/progpu-display-source-inputs.8m8manYP`; no native runtime was staged.
 Local execution is blocked by the absence of a verified internal native runtime;
 the reviewed signed FreeType preparation also requires unavailable GnuPG. No
 signature bypass, tool installation, failed-Build staging or native metric result
