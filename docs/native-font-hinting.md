@@ -1010,6 +1010,29 @@ only flat records enter the selected stock or Dawn MIL library. Disposal keeps
 an active resource alive, drains every acquired lease on update failure and
 suppresses finalization only after actual release.
 
+`AcquireReadLease` exposes the same cached original records as typed read-only
+spans, without a new native crossing, layout pass or geometry copy. One sealed
+reference lease owns one use; aliases cannot double-decrement it. Owner disposal
+rejects later acquisition but retains native storage until existing readers end.
+An ended lease rejects all record access. Consumers must keep the lease alive
+for the entire use of every returned span and must not race that use with lease
+disposal; a span does not itself extend native ownership. A failed native teardown
+retains retry ownership separately from the already-ended use, never decrementing
+that use again. These rules follow the public [.NET owner/consumer/lease contract](https://learn.microsoft.com/en-us/dotnet/standard/memory-and-spans/memory-t-usage-guidelines)
+and its read-only synchronous buffer guidance, not external implementation code.
+Explicit acquisition allocates one retained lease; record properties do not
+allocate or execute fonts. This ownership seam does not wire or qualify either
+managed/recorded renderer or admit source Display.
+
+Loaded-package controls compare all original formatting and interaction records
+against the independently retained paragraph, font/device/axis identity against
+the original inputs, and source descriptor maps and physical bounds against the
+raw hinted run. Automatic/scalar resources retain identical projected arrays.
+Every public array stays unchanged across simultaneous readers, owner/source
+retirement and clearing caller storage; ended readers and new acquisition after
+owner disposal fail explicitly. These authored controls supplement, never replace,
+the existing native geometry differentials and package/image/application gates.
+
 `progpu_native_mil_channel_apply_with_hinted_glyph_resources` stages the canonical
 batch, owned record imports and explicit positioned-index bindings on one graph
 clone. Native MIL statuses retain their existing meaning. A late failure leaves

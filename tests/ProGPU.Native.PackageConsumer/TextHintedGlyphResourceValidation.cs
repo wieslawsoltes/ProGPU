@@ -7,8 +7,8 @@ using ProGPU.Backend.Native;
 // Original ProGPU public-package CPU controls. Canonical packets use the owned
 // MIL builder; expected occurrences and ink bounds use public original hinted
 // runs and the paragraph's actual writer frames, never design-outline decoding.
-// The public package API does not decode compiled geometry/owner maps. Their
-// typed differential belongs to the independent native controls, not this test.
+// Public resource leases expose original producer geometry/owner maps. The
+// compiled MIL stream remains independently checked without decoding its GPU data.
 // This fixture does not create a GPU, compare pixels or admit source Display.
 internal static class TextHintedGlyphResourceValidation
 {
@@ -46,7 +46,7 @@ internal static class TextHintedGlyphResourceValidation
         }
         Console.WriteLine($"package-consumer: loaded hinted glyph resource/MIL CPU transport passed ({cases} layouts, " +
             $"actual {backend}, module={info.Name}); original occurrence/raw records, full public stream/metric rollback and retirement; " +
-            "public API does not decode compiled geometry/owner maps or qualify pixels/Display");
+            "original read leases/retirement checked; compiled MIL geometry and pixels/Display remain independent gates");
         Console.WriteLine($"package-consumer: genuine reviewed variable hinted resource/MIL CPU transport passed ({variableCases} additional layouts, " +
             $"actual {backend}, original axes opsz=23/wght=700, normalized=(8192,8847)); " +
             "nonempty two-axis identity, nondefault raw ink, unchanged original records and all original transaction/lifetime controls");
@@ -130,6 +130,15 @@ internal static class TextHintedGlyphResourceValidation
         using var resource = paragraph.PrepareGlyphResource(dpi, coverage: NativeHintedCoverage.AntialiasedVector);
         using var scalar = paragraph.PrepareGlyphResource(dpi, NativeHintedProjectionPolicy.ScalarReference,
             NativeHintedCoverage.AntialiasedVector);
+        using var read = resource.AcquireReadLease();
+        using var secondRead = resource.AcquireReadLease();
+        using var scalarRead = scalar.AcquireReadLease();
+        CheckOriginalReadLease(read, paragraph, raw, font, upm, devices, variations, normalized, features);
+        var retainedReadBytes = CopyReadLeaseArrays(read);
+        CheckReadLeaseArrays(retainedReadBytes, secondRead);
+        CheckReadLeaseArrays(retainedReadBytes, scalarRead);
+        secondRead.Dispose(); secondRead.Dispose();
+        Reject<ObjectDisposedException>(() => { _ = secondRead.FontBytes.Length; }, "ended read lease cannot expose native bytes");
         Check(resource.DpiScale == dpi && scalar.DpiScale == dpi && resource.Projection == NativeHintedProjectionPolicy.Automatic &&
             scalar.Projection == NativeHintedProjectionPolicy.ScalarReference && resource.Coverage == NativeHintedCoverage.AntialiasedVector &&
             scalar.Coverage == NativeHintedCoverage.AntialiasedVector && SameValue(resource.Counts, paragraph.Counts) &&
@@ -233,6 +242,10 @@ internal static class TextHintedGlyphResourceValidation
         Unchanged(channel, Compile, backend, noInk, baseline);
 
         original.Dispose(); context.Dispose(); paragraph.Dispose(); resource.Dispose();
+        CheckReadLeaseArrays(retainedReadBytes, read);
+        CheckReadLeaseArrays(retainedReadBytes, scalarRead);
+        Reject<ObjectDisposedException>(() => { using var invalid = resource.AcquireReadLease(); },
+            "retired resource cannot acquire a new read lease while an earlier lease remains live");
         Array.Clear(font); Array.Clear(source); Array.Clear(features); Array.Clear(styles); Array.Clear(metrics); Array.Clear(devices);
         Array.Clear(variations); Array.Clear(normalized);
         Array.Clear(batch); Array.Clear(bindings); Array.Clear(indices); Array.Clear(selected.GlyphIds); Array.Clear(selected.Advances);
@@ -240,6 +253,9 @@ internal static class TextHintedGlyphResourceValidation
         Check(resource.IsDisposed && scalar.IsDisposed && positionedBytes.AsSpan().SequenceEqual(MemoryMarshal.AsBytes(paragraph.Glyphs)) &&
             ownerBytes.AsSpan().SequenceEqual(MemoryMarshal.AsBytes(paragraph.PositionedOwners)),
             "original writer snapshots survive source/context/paragraph/producer-wrapper retirement");
+        CheckReadLeaseArrays(retainedReadBytes, read);
+        read.Dispose(); read.Dispose(); scalarRead.Dispose(); scalarRead.Dispose();
+        Reject<ObjectDisposedException>(() => { _ = read.Glyphs.Length; }, "ended final read lease cannot expose retired glyphs");
         Unchanged(channel, Compile, backend, noInk, baseline);
         Reject<ObjectDisposedException>(() => { using var invalid = paragraph.PrepareGlyphResource(dpi,
             coverage: NativeHintedCoverage.AntialiasedVector); }, "retired paragraph cannot prepare a new resource");
@@ -249,6 +265,94 @@ internal static class TextHintedGlyphResourceValidation
         channel.Dispose();
         Reject<ObjectDisposedException>(() => channel.ApplyWithHintedGlyphResources([], [], [], []), "retired selected-provider channel");
         Check(channel.IsDisposed, "explicit channel retirement");
+    }
+
+    private static void CheckOriginalReadLease(NativeHintedGlyphResourceReadLease read, NativeHintedParagraph paragraph,
+        RawSnapshot raw, byte[] font, uint upm, NativeHintedParagraphDeviceStyle[] devices,
+        int[] variations, short[] normalized, NativeTextFeature[] features)
+    {
+        Check(SameValue(read.Counts, paragraph.Counts) && SameValue(read.Result, paragraph.Result) &&
+            read.ShapingDirection == NativeTextDirection.LeftToRight && !read.SourceDigitBidi,
+            "read lease retains original writer metadata, not a reconstructed paragraph");
+        Check(Same<NativeTextScalar>(read.SourceScalars, paragraph.SourceScalars) &&
+            Same<NativeTextScalar>(read.AdmittedScalars, paragraph.AdmittedScalars) &&
+            Same<NativeTextBidiLevel>(read.ScalarLevels, paragraph.ScalarLevels) &&
+            Same<NativeTextStyleRun>(read.Styles, paragraph.Styles) &&
+            Same<NativeTextStyleMetrics>(read.SourceMetrics, paragraph.SourceMetrics) &&
+            Same<NativeHintedParagraphRun>(read.Runs, paragraph.Runs) &&
+            Same<NativeTextShapingGlyph>(read.LogicalGlyphs, paragraph.LogicalGlyphs) &&
+            Same<NativeHintedParagraphGlyphOwner>(read.LogicalOwners, paragraph.LogicalOwners) &&
+            Same<int>(read.LogicalClusterEnds, paragraph.LogicalClusterEnds) &&
+            Same<sbyte>(read.LogicalBidiLevels, paragraph.LogicalBidiLevels) &&
+            Same<float>(read.GlyphScales, paragraph.GlyphScales) &&
+            Same<NativePositionedTextGlyph>(read.Glyphs, paragraph.Glyphs) &&
+            Same<NativeHintedParagraphGlyphOwner>(read.PositionedOwners, paragraph.PositionedOwners) &&
+            Same<int>(read.ClusterEnds, paragraph.ClusterEnds) && Same<sbyte>(read.BidiLevels, paragraph.BidiLevels) &&
+            Same<NativePositionedTextLine>(read.Lines, paragraph.Lines) && Same<float>(read.LineOrigins, paragraph.LineOrigins) &&
+            Same<NativeTextClusterBox>(read.Boxes, paragraph.Boxes) && Same<NativeTextCaretStop>(read.Carets, paragraph.Carets),
+            "every original format/interaction record is byte-exact through the resource read lease");
+        Check(read.FontSources.Length == 1 && read.FontSources[0].ByteOffset == 0 &&
+            read.FontSources[0].ByteCount == font.Length && read.FontSources[0].FaceIndex == 0 &&
+            read.FontSources[0].UnitsPerEm == upm && read.FontBytes.SequenceEqual(font) &&
+            Same<NativeHintedParagraphDeviceStyle>(read.DeviceStyles, devices) &&
+            read.VariationCoordinates1616.SequenceEqual(variations) && read.NormalizedCoordinates.SequenceEqual(normalized) &&
+            Same<NativeTextFeature>(read.Features, features) && read.PreContext.IsEmpty && read.PostContext.IsEmpty,
+            "actual original font bytes/face, explicit device axes and selected normalized shaping identity");
+        Check(read.RunSlices.Length == paragraph.Runs.Length && read.PositionedOutlineIndices.Length == read.Glyphs.Length &&
+            read.OutlineOwners.Length == read.Outlines.Length && read.SourceOutlineIndices.Length == raw.Outlines.Length &&
+            read.RunOutlineIndices.Length == raw.Glyphs.Length,
+            "complete original descriptor and occurrence maps, including no-ink slots");
+        for (int i = 0; i < read.Glyphs.Length; i++)
+        {
+            var owner = read.PositionedOwners[i];
+            var slice = read.RunSlices[checked((int)owner.RunIndex)];
+            uint outlineIndex = read.SourceOutlineIndices[checked((int)(slice.SourceStart + owner.DescriptorIndex))];
+            Check(owner.DescriptorIndex == raw.Descriptors[i] &&
+                outlineIndex == read.RunOutlineIndices[checked((int)(slice.RunStart + owner.RunGlyphIndex))] &&
+                outlineIndex == read.PositionedOutlineIndices[i],
+                "each original positioned occurrence resolves its retained descriptor slot, never a glyph-ID lookup");
+            var original = raw.Outlines[checked((int)owner.DescriptorIndex)];
+            if (original.PointCount == 0)
+            {
+                Check(outlineIndex == uint.MaxValue, "no-ink source occurrence remains explicit, without invented drawable geometry");
+                continue;
+            }
+            Check(outlineIndex < read.Outlines.Length, "original ink points resolve a live retained projected outline");
+            var outlineOwner = read.OutlineOwners[checked((int)outlineIndex)];
+            var outline = read.Outlines[checked((int)outlineIndex)];
+            var points = raw.Points.AsSpan(checked((int)original.PointOffset), checked((int)original.PointCount));
+            Vector2 lo = Physical(points[0]), hi = lo;
+            foreach (var point in points) { var p = Physical(point); lo = Vector2.Min(lo, p); hi = Vector2.Max(hi, p); }
+            Check(outlineOwner.RunIndex == owner.RunIndex && outlineOwner.DescriptorIndex == owner.DescriptorIndex &&
+                outline.Minimum == lo && outline.Maximum == hi && outline.RasterScale == 1 && outline.SubpixelX == 0 &&
+                outline.SegmentCount > 0 && outline.SegmentOffset <= (nuint)read.Segments.Length &&
+                outline.SegmentCount <= (nuint)read.Segments.Length - outline.SegmentOffset,
+                "owned physical Y-up geometry uses original capture bounds and phase exactly once");
+        }
+    }
+
+    // Test-owned byte snapshots cover every public original array. Production
+    // acquisition/properties do not copy, allocate geometry or execute fonts.
+    private static byte[][] CopyReadLeaseArrays(NativeHintedGlyphResourceReadLease read) =>
+    [
+        Bytes(read.FontSources), Bytes(read.FontBytes), Bytes(read.DeviceStyles), Bytes(read.VariationCoordinates1616),
+        Bytes(read.NormalizedCoordinates), Bytes(read.Outlines), Bytes(read.Segments), Bytes(read.RunSlices),
+        Bytes(read.SourceOutlineIndices), Bytes(read.RunOutlineIndices), Bytes(read.OutlineOwners), Bytes(read.PositionedOutlineIndices),
+        Bytes(read.SourceScalars), Bytes(read.AdmittedScalars), Bytes(read.ScalarLevels), Bytes(read.Styles), Bytes(read.SourceMetrics),
+        Bytes(read.Runs), Bytes(read.LogicalGlyphs), Bytes(read.LogicalOwners), Bytes(read.LogicalClusterEnds), Bytes(read.LogicalBidiLevels),
+        Bytes(read.GlyphScales), Bytes(read.Glyphs), Bytes(read.PositionedOwners), Bytes(read.ClusterEnds), Bytes(read.BidiLevels),
+        Bytes(read.Lines), Bytes(read.LineOrigins), Bytes(read.Boxes), Bytes(read.Carets), Bytes(read.PreContext), Bytes(read.PostContext),
+        Bytes(read.Features),
+    ];
+
+    private static byte[] Bytes<T>(ReadOnlySpan<T> values) where T : unmanaged => MemoryMarshal.AsBytes(values).ToArray();
+
+    private static void CheckReadLeaseArrays(byte[][] expected, NativeHintedGlyphResourceReadLease read)
+    {
+        byte[][] actual = CopyReadLeaseArrays(read);
+        Check(expected.Length == actual.Length, "complete public read-array inventory");
+        for (int i = 0; i < expected.Length; i++)
+            Check(expected[i].AsSpan().SequenceEqual(actual[i]), $"original leased array {i} remains byte-exact");
     }
 
     private sealed record Selection(NativeMilGlyphRun Run, ushort[] GlyphIds, float[] Advances, Vector2[] Offsets, uint[] Indices);

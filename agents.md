@@ -180,6 +180,13 @@ all explicit occurrence bindings share one candidate and preserve prior graph,
 cache and native status on any later failure. Drain every managed resource lease
 even when teardown faults. Public transport does not admit managed compositor,
 recorded/source replay, nonidentity bases or Display selection.
+Public hinted-resource read leases retain the original producer independently of
+source/owner disposal. Read-only spans borrow that lease, never own native storage;
+consumers must exclude lease disposal throughout span use. One reference lease
+ends one use exactly once, including teardown faults; retained failure retry must
+not decrement that use again. Preserve every original format/interaction/font,
+axis, source-owner and physical-geometry record without new shaping or copies.
+This consumer ownership seam does not qualify either renderer or select Display.
 
 Retained DrawingTextLayout painting and interaction must share one original
 formatted generation. Own exact glyph/font runs and interaction geometry; do not
