@@ -4345,6 +4345,133 @@ progpu_native_status try_layout_context_hinted_paragraph(
 #endif
 }
 
+hinted_paragraph_reflow_result reflow_hinted_paragraph(
+    const hinted_paragraph_generation& source, std::int32_t input_start,
+    float maximum_width) noexcept {
+    hinted_paragraph_reflow_result result{};
+    const auto logical_count = source.logical_glyphs.size();
+    if (!std::isfinite(maximum_width) || maximum_width < 0.0F || input_start < 0 ||
+        source.lines.empty() || input_start < source.lines.front().input_start ||
+        logical_count == 0U || logical_count > UINT32_MAX ||
+        source.logical_bidi_levels.size() != logical_count || source.glyph_scales.size() != logical_count ||
+        source.breaks_after.size() != logical_count || source.item_metrics.size() != logical_count ||
+        source.logical_owners.size() != logical_count || source.logical_cluster_ends.size() != logical_count ||
+        (!source.justification_classes.empty() && source.justification_classes.size() != logical_count) ||
+        source.layout.trimming != PROGPU_NATIVE_TEXT_TRIMMING_NONE) return result;
+    // The original producer's logical cluster order is retained, including
+    // ligatures, marks, digit substitution and full-paragraph bidi context.
+    const auto first = std::lower_bound(source.logical_glyphs.begin(), source.logical_glyphs.end(), input_start,
+        [](const shaping_glyph& glyph, std::int32_t start) { return glyph.cluster < start; });
+    if (first == source.logical_glyphs.end() || first->cluster != input_start) return result;
+    const auto start = static_cast<std::uint32_t>(first - source.logical_glyphs.begin());
+    try {
+        auto candidate = std::make_shared<hinted_paragraph_generation>();
+        // Explicit owned copies rebind the request's pointers. Font and hinted
+        // run allocations retain their exact original shared identities; no
+        // mutable source/context or earlier positioned view is borrowed.
+        candidate->source_input = source.source_input;
+        candidate->pre_context = source.pre_context;
+        candidate->post_context = source.post_context;
+        candidate->features = source.features;
+        candidate->normalized_coordinates = source.normalized_coordinates;
+        candidate->shaping = source.shaping;
+        candidate->shaping.input = candidate->source_input.data();
+        candidate->shaping.pre_context = candidate->pre_context.data();
+        candidate->shaping.post_context = candidate->post_context.data();
+        candidate->shaping.features = candidate->features.data();
+        candidate->shaping.normalized_coordinates = candidate->normalized_coordinates.data();
+        candidate->layout = source.layout;
+        candidate->layout.maximum_width = maximum_width;
+        candidate->shaping_input = source.shaping_input;
+        candidate->source_digit_bidi = source.source_digit_bidi;
+        candidate->paragraph_level = source.paragraph_level;
+        candidate->scalar_levels = source.scalar_levels;
+        candidate->script_runs = source.script_runs;
+        candidate->graphemes = source.graphemes;
+        candidate->fallback_runs = source.fallback_runs;
+        candidate->font_sources = source.font_sources;
+        candidate->styles = source.styles;
+        candidate->source_metrics = source.source_metrics;
+        candidate->device_styles = source.device_styles;
+        candidate->runs = source.runs;
+        candidate->logical_glyphs = source.logical_glyphs;
+        candidate->logical_bidi_levels = source.logical_bidi_levels;
+        candidate->logical_font_indices = source.logical_font_indices;
+        candidate->logical_source_scales = source.logical_source_scales;
+        candidate->glyph_scales = source.glyph_scales;
+        candidate->logical_owners = source.logical_owners;
+        candidate->line_break_classes = source.line_break_classes;
+        candidate->scalar_breaks = source.scalar_breaks;
+        candidate->breaks_after = source.breaks_after;
+        candidate->justification_classes = source.justification_classes;
+        candidate->item_metrics = source.item_metrics;
+        candidate->logical_cluster_ends = source.logical_cluster_ends;
+
+        const auto logical = std::span(candidate->logical_glyphs).subspan(start);
+        const auto breaks = std::span(candidate->breaks_after).subspan(start);
+        const auto scales = std::span(candidate->glyph_scales).subspan(start);
+        const auto options = convert_paragraph_layout_options(candidate->layout, candidate->paragraph_level);
+        text_layout_requirements required{};
+        font_error error = font_error::none;
+        if (!try_get_scaled_text_layout_requirements(logical, breaks, scales, options, required, &error)) {
+            result.status = status_from_error(error); return result;
+        }
+        candidate->glyphs.resize(required.glyph_capacity);
+        candidate->bidi_levels.resize(required.glyph_capacity);
+        candidate->lines.resize(required.line_capacity);
+        candidate->line_origins.resize(required.line_capacity);
+        candidate->line_frames.resize(required.line_capacity);
+        std::vector<text_visual_cluster_group> groups(required.glyph_capacity);
+        std::vector<std::uint32_t> indices(required.glyph_capacity);
+        std::uint32_t glyph_count = 0U, line_count = 0U;
+        if (!try_layout_measured_logical_shaped_text_retained(logical, breaks,
+                std::span(candidate->logical_bidi_levels).subspan(start), scales, candidate->paragraph_level,
+                options, {}, {}, {groups, indices}, candidate->glyphs, candidate->lines, glyph_count, line_count,
+                candidate->justification_classes.empty() ? std::span<const text_justification_class>{}
+                    : std::span<const text_justification_class>(candidate->justification_classes).subspan(start),
+                std::span(candidate->item_metrics).subspan(start),
+                {candidate->bidi_levels, candidate->line_origins, candidate->line_frames}, &error)) {
+            result.status = status_from_error(error); return result;
+        }
+        candidate->glyphs.resize(glyph_count);
+        candidate->bidi_levels.resize(glyph_count);
+        candidate->lines.resize(line_count);
+        candidate->line_origins.resize(line_count);
+        candidate->line_frames.resize(line_count);
+        candidate->positioned_owners.reserve(glyph_count);
+        candidate->cluster_ends.reserve(glyph_count);
+        for (auto& glyph : candidate->glyphs) {
+            if (glyph.glyph_index >= logical.size()) return result;
+            glyph.glyph_index += start;
+            candidate->positioned_owners.push_back(candidate->logical_owners[glyph.glyph_index]);
+            candidate->cluster_ends.push_back(candidate->logical_cluster_ends[glyph.glyph_index]);
+        }
+        if (candidate->lines.empty() || candidate->lines.front().input_start != input_start) return result;
+        if (!try_measure_measured_text_lines(candidate->lines, maximum_width, candidate->metrics, &error)) {
+            result.status = status_from_error(error); return result;
+        }
+        // Full shaping diagnostics still describe the same original producer.
+        // Only placement counts/extents change. No shaping/scratch work is
+        // invented for this retained operation.
+        candidate->paragraph_result = source.paragraph_result;
+        auto& diagnostic = candidate->paragraph_result;
+        diagnostic.glyph_count = glyph_count;
+        diagnostic.line_count = line_count;
+        diagnostic.content_width = candidate->metrics.content_width;
+        diagnostic.content_height = candidate->metrics.content_height;
+        diagnostic.measured_width = candidate->metrics.measured_width;
+        diagnostic.measured_height = candidate->metrics.measured_height;
+        diagnostic.scratch_bytes_used = 0U;
+        result.generation = std::move(candidate);
+        result.status = PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        result.status = PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        result.status = PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
+    return result;
+}
+
 } // namespace progpu::native::text
 
 namespace {
@@ -4897,6 +5024,25 @@ progpu_native_status progpu_native_hinted_glyph_resource_borrow(
         hinted_glyph_resource_aliases(*resource, view, sizeof(*view))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     *view = resource->view; // No allocation or new projection under the caller's producer-library lease.
     return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_hinted_glyph_resource_reflow(
+    const progpu_native_hinted_glyph_resource* resource,
+    std::int32_t input_start, float maximum_width,
+    progpu_native_hinted_glyph_resource** continuation) {
+    if (!valid_hinted_glyph_resource(resource) || !valid_hinted_buffer(continuation, 1U) ||
+        hinted_glyph_resource_aliases(*resource, continuation, sizeof(*continuation)))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    const auto reflow = reflow_hinted_paragraph(*resource->generation->paragraph(), input_start, maximum_width);
+    if (reflow.status != PROGPU_NATIVE_STATUS_SUCCESS) return reflow.status;
+    const auto interaction = create_hinted_paragraph_interaction(reflow.generation);
+    if (interaction.status != PROGPU_NATIVE_STATUS_SUCCESS) return interaction.status;
+    const progpu_native_hinted_paragraph paragraph{reflow.generation, interaction.generation};
+    const progpu_native_hinted_glyph_resource_request request{PROGPU_NATIVE_ABI_VERSION, sizeof(request),
+        resource->view.dpi_scale, resource->view.projection_policy, resource->view.coverage, 0U};
+    // Existing preparation owns all caches before its sole publication write.
+    // Original resource storage is excluded above, including full capacities.
+    return prepare_hinted_glyph_resource(&paragraph, &request, continuation, resource->has_nominal_metrics);
 }
 
 progpu_native_status progpu_native_hinted_glyph_resource_borrow_nominal_metrics(

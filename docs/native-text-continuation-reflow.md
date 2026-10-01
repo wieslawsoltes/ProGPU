@@ -52,6 +52,17 @@ supported justified continuation layout. Neither is silently approximated.
 
 ## Validation and remaining application gate
 
+The additive hinted-resource operation is separate from the context operation
+above: `progpu_native_hinted_glyph_resource_reflow` reuses already-owned original
+shaping and hinted runs, so it performs no new shaping or hinting at all. Its
+managed `NativeHintedGlyphResource.Reflow` returns an independently owned suffix
+with original global source/glyph identities and newly measured frames/interaction.
+It inherits the original execution settings and optional nominal metrics. See
+[source hinted ownership](source-hinted-text-ownership.md#retained-width-changing-continuation)
+for lifetime, atomicity and remaining gates. Native continuation controls for this
+new hinted operation are authored and syntax-checked, not executed; the historic
+ordinary continuation results below do not qualify it.
+
 - Both native providers compile; all 19 local native suites pass. The C interop
   fixture compares original full-paragraph glyph identities across widths and
   directions, tests measured object continuations and rejected boundaries.

@@ -142,8 +142,47 @@ the original double top remains available as layout metadata. No second
 interaction engine or invented empty-row caret is introduced. Source lines and
 cloned continuation breaks own independent references, while source GlyphRuns
 use the same original generation and canonical source offsets. Actual automatic
-Display selection, device metrics, width-changing hinted continuation, collapse,
+Display selection, device metrics, collapse,
 variable instances and public hinted GlyphRun caret/outline admission remain closed.
+
+### Retained width-changing continuation
+
+`NativeHintedGlyphResource.Reflow(inputStart, maximumWidth)` now places a suffix
+from the original retained logical generation. It does not reshape the source,
+reopen a font/context, hint a second run or derive placement from prior ink. The
+existing measured writer receives the exact logical suffix at an original shaped
+cluster boundary, including original full-paragraph bidi, digit substitution,
+breaks, justification and source metrics. It publishes original global glyph
+indices, new writer line frames and native advance interaction. Nested reflow
+cannot move before the current view's first source input.
+
+The new resource owns its copied immutable source metadata and retains the exact
+original shared hinted-run/font allocations. DPI, projection, coverage and
+nominal-metric preparation are inherited. Native output is published only after
+geometry, format, interaction and optional nominal metrics succeed; aliases into
+any original retained allocation reject. The managed call holds an input use
+through publication. Failed cleanup preserves the primary error and retains exact
+unpublished results for explicit retry through the original owner, including
+after its own native handle has been released.
+
+This uses the existing float fitting/positioning contract, not a precise-double
+Display fix or interpreter choice. Collapse still requires a real hinted sign
+and measured-sign ownership contract. Tabs, objects, fragments, empty-hard-row
+carets and source Display remain outside this operation. No source local Y
+correction or generic optional observer was added. The companion source adapter
+consumes it through the existing `IPortableReflowTextParagraph` capability.
+
+All 10 new device-free backend ownership tests passed with zero skipped cases,
+covering input lifetime, inherited settings, preflight, failed publication and
+exact retirement retry. The actual backend Release build had zero warnings or
+errors; the companion real-adapter compile and eight focused source connection/
+retirement controls also passed (these are not native-wrapper execution). Strict C++20 checks
+compile the actual interop with hinting both enabled and disabled and the native
+transport fixture. The authored native controls independently invoke the original
+writer across both explicit interpreters/directions and multiple widths, preserve
+source/run/font identity after original retirement, and reject interior/backward
+boundaries and all retained-span output aliases. Native/font execution, exact
+package qualification, Display policy and source UI remain unqualified.
 
 For this slice, 40 focused backend/neutral and 63 actual-adapter device-free tests
 passed with zero skipped cases. The managed backend compiled without warnings or

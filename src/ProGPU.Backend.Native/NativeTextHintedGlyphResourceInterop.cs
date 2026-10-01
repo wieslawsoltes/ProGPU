@@ -49,7 +49,8 @@ public sealed unsafe partial class NativeHintedGlyphResource : IDisposable
     internal NativeHintedGlyphResource(nint handle, in NativeMethods.HintedGlyphResourceView view,
         Action<nint> destroy, NativeMethods.HintedGlyphNominalMetricsView? nominalMetrics = null,
         HintedSourceFrameValidator? validateSourceFrame = null,
-        NativeMethods.HintedTextLineFramesView? lineFrames = null)
+        NativeMethods.HintedTextLineFramesView? lineFrames = null,
+        HintedResourceReflow? reflow = null)
     {
         ArgumentNullException.ThrowIfNull(destroy);
         _view = view;
@@ -57,6 +58,7 @@ public sealed unsafe partial class NativeHintedGlyphResource : IDisposable
         _lineFrames = lineFrames;
         _destroy = destroy;
         if (validateSourceFrame is not null) _validateSourceFrame = validateSourceFrame;
+        if (reflow is not null) _reflow = reflow;
         _handle = handle;
     }
 
@@ -124,9 +126,20 @@ public sealed unsafe partial class NativeHintedGlyphResource : IDisposable
 
     private void ReleaseIfUnused()
     {
-        if (!_disposed || _uses != 0 || _handle == 0) return;
-        _destroy(_handle);
-        _handle = 0;
+        if (!_disposed || _uses != 0) return;
+        Exception? primary = null;
+        if (_handle != 0)
+        {
+            try { _destroy(_handle); _handle = 0; }
+            catch (Exception error) { primary = error; }
+        }
+        try { DrainReflowRetirements(); }
+        catch (Exception error)
+        {
+            if (primary is null) primary = error;
+            else AttachCleanup(primary, error);
+        }
+        if (primary is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(primary).Throw();
         GC.SuppressFinalize(this);
     }
 

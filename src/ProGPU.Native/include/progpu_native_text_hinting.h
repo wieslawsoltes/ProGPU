@@ -521,6 +521,20 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_paragraph_prepare_gl
     const progpu_native_hinted_paragraph* paragraph,
     const progpu_native_hinted_glyph_resource_request* request,
     progpu_native_hinted_glyph_resource** resource);
+
+/* Places a suffix of the retained original logical generation at a proven
+ * cluster boundary, without shaping/hinting again or borrowing a context.
+ * Inherits DPI/projection/coverage and nominal-metric preparation. The new
+ * resource owns its lines, actual writer frames and interaction independently;
+ * original font/run/glyph/source identities and full shaping remain retained.
+ * Width is finite/nonnegative (zero preserves existing unbounded semantics).
+ * Nested continuations cannot precede the current view. Invalid requests and
+ * reachable output aliases leave the caller slot untouched. No collapse,
+ * Display policy, exact-double metric or empty-hard-row admission is implied. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_reflow(
+    const progpu_native_hinted_glyph_resource* resource,
+    int32_t input_start, float maximum_width,
+    progpu_native_hinted_glyph_resource** continuation);
 PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_borrow(
     const progpu_native_hinted_glyph_resource* resource,
     progpu_native_hinted_glyph_resource_view* view);
