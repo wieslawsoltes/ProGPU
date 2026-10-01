@@ -20,9 +20,11 @@ internal sealed record SourceAdvanceComparison(int SourceGlyphIndex, int Positio
     long NativeAdvance26_6, double NativeAdvanceDip, double AdvanceDeltaDip, bool ExactLogicalAdvance,
     float NativePositionedAdvance, double PositionedAdvanceDeltaDip, bool ExactPositionedAdvance,
     double[] OriginalSourceOffset, long[] NativeLogicalOffset26_6, double[] NativeLogicalOffsetDip,
-    float NativePositionedX, float NativePositionedY);
+    float NativePositionedX, float NativePositionedY,
+    int SourceGlyphRunBidiLevel, int NativeProjectedSourceGlyphRunBidiLevel);
 internal sealed record SourceRunComparison(int SourceLineIndex, int SourceRunIndex, int SourceStart, int SourceEnd,
-    string Status, string[] Reasons, SourceAdvanceComparison[] Occurrences);
+    string Status, string[] Reasons, SourceAdvanceComparison[] Occurrences,
+    int SourceGlyphRunBidiLevel, int? NativeBidiLevel, int? NativeProjectedSourceGlyphRunBidiLevel);
 internal sealed record SourceLineComparison(int SourceLineIndex, int SourceStart, int OriginalLength,
     int SourceEnd, int VirtualEndOfParagraphLength, int? NativeLineIndex, string Status,
     double SourceWidth, double SourceWidthIncludingTrailingWhitespace, float? NativeWidth,
@@ -88,7 +90,19 @@ internal static class SourceComparison
                 if (candidates.Length != ids.Length) failures.Add("different-original-occurrence-count");
                 if (candidates.Any(glyph => glyph.FontIndex != 0)) failures.Add("different-original-physical-font-owner");
                 int level = run.GetProperty("BidiLevel").GetInt32();
-                if (candidates.Any(glyph => glyph.BidiLevel != level)) failures.Add("different-original-run-bidi-level");
+                if (level is not (0 or 1)) failures.Add("unsupported-original-source-glyph-run-bidi-level");
+                // WPF shaped GlyphRuns publish direction, while native snapshots
+                // retain the full embedding level. Prove one exact native level
+                // inside this original source run before projecting its direction.
+                int? nativeLevel = candidates.Length == 0 ? null : candidates[0].BidiLevel;
+                if (nativeLevel.HasValue && candidates.Any(glyph => glyph.BidiLevel != nativeLevel.Value))
+                {
+                    failures.Add("mixed-native-embedding-levels-within-original-source-run");
+                    nativeLevel = null;
+                }
+                int? projectedLevel = nativeLevel.HasValue ? nativeLevel.Value & 1 : null;
+                if (projectedLevel.HasValue && projectedLevel.Value != level)
+                    failures.Add("different-original-run-bidi-level");
                 if (nativeLine.HasValue && candidates.Any(glyph => glyph.PositionedIndex < nativeLine.Value.GlyphStart ||
                     glyph.PositionedIndex - nativeLine.Value.GlyphStart >= nativeLine.Value.GlyphCount))
                     failures.Add("different-original-occurrence-line-owner");
@@ -124,12 +138,13 @@ internal static class SourceComparison
                             glyph.PositionedAdvance, (double)glyph.PositionedAdvance - advances[i], glyph.PositionedAdvance == advances[i],
                             offsets[i].EnumerateArray().Select(value => value.GetDouble()).ToArray(),
                             [glyph.OffsetX26_6, glyph.OffsetY26_6],
-                            [ReferenceInput.DeviceToDip(glyph.OffsetX26_6, dpi), ReferenceInput.DeviceToDip(glyph.OffsetY26_6, dpi)], glyph.X, glyph.Y));
+                            [ReferenceInput.DeviceToDip(glyph.OffsetX26_6, dpi), ReferenceInput.DeviceToDip(glyph.OffsetY26_6, dpi)], glyph.X, glyph.Y,
+                            level, projectedLevel!.Value));
                     }
                 }
                 runs.Add(new(sourceLineIndex, sourceRunIndex++, runStart, runEnd, failures.Count != 0 ? "Unmatched" :
                     occurrences.All(value => value.ExactLogicalAdvance && value.ExactPositionedAdvance) ? "AlignedExactAdvances" : "AlignedAdvanceDifference",
-                    failures.ToArray(), occurrences.ToArray()));
+                    failures.ToArray(), occurrences.ToArray(), level, nativeLevel, projectedLevel));
             }
             ++sourceLineIndex;
         }
