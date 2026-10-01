@@ -84,8 +84,11 @@ public sealed class DawnSystemWarpContractTests
         Assert.Contains("=> CreateSystemWarpOffscreenCore(companionDirectory, null);", source, StringComparison.Ordinal);
         Assert.Contains("cancellationProbe?.BeforeWait(deviceRequest: false);", source, StringComparison.Ordinal);
         Assert.Contains("cancellationProbe?.BeforeWait(deviceRequest: true);", source, StringComparison.Ordinal);
-        Assert.Contains("probe.Adapter.Verify((int)W.RequestAdapterStatus.CallbackCancelled);", source, StringComparison.Ordinal);
-        Assert.Contains("probe.Device.Verify((int)W.RequestDeviceStatus.CallbackCancelled);", source, StringComparison.Ordinal);
+        Assert.Contains("probe.Adapter.Verify((int)W.RequestAdapterStatus.Success, releasedResults: 1);", source, StringComparison.Ordinal);
+        Assert.Contains("probe.Device.Verify((int)W.RequestDeviceStatus.Success, releasedResults: 1);", source, StringComparison.Ordinal);
+        Assert.Contains("instance.WaitAny(1, &wait, 0)", source, StringComparison.Ordinal);
+        Assert.Contains("state.RetainUntilRetirement(retainedLoss.Free);", source, StringComparison.Ordinal);
+        Assert.Contains("_receipt?.ReleaseResult();", source, StringComparison.Ordinal);
         Assert.Contains("ReferenceEquals(error, probe.Failure)", source, StringComparison.Ordinal);
         Assert.Contains("_receipt?.Complete(status, _completionFailure);", source, StringComparison.Ordinal);
         Assert.Contains("_receipt?.Fail(error);", source, StringComparison.Ordinal);

@@ -141,8 +141,9 @@ public sealed unsafe partial class DawnGpuContext
             if (device != DeviceHandle.Null) { Cleanup(device.Destroy); Cleanup(device.Release); }
             if (adapter != AdapterHandle.Null) Cleanup(adapter.Release);
             if (instance != InstanceHandle.Null) Cleanup(instance.Release);
-            // Instance shutdown cancels pending request/loss callbacks before
-            // their userdata is released, including a failed device wait.
+            // Request failures already drain their completed native event. If
+            // draining failed, the pending request retained its loss userdata
+            // and cleared this handle instead of claiming shutdown canceled it.
             if (lossHandle.IsAllocated) Cleanup(lossHandle.Free);
             throw;
         }
@@ -154,6 +155,7 @@ public sealed unsafe partial class DawnGpuContext
     {
         var state = new SystemWarpRequest<AdapterHandle>(static owned => owned.Release(), cancellationProbe?.Adapter);
         Exception? failure = null;
+        W.Future queued = default;
         try
         {
             var callback = new RequestAdapterCallbackInfoFFI
@@ -177,14 +179,20 @@ public sealed unsafe partial class DawnGpuContext
             // Once queued, only completion/cancellation releases native userdata.
             if (status < 0) state.CancelUnqueuedNativeUse();
             ThrowSystemWarpFailure(status, error, "request the original system WARP LUID");
+            queued = new W.Future { Id = futureId };
             cancellationProbe?.BeforeWait(deviceRequest: false);
-            Wait(instance, new W.Future { Id = futureId }, "request the original system WARP LUID");
+            Wait(instance, queued, "request the original system WARP LUID");
             AdapterHandle selected = state.TakeHandle((int)W.RequestAdapterStatus.Success,
                 "request system WARP");
             luid = new(low, high);
             return selected;
         }
-        catch (Exception error) { failure = error; throw; }
+        catch (Exception error)
+        {
+            failure = error;
+            DrainAbandonedSystemWarpRequest(instance, queued, state, error);
+            throw;
+        }
         finally { state.EndManagedUse(failure); }
     }
 
@@ -199,6 +207,7 @@ public sealed unsafe partial class DawnGpuContext
             try { owned.Destroy(); } finally { owned.Release(); }
         }, cancellationProbe?.Device);
         Exception? failure = null;
+        W.Future queued = default;
         try
         {
             fixed (W.FeatureName* required = features)
@@ -226,19 +235,54 @@ public sealed unsafe partial class DawnGpuContext
                 W.Future future;
                 try { future = adapter.RequestDevice(&descriptor, callback); }
                 catch { state.CancelUnqueuedNativeUse(); throw; }
+                queued = future;
                 cancellationProbe?.BeforeWait(deviceRequest: true);
                 Wait(instance, future, "request a Dawn device");
             }
             return state.TakeHandle((int)W.RequestDeviceStatus.Success, "request a Dawn device");
         }
-        catch (Exception error) { failure = error; throw; }
+        catch (Exception error)
+        {
+            failure = error;
+            DrainAbandonedSystemWarpRequest(instance, queued, state, error);
+            if (state.IsNativePending)
+            {
+                // A failed drain is not permission to free callback userdata.
+                // The managed use still prevents retirement while ownership is
+                // transferred, even if native completion races this catch.
+                GCHandle retainedLoss = lossHandle;
+                state.RetainUntilRetirement(retainedLoss.Free);
+                lossHandle = default;
+            }
+            throw;
+        }
         finally { state.EndManagedUse(failure); }
     }
 
-    // Explicit acquisition only. A failed WaitAny does NOT end the native use:
-    // instance shutdown delivers the original CallbackCancelled before retirement.
-    // The creating factory separately retains device-loss userdata until complete
-    // instance shutdown, including cancellation of a failed device request.
+    private static void DrainAbandonedSystemWarpRequest<T>(InstanceHandle instance,
+        W.Future future, SystemWarpRequest<T> state, Exception failure) where T : unmanaged
+    {
+        if (!state.IsNativePending) return;
+        try
+        {
+            if (future.Id == 0) throw new InvalidOperationException("The pending Dawn request has no drainable future.");
+            // The pinned native adapter/device requests create Completed events.
+            // Their owned results may retain the instance, so Release alone is
+            // not cancellation. Deliver the actual callback with a zero-timeout
+            // wait, then let the request owner retire any unpublished result.
+            var wait = new W.FutureWaitInfo { Future = future };
+            W.WaitStatus status = instance.WaitAny(1, &wait, 0);
+            if (status != W.WaitStatus.Success || state.IsNativePending)
+                throw new InvalidOperationException($"Could not retire abandoned Dawn request: {status}.");
+        }
+        catch (Exception cleanup)
+        {
+            try { failure.Data["DawnSystemWarpRequestDrainFailure"] = cleanup; } catch { }
+        }
+    }
+
+    // A failed wait never ends native ownership. Drain actual completion first;
+    // if draining fails, retain all pending callback userdata until completion.
     private sealed class SystemWarpRequest<T> where T : unmanaged
     {
         private readonly object _gate = new();
@@ -250,12 +294,22 @@ public sealed unsafe partial class DawnGpuContext
         private string _message = string.Empty;
         private Exception? _completionFailure;
         private readonly SystemWarpRequestReceipt? _receipt;
+        private Action? _retirementCleanup;
 
         internal SystemWarpRequest(Action<T> release, SystemWarpRequestReceipt? receipt)
         {
             _release = release;
             _receipt = receipt;
             _self = GCHandle.Alloc(this);
+        }
+        internal bool IsNativePending { get { lock (_gate) return _nativePending; } }
+        internal void RetainUntilRetirement(Action cleanup)
+        {
+            lock (_gate)
+            {
+                if (_managedEnded) throw new InvalidOperationException("Managed request ownership already ended.");
+                _retirementCleanup = cleanup;
+            }
         }
         internal nint BeginNativeUse()
         {
@@ -327,7 +381,11 @@ public sealed unsafe partial class DawnGpuContext
         {
             try
             {
-                if (!EqualityComparer<T>.Default.Equals(_handle, default)) _release(_handle);
+                if (!EqualityComparer<T>.Default.Equals(_handle, default))
+                {
+                    _release(_handle);
+                    _receipt?.ReleaseResult();
+                }
             }
             catch (Exception error)
             {
@@ -336,15 +394,19 @@ public sealed unsafe partial class DawnGpuContext
             }
             finally
             {
-                _self.Free();
-                _receipt?.Retire();
+                try { _retirementCleanup?.Invoke(); }
+                finally
+                {
+                    _self.Free();
+                    _receipt?.Retire();
+                }
             }
         }
     }
 
     // Friend-only conformance entry point. Inject failure only after a real
     // WaitAnyOnly request is queued; the normal factory never supplies a probe.
-    // Native shutdown must cancel the request and retire the actual GCHandle.
+    // Native completion must drain and retire the unpublished result/GCHandle.
     internal static void VerifySystemWarpRequestCancellationForDiagnostics(bool deviceRequest)
     {
         var probe = new SystemWarpCancellationProbe(deviceRequest);
@@ -360,10 +422,10 @@ public sealed unsafe partial class DawnGpuContext
         }
         if (deviceRequest)
         {
-            probe.Adapter.Verify((int)W.RequestAdapterStatus.Success);
-            probe.Device.Verify((int)W.RequestDeviceStatus.CallbackCancelled);
+            probe.Adapter.Verify((int)W.RequestAdapterStatus.Success, releasedResults: 0);
+            probe.Device.Verify((int)W.RequestDeviceStatus.Success, releasedResults: 1);
         }
-        else probe.Adapter.Verify((int)W.RequestAdapterStatus.CallbackCancelled);
+        else probe.Adapter.Verify((int)W.RequestAdapterStatus.Success, releasedResults: 1);
     }
 
     private sealed class SystemWarpCancellationProbe(bool cancelDeviceRequest)
@@ -379,7 +441,7 @@ public sealed unsafe partial class DawnGpuContext
 
     private sealed class SystemWarpRequestReceipt
     {
-        private int _callbacks, _retirements, _status;
+        private int _callbacks, _retirements, _releasedResults, _status;
         private Exception? _failure;
         internal void Complete(int status, Exception? failure)
         {
@@ -389,11 +451,13 @@ public sealed unsafe partial class DawnGpuContext
         }
         internal void Fail(Exception error) => Interlocked.CompareExchange(ref _failure, error, null);
         internal void Retire() => Interlocked.Increment(ref _retirements);
-        internal void Verify(int expectedStatus)
+        internal void ReleaseResult() => Interlocked.Increment(ref _releasedResults);
+        internal void Verify(int expectedStatus, int releasedResults)
         {
             if (Volatile.Read(ref _callbacks) != 1 || Volatile.Read(ref _retirements) != 1 ||
-                Volatile.Read(ref _status) != expectedStatus || Volatile.Read(ref _failure) != null)
-                throw new InvalidOperationException("The original request did not complete and retire exactly once with the expected native status.", _failure);
+                Volatile.Read(ref _status) != expectedStatus || Volatile.Read(ref _failure) != null ||
+                Volatile.Read(ref _releasedResults) != releasedResults)
+                throw new InvalidOperationException($"Original request retirement mismatch: callbacks={_callbacks}, retirements={_retirements}, status={_status} (expected {expectedStatus}), releasedResults={_releasedResults} (expected {releasedResults}).", _failure);
         }
     }
 
