@@ -230,7 +230,11 @@ internal static class TextHintedParagraphRenderingValidation
                 var localPoints = points.AsSpan(checked((int)raw.PointOffset), checked((int)raw.PointCount));
                 var localTags = tags.AsSpan(checked((int)raw.PointOffset), checked((int)raw.PointCount));
                 var localContours = contours.AsSpan(checked((int)raw.ContourOffset), checked((int)raw.ContourCount));
-                Check((raw.OutlineFlags & ~0x10Du) == 0, "raw outline belongs to explicit nonzero-vector public flag contract");
+                Check((raw.OutlineFlags & ~0x10Du) == 0,
+                    $"raw outline belongs to explicit nonzero-vector public flag contract: run={runIndex}, descriptor={descriptor}, " +
+                    $"glyph={raw.GlyphIndex}, flags=0x{raw.OutlineFlags:X}, points={raw.PointCount}, contours={raw.ContourCount}, " +
+                    $"interpreter={device.Interpreter}, ppem=({device.XPixelsPerEm266},{device.YPixelsPerEm266}), " +
+                    $"phase=({device.XPhase266},{device.YPhase266})");
                 if (localPoints.IsEmpty)
                 {
                     Check(localTags.IsEmpty && localContours.IsEmpty, "original no-ink topology");
