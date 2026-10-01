@@ -191,6 +191,42 @@ affine oracle on a GPU**. It cannot qualify the affine correction by itself,
 replace the legacy-output differences above or relax any original native
 pixel assertion.
 
+### Windows affine-oracle result
+
+The complete [focused workflow `36909775866`](https://github.com/wieslawsoltes/ProGPU/actions/runs/36909775866)
+passed at exact source `43fa2b591c0f8e5ac72c27630c189be5ba697050` on
+SilkNative/D3D12/FXC, Microsoft Basic Render Driver, Windows x64. Diagnostic
+artifact `11186611005` has ZIP SHA-256
+`2093aa029f51eaa0957d7e8696f47420532b355816de827598b91d179d2f76a1`;
+only data/logs were downloaded. The loaded Silk `wgpu_native.dll` identity in
+the receipt is `4971FCE5B4D93FC10B65D01CBCC57F9F35AD1BC479E654737974E4AD2E265BE6`.
+
+All 288 saved output hashes, 72 saved shader sources (exact compiled bytes and
+canonical-LF hashes), and 24 atlas/instance hashes were verified. All 216 reported
+byte/float comparisons were independently recomputed. The canonical production
+Text/paint source hashes remain respectively
+`5D0F0919B1F63FF8E7952877A9993FDA54410A85120E64AC84EB66D539DC9030` and
+`FA9C394116E20770DA7AA3BC152B7EB2DC0990E21E65A3B8D97C28555D058426`.
+All 240 outputs from the five earlier modes are byte-identical to run
+`36906881895`, including the explicitly documented legacy affine differences.
+
+A separate exact-rational signed-area/four-tap evaluator independently rechecked
+all **24 affine binary raw captures**, across Text, material and bounded texture
+at both 96- and 128-pixel targets. Every texel address, clamped normalized address,
+raw coverage and outside zero matches bit-for-bit. Each sheared occurrence owns
+256 interior pixels; each reflected occurrence owns 226 interior and 30 exact
+boundary pixels, including its single-owner shared diagonal. Gamma/alpha remain
+finite and preserve zero coverage; no CPU gamma approximation was introduced.
+All 36 new-mode paired and cold/warm comparisons have zero differences, including
+full RGBA8. Each of the twelve reports records 24 actual queue completions for
+24 submissions and nonempty ink.
+
+This qualifies the bounded dyadic affine address/coverage control on that host,
+not arbitrary affine geometry or bit preservation of legacy Text coverage. The
+authentic non-binary/native fixture is separate, and the complete product
+Build, other providers/architectures, Metal affine pixels and application gates
+remain required. No failed-Build runtime payload was used or staged.
+
 ## Design references and preserved contracts
 
 This is original ProGPU code, informed by public architectural contracts, not
