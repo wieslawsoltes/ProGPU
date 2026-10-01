@@ -766,6 +766,16 @@ excludes concurrent destruction while using a handle. Copies/counts/borrow do
 not allocate, execute fonts or submit GPU work. Context retirement does not
 invalidate a published paragraph.
 
+The CPU transport controls compare all fields with independently produced
+original generations and preserve all 17 output tails. They exercise every
+short capacity, record/output/owned-used-and-spare alias, strict and unknown wire
+policy, a later font instruction fault, hard-break/line-limit metadata, and
+actual context/paragraph/frame retirement. Mock target views are only stored and
+inspected, never passed to a GPU engine. A real context without the optional
+font dependency must still reject device formatting without changing outputs.
+These authored controls require exact-head hosted execution; they do not supply
+GPU, loaded-package, source UI or Microsoft reference qualification.
+
 `progpu_native_hinted_paragraph_prepare_frame` owns the original frame and its
 paragraph/interaction independently of the paragraph handle. Projection and
 coverage choices remain explicit, with strict coverage unchanged by default.
