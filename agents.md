@@ -1,5 +1,12 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Bounded hinted texture paint retains the original image triangles and paint UVs,
+but evaluates filtered glyph coverage from flat original glyph-frame metadata at
+each fragment. Never extrapolate atlas coordinates to distant image corners,
+replace fractional coverage with integer loads, or waive exact package pixel
+differences. Material/extended paint, original alpha policy and derivatives before
+discard remain unchanged; host shader compilation is not Windows pixel parity.
+
 Local source visibility is independent of opacity and presentation attachment.
 Carry Visible/Hidden/Collapsed through typed state and native snapshot transport;
 exclude ordinary hidden subtrees before cache/mask/input admission. Explicit

@@ -7,6 +7,29 @@ namespace ProGPU.Tests;
 public sealed class HintedGlyphPaintBindingTests
 {
     [Fact]
+    public void BoundedTextureCoverageUsesTheRetainedGlyphFrameAtTheFragment()
+    {
+        string shader = ProGPU.Backend.Shaders.HintedGlyphPaintShader;
+        Assert.Contains("@location(6) @interpolate(flat) glyphLogicalFrame: vec4<f32>", shader);
+        Assert.Contains("output.glyphLogicalFrame = vec4<f32>(minimum, safeExtent);", shader);
+        Assert.Contains("select(world - paint.sourceOffsetOpacity.xy, world, paint.kind == 1u)", shader);
+        Assert.Contains("let glyphLocal = input.sourceLogical - input.glyphLogicalFrame.xy;", shader);
+        Assert.Contains("glyphFrameUV = glyphLocal / input.glyphLogicalFrame.zw;", shader);
+        Assert.Contains("texCoord = atlasMinimum + glyphLocal * (atlasSpan / input.glyphLogicalFrame.zw);", shader);
+        Assert.Contains("text_glyph_color_with_mask_alpha(vec4<f32>(1.0), texCoord,", shader);
+        Assert.DoesNotContain("frameUV = (world - minimum)", shader);
+        Assert.DoesNotContain("mix(input.texCoords.xy, input.texCoords.zw, frameUV)", shader);
+        // Original bounded image geometry/sampling and outside-glyph clipping
+        // remain independent of the stabilized coverage-coordinate transport.
+        Assert.Contains("world = paint.textureQuad01.zw", shader);
+        Assert.Contains("world = paint.textureQuad23.zw", shader);
+        Assert.Contains("paintUV = mix(paint.uvBounds.xy, paint.uvBounds.zw, cornerUV);", shader);
+        Assert.Contains("(boundedTexture && outsideGlyph)", shader);
+        Assert.Contains("sample_image(sampleInput, addressedUV, modes, paintDx, paintDy)", shader);
+        Assert.DoesNotContain("textureLoad(atlasTexture", shader);
+    }
+
+    [Fact]
     public void NativeUnmaskedPaintOwnsAndBindsItsEmptyIntermediateSlot()
     {
         string pipeline = Read("ProGPU.Native/src/Scene/progpu_native_semantic_glyph_paint.cpp");

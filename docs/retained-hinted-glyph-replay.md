@@ -32,6 +32,33 @@ Managed paint already selects output/blend representation from its actual
 texture alpha mode, with ordinary materials remaining straight, so this native
 pipeline correction does not change managed policy or the canonical shaders.
 
+Bounded texture coverage now transports the original glyph minimum and extent
+as flat per-occurrence metadata, evaluating atlas coordinates at each actual
+image fragment. It no longer extrapolates atlas UVs to distant image corners
+before hardware interpolation. The texel-to-logical slope is divided once before
+multiplication, preserving an exact unit/dyadic slope where available. The original
+image triangles, paint UVs, sampled source alpha, glyph guard, filtered coverage,
+gamma and derivative-before-discard ordering remain unchanged. Material and
+extended-texture coverage keep their original interpolated glyph coordinates.
+
+The preceding exact-head Build `36862945580` passed all four authentic solid-paint
+cases on Windows, but its first bounded-texture frame differed in 62 RGBA bytes
+(maximum delta two) on both Windows architectures and both native providers.
+Both macOS ARM64 providers passed that same texture control. This isolates an
+outstanding Windows rendering boundary; the static coordinate analysis does not
+prove a particular hardware rounding mechanism. Five device-free binding/source
+checks pass for the new transport, and the actual package fixture compiles.
+The actual shared shader and all nine fragment-entry render pipelines also
+compile on SilkNative/Metal (Apple M3 Pro), with explicit validation error scopes
+reporting no shader/pipeline errors. That focused check loads no ProGPU native
+renderer or font and performs no render draw, dispatch or pixel readback; the
+context's existing four-byte queue-write initialization probe still runs.
+Host compilation is not DX12/FXC or pixel qualification.
+The original cold/warm/replacement full-RGBA assertion is unchanged and must pass
+against the new complete package binaries before this correction is qualified.
+Failure diagnostics additionally report per-channel counts and the first whole
+pixel; no byte delta is waived.
+
 This explicit consumer API preserves one original prepared paragraph generation.
 It is implementation work, not Display selection, source-editor/input admission,
 native/package qualification or an application performance claim.

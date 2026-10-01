@@ -322,14 +322,23 @@ internal static class TextHintedGlyphPaintRenderingValidation
         Check(actual.Length == 96 * 96 * 4 && expected.Length == actual.Length,
             message + $"; byte lengths actual={actual.Length}, expected={expected.Length}");
         int first = -1, different = 0, maximumDelta = 0;
+        Span<int> differencesByChannel = stackalloc int[4];
+        Span<int> maximumByChannel = stackalloc int[4];
+        differencesByChannel.Clear();
+        maximumByChannel.Clear();
         for (int index = 0; index < actual.Length; index++)
         {
             if (actual[index] == expected[index]) continue;
             if (first < 0) first = index;
             different++;
-            maximumDelta = Math.Max(maximumDelta, Math.Abs(actual[index] - expected[index]));
+            int delta = Math.Abs(actual[index] - expected[index]);
+            maximumDelta = Math.Max(maximumDelta, delta);
+            differencesByChannel[index % 4]++;
+            maximumByChannel[index % 4] = Math.Max(maximumByChannel[index % 4], delta);
         }
         Check(first < 0, message + (first < 0 ? string.Empty :
-            $"; different bytes={different}, max delta={maximumDelta}, first x={(first / 4) % 96}, y={(first / 4) / 96}, channel={first % 4}, actual={actual[first]}, expected={expected[first]}"));
+            $"; different bytes={different}, max delta={maximumDelta}, first x={(first / 4) % 96}, y={(first / 4) / 96}, channel={first % 4}, actual={actual[first]}, expected={expected[first]}, " +
+            $"RGBA differences={string.Join(',', differencesByChannel.ToArray())}, RGBA max deltas={string.Join(',', maximumByChannel.ToArray())}, " +
+            $"first pixel actual={string.Join(',', actual.AsSpan(first & ~3, 4).ToArray())}, expected={string.Join(',', expected.AsSpan(first & ~3, 4).ToArray())}"));
     }
 }

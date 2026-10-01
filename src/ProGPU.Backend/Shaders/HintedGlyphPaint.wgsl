@@ -55,7 +55,7 @@ struct VertexOutput {
     @location(3) sourceLogical: vec2<f32>,
     @location(4) paintUV: vec2<f32>,
     @location(5) @interpolate(flat) paintIndex: u32,
-    @location(6) glyphFrameUV: vec2<f32>,
+    @location(6) @interpolate(flat) glyphLogicalFrame: vec4<f32>,
     @location(7) @interpolate(flat) liveGlyphFrame: u32,
 };
 
@@ -84,7 +84,6 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let cornerUV = original_quad_uv(input.vertexIndex);
     var world = frame.logicalPosition;
     var texCoord = frame.texCoord;
-    var frameUV = cornerUV;
     var paintUV = vec2<f32>(0.0);
     if (paint.kind == 1u) {
         if ((paint.flags & 2u) != 0u) {
@@ -96,8 +95,6 @@ fn vs_main(input: VertexInput) -> VertexOutput {
             } else if (input.vertexIndex == 5u) {
                 world = paint.textureQuad23.zw;
             }
-            frameUV = (world - minimum) / safeExtent;
-            texCoord = mix(input.texCoords.xy, input.texCoords.zw, frameUV);
             paintUV = mix(paint.uvBounds.xy, paint.uvBounds.zw, cornerUV);
         } else {
             // Extend admission supplies the ORIGINAL snapped axis-preserving
@@ -115,28 +112,43 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.texCoord = texCoord;
     output.texelBounds = frame.texelBounds;
     output.textPolicy = vec3<f32>(frame.cornerRadius, frame.strokeThickness, frame.textMode);
-    output.sourceLogical = world - paint.sourceOffsetOpacity.xy;
+    // Texture coverage needs the actual image-fragment position, without an
+    // unrelated material-origin subtraction before hardware interpolation.
+    output.sourceLogical = select(world - paint.sourceOffsetOpacity.xy, world, paint.kind == 1u);
     output.paintUV = paintUV;
     output.paintIndex = input.paintIndex;
-    output.glyphFrameUV = frameUV;
+    output.glyphLogicalFrame = vec4<f32>(minimum, safeExtent);
     output.liveGlyphFrame = select(0u, 1u, liveFrame);
     return output;
 }
 
 fn hinted_glyph_paint_color(input: VertexOutput, maskAlpha: f32, premultipliedOutput: bool) -> vec4<f32> {
+    let paint = glyphPaints[input.paintIndex];
+    let boundedTexture = paint.kind == 1u && (paint.flags & 2u) != 0u;
+    var texCoord = input.texCoord;
+    var glyphFrameUV = vec2<f32>(0.0);
+    if (boundedTexture) {
+        // Keep the original image triangles and UV interpolation. Evaluate
+        // glyph coverage in its own retained frame at the actual fragment,
+        // instead of extrapolating atlas coordinates to distant image corners
+        // and interpolating those large values back into the small glyph.
+        let glyphLocal = input.sourceLogical - input.glyphLogicalFrame.xy;
+        glyphFrameUV = glyphLocal / input.glyphLogicalFrame.zw;
+        let atlasMinimum = input.texelBounds.xy - vec2<f32>(0.5);
+        let atlasSpan = input.texelBounds.zw + vec2<f32>(0.5) - atlasMinimum;
+        texCoord = atlasMinimum + glyphLocal * (atlasSpan / input.glyphLogicalFrame.zw);
+    }
     // Evaluate derivatives before material policy, tile guards or masks can
     // discard. The white input is only a float coverage calculation, never a
     // published draw, style stream or intermediate quantized texture.
-    let coverage = text_glyph_color_with_mask_alpha(vec4<f32>(1.0), input.texCoord,
+    let coverage = text_glyph_color_with_mask_alpha(vec4<f32>(1.0), texCoord,
         input.texelBounds, input.textPolicy.z, input.textPolicy.x, input.textPolicy.y, 1.0).a;
     let sourceDx = dpdx(input.sourceLogical);
     let sourceDy = dpdy(input.sourceLogical);
     let paintDx = dpdx(input.paintUV);
     let paintDy = dpdy(input.paintUV);
-    let paint = glyphPaints[input.paintIndex];
-    let boundedTexture = paint.kind == 1u && (paint.flags & 2u) != 0u;
-    let outsideGlyph = any(input.glyphFrameUV < vec2<f32>(0.0)) ||
-        any(input.glyphFrameUV > vec2<f32>(1.0));
+    let outsideGlyph = any(glyphFrameUV < vec2<f32>(0.0)) ||
+        any(glyphFrameUV > vec2<f32>(1.0));
     if (maskAlpha <= 0.0 || input.liveGlyphFrame == 0u ||
         (boundedTexture && outsideGlyph)) {
         discard;
