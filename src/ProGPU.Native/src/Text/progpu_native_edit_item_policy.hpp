@@ -126,10 +126,13 @@ inline bool try_classify_edit_item_properties(
         candidate.role = edit_item_source_role::white_space;
     } else if (category == gc::decimal_digit_number) {
         // A Script tag alone must not turn numeric source into nominal text.
-        // L-valued Indic digits are not covered by the observed EN/AN policy.
+        // Original Devanagari Nd/L observations also use the numeric bridge;
+        // other L-valued families retain their separate unresolved entry rules.
         const auto decimal = get_unicode_decimal_digit_value(scalar.code_point);
+        const bool numeric_policy = bidi == bc::european_number || bidi == bc::arabic_number ||
+            (nominal == edit_item_profile::devanagari_nominal && bidi == bc::left_to_right);
         if (decimal < 0 || decimal > 9 ||
-            (bidi != bc::european_number && bidi != bc::arabic_number)) {
+            !numeric_policy) {
             if (nominal != edit_item_profile::paragraph_bridge) return false;
         } else candidate.profile = edit_item_profile::numeric_bridge;
     } else if (is_edit_mark(category)) {
@@ -141,16 +144,18 @@ inline bool try_classify_edit_item_properties(
             candidate.role = edit_item_source_role::context_mark;
         } else candidate.role = edit_item_source_role::inherited_mark;
     } else if (is_edit_letter(category) && nominal != edit_item_profile::paragraph_bridge) {
-        if (scalar.code_point > 0xFFFFU || !has_edit_nominal_bidi(nominal, bidi)) return false;
+        // The original Arabic engine also owns supplementary AL letters.
+        // Preserve each scalar's original two-unit source range, not a BMP
+        // replacement or compatibility decomposition of mathematical letters.
+        if ((scalar.code_point > 0xFFFFU && nominal != edit_item_profile::arabic_nominal) ||
+            !has_edit_nominal_bidi(nominal, bidi)) return false;
         if (nominal == edit_item_profile::arabic_nominal && is_arabic_presentation_block(scalar.code_point)) {
             // ScriptItemize's original default fCharShape=false keeps Arabic
             // presentation forms distinct from nominal Arabic shaping items.
             // The observed U+FE8F bridge trains this property-based inference.
-        } else if (nominal == edit_item_profile::hebrew_nominal &&
-            scalar.code_point >= 0xFB00U && scalar.code_point <= 0xFB4FU) {
-            // Alphabetic Presentation Forms have no qualified EDIT policy here.
-            return false;
         } else {
+            // Hebrew presentation letters remain in the Hebrew item in the
+            // original source; Arabic's fCharShape bridge is not transferable.
             candidate.profile = nominal;
             candidate.flags = get_edit_profile_flags(nominal);
         }

@@ -469,6 +469,42 @@ Complete native transport, owned dependency packaging, same-generation Forms
 integration and source mouse/editor checks still precede ordinary provider
 admission. Password source continues to bypass any boundary service entirely.
 
+### Original supplementary, presentation and numeric roles
+
+[Run 36900452884](https://github.com/wieslawsoltes/ProGPU/actions/runs/36900452884)
+completed every original phase plus all 128 source-role observations at exact
+source 2dafdc17825761415552a9639be1ff1baa54f670. Its source-role receipt SHA-256
+is 858e7c8e34a694a1ff4e153b7a4c6946f451daaf6dc371cc0296519a468048b8;
+downloaded receipts match every hash in the execution manifest. The original
+Server2025 X64/.NET 11/native-module provenance is retained. These original
+observations are not a successful native product/package or desktop UI test.
+
+Twelve bare/Latin-prefix, LTR/RTL cases now drive three corrected portable
+property rules. Hebrew R-valued presentation letters remain in the Hebrew item,
+unlike the distinct Arabic presentation bridge. Supplementary Arabic AL letters
+use the Arabic item without decomposing mathematical letters or changing their
+original two-unit UTF-16 ranges. Devanagari decimal Nd/L source with actual
+values zero through nine uses the numeric bridge, separately from nominal
+letters. All 84 available initial EDIT double-down selections for these cases
+agree with their independent original soft-break inventories and the retained
+strict-previous-boundary selection contract; 48 unavailable coordinates remain so.
+
+The runtime uses its original typed Unicode properties, not observed text or
+scalar endpoint lookups. Extending those rules to other matching property
+members remains an explicit inference, not exhaustive Windows Unicode-version
+qualification. Other selected-family supplementary/mark and L-valued numeric
+policies remain separate; in particular, Thai/Lao numeric-to-letter entries
+must not inherit a guessed unconditional soft entry. No shaping, glyph, caret,
+Unicode17 default line-break or source text is changed.
+
+The new original literals first failed under the earlier deliberate rejection,
+then the strict CPU-only C++20 harness passed all existing controls plus the
+twelve corrected inventories (1/1 CTest, 0.35 seconds). Property controls also
+retain original source metadata and all ten Devanagari decimal values. Both
+independent stock/Dawn package selectors contain the same original literals,
+but those packaged executions remain pending. Neither these changes nor the
+larger observation set completes general editor policy or interior-cluster UI.
+
 ## Product UTF-16 boundary transport
 
 `progpu_native_text_resolve_edit_word_boundaries_utf16` now calls the existing
