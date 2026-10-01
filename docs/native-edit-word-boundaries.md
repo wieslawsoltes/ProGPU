@@ -782,3 +782,61 @@ and joiner cases; unrelated complex-policy rejection remains explicit. The stric
 AppleClang21 C++20 no-ICU focused harness passed 1/1 with all previous controls.
 No ICU download, full native product build, packaged execution, GPU, VM or source
 application run was performed for this checkpoint.
+
+## Original Balinese and Hangul symbol items
+
+The 82 symbols which did not match the pinned AL/ID signatures split into two
+owned-property item domains and one unresolved Common-script member. The full
+original sweep repeated in Windows reference
+[36900452884](https://github.com/wieslawsoltes/ProGPU/actions/runs/36900452884)
+has `symbol-attributes.json` SHA-256
+`5bd22eeada1b79878346fdd7c911e70f24427d7ce64746530c1c00cad54e313c`.
+Its three unchanged Latin, VS16 and CJK contexts measure every member below;
+these sweep contexts use LTR only. The separate eight repeated-symbol inputs in
+the `source-roles.json` receipt above measure bare/Latin-prefixed original items
+under both paragraph directions. Their direct `ScriptBreak` item attributes and
+all 56 available EDIT double-down selections agree with the literal inventories.
+The 16 unavailable coordinates remain unavailable.
+
+| Owned original properties | Members | Original item soft-break policy |
+| --- | ---: | --- |
+| BMP, Script Balinese, So, raw LB ID, bidi L | 19 | Entry only; no interior or exit soft break |
+| BMP, Script Hangul, So, raw LB ID, bidi L or ON | 62 | No entry, interior or exit soft break |
+| Common-script U+327F | 1 | Still unsupported: no reusable property discriminator |
+
+The shared stock/Dawn worker now selects typed `balinese_symbols` and
+`hangul_symbols` profiles through those exact owned Unicode properties. There
+is no new scalar allowlist, observed-word lookup, Windows engine identity,
+generated table or pin. It retains complete-source line context and bidi,
+original UTF-16 identities, separate whitespace/hard-control policy and atomic
+publication. Simply mapping these symbols to AL would be wrong: the independently
+observed CJK contexts suppress the exit seam, and Hangul suppresses entry too.
+Ordinary UAX14 properties and behavior remain unchanged.
+
+Generalizing the observed repeated pair to other sequences in each property
+domain, and VS16 attachment to the exact BMP Variation Selectors block, is an
+explicit inference rather than exhaustive Windows itemization equivalence.
+Arbitrary inherited marks, joiners and supplementary selectors remain rejected
+after these symbol items. A request containing both a Hangul symbol item and
+other Hangul-script source also remains unsupported: no original mixed nominal
+Hangul item established its co-itemization contract. Balinese complex source
+retains its existing separate rejection. U+327F cannot acquire Hangul policy
+from its enclosed-symbol block: the overlapping Common/So/ID properties also
+contain measured Han and Katakana symbols with different behavior. Its missing
+reusable original item-selection contract is not replaced with a scalar exception.
+
+The new native controls preserve 243 literal three-context inventories across
+all 81 members, eight independent repeated-item inventories, both classifier and
+actual C export, original source ownership and untouched output tails. All BMP
+properties are checked against the complete literal measured domain. Every
+admitted member retains ordinary UAX14 breaks on both sides in a separate control.
+Unresolved/mixed-role failures, original alias guards and unavailable owned Thai
+dictionary failures remain explicit. The existing independent stock/Dawn package
+fixtures add the eight repeated-item inventories and retain all original24 and
+other controls; package selectors, gates and deadlines are unchanged.
+
+The strict AppleClang21 C++20 no-ICU focused harness passed 1/1 with all earlier
+controls. No ICU download, native product build, packaged execution, GPU, VM,
+CI dispatch or source application run was performed for this checkpoint. This
+does not qualify Windows versions beyond the original receipt, editor geometry,
+ordinary Forms capability admission or source UI behavior.

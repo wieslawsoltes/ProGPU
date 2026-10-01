@@ -121,7 +121,7 @@ void run_edit_word_interop_controls() {
     const std::array<std::uint16_t, 1> malformed{0xD800U};
     failed(progpu_native_text_resolve_edit_word_boundaries_utf16(malformed.data(), 1U, 0, output.data(), 16U),
         PROGPU_NATIVE_EDIT_WORD_BOUNDARY_INVALID_ENCODING, output);
-    const std::array<std::uint16_t, 4> unknown{'a', 0x3200U, 'b', ' '};
+    const std::array<std::uint16_t, 4> unknown{'a', 0x327FU, 'b', ' '};
     failed(progpu_native_text_resolve_edit_word_boundaries_utf16(unknown.data(), 4U, 0, output.data(), 16U),
         PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_BMP_SYMBOL_POLICY, output, PROGPU_NATIVE_STATUS_UNSUPPORTED);
     check(u"\u1000\u1001", {0, 1, 2});

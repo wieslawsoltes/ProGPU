@@ -21,7 +21,9 @@ enum class edit_item_profile : std::uint8_t {
     thai_nominal,
     lao_nominal,
     khmer_nominal,
-    myanmar_syllabic
+    myanmar_syllabic,
+    balinese_symbols,
+    hangul_symbols
 };
 
 enum class edit_item_source_role : std::uint8_t {
@@ -41,6 +43,30 @@ struct edit_item_properties final {
     edit_item_source_role role = edit_item_source_role::ordinary;
     bool has_attachment_owner = true;
 };
+
+constexpr bool is_edit_symbol_item(edit_item_profile profile) noexcept
+{
+    return profile == edit_item_profile::balinese_symbols ||
+        profile == edit_item_profile::hangul_symbols;
+}
+
+inline edit_item_profile get_edit_symbol_item_profile(const unicode_scalar& scalar) noexcept
+{
+    // The complete original three-context sweep contains exactly 19 Balinese
+    // and 62 Hangul members of these owned property intersections. These are
+    // typed item policies, not an observed-scalar table or Windows engine ID.
+    if (scalar.code_point > 0xFFFFU ||
+        get_unicode_general_category(scalar.code_point) != unicode_general_category::other_symbol ||
+        get_unicode_line_break_class(scalar.code_point) != unicode_line_break_class::ideographic)
+        return edit_item_profile::paragraph_bridge;
+    const auto bidi = get_unicode_bidi_class(scalar.code_point);
+    if (scalar.script == open_type_tag::from_chars('b', 'a', 'l', 'i') &&
+        bidi == unicode_bidi_class::left_to_right) return edit_item_profile::balinese_symbols;
+    if (scalar.script == open_type_tag::from_chars('h', 'a', 'n', 'g') &&
+        (bidi == unicode_bidi_class::left_to_right || bidi == unicode_bidi_class::other_neutral))
+        return edit_item_profile::hangul_symbols;
+    return edit_item_profile::paragraph_bridge;
+}
 
 constexpr edit_item_profile get_edit_nominal_profile(open_type_tag script) noexcept
 {
@@ -64,9 +90,11 @@ constexpr std::uint32_t get_edit_profile_flags(edit_item_profile profile) noexce
     case edit_item_profile::thai_nominal:
     case edit_item_profile::lao_nominal:
     case edit_item_profile::myanmar_syllabic:
+    case edit_item_profile::balinese_symbols:
         return edit_item_soft_entry;
     case edit_item_profile::hebrew_nominal:
     case edit_item_profile::devanagari_nominal:
+    case edit_item_profile::hangul_symbols:
         return edit_item_suppressed_entry;
     case edit_item_profile::khmer_nominal:
         return edit_item_suppressed_entry | edit_item_white_exit;
@@ -116,8 +144,12 @@ inline bool try_classify_edit_item_properties(
     const auto bidi = get_unicode_bidi_class(scalar.code_point);
     const auto raw = get_unicode_line_break_class(scalar.code_point);
     const auto nominal = get_edit_nominal_profile(scalar.script);
+    const auto symbol = get_edit_symbol_item_profile(scalar);
     edit_item_properties candidate{};
-    if (nominal == edit_item_profile::myanmar_syllabic) {
+    if (is_edit_symbol_item(symbol)) {
+        candidate.profile = symbol;
+        candidate.flags = get_edit_profile_flags(symbol);
+    } else if (nominal == edit_item_profile::myanmar_syllabic) {
         // The original Myanmar machine owns consonants, digits AND broken
         // leading/medial mark groups. Marks must not attach to a foreign item
         // or require an invented preceding base before that machine can run.
@@ -211,6 +243,13 @@ inline bool try_attach_edit_item_properties(
     // owner. Leading/space-adjacent JOINERS are separately observed and keep
     // the paragraph bridge, but must not admit a later mark through that edge.
     if (!has_base) return properties.role == role::joiner;
+    // Only the independently observed variation-selector role is established
+    // for these symbol items. Extend through the exact named BMP Variation
+    // Selectors block; do not turn arbitrary inherited marks or joiners into
+    // newly qualified Balinese/Hangul source roles.
+    if (is_edit_symbol_item(previous->profile) &&
+        (properties.role != role::inherited_mark ||
+            scalar.code_point < 0xFE00U || scalar.code_point > 0xFE0FU)) return false;
     // Only original Myanmar source and the independently observed joiners are
     // admitted to its syllable machine. Generic inherited/foreign marks do not
     // acquire a newly qualified script policy merely by following Myanmar.

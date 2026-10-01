@@ -136,7 +136,21 @@ bool assemble_edit_item_breaks(
             return fail(edit_word_boundary_error::invalid_encoding, error);
         for (std::size_t offset = 0U; offset + 1U < count; ++offset)
             breaks[start + offset] = item_breaks[start + offset];
-        if (item.properties.profile == detail::edit_item_profile::myanmar_syllabic) {
+        if (detail::is_edit_symbol_item(item.properties.profile)) {
+            // The original direct symbol item has no interior soft breaks,
+            // including its attached VS, and no soft exit into Latin or CJK.
+            // An AL line-class substitution alone would retain the wrong CJK
+            // seams. Keep hard controls and the separate whitespace policy.
+            for (std::size_t offset = 1U; offset < count; ++offset)
+                if (!is_edit_white_space(scalars[start + offset].code_point) &&
+                    breaks[start + offset - 1U] != text_line_break_kind::mandatory)
+                    breaks[start + offset - 1U] = text_line_break_kind::prohibited;
+            const auto end = start + count;
+            if (end < scalars.size() && !is_edit_white_space(scalars[end].code_point) &&
+                properties[end].role != detail::edit_item_source_role::hard_control &&
+                breaks[end - 1U] != text_line_break_kind::mandatory)
+                breaks[end - 1U] = text_line_break_kind::prohibited;
+        } else if (item.properties.profile == detail::edit_item_profile::myanmar_syllabic) {
             // Reuse the original property lookup and machine over the WHOLE
             // unchanged item, including broken syllables and joiners. This is
             // source metadata only: no glyph shaping/reordering or clustering.
@@ -273,6 +287,8 @@ bool try_create_edit_word_boundary_snapshot(
         if (!try_decode_utf16(source, scalars, written) || written != scalars.size())
             return fail(edit_word_boundary_error::invalid_encoding, error);
         bool needs_thai_dictionary = false;
+        bool has_hangul_symbols = false;
+        bool has_other_hangul_source = false;
         std::vector<detail::edit_item_properties> item_properties(scalars.size());
         for (std::size_t index = 0U; index < scalars.size(); ++index) {
             const auto& scalar = scalars[index];
@@ -280,7 +296,8 @@ bool try_create_edit_word_boundary_snapshot(
             if (scalar.code_point <= 0xFFFFU && raw == lb::ideographic &&
                 get_unicode_general_category(scalar.code_point) ==
                     unicode_general_category::other_symbol &&
-                detail::get_edit_symbol_line_break_class(scalar.code_point) == lb::unknown)
+                detail::get_edit_symbol_line_break_class(scalar.code_point) == lb::unknown &&
+                !detail::is_edit_symbol_item(detail::get_edit_symbol_item_profile(scalar)))
                 return fail(edit_word_boundary_error::unqualified_bmp_symbol_policy, error);
             if (raw == lb::complex_context && scalar.script != thai &&
                 scalar.script != lao && scalar.script != lao_layout && scalar.script != khmer && scalar.script != myanmar &&
@@ -291,7 +308,17 @@ bool try_create_edit_word_boundary_snapshot(
             // scalar table is regression evidence only, not a runtime allowlist.
             if (!detail::try_classify_edit_item_properties(scalar, item_properties[index]))
                 return fail(edit_word_boundary_error::unqualified_script_item_transition_policy, error);
+            if (scalar.script == open_type_tag::from_chars('h', 'a', 'n', 'g')) {
+                if (item_properties[index].profile == detail::edit_item_profile::hangul_symbols)
+                    has_hangul_symbols = true;
+                else has_other_hangul_source = true;
+            }
         }
+        // The independent contexts do not establish co-itemization with
+        // ordinary Hangul source. Keep the entire original request atomic and
+        // unsupported instead of inventing a split inside native engine 19.
+        if (has_hangul_symbols && has_other_hangul_source)
+            return fail(edit_word_boundary_error::unqualified_script_item_transition_policy, error);
         std::vector<lb> classes(scalars.size());
         std::vector<text_line_break_kind> breaks(scalars.size());
         if (!detail::try_resolve_edit_selection_line_breaks(scalars, classes, breaks))

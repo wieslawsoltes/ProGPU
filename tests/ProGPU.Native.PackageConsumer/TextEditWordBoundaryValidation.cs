@@ -71,6 +71,14 @@ internal static unsafe class TextEditWordBoundaryValidation
         Verify("khmer", "\u1797\u17B6\u179F\u17B6\u1781\u17D2\u1798\u17C2\u179A\u1797\u17B6\u179F\u17B6\u1781\u17D2\u1798\u17C2\u179A ", [0, 18, 19]);
 
         Verify("empty", "", [0]);
+        // Original full symbol sweep: keep the former rejection requests as
+        // positive inventories, including independent VS16 and CJK contexts.
+        Verify("hangul-symbol-latin", "a\u3200b ", [0, 4]);
+        Verify("hangul-symbol-variation", "a\u3200\uFE0Fb ", [0, 5]);
+        Verify("hangul-symbol-cjk", "\u4E00\u3200\u4E8C ", [0, 4]);
+        Verify("balinese-symbol-latin", "a\u1B61b ", [0, 1, 4]);
+        Verify("balinese-symbol-variation", "a\u1B61\uFE0Fb ", [0, 1, 5]);
+        Verify("balinese-symbol-cjk", "\u4E00\u1B61\u4E8C ", [0, 1, 4]);
         // Independent contextual receipt controls retained by the original CPU
         // harness; both original source directions must reach the export.
         foreach (int level in new[] { 0, 1 })
@@ -94,6 +102,10 @@ internal static unsafe class TextEditWordBoundaryValidation
             Verify("arabic-supplementary-latin", "x\U0001EE00\U0001EE01y ", [0, 1, 7], level: level);
             Verify("devanagari-digits-bare", "\u0966\u0967\u0915y ", [0, 5], level: level);
             Verify("devanagari-digits-latin", "x\u0966\u0967\u0915y ", [0, 6], level: level);
+            Verify("hangul-symbols-bare", "\u3200\u3201y ", [0, 4], level: level);
+            Verify("hangul-symbols-latin", "x\u3200\u3201y ", [0, 5], level: level);
+            Verify("balinese-symbols-bare", "\u1B61\u1B62y ", [0, 4], level: level);
+            Verify("balinese-symbols-latin", "x\u1B61\u1B62y ", [0, 1, 5], level: level);
             Verify("myanmar-entry", "x\u1000\u1001y ", [0, 1, 2, 5], level: level);
             Verify("myanmar-stack", "x\u1000\u1039\u1001\u1002y ", [0, 1, 4, 7], level: level);
             Verify("myanmar-broken", "x\u1000\u102D\u103A\u1001y ", [0, 1, 3, 4, 7], level: level);
@@ -161,12 +173,13 @@ internal static unsafe class TextEditWordBoundaryValidation
 
         Reject("\uD800", NativeEditWordBoundaryError.InvalidEncoding, NativeRendererStatus.InvalidArgument);
         Reject("\uDC00", NativeEditWordBoundaryError.InvalidEncoding, NativeRendererStatus.InvalidArgument);
-        // Representative rejection controls do not qualify the 82 nonmatching
-        // BMP symbols or the remaining complex-script/item domains.
-        Reject("a\u3200b ", NativeEditWordBoundaryError.UnqualifiedBmpSymbolPolicy);
-        Reject("a\u1B61b ", NativeEditWordBoundaryError.UnqualifiedBmpSymbolPolicy);
+        // Common U+327F does not acquire the Hangul Script policy. Mixed
+        // ordinary Hangul and unobserved symbol attachments stay unqualified.
+        Reject("a\u327Fb ", NativeEditWordBoundaryError.UnqualifiedBmpSymbolPolicy);
         foreach (int level in new[] { 0, 1 })
         {
+            Reject("\u3200\uAC00", NativeEditWordBoundaryError.UnqualifiedScriptItemTransitionPolicy, level: level);
+            Reject("\u1B61\u0301y ", NativeEditWordBoundaryError.UnqualifiedScriptItemTransitionPolicy, level: level);
             Reject("x\u1A20\u1A21y ", NativeEditWordBoundaryError.UnqualifiedComplexScriptPolicy, level: level);
             Reject("x\u0711y ", NativeEditWordBoundaryError.UnqualifiedScriptItemTransitionPolicy, level: level);
         }
