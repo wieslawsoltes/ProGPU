@@ -1568,6 +1568,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         tests/progpu_native_edit_word_boundary_tests.cpp
         tests/progpu_native_edit_word_interop_tests.cpp
         tests/progpu_native_edit_myanmar_tests.cpp
+        tests/progpu_native_edit_symbol_item_tests.cpp
         src/Text/Interop/progpu_native_edit_word_interop.cpp)
     target_compile_features(progpu_native_edit_word_boundary_tests PRIVATE cxx_std_20)
     target_compile_definitions(progpu_native_edit_word_boundary_tests PRIVATE PROGPU_NATIVE_BUILD=1)

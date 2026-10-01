@@ -130,11 +130,9 @@ void missing_contracts_are_atomic()
         require(snapshot.positions == original_positions && snapshot.leading_content_start == 23U,
             "Failed classifier published a partial generation");
     };
-    // These observed BMP So/rawID domains match neither measured AL nor ID
-    // signatures across all three contexts. No guessed range is admitted.
-    check_failure(u"a\u3200b ",
-        edit_word_boundary_error::unqualified_bmp_symbol_policy);
-    check_failure(u"a\u1B61b ",
+    // Common-script U+327F still lacks a reusable item-property contract.
+    // The independently measured Hangul/Balinese items have positive controls.
+    check_failure(u"a\u327Fb ",
         edit_word_boundary_error::unqualified_bmp_symbol_policy);
     // An explicit Syriac mark cannot select a nominal item after unrelated
     // Latin or at a standalone edge. Numeric/presentation/supplementary source
@@ -540,12 +538,14 @@ void original_units_and_default_worker_are_independent()
 
 void run_edit_word_interop_controls();
 void run_edit_myanmar_controls();
+void run_edit_symbol_item_controls();
 
 int main()
 {
     try {
         run_edit_word_interop_controls();
         run_edit_myanmar_controls();
+        run_edit_symbol_item_controls();
         concurrent_snapshots_own_independent_outputs();
         original_reference_inventories();
         original_source_role_inventories();

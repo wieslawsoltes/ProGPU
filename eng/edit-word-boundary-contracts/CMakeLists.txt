@@ -9,6 +9,7 @@ add_executable(progpu_native_edit_word_boundary_tests
     "${_native}/tests/progpu_native_edit_word_boundary_tests.cpp"
     "${_native}/tests/progpu_native_edit_word_interop_tests.cpp"
     "${_native}/tests/progpu_native_edit_myanmar_tests.cpp"
+    "${_native}/tests/progpu_native_edit_symbol_item_tests.cpp"
     "${_native}/src/Text/Interop/progpu_native_edit_word_interop.cpp"
     "${_native}/src/Text/progpu_native_edit_word_boundaries.cpp"
     "${_native}/src/Text/progpu_native_unicode.cpp"
