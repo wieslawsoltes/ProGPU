@@ -354,6 +354,7 @@ public class ShaderResourceTests
     public void HintedPaintSharesOriginalMaterialSamplingAndGlyphCoverage()
     {
         string paint = Shaders.HintedGlyphPaintShader;
+        Assert.Same(paint, Shaders.HintedGlyphPaintShader);
         foreach (string resource in new[]
         {
             "RegisteredMaterialCommon.wgsl", "TextGlyphGeometryCommon.wgsl",

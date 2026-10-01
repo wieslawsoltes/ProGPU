@@ -24,13 +24,22 @@ public static class Shaders
         "\n",
         ShaderResource.Load(typeof(Shaders), "Texture.wgsl"));
 
-    public static readonly string HintedGlyphPaintShader = string.Concat(
-        ShaderResource.Load(typeof(Shaders), "RegisteredMaterialCommon.wgsl"), "\n",
-        ShaderResource.Load(typeof(Shaders), "TextGlyphGeometryCommon.wgsl"), "\n",
-        ShaderResource.Load(typeof(Shaders), "TextMaskCommon.wgsl"), "\n",
-        ShaderResource.Load(typeof(Shaders), "TextGlyphCoverageCommon.wgsl"), "\n",
-        ShaderResource.Load(typeof(Shaders), "TextureImageSamplingCommon.wgsl"), "\n",
-        ShaderResource.Load(typeof(Shaders), "HintedGlyphPaint.wgsl"));
+    public static string HintedGlyphPaintShader => HintedGlyphPaintSource.Value;
+
+    // Do not concatenate the optional paint program during ordinary shader
+    // startup. The CLR initializes this owned holder once, on actual demand.
+    private static class HintedGlyphPaintSource
+    {
+        static HintedGlyphPaintSource() { }
+
+        internal static readonly string Value = string.Concat(
+            ShaderResource.Load(typeof(Shaders), "RegisteredMaterialCommon.wgsl"), "\n",
+            ShaderResource.Load(typeof(Shaders), "TextGlyphGeometryCommon.wgsl"), "\n",
+            ShaderResource.Load(typeof(Shaders), "TextMaskCommon.wgsl"), "\n",
+            ShaderResource.Load(typeof(Shaders), "TextGlyphCoverageCommon.wgsl"), "\n",
+            ShaderResource.Load(typeof(Shaders), "TextureImageSamplingCommon.wgsl"), "\n",
+            ShaderResource.Load(typeof(Shaders), "HintedGlyphPaint.wgsl"));
+    }
 
     public static readonly string GlyphRasterizerShader = ShaderResource.Load(typeof(Shaders), "GlyphRasterizer.wgsl");
 
