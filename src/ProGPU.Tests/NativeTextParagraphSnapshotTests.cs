@@ -6,6 +6,45 @@ namespace Avalonia.ProGpu.UnitTests;
 
 public sealed class NativeTextParagraphSnapshotTests
 {
+    [Theory]
+    [InlineData("AVA A A A A A ", 2)]
+    [InlineData("A\U0001f642B \u05d0\u05d1 A  ", 3)]
+    [InlineData("A\nB\rA\r\nB", 2)]
+    [InlineData("A12 A34 ", 2)]
+    public void Utf16ParagraphUsesLocalSourceAndStyleFrames(string text, int boundary)
+    {
+        var decoded = new NativeTextScalar[text.Length];
+        int count = NativeTextParagraphSnapshot.DecodeUtf16(text, decoded);
+        var expected = new List<NativeTextScalar>();
+        uint position = 0;
+        foreach (Rune rune in text.EnumerateRunes())
+        {
+            expected.Add(new NativeTextScalar((uint)rune.Value, position, (ushort)rune.Utf16SequenceLength));
+            position += (uint)rune.Utf16SequenceLength;
+        }
+        Assert.Equal(expected, decoded.AsSpan(0, count).ToArray());
+        Assert.Equal((uint)boundary, decoded[2].InputIndex);
+        NativeTextParagraphStyle[] styles =
+        [
+            new(0, boundary, 0, 13f / 2048, FeatureCount: 1),
+            new(boundary, text.Length - boundary, 1, 17f / 2048, FeatureCount: 1),
+        ];
+        NativeTextStyleRun[] expectedStyles =
+        [
+            new() { ScalarStart = 0, ScalarCount = 2, FontIndex = 0, Scale = 13f / 2048, FeatureCount = 1 },
+            new() { ScalarStart = 2, ScalarCount = (uint)count - 2, FontIndex = 1, Scale = 17f / 2048, FeatureCount = 1 },
+        ];
+        Assert.Equal(expectedStyles, NativeTextParagraphSnapshot.MapStyles(styles, decoded.AsSpan(0, count), text.Length));
+
+        // A source-offset scalar paragraph is a different input, not an exact
+        // byte oracle for the zero-based UTF-16 overload.
+        var shifted = expected.ToArray();
+        for (int i = 0; i < shifted.Length; i++) shifted[i].InputIndex += 9;
+        Assert.NotEqual(shifted, decoded.AsSpan(0, count).ToArray());
+        Assert.Equal((uint)boundary, shifted[2].InputIndex - shifted[0].InputIndex);
+        Assert.Throws<ArgumentException>(() => NativeTextParagraphSnapshot.MapStyles(styles, shifted, text.Length));
+    }
+
     [Fact]
     public void NumberSymbolStyleMappingRetainsOriginalScalarsAndSourceIndices()
     {
