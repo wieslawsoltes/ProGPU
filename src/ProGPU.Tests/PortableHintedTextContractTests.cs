@@ -8,6 +8,20 @@ namespace ProGPU.Tests;
 public sealed class PortableHintedTextContractTests
 {
     [Fact]
+    public void SourceGlyphTransportIsTypedOwnedAndSeparateFromDesignFontExports()
+    {
+        Assert.False(typeof(IPortableNativeGlyphRunSource).IsAssignableFrom(typeof(IPortableHintedGlyphRunSource)));
+        Assert.False(typeof(IPortableHintedGlyphRunBindingFactory).IsAssignableFrom(typeof(IPortableHintedTextGlyphRun)));
+        Assert.True(typeof(IDisposable).IsAssignableFrom(typeof(IPortableHintedGlyphRunBinding)));
+        Assert.Equal(typeof(IPortableHintedGlyphRunBinding), typeof(IPortableHintedGlyphRunBinding).GetMethod("Retain")!.ReturnType);
+        Assert.Equal(typeof(IPortableHintedTextGlyphRun), typeof(IPortableHintedGlyphRunBinding).GetMethod("AcquireGlyphRun")!.ReturnType);
+        Assert.Equal(typeof(ReadOnlyMemory<ushort>), typeof(IPortableHintedGlyphRunBinding).GetProperty("GlyphIndices")!.PropertyType);
+        Assert.Equal(typeof(PortableRect), typeof(IPortableHintedGlyphRunBinding).GetProperty("BaselineRelativeInkBounds")!.PropertyType);
+        Assert.Null(typeof(IPortableHintedGlyphRunBinding).GetProperty("NativeFont"));
+        Assert.DoesNotContain(typeof(IPortableHintedGlyphRunBinding).GetProperties(), property => property.PropertyType == typeof(object));
+    }
+
+    [Fact]
     public void OrdinaryProviderDoesNotAdvertiseHintedFormatting()
     {
         IPortableTextFormatting provider = new OrdinaryProvider();
