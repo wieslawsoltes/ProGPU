@@ -1,5 +1,15 @@
 # Retained hinted glyph replay
 
+The native unmasked paint pipeline binds an explicitly empty group 2 between its
+atlas and paint texture groups. A nonempty mask-chain layout with no binding is
+invalid on the actual Dawn retained-bundle path, even when the fragment entrypoint
+does not sample a mask. The engine owns and releases this empty layout/group;
+single/chained masks retain their original bindings. Managed paint already binds
+its existing mask slot unconditionally. Package pixel checks remain exact and now
+report first differing coordinates/channel and maximum byte delta on failure.
+Scene submission metrics are per-call; the original glyph metric is cumulative.
+Their independent assertions require exactly one submission under each contract.
+
 This explicit consumer API preserves one original prepared paragraph generation.
 It is implementation work, not Display selection, source-editor/input admission,
 native/package qualification or an application performance claim.
