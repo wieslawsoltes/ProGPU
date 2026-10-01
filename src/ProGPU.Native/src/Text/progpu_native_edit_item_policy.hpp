@@ -270,16 +270,15 @@ inline bool try_attach_edit_item_properties(
     return true;
 }
 
-inline std::size_t get_edit_leading_mark_item_length(
+inline std::size_t get_edit_initial_mark_count(
     std::span<const unicode_scalar> scalars,
     std::span<const edit_item_properties> properties,
     std::span<const unicode_bidi_level> levels,
     std::int8_t paragraph_level) noexcept
 {
-    // An original leading Inherited mark item before Latin has no soft entry
-    // or exit. It remains a paragraph bridge, not an invented attachment owner
-    // or a forward-selected nominal family. Inspect only the complete source's
-    // already classified roles and actual bidi levels; never resolve a suffix.
+    if (properties.size() != scalars.size() || levels.size() != scalars.size()) return 0U;
+    // Inspect original roles and complete-source bidi, never a rewritten
+    // scalar, fabricated base or independently resolved prefix/suffix.
     std::size_t count = 0U;
     while (count < scalars.size()) {
         const auto& scalar = scalars[count];
@@ -294,18 +293,59 @@ inline std::size_t get_edit_leading_mark_item_length(
             levels[count].level != paragraph_level) break;
         ++count;
     }
-    if (count == 0U || count == scalars.size()) return 0U;
-    const auto& following = scalars[count];
-    // The observed Latin bridge is not a license to borrow Arabic/Syriac or
-    // another following nominal item. Owned Script collapses Common/Inherited
-    // and does not expose the Script_Extensions needed for that distinction.
-    if (following.script != open_type_tag::from_chars('l', 'a', 't', 'n') ||
-        !is_edit_letter(get_unicode_general_category(following.code_point)) ||
-        get_unicode_bidi_class(following.code_point) != unicode_bidi_class::left_to_right ||
-        properties[count].role != edit_item_source_role::ordinary ||
-        properties[count].profile != edit_item_profile::paragraph_bridge ||
-        levels[count].level != (paragraph_level == 0 ? 0 : 2)) return 0U;
     return count;
+}
+
+struct edit_leading_item_context final {
+    std::size_t mark_count = 0U;
+    std::size_t owner_scalar = 0U;
+    edit_item_profile profile = edit_item_profile::paragraph_bridge;
+    open_type_tag script{};
+    std::int8_t owner_level = 0;
+    bool requires_script_extensions = false;
+};
+
+inline bool try_get_edit_leading_item_context(
+    std::span<const unicode_scalar> scalars,
+    std::span<const edit_item_properties> properties,
+    std::span<const unicode_bidi_level> levels,
+    std::span<const unicode_script_run> source_runs,
+    std::size_t count,
+    std::int8_t paragraph_level,
+    edit_leading_item_context& result) noexcept
+{
+    if (properties.size() != scalars.size() || levels.size() != scalars.size() ||
+        count == 0U || count >= scalars.size() || source_runs.empty()) return false;
+    const auto& following = scalars[count];
+    const auto& run = source_runs.front();
+    // The original whole-source itemizer supplies a candidate, not permission
+    // to promote DFLT to any next family. Require its actual unchanged source
+    // range and owner; an intervening control/space/foreign mark cannot own it.
+    if (run.scalar_start != 0U || run.scalar_count <= count ||
+        run.input_start != scalars.front().input_index || run.script != following.script ||
+        static_cast<std::uint64_t>(run.input_start) + run.input_length <
+            static_cast<std::uint64_t>(following.input_index) + following.input_length ||
+        !is_edit_letter(get_unicode_general_category(following.code_point)) ||
+        properties[count].role != edit_item_source_role::ordinary || !properties[count].has_attachment_owner)
+        return false;
+    edit_leading_item_context candidate{count, count, properties[count].profile,
+        run.script, levels[count].level, false};
+    if (following.script == open_type_tag::from_chars('l', 'a', 't', 'n') &&
+        candidate.profile == edit_item_profile::paragraph_bridge &&
+        get_unicode_bidi_class(following.code_point) == unicode_bidi_class::left_to_right &&
+        candidate.owner_level == (paragraph_level == 0 ? 0 : 2)) {
+        // Original generic Latin mark bridge needs no nominal owner override.
+    } else if (candidate.profile == edit_item_profile::arabic_nominal &&
+        following.script == open_type_tag::from_chars('a', 'r', 'a', 'b') &&
+        get_unicode_bidi_class(following.code_point) == unicode_bidi_class::arabic_letter &&
+        candidate.owner_level == 1) {
+        // Pending proof only: the caller MUST validate every original leading
+        // mark's true Inherited/Script_Extensions properties before assigning
+        // this item context. Raw script and resolved bidi remain untouched.
+        candidate.requires_script_extensions = true;
+    } else return false;
+    result = candidate;
+    return true;
 }
 
 } // namespace progpu::native::text::detail
