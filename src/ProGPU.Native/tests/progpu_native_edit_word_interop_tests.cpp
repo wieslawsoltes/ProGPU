@@ -75,6 +75,15 @@ void run_edit_word_interop_controls() {
         check(u"x\u0ED0\u0ED1\u0E81y ", {0, 6}, 0, level);
         check(u"\u17E0\u17E1\u1780y ", {0, 5}, 0, level);
         check(u"x\u17E0\u17E1\u1780y ", {0, 6}, 0, level);
+        // Literal original source-role mark inventories; not font, grapheme
+        // or classifier-derived endpoints. Keep both original directions.
+        check(u"\u0301ay ", {0, 4}, 0, level);
+        check(u"x\u0301ay ", {0, 5}, 0, level);
+        check(u"x\u064E\u0628y ", {0, 2, 5}, 0, level);
+        check(u"\u0628\u064E\u062Ay ", {0, 5}, 0, level);
+        check(u"x\u0628\u064E\u062Ay ", {0, 1, 6}, 0, level);
+        check(u"\u0710\u0730\u0712y ", {0, 5}, 0, level);
+        check(u"x\u0710\u0730\u0712y ", {0, 1, 6}, 0, level);
     }
 
     std::array<std::uint32_t, 16> output{};
@@ -87,6 +96,9 @@ void run_edit_word_interop_controls() {
         PROGPU_NATIVE_EDIT_WORD_BOUNDARY_OUTPUT_TOO_SMALL, output);
     const std::array<std::uint16_t, 5> thai_numeric{0x0E50U, 0x0E51U, 0x0E01U, 'y', ' '};
     failed(progpu_native_text_resolve_edit_word_boundaries_utf16(thai_numeric.data(), 5U, 0, output.data(), 1U),
+        PROGPU_NATIVE_EDIT_WORD_BOUNDARY_OUTPUT_TOO_SMALL, output);
+    const std::array<std::uint16_t, 4> leading_mark{0x0301U, 'a', 'y', ' '};
+    failed(progpu_native_text_resolve_edit_word_boundaries_utf16(leading_mark.data(), 4U, 0, output.data(), 1U),
         PROGPU_NATIVE_EDIT_WORD_BOUNDARY_OUTPUT_TOO_SMALL, output);
     failed(progpu_native_text_resolve_edit_word_boundaries_utf16(nullptr, 0U, 0, nullptr, 0U),
         PROGPU_NATIVE_EDIT_WORD_BOUNDARY_OUTPUT_TOO_SMALL, output);
@@ -131,6 +143,16 @@ void run_edit_word_interop_controls() {
     const std::array<std::uint16_t, 4> unqualified{'x', 0x0711U, 'y', ' '};
     failed(progpu_native_text_resolve_edit_word_boundaries_utf16(unqualified.data(), 4U, 0, output.data(), 16U),
         PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_SCRIPT_ITEM_TRANSITION_POLICY, output, PROGPU_NATIVE_STATUS_UNSUPPORTED);
+    for (const auto level : {0, 1}) {
+        for (const auto text : {u"\u064E\u0628y ", u"\u0301\u0628y ", u" \u0301ay ", u"\u0301\u200Day "}) {
+            const std::u16string_view view(text);
+            const std::vector<std::uint16_t> rejected(view.begin(), view.end());
+            failed(progpu_native_text_resolve_edit_word_boundaries_utf16(rejected.data(),
+                static_cast<std::uint32_t>(rejected.size()), level, output.data(), 16U),
+                PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_SCRIPT_ITEM_TRANSITION_POLICY, output,
+                PROGPU_NATIVE_STATUS_UNSUPPORTED);
+        }
+    }
 #if defined(PROGPU_NATIVE_EDIT_WORD_ICU)
     check(u"\u0E20\u0E32\u0E29\u0E32\u0E44\u0E17\u0E22\u0E20\u0E32\u0E29\u0E32\u0E44\u0E17\u0E22 ", {0, 4, 7, 11, 15});
 #else

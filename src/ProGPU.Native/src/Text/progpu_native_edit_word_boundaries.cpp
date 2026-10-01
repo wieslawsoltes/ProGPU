@@ -83,10 +83,13 @@ bool assemble_edit_item_breaks(
             {units, indices, runs, brackets}, levels, resolved_level, written) ||
         written != scalars.size() || resolved_level != requested_level)
         return fail(edit_word_boundary_error::invalid_encoding, error);
+    const auto leading_mark_count = detail::get_edit_leading_mark_item_length(
+        scalars, properties, levels, requested_level);
     for (std::size_t index = 0U; index < scalars.size(); ++index) {
         const auto* previous_scalar = index == 0U ? nullptr : &scalars[index - 1U];
         const auto* previous_properties = index == 0U ? nullptr : &properties[index - 1U];
-        if (!detail::try_attach_edit_item_properties(scalars[index], previous_scalar,
+        if (index >= leading_mark_count &&
+            !detail::try_attach_edit_item_properties(scalars[index], previous_scalar,
                 previous_properties, properties[index]))
             return fail(edit_word_boundary_error::unqualified_script_item_transition_policy, error);
         if (index != 0U && is_edit_white_space(scalars[index].code_point)) {
