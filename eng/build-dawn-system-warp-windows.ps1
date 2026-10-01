@@ -94,10 +94,15 @@ function Assert-ImportLibrary([string]$Path) {
 }
 function Checkout-Original([string]$Url, [string]$Revision, [string]$Directory) {
     Invoke-Checked git @('init',$Directory)
+    # Dawn includes paths beyond MAX_PATH. Configure only this fresh checkout,
+    # never the runner's global Git policy, before materializing pinned files.
+    Invoke-Checked git @('-C',$Directory,'config','core.longpaths','true')
     Invoke-Checked git @('-C',$Directory,'fetch','--depth','1',$Url,$Revision)
     Invoke-Checked git @('-C',$Directory,'checkout','--detach','FETCH_HEAD')
     $actual = & git -C $Directory rev-parse HEAD
     if ($LASTEXITCODE -ne 0 -or $actual -ne $Revision) { throw 'Original checkout revision mismatch.' }
+    # HEAD identity alone cannot establish a complete materialized source tree.
+    Invoke-Checked git @('-C',$Directory,'diff','--quiet','HEAD','--')
 }
 $sourceRevision = & git -C $repo rev-parse HEAD
 if ($LASTEXITCODE -ne 0 -or $sourceRevision -notmatch '^[0-9a-f]{40}$') { throw 'Missing companion source revision.' }
