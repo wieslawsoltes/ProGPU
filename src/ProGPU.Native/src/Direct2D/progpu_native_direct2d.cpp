@@ -4456,7 +4456,8 @@ class ProGpuD2DFactory final :
     public ID2D1Factory1,
     public ID2D1Multithread,
     public IProGpuD2DCompatFactoryNative,
-    public direct2d_compat::scene_factory_native {
+    public direct2d_compat::scene_factory_native,
+    public direct2d_compat::formatted_scene_factory_native {
 public:
     ProGpuD2DFactory() noexcept
     {
@@ -4492,6 +4493,10 @@ public:
                 interface_id,
                 direct2d_compat::scene_factory_native_interface_id)) {
             *value = static_cast<direct2d_compat::scene_factory_native*>(this);
+        } else if (progpu::native::com::guid_equal(
+                interface_id,
+                direct2d_compat::formatted_scene_factory_native_interface_id)) {
+            *value = static_cast<direct2d_compat::formatted_scene_factory_native*>(this);
         } else {
             return E_NOINTERFACE;
         }
@@ -5147,6 +5152,16 @@ public:
                 static_cast<ID2D1Factory1*>(this)),
             properties,
             value);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateFormattedSceneRenderTarget(
+        const direct2d_compat::scene_render_target_properties* properties,
+        const direct2d_compat::pixel_format* format,
+        direct2d_compat::render_target** value) noexcept override
+    {
+        return direct2d_compat::detail::create_formatted_scene_render_target(
+            reinterpret_cast<direct2d_compat::factory*>(
+                static_cast<ID2D1Factory1*>(this)), properties, format, value);
     }
 
 private:

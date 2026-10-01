@@ -1274,6 +1274,70 @@ void verify_full_target_clear(const gpu_context& gpu, progpu_native_engine* engi
     }
 }
 
+void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine* engine)
+{
+    auto parent = record_scene(9303U);
+    native_com::pointer<d2d::formatted_scene_factory_native> factory;
+    require(parent.factory.as(d2d::formatted_scene_factory_native_interface_id, factory) == native_com::ok,
+        "formatted scene factory query");
+    std::uint64_t source_id = 9304U;
+    for (const d2d::pixel_format format : {
+            d2d::pixel_format{28U, d2d::alpha_mode::premultiplied},
+            d2d::pixel_format{87U, d2d::alpha_mode::premultiplied},
+            d2d::pixel_format{28U, d2d::alpha_mode::ignore},
+            d2d::pixel_format{87U, d2d::alpha_mode::ignore},
+            d2d::pixel_format{65U, d2d::alpha_mode::premultiplied}}) {
+        const d2d::scene_render_target_properties properties{16U, 16U, 192.0F, 192.0F, source_id++, 1U};
+        native_com::pointer<d2d::render_target> source;
+        require(factory->CreateFormattedSceneRenderTarget(&properties, &format, source.put()) == native_com::ok,
+            "formatted scene target creation");
+        const d2d::color_f red{1, 0, 0, 0.5F}, blue{0, 0, 1, 1}, green{0, 1, 0, 1}, white{1, 1, 1, 1};
+        native_com::pointer<d2d::solid_color_brush> brush;
+        require(source->CreateSolidColorBrush(&blue, nullptr, brush.put()) == native_com::ok,
+            "formatted scene source brush");
+        source->BeginDraw();
+        source->Clear(&red);
+        source->SetAntialiasMode(d2d::antialias_mode::aliased);
+        const d2d::rectangle_f patch{2, 2, 4, 4};
+        source->FillRectangle(&patch, brush.get());
+        const d2d::size_u pixel_size{16U, 16U};
+        native_com::pointer<d2d::bitmap_render_target> destination;
+        native_com::pointer<d2d::bitmap> bitmap;
+        require(parent.target->CreateCompatibleRenderTarget(nullptr, &pixel_size, &format,
+                d2d::compatible_render_target_options::none, destination.put()) == native_com::ok &&
+            destination->GetBitmap(bitmap.put()) == native_com::ok &&
+            bitmap->CopyFromRenderTarget(nullptr, source.get(), nullptr) == native_com::ok,
+            "formatted active scene copy to independent DPI target");
+        source->Clear(&green);
+        require(source->EndDraw(nullptr, nullptr) == native_com::ok, "formatted source completion after capture");
+        source.reset();
+        brush.reset();
+        parent.target->BeginDraw();
+        parent.target->Clear(&white);
+        const d2d::rectangle_f bounds{0, 0, 16, 16};
+        parent.target->DrawBitmap(bitmap.get(), &bounds, 1.0F,
+            d2d::bitmap_interpolation_mode::nearest_neighbor, nullptr);
+        require(parent.target->EndDraw(nullptr, nullptr) == native_com::ok, "formatted copy parent recording");
+        const auto pixels = render_scene(gpu, engine, parent.scene_target.get(), 1U, 1U, 0U);
+        for (std::uint32_t y = 0U; y < 16U; ++y) {
+            for (std::uint32_t x = 0U; x < 16U; ++x) {
+                const bool opaque_patch = x >= 4U && x < 8U && y >= 4U && y < 8U;
+                const bool alpha_only = format.format == 65U;
+                const int transparent_channel = format.alpha == d2d::alpha_mode::ignore ? 0 : 127;
+                const std::array<int, 3U> expected = opaque_patch
+                    ? std::array<int, 3U>{0, 0, alpha_only ? 0 : 255}
+                    : alpha_only ? std::array<int, 3U>{127, 127, 127}
+                    : std::array<int, 3U>{255, transparent_channel, transparent_channel};
+                const auto* actual = pixels.data() + y * row_bytes + x * 4U;
+                require(std::abs(int{actual[0]} - expected[0]) <= 1 &&
+                    std::abs(int{actual[1]} - expected[1]) <= 1 &&
+                    std::abs(int{actual[2]} - expected[2]) <= 1 && actual[3] == 255U,
+                    "formatted copy changed source pixels, alpha, DPI or snapshot lifetime");
+            }
+        }
+    }
+}
+
 void verify_compatible_bitmap_uploads(const gpu_context& gpu, progpu_native_engine* engine)
 {
     // This independently updated target must not rewind the later main fixture.
@@ -2024,6 +2088,7 @@ int main(int argc, char** argv)
     phase("record Direct2D");
     verify_incremental_picture_backing(gpu, engine);
     verify_compatible_bitmap_uploads(gpu, engine);
+    verify_formatted_scene_copies(gpu, engine);
     verify_full_target_clear(gpu, engine);
     portable_scene scene = record_scene();
     const std::vector<std::uint8_t> pixels = render_scene(

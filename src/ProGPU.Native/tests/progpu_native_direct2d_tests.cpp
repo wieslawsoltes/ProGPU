@@ -3,6 +3,7 @@
 #include "progpu_native_direct2d_clip_fixture.hpp"
 #include "progpu_native_direct2d_brush_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
+#include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native.h"
 
 #include <d2d1_3.h>
@@ -18,6 +19,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
@@ -30,6 +32,19 @@ using Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess;
 namespace {
 
 namespace compat = progpu::native::direct2d::compat;
+
+// IsSupported crosses the real Windows vtable using the portable declaration.
+// Keep every newly concrete property at its SDK ABI offset on both architectures.
+static_assert(sizeof(compat::render_target_properties) == sizeof(D2D1_RENDER_TARGET_PROPERTIES));
+static_assert(alignof(compat::render_target_properties) == alignof(D2D1_RENDER_TARGET_PROPERTIES));
+static_assert(offsetof(compat::render_target_properties, type) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, type));
+static_assert(offsetof(compat::render_target_properties, pixel_format_value) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, pixelFormat));
+static_assert(offsetof(compat::render_target_properties, dpi_x) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, dpiX));
+static_assert(offsetof(compat::render_target_properties, dpi_y) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, dpiY));
+static_assert(offsetof(compat::render_target_properties, usage) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, usage));
+static_assert(offsetof(compat::render_target_properties, minimum_level) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, minLevel));
+static_assert(static_cast<unsigned>(compat::feature_level::level_9) == D2D1_FEATURE_LEVEL_9);
+static_assert(static_cast<unsigned>(compat::feature_level::level_10) == D2D1_FEATURE_LEVEL_10);
 
 constexpr GUID gaussian_blur_effect_id = {
     0x1feb6d69,
@@ -724,6 +739,16 @@ int main()
         "ProGPU compatibility factory COM identity changed");
     compat_multithread->Enter();
     compat_multithread->Leave();
+    void* foreign_factory_value = nullptr;
+    require(progpu_native_direct2d_compat_factory_create(&foreign_factory_value, &native_hresult) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && foreign_factory_value != nullptr && native_hresult == S_OK,
+        "Windows foreign formatted scene factory creation failed");
+    ComPtr<ID2D1Factory1> foreign_copy_factory;
+    foreign_copy_factory.Attach(static_cast<ID2D1Factory1*>(foreign_factory_value));
+    require(progpu::native::direct2d::tests::formatted_scene_copy_contract(
+            reinterpret_cast<compat::factory*>(compat_base_factory.Get()),
+            reinterpret_cast<compat::factory*>(static_cast<ID2D1Factory*>(foreign_copy_factory.Get()))),
+        "Windows formatted scene factory/copy contract failed");
 
     compat::scene_factory_native* raw_scene_factory = nullptr;
     require(

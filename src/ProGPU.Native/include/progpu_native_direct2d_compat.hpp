@@ -302,6 +302,11 @@ inline constexpr com::guid scene_factory_native_interface_id{
     0xC27CU,
     0x4364U,
     {0x94U, 0x6BU, 0x89U, 0x84U, 0x41U, 0x48U, 0x98U, 0x65U}};
+inline constexpr com::guid formatted_scene_factory_native_interface_id{
+    0xD75D0696U,
+    0xD65DU,
+    0x4743U,
+    {0xB8U, 0x27U, 0xC9U, 0xD4U, 0x55U, 0xAFU, 0x17U, 0x30U}};
 inline constexpr com::guid scene_render_target_native_interface_id{
     0x170588C0U,
     0x12A5U,
@@ -505,7 +510,32 @@ struct quadratic_bezier_segment final {
     point_2f point2;
 };
 
-struct render_target_properties;
+enum class render_target_type : std::uint32_t {
+    default_value = 0U,
+    software = 1U,
+    hardware = 2U
+};
+
+enum class render_target_usage : std::uint32_t {
+    none = 0U,
+    force_bitmap_remoting = 1U,
+    gdi_compatible = 2U
+};
+
+enum class feature_level : std::uint32_t {
+    default_value = 0U,
+    level_9 = 0x9100U,
+    level_10 = 0xA000U
+};
+
+struct render_target_properties final {
+    render_target_type type;
+    pixel_format pixel_format_value;
+    float dpi_x;
+    float dpi_y;
+    render_target_usage usage;
+    feature_level minimum_level;
+};
 struct hwnd_render_target_properties;
 
 struct factory;
@@ -1039,6 +1069,16 @@ struct factory_native : com::unknown {
 struct scene_factory_native : com::unknown {
     virtual com::result PROGPU_NATIVE_COM_CALL CreateSceneRenderTarget(
         const scene_render_target_properties* properties,
+        render_target** value) noexcept = 0;
+};
+
+/* Explicit storage semantics for ordinary scene targets. A separate IID keeps
+ * formatless scene creation and both established factory vtables unchanged.
+ * Formats must be concrete; this does not select or create a GPU device. */
+struct formatted_scene_factory_native : com::unknown {
+    virtual com::result PROGPU_NATIVE_COM_CALL CreateFormattedSceneRenderTarget(
+        const scene_render_target_properties* properties,
+        const pixel_format* format,
         render_target** value) noexcept = 0;
 };
 
