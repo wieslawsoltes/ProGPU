@@ -19,7 +19,7 @@ using value = unicode_line_break_class;
 
 enum class line_break_profile {
     unicode17,
-    edit_joiner_left_attachment
+    edit_selection
 };
 
 void set_error(unicode_error* error, unicode_error result) noexcept {
@@ -100,8 +100,11 @@ bool is_unassigned(std::uint32_t code_point) noexcept {
         0U) != 0U;
 }
 
-value resolve_class(std::uint32_t code_point) noexcept {
-    const value raw = get_unicode_line_break_class(code_point);
+value resolve_class(std::uint32_t code_point, line_break_profile profile) noexcept {
+    const value edit_symbol = profile == line_break_profile::edit_selection
+        ? detail::get_edit_symbol_line_break_class(code_point) : value::unknown;
+    const value raw = edit_symbol == value::unknown
+        ? get_unicode_line_break_class(code_point) : edit_symbol;
     switch (raw) {
         case value::ambiguous:
         case value::surrogate:
@@ -509,7 +512,7 @@ bool try_resolve_line_breaks(
             set_error(error, unicode_error::invalid_argument);
             return false;
         }
-        value resolved = resolve_class(input[index].code_point);
+        value resolved = resolve_class(input[index].code_point, profile);
         if (resolved == value::combining_mark ||
             resolved == value::zero_width_joiner) {
             if (index != 0U && !is_hard(class_scratch[index - 1U]) &&
@@ -548,13 +551,13 @@ bool try_resolve_unicode_line_breaks(
         line_break_profile::unicode17);
 }
 
-bool detail::try_resolve_edit_joiner_line_breaks(
+bool detail::try_resolve_edit_selection_line_breaks(
     std::span<const unicode_scalar> input,
     std::span<unicode_line_break_class> class_scratch,
     std::span<text_line_break_kind> breaks_after,
     unicode_error* error) noexcept {
     return try_resolve_line_breaks(input, class_scratch, breaks_after, error,
-        line_break_profile::edit_joiner_left_attachment);
+        line_break_profile::edit_selection);
 }
 
 } // namespace progpu::native::text

@@ -153,7 +153,8 @@ bool try_create_edit_word_boundary_snapshot(
             const auto raw = get_unicode_line_break_class(scalar.code_point);
             if (scalar.code_point <= 0xFFFFU && raw == lb::ideographic &&
                 get_unicode_general_category(scalar.code_point) ==
-                    unicode_general_category::other_symbol)
+                    unicode_general_category::other_symbol &&
+                detail::get_edit_symbol_line_break_class(scalar.code_point) == lb::unknown)
                 return fail(edit_word_boundary_error::unqualified_bmp_symbol_policy, error);
             if (raw == lb::complex_context && scalar.script != thai &&
                 scalar.script != lao && scalar.script != lao_layout && scalar.script != khmer &&
@@ -163,7 +164,7 @@ bool try_create_edit_word_boundary_snapshot(
         }
         std::vector<lb> classes(scalars.size());
         std::vector<text_line_break_kind> breaks(scalars.size());
-        if (!detail::try_resolve_edit_joiner_line_breaks(scalars, classes, breaks))
+        if (!detail::try_resolve_edit_selection_line_breaks(scalars, classes, breaks))
             return fail(edit_word_boundary_error::invalid_encoding, error);
         std::vector<std::uint8_t> boundaries(source.size() + 1U, 0U);
         boundaries.front() = boundaries.back() = 1U;

@@ -64,8 +64,8 @@ void original_reference_inventories()
     check(u"  alpha,beta \ttail ", {0, 2, 13, 14, 19}, 2);
     check(u"alpha beta gamma delta end ", {0, 6, 11, 17, 23, 27});
     check(u"a\u00A0b\u2003c\u202Fd\u3000e ", {0, 4, 6, 8, 10});
-    // Original symbols case and emoji-context case remain explicit missing
-    // contracts below; there is no guessed whole-provider admission.
+    check(u"a\u00A9b\u2603c\U0001F600d ", {0, 5, 7, 9});
+    check(u"a\u2603\uFE0Fb\U0001F469\u200D\U0001F4BBc ", {0, 4, 7, 9, 11});
     check(u"ab\rcd\nef ", {0, 2, 3, 6, 9});
     check(u"ab\rcd\nef ", {0, 2, 3, 6, 9});
     // CRCRLF has no available interior EDIT coordinates in the receipt. The
@@ -97,11 +97,11 @@ void missing_contracts_are_atomic()
         require(snapshot.positions == original_positions && snapshot.leading_content_start == 23U,
             "Failed classifier published a partial generation");
     };
-    check_failure(u"a\u00A9b\u2603c\U0001F600d ",
+    // These observed BMP So/rawID domains match neither measured AL nor ID
+    // signatures across all three contexts. No guessed range is admitted.
+    check_failure(u"a\u3200b ",
         edit_word_boundary_error::unqualified_bmp_symbol_policy);
-    check_failure(u"a\u2603\uFE0Fb\U0001F469\u200D\U0001F4BBc ",
-        edit_word_boundary_error::unqualified_bmp_symbol_policy);
-    check_failure(u"x\u2764\uFE0F\u200D\U0001F4BBy ",
+    check_failure(u"a\u1B61b ",
         edit_word_boundary_error::unqualified_bmp_symbol_policy);
     // Canonical itemization, not a fixture-word lookup, identifies the precise
     // as-yet unqualified Arabic-run entry with no existing profile boundary.
@@ -147,6 +147,9 @@ void independently_observed_joiner_contexts()
     check(u"a\U0001F600\u200D ", {0, 1, 5});
     check(u"a \u200Db ", {0, 2, 5});
     check(u"a\U0001F469\u200D\u200D\U0001F4BBb ", {0, 1, 5, 7, 9});
+    check(u"x\u2764\uFE0F\U0001F4BBy ", {0, 3, 5, 7});
+    check(u"x\u2764\uFE0F\u200D\U0001F4BBy ", {0, 4, 6, 8});
+    check(u"x\u2764\uFE0F\u200C\U0001F4BBy ", {0, 4, 6, 8});
 
     // A non-BMP emoji profile boundary remains INSIDE the original modern
     // emoji grapheme. Default UAX14 must continue prohibiting that same seam.
@@ -164,6 +167,50 @@ void independently_observed_joiner_contexts()
     require(get_unicode_line_break_class(0x200DU) ==
         unicode_line_break_class::zero_width_joiner,
         "EDIT joiner profile rewrote the original Unicode property");
+}
+
+void independent_heldout_symbol_items()
+{
+    // Literal independent same-item observations from item-contexts.json in
+    // Build36867054042. The generated property data reads ONLY the separate
+    // symbol-attributes.json three-context inventory, never these requests.
+    struct observed_symbol { char16_t value; bool interior_soft_break; };
+    constexpr std::array<observed_symbol, 22> observed{{
+        {0x00A9U, false}, {0x00AEU, false}, {0x2122U, false}, {0x2194U, false},
+        {0x2300U, false}, {0x231AU, true}, {0x23F0U, true}, {0x25FDU, false},
+        {0x2600U, false}, {0x2603U, false}, {0x260EU, false}, {0x2615U, true},
+        {0x263AU, true}, {0x2640U, false}, {0x2665U, false}, {0x2695U, false},
+        {0x26A1U, false}, {0x26BDU, true}, {0x2708U, false}, {0x2764U, false},
+        {0x3030U, true}, {0x3299U, true}
+    }};
+    for (const auto& symbol : observed) {
+        const std::array<char16_t, 3> repeated{symbol.value, symbol.value, u' '};
+        const std::array<char16_t, 5> variation{
+            symbol.value, 0xFE0FU, symbol.value, 0xFE0FU, u' '};
+        if (symbol.interior_soft_break) {
+            check({repeated.data(), repeated.size()}, {0, 1, 3});
+            check({variation.data(), variation.size()}, {0, 2, 5});
+        } else {
+            check({repeated.data(), repeated.size()}, {0, 3});
+            check({variation.data(), variation.size()}, {0, 5});
+        }
+    }
+    // The measured EDIT property never changes the public Unicode17 class or
+    // the ordinary line worker; modern snowman remains raw ID in that worker.
+    const auto original = units(u"a\u2603b");
+    std::array<unicode_scalar, 3> scalars{};
+    std::uint32_t written = 0U;
+    require(try_decode_utf16(original, scalars, written) && written == 3U,
+        "Heldout symbol source decode failed");
+    std::array<unicode_line_break_class, 3> classes{};
+    std::array<text_line_break_kind, 3> breaks{};
+    require(try_resolve_unicode_line_breaks(scalars, classes, breaks),
+        "Default symbol UAX14 failed");
+    require(get_unicode_line_break_class(0x2603U) == unicode_line_break_class::ideographic &&
+        classes[1] == unicode_line_break_class::ideographic &&
+        breaks[0] != text_line_break_kind::prohibited &&
+        breaks[1] != text_line_break_kind::prohibited,
+        "Measured EDIT symbol profile changed the original Unicode17 worker");
 }
 
 void concurrent_snapshots_own_independent_outputs()
@@ -226,6 +273,7 @@ int main()
         original_reference_inventories();
         missing_contracts_are_atomic();
         independently_observed_joiner_contexts();
+        independent_heldout_symbol_items();
         original_units_and_default_worker_are_independent();
         std::cout << "EDIT boundary profile controls passed; ordinary provider admission remains closed\n";
         return 0;
