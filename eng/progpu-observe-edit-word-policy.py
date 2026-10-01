@@ -242,8 +242,6 @@ def verify_geometry(receipt):
                         or selection["ManagedLength"] != end - start or selection.get("Focused") is not True
                         or utf16(selection["SelectedText"]) != utf16(source)[start:end]):
                     raise ValueError("Original selected UTF16/focus identity changed")
-                if index < len(requested) and (start, end) != tuple(sorted(requested[index][1:])):
-                    raise ValueError("Original directed selection endpoints were snapped")
                 caret = state["Caret"]
                 total += 1
                 if caret["Available"] is True:

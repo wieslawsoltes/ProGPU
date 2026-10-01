@@ -143,10 +143,8 @@ internal static partial class WordSelectionReference
                     CheckBudget(budget);
                     RequireGeometryOwner(editor, handle, item.Text);
                     long result = SendMessageW(handle, SetSelection, requestedAnchor, requestedActive).ToInt64();
-                    Selection selection = ReadSelection(editor, handle);
-                    if (selection.Start != Math.Min(requestedAnchor, requestedActive) ||
-                        selection.End != Math.Max(requestedAnchor, requestedActive))
-                        throw new InvalidOperationException("Original EDIT changed requested UTF-16 selection endpoints.");
+                    // The original EDIT response is the observation, not an
+                    // assertion that every requested interior endpoint survives.
                     Observe(name, new { kind = "set-selection", requestedAnchor, requestedActive, result });
                 }
 

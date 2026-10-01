@@ -269,11 +269,19 @@ class SelectionGeometryReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "directed selection identity"):
             OBSERVER.verify_geometry(value)
 
-    def test_original_endpoint_cannot_snap_to_adjacent_utf16(self):
+    def test_changed_original_response_is_preserved_without_rewriting_request(self):
         value = self.receipt()
-        selection = self.sample(value, 2)["afterScroll"]["Selection"]
-        selection.update(Start=8, End=8, ManagedStart=8)
-        with self.assertRaisesRegex(ValueError, "endpoints were snapped"):
+        sample = self.sample(value, 2)
+        requested = copy.deepcopy(sample["request"])
+        for key in ("beforeScroll", "afterScroll"):
+            sample[key]["Selection"].update(Start=8, End=8, ManagedStart=8)
+        OBSERVER.verify_geometry(value)
+        self.assertEqual(sample["request"], requested)
+        self.assertEqual(sample["request"]["requestedAnchor"], 7)
+        self.assertEqual(sample["request"]["requestedActive"], 7)
+        self.assertEqual(sample["afterScroll"]["Selection"]["Start"], 8)
+        sample["afterScroll"]["Selection"]["ManagedStart"] = 7
+        with self.assertRaisesRegex(ValueError, "selected UTF16/focus identity"):
             OBSERVER.verify_geometry(value)
 
     def test_every_em_posfromchar_slot_including_unavailable_terminal_is_required(self):
