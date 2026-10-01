@@ -793,6 +793,18 @@ adds no renderer default, extra poll, wait, readback or submission. Full loaded
 JIT/NativeAOT package controls and independent Windows source text/UI evidence
 remain required before source Display or editor admission.
 
+The existing loaded text-hinting package selector adds 20 paragraph cases for
+both interpreters and LTR/RTL, including supplementary UTF-16 source, mixed
+styles/fonts, hard breaks, both digit-bidi policies and maximum-line retention.
+Independent source/bidi records, context-complete original hinted runs and the
+public measured interaction builder check cached outputs and caller tails.
+Later invalid requests and actual context/caller/paragraph retirement preserve
+all managed snapshots. These controls run through the original JIT/NativeAOT
+selector without replacing any case or deadline. They do not expose an
+independent public full measured writer, reread a destroyed native handle or
+fabricate a GPU target; native owner retirement and actual GPU/provider tests
+remain separate. Authored package cases still require successful exact-head CI.
+
 The original normalized instance check uses public
 [fvar](https://learn.microsoft.com/en-us/typography/opentype/spec/fvar) and
 [avar](https://learn.microsoft.com/en-us/typography/opentype/spec/avar) contracts,

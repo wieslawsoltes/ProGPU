@@ -65,6 +65,7 @@ internal static class TextHintingValidation
         }
         Console.WriteLine("package-consumer: retained hinted generations passed (both interpreters, exact phase, atomic tails, eviction, shared-library ownership, disposal)");
         TextHintedRunValidation.Run(fontPath);
+        TextHintedParagraphValidation.Run(fontPath);
     }
 
     private static (NativeHintedGlyph[] Glyphs, NativeHintedPoint[] Points, byte[] Tags, int[] Contours) Buffers(NativeHintedFontBatch batch)
