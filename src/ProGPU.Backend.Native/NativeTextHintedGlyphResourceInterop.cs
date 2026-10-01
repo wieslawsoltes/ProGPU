@@ -37,6 +37,7 @@ public sealed unsafe partial class NativeHintedGlyphResource : IDisposable
             throw new InvalidOperationException("Native hinted geometry changed its exact prepared execution contract.");
         _view = view;
         if (nominalMetrics) _nominalMetrics = BorrowNominalMetrics(handle, view.Counts.PositionedGlyphCount);
+        _lineFrames = BorrowLineFrames(handle, view.Counts.LineCount);
         // Ownership transfers last. The factory destroys the raw handle if
         // borrowing or validation throws before this nonthrowing assignment.
         _handle = handle;
@@ -47,11 +48,13 @@ public sealed unsafe partial class NativeHintedGlyphResource : IDisposable
     // native borrow/validation constructor above and the cached native destroy.
     internal NativeHintedGlyphResource(nint handle, in NativeMethods.HintedGlyphResourceView view,
         Action<nint> destroy, NativeMethods.HintedGlyphNominalMetricsView? nominalMetrics = null,
-        HintedSourceFrameValidator? validateSourceFrame = null)
+        HintedSourceFrameValidator? validateSourceFrame = null,
+        NativeMethods.HintedTextLineFramesView? lineFrames = null)
     {
         ArgumentNullException.ThrowIfNull(destroy);
         _view = view;
         _nominalMetrics = nominalMetrics;
+        _lineFrames = lineFrames;
         _destroy = destroy;
         if (validateSourceFrame is not null) _validateSourceFrame = validateSourceFrame;
         _handle = handle;
@@ -76,7 +79,7 @@ public sealed unsafe partial class NativeHintedGlyphResource : IDisposable
         NativeMethods.HintedGlyphResourceView view = AcquireForImport();
         try
         {
-            return new NativeHintedGlyphResourceReadLease(this, in view, _nominalMetrics);
+            return new NativeHintedGlyphResourceReadLease(this, in view, _nominalMetrics, _lineFrames);
         }
         catch (Exception error)
         {
@@ -163,12 +166,15 @@ public sealed unsafe partial class NativeHintedGlyphResourceReadLease : IDisposa
     private bool _ended;
 
     internal NativeHintedGlyphResourceReadLease(NativeHintedGlyphResource owner,
-        in NativeMethods.HintedGlyphResourceView view, NativeMethods.HintedGlyphNominalMetricsView? nominalMetrics = null)
+        in NativeMethods.HintedGlyphResourceView view, NativeMethods.HintedGlyphNominalMetricsView? nominalMetrics = null,
+        NativeMethods.HintedTextLineFramesView? lineFrames = null)
     {
         ValidateRanges(in view);
         if (nominalMetrics is { } metrics) ValidateNominalMetrics(in metrics, view.Counts.PositionedGlyphCount);
+        if (lineFrames is { } frames) ValidateLineFrames(in frames, view.Counts.LineCount);
         _view = view;
         _nominalMetrics = nominalMetrics;
+        _lineFrames = lineFrames;
         // Only a complete checked view can publish a retained reader.
         _owner = owner;
     }

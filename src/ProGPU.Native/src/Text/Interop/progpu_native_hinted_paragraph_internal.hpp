@@ -3,6 +3,7 @@
 #include "../Font/progpu_native_hinted_shaper.hpp"
 #include "progpu_native_text_styles.h"
 #include "progpu_native_text_flow.h"
+#include "../progpu_native_text_layout_retained_internal.hpp"
 
 namespace progpu::native::text {
 
@@ -90,6 +91,7 @@ struct hinted_paragraph_generation final {
     std::vector<std::int8_t> bidi_levels{}; // Actual writer L1/L2-used levels.
     std::vector<std::int32_t> cluster_ends{};
     std::vector<float> line_origins{}; // Literal writer pen + alignment, never ink X.
+    std::vector<text_layout_line_frame> line_frames{}; // Actual writer double top and source ascent.
     text_layout_metrics metrics{};
     progpu_native_text_paragraph_result paragraph_result{};
 };

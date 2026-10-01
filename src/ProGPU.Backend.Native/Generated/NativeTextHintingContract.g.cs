@@ -107,6 +107,17 @@ internal static unsafe partial class NativeMethods
         internal nuint Metrics;
     }
 
+    // Native source: progpu_native_hinted_text_line_frames_view.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct HintedTextLineFramesView
+    {
+        internal uint AbiVersion;
+        internal uint StructSize;
+        internal uint LineCount;
+        internal uint Reserved;
+        internal nuint Frames;
+    }
+
     // Native source: progpu_native_hinted_glyph_resource_view.
     [StructLayout(LayoutKind.Sequential)]
     internal partial struct HintedGlyphResourceView
@@ -331,6 +342,15 @@ public partial struct NativeHintedSourceGlyphFrame
     public Vector2 SourceBaselineOrigin;
     public Vector2 ParagraphOrigin;
     public Vector2 BaselineRelativeOrigin;
+}
+
+// Native source: progpu_native_hinted_text_line_frame.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedTextLineFrame
+{
+    public double Top;
+    public float BaselineOffset;
+    public uint Flags;
 }
 
 // Native source: progpu_native_mil_hinted_glyph_binding.

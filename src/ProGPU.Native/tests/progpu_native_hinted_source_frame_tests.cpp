@@ -48,6 +48,15 @@ void controls() {
         output.paragraph_origin.x == 5.0F && output.paragraph_origin.y == -13.0F &&
         output.baseline_relative_origin.x == 0.0F && output.baseline_relative_origin.y == -20.0F);
     const auto sentinel = output;
+    std::array<progpu_native_hinted_source_glyph_offset, 4U> copied{{{71, 72}, {73, 74}, {75, 76}, {77, 78}}};
+    require(copy_hinted_source_offsets(view, nominal, indices, 10.0F, copied) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        copied[0].x == -9.0 && copied[1].x == -11.0 && copied[2].x == -16.0 && copied[1].y == -1.5 &&
+        copied[3].x == 77.0 && copied[3].y == 78.0);
+    const auto saved_copy = copied;
+    indices.back() = 3U;
+    require(copy_hinted_source_offsets(view, nominal, indices, 10.0F, copied) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        std::memcmp(copied.data(), saved_copy.data(), sizeof(copied)) == 0);
+    indices.back() = 2U;
     const auto rejected = [&](progpu_native_status expected) {
         require(invoke() == expected && std::memcmp(&output, &sentinel, sizeof(output)) == 0);
     };
@@ -64,6 +73,9 @@ void controls() {
     // LTR uses the same original selected glyphs and exact measured prefix.
     levels.fill(0); offsets = {{{4.0, 0.0}, {-3.0, -1.5}, {-3.0, 0.0}}};
     require(invoke() == PROGPU_NATIVE_STATUS_SUCCESS && output.bidi_level == 0);
+    require(copy_hinted_source_offsets(view, nominal, indices, 10.0F, copied) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        copied[0].x == 4.0 && copied[1].x == -3.0 && copied[2].x == -3.0 && copied[1].y == -1.5 &&
+        copied[3].x == 77.0 && copied[3].y == 78.0);
 }
 }
 int main() {

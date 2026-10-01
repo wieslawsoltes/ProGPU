@@ -119,6 +119,43 @@ closed; this metadata is not interaction or rendering parity.
 
 ## Original source line frames
 
+The measured writer now captures each line's actual double top and measured
+ascent beside its original baseline publication, before advancing the layout
+cursor. An additive immutable line-frame borrow view retains these values under
+the original glyph-resource lease; the existing import/view ABI stays unchanged.
+Neither source code nor the adapter infers line tops from baselines or sums line
+heights. The borrowed frame allocation participates in all resource alias guards.
+
+`CopySourceOffsets` copies the original selected occurrences' canonical source
+nominal offsets in one synchronous producer call per run. It shares the existing
+validator's exact arithmetic and validates the complete selection before writing
+caller output; unused tails remain untouched. This is O(lines + occurrences)
+time and O(occurrences) temporary storage, not per-glyph native calls, font queries
+or source-local advance reconstruction. Repeats and non-ink occurrences remain
+original occurrences. Default optional factories reject this operation.
+
+The companion concrete paragraph also implements the existing source paragraph
+contract, using these measured frames and the original native boxes/carets for
+hit testing, carets and selections. Backend selection conversion subtracts the
+writer's published float frame after the existing native selection algorithm;
+the original double top remains available as layout metadata. No second
+interaction engine or invented empty-row caret is introduced. Source lines and
+cloned continuation breaks own independent references, while source GlyphRuns
+use the same original generation and canonical source offsets. Actual automatic
+Display selection, device metrics, width-changing hinted continuation, collapse,
+variable instances and public hinted GlyphRun caret/outline admission remain closed.
+
+For this slice, 40 focused backend/neutral and 63 actual-adapter device-free tests
+passed with zero skipped cases. The managed backend compiled without warnings or
+errors. The adapter compiled with its existing shim/event warnings. The actual
+writer, C interop, source-offset implementation and three authored native fixtures
+passed strict C++20 syntax checks only. Original producer frame/borrow/alias/tail/
+retirement controls are authored, not executed. These checks do not qualify native
+font execution, package pixels, Display policies or source editing/UI behavior.
+The companion actual source and reference PresentationCore also compiled cleanly
+(zero warnings/errors), using an explicit scratch dependency remap and unchanged
+old gitlink. Five source-reference lifetime tests passed without native execution.
+
 `NativeHintedGlyphResourceReadLease.ValidateSourceFrame` makes one synchronous
 producer call under its existing destruction-excluding lease. Explicit nominal
 preparation is required. The producer validates original selected indices, font,

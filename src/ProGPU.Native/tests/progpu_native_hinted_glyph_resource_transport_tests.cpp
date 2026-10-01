@@ -515,6 +515,7 @@ void variable_font_controls() {
 void nominal_metric_controls() {
     paragraph_owner paragraph; resource_owner resource, ordinary;
     auto metrics = sentinel<progpu_native_hinted_glyph_nominal_metrics_view>(); const auto tail = metrics.tail;
+    auto frames = sentinel<progpu_native_hinted_text_line_frames_view>(); const auto frame_tail = frames.tail;
     {
         fixture source(font_hint_policy::truetype_40, true);
         source.produce(paragraph);
@@ -528,6 +529,17 @@ void nominal_metric_controls() {
         require(progpu_native_hinted_glyph_resource_borrow_nominal_metrics(resource.value, &metrics.value) == PROGPU_NATIVE_STATUS_SUCCESS && metrics.tail == tail);
         progpu_native_hinted_glyph_resource_view original{};
         require(progpu_native_hinted_glyph_resource_borrow(resource.value, &original) == PROGPU_NATIVE_STATUS_SUCCESS);
+        require(progpu_native_hinted_glyph_resource_borrow_line_frames(resource.value, &frames.value) ==
+            PROGPU_NATIVE_STATUS_SUCCESS && frames.tail == frame_tail);
+        const auto writer = select_hinted_paragraph_generation(paragraph.value);
+        require(writer && frames.value.abi_version == PROGPU_NATIVE_ABI_VERSION &&
+            frames.value.struct_size == sizeof(frames.value) && frames.value.reserved == 0U &&
+            frames.value.line_count == original.counts.line_count && writer->line_frames.size() == frames.value.line_count);
+        for (std::uint32_t i = 0U; i < frames.value.line_count; ++i) {
+            require(frames.value.frames[i].top == writer->line_frames[i].top &&
+                frames.value.frames[i].baseline_offset == writer->line_frames[i].baseline_offset &&
+                frames.value.frames[i].flags == 1U);
+        }
         require(metrics.value.abi_version == PROGPU_NATIVE_ABI_VERSION && metrics.value.struct_size == sizeof(metrics.value) &&
             metrics.value.reserved == 0U && metrics.value.metric_count == original.counts.positioned_glyph_count);
         bool no_ink = false, repeated = false, positioned_differs = false;
@@ -552,6 +564,26 @@ void nominal_metric_controls() {
             (original.positioned_bidi_levels[selected] & 1) == 0 ? static_cast<double>(first.x) :
                 -0.5 * static_cast<double>(em) - static_cast<double>(first.x),
             -(static_cast<double>(first.y) - original.lines[0].baseline_y)};
+        std::array<progpu_native_hinted_source_glyph_offset, 2U> copied{{{77.0, 78.0}, {79.0, 80.0}}};
+        const auto copied_before = copied;
+        require(progpu_native_hinted_glyph_resource_copy_source_offsets(ordinary.value, &selected, 1U,
+            em, copied.data(), copied.size()) == PROGPU_NATIVE_STATUS_UNSUPPORTED && same_bytes(copied, copied_before));
+        require(progpu_native_hinted_glyph_resource_copy_source_offsets(resource.value, &selected, 1U,
+            em, copied.data(), copied.size()) == PROGPU_NATIVE_STATUS_SUCCESS &&
+            same_bytes(copied[0], offset) && same_bytes(copied[1], copied_before[1]));
+        const auto admitted_copy = copied;
+        const std::array<std::uint32_t, 2U> invalid_selection{{selected, original.counts.positioned_glyph_count}};
+        require(progpu_native_hinted_glyph_resource_copy_source_offsets(resource.value, invalid_selection.data(), 2U,
+            em, copied.data(), copied.size()) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && same_bytes(copied, admitted_copy));
+        require(progpu_native_hinted_glyph_resource_copy_source_offsets(resource.value, &selected, 1U,
+            em, reinterpret_cast<progpu_native_hinted_source_glyph_offset*>(const_cast<std::uint8_t*>(original.font_bytes)), 1U) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        require(progpu_native_hinted_glyph_resource_borrow_line_frames(resource.value,
+            reinterpret_cast<progpu_native_hinted_text_line_frames_view*>(const_cast<progpu_native_hinted_text_line_frame*>(frames.value.frames))) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        require(progpu_native_hinted_glyph_resource_borrow(resource.value,
+            reinterpret_cast<progpu_native_hinted_glyph_resource_view*>(const_cast<progpu_native_hinted_text_line_frame*>(frames.value.frames))) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
         auto frame = sentinel<progpu_native_hinted_source_glyph_frame>(); const auto frame_before = frame;
         const progpu_native_point baseline{5.0F, original.lines[0].baseline_y};
         require(progpu_native_hinted_glyph_resource_validate_source_frame(ordinary.value, &selected, 1U,
@@ -590,10 +622,15 @@ void nominal_metric_controls() {
     }
     const auto before = metrics;
     const std::vector saved(metrics.value.metrics, metrics.value.metrics + metrics.value.metric_count);
+    const auto frames_before = frames;
+    const std::vector saved_frames(frames.value.frames, frames.value.frames + frames.value.line_count);
     progpu_native_hinted_paragraph_destroy(paragraph.value); paragraph.value = nullptr;
     require(progpu_native_hinted_glyph_resource_borrow_nominal_metrics(resource.value, &metrics.value) == PROGPU_NATIVE_STATUS_SUCCESS &&
         same_bytes(metrics, before) && same_span<progpu_native_hinted_glyph_nominal_metrics>(
             {metrics.value.metrics, metrics.value.metric_count}, saved));
+    require(progpu_native_hinted_glyph_resource_borrow_line_frames(resource.value, &frames.value) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        same_bytes(frames, frames_before) && same_span<progpu_native_hinted_text_line_frame>(
+            {frames.value.frames, frames.value.line_count}, saved_frames));
 }
 
 void empty_controls() {

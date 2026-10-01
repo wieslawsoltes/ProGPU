@@ -1,5 +1,15 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Hinted source lines retain the measured writer's actual double tops and ascents
+beside their original baselines. Keep the additive frame view under the original
+resource lease and preserve all alias guards. Canonical source offsets reuse the
+native validator and original nominal metrics in one atomic run batch, never
+source-local prefixes or per-glyph font calls. Source drawing and interaction
+consume this same generation; line and cloned continuation uses own independent
+leases. Empty-row, reflow/collapse and Display device-policy admission remain
+explicit until their original contracts and qualification exist. See
+docs/source-hinted-text-ownership.md.
+
 Local source visibility is independent of opacity and presentation attachment.
 Carry Visible/Hidden/Collapsed through typed state and native snapshot transport;
 exclude ordinary hidden subtrees before cache/mask/input admission. Explicit

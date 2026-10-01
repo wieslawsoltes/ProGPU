@@ -17,6 +17,7 @@ public sealed class PortableHintedTextContractTests
         Assert.Throws<NotSupportedException>(() => factory.BindGlyphRun(
             new PortableTextFont(new byte[] { 1 }, 0, 1000), 12, default, new double[] { 4 }, new PortablePoint[] { default }));
         Assert.Equal(0, provider.OriginalCalls);
+        Assert.Throws<NotSupportedException>(() => factory.CopySourceOffsets(12, new PortablePoint[1]));
         Assert.Throws<InvalidOperationException>(() => factory.BindGlyphRun(12, default));
         Assert.Equal(1, provider.OriginalCalls);
     }

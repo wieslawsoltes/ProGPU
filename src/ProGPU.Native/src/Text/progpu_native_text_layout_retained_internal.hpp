@@ -4,6 +4,13 @@
 
 namespace progpu::native::text {
 
+struct text_layout_line_frame final {
+    double top = 0.0;
+    float baseline_offset = 0.0F;
+    bool measured = false;
+    bool operator==(const text_layout_line_frame&) const = default;
+};
+
 // Private opt-in writer outputs, borrowed for this synchronous call. The caller
 // supplies disjoint owned spans covering the original requirements' complete
 // glyph/line capacities, including maximum-lines fitting. Only emitted entries
@@ -13,6 +20,9 @@ namespace progpu::native::text {
 struct text_layout_retained_metadata final {
     std::span<std::int8_t> positioned_bidi_levels{};
     std::span<float> line_origins{};
+    // Optional additive capture of the actual writer inputs. An empty span
+    // preserves existing callers; when requested it covers full line capacity.
+    std::span<text_layout_line_frame> line_frames{};
 };
 
 // Same original measured writer and failure/count convention, with mandatory

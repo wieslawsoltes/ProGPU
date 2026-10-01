@@ -368,6 +368,25 @@ typedef struct progpu_native_hinted_source_glyph_frame {
     progpu_native_point baseline_relative_origin;
 } progpu_native_hinted_source_glyph_frame;
 
+/* Original writer double top and source ascent, captured during placement.
+ * Flags bit zero means measured input; no other flags are valid. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedTextLineFrame */
+typedef struct progpu_native_hinted_text_line_frame {
+    double top;
+    float baseline_offset;
+    uint32_t flags;
+} progpu_native_hinted_text_line_frame;
+
+/* PROGPU_CSHARP_STRUCT: NativeMethods.HintedTextLineFramesView */
+typedef struct progpu_native_hinted_text_line_frames_view {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    uint32_t line_count;
+    uint32_t reserved;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_hinted_text_line_frame* frames;
+} progpu_native_hinted_text_line_frames_view;
+
 /* A read-only flat borrow held by an ORIGINAL producer-library lifetime lease
  * excluding destruction. Immutable cached records admit concurrent readers.
  * A renderer receives only these records, never the producer's opaque handle.
@@ -522,6 +541,18 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_valid
     const double* source_advances,
     const progpu_native_hinted_source_glyph_offset* source_offsets,
     progpu_native_hinted_source_glyph_frame* frame);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_borrow_line_frames(
+    const progpu_native_hinted_glyph_resource* resource,
+    progpu_native_hinted_text_line_frames_view* view);
+
+/* Copies canonical nominal source offsets for the exact original selection;
+ * same equations and admission as validate_source_frame. All output/tails stay
+ * untouched on failure; successful copies leave unused capacity untouched. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_copy_source_offsets(
+    const progpu_native_hinted_glyph_resource* resource,
+    const uint32_t* positioned_indices, uint32_t glyph_count, float source_em_size,
+    progpu_native_hinted_source_glyph_offset* offsets, uint32_t offset_capacity);
 PROGPU_NATIVE_API void progpu_native_hinted_glyph_resource_destroy(progpu_native_hinted_glyph_resource* resource);
 
 /* Canonical commands, flat resource imports and all bindings form ONE staged

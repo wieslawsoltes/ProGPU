@@ -13,6 +13,10 @@ public interface IPortableHintedGlyphRunBindingFactory
 {
     IPortableHintedGlyphRunBinding BindGlyphRun(float sourceEmSize, Vector2 logicalOrigin);
 
+    /// <summary>Copies native canonical nominal offsets for this original selection; unused tail is untouched.</summary>
+    void CopySourceOffsets(float sourceEmSize, Span<PortablePoint> sourceOffsets)
+        => throw new NotSupportedException("The hinted provider does not publish original source offsets.");
+
     /// <summary>
     /// Admits the source's exact original face bytes/index/UPM and per-occurrence
     /// measured advances before publication. Inputs are borrowed synchronously;

@@ -32,10 +32,34 @@ public sealed unsafe partial class NativeHintedGlyphResource
             return frame;
         }
     }
+
+    internal void CopySourceOffsetsWhileRetained(ReadOnlySpan<uint> indices, float em, Span<NativeHintedSourceGlyphOffset> offsets)
+    {
+        lock (_gate)
+        {
+            if (_handle == 0 || _uses <= 0) throw new ObjectDisposedException(nameof(NativeHintedGlyphResource));
+            fixed (uint* pIndices = indices)
+            fixed (NativeHintedSourceGlyphOffset* pOffsets = offsets)
+                NativeHintedParagraph.ThrowForStatus(NativeMethods.CopyHintedSourceGlyphOffsets(_handle, pIndices,
+                    checked((uint)indices.Length), em, pOffsets, checked((uint)offsets.Length)), "source offset copy");
+        }
+    }
 }
 
 public sealed unsafe partial class NativeHintedGlyphResourceReadLease
 {
+    /// <summary>Copies original nominal source offsets in one producer call; no per-glyph font query.</summary>
+    public void CopySourceOffsets(ReadOnlySpan<uint> positionedIndices, float sourceEmSize, Span<NativeHintedSourceGlyphOffset> offsets)
+    {
+        lock (_gate)
+        {
+            EnsureLive();
+            if (!_nominalMetrics.HasValue) throw new NotSupportedException("The original resource has no retained nominal design metrics.");
+            if (positionedIndices.IsEmpty || offsets.Length < positionedIndices.Length)
+                throw new ArgumentException("Source offset capacity must cover the exact nonempty occurrence selection.");
+            _owner!.CopySourceOffsetsWhileRetained(positionedIndices, sourceEmSize, offsets);
+        }
+    }
     /// <summary>
     /// Validates the source's nominal horizontal offset convention against one
     /// original writer line and original hmtx metadata. Returns separate source
@@ -60,6 +84,11 @@ public sealed unsafe partial class NativeHintedGlyphResourceReadLease
 
 internal static unsafe partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_hinted_glyph_resource_copy_source_offsets")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus CopyHintedSourceGlyphOffsets(nint resource, uint* indices, uint count,
+        float em, NativeHintedSourceGlyphOffset* offsets, uint capacity);
+
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_hinted_glyph_resource_validate_source_frame")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus ValidateHintedSourceGlyphFrame(nint resource, uint* indices, uint count,
