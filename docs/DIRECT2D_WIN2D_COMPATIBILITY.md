@@ -5100,6 +5100,39 @@ every exact internal field in order. The memory-inventory source guard passed
 units, Windows SDK/module builds, native behavioral tests and managed scene tests
 remain unexecuted here; these source checks do not substitute for their gates.
 
+### Retained picture resource ownership
+
+The axis fixture exposed a real reused-child cache defect in the original uniform
+incremental-picture control: resource IDs, generations and sizes were retained
+without the owning scene ID. The earlier white brush and the later red brush both
+used resource1/generation1, so the brush family could keep the earlier payload.
+Compiled family identities now include the exact scene owner, but still exclude
+the scene's frame generation and serialization offsets. Within-owner unchanged
+resources retain their original generation-independent page reuse.
+
+Private picture captures intentionally permit independent immutable scenes to
+reuse public owner/version metadata. Before replacing a nonidentical capture, the
+shared child path compares actual retained ownership and the canonical resource
+generation/byte contract. A changed owner or colliding resource version advances
+only that child's internal resource scope. Ordinary page compilation and upload
+ownership then retire stale family state; no global cache clear, new public
+identity, GPU readback, extra submission or unconditional raster invalidation is
+added. Exact byte-identical captures preserve the scope and warm replay. Normal
+public updates keep their original immutable-generation rejection. Intrinsic
+glyph/outline byte identities remain independent of positioned scene families.
+
+The source regression uses two same-sized scenes with identical resource records,
+IDs, versions and command records but different owner/color payloads. It checks
+all eight family namespaces, same-owner frame-generation reuse, rejected public
+resource mutation, private capture collision detection and scoped warm identity.
+The existing incremental-versus-independent-full all-pixel and submission controls
+remain unchanged after the axis fixture. Additional GPU controls alternate red,
+blue and red immutable captures with the same owner/resource version, checking
+every RGBA byte and cold2/warm1 submissions. Failure-only diagnostics report the
+original uniform test's first differing pixel; diagnostics are not a fix or a
+qualification result. No local native/GPU execution or runtime staging was done.
+Hosted provider/package and original application qualification remain required.
+
 The first hosted Build `36936696701` compiled the native implementation but
 exposed two new fixture errors. The full-copy fixture inherited default-zero
 anisotropy instead of the exact-copy path's required explicit one; it now
