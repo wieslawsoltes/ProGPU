@@ -1,4 +1,5 @@
 #include "progpu_native_hinted_paragraph_glyph_frame.hpp"
+#include "progpu_native_owned_allocation_internal.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -193,6 +194,14 @@ progpu_native_status outline_status(hinted_outline_error error) noexcept {
         error == hinted_outline_error::unsupported_policy ? PROGPU_NATIVE_STATUS_UNSUPPORTED : PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
 }
 } // namespace
+
+bool hinted_paragraph_glyph_frame::allocation_aliases(const void* output, std::size_t bytes) const noexcept {
+    const owned_output_range range{output, bytes};
+    return range.overlaps(this, sizeof(*this)) || range.overlaps(style_colors_) ||
+        range.overlaps(outlines_) || range.overlaps(segments_) || range.overlaps(glyphs_) ||
+        range.overlaps(run_slices_) || range.overlaps(source_outline_indices_) ||
+        range.overlaps(run_outline_indices_) || range.overlaps(outline_owners_) || range.overlaps(draw_owners_);
+}
 
 progpu_native_glyph_frame hinted_paragraph_glyph_frame::frame() const noexcept {
     progpu_native_glyph_frame result{};

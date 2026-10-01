@@ -54,6 +54,9 @@ public:
     std::span<const std::uint32_t> run_outline_indices() const noexcept { return run_outline_indices_; }
     std::span<const hinted_paragraph_outline_owner> outline_owners() const noexcept { return outline_owners_; }
     std::span<const hinted_paragraph_draw_owner> draw_owners() const noexcept { return draw_owners_; }
+    // Complete local allocation capacities, not merely public used spans.
+    // Caller separately checks the reachable paragraph/run/source owners.
+    bool allocation_aliases(const void* output, std::size_t bytes) const noexcept;
     // Borrow arrays only while retaining this frame through the original render
     // call. View/provider/device lifetime remains the original renderer contract.
     progpu_native_glyph_frame frame() const noexcept;

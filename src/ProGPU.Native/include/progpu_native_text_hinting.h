@@ -2,6 +2,9 @@
 
 #include <stdint.h>
 #include "progpu_native.h"
+#include "progpu_native_text_styles.h"
+#include "progpu_native_text_flow.h"
+#include "progpu_native_text_interaction.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -9,6 +12,8 @@ extern "C" {
 
 typedef struct progpu_native_hinted_batch progpu_native_hinted_batch;
 typedef struct progpu_native_hinted_run progpu_native_hinted_run;
+typedef struct progpu_native_hinted_paragraph progpu_native_hinted_paragraph;
+typedef struct progpu_native_hinted_paragraph_frame progpu_native_hinted_paragraph_frame;
 
 /* PROGPU_CSHARP_STRUCT: NativeMethods.HintedFontRequest */
 typedef struct progpu_native_hinted_font_request {
@@ -126,6 +131,197 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_run_copy_outlines(
     uint8_t* tags, uint32_t tag_capacity,
     int32_t* contour_ends, uint32_t contour_capacity);
 PROGPU_NATIVE_API void progpu_native_hinted_run_destroy(progpu_native_hinted_run* run);
+
+/* Explicit device selection per ORIGINAL style. Source scale is identity, not
+ * device em selection. Axes address a synchronous flat signed 16.16 array in
+ * original fvar order; repeated/shared ranges are permitted. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedParagraphDeviceStyle */
+typedef struct progpu_native_hinted_paragraph_device_style {
+    uint32_t font_index;
+    float source_scale;
+    float logical_units_per_physical_pixel;
+    uint32_t x_pixels_per_em_26_6;
+    uint32_t y_pixels_per_em_26_6;
+    uint32_t interpreter;
+    uint32_t x_phase_26_6;
+    uint32_t y_phase_26_6;
+    uint32_t variation_start;
+    uint32_t variation_count;
+    uint32_t reserved;
+} progpu_native_hinted_paragraph_device_style;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedParagraphCounts */
+typedef struct progpu_native_hinted_paragraph_counts {
+    uint32_t source_scalar_count;
+    uint32_t admitted_scalar_count;
+    uint32_t style_count;
+    uint32_t run_count;
+    uint32_t logical_glyph_count;
+    uint32_t positioned_glyph_count;
+    uint32_t line_count;
+    uint32_t cluster_box_count;
+    uint32_t caret_stop_count;
+} progpu_native_hinted_paragraph_counts;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedParagraphRun */
+typedef struct progpu_native_hinted_paragraph_run {
+    uint32_t scalar_start;
+    uint32_t scalar_count;
+    uint32_t logical_start;
+    uint32_t logical_count;
+    uint32_t font_index;
+    uint32_t style_index;
+    int32_t bidi_level;
+    float source_scale;
+    float logical_units_per_physical_pixel;
+    uint32_t source_descriptor_count;
+} progpu_native_hinted_paragraph_run;
+
+/* Slots, NOT glyph-ID lookup: repeated draws/descriptors remain distinct. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedParagraphGlyphOwner */
+typedef struct progpu_native_hinted_paragraph_glyph_owner {
+    uint32_t run_index;
+    uint32_t run_glyph_index;
+    uint32_t descriptor_index;
+} progpu_native_hinted_paragraph_glyph_owner;
+
+/* One bulk copy of the owned formatted generation. Each capacity declares the
+ * FULL writable range, including unused tails; every range must be disjoint
+ * from this record, the owner and every other output. Original/admitted scalars
+ * retain original source positions. Logical glyph metrics are device 26.6
+ * Y-down; glyph_scales are the exact writer conversion, units/pixel / 64.
+ * Positioned levels are the actual writer's L1/L2-used levels. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.HintedParagraphFormatBuffers */
+typedef struct progpu_native_hinted_paragraph_format_buffers {
+    uint32_t struct_size;
+    uint32_t reserved;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    progpu_native_text_scalar* source_scalars;
+    uint32_t source_scalar_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    progpu_native_text_scalar* admitted_scalars;
+    uint32_t admitted_scalar_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    progpu_native_text_bidi_level* scalar_levels;
+    uint32_t scalar_level_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    progpu_native_text_style_run* styles;
+    uint32_t style_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    progpu_native_text_style_metrics* source_metrics;
+    uint32_t source_metric_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    progpu_native_hinted_paragraph_run* runs;
+    uint32_t run_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    progpu_native_text_shaping_glyph* logical_glyphs;
+    uint32_t logical_glyph_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    progpu_native_hinted_paragraph_glyph_owner* logical_owners;
+    uint32_t logical_owner_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    int32_t* logical_cluster_ends;
+    uint32_t logical_cluster_end_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    int8_t* logical_bidi_levels;
+    uint32_t logical_bidi_level_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    float* glyph_scales;
+    uint32_t glyph_scale_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    progpu_native_positioned_text_glyph* positioned_glyphs;
+    uint32_t positioned_glyph_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    progpu_native_hinted_paragraph_glyph_owner* positioned_owners;
+    uint32_t positioned_owner_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    int32_t* positioned_cluster_ends;
+    uint32_t positioned_cluster_end_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    int8_t* positioned_bidi_levels;
+    uint32_t positioned_bidi_level_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    progpu_native_positioned_text_line* lines;
+    uint32_t line_capacity;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    float* line_origins;
+    uint32_t line_origin_capacity;
+} progpu_native_hinted_paragraph_format_buffers;
+
+typedef enum progpu_native_hinted_projection_policy {
+    PROGPU_NATIVE_HINTED_PROJECTION_AUTOMATIC = 0,
+    PROGPU_NATIVE_HINTED_PROJECTION_NATIVE_COMPUTE = 1,
+    PROGPU_NATIVE_HINTED_PROJECTION_GPU_SHADER = 2,
+    PROGPU_NATIVE_HINTED_PROJECTION_INTRINSIC_SIMD = 3,
+    PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE = 4
+} progpu_native_hinted_projection_policy;
+typedef enum progpu_native_hinted_outline_coverage {
+    PROGPU_NATIVE_HINTED_COVERAGE_STRICT = 0,
+    PROGPU_NATIVE_HINTED_COVERAGE_NONZERO_VECTOR = 1
+} progpu_native_hinted_outline_coverage;
+
+/* The view remains borrowed under the ORIGINAL selected renderer contract.
+ * Every positioned run, including no-ink, needs exact reciprocal/product DPI
+ * admission. Coverage is explicit; strict is the unchanged default policy. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.HintedParagraphFrameRequest */
+typedef struct progpu_native_hinted_paragraph_frame_request {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    uint32_t width;
+    uint32_t height;
+    float dpi_scale;
+    uintptr_t target_view;
+    progpu_native_point logical_origin;
+    progpu_native_color clear_color;
+    uint32_t projection_policy;
+    uint32_t coverage;
+    uint32_t reserved;
+} progpu_native_hinted_paragraph_frame_request;
+
+/* Borrow one exclusive live context lease. Source metrics/device styles have
+ * exactly style_count entries; device_style_count must equal style_count.
+ * Success owns the ORIGINAL producer/writer generation AND its measured
+ * interaction. Horizontal only; unsupported source contracts fail explicitly.
+ * Fresh output slots are never read; prior handles remain caller responsibility.
+ * ALL outputs/tails remain unchanged on failure, including paragraph_result.
+ * This API does not admit source Display/defaults or empty-hard-row navigation. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_hinted_paragraph(
+    progpu_native_text_context* context,
+    const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout,
+    const progpu_native_text_style_run* styles, uint32_t style_count,
+    const progpu_native_text_style_metrics* source_metrics,
+    const progpu_native_hinted_paragraph_device_style* device_styles, uint32_t device_style_count,
+    const int32_t* variation_coordinates_16_16, uint32_t variation_count,
+    progpu_native_hinted_paragraph** paragraph,
+    progpu_native_text_paragraph_result* paragraph_result);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_paragraph_get_counts(
+    const progpu_native_hinted_paragraph* paragraph,
+    progpu_native_hinted_paragraph_counts* counts,
+    progpu_native_text_paragraph_result* paragraph_result);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_paragraph_copy_format(
+    const progpu_native_hinted_paragraph* paragraph,
+    const progpu_native_hinted_paragraph_format_buffers* buffers);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_paragraph_copy_interaction(
+    const progpu_native_hinted_paragraph* paragraph,
+    progpu_native_text_cluster_box* boxes, uint32_t box_capacity,
+    progpu_native_text_caret_stop* carets, uint32_t caret_capacity);
+PROGPU_NATIVE_API void progpu_native_hinted_paragraph_destroy(progpu_native_hinted_paragraph* paragraph);
+
+/* Pure owned CPU preparation, no engine/font execution or C++ cross-module
+ * ownership. Borrow returns only the ORIGINAL flat glyph-frame wire. Retain
+ * the frame's originating-module lease through selected RenderGlyphs, and
+ * exclude concurrent destroy. Never cast this handle into another module.
+ * Copies/counts/borrow allocate nothing, preserve tails and are failure-atomic.
+ * Destroy(NULL) is permitted; handles survive context/paragraph retirement. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_paragraph_prepare_frame(
+    const progpu_native_hinted_paragraph* paragraph,
+    const progpu_native_hinted_paragraph_frame_request* request,
+    const progpu_native_color* style_colors, uint32_t style_color_count,
+    progpu_native_hinted_paragraph_frame** frame);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_paragraph_frame_borrow(
+    const progpu_native_hinted_paragraph_frame* frame, progpu_native_glyph_frame* wire_frame);
+PROGPU_NATIVE_API void progpu_native_hinted_paragraph_frame_destroy(progpu_native_hinted_paragraph_frame* frame);
 
 #ifdef __cplusplus
 }

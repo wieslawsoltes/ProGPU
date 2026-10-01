@@ -1,4 +1,5 @@
 #include "progpu_native_hinted_paragraph_interaction.hpp"
+#include "progpu_native_owned_allocation_internal.hpp"
 #include "../progpu_native_text_interaction_impl.hpp"
 
 #include <limits>
@@ -44,6 +45,11 @@ bool exact_source_maps(const hinted_paragraph_generation& paragraph) noexcept {
     return true;
 }
 } // namespace
+
+bool hinted_paragraph_interaction::allocation_aliases(const void* output, std::size_t bytes) const noexcept {
+    const owned_output_range range{output, bytes};
+    return range.overlaps(this, sizeof(*this)) || range.overlaps(boxes_) || range.overlaps(carets_);
+}
 
 hinted_paragraph_interaction_result create_hinted_paragraph_interaction(
     std::shared_ptr<const hinted_paragraph_generation> paragraph) noexcept {

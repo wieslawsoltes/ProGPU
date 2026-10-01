@@ -13,6 +13,9 @@ public:
     const std::shared_ptr<const hinted_paragraph_generation>& paragraph() const noexcept { return paragraph_; }
     std::span<const text_cluster_box> boxes() const noexcept { return boxes_; }
     std::span<const text_caret_stop> carets() const noexcept { return carets_; }
+    // Complete local allocation capacities, including unused storage. Caller
+    // separately checks the reachable paragraph/run/source owners under its lease.
+    bool allocation_aliases(const void* output, std::size_t bytes) const noexcept;
 
 private:
     hinted_paragraph_interaction() = default;

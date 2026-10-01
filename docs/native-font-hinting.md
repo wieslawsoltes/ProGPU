@@ -610,8 +610,9 @@ These controls have not been executed locally and require exact-head hosted CI.
 
 This seam admits horizontal, untrimmed styled paragraphs only. Tabs, objects,
 vertical writing, synthetic collapse, exclusions, floats and continuations remain
-explicitly outside it. It does not manufacture empty hard-row carets, expose a
-public formatted-generation ABI or qualify source Display/editor admission.
+explicitly outside it. It does not manufacture empty hard-row carets or qualify
+source Display/editor admission. The explicit owned ABI below exposes that same
+formatted generation without changing any original paragraph entrypoint.
 The owned mixed-style frame below connects private renderer consumption; successful
 GPU/package evidence and independent Windows text/UI comparisons remain required.
 
@@ -745,6 +746,42 @@ and caller tails. Its outputs are private scratch: a late invalid glyph group
 can leave an earlier prefix written, not a public atomic-generation guarantee.
 Independent header-only controls retain that exact legacy behavior. This seam
 does not infer bidi, cluster ends or source metrics for a hinted paragraph.
+
+### Explicit owned paragraph and frame transport
+
+`progpu_native_text_context_layout_hinted_paragraph` publishes one immutable
+original paragraph together with its measured interaction. Device configuration
+belongs to each original style; variation ranges address one synchronous flat
+16.16 array. The new counts and bulk-format records expose original/admitted
+scalars, logical and positioned glyphs, exact run/descriptor owners, styles,
+source metrics, cluster ends, both level generations, lines and actual pen
+origins. Interaction copies use the same retained generation, not fresh shaping.
+
+All declared output capacities, including unused tails, must be mutually
+disjoint and outside every reachable owned allocation. Input record headers are
+not read before rejecting overlap with owned storage. Complete preflight happens
+before any copy or publication; even diagnostics remain unchanged on failure.
+Fresh handle slots are never read. The caller destroys any previous handle and
+excludes concurrent destruction while using a handle. Copies/counts/borrow do
+not allocate, execute fonts or submit GPU work. Context retirement does not
+invalidate a published paragraph.
+
+`progpu_native_hinted_paragraph_prepare_frame` owns the original frame and its
+paragraph/interaction independently of the paragraph handle. Projection and
+coverage choices remain explicit, with strict coverage unchanged by default.
+`progpu_native_hinted_paragraph_frame_borrow` returns only the existing flat
+glyph-frame ABI under the frame's originating-module lease. An opaque paragraph
+or frame handle must never cross into another native provider/module.
+
+The managed `NativeHintedParagraph` keeps read-only owned format/interaction
+snapshots and prepares independently disposable frames. The compositor retains
+the stock text-library frame lease and the exact target's render lock, validates
+target object/view generation/dimensions/DPI, then calls the selected provider's
+existing `RenderGlyphs` once. In particular, a Dawn engine is never passed to a
+stock text-library function. Target views remain caller-owned; this transport
+adds no renderer default, extra poll, wait, readback or submission. Full loaded
+JIT/NativeAOT package controls and independent Windows source text/UI evidence
+remain required before source Display or editor admission.
 
 The original normalized instance check uses public
 [fvar](https://learn.microsoft.com/en-us/typography/opentype/spec/fvar) and
