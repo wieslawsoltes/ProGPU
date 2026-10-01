@@ -105,6 +105,12 @@ Collision checks include caller Link, TargetPath and native destination metadata
 plus the final resolved publish paths before copying; renaming a caller asset
 cannot silently replace it. Hosted metadata controls cover each collision route
 and preserve unrelated content when the capability is disabled.
+The SDK strips custom ownership metadata while collecting publish content. Own
+content is therefore recognized only by its exact normalized selected-package
+source path and matching destination, never by filename or an ownership marker.
+Device-free controls run the actual SDK publish-item computation for both RIDs,
+including forged markers and retargeted package-source rejection; they do not
+generate a companion, copy a payload or qualify native runtime behavior.
 It never replaces WebGPUSharp's native asset or chooses an adapter. No WARP DLL,
 DXC runtime, original provider DLL, import library or generated header is packaged.
 
