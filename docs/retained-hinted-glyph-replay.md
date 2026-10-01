@@ -101,6 +101,15 @@ Extended texture paint uses only its already-admitted original axis mapping.
 The shared shader helpers also remain the production algorithms for ordinary
 Text, Vector and Texture draws, rather than a separate algorithm copy.
 
+Both managed replay and native scene lowering now use this direct-paint route.
+The additive native command retains a 32-byte prefix, one exact paint record
+and every original positioned glyph; legacy glyph/style records are unchanged.
+Retained texture bindings use owned resource ID/generation and actual view and
+sampler identity, not resource ordinals or batch counts. Material paint retains
+the original brush remap and effective state opacity. Actual device limits and
+complete pipeline/resource initialization remain fail-closed before encoding.
+These are implementation statements, not executed GPU or package receipts.
+
 Bounded image quads may increase fragment work relative to glyph-only geometry.
 The architecture is not a measured speedup; whole-pixel, lifetime, resource,
 sampling/opacity/blend and complete package gates remain unqualified.
