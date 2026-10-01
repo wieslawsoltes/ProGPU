@@ -16,7 +16,7 @@ bytecode. No existing descriptor grows. Old readers reject the unknown required
 resource; the new reader validates the whole program before accepting it.
 Generated managed bindings describe that wire shape, not a rendering fallback.
 
-The first family is `ps_2_0`, at most 64 KiB and 512 instructions, with one
+The original family is `ps_2_0`, at most 64 KiB and 512 instructions, with one
 declared 2D implicit-input sampler, `t0`, 12 temporary registers, 32 float constant
 registers and fully written `oC0`. Executable instructions are MOV, ADD, SUB, MUL,
 MAD, DP3, DP4, MIN, MAX, LRP, FRC, ABS, CMP and TEXLD. NOP, bounded comments, DCL
@@ -24,6 +24,11 @@ and finite DEF are parsed. Swizzles, write masks, NEG/ABS/ABSNEG source modifier
 and SAT are explicit. Reading an unwritten component fails. Unknown opcodes,
 relative registers, predicates, unsupported modifiers, malformed lengths,
 trailing tokens and incomplete output fail. Constant updates remain uniforms.
+
+An additive [bounded `ps_3_0` family](native-shader-model-three.md) uses that same
+resource and instruction contract, with one actual declared `TEXCOORD0 v#.xy`
+input instead of the shader-model-2 texture register. It does not admit the full
+shader-model-3 register file, instruction set or additional source semantics.
 
 Only one untransformed implicit-input brush at opacity one is admitted. Integer
 and Boolean registers, derivative registers, additional/external samplers,
@@ -80,6 +85,6 @@ The implementation checkpoint has not run a native build or GPU test. Required
 follow-up includes independent original-bytecode pixels, malformed token/resource
 and atomic MIL update controls, cold/warm programs and constant updates, nested
 clips, retirement/budgets, both providers, Windows package/NativeAOT and source
-applications. Unsupported ps_3_0, dynamic flow, additional samplers,
+applications. Broader ps_3_0 semantics/instructions, dynamic flow, additional samplers,
 nonintegral/expanded captures and animated inputs remain open. No parity,
 performance, desktop rendering or complete ShaderEffect claim is made.
