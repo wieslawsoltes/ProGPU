@@ -94,6 +94,31 @@ either native provider's compiled engine, source rendering or complete package
 qualification. A diagnostic difference must identify the next product change;
 passing synthetic samples cannot close the original full-RGBA package gate.
 
+The first Windows run (`36877092435`) stopped before GPU initialization because
+the parent-source digest assumed LF checkout bytes. Commit `cc1fbdf33` preserves
+the exact embedded/checked-out shader bytes while checking the reviewed parent
+content with a separately reported canonical-LF digest; 44 device-free LF/CRLF,
+instrumentation and tamper controls pass. It does not normalize the production
+module supplied to the device.
+
+Run `36877876254` at that commit completed on Windows D3D12/FXC with the explicitly
+selected Microsoft Basic Render Driver. Both 96- and 128-pixel targets completed
+24 real draw callbacks each. All paired single/overlap and cold/warm RGBA8
+comparisons, raw coverage, gamma-adjusted coverage and final caller alpha matched.
+The only float differences were UV coordinates at 49 transparent boundary pixels
+of the second occurrence, where both coverage and alpha were exactly zero. The
+paired Metal controls also passed, but Windows and Metal differed by eight RGBA
+bytes (maximum one) identically across all three paths: this is not cross-host
+pixel parity.
+
+These inputs use a synthetic atlas tile at `(17,11)`, while the native renderer's
+first allocation starts at `(2,2)` and authentic glyphs have their own padded
+bounds and retained baseline. The synthetic success therefore does not reproduce
+or close the native package failure. The next controlled check translates only
+the tile and its coordinates to the native first-allocation origin, retaining the
+same relative coverage bytes and physical geometry; no shader correction is
+justified by this result alone.
+
 This explicit consumer API preserves one original prepared paragraph generation.
 It is implementation work, not Display selection, source-editor/input admission,
 native/package qualification or an application performance claim.
