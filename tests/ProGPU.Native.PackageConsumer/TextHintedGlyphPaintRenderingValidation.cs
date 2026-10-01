@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using Silk.NET.WebGPU;
@@ -34,6 +35,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
                 using var target = CreateTarget(context, "Direct hinted constant-gradient subject");
                 using var referenceTarget = CreateTarget(context, "Original solid hinted text reference");
                 byte[] font = File.ReadAllBytes(fontPath);
+                string fontSha256 = Convert.ToHexString(SHA256.HashData(font));
                 using var producer = new NativeTextShapingContext(font);
                 NativeTextScalar[] source = [new() { CodePoint = 'O', InputIndex = 9, InputLength = 1 }];
                 NativeTextFeature[] features = [new() { Tag = 0x6B65726E, Value = 0, Start = 0, End = uint.MaxValue }];
@@ -149,7 +151,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
                     $"dpi={dpi}, authoredOverlap={overlap}, cold/warm full RGBA vs original solid text passed");
                 if (dpi == 2 && overlap == 1)
                     VerifyTextureReplacement(context, createCompositor, original.Outlines, original.Segments,
-                        glyphs, dpi, solidColor.W);
+                        glyphs, dpi, solidColor.W, fontSha256, writerBytes);
             }
         }
         Check(cases == 4, "all additive DPI/fractional/overlap controls ran");
@@ -157,7 +159,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
 
     private static void VerifyTextureReplacement(WgpuContext context, Func<NativeCompositor> createCompositor,
         NativeGlyphOutline[] outlines, NativePathSegment[] segments, NativePositionedGlyph[] glyphs,
-        float dpi, float opacity)
+        float dpi, float opacity, string fontSha256, byte[] writerBytes)
     {
         using var subject = createCompositor();
         using var reference = createCompositor();
@@ -227,8 +229,20 @@ internal static class TextHintedGlyphPaintRenderingValidation
             var referenceBefore = reference.GetLastSubmissionToken();
             var expected = reference.RenderGlyphs(referenceTarget, dpi, outlines, segments, solidGlyphs, Vector4.Zero);
             byte[] expectedPixels = CompleteAndRead(reference, referenceTarget, referenceBefore);
-            CheckPixels(pixels, expectedPixels,
-                $"same-count actual texture replacement full RGBA frame={frame}");
+            try
+            {
+                CheckPixels(pixels, expectedPixels,
+                    $"same-count actual texture replacement full RGBA frame={frame}");
+            }
+            catch (InvalidOperationException failure)
+            {
+                // Test-only opt-in capture after actual completion. The original
+                // exact-pixel failure remains primary even if receipt I/O fails.
+                NativeHintedPaintFailureReceipt.TryCapture(context, failure, fontSha256,
+                    dpi, frame, outlines, segments, glyphs, solidGlyphs, writerBytes,
+                    scene, paint, texel, pixels, expectedPixels);
+                throw;
+            }
             Check(actual.CommandCount == 1 && actual.DrawCallCount == 1 && expected.DrawCallCount == 1 &&
                 expected.GlyphCount == glyphs.Length && actual.SubmissionCount == 1 &&
                 expected.SubmissionCount == (ulong)frame + 1 && expected.RasterizedGlyphCount != 0,

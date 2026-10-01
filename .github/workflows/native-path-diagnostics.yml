@@ -11,14 +11,16 @@ on:
         description: Independent owner/path diagnosis or package-free allocation/shader probes
         type: choice
         default: all
-        options: [all, lifetime, atlas, raster, encoder, retirement, fence, owner, allocation-counter, hinted-texture]
+        options: [all, lifetime, atlas, raster, encoder, retirement, fence, owner, allocation-counter, hinted-texture, hinted-native-input]
 
 permissions:
   contents: read
   actions: read
 
 # Package-backed path probes reuse an earlier package; allocation and hinted
-# texture probes do not. None replaces a complete current-head Build/package gate.
+# texture probes do not. Authentic hinted-input capture builds fresh unqualified
+# native binaries inside its one ephemeral job; only data/logs leave that job.
+# None replaces a complete current-head Build/package gate.
 jobs:
   allocation-counter:
     if: inputs.probe_set == 'allocation-counter'
@@ -58,8 +60,99 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  hinted-native-input:
+    if: inputs.probe_set == 'hinted-native-input'
+    name: Windows authentic hinted paint failure inputs
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Prepare fresh diagnostic provenance
+        shell: pwsh
+        env:
+          PACKAGE_RUN_ID: ${{ inputs.package_run_id }}
+        run: |
+          if ($env:PACKAGE_RUN_ID -ne '0') { throw 'Fresh-source input capture requires package_run_id=0; no earlier Build payload is admitted.' }
+          if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -ne 'X64') { throw 'This diagnostic requires a native Windows x64 host.' }
+          $outputDirectory = Join-Path $env:GITHUB_WORKSPACE 'artifacts/hinted-native-input'
+          if (Test-Path $outputDirectory) { throw 'Diagnostic output must be fresh.' }
+          New-Item -ItemType Directory -Path $outputDirectory | Out-Null
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -ne $env:GITHUB_SHA) { throw 'Checkout does not match the requested exact head.' }
+          "Source=$head; run=$env:GITHUB_RUN_ID; attempt=$env:GITHUB_RUN_ATTEMPT; scope=fresh unqualified job-local diagnostic only" |
+            Set-Content (Join-Path $outputDirectory 'provenance.txt')
+          $fontWorkspace = Join-Path $env:RUNNER_TEMP ('progpu-hinted-input-freetype.' + [Guid]::NewGuid().ToString('N'))
+          "PROGPU_FREETYPE_WORKSPACE=$fontWorkspace" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Prepare the original signed isolated font dependency
+        shell: pwsh
+        run: |
+          ./eng/progpu-prepare-freetype-windows.ps1 -Rid win-x64 -Workspace $env:PROGPU_FREETYPE_WORKSPACE 2>&1 |
+            Tee-Object -FilePath artifacts/hinted-native-input/font-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item "$env:PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json" artifacts/hinted-native-input/font-dependency.json
+      - name: Compile fresh native source without release qualification
+        shell: pwsh
+        run: |
+          ./eng/build-progpu-native-windows.ps1 -Rid win-x64 -Compiler ClangCL -Generator Ninja -BuildOnly `
+            -FontManifest "$env:PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json" 2>&1 |
+            Tee-Object -FilePath artifacts/hinted-native-input/native-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # BuildOnly retains both providers, Direct2D, SDK and test/sample
+          # compilation. These fresh outputs are NOT a qualified package/feed.
+          @('artifacts/progpu-native/build-win-x64/progpu_native.dll',
+            'artifacts/progpu-native/build-win-x64/progpu_native_dawn.dll',
+            'artifacts/progpu-native/build-win-x64/progpu_native_direct2d.dll',
+            'artifacts/progpu-native/runtime-win-x64/wgpu_native.dll',
+            'src/ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf',
+            'eng/native-freetype.json') | ForEach-Object {
+              Get-FileHash -LiteralPath $_ -Algorithm SHA256
+            } | Format-List | Out-File artifacts/hinted-native-input/fresh-input-hashes.txt
+      - name: Compile the original hinted consumer against project references
+        shell: pwsh
+        run: |
+          dotnet build tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj `
+            -c Release -r win-x64 -p:ProGpuNativeUseProjectReference=true 2>&1 |
+            Tee-Object -FilePath artifacts/hinted-native-input/consumer-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Capture authentic inputs while retaining the original pixel failure
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $consumer = Join-Path $env:GITHUB_WORKSPACE 'tests/ProGPU.Native.PackageConsumer/bin/Release/net10.0/win-x64'
+          if (Get-ChildItem -LiteralPath $consumer -Filter 'progpu_native*.dll' -Recurse) {
+            throw 'Consumer output must not contain an overriding native payload.'
+          }
+          $nativeBuild = Join-Path $env:GITHUB_WORKSPACE 'artifacts/progpu-native/build-win-x64'
+          $nativeRuntime = Join-Path $env:GITHUB_WORKSPACE 'artifacts/progpu-native/runtime-win-x64'
+          $env:PATH = "$nativeBuild;$nativeRuntime;$env:PATH"
+          $env:PROGPU_HINTED_PAINT_FAILURE_OUTPUT = Join-Path $env:GITHUB_WORKSPACE 'artifacts/hinted-native-input/data'
+          $env:PROGPU_HINTED_PAINT_NATIVE_PATH = (Resolve-Path (Join-Path $nativeBuild 'progpu_native.dll')).Path
+          $env:PROGPU_HINTED_PAINT_NATIVE_SHA256 = (Get-FileHash -LiteralPath $env:PROGPU_HINTED_PAINT_NATIVE_PATH -Algorithm SHA256).Hash
+          $env:PROGPU_HINTED_PAINT_WGPU_SHA256 = (Get-FileHash -LiteralPath (Join-Path $nativeRuntime 'wgpu_native.dll') -Algorithm SHA256).Hash
+          dotnet (Join-Path $consumer 'ProGPU.Native.PackageConsumer.dll') `
+            --text-hinted-paragraph-render-only --software-adapter 2>&1 |
+            Tee-Object -FilePath artifacts/hinted-native-input/consumer.log
+          $consumerExitCode = $LASTEXITCODE
+          "Original consumer exit=$consumerExitCode" | Add-Content artifacts/hinted-native-input/provenance.txt
+          # A receipt is diagnostic evidence, never permission to waive the
+          # exact original full-RGBA assertion or turn a failing job green.
+          if ($consumerExitCode -ne 0) { exit $consumerExitCode }
+      - name: Preserve captured data and logs only
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hinted-native-input-win-x64-${{ github.sha }}
+          path: artifacts/hinted-native-input/
+          if-no-files-found: error
+          retention-days: 14
+
   windows-path-stage:
-    if: inputs.probe_set != 'allocation-counter' && inputs.probe_set != 'hinted-texture'
+    if: inputs.probe_set != 'allocation-counter' && inputs.probe_set != 'hinted-texture' && inputs.probe_set != 'hinted-native-input'
     name: Windows path-stage diagnosis (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
