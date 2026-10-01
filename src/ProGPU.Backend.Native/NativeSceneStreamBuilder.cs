@@ -2294,6 +2294,53 @@ public ref struct NativeSceneStreamBuilder
             payload,
             stateIndex);
 
+    /// <summary>Paints each original occurrence directly, without a union mask.</summary>
+    public bool TryDrawPaintedGlyphRun(ulong commandId, uint resourceIndex,
+        NativeImageRect bounds, scoped ReadOnlySpan<NativePositionedGlyph> glyphs,
+        uint paintResourceIndex, uint paintIndex, in NativeSceneGlyphPaint paint,
+        NativeSceneTextRenderingMode renderingMode = NativeSceneTextRenderingMode.Grayscale,
+        uint stateIndex = uint.MaxValue)
+    {
+        NativeSceneGlyphPaint originalPaint = paint; // Snapshot before any destination write.
+        ReadOnlySpan<byte> glyphBytes = MemoryMarshal.AsBytes(glyphs);
+        if (_built || _commandCount == _commandCapacity || glyphs.IsEmpty ||
+            commandId == 0U || commandId <= _lastCommandId ||
+            resourceIndex >= (uint)_resourceCount ||
+            !ResourceHasKind(resourceIndex, NativeSceneResourceKind.GlyphRun) ||
+            ResourceHasFlags(resourceIndex, NativeSceneRecordFlags.ColorGlyphBitmaps) ||
+            !HasUsableCommandState(stateIndex, allowPerPoint: false) || !IsFiniteBounds(bounds) ||
+            glyphs.Length > 1 << 24 || !originalPaint.IsCanonical ||
+            renderingMode is not (NativeSceneTextRenderingMode.Grayscale or NativeSceneTextRenderingMode.Aliased) ||
+            glyphBytes.Overlaps(_destination) || paintResourceIndex >= (uint)_resourceCount ||
+            (originalPaint.Kind == NativeSceneGlyphPaint.Material
+                ? !ResourceHasKind(paintResourceIndex, NativeSceneResourceKind.BrushTable) ||
+                    paintIndex >= GetResourceRecordCount<NativeSceneBrush>(paintResourceIndex) ||
+                    originalPaint.BrushIndex != paintIndex
+                : paintIndex != 0U || !ResourceHasKind(paintResourceIndex, NativeSceneResourceKind.Image) ||
+                    !ResourceHasFlags(paintResourceIndex, NativeSceneRecordFlags.ExternalImage)))
+            return false;
+        int originalArenaSize = _arenaSize;
+        int relativeOffset = checked((int)Align8(_arenaSize));
+        int prefixSize = Unsafe.SizeOf<NativeScenePaintedGlyphDraw>() + Unsafe.SizeOf<NativeSceneGlyphPaint>();
+        int payloadSize = checked(prefixSize + glyphBytes.Length);
+        int end = checked(relativeOffset + payloadSize);
+        if (_arenaOffset + (long)end > _destination.Length) return false;
+        uint payloadOffset = (uint)(_arenaOffset + relativeOffset);
+        Write((int)payloadOffset, new NativeScenePaintedGlyphDraw((uint)glyphs.Length,
+            paintResourceIndex, paintIndex, (uint)renderingMode));
+        Write((int)payloadOffset + Unsafe.SizeOf<NativeScenePaintedGlyphDraw>(), originalPaint);
+        glyphBytes.CopyTo(_destination.Slice((int)payloadOffset + prefixSize, glyphBytes.Length));
+        _arenaSize = end;
+        if (!TryWriteDrawCommand(NativeSceneCommandKind.DrawPaintedGlyphRun, commandId,
+                resourceIndex, bounds, payloadOffset, (uint)payloadSize, stateIndex,
+                NativeSceneRecordFlags.Required))
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        return true;
+    }
+
     public bool TryDrawImage(
         ulong commandId,
         uint resourceIndex,
@@ -3136,6 +3183,8 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneCommandKind.DrawPath =>
                 NativeSceneResourceKind.PathBatch,
             NativeSceneCommandKind.DrawGlyphRun =>
+                NativeSceneResourceKind.GlyphRun,
+            NativeSceneCommandKind.DrawPaintedGlyphRun =>
                 NativeSceneResourceKind.GlyphRun,
             NativeSceneCommandKind.DrawImage =>
                 NativeSceneResourceKind.Image,

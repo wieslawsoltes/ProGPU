@@ -356,8 +356,7 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         engine.text_atlas_bind_group != nullptr) {
         return false;
     }
-    if (engine.analytic_pipeline == nullptr &&
-        !create_analytic_pipeline(engine)) {
+    if (!create_analytic_resources(engine)) {
         return false;
     }
 

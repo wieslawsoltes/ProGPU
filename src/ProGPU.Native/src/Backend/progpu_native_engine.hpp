@@ -77,6 +77,7 @@ struct progpu_native_engine {
     gpu_uniforms cached_analytic_uniforms{};
     bool uniform_cache_valid = false;
     bool analytic_uniform_cache_valid = false;
+    bool analytic_resources_ready = false;
     WGPUBuffer analytic_brush_buffer = nullptr;
     std::uint64_t analytic_brush_buffer_size = 0;
     WGPUBuffer analytic_gradient_buffer = nullptr;
@@ -131,6 +132,25 @@ struct progpu_native_engine {
     WGPUTexture color_glyph_atlas_texture = nullptr;
     WGPUTextureView color_glyph_atlas_texture_view = nullptr;
     WGPUBindGroup text_atlas_bind_group = nullptr;
+    WGPUShaderModule glyph_paint_shader = nullptr;
+    WGPURenderPipeline glyph_paint_pipeline = nullptr;
+    WGPURenderPipeline glyph_paint_masked_pipeline = nullptr;
+    WGPURenderPipeline glyph_paint_chain_pipeline = nullptr;
+    WGPURenderPipeline glyph_paint_straight_pipeline = nullptr;
+    WGPURenderPipeline glyph_paint_straight_masked_pipeline = nullptr;
+    WGPURenderPipeline glyph_paint_straight_chain_pipeline = nullptr;
+    WGPUBindGroupLayout glyph_paint_uniform_layout = nullptr;
+    WGPUBindGroupLayout glyph_paint_texture_layout = nullptr;
+    WGPUBindGroupLayout glyph_paint_empty_mask_layout = nullptr;
+    WGPUBindGroup glyph_paint_empty_mask_bind_group = nullptr;
+    WGPUBuffer glyph_paint_buffer = nullptr;
+    std::uint64_t glyph_paint_buffer_size = 0U;
+    std::uint64_t glyph_paint_owner_hash = 0U;
+    std::uint64_t glyph_paint_storage_limit = 0U;
+    std::uint64_t glyph_paint_max_buffer_size = 0U;
+    std::uint32_t glyph_paint_texture_limit = 0U;
+    std::vector<semantic_glyph_paint_uniform_binding> glyph_paint_uniform_bindings;
+    std::vector<semantic_glyph_paint_texture_binding> glyph_paint_texture_bindings;
     std::uint32_t glyph_atlas_size = native_initial_atlas_size;
     std::uint32_t color_glyph_atlas_size = 0U;
     std::uint64_t color_glyph_atlas_owner_hash = 0U;
@@ -1296,6 +1316,7 @@ struct progpu_native_engine {
     }
 
     void release_semantic_layer_resources() noexcept {
+        release_glyph_paint_uniform_bindings();
         if (semantic_layer_vertex_buffer != nullptr) {
             wgpuBufferDestroy(semantic_layer_vertex_buffer);
             wgpuBufferRelease(semantic_layer_vertex_buffer);
@@ -1640,12 +1661,50 @@ struct progpu_native_engine {
         return true;
     }
 
+    void release_glyph_paint_uniform_bindings() noexcept {
+        for (auto& binding : glyph_paint_uniform_bindings) {
+            if (binding.bind_group != nullptr) {
+                wgpuBindGroupRelease(binding.bind_group);
+            }
+        }
+        glyph_paint_uniform_bindings.clear();
+    }
+
+    void release_glyph_paint_texture_bindings() noexcept {
+        for (auto& binding : glyph_paint_texture_bindings) {
+            if (binding.bind_group != nullptr) {
+                wgpuBindGroupRelease(binding.bind_group);
+            }
+            if (binding.view != nullptr) {
+                wgpuTextureViewRelease(binding.view);
+            }
+        }
+        glyph_paint_texture_bindings.clear();
+    }
+
     ~progpu_native_engine() {
         const progpu::native::webgpu::dispatch_scope dispatch_scope(
             &webgpu_dispatch);
         // The child borrows this engine's vector pipeline and layout. Destroy
         // it before releasing any parent WebGPU pipeline resources below.
         semantic_picture_child_engine.reset();
+        release_glyph_paint_uniform_bindings();
+        release_glyph_paint_texture_bindings();
+        if (glyph_paint_buffer != nullptr) {
+            wgpuBufferDestroy(glyph_paint_buffer);
+            wgpuBufferRelease(glyph_paint_buffer);
+        }
+        if (glyph_paint_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_pipeline);
+        if (glyph_paint_masked_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_masked_pipeline);
+        if (glyph_paint_chain_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_chain_pipeline);
+        if (glyph_paint_straight_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_straight_pipeline);
+        if (glyph_paint_straight_masked_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_straight_masked_pipeline);
+        if (glyph_paint_straight_chain_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_straight_chain_pipeline);
+        if (glyph_paint_empty_mask_bind_group != nullptr) wgpuBindGroupRelease(glyph_paint_empty_mask_bind_group);
+        if (glyph_paint_empty_mask_layout != nullptr) wgpuBindGroupLayoutRelease(glyph_paint_empty_mask_layout);
+        if (glyph_paint_uniform_layout != nullptr) wgpuBindGroupLayoutRelease(glyph_paint_uniform_layout);
+        if (glyph_paint_texture_layout != nullptr) wgpuBindGroupLayoutRelease(glyph_paint_texture_layout);
+        if (glyph_paint_shader != nullptr) wgpuShaderModuleRelease(glyph_paint_shader);
         if (semantic_encoder != nullptr) {
             wgpuCommandEncoderRelease(semantic_encoder);
             semantic_encoder = nullptr;

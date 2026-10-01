@@ -21,6 +21,7 @@ namespace ProGPU.Scene.Native;
 public static partial class GpuPictureNativeSceneCompiler
 {
     private const int NativeSceneGlyphDrawSize = 24;
+    private const int NativeScenePaintedGlyphDrawSize = 32;
 
     private enum BatchKind : byte
     {
@@ -31,6 +32,7 @@ public static partial class GpuPictureNativeSceneCompiler
         VertexMesh,
         Stroke,
         Glyph,
+        GlyphPaint,
         ColorGlyph,
         Line3D,
         Image
@@ -66,6 +68,11 @@ public static partial class GpuPictureNativeSceneCompiler
         public NativeImageRect Bounds;
         public uint ResourceIndex;
         public uint StyleIndex;
+        public NativeSceneGlyphPaint GlyphPaint;
+        public NativeSceneTextRenderingMode GlyphPaintMode;
+        public int PaintImageIndex;
+        public uint PaintResourceIndex;
+        public ulong PaintResourceId;
         public NativeSceneCamera3D Camera3D;
     }
 
@@ -73,7 +80,8 @@ public static partial class GpuPictureNativeSceneCompiler
         OperationKind Kind,
         int BatchIndex = -1,
         int StateIndex = -1,
-        GpuBlendMode BlendMode = GpuBlendMode.SrcOver);
+        GpuBlendMode BlendMode = GpuBlendMode.SrcOver,
+        int PositionedGlyphIndex = -1);
 
     private readonly record struct ExternalImageDraw(
         GpuTexture Texture,
@@ -927,6 +935,50 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativeCompiledPicture? compiled,
         out NativePictureCompileFailure failure)
     {
+        compiled = null;
+        failure = NativePictureCompileFailure.None;
+        var sourceTransaction = new NativeCompiledPicture.SourceTransaction();
+        Exception? originalFailure = null;
+        try
+        {
+            return TryCompileOwnedCore(picture, sceneId, generation, options,
+                hitTestIndex, rootTransform, initialClip, resourceIdBase,
+                pictureMaskContext, sourceTransaction, out compiled, out failure);
+        }
+        catch (Exception exception)
+        {
+            originalFailure = exception;
+            throw;
+        }
+        finally
+        {
+            try { sourceTransaction.Dispose(); }
+            catch (Exception cleanup)
+            {
+                if (originalFailure is not null)
+                {
+                    try { originalFailure.Data["HintedNativeCompileCleanupFailure"] = cleanup; }
+                    catch { /* Diagnostics must not replace the original failure. */ }
+                }
+                else
+                {
+                    try { cleanup.Data["NativePictureCompileFailure"] = failure; }
+                    catch { /* Preserve the original cleanup failure. */ }
+                    throw;
+                }
+            }
+        }
+    }
+
+    private static bool TryCompileOwnedCore(
+        GpuPicture picture, ulong sceneId, ulong generation,
+        NativePictureCompileOptions options, GpuHitTestIndex? hitTestIndex,
+        Matrix3x2 rootTransform, NativeImageRect? initialClip, ulong resourceIdBase,
+        PictureMaskCompileContext pictureMaskContext,
+        NativeCompiledPicture.SourceTransaction sourceTransaction,
+        out NativeCompiledPicture? compiled,
+        out NativePictureCompileFailure failure)
+    {
         ArgumentNullException.ThrowIfNull(picture);
         compiled = null;
         failure = NativePictureCompileFailure.None;
@@ -1094,6 +1146,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     sceneId,
                     generation,
                     pictureMaskContext,
+                    sourceTransaction,
                     out bool handled,
                     out NativePictureCompileError stateError))
             {
@@ -1148,6 +1201,13 @@ public static partial class GpuPictureNativeSceneCompiler
                     operations,
                     materials,
                     commandOptions,
+                    currentState,
+                    states,
+                    stateMasks,
+                    sceneId,
+                    generation,
+                    pictureMaskContext,
+                    sourceTransaction,
                     out NativePictureCompileError error))
             {
                 failure = new(
@@ -1187,6 +1247,11 @@ public static partial class GpuPictureNativeSceneCompiler
 
         try
         {
+            int paintedGlyphDrawCount = operations.Count(operation =>
+                operation.Kind == OperationKind.Draw && batches[operation.BatchIndex].Kind == BatchKind.GlyphPaint);
+            int paintedGlyphBatchCount = batches.Count(static batch => batch.Kind == BatchKind.GlyphPaint);
+            int paintedTextureBatchCount = batches.Count(static batch =>
+                batch.Kind == BatchKind.GlyphPaint && batch.GlyphPaint.Kind == NativeSceneGlyphPaint.Texture);
             int nativeCommandCount = checked(operations.Count +
                 operations.Count(static operation =>
                     operation.Kind == OperationKind.Draw &&
@@ -1231,6 +1296,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 batches.Count(static batch =>
                     batch.Kind is BatchKind.Glyph or BatchKind.ColorGlyph) *
                     NativeSceneGlyphDrawSize +
+                paintedGlyphDrawCount * (NativeScenePaintedGlyphDrawSize + Unsafe.SizeOf<NativeSceneGlyphPaint>()) +
                 batches.Count(static batch => batch.Kind == BatchKind.Line3D) *
                     Unsafe.SizeOf<NativeSceneCamera3D>() +
                 batches.Count * 30 +
@@ -1253,7 +1319,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 (hitTestIndex is null ? 0 : 1);
             int resourceCount = checked(
                 batches.Count + optionalTableResourceCount +
-                stateMasks.Count + states.Count);
+                stateMasks.Count + states.Count + paintedTextureBatchCount);
             int capacity = NativeSceneStreamBuilder.GetRequiredBufferSize(
                 nativeCommandCount,
                 resourceCount,
@@ -1419,6 +1485,19 @@ public static partial class GpuPictureNativeSceneCompiler
             }
             ulong nextResourceId = checked(
                 resourceIdBase + (ulong)batches.Count + 1U);
+            for (int index = 0; index < batches.Count; index++)
+            {
+                Batch batch = batches[index];
+                if (batch.Kind != BatchKind.GlyphPaint || batch.GlyphPaint.Kind != NativeSceneGlyphPaint.Texture)
+                    continue;
+                batch.PaintResourceId = nextResourceId++;
+                if (!builder.TryAddExternalImageResource(batch.PaintResourceId, generation, out batch.PaintResourceIndex))
+                {
+                    failure = new(NativePictureCompileError.StreamBuildFailed, -1, default);
+                    return false;
+                }
+                batches[index] = batch;
+            }
             uint brushResourceIndex = uint.MaxValue;
             if (materials.BrushCount > 0 &&
                 !builder.TryAddBrushTableResource(
@@ -1682,6 +1761,14 @@ public static partial class GpuPictureNativeSceneCompiler
                             batch.ResourceIndex,
                             batch.Bounds,
                             in externalImageSpan[batch.Start])
+                        : batch.Kind == BatchKind.GlyphPaint
+                        ? builder.TryDrawPaintedGlyphRun(
+                            commandId, batch.ResourceIndex, batch.Bounds,
+                            positionedGlyphSpan.Slice(
+                                operation.PositionedGlyphIndex >= 0 ? operation.PositionedGlyphIndex : batch.SecondaryStart,
+                                operation.PositionedGlyphIndex >= 0 ? 1 : batch.SecondaryCount),
+                            batch.GlyphPaint.Kind == NativeSceneGlyphPaint.Material ? brushResourceIndex : batch.PaintResourceIndex,
+                            batch.GlyphPaint.BrushIndex, in batch.GlyphPaint, batch.GlyphPaintMode)
                         : builder.TryDrawGlyphRun(
                             commandId,
                             batch.ResourceIndex,
@@ -1713,7 +1800,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     default);
                 return false;
             }
-            compiled = new NativeCompiledPicture(
+            var candidate = new NativeCompiledPicture(
                 storage,
                 stream.Length,
                 sceneId,
@@ -1721,7 +1808,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 options.DpiScale,
                 sourceCommandCount,
                 nativeCommandCount,
-                batches.Count,
+                checked(batches.Count + paintedGlyphDrawCount - paintedGlyphBatchCount),
                 analytics.Count,
                 geometry.Count,
                 paths.Count,
@@ -1748,7 +1835,11 @@ public static partial class GpuPictureNativeSceneCompiler
                     externalImageSpan,
                     generation,
                     resourceIdBase,
-                    stateMasks));
+                    stateMasks),
+                sourceTransaction.Ownership);
+            sourceTransaction.RetireChildren();
+            sourceTransaction.CommitTransfer();
+            compiled = candidate;
             return true;
         }
         catch (Exception exception) when (
@@ -1775,6 +1866,7 @@ public static partial class GpuPictureNativeSceneCompiler
         ulong sceneId,
         ulong generation,
         PictureMaskCompileContext pictureMaskContext,
+        NativeCompiledPicture.SourceTransaction sourceTransaction,
         out bool handled,
         out NativePictureCompileError error)
     {
@@ -1833,6 +1925,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         sceneId,
                         generation,
                         pictureMaskContext,
+                        sourceTransaction,
                         out StateSnapshot maskState,
                         out error))
                 {
@@ -2047,11 +2140,24 @@ public static partial class GpuPictureNativeSceneCompiler
         List<Operation> operations,
         NativeBrushTableBuilder materials,
         NativePictureCompileOptions options,
+        StateSnapshot currentState,
+        List<StateSnapshot> states,
+        List<StateMaskProgram> stateMasks,
+        ulong sceneId,
+        ulong generation,
+        PictureMaskCompileContext pictureMaskContext,
+        NativeCompiledPicture.SourceTransaction sourceTransaction,
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
         switch (command.Type)
         {
+            case RenderCommandType.DrawHintedGlyphs:
+                return TryAppendHintedGlyphs(
+                    picture, command, transform, options, currentState,
+                    sourceTransaction,
+                    glyphOutlines, glyphSegments, positionedGlyphs, textStyles,
+                    externalImages, batches, operations, materials, out error);
             case RenderCommandType.DrawRect
                 when command.Brush is GpuTextureBrush textureBrush:
                 return TryAppendTextureBrushRectangle(
@@ -5139,26 +5245,30 @@ public static partial class GpuPictureNativeSceneCompiler
         for (int batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
             Batch batch = batches[batchIndex];
-            if (batch.Kind != BatchKind.Image)
+            bool paintedTexture = batch.Kind == BatchKind.GlyphPaint &&
+                batch.GlyphPaint.Kind == NativeSceneGlyphPaint.Texture;
+            if (batch.Kind != BatchKind.Image && !paintedTexture)
             {
                 continue;
             }
+            int imageIndex = paintedTexture ? batch.PaintImageIndex : batch.Start;
+            ulong imageResourceId = paintedTexture ? batch.PaintResourceId : checked(resourceIdBase + (ulong)batchIndex + 1U);
             bindings[bindingIndex++] = new(
-                checked(resourceIdBase + (ulong)batchIndex + 1U),
+                imageResourceId,
                 generation,
-                images[batch.Start].Texture);
-            if (images[batch.Start].ChromaTexture is { } chroma)
+                images[imageIndex].Texture);
+            if (images[imageIndex].ChromaTexture is { } chroma)
             {
                 bindings[bindingIndex++] = new(
-                    checked(resourceIdBase + (ulong)batchIndex + 1U),
+                    imageResourceId,
                     generation,
                     chroma,
                     NativeSceneExternalImageRole.Chroma);
             }
-            if (images[batch.Start].MaskTexture is { } mask)
+            if (images[imageIndex].MaskTexture is { } mask)
             {
                 bindings[bindingIndex++] = new(
-                    checked(resourceIdBase + (ulong)batchIndex + 1U),
+                    imageResourceId,
                     generation,
                     mask,
                     NativeSceneExternalImageRole.Mask);

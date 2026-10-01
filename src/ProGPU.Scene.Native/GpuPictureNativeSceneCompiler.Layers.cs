@@ -523,6 +523,7 @@ public static partial class GpuPictureNativeSceneCompiler
         ulong sceneId,
         ulong generation,
         PictureMaskCompileContext pictureMaskContext,
+        NativeCompiledPicture.SourceTransaction sourceTransaction,
         out StateSnapshot next,
         out NativePictureCompileError error)
     {
@@ -577,6 +578,17 @@ public static partial class GpuPictureNativeSceneCompiler
             {
                 error = NativePictureCompileError.StreamBuildFailed;
                 return false;
+            }
+            try { sourceTransaction.RetainChild(compiledPicture); }
+            catch (Exception failure)
+            {
+                try { compiledPicture.Dispose(); }
+                catch (Exception cleanup)
+                {
+                    try { failure.Data["HintedPictureMaskCleanupFailure"] = cleanup; }
+                    catch { /* Diagnostics must not replace the original failure. */ }
+                }
+                throw;
             }
             var pictureMask = new NativeSceneLayerPictureMask(
                 0U,

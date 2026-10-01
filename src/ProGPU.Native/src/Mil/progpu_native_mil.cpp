@@ -1,5 +1,6 @@
 #include "progpu_native_mil.hpp"
 #include "progpu_native_mil_curve_dash.hpp"
+#include "progpu_native_mil_hinted_glyphs.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_text.hpp"
 #include "../Geometry/progpu_native_arc.hpp"
@@ -2657,6 +2658,8 @@ struct channel::implementation {
         std::vector<float> advances;
         std::vector<progpu_native_point> offsets;
         std::shared_ptr<const std::vector<std::byte>> font_data;
+        std::shared_ptr<const text::hinted_paragraph_glyph_resource> hinted_resource;
+        std::vector<std::uint32_t> hinted_positioned_indices;
     };
 
     struct glyph_run_drawing_state {
@@ -10347,6 +10350,7 @@ struct channel::implementation {
             return brush_status;
         }
         const auto& glyph_run = glyph_run_entry->second;
+        const bool hinted = glyph_run.hinted_resource != nullptr;
         if ((glyph_run.flags & 0x0001U) != 0U) {
             return status::unsupported_command;
         }
@@ -10362,13 +10366,37 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         if (!std::isfinite(dpi_scale) || dpi_scale <= 0.0F) return status::invalid_graph;
-        const float target_raster_size = std::clamp(
+        // Hinted points already own physical size and phase. Source transforms
+        // may translate them, but may not acquire a different device basis or
+        // a second guideline/placement snap. Reject before builder mutation.
+        if (hinted && (dpi_scale != glyph_run.hinted_resource->dpi_scale() ||
+                current.transform.m11 != 1.0 || current.transform.m12 != 0.0 ||
+                current.transform.m21 != 0.0 || current.transform.m22 != 1.0 ||
+                !std::isfinite(current.transform.m31) || !std::isfinite(current.transform.m32) ||
+                current.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+                glyph_run.hinted_positioned_indices.size() != glyph_run.glyph_indices.size()))
+            return status::unsupported_command;
+        const float target_raster_size = hinted ? 1.0F : std::clamp(
             glyph_run.em_size * dpi_scale * transform_scale, 4.0F, 128.0F);
         const std::uint64_t cache_key =
             static_cast<std::uint64_t>(glyph_run_handle) << 32U |
             std::bit_cast<std::uint32_t>(target_raster_size);
         auto cached = glyph_resources.find(cache_key);
         if (cached == glyph_resources.end()) {
+            if (hinted) {
+                glyph_scene_resource scene_resource{};
+                std::vector<progpu_native_scene_glyph_outline> outlines;
+                const auto& retained = *glyph_run.hinted_resource;
+                outlines.reserve(retained.outlines().size());
+                for (const auto& outline : retained.outlines())
+                    outlines.push_back({outline.segment_offset, outline.segment_count,
+                        outline.min_x, outline.min_y, outline.max_x, outline.max_y,
+                        outline.raster_scale, outline.subpixel_x});
+                if (!outlines.empty() && !builder.add_glyph_outlines(
+                        outlines, retained.segments(), scene_resource.resource_index))
+                    return status::invalid_graph;
+                cached = glyph_resources.emplace(cache_key, std::move(scene_resource)).first;
+            } else {
             text::sfnt_font_view font{};
             text::font_error font_error = text::font_error::none;
             if (!text::sfnt_font_view::try_create(
@@ -10467,6 +10495,7 @@ struct channel::implementation {
             }
             cached = glyph_resources.emplace(
                 cache_key, std::move(scene_resource)).first;
+            }
         }
 
         const auto& scene_resource = cached->second;
@@ -10490,6 +10519,20 @@ struct channel::implementation {
             const progpu_native_point source_position{
                 glyph_run.origin_x + cursor_x + offset.x,
                 glyph_run.origin_y + cursor_y + offset.y};
+            if (hinted) {
+                const auto occurrence = glyph_run.hinted_positioned_indices[index];
+                const auto outline = glyph_run.hinted_resource->positioned_outline_indices()[occurrence];
+                if (outline != text::hinted_no_outline) {
+                    const auto projected = transform_affine_point(source_position, current.transform);
+                    if (!std::isfinite(projected.x) || !std::isfinite(projected.y)) return status::invalid_graph;
+                    // The existing semantic draw state applies the source scope
+                    // transform once; keep this fitted position in its local frame.
+                    positioned.push_back({outline, 0U, source_position, {1.0F, 0.0F}, {0.0F, 1.0F},
+                        {1.0F, 1.0F, 1.0F, 1.0F}, 1.0F, 0.0F, 0.0F, 0.0F});
+                }
+                cursor_x += glyph_run.advances[index];
+                continue;
+            }
             const glyph_placement placement = resolve_glyph_placement(
                 source_position,
                 current.transform,
@@ -16190,6 +16233,19 @@ struct channel::implementation {
             &append_brushed_glyph_run_core, compile_context](
             std::uint32_t glyph_handle, std::uint32_t brush_handle,
             const render_scope_state& source_state) -> status {
+            const auto hinted = glyph_runs.find(glyph_handle);
+            if (hinted != glyph_runs.end() && hinted->second.hinted_resource != nullptr) {
+                const double dpi_x = compile_context == nullptr ? 1.0 : compile_context->request.dpi_scale_x;
+                const double dpi_y = compile_context == nullptr ? 1.0 : compile_context->request.dpi_scale_y;
+                // Preflight before spatial-brush masks, zero-area shortcuts or
+                // guideline scopes can change the current semantic builder.
+                if (dpi_x != dpi_y || static_cast<float>(dpi_x) != hinted->second.hinted_resource->dpi_scale() ||
+                    source_state.transform.m11 != 1.0 || source_state.transform.m12 != 0.0 ||
+                    source_state.transform.m21 != 0.0 || source_state.transform.m22 != 1.0 ||
+                    !std::isfinite(source_state.transform.m31) || !std::isfinite(source_state.transform.m32) ||
+                    source_state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX)
+                    return status::unsupported_command;
+            }
             if (glyph_handle == 0U || brush_handle == 0U ||
                 source_state.guideline_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX)
                 return append_brushed_glyph_run_core(glyph_handle, brush_handle, source_state);
@@ -21782,6 +21838,8 @@ channel::channel()
 }
 
 channel::~channel() = default;
+channel::channel(std::unique_ptr<implementation> state) noexcept
+    : implementation_(std::move(state)) {}
 channel::channel(channel&&) noexcept = default;
 channel& channel::operator=(channel&&) noexcept = default;
 
@@ -21833,6 +21891,89 @@ status channel::apply(
         }
         return status::invalid_argument;
     }
+}
+
+status channel::apply_with_hinted_glyph_resources(
+    std::span<const std::byte> bytes,
+    std::span<const progpu_native_hinted_glyph_resource_view> resources,
+    std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
+    std::span<const std::uint32_t> positioned_indices) noexcept {
+    const auto valid_span = []<class T>(std::span<const T> span, std::size_t maximum) noexcept {
+        const auto address = reinterpret_cast<std::uintptr_t>(span.data());
+        return span.size() <= maximum && (span.empty() || (span.data() != nullptr && address % alignof(T) == 0U)) &&
+            span.size() <= (std::numeric_limits<std::uintptr_t>::max() - address) / sizeof(T);
+    };
+    if (implementation_ == nullptr || !valid_span(bytes, UINT32_MAX) || !valid_span(resources, 1U << 20U) ||
+        !valid_span(bindings, 1U << 20U) || !valid_span(positioned_indices, 1U << 24U)) return status::invalid_argument;
+    try {
+        std::unordered_set<std::uint32_t> handles;
+        for (const auto& binding : bindings) {
+            if (binding.reserved != 0U || binding.glyph_run_handle == 0U || binding.resource_index >= resources.size() ||
+                binding.positioned_index_count == 0U || binding.positioned_index_count > UINT16_MAX ||
+                binding.positioned_index_start > positioned_indices.size() ||
+                binding.positioned_index_count > positioned_indices.size() - binding.positioned_index_start ||
+                !handles.insert(binding.glyph_run_handle).second) return status::invalid_argument;
+        }
+        std::vector<std::shared_ptr<const text::hinted_paragraph_glyph_resource>> imported;
+        imported.reserve(resources.size());
+        for (const auto& view : resources) {
+            const auto result = text::import_hinted_paragraph_glyph_resource(view);
+            if (result.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                if (result.status == PROGPU_NATIVE_STATUS_OUT_OF_MEMORY) return status::capacity_exceeded;
+                if (result.status == PROGPU_NATIVE_STATUS_UNSUPPORTED) return status::unsupported_command;
+                return status::invalid_argument;
+            }
+            imported.push_back(result.generation);
+        }
+        // Exactly one full graph clone. Calling apply() here would clone again
+        // and publish canonical state before validating the retained sideband.
+        channel candidate(std::make_unique<implementation>(*implementation_));
+        batch_metrics local_metrics{};
+        local_metrics.total_bytes = static_cast<std::uint32_t>(bytes.size());
+        batch_reader reader(bytes); command_view command{};
+        for (;;) {
+            const auto read_status = reader.next(command);
+            if (read_status == status::end_of_batch) break;
+            if (read_status != status::success) return read_status;
+            ++local_metrics.command_count;
+            const auto applied = candidate.implementation_->apply_command(command, local_metrics);
+            if (applied != status::success) return applied;
+            ++local_metrics.supported_command_count;
+        }
+        for (const auto& binding : bindings) {
+            const auto& resource = imported[binding.resource_index];
+            const auto view = resource->binding_view();
+            if (binding.font_index >= view.fonts.size()) return status::invalid_argument;
+            const auto& font = view.fonts[binding.font_index];
+            const auto font_bytes = std::as_bytes(view.font_bytes.subspan(font.byte_offset, font.byte_count));
+            const auto matches = [&](const implementation::glyph_run_state& glyph) noexcept {
+                return glyph.style_simulations == 0U && glyph.face_index == font.face_index && glyph.font_data != nullptr &&
+                    glyph.font_data->size() == font_bytes.size() && std::memcmp(glyph.font_data->data(), font_bytes.data(), font_bytes.size()) == 0;
+            };
+            // Canonical recreation may clear the candidate sideband. It is not
+            // authority to silently replace an already associated source font.
+            const auto previous = implementation_->glyph_runs.find(binding.glyph_run_handle);
+            if (previous != implementation_->glyph_runs.end() && previous->second.font_data != nullptr && !matches(previous->second))
+                return status::invalid_argument;
+            const auto found = candidate.implementation_->glyph_runs.find(binding.glyph_run_handle);
+            if (found == candidate.implementation_->glyph_runs.end()) return status::invalid_handle;
+            if (found->second.font_data != nullptr) {
+                if (!matches(found->second)) return status::invalid_argument;
+            } else {
+                const auto associated = candidate.set_glyph_run_font_sfnt(binding.glyph_run_handle, font.face_index, 0U, font_bytes);
+                if (associated != status::success) return associated;
+            }
+            const auto bound = hinted_glyph_binding_access::bind(candidate, binding.glyph_run_handle, resource,
+                positioned_indices.subspan(binding.positioned_index_start, binding.positioned_index_count), binding.font_index,
+                resource->dpi_scale(), binding.logical_origin, binding.basis);
+            if (bound != status::success) return bound;
+        }
+        implementation_ = std::move(candidate.implementation_);
+        build_cache_.reset();
+        last_hinted_batch_metrics_ = local_metrics;
+        return status::success;
+    } catch (const std::bad_alloc&) { return status::capacity_exceeded; }
+    catch (...) { return status::invalid_argument; }
 }
 
 status channel::get_bitmap_source_dpi(
@@ -22402,8 +22543,89 @@ status channel::set_glyph_run_font_sfnt(
         glyph_run.face_index = face_index;
         glyph_run.style_simulations = style_simulations;
         glyph_run.font_data = std::move(retained_font);
+        // A successful font sideband replacement starts a design-font binding.
+        // A prior explicit hinted source may never outlive changed face bytes.
+        glyph_run.hinted_resource.reset();
+        glyph_run.hinted_positioned_indices.clear();
         implementation_->increment_generation(handle);
         build_cache_.reset();
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::capacity_exceeded;
+    } catch (...) {
+        return status::invalid_argument;
+    }
+}
+
+status hinted_glyph_binding_access::bind(channel& target, std::uint32_t handle,
+    std::shared_ptr<const text::hinted_paragraph_glyph_resource> resource,
+    std::span<const std::uint32_t> positioned_indices, std::uint32_t font_index,
+    float dpi_scale, progpu_native_point logical_origin, progpu_native_affine_2d basis) noexcept {
+    if (target.implementation_ == nullptr || !target.implementation_->require_resource(handle, type_glyph_run) ||
+        !target.implementation_->glyph_runs.contains(handle)) return status::invalid_handle;
+    const auto address = reinterpret_cast<std::uintptr_t>(positioned_indices.data());
+    if (resource == nullptr || positioned_indices.empty() || positioned_indices.size() > UINT16_MAX ||
+        positioned_indices.data() == nullptr || address % alignof(std::uint32_t) != 0U ||
+        positioned_indices.size_bytes() > std::numeric_limits<std::uintptr_t>::max() - address ||
+        !std::isfinite(dpi_scale) || dpi_scale <= 0.0F || dpi_scale != resource->dpi_scale() ||
+        !std::isfinite(logical_origin.x) || !std::isfinite(logical_origin.y)) return status::invalid_argument;
+    if (basis.m11 != 1.0F || basis.m12 != 0.0F || basis.m21 != 0.0F || basis.m22 != 1.0F ||
+        basis.m31 != 0.0F || basis.m32 != 0.0F) return status::unsupported_command;
+    auto& glyph = target.implementation_->glyph_runs.at(handle);
+    const auto paragraph = resource->binding_view();
+    if (glyph.style_simulations != 0U || (glyph.flags & 0x0001U) != 0U)
+        return status::unsupported_command;
+    if (positioned_indices.size() != glyph.glyph_indices.size() ||
+        font_index >= paragraph.fonts.size() ||
+        glyph.font_data == nullptr || glyph.font_data->empty() ||
+        resource->positioned_outline_indices().size() != paragraph.glyphs.size() ||
+        resource->positioned_owners().size() != paragraph.glyphs.size()) return status::invalid_argument;
+    const auto& source = paragraph.fonts[font_index];
+    if (source.face_index != glyph.face_index || source.byte_count != glyph.font_data->size() ||
+        std::memcmp(paragraph.font_bytes.data() + source.byte_offset, glyph.font_data->data(), source.byte_count) != 0)
+        return status::invalid_argument;
+    const double bounds_right = glyph.bounds_x + glyph.bounds_width;
+    const double bounds_bottom = glyph.bounds_y + glyph.bounds_height;
+    if (!finite_double_as_float(bounds_right) || !finite_double_as_float(bounds_bottom))
+        return status::invalid_argument;
+    float cursor = 0.0F;
+    for (std::size_t i = 0U; i < positioned_indices.size(); ++i) {
+        const auto occurrence = positioned_indices[i];
+        if (occurrence >= paragraph.glyphs.size()) return status::invalid_argument;
+        const auto owner = resource->positioned_owners()[occurrence];
+        const auto& original = paragraph.glyphs[occurrence];
+        const auto& run = paragraph.runs[owner.run_index];
+        const auto upm = paragraph.fonts[run.font_index].units_per_em;
+        const auto offset = glyph.offsets.empty() ? progpu_native_point{} : glyph.offsets[i];
+        if (owner.font_index != font_index || upm == 0U ||
+            run.source_scale != glyph.em_size / static_cast<float>(upm) ||
+            original.glyph_id != glyph.glyph_indices[i] ||
+            glyph.origin_x + cursor + offset.x != original.x + logical_origin.x ||
+            glyph.origin_y + offset.y != original.y + logical_origin.y ||
+            !std::isfinite(cursor + glyph.advances[i])) return status::invalid_argument;
+        const auto outline_index = resource->positioned_outline_indices()[occurrence];
+        if (outline_index != text::hinted_no_outline) {
+            const auto& outline = resource->outlines()[outline_index];
+            const float x = original.x + logical_origin.x, y = original.y + logical_origin.y;
+            const float left = x + outline.min_x / dpi_scale, right = x + outline.max_x / dpi_scale;
+            const float top = y - outline.max_y / dpi_scale, bottom = y - outline.min_y / dpi_scale;
+            // Source bounds also own culling, input and spatial-brush mapping.
+            // Never replace them with design-font bounds or silently enlarge
+            // them when the exact retained hinted ink does not fit.
+            if (!std::isfinite(left) || !std::isfinite(right) || !std::isfinite(top) || !std::isfinite(bottom) ||
+                left < glyph.bounds_x || right > bounds_right || top < glyph.bounds_y || bottom > bounds_bottom)
+                return status::invalid_argument;
+        }
+        cursor += glyph.advances[i];
+    }
+    try {
+        // Complete candidate allocation/copy precedes mutation. Every earlier
+        // binding and compiled view survives a late source/ID/font/basis fault.
+        std::vector<std::uint32_t> indices(positioned_indices.begin(), positioned_indices.end());
+        glyph.hinted_positioned_indices.swap(indices);
+        glyph.hinted_resource = std::move(resource);
+        target.implementation_->increment_generation(handle);
+        target.build_cache_.reset();
         return status::success;
     } catch (const std::bad_alloc&) {
         return status::capacity_exceeded;

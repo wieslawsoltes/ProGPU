@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using ProGPU.Backend.Native;
 using Silk.NET.WebGPU;
 
@@ -10,9 +11,16 @@ WgpuContext.OnWebGpuError += (type, message) =>
 WgpuContext.OnWebGpuDeviceLost += (reason, message) =>
     Console.Error.WriteLine($"package-consumer: WebGPU device lost {reason}: {message}");
 
+if (args.Length == 1 && args[0] is "--text-edit-word-boundaries-only" or "--text-edit-word-boundaries-dawn-only")
+{
+    TextEditWordBoundaryValidation.Run(dawn: args[0] == "--text-edit-word-boundaries-dawn-only");
+    return;
+}
+
 if (args.Contains("--text-device-advances-only", StringComparer.Ordinal))
 {
     TextDeviceAdvanceValidation.Run();
+    TextHintingValidation.Run(Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"));
     return;
 }
 
@@ -25,6 +33,40 @@ if (args.Contains("--text-digit-substitution-only", StringComparer.Ordinal))
 if (args.Length == 2 && args[0] == "--text-number-symbols-only")
 {
     TextDigitSubstitutionValidation.RunNumberSymbols(args[1]);
+    return;
+}
+
+if (args.Contains("--text-hinted-paragraph-render-only", StringComparer.Ordinal))
+{
+    using var hintedContext = new WgpuContext
+    {
+        ForceFallbackAdapter = OperatingSystem.IsWindows() ||
+            args.Contains("--software-adapter", StringComparer.Ordinal)
+    };
+    hintedContext.Initialize(window: null);
+    TextHintedParagraphRenderingValidation.Run(hintedContext,
+        Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"),
+        () => new NativeCompositor(hintedContext, TextureFormat.Rgba8Unorm));
+    return;
+}
+
+if (args.Contains("--text-hinted-paragraph-dawn-render-only", StringComparer.Ordinal))
+{
+    // Explicit fixture choices, not automatic source renderer/adapter policy.
+    BackendType backend = OperatingSystem.IsMacOS() ? BackendType.Metal
+        : OperatingSystem.IsWindows() ? BackendType.D3D12
+        : OperatingSystem.IsLinux() ? BackendType.Vulkan
+        : throw new PlatformNotSupportedException("This Dawn offscreen package control requires a desktop native backend.");
+    // The original Dawn D3D12 backend rejects generic forced fallback before
+    // processing adapter LUIDs. Select the independently verified system WARP
+    // policy explicitly for this Windows software-rendering fixture instead.
+    using var dawn = OperatingSystem.IsWindows()
+        ? DawnGpuContext.CreateSystemWarpOffscreen()
+        : DawnGpuContext.CreateOffscreen(backend,
+            forceFallbackAdapter: args.Contains("--software-adapter", StringComparer.Ordinal));
+    TextHintedParagraphRenderingValidation.Run(dawn.Context,
+        Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"),
+        () => NativeDawnAdapter.CreateCompositor(dawn, TextureFormat.Rgba8Unorm));
     return;
 }
 
@@ -546,6 +588,7 @@ Console.WriteLine(
 static void ValidateNativeInlineParagraph()
 {
     TextDeviceAdvanceValidation.Run();
+    TextHintingValidation.Run(Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"));
     TextDigitSubstitutionValidation.Run(Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"));
     TextContinuationValidation.Run(Path.Combine(AppContext.BaseDirectory, "Inter-Regular.ttf"));
     if (Marshal.SizeOf<NativeTextFloatingItem>() != 16 || Marshal.SizeOf<NativeTextFloatingOptions>() != 32 ||

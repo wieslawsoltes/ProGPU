@@ -7,6 +7,8 @@ include(GNUInstallDirs)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+include(cmake/ProGPUFontHinting.cmake)
+include(cmake/ProGPUEditWordIcu.cmake)
 
 # CMake's ClangCL/Ninja generator invokes lld-link directly. Keep the compiler
 # runtime selected by the clang-cl driver on that link line as an absolute
@@ -276,12 +278,14 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_VECTOR_SHADER}"
         "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
+        "-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl"
         "-DOUTPUT=${generated_vector_shader}"
         "-DSYMBOL=vector_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_VECTOR_SHADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Vector.wgsl shader"
     VERBATIM)
@@ -305,11 +309,17 @@ add_custom_command(
     OUTPUT "${generated_text_shader}"
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_TEXT_SHADER}"
+        "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphGeometryCommon.wgsl"
+        "-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
+        "-DTHIRD_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphCoverageCommon.wgsl"
         "-DOUTPUT=${generated_text_shader}"
         "-DSYMBOL=text_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_TEXT_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphGeometryCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphCoverageCommon.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Text.wgsl shader"
     VERBATIM)
@@ -320,14 +330,40 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_TEXTURE_SHADER}"
         "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
+        "-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextureImageSamplingCommon.wgsl"
         "-DOUTPUT=${generated_texture_shader}"
         "-DSYMBOL=texture_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_TEXTURE_SHADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextureImageSamplingCommon.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Texture.wgsl shader"
+    VERBATIM)
+set(generated_hinted_glyph_paint_shader
+    "${generated_directory}/HintedGlyphPaintWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_hinted_glyph_paint_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/HintedGlyphPaint.wgsl"
+        "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl"
+        "-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphGeometryCommon.wgsl"
+        "-DTHIRD_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
+        "-DFOURTH_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphCoverageCommon.wgsl"
+        "-DFIFTH_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextureImageSamplingCommon.wgsl"
+        "-DOUTPUT=${generated_hinted_glyph_paint_shader}"
+        "-DSYMBOL=hinted_glyph_paint_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/HintedGlyphPaint.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphGeometryCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphCoverageCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextureImageSamplingCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared original hinted glyph paint shader"
     VERBATIM)
 set(generated_image_effect_shader
     "${generated_directory}/ImageEffectWgsl.generated.hpp")
@@ -574,6 +610,7 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_path_signed_winding_coverage_shader}"
         "${generated_glyph_rasterizer_shader}"
         "${generated_text_shader}"
+        "${generated_hinted_glyph_paint_shader}"
         "${generated_texture_shader}"
         "${generated_image_effect_shader}"
         "${generated_texture_gaussian_blur_shader}"
@@ -624,6 +661,8 @@ set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_path_boolean_gpu.hpp
     src/Backend/progpu_native_path_execution.cpp
     src/Backend/progpu_native_glyph_execution.cpp
+    src/Backend/progpu_native_hinted_glyph_execution.cpp
+    src/Backend/progpu_native_hinted_glyph_execution.hpp
     src/Backend/progpu_native_texture_execution.cpp
     src/Backend/progpu_native_pipeline.cpp
     src/Backend/progpu_native_pipeline.hpp
@@ -636,6 +675,8 @@ set(PROGPU_NATIVE_BACKEND_SOURCES
     src/HitTesting/progpu_native_hit_testing_execution.hpp)
 
 set(PROGPU_NATIVE_SCENE_SOURCES
+    src/Scene/progpu_native_semantic_glyph_paint.cpp
+    src/Scene/progpu_native_semantic_glyph_paint.hpp
     src/Scene/progpu_native_semantic_masked_text_pipeline.cpp
     src/Scene/progpu_native_semantic_masked_vector_pipeline.cpp
     src/Scene/progpu_native_semantic_brush_mask_pipeline.cpp
@@ -687,6 +728,7 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/Text/Interop/progpu_native_text_shaping_interop.cpp
     src/Text/Interop/progpu_native_text_interaction_interop.cpp
     src/Text/Interop/progpu_native_document_flow_interop.cpp
+    src/Text/Interop/progpu_native_edit_word_interop.cpp
     include/progpu_native.h
     include/progpu_native_mil.h)
 
@@ -773,7 +815,17 @@ progpu_native_enable_warnings(progpu_native_image)
 progpu_native_enable_sanitizers(progpu_native_image)
 
 add_library(progpu_native_text STATIC
+    src/Text/progpu_native_edit_word_boundaries.cpp
     "${generated_unicode_normalization_source}"
+    src/Text/Font/progpu_native_hinted_transport.cpp
+    src/Text/Font/progpu_native_hinted_text_layout.cpp
+    src/Text/Font/progpu_native_hinted_outline.cpp
+    src/Text/Font/progpu_native_hinted_glyph_frame.cpp
+    src/Text/Interop/progpu_native_hinted_paragraph_interaction.cpp
+    src/Text/Interop/progpu_native_hinted_paragraph_glyph_frame.cpp
+    src/Text/Interop/progpu_native_hinted_nominal_metrics.cpp
+    src/Text/Interop/progpu_native_hinted_source_frame.cpp
+    src/Text/Interop/progpu_native_hinted_glyph_resource_import.cpp
     src/Text/progpu_native_unicode.cpp
     src/Text/Unicode/progpu_native_unicode_category.cpp
     src/Text/Unicode/progpu_native_unicode_directional.cpp
@@ -916,6 +968,20 @@ target_include_directories(progpu_native_text
         "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Shaping"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
 target_link_libraries(progpu_native_text PUBLIC progpu_native_compression)
+if(TARGET progpu_native_edit_icu)
+    target_compile_definitions(progpu_native_text PRIVATE PROGPU_NATIVE_EDIT_WORD_ICU=1)
+    target_link_libraries(progpu_native_text PRIVATE progpu_native_edit_icu Threads::Threads ${CMAKE_DL_LIBS})
+endif()
+if(PROGPU_NATIVE_FONT_HINTING)
+    target_sources(progpu_native_text PRIVATE
+        src/Text/Font/progpu_native_hinted_font.cpp
+        src/Text/Font/progpu_native_hinted_font_cache.cpp
+        src/Text/Font/progpu_native_hinted_gpos.cpp
+        src/Text/Font/progpu_native_hinted_run_metrics.cpp
+        src/Text/Font/progpu_native_hinted_shaper.cpp)
+    target_compile_definitions(progpu_native_text PUBLIC PROGPU_NATIVE_FONT_HINTING=1)
+    target_link_libraries(progpu_native_text PRIVATE progpu_native_freetype Threads::Threads ${CMAKE_DL_LIBS})
+endif()
 set_target_properties(progpu_native_text PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden
@@ -928,6 +994,20 @@ if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
 endif()
 progpu_native_enable_warnings(progpu_native_text)
 progpu_native_enable_sanitizers(progpu_native_text)
+
+function(progpu_native_enable_hinted_glyph_fixture target)
+    if(PROGPU_NATIVE_FONT_HINTING)
+        # The private adapter is hidden in each product. Compile its original
+        # crossing into this real-provider harness, retaining all existing
+        # completion/readback controls and exercising the exported renderer.
+        target_sources(${target} PRIVATE
+            tests/progpu_native_hinted_glyph_rendering_fixture.hpp
+            src/Backend/progpu_native_hinted_glyph_execution.cpp
+            src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+        target_compile_definitions(${target} PRIVATE PROGPU_NATIVE_BUILD=1)
+        target_link_libraries(${target} PRIVATE progpu_native_text)
+    endif()
+endfunction()
 
 add_library(progpu_native_scene_builder STATIC
     src/Scene/Builder/progpu_native_scene_builder.cpp
@@ -974,6 +1054,7 @@ add_library(progpu_native_mil STATIC
     include/progpu_native_mil_commands.generated.hpp
     include/progpu_native_mil.hpp
     src/Mil/progpu_native_mil_curve_dash.hpp
+    src/Mil/progpu_native_mil_hinted_glyphs.hpp
     src/Mil/progpu_native_mil.cpp)
 target_compile_features(progpu_native_mil PUBLIC cxx_std_20)
 target_include_directories(progpu_native_mil PUBLIC
@@ -1160,6 +1241,8 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                 d2d1
                 ole32
                 windowscodecs)
+            progpu_native_enable_hinted_glyph_fixture(
+                progpu_native_direct2d_differential_tests)
             progpu_native_enable_warnings(
                 progpu_native_direct2d_differential_tests)
             progpu_native_enable_sanitizers(
@@ -1233,6 +1316,8 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                 progpu_native_scene_builder
                 "${PROGPU_NATIVE_IOSURFACE_FRAMEWORK}"
                 "${CMAKE_DL_LIBS}")
+            progpu_native_enable_hinted_glyph_fixture(
+                progpu_native_webscene_provider_tests)
             progpu_native_enable_warnings(
                 progpu_native_webscene_provider_tests)
             progpu_native_enable_sanitizers(
@@ -1466,6 +1551,39 @@ endif()
 endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+    # Pure actual-pass certificate controls; no WebGPU device/runtime linkage.
+    add_executable(progpu_native_glyph_coverage_frame_tests
+        tests/progpu_native_glyph_coverage_frame_tests.cpp)
+    target_compile_features(progpu_native_glyph_coverage_frame_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_glyph_coverage_frame_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Backend")
+    progpu_native_enable_warnings(progpu_native_glyph_coverage_frame_tests)
+    progpu_native_enable_sanitizers(progpu_native_glyph_coverage_frame_tests)
+    add_test(NAME progpu_native_glyph_coverage_frame_tests COMMAND progpu_native_glyph_coverage_frame_tests)
+    set_tests_properties(progpu_native_glyph_coverage_frame_tests PROPERTIES TIMEOUT 15)
+
+    # Exercise the actual product classifier and the shared C transport body.
+    add_executable(progpu_native_edit_word_boundary_tests
+        tests/progpu_native_edit_word_boundary_tests.cpp
+        tests/progpu_native_edit_word_interop_tests.cpp
+        tests/progpu_native_edit_myanmar_tests.cpp
+        tests/progpu_native_edit_symbol_item_tests.cpp
+        src/Text/Interop/progpu_native_edit_word_interop.cpp)
+    target_compile_features(progpu_native_edit_word_boundary_tests PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_edit_word_boundary_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_include_directories(progpu_native_edit_word_boundary_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text")
+    find_package(Threads REQUIRED)
+    target_link_libraries(progpu_native_edit_word_boundary_tests PRIVATE progpu_native_text Threads::Threads)
+    if(TARGET progpu_native_edit_icu)
+        target_compile_definitions(progpu_native_edit_word_boundary_tests PRIVATE PROGPU_NATIVE_EDIT_WORD_ICU=1)
+    endif()
+    progpu_native_enable_warnings(progpu_native_edit_word_boundary_tests)
+    progpu_native_enable_sanitizers(progpu_native_edit_word_boundary_tests)
+    add_test(NAME progpu_native_edit_word_boundary_tests COMMAND progpu_native_edit_word_boundary_tests)
+    set_tests_properties(progpu_native_edit_word_boundary_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_browser_scene_tests
         browser/npm/scene_packet.cpp
         browser/npm/tests/scene_packet_tests.cpp)
@@ -1542,6 +1660,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             progpu_native
             progpu_native_direct2d_core
             "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
+        progpu_native_enable_hinted_glyph_fixture(
+            progpu_native_direct2d_webgpu_tests)
         progpu_native_enable_warnings(
             progpu_native_direct2d_webgpu_tests)
         progpu_native_enable_sanitizers(
@@ -1619,6 +1739,22 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     progpu_native_enable_sanitizers(progpu_native_mil_tests)
     add_test(NAME progpu_native_mil_tests COMMAND progpu_native_mil_tests)
     set_tests_properties(progpu_native_mil_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_mil_hinted_glyph_tests
+        tests/progpu_native_mil_hinted_glyph_tests.cpp
+        src/Mil/progpu_native_mil_interop.cpp
+        src/Scene/progpu_native_semantic_state.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(progpu_native_mil_hinted_glyph_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_mil_hinted_glyph_tests PRIVATE
+        ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
+    target_compile_definitions(progpu_native_mil_hinted_glyph_tests PRIVATE PROGPU_NATIVE_BUILD=1
+        "PROGPU_NATIVE_TEST_INTER_VARIABLE_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/InterVariable.ttf\"")
+    target_link_libraries(progpu_native_mil_hinted_glyph_tests PRIVATE progpu_native_mil progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_mil_hinted_glyph_tests)
+    progpu_native_enable_sanitizers(progpu_native_mil_hinted_glyph_tests)
+    add_test(NAME progpu_native_mil_hinted_glyph_tests COMMAND progpu_native_mil_hinted_glyph_tests)
+    set_tests_properties(progpu_native_mil_hinted_glyph_tests PROPERTIES TIMEOUT 60)
 
     if(WIN32)
         add_executable(progpu_native_direct2d_tests
@@ -1859,6 +1995,53 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME progpu_native_font_device_metrics_tests COMMAND progpu_native_font_device_metrics_tests)
     set_tests_properties(progpu_native_font_device_metrics_tests PROPERTIES TIMEOUT 60)
 
+    add_executable(progpu_native_device_kern_tests
+        tests/progpu_native_device_kern_tests.cpp)
+    target_compile_features(progpu_native_device_kern_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_device_kern_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_device_kern_tests)
+    progpu_native_enable_sanitizers(progpu_native_device_kern_tests)
+    add_test(NAME progpu_native_device_kern_tests COMMAND progpu_native_device_kern_tests)
+    set_tests_properties(progpu_native_device_kern_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_device_space_tests
+        tests/progpu_native_device_space_tests.cpp)
+    target_compile_features(progpu_native_device_space_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_device_space_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_device_space_tests)
+    progpu_native_enable_sanitizers(progpu_native_device_space_tests)
+    add_test(NAME progpu_native_device_space_tests COMMAND progpu_native_device_space_tests)
+    set_tests_properties(progpu_native_device_space_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_device_mark_tests
+        tests/progpu_native_device_mark_tests.cpp)
+    target_compile_features(progpu_native_device_mark_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_device_mark_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_device_mark_tests)
+    progpu_native_enable_sanitizers(progpu_native_device_mark_tests)
+    add_test(NAME progpu_native_device_mark_tests COMMAND progpu_native_device_mark_tests)
+    set_tests_properties(progpu_native_device_mark_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_device_arabic_stretch_tests
+        tests/progpu_native_device_arabic_stretch_tests.cpp)
+    target_compile_features(progpu_native_device_arabic_stretch_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_device_arabic_stretch_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_device_arabic_stretch_tests)
+    progpu_native_enable_sanitizers(progpu_native_device_arabic_stretch_tests)
+    add_test(NAME progpu_native_device_arabic_stretch_tests COMMAND progpu_native_device_arabic_stretch_tests)
+    set_tests_properties(progpu_native_device_arabic_stretch_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_transport_tests
+        tests/progpu_native_hinted_transport_tests.cpp)
+    target_compile_features(progpu_native_hinted_transport_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_hinted_transport_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Font")
+    target_link_libraries(progpu_native_hinted_transport_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_transport_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_transport_tests)
+    add_test(NAME progpu_native_hinted_transport_tests COMMAND progpu_native_hinted_transport_tests)
+    set_tests_properties(progpu_native_hinted_transport_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_text_device_advances_tests
         tests/progpu_native_text_device_advances_tests.cpp
         src/Text/Interop/progpu_native_text_shaping_interop.cpp)
@@ -1871,6 +2054,137 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     progpu_native_enable_sanitizers(progpu_native_text_device_advances_tests)
     add_test(NAME progpu_native_text_device_advances_tests COMMAND progpu_native_text_device_advances_tests)
     set_tests_properties(progpu_native_text_device_advances_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_text_hinted_context_tests
+        tests/progpu_native_text_hinted_context_tests.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(progpu_native_text_hinted_context_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_text_hinted_context_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Font")
+    target_compile_definitions(progpu_native_text_hinted_context_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_text_hinted_context_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_text_hinted_context_tests)
+    progpu_native_enable_sanitizers(progpu_native_text_hinted_context_tests)
+    add_test(NAME progpu_native_text_hinted_context_tests COMMAND progpu_native_text_hinted_context_tests)
+    set_tests_properties(progpu_native_text_hinted_context_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_text_hinted_run_tests
+        tests/progpu_native_text_hinted_run_tests.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(progpu_native_text_hinted_run_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_text_hinted_run_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Font")
+    target_compile_definitions(progpu_native_text_hinted_run_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_text_hinted_run_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_text_hinted_run_tests)
+    progpu_native_enable_sanitizers(progpu_native_text_hinted_run_tests)
+    add_test(NAME progpu_native_text_hinted_run_tests COMMAND progpu_native_text_hinted_run_tests)
+    set_tests_properties(progpu_native_text_hinted_run_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_text_layout_tests
+        tests/progpu_native_hinted_text_layout_tests.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(progpu_native_hinted_text_layout_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_hinted_text_layout_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Font")
+    target_compile_definitions(progpu_native_hinted_text_layout_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_hinted_text_layout_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_text_layout_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_text_layout_tests)
+    add_test(NAME progpu_native_hinted_text_layout_tests COMMAND progpu_native_hinted_text_layout_tests)
+    set_tests_properties(progpu_native_hinted_text_layout_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_outline_tests
+        tests/progpu_native_hinted_outline_tests.cpp)
+    target_compile_features(progpu_native_hinted_outline_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_hinted_outline_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Font")
+    target_link_libraries(progpu_native_hinted_outline_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_outline_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_outline_tests)
+    add_test(NAME progpu_native_hinted_outline_tests COMMAND progpu_native_hinted_outline_tests)
+    set_tests_properties(progpu_native_hinted_outline_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_glyph_frame_tests
+        tests/progpu_native_hinted_glyph_frame_tests.cpp)
+    target_compile_features(progpu_native_hinted_glyph_frame_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_hinted_glyph_frame_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Font")
+    target_link_libraries(progpu_native_hinted_glyph_frame_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_glyph_frame_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_glyph_frame_tests)
+    add_test(NAME progpu_native_hinted_glyph_frame_tests COMMAND progpu_native_hinted_glyph_frame_tests)
+    set_tests_properties(progpu_native_hinted_glyph_frame_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_text_cluster_breaks_tests
+        tests/progpu_native_text_cluster_breaks_tests.cpp)
+    target_compile_features(progpu_native_text_cluster_breaks_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_text_cluster_breaks_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    progpu_native_enable_warnings(progpu_native_text_cluster_breaks_tests)
+    progpu_native_enable_sanitizers(progpu_native_text_cluster_breaks_tests)
+    add_test(NAME progpu_native_text_cluster_breaks_tests COMMAND progpu_native_text_cluster_breaks_tests)
+    set_tests_properties(progpu_native_text_cluster_breaks_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_paragraph_tests
+        tests/progpu_native_hinted_paragraph_tests.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(progpu_native_hinted_paragraph_tests PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_hinted_paragraph_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_hinted_paragraph_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_paragraph_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_paragraph_tests)
+    add_test(NAME progpu_native_hinted_paragraph_tests COMMAND progpu_native_hinted_paragraph_tests)
+    set_tests_properties(progpu_native_hinted_paragraph_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_paragraph_glyph_frame_tests
+        tests/progpu_native_hinted_paragraph_glyph_frame_tests.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(progpu_native_hinted_paragraph_glyph_frame_tests PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_hinted_paragraph_glyph_frame_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_hinted_paragraph_glyph_frame_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_paragraph_glyph_frame_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_paragraph_glyph_frame_tests)
+    add_test(NAME progpu_native_hinted_paragraph_glyph_frame_tests COMMAND progpu_native_hinted_paragraph_glyph_frame_tests)
+    set_tests_properties(progpu_native_hinted_paragraph_glyph_frame_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_paragraph_transport_tests
+        tests/progpu_native_hinted_paragraph_transport_tests.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(progpu_native_hinted_paragraph_transport_tests PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_hinted_paragraph_transport_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_link_libraries(progpu_native_hinted_paragraph_transport_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_paragraph_transport_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_paragraph_transport_tests)
+    add_test(NAME progpu_native_hinted_paragraph_transport_tests COMMAND progpu_native_hinted_paragraph_transport_tests)
+    set_tests_properties(progpu_native_hinted_paragraph_transport_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_glyph_resource_transport_tests
+        tests/progpu_native_hinted_glyph_resource_transport_tests.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(progpu_native_hinted_glyph_resource_transport_tests PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_hinted_glyph_resource_transport_tests PRIVATE PROGPU_NATIVE_BUILD=1
+        "PROGPU_NATIVE_TEST_INTER_VARIABLE_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/InterVariable.ttf\"")
+    target_link_libraries(progpu_native_hinted_glyph_resource_transport_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_glyph_resource_transport_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_glyph_resource_transport_tests)
+    add_test(NAME progpu_native_hinted_glyph_resource_transport_tests COMMAND progpu_native_hinted_glyph_resource_transport_tests)
+    set_tests_properties(progpu_native_hinted_glyph_resource_transport_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hinted_nominal_metrics_tests tests/progpu_native_hinted_nominal_metrics_tests.cpp)
+    target_compile_features(progpu_native_hinted_nominal_metrics_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_hinted_nominal_metrics_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_nominal_metrics_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_nominal_metrics_tests)
+    add_test(NAME progpu_native_hinted_nominal_metrics_tests COMMAND progpu_native_hinted_nominal_metrics_tests)
+    set_tests_properties(progpu_native_hinted_nominal_metrics_tests PROPERTIES TIMEOUT 60)
+    add_executable(progpu_native_hinted_source_frame_tests tests/progpu_native_hinted_source_frame_tests.cpp)
+    target_compile_features(progpu_native_hinted_source_frame_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_hinted_source_frame_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_source_frame_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_source_frame_tests)
+    add_test(NAME progpu_native_hinted_source_frame_tests COMMAND progpu_native_hinted_source_frame_tests)
+    set_tests_properties(progpu_native_hinted_source_frame_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_text_shaping_showcase_tests
         tests/progpu_native_text_shaping_showcase_tests.cpp
@@ -1994,6 +2308,21 @@ if(PROGPU_NATIVE_BUILD_SAMPLE AND NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TA
 endif()
 
 if(NOT EMSCRIPTEN)
+    if(TARGET progpu_native_edit_icu)
+        install(TARGETS progpu_native_edit_icu ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+        install(FILES "$<TARGET_FILE_DIR:progpu_native_edit_icu>/progpu-native-edit-word-dependency.json"
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+        install(FILES "${PROGPU_NATIVE_EDIT_WORD_ICU_NOTICES}"
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}/licenses/edit-word-icu")
+    endif()
+    if(PROGPU_NATIVE_FONT_HINTING)
+        install(FILES "${PROGPU_NATIVE_FREETYPE_library}"
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}" RENAME "${PROGPU_NATIVE_FREETYPE_sdk_name}")
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-font-dependency.json"
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+        install(DIRECTORY "${PROGPU_NATIVE_FREETYPE_notices}/"
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}/licenses/freetype")
+    endif()
     install(TARGETS
         progpu_native_compression
         progpu_native_hit_testing
@@ -2018,6 +2347,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_mil.hpp
         include/progpu_native_scene_builder.hpp
         include/progpu_native_text.hpp
+        include/progpu_native_text_hinting.h
         include/progpu_native_text_interaction.h
         include/progpu_native_text_styles.h
         include/progpu_native_text_flow.h
@@ -2045,6 +2375,11 @@ if(NOT EMSCRIPTEN)
         src/Scene/Builder/progpu_native_scene_builder.cppm
         src/Text/progpu_native_text.cppm
         DESTINATION "${CMAKE_INSTALL_DATADIR}/progpu/modules")
-    install(FILES cmake/ProGPUNativeConfig.cmake
+    install(FILES cmake/ProGPUNativeConfig.cmake cmake/ProGPUNativeFontDependency.cmake
+        cmake/ProGPUNativeEditWordDependency.cmake
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ProGPUNative")
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../eng/native-freetype.json"
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ProGPUNative" RENAME ProGPUNativeFontPin.json)
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../eng/native-edit-word-icu.json"
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ProGPUNative" RENAME ProGPUNativeEditWordPin.json)
 endif()

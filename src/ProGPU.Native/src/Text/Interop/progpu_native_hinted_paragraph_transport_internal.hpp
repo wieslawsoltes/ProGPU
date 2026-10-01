@@ -1,0 +1,34 @@
+#pragma once
+
+#include "progpu_native_text_hinting.h"
+#include "progpu_native_hinted_paragraph_interaction.hpp"
+#include "progpu_native_hinted_paragraph_glyph_frame.hpp"
+
+namespace progpu::native::text {
+
+// Original immutable font bytes/face and positioned owners only; no hinting or
+// shaping execution. Publishes the complete vector only after all metrics exist.
+progpu_native_status capture_hinted_nominal_metrics(const hinted_paragraph_generation& paragraph,
+    std::vector<progpu_native_hinted_glyph_nominal_metrics>& result) noexcept;
+
+progpu_native_status validate_hinted_source_frame(const progpu_native_hinted_glyph_resource_view& view,
+    std::span<const progpu_native_hinted_glyph_nominal_metrics> nominal,
+    std::span<const std::uint32_t> indices, float source_em_size, progpu_native_point source_baseline,
+    std::span<const double> advances, std::span<const progpu_native_hinted_source_glyph_offset> offsets,
+    progpu_native_hinted_source_glyph_frame& result) noexcept;
+progpu_native_status copy_hinted_source_offsets(const progpu_native_hinted_glyph_resource_view& view,
+    std::span<const progpu_native_hinted_glyph_nominal_metrics> nominal, std::span<const std::uint32_t> indices,
+    float source_em_size, std::span<progpu_native_hinted_source_glyph_offset> output) noexcept;
+
+// Same-module read-only diagnostics/native controls under the caller's handle
+// lease. These are not a public ABI, provider crossing or mutable generation.
+std::shared_ptr<const hinted_paragraph_generation> select_hinted_paragraph_generation(
+    const progpu_native_hinted_paragraph* paragraph) noexcept;
+std::shared_ptr<const hinted_paragraph_interaction> select_hinted_paragraph_interaction(
+    const progpu_native_hinted_paragraph* paragraph) noexcept;
+std::shared_ptr<const hinted_paragraph_glyph_frame> select_hinted_paragraph_frame_generation(
+    const progpu_native_hinted_paragraph_frame* frame) noexcept;
+std::shared_ptr<const hinted_paragraph_glyph_resource> select_hinted_glyph_resource_generation(
+    const progpu_native_hinted_glyph_resource* resource) noexcept;
+
+} // namespace progpu::native::text

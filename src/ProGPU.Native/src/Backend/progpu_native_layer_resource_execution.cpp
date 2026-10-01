@@ -489,6 +489,7 @@ bool ensure_semantic_texture_slot(
         return false;
     }
 
+    engine.release_glyph_paint_uniform_bindings();
     release_semantic_effect_bindings(slot);
     ::progpu::native::effects::invalidate_semantic_output_cache(
         slot.effect_output_cache);

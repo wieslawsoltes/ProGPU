@@ -5,6 +5,10 @@
 #include "progpu_native_mil_image_brush_fixture.hpp"
 #include "progpu_native_semantic_glyph_sharing_fixture.hpp"
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+#include "progpu_native_hinted_glyph_rendering_fixture.hpp"
+#include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
+#endif
 
 #include <wgpu.h>
 
@@ -866,6 +870,60 @@ struct portable_scene final {
     wgpuTextureRelease(texture);
     return result;
 }
+
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+// Target/copy/map lifecycle is the original render_scene harness above. The
+// controlled draw supplies one actual glyph renderer call, with no added poll
+// or renderer submission and the same callback-owned 30-second map deadline.
+template<class Draw>
+std::vector<std::uint8_t> render_hinted_glyphs(const gpu_context& gpu,
+    progpu_native_engine* engine, Draw draw)
+{
+    WGPUTextureDescriptor texture_descriptor{};
+    texture_descriptor.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
+    texture_descriptor.dimension = WGPUTextureDimension_2D;
+    texture_descriptor.size = {width, height, 1U};
+    texture_descriptor.format = WGPUTextureFormat_RGBA8Unorm;
+    texture_descriptor.mipLevelCount = 1U;
+    texture_descriptor.sampleCount = 1U;
+    auto texture = wgpuDeviceCreateTexture(gpu.device, &texture_descriptor);
+    require(texture != nullptr, "hinted WebGPU target creation failed");
+    auto view = wgpuTextureCreateView(texture, nullptr);
+    require(view != nullptr, "hinted WebGPU target view creation failed");
+    draw(engine, reinterpret_cast<std::uintptr_t>(view));
+    WGPUBufferDescriptor buffer_descriptor{};
+    buffer_descriptor.size = static_cast<std::uint64_t>(row_bytes) * height;
+    buffer_descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+    auto buffer = wgpuDeviceCreateBuffer(gpu.device, &buffer_descriptor);
+    require(buffer != nullptr, "hinted WebGPU readback creation failed");
+    auto encoder = wgpuDeviceCreateCommandEncoder(gpu.device, nullptr);
+    require(encoder != nullptr, "hinted WebGPU copy encoder creation failed");
+    WGPUImageCopyTexture source{};
+    source.texture = texture; source.aspect = WGPUTextureAspect_All;
+    WGPUImageCopyBuffer destination{};
+    destination.buffer = buffer;
+    destination.layout.bytesPerRow = row_bytes; destination.layout.rowsPerImage = height;
+    const WGPUExtent3D extent{width, height, 1U};
+    wgpuCommandEncoderCopyTextureToBuffer(encoder, &source, &destination, &extent);
+    auto command = wgpuCommandEncoderFinish(encoder, nullptr);
+    require(command != nullptr, "hinted WebGPU copy command creation failed");
+    wgpuQueueSubmit(gpu.queue, 1U, &command);
+    map_request mapped{};
+    wgpuBufferMapAsync(buffer, WGPUMapMode_Read, 0U, buffer_descriptor.size, on_buffer_mapped, &mapped);
+    wait_for_gpu_callback(gpu.device, mapped, "hinted WebGPU readback mapping timed out");
+    require(mapped.status == WGPUBufferMapAsyncStatus_Success, "hinted WebGPU readback mapping failed");
+    const auto* bytes = static_cast<const std::uint8_t*>(
+        wgpuBufferGetConstMappedRange(buffer, 0U, buffer_descriptor.size));
+    require(bytes != nullptr, "hinted WebGPU mapped range unavailable");
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(buffer_descriptor.size));
+    std::copy_n(bytes, pixels.size(), pixels.data());
+    wgpuBufferUnmap(buffer);
+    wgpuCommandBufferRelease(command); wgpuCommandEncoderRelease(encoder);
+    wgpuBufferDestroy(buffer); wgpuBufferRelease(buffer);
+    wgpuTextureViewRelease(view); wgpuTextureDestroy(texture); wgpuTextureRelease(texture);
+    return pixels;
+}
+#endif
 
 void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_engine* engine)
 {
@@ -1947,6 +2005,22 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(glyph_reference_engine);
     phase("semantic glyph sharing passed");
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+    std::array<progpu_native_engine*, 2U> hinted_engines{create_engine(gpu), create_engine(gpu)};
+    progpu::native::tests::verify_hinted_glyph_rendering(
+        [&](bool reference, float, auto draw) {
+            return render_hinted_glyphs(gpu, hinted_engines[reference ? 1U : 0U], draw);
+        }, require);
+    for (auto* hinted_engine : hinted_engines) progpu_native_engine_destroy(hinted_engine);
+    phase("retained hinted generation real GPU consumer passed");
+    hinted_engines = {create_engine(gpu), create_engine(gpu)};
+    progpu::native::tests::verify_hinted_paragraph_glyph_rendering(
+        [&](bool reference, float, auto draw) {
+            return render_hinted_glyphs(gpu, hinted_engines[reference ? 1U : 0U], draw);
+        }, require);
+    for (auto* hinted_engine : hinted_engines) progpu_native_engine_destroy(hinted_engine);
+    phase("retained hinted paragraph real GPU consumer passed");
+#endif
     phase("record Direct2D");
     verify_incremental_picture_backing(gpu, engine);
     verify_compatible_bitmap_uploads(gpu, engine);

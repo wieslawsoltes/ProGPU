@@ -1,0 +1,119 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text;
+using System.Security.Cryptography;
+using HintedDisplayPolicyProbe;
+using Xunit;
+
+public sealed class ReferenceInputTests
+{
+    private static JsonObject Original()
+    {
+        string path = Environment.GetEnvironmentVariable("PROGPU_WPF_DISPLAY_REFERENCE")
+            ?? throw new InvalidOperationException("Point PROGPU_WPF_DISPLAY_REFERENCE at an unchanged successful Microsoft receipt.");
+        return JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+    }
+
+    private static byte[] OriginalBytes() => File.ReadAllBytes(Environment.GetEnvironmentVariable("PROGPU_WPF_DISPLAY_REFERENCE")
+        ?? throw new InvalidOperationException("Original reference path required."));
+
+    [Fact]
+    public void ExactByteHashAndParsedValuesSurviveCallerMutationWithoutPathReread()
+    {
+        byte[] bytes = OriginalBytes();
+        string expected = Convert.ToHexString(SHA256.HashData(bytes));
+        using var reference = ReferenceInput.ParseVerified(bytes, "not-a-live-path");
+        Array.Fill(bytes, (byte)0);
+        Assert.Equal(expected, reference.Sha256);
+        Assert.Equal("not-a-live-path", reference.Path);
+        Assert.Equal(192, reference.RootElement.GetProperty("CaseCount").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("advance")] [InlineData("baseline")] [InlineData("glyph")] [InlineData("formatting")]
+    public void PlausibleFiniteChangesCannotImpersonateAnOriginalReceipt(string mutation)
+    {
+        var original = Original();
+        var line = original["Cases"]![0]!["Lines"]![0]!;
+        var run = line["Runs"]![0]!;
+        switch (mutation)
+        {
+            case "advance": run["Advances"]![0] = 9.0; break;
+            case "baseline": line["Baseline"] = 12.0; break;
+            case "glyph": run["GlyphIds"]![0] = 162; break;
+            case "formatting": break; // Even reserialization is not the exact receipt.
+        }
+        Validate(original); // Plausible altered values still satisfy structural checks.
+        Assert.Throws<InvalidDataException>(() => ReferenceInput.ParseVerified(Encoding.UTF8.GetBytes(original.ToJsonString()), "unused"));
+    }
+
+    [Theory]
+    [InlineData("font")] [InlineData("face")] [InlineData("nominal")]
+    public void IndependentInputsRemainRequiredForTheirOriginalProducer(string mutation)
+    {
+        var original = Original();
+        // An older producer cannot claim new input coverage by changing its label.
+        original["SourceCommit"] = ReferenceInput.SourceInputCommit;
+        var item = original["Cases"]![0]!;
+        var run = item["Lines"]![0]!["Runs"]![0]!;
+        switch (mutation)
+        {
+            case "font": item.AsObject().Remove("SourceFont"); break;
+            case "face": run.AsObject().Remove("FontMetrics"); break;
+            case "nominal": run["NominalDesignAdvances"] = new JsonArray(); break;
+        }
+        Assert.Throws<InvalidDataException>(() => Validate(original));
+    }
+
+    private static void Validate(JsonObject node)
+    {
+        using var document = JsonDocument.Parse(node.ToJsonString());
+        ReferenceInput.ValidateStructure(document.RootElement);
+    }
+
+    [Fact]
+    public void OriginalReceiptIsAcceptedWithoutNativeExecution() => Validate(Original());
+
+    [Theory]
+    [InlineData("commit")] [InlineData("font")] [InlineData("assembly")]
+    [InlineData("duplicate")] [InlineData("dpi")] [InlineData("glyph")]
+    [InlineData("offset")] [InlineData("utf16")] [InlineData("cluster")]
+    public void ChangedSourceInputsAreRejected(string mutation)
+    {
+        var original = Original();
+        var cases = original["Cases"]!.AsArray();
+        var item = cases[0]!;
+        var run = item["Lines"]![0]!["Runs"]![0]!;
+        switch (mutation)
+        {
+            case "commit": original["SourceCommit"] = new string('0', 40); break;
+            case "font": original["Font"]!["Sha256"] = new string('0', 64); break;
+            case "assembly": original["PresentationIdentity"] = "Portable PresentationCore"; break;
+            case "duplicate": cases[1] = item.DeepClone(); break;
+            case "dpi": run["PixelsPerDip"] = 3; break;
+            case "glyph": run["GlyphIds"]![0] = 65536; break;
+            case "offset": run["Offsets"]![0] = new JsonArray(1); break;
+            case "utf16": run["Utf16"]![0] = 0; break;
+            case "cluster": run["Clusters"]![0] = 65535; break;
+        }
+        Assert.Throws<InvalidDataException>(() => Validate(original));
+    }
+
+    [Theory]
+    [InlineData(768, 1.25, 9.6)] [InlineData(-768, 1.25, -9.6)]
+    [InlineData(320, 1.5, 3.3333333333333335)] [InlineData(1, 2, 0.0078125)]
+    public void DiagnosticDivisionPreservesRawSignedFixedPoint(long value, double dpi, double expected)
+        => Assert.Equal(expected, ReferenceInput.DeviceToDip(value, dpi));
+
+    [Fact]
+    public void DiagnosticDivisionDoesNotMasqueradeFloatProjectionAsSourceDouble()
+    {
+        Assert.Equal(9.6, ReferenceInput.DeviceToDip(768, 1.25));
+        Assert.NotEqual((double)(768 * (0.8f / 64)), ReferenceInput.DeviceToDip(768, 1.25));
+    }
+
+    [Theory]
+    [InlineData(0)] [InlineData(-1)] [InlineData(double.NaN)] [InlineData(double.PositiveInfinity)]
+    public void InvalidDpiIsNotReplacedWithDefault(double dpi)
+        => Assert.Throws<ArgumentOutOfRangeException>(() => ReferenceInput.DeviceToDip(768, dpi));
+}

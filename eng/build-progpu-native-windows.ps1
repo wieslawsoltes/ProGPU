@@ -8,7 +8,9 @@ param(
     [ValidateSet("Full", "Smoke")]
     [string] $BenchmarkProfile = $(if ($env:PROGPU_NATIVE_WINDOWS_BENCHMARK_PROFILE) { $env:PROGPU_NATIVE_WINDOWS_BENCHMARK_PROFILE } else { "Full" }),
     [switch] $SkipExtendedIntegration,
-    [switch] $BuildOnly
+    [switch] $BuildOnly,
+    [string] $FontManifest = "",
+    [string] $EditWordIcuArchive = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -153,6 +155,9 @@ cmake -S (Join-Path $RepoRoot "src/ProGPU.Native") -B $BuildDir @GeneratorArgume
     -DPROGPU_NATIVE_WEBGPU_LIBRARY="$ImportLibrary" `
     -DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR="$DawnIncludeArgument" `
     -DPROGPU_NATIVE_BUILD_SAMPLE="$BuildSampleArgument" `
+    -DPROGPU_NATIVE_FREETYPE_MANIFEST="$FontManifest" `
+    -DPROGPU_NATIVE_FREETYPE_RID="$Rid" `
+    -DPROGPU_NATIVE_EDIT_WORD_ICU_SOURCE_ARCHIVE="$EditWordIcuArchive" `
     -DBUILD_TESTING=ON
 if ($LASTEXITCODE -ne 0) {
     throw "CMake configuration failed for $Compiler/$Rid."
@@ -204,6 +209,14 @@ function Stage-NativePackage {
     foreach ($SdkLibraryName in $SdkLibraries) {
         Copy-Item (Join-Path $BinaryDirectory $SdkLibraryName) (Join-Path $SdkPackageStage $SdkLibraryName) -Force
     }
+    if ($FontManifest) {
+        python (Join-Path $RepoRoot "eng/progpu-verify-freetype.py") --manifest $FontManifest --rid $Rid --native-destination $PackageStage --build-directory $BuildDir
+        if ($LASTEXITCODE -ne 0) { throw "Verified font dependency staging failed for $Rid." }
+    }
+    if ($EditWordIcuArchive -or (Test-Path (Join-Path $BinaryDirectory "progpu-native-edit-word-dependency.json"))) {
+        python (Join-Path $RepoRoot "eng/progpu-edit-word-icu-dependency.py") stage --source-archive $EditWordIcuArchive --rid $Rid --native-destination $PackageStage --build-directory $BuildDir --binary-directory $BinaryDirectory
+        if ($LASTEXITCODE -ne 0) { throw "Verified private EDIT ICU staging failed for $Rid." }
+    }
     $NativePdb = Join-Path $BinaryDirectory "progpu_native.pdb"
     $DawnPdb = Join-Path $BinaryDirectory "progpu_native_dawn.pdb"
     $Direct2DPdb = Join-Path $BinaryDirectory "progpu_native_direct2d.pdb"
@@ -226,6 +239,15 @@ if ($BuildOnly) {
 $ExpectedNativeExports = Get-Content (Join-Path $RepoRoot "eng/progpu-native-exports.txt") |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
     Sort-Object -Unique
+foreach ($FontExportLibrary in @($NativeDll, $DawnDll, $Direct2DDll)) {
+    if (Test-Path $FontExportLibrary) {
+        $FontExportRows = & dumpbin.exe /nologo /exports $FontExportLibrary
+        if ($LASTEXITCODE -ne 0) { throw "Font export inspection failed: $FontExportLibrary" }
+        if ($FontExportRows | Select-String -Pattern '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(?:(?:FT_|ft_)|\S*_progpu_edit\S*|progpu_edit_icu_data)') {
+            throw "The native provider leaked private text dependency symbols: $FontExportLibrary"
+        }
+    }
+}
 $ActualNativeExports = & dumpbin.exe /nologo /exports $NativeDll |
     ForEach-Object {
         if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(progpu_native_[A-Za-z0-9_]+)') {

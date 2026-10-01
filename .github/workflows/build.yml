@@ -184,6 +184,7 @@ jobs:
       - name: Run focused quality and allocation gates
         run: |
           python3 -m unittest discover -s eng/tests -p test_system_drawing_trace.py -v
+          python3 -m unittest discover -s eng/tests -p test_managed_picture_diagnostics.py -v
           python3 eng/progpu-test-system-drawing.py \
             --require-method System.Drawing.Common.Tests.MetafileParserTests \
             WarmedEnumerationDoesNotAllocatePerRecordPayloads
@@ -408,6 +409,8 @@ jobs:
             clang-tools \
             cmake \
             ninja-build \
+            gnupg \
+            fonts-dejavu-core \
             libvulkan1 \
             mesa-vulkan-drivers \
             libx11-xcb1 \
@@ -422,7 +425,72 @@ jobs:
 
       - name: Install macOS native build tools
         if: runner.os == 'macOS'
-        run: brew install ninja
+        run: brew install ninja gnupg
+
+      - name: Build signed isolated font dependency
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          font_workspace="$(mktemp -d "${RUNNER_TEMP}/progpu-freetype.XXXXXXXX")"
+          font_workspace="$(cd "$font_workspace" && pwd -P)"
+          echo "PROGPU_FREETYPE_WORKSPACE=$font_workspace" >> "$GITHUB_ENV"
+          if [[ '${{ runner.os }}' == 'macOS' ]]; then
+            test_font='/System/Library/Fonts/Supplemental/Arial.ttf'
+          else
+            test_font='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+          fi
+          python3 ./eng/progpu-prepare-freetype.py \
+            --workspace "$font_workspace" --rid '${{ matrix.rid }}' --cc clang --cxx clang++ \
+            --test-font "$test_font"
+
+      - name: Build signed isolated font dependency on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $fontWorkspace = Join-Path $env:RUNNER_TEMP ('progpu-freetype.' + [Guid]::NewGuid().ToString('N'))
+          "PROGPU_FREETYPE_WORKSPACE=$fontWorkspace" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          ./eng/progpu-prepare-freetype-windows.ps1 -Rid '${{ matrix.rid }}' -Workspace $fontWorkspace
+
+      - name: Upload verified font dependency and original notices
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-freetype-${{ matrix.rid }}
+          path: ${{ env.PROGPU_FREETYPE_WORKSPACE }}/install
+          if-no-files-found: error
+
+      - name: Fetch exact owned EDIT dictionary source
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, tempfile, urllib.request
+          pin = json.loads(pathlib.Path('eng/native-edit-word-icu.json').read_text())
+          workspace = pathlib.Path(tempfile.mkdtemp(prefix='progpu-edit-icu.', dir=os.environ['RUNNER_TEMP'])).resolve()
+          archive = workspace / 'icu-sources.tgz'
+          with urllib.request.urlopen(pin['sourceUrl']) as source, archive.open('xb') as output:
+              while chunk := source.read(1024 * 1024):
+                  output.write(chunk)
+          with archive.open('rb') as source:
+              actual = hashlib.file_digest(source, 'sha256').hexdigest()
+          if actual != pin['sourceSha256']:
+              raise SystemExit('Owned EDIT dictionary source differs from the reviewed pin')
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write(f'PROGPU_EDIT_WORD_ICU_ARCHIVE={archive}\n')
+          PY
+
+      - name: Fetch exact owned EDIT dictionary source on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pin = Get-Content -Raw eng/native-edit-word-icu.json | ConvertFrom-Json
+          $workspace = Join-Path $env:RUNNER_TEMP ('progpu-edit-icu.' + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $workspace | Out-Null
+          $archive = Join-Path $workspace 'icu-sources.tgz'
+          Invoke-WebRequest -Uri $pin.sourceUrl -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pin.sourceSha256) {
+            throw 'Owned EDIT dictionary source differs from the reviewed pin.'
+          }
+          "PROGPU_EDIT_WORD_ICU_ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build and integration-test native renderer
         if: runner.os != 'Windows'
@@ -432,8 +500,8 @@ jobs:
           PROGPU_NATIVE_RUN_DAWN_HEADER_CONTRACT: 1
           PROGPU_NATIVE_ENABLE_CPP_MODULES: ${{ matrix.rid == 'linux-x64' && 'ON' || '' }}
         run: |
-          ./eng/build-progpu-native.sh
-          ./eng/progpu-stage-native-runtime.sh
+          ./eng/build-progpu-native.sh --font-manifest "$PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json" --edit-word-icu-archive "$PROGPU_EDIT_WORD_ICU_ARCHIVE"
+          ./eng/progpu-stage-native-runtime.sh --font-manifest "$PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json" --edit-word-icu-archive "$PROGPU_EDIT_WORD_ICU_ARCHIVE"
 
       - name: Build and integration-test native renderer on Windows
         if: runner.os == 'Windows'
@@ -442,6 +510,16 @@ jobs:
           ./eng/build-progpu-native-windows.ps1
           -Rid "${{ matrix.rid }}"
           -BenchmarkProfile Smoke
+          -FontManifest "${{ env.PROGPU_FREETYPE_WORKSPACE }}/install/progpu-freetype.json"
+          -EditWordIcuArchive "${{ env.PROGPU_EDIT_WORD_ICU_ARCHIVE }}"
+
+      - name: Upload failed managed-picture allocation diagnostics
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-managed-picture-diagnostics-${{ matrix.rid }}
+          path: artifacts/progpu-native/diagnostics/managed-picture
+          if-no-files-found: warn
 
       - name: Upload native MIL ImageBrush frames
         if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'
@@ -801,7 +879,8 @@ jobs:
             -p:ProGpuDawnSystemWarpPayloadRoot="${GITHUB_WORKSPACE}/artifacts/dawn-system-warp/payload"
           dotnet pack src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj \
             --configuration Release --output "${output}" \
-            -p:Version="${version}" -p:PackageVersion="${version}"
+            -p:Version="${version}" -p:PackageVersion="${version}" -p:ProGpuNativeRequireFontHinting=true \
+            -p:ProGpuNativeRequireEditWordIcu=true
           dotnet pack src/ProGPU.Backend.Dx12/ProGPU.Backend.Dx12.csproj \
             --configuration Release --output "${output}" \
             -p:Version="${version}" -p:PackageVersion="${version}"
@@ -894,6 +973,12 @@ jobs:
             -p:ProGpuNativePackageSource="$env:GITHUB_WORKSPACE/artifacts/packages-native/Release" `
             -p:ProGpuNativePackageVersion="$version" -- --software-adapter
           if ($LASTEXITCODE -ne 0) { throw 'Full DX12 package consumer failed.' }
+          dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj `
+            --configuration Release --runtime '${{ matrix.rid }}' --no-build `
+            -p:ProGpuUseDx12Runtime=true `
+            -p:ProGpuNativePackageSource="$env:GITHUB_WORKSPACE/artifacts/packages-native/Release" `
+            -p:ProGpuNativePackageVersion="$version" -- --text-hinted-paragraph-render-only --software-adapter
+          if ($LASTEXITCODE -ne 0) { throw 'DX12 hinted paragraph package render consumer failed.' }
       - name: Publish and run full NativeAOT system-WARP consumer
         shell: pwsh
         run: |
@@ -907,12 +992,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'DX12 NativeAOT publication failed.' }
           & "$output/ProGPU.Native.PackageConsumer.exe" --software-adapter
           if ($LASTEXITCODE -ne 0) { throw 'Full DX12 NativeAOT consumer failed.' }
+          & "$output/ProGPU.Native.PackageConsumer.exe" --text-hinted-paragraph-render-only --software-adapter
+          if ($LASTEXITCODE -ne 0) { throw 'DX12 hinted paragraph NativeAOT render consumer failed.' }
 
   native-package-consumer:
     name: ${{ matrix.name }}
     needs: native-package
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    env:
+      ProGpuDawnSystemWarpTestRid: ${{ matrix.suite == 'text-dawn' && matrix.rid || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -967,6 +1056,30 @@ jobs:
             rid: win-arm64
             suite: guidelines
             name: Native package guidelines (win-arm64)
+          - os: windows-latest
+            rid: win-x64
+            suite: text
+            name: Native package text (win-x64)
+          - os: windows-latest
+            rid: win-x64
+            suite: text-dawn
+            name: Native package Dawn text (win-x64)
+          - os: windows-11-arm
+            rid: win-arm64
+            suite: text
+            name: Native package text (win-arm64)
+          - os: windows-11-arm
+            rid: win-arm64
+            suite: text-dawn
+            name: Native package Dawn text (win-arm64)
+          - os: windows-latest
+            rid: win-x64
+            suite: edit-word
+            name: Native package EDIT word boundaries (win-x64)
+          - os: windows-11-arm
+            rid: win-arm64
+            suite: edit-word
+            name: Native package EDIT word boundaries (win-arm64)
 
     steps:
       - name: Checkout
@@ -983,7 +1096,8 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 10
         run: |
-          ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
+          # The pinned Dawn provider needs the distro C++/ABI/unwind runtimes.
+          ./eng/progpu-install-linux-packages.sh libc++1 libvulkan1 mesa-vulkan-drivers
 
       - name: Download native NuGet package
         uses: actions/download-artifact@v8
@@ -1462,10 +1576,31 @@ jobs:
             libxcb-present0 \
             libxkbcommon0
 
+      - name: Verify isolated font-hinting dependency admission controls
+        if: runner.os == 'Linux'
+        run: python3 -m unittest discover -s eng/tests -p '*freetype.py' -v
+
+      - name: Verify private EDIT dictionary dependency admission controls
+        if: runner.os == 'Linux'
+        run: python3 eng/test-edit-word-icu-dependency.py
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+
+      - name: Verify native NuGet runtime paths and pre-package rejection
+        if: runner.os == 'Linux'
+        run: python3 eng/test-native-runtime-package.py
+
+      # Catch consumer source errors before native packaging; the independent
+      # package-consumer jobs still build and execute against actual packages.
+      - name: Compile native package consumer sources
+        if: runner.os == 'Linux'
+        run: >-
+          dotnet build tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj
+          --configuration Release -p:ProGpuNativeUseProjectReference=true
+          -p:ContinuousIntegrationBuild=true
 
       - name: Restore
         run: |

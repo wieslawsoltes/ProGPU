@@ -7,6 +7,20 @@ if (!OperatingSystem.IsWindows() || args.Length is < 1 or > 2 ||
     !string.Equals(RuntimeInformation.ProcessArchitecture.ToString(), args[0], StringComparison.OrdinalIgnoreCase))
     throw new InvalidOperationException("Run on the requested native Windows architecture.");
 
+if (args.Length == 2 && args[1] == "--queue-abandonment")
+{
+    DawnGpuContext.VerifyDawnQueueWaitAbandonmentForDiagnostics();
+    Console.WriteLine("Dawn queue wait abandonment retired actual native callback userdata exactly once.");
+    return;
+}
+
+if (args.Length == 2 && args[1] == "--adapter-abandonment")
+{
+    DawnGpuContext.VerifyDawnAdapterRequestAbandonmentForDiagnostics();
+    Console.WriteLine("Dawn ordinary adapter request abandonment retired its native result and userdata exactly once.");
+    return;
+}
+
 if (args.Length == 2 && args[1] == "--request-cancellation")
 {
     DawnGpuContext.VerifySystemWarpRequestCancellationForDiagnostics(deviceRequest: false);

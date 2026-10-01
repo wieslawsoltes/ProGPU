@@ -1,0 +1,18 @@
+<Project>
+  <!-- Original Microsoft WindowsDesktop oracle only: no ProGPU/source Drawing,
+       Arcade, package overrides, native renderer or portable implementation. -->
+  <PropertyGroup>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+    <ImportDirectoryPackagesProps>false</ImportDirectoryPackagesProps>
+  </PropertyGroup>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+</Project>

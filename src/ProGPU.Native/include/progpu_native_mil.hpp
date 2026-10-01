@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "progpu_native.h"
+#include "progpu_native_text_hinting.h"
 #include "progpu_native_mil_commands.generated.hpp"
 
 namespace progpu::native::mil {
@@ -115,6 +116,8 @@ private:
     std::uint32_t offset_{};
 };
 
+struct hinted_glyph_binding_access; // Private source bridge; no public C export.
+
 class channel final {
 public:
     channel();
@@ -129,6 +132,18 @@ public:
     status apply(
         std::span<const std::byte> bytes,
         batch_metrics* metrics = nullptr) noexcept;
+
+    // One candidate owns canonical updates and every copied flat binding. No
+    // producer handle, font execution or partial graph publication occurs.
+    status apply_with_hinted_glyph_resources(
+        std::span<const std::byte> bytes,
+        std::span<const progpu_native_hinted_glyph_resource_view> resources,
+        std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
+        std::span<const std::uint32_t> positioned_indices) noexcept;
+
+    // Actual canonical counters from the last successful hinted transaction.
+    // Failed hinted updates and unrelated ordinary updates do not replace it.
+    batch_metrics last_hinted_batch_metrics() const noexcept { return last_hinted_batch_metrics_; }
 
     // Binds pointer-free RGBA8 pixels to a canonical TYPE_BITMAPSOURCE
     // handle. WPF's native MilCmdBitmapSource carries an in-process WIC
@@ -305,8 +320,10 @@ public:
         scene_build_result* result = nullptr) noexcept;
 
 private:
+    friend struct hinted_glyph_binding_access;
     struct implementation;
     struct build_cache;
+    explicit channel(std::unique_ptr<implementation> implementation) noexcept;
     status build_scene_core(
         const implementation& source,
         std::uint32_t target_handle,
@@ -318,6 +335,7 @@ private:
         scene_build_result* result) const noexcept;
     std::unique_ptr<implementation> implementation_;
     std::unique_ptr<build_cache> build_cache_;
+    batch_metrics last_hinted_batch_metrics_{};
 };
 
 constexpr bool is_known(command value) noexcept {

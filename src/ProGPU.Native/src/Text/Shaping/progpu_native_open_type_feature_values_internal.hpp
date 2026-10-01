@@ -1,6 +1,7 @@
 #pragma once
 
 #include "progpu_native_text.hpp"
+#include "progpu_native_open_type_gpos_internal.hpp"
 
 #include <array>
 #include <cstdint>
@@ -86,6 +87,7 @@ bool apply_gpos_lookup_with_feature_values(
     std::span<shaping_glyph> glyphs,
     const open_type_gpos_apply_options& apply_options,
     font_error* error,
-    const lookup_feature_resolution* cached_resolution = nullptr) noexcept;
+    const lookup_feature_resolution* cached_resolution = nullptr,
+    const detail::gpos_device_frame* device = nullptr) noexcept;
 
 } // namespace progpu::native::text::feature_detail

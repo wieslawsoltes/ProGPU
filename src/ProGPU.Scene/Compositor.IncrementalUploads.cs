@@ -467,6 +467,7 @@ public unsafe partial class Compositor
         _textureIndexUploadShadow = null;
         _brushUploadShadow = null;
         _textStyleUploadShadow = null;
+        _hintedGlyphPaintUploadShadow = null;
         _gradientStopUploadShadow = null;
         _uniformUploadShadow = null;
         _incrementalSceneUploadShadowBytes = 0;

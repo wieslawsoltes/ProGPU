@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstring>
 #include <memory>
+#include <limits>
 #include <new>
 #include <span>
 
@@ -17,6 +18,14 @@ namespace {
 progpu_native_mil_status to_abi(
     progpu::native::mil::status value) noexcept {
     return static_cast<progpu_native_mil_status>(value);
+}
+
+progpu_native_mil_batch_metrics to_batch_metrics(
+    const progpu::native::mil::batch_metrics& source) noexcept {
+    return {sizeof(progpu_native_mil_batch_metrics), source.command_count,
+        source.supported_command_count, source.unsupported_command_count,
+        source.created_resource_count, source.deleted_resource_count,
+        source.updated_resource_count, source.total_bytes};
 }
 
 void write_scene_metrics(
@@ -52,6 +61,8 @@ void write_scene_metrics(
 }
 
 static_assert(sizeof(progpu_native_mil_scene_build_request) == 64U);
+static_assert(sizeof(progpu_native_mil_batch_metrics) == 32U);
+static_assert(alignof(progpu_native_mil_batch_metrics) == alignof(std::uint32_t));
 static_assert(sizeof(progpu_native_mil_scene_build_result) == 32U);
 static_assert(sizeof(progpu_native_mil_visual_visibility) == 8U);
 static_assert(offsetof(progpu_native_mil_visual_visibility, visibility) == 4U);
@@ -80,6 +91,12 @@ progpu_native_mil_status progpu_native_mil_channel_create(
 void progpu_native_mil_channel_destroy(
     progpu_native_mil_channel* channel) {
     delete channel;
+}
+
+progpu_native_mil_batch_metrics progpu_native_mil_channel_get_last_hinted_batch_metrics(
+    const progpu_native_mil_channel* channel) {
+    return channel == nullptr ? progpu_native_mil_batch_metrics{} :
+        to_batch_metrics(channel->state.last_hinted_batch_metrics());
 }
 
 progpu_native_mil_status progpu_native_mil_channel_apply(
@@ -113,6 +130,26 @@ progpu_native_mil_status progpu_native_mil_channel_apply(
             native_metrics.updated_resource_count;
         metrics->total_bytes = native_metrics.total_bytes;
     }
+    return to_abi(result);
+}
+
+progpu_native_mil_status progpu_native_mil_channel_apply_with_hinted_glyph_resources(
+    progpu_native_mil_channel* channel,
+    const std::uint8_t* batch_bytes, std::size_t batch_size,
+    const progpu_native_hinted_glyph_resource_view* resources, std::uint32_t resource_count,
+    const progpu_native_mil_hinted_glyph_binding* bindings, std::uint32_t binding_count,
+    const std::uint32_t* positioned_indices, std::uint32_t positioned_index_count) {
+    const auto valid = []<class T>(const T* data, std::size_t count, std::size_t maximum) noexcept {
+        const auto address = reinterpret_cast<std::uintptr_t>(data);
+        return count <= maximum && (count == 0U || (data != nullptr && address % alignof(T) == 0U)) &&
+            count <= (std::numeric_limits<std::uintptr_t>::max() - address) / sizeof(T);
+    };
+    if (channel == nullptr || !valid(batch_bytes, batch_size, UINT32_MAX) || !valid(resources, resource_count, 1U << 20U) ||
+        !valid(bindings, binding_count, 1U << 20U) || !valid(positioned_indices, positioned_index_count, 1U << 24U))
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    const auto result = channel->state.apply_with_hinted_glyph_resources(
+        {reinterpret_cast<const std::byte*>(batch_bytes), batch_size}, {resources, resource_count},
+        {bindings, binding_count}, {positioned_indices, positioned_index_count});
     return to_abi(result);
 }
 

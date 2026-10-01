@@ -52,7 +52,8 @@ public enum RenderCommandType
     DrawVertexMesh,
     DrawPointBatch,
     DrawDotGrid,
-    DrawDeviceDotGrid
+    DrawDeviceDotGrid,
+    DrawHintedGlyphs
 }
 
 public enum VertexMeshTopology
@@ -1326,6 +1327,17 @@ public struct RenderCommand
     public int GlyphRangeStart;
     public int GlyphRangeCount;
 
+    // DrawHintedGlyphs uses the existing reference payload slot, just as texture
+    // raster operations and custom extensions do for their own command kinds.
+    // A separate field would grow every hot retained command by one reference.
+    // DrawingContext/GpuPicture retain the original physical geometry explicitly;
+    // copying this value does not acquire or retire its owner.
+    public HintedGlyphGeometry? HintedGlyphGeometry
+    {
+        readonly get => DataParam as HintedGlyphGeometry;
+        set => DataParam = value;
+    }
+
     // Batched two-dimensional vertex mesh properties
     public VertexMesh2D? VertexMesh;
     public VertexColorBlendMode VertexColorBlendMode;
@@ -1996,6 +2008,7 @@ internal readonly struct RetainedRenderCommand
         command.FloatBufferCount != 0 ||
         command.SeriesCacheKey is not null ||
         command.Picture is not null ||
+        command.HintedGlyphGeometry is not null ||
         (!allowVisual && command.Visual is not null) ||
         command.VertexMesh is not null ||
         command.VertexColorBlendMode != default ||
@@ -3030,6 +3043,20 @@ internal sealed class RetainedResourceLease : IDisposable
         Interlocked.Exchange(ref _owner, null)?.Release();
     }
 
+    internal static void DisposeAll(IReadOnlyList<RetainedResourceLease> resources)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstFailure = null;
+        for (int index = 0; index < resources.Count; index++)
+        {
+            try { resources[index].Dispose(); }
+            catch (Exception failure)
+            {
+                firstFailure ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure);
+            }
+        }
+        firstFailure?.Throw();
+    }
+
     private sealed class RetainedResourceOwner
     {
         private readonly IDisposable _resource;
@@ -3343,10 +3370,7 @@ public class GpuPicture :
 
     private static void DisposeRetainedResources(RetainedResourceLease[] resources)
     {
-        for (int i = 0; i < resources.Length; i++)
-        {
-            resources[i].Dispose();
-        }
+        RetainedResourceLease.DisposeAll(resources);
     }
 }
 
@@ -3868,7 +3892,7 @@ public sealed class RenderCommandList :
     }
 }
 
-public class DrawingContext :
+public partial class DrawingContext :
     IRenderDataProvider,
     IImageEffectDataProvider,
     IProGpuDrawingContextSource
@@ -5985,6 +6009,7 @@ public class DrawingContext :
 
     public void Append(DrawingContext other, Vector2 translation)
     {
+        ArgumentNullException.ThrowIfNull(other);
         int pointOffset = PointBuffer.Count;
         int doubleOffset = DoubleBuffer.Count;
         int line3dOffset = Line3DBuffer.Count;
@@ -5999,6 +6024,10 @@ public class DrawingContext :
         {
             AppendList(ImageEffectBuffer, otherImageEffects);
         }
+
+        // Match AppendCommand: callbacks can throw after Add has published.
+        // Every published resource command must already have a retained owner.
+        AppendRetainedResources(other.CloneRetainedResources());
 
         var otherCommands = other.Commands;
         int otherCommandCount = otherCommands.Count;
@@ -6101,8 +6130,6 @@ public class DrawingContext :
             Commands.Add(adjustedCmd);
         }
 
-        var retainedResources = other.CloneRetainedResources();
-        AppendRetainedResources(retainedResources);
     }
 
     internal void AppendCommand(DrawingContext other, int commandIndex)
@@ -6368,6 +6395,7 @@ public class DrawingContext :
     private static bool IsAppendTransformBackedCommand(RenderCommand command)
     {
         if (command.Type is RenderCommandType.DrawPicture or
+            RenderCommandType.DrawHintedGlyphs or
             RenderCommandType.DrawVisual or
             RenderCommandType.DrawHatch or
             RenderCommandType.DrawDotGrid or
@@ -6481,15 +6509,20 @@ public class DrawingContext :
 
     private void DisposeRetainedResources()
     {
-        if (_retainedResources == null)
+        List<RetainedResourceLease>? resources = _retainedResources;
+        if (resources == null)
             return;
-
-        for (int i = 0; i < _retainedResources.Count; i++)
+        // Detach before callbacks: reentrant Clear cannot end the same use or
+        // mutate the captured drain. New recording owns a separate list.
+        _retainedResources = null;
+        try { RetainedResourceLease.DisposeAll(resources); }
+        finally
         {
-            _retainedResources[i].Dispose();
+            resources.Clear();
+            // Keep the ordinary allocation-free recording reuse. A callback
+            // which recorded new resources owns its distinct replacement list.
+            _retainedResources ??= resources;
         }
-
-        _retainedResources.Clear();
     }
 
     /// <summary>

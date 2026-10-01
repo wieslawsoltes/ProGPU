@@ -279,7 +279,9 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void VectorPerlinShaderAvoidsRuntimeIndexedVectorWritesForD3D()
     {
-        string shaders = ReadSource("src", "ProGPU.Backend", "Shaders", "Vector.wgsl");
+        string shaders = ReadSource("src", "ProGPU.Backend", "Shaders", "RegisteredMaterialCommon.wgsl");
+        Assert.Contains(shaders, ProGPU.Backend.Shaders.VectorShader.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.Contains(shaders, ProGPU.Backend.Shaders.HintedGlyphPaintShader.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
 
         Assert.Contains("fn perlin_table_noise_channel(", shaders, StringComparison.Ordinal);
         Assert.Contains("brush, 0u, index00, index10, index01, index11, fraction, smoothValue", shaders, StringComparison.Ordinal);
@@ -386,7 +388,8 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void GlyphAtlasUsesIndexedBatchAndOutlineTraversal()
     {
-        string source = ReadSource("src", "ProGPU.Text", "GlyphAtlas.cs");
+        string source = ReadSource("src", "ProGPU.Text", "GlyphAtlas.cs") +
+            ReadSource("src", "ProGPU.Text", "GlyphAtlas.GpuRasterizer.cs");
 
         Assert.Contains("int batchBufferCount = _batchBuffers.Count;", source, StringComparison.Ordinal);
         Assert.Contains("for (int bufferIndex = 0; bufferIndex < batchBufferCount; bufferIndex++)", source, StringComparison.Ordinal);
@@ -538,7 +541,8 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void GlyphRasterizerCommandLabelsAvoidPerBatchStringMarshalling()
     {
-        string source = ReadSource("src", "ProGPU.Text", "GlyphAtlas.cs");
+        string source = ReadSource("src", "ProGPU.Text", "GlyphAtlas.cs") +
+            ReadSource("src", "ProGPU.Text", "GlyphAtlas.GpuRasterizer.cs");
 
         Assert.Contains("CreateCommandEncoder(\"Glyph Rasterizer Batch Encoder\\0\"u8)", source, StringComparison.Ordinal);
         Assert.Contains("\"Glyph Rasterizer Batch Command Buffer\\0\"u8", source, StringComparison.Ordinal);
@@ -629,8 +633,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("private static T[] CopyList<T>(List<T> values)", source, StringComparison.Ordinal);
         Assert.Contains("for (int i = 0; i < result.Length; i++)", source, StringComparison.Ordinal);
         Assert.Contains("result[i] = values[i];", source, StringComparison.Ordinal);
-        Assert.Contains("for (int i = 0; i < resources.Length; i++)", source, StringComparison.Ordinal);
-        Assert.Contains("resources[i].Dispose();", source, StringComparison.Ordinal);
+        Assert.Contains("RetainedResourceLease.DisposeAll(resources);", source, StringComparison.Ordinal);
+        Assert.Contains("for (int index = 0; index < resources.Count; index++)", source, StringComparison.Ordinal);
+        Assert.Contains("resources[index].Dispose();", source, StringComparison.Ordinal);
         Assert.Contains("var otherCommands = other.Commands;", source, StringComparison.Ordinal);
         Assert.Contains("int otherCommandCount = otherCommands.Count;", source, StringComparison.Ordinal);
         Assert.Contains("for (int commandIndex = 0; commandIndex < otherCommandCount; commandIndex++)", source, StringComparison.Ordinal);
@@ -644,8 +649,11 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("owner.AddRef();", source, StringComparison.Ordinal);
         Assert.Contains("Interlocked.Exchange(ref _owner, null)?.Release();", source, StringComparison.Ordinal);
         Assert.Contains("leases[i] = _retainedResources[i].AddRef();", source, StringComparison.Ordinal);
-        Assert.Contains("var retainedResources = other.CloneRetainedResources();", source, StringComparison.Ordinal);
-        Assert.Contains("AppendRetainedResources(retainedResources);", source, StringComparison.Ordinal);
+        Assert.Contains("AppendRetainedResources(other.CloneRetainedResources());", source, StringComparison.Ordinal);
+        Assert.True(
+            source.IndexOf("AppendRetainedResources(other.CloneRetainedResources());", StringComparison.Ordinal) <
+            source.IndexOf("var otherCommands = other.Commands;", StringComparison.Ordinal),
+            "Append must retain source resources before publishing commands to callbacks.");
         Assert.Contains("private static void AppendList<T>(List<T> destination, List<T> source)", source, StringComparison.Ordinal);
         Assert.Contains("private void AppendRetainedResources(RetainedResourceLease[] resources)", source, StringComparison.Ordinal);
         Assert.Contains("destination.EnsureCapacity(checked(destination.Count + sourceCount));", source, StringComparison.Ordinal);
@@ -659,7 +667,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("resource.Dispose();", source, StringComparison.Ordinal);
         Assert.Contains("retainedResources.Add(resource);", source, StringComparison.Ordinal);
         Assert.Contains("for (int i = 0; i < _retainedResources.Count; i++)", source, StringComparison.Ordinal);
-        Assert.Contains("_retainedResources[i].Dispose();", source, StringComparison.Ordinal);
+        Assert.Contains("_retainedResources = null;\n        try { RetainedResourceLease.DisposeAll(resources); }", source, StringComparison.Ordinal);
         Assert.Contains("private List<Vector2>? _pointBuffer;", source, StringComparison.Ordinal);
         Assert.Contains("_pointBuffer?.Clear();", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_recordingContext.Commands.ToArray()", source, StringComparison.Ordinal);

@@ -525,11 +525,17 @@ bool apply_gpos_lookup_with_feature_values(
     std::span<shaping_glyph> glyphs,
     const open_type_gpos_apply_options& apply_options,
     font_error* error,
-    const lookup_feature_resolution* cached_resolution) noexcept {
-    if (options.feature_settings.empty()) {
+    const lookup_feature_resolution* cached_resolution,
+    const detail::gpos_device_frame* device) noexcept {
+    const auto apply_whole = [&]() noexcept {
         bool applied = false;
-        return try_apply_open_type_gpos_lookup(
-            gpos, lookup, glyphs, apply_options, applied, error);
+        return device == nullptr ? try_apply_open_type_gpos_lookup(
+            gpos, lookup, glyphs, apply_options, applied, error) :
+            detail::try_apply_device_gpos_lookup(gpos, lookup, glyphs,
+                apply_options, *device, applied, error);
+    };
+    if (options.feature_settings.empty()) {
+        return apply_whole();
     }
     lookup_feature_resolution resolution{};
     if (cached_resolution != nullptr) {
@@ -540,9 +546,7 @@ bool apply_gpos_lookup_with_feature_values(
     }
     if (resolution.required || !resolution.found ||
         !has_feature_settings(options, resolution.feature)) {
-        bool applied = false;
-        return try_apply_open_type_gpos_lookup(
-            gpos, lookup, glyphs, apply_options, applied, error);
+        return apply_whole();
     }
     for (std::uint32_t position = 0U; position < glyphs.size(); ++position) {
         if (apply_options.lookup_digest != nullptr &&
@@ -556,14 +560,11 @@ bool apply_gpos_lookup_with_feature_values(
             continue;
         }
         bool applied = false;
-        if (!try_apply_open_type_gpos_lookup_at(
-                gpos,
-                lookup,
-                glyphs,
-                position,
-                apply_options,
-                applied,
-                error)) {
+        const bool success = device == nullptr ? try_apply_open_type_gpos_lookup_at(
+            gpos, lookup, glyphs, position, apply_options, applied, error) :
+            detail::try_apply_device_gpos_lookup_at(gpos, lookup, glyphs, position,
+                apply_options, *device, applied, error);
+        if (!success) {
             return false;
         }
     }

@@ -1,5 +1,6 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_glyph_raster_identity.hpp"
+#include "progpu_native_glyph_coverage_frame.hpp"
 
 #if defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(_M_ARM64)
 #include <arm_neon.h>
@@ -1277,6 +1278,20 @@ progpu_native_status render_glyphs(
                 } else {
                     instance.brush_index = -1.0F;
                 }
+                if (engine->semantic_glyph_draw_active &&
+                    engine->semantic_glyph_cache.paint_indices.size() == frame->glyph_count &&
+                    engine->semantic_glyph_cache.paint_indices[index] != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                    const auto paint_index = engine->semantic_glyph_cache.paint_indices[index];
+                    if (paint_index >= engine->semantic_glyph_cache.paints.size() ||
+                        engine->semantic_glyph_cache.rendering_modes.size() != frame->glyph_count ||
+                        engine->semantic_glyph_cache.rendering_modes[index] > PROGPU_NATIVE_SCENE_TEXT_ALIASED)
+                        return engine->fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                            "An original hinted glyph paint occurrence is incomplete.");
+                    instance.padding = std::bit_cast<float>(paint_index);
+                    instance.scale_bold_italic_flags[3] =
+                        engine->semantic_glyph_cache.rendering_modes[index] == PROGPU_NATIVE_SCENE_TEXT_ALIASED
+                        ? -1.0F : 0.0F;
+                }
                 engine->glyph_instances.push_back(instance);
                 engine->glyph_source_alphas.push_back(glyph.color.a);
             }
@@ -1369,11 +1384,21 @@ progpu_native_status render_glyphs(
             "The native positioned glyph instance buffer could not be allocated.");
     }
     bool uploaded_uniforms = false;
+    bool canonical_glyph_coverage_frame = false;
     if (instance_bytes != 0U) {
-        const gpu_uniforms frame_uniforms = create_uniforms(
+        gpu_uniforms frame_uniforms = create_uniforms(
             frame->width,
             frame->height,
             frame->dpi_scale);
+        // This owned pass explicitly encodes the frame's physical viewport.
+        // Semantic preparation/layer paths bind their own actual-pass uniforms.
+        if (!engine->semantic_prepare_only &&
+            !engine->semantic_glyph_draw_active && !use_group_layer) {
+            canonical_glyph_coverage_frame = certify_root_glyph_coverage_frame(frame_uniforms,
+                frame->width, frame->height, 0.0F, 0.0F,
+                static_cast<float>(frame->width),
+                static_cast<float>(frame->height));
+        }
         uploaded_uniforms = engine->upload_uniform_if_changed(
             engine->analytic_uniform_buffer,
             frame_uniforms,
@@ -1735,6 +1760,13 @@ progpu_native_status render_glyphs(
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic glyph packed-page draw range is invalid.");
+    }
+    if (canonical_glyph_coverage_frame) {
+        // target_view is borrowed: do not infer its viewport from opaque view
+        // identity. Encode the actual mapping certified by the owned uniforms.
+        wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F,
+            static_cast<float>(frame->width),
+            static_cast<float>(frame->height), 0.0F, 1.0F);
     }
     if (selected_instance_count != 0U && draw_state.opacity != 0.0F &&
         (use_group_layer || draw_state.has_drawable_clip)) {

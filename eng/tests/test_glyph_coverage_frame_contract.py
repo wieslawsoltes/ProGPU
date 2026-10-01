@@ -1,0 +1,327 @@
+"""Device-free frame math and source contracts, not a hardware sampler oracle.
+
+Captured native geometry supplies original bearings/extent/positions, while the
+independent Fraction model derives exact pixel-to-texel coordinates and four-tap
+weights. No expected final GPU colors or gamma tolerances are manufactured here.
+"""
+
+from fractions import Fraction as F
+from pathlib import Path
+import re
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+SHADERS = ROOT / "src/ProGPU.Backend/Shaders"
+NATIVE = ROOT / "src/ProGPU.Native/src"
+
+
+def original_frame(position, dpi, ratio=F(1), bearing=(-3, -18), size=(20, 22)):
+    # Independent source contract: original bearing and raster extent are
+    # physical; divide by DPI before original ratio/position, then physicalize.
+    logical_min = tuple(p + F(b) / dpi * ratio for p, b in zip(position, bearing))
+    logical_extent = tuple(F(s) / dpi * ratio for s in size)
+    return tuple(x * dpi for x in logical_min + logical_extent)
+
+
+def atlas_address(frame, fragment_center, atlas_min=(2, 2), atlas_span=(20, 22)):
+    return tuple(F(a) + (p - origin) * F(span) / extent
+                 for a, p, origin, span, extent in
+                 zip(atlas_min, fragment_center, frame[:2], atlas_span, frame[2:]))
+
+
+def four_tap_weights(texel_coord):
+    # Linear pixel-center sampling footprint, independent of a GPU's finite
+    # sampler arithmetic. Binary taps and dyadic fractions are tested separately.
+    centered = tuple(x - F(1, 2) for x in texel_coord)
+    fractions = tuple(x - x.numerator // x.denominator for x in centered)
+    fx, fy = fractions
+    return ((1-fx)*(1-fy), fx*(1-fy), (1-fx)*fy, fx*fy)
+
+
+def exact_positive_axes(corners):
+    q0, q1, q2, q3 = corners
+    return (q0[1] == q1[1] and q1[0] == q2[0] and q2[1] == q3[1]
+            and q3[0] == q0[0] and q2[0] > q0[0] and q2[1] > q0[1])
+
+
+def triangle_address(corners, triangle, point, atlas_min=(2, 2), atlas_span=(20, 22)):
+    # Independent exact-rational area coordinates of the ORIGINAL triangle.
+    # Not GPU interpolation emulation or an expected final-color tolerance.
+    a, b, c = (corners[i] for i in ((0, 1, 2) if triangle == 0 else (0, 2, 3)))
+    def area(a, b, c):
+        return (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0])
+    denominator = area(a, b, c)
+    if denominator == 0:
+        return None
+    weights = (area(a, point, c)/denominator, area(a, b, point)/denominator)
+    uv = (sum(weights), weights[1]) if triangle == 0 else (weights[0], sum(weights))
+    return tuple(F(origin) + coordinate * span for origin, coordinate, span in zip(atlas_min, uv, atlas_span))
+
+
+class GlyphCoverageFrameMathTests(unittest.TestCase):
+    def test_original_nonparallelogram_uses_each_triangle_independently(self):
+        corners = tuple(tuple(map(F, point)) for point in ((0, 0), (4, 1), (5, 5), (0, 3)))
+        self.assertEqual((F(17), F(13)), triangle_address(corners, 0, (F(7, 2), F(11, 4))))
+        self.assertEqual((F(7), F(37, 2)), triangle_address(corners, 1, (F(5, 4), F(11, 4))))
+        invented = corners[:3] + ((F(1), F(4)),)
+        self.assertNotEqual(triangle_address(corners, 1, (F(5, 4), F(11, 4))),
+                            triangle_address(invented, 1, (F(5, 4), F(11, 4))))
+
+    def test_reflected_and_rotated_original_triangles_keep_signed_coordinates(self):
+        corners = tuple(tuple(map(F, point)) for point in ((0, 0), (4, 1), (5, 5), (0, 3)))
+        for transform in (lambda p: (-p[0], p[1]), lambda p: (-p[1], p[0])):
+            changed = tuple(transform(p) for p in corners)
+            for triangle, point in ((0, (F(7, 2), F(11, 4))), (1, (F(5, 4), F(11, 4)))):
+                self.assertEqual(triangle_address(corners, triangle, point),
+                                 triangle_address(changed, triangle, transform(point)))
+
+    def test_folded_original_triangles_retain_two_distinct_contributions(self):
+        corners = tuple(tuple(map(F, point)) for point in ((0, 0), (4, 0), (4, 4), (3, 1)))
+        point = (F(2), F(1))
+        self.assertEqual((F(12), F(15, 2)), triangle_address(corners, 0, point))
+        self.assertEqual((F(9, 2), F(63, 4)), triangle_address(corners, 1, point))
+
+    def test_affine_physical_frame_preserves_original_dpi_and_origin(self):
+        corners = tuple(tuple(map(F, point)) for point in ((0, 0), (4, 1), (5, 5), (0, 3)))
+        point = (F(5, 4), F(11, 4))
+        for dpi in (F(1), F(5, 4), F(3, 2), F(2)):
+            for origin in ((F(0), F(0)), (F(65, 16), F(211, 16)), (F(-51, 8), F(7, 4))):
+                def physical(p): return tuple((v+o)*dpi for v, o in zip(p, origin))
+                self.assertEqual(triangle_address(corners, 1, point),
+                                 triangle_address(tuple(physical(p) for p in corners), 1, physical(point)))
+
+    def test_singular_triangle_does_not_get_an_invented_inverse(self):
+        corners = tuple(tuple(map(F, point)) for point in ((0, 0), (2, 0), (4, 0), (8, 0)))
+        self.assertIsNone(triangle_address(corners, 0, (F(1), F(0))))
+        self.assertIsNone(triangle_address(corners, 1, (F(1), F(0))))
+
+    def test_captured_original_occurrence_frames(self):
+        positions = ((F(65, 16), F(211, 16)), (F(17, 4), F(53, 4)))
+        expected = ((F(41, 8), F(67, 8), F(20), F(22)),
+                    (F(11, 2), F(17, 2), F(20), F(22)))
+        for position, frame in zip(positions, expected):
+            self.assertEqual(frame, original_frame(position, F(2)))
+
+    def test_captured_fragment_coordinates_do_not_depend_on_canvas(self):
+        frame = original_frame((F(65, 16), F(211, 16)), F(2))
+        # Neither inverse projection nor target dimensions enter this address.
+        for target_size in (96, 128):
+            self.assertGreater(target_size, 30)
+            self.assertEqual((F(59, 8), F(49, 8)),
+                             atlas_address(frame, (F(21, 2), F(25, 2))))
+
+    def test_independent_dyadic_four_tap_footprints(self):
+        first = original_frame((F(65, 16), F(211, 16)), F(2))
+        second = original_frame((F(17, 4), F(53, 4)), F(2))
+        point = (F(21, 2), F(25, 2))
+        self.assertEqual(tuple(F(n, 64) for n in (3, 21, 5, 35)),
+                         four_tap_weights(atlas_address(first, point)))
+        self.assertEqual((F(1, 4),) * 4,
+                         four_tap_weights(atlas_address(second, point)))
+
+    def test_binary_atlas_exact_linear_model(self):
+        # A diagnostic binary atlas can distinguish coordinate correctness
+        # without conflating R8 byte conversion, gamma or final blending.
+        weights = tuple(F(n, 64) for n in (3, 21, 5, 35))
+        for index in range(4):
+            taps = tuple(int(i == index) for i in range(4))
+            self.assertEqual(weights[index], sum(w * t for w, t in zip(weights, taps)))
+
+    def test_original_dpi_and_ratio_are_not_rehinted(self):
+        position = (F(65, 16), F(211, 16))
+        for dpi in (F(1), F(5, 4), F(3, 2), F(2)):
+            frame = original_frame(position, dpi)
+            self.assertEqual((F(20), F(22)), frame[2:])
+        self.assertEqual((F(10), F(11)), original_frame(position, F(2), F(1, 2))[2:])
+
+    def test_exact_four_corner_admission_and_rejections(self):
+        rectangle = ((F(2), F(3)), (F(12), F(3)),
+                     (F(12), F(14)), (F(2), F(14)))
+        self.assertTrue(exact_positive_axes(rectangle))
+        tiny = F(1, 2**60)
+        shear = tuple((x + y*tiny, y) for x, y in rectangle)
+        self.assertFalse(exact_positive_axes(shear))
+        self.assertFalse(exact_positive_axes((rectangle[0], (F(13), F(3)),
+                                             rectangle[2], rectangle[3])))
+        self.assertFalse(exact_positive_axes(tuple((-x, y) for x, y in rectangle)))
+        self.assertFalse(exact_positive_axes(tuple((y, x) for x, y in rectangle)))
+
+    def test_original_half_texel_clamp_and_closed_paint_support_remain_distinct(self):
+        frame = original_frame((F(17, 4), F(53, 4)), F(2))
+        maximum = (frame[0] + frame[2], frame[1] + frame[3])
+        self.assertEqual((F(22), F(24)), atlas_address(frame, maximum))
+        # Original Text hardware right/bottom ownership is half-open; bounded
+        # paint's original frame guard remains closed and padded edge alpha0.
+        self.assertEqual((F(43, 2), F(47, 2)), tuple(min(x, hi) for x, hi in
+                         zip(atlas_address(frame, maximum), (F(43, 2), F(47, 2)))))
+
+
+class GlyphCoverageFrameSourceTests(unittest.TestCase):
+    def test_package_free_diagnostics_never_select_package_consumers(self):
+        workflow = (ROOT / ".github/workflows/native-path-diagnostics.yml").read_text()
+        options = re.search(r"options: \[([^\]]+)\]", workflow).group(1)
+        choices = {value.strip() for value in options.split(",")}
+        package_backed = {"all", "lifetime", "atlas", "raster", "encoder", "retirement", "fence", "owner"}
+        condition = workflow.split("  windows-path-stage:\n", 1)[1].splitlines()[0].strip()
+        self.assertTrue(condition.startswith("if: "))
+        exclusions = set()
+        for term in condition[4:].split(" && "):
+            match = re.fullmatch(r"inputs\.probe_set != '([^']+)'", term)
+            self.assertIsNotNone(match)
+            exclusions.add(match.group(1))
+        self.assertEqual(choices - package_backed, exclusions)
+
+    def test_both_shader_routes_share_actual_fragment_address(self):
+        geometry = (SHADERS / "TextGlyphGeometryCommon.wgsl").read_text()
+        text = (SHADERS / "Text.wgsl").read_text()
+        paint = (SHADERS / "HintedGlyphPaint.wgsl").read_text()
+        self.assertIn("uniforms.pad0 == -1.0 && useMvp == 0.0", geometry)
+        self.assertIn("output.textMode < 1.5 && exactPositiveAxes && finiteFrame", geometry)
+        self.assertIn("q0 * uniforms.dpiScale, (q2 - q0) * uniforms.dpiScale", geometry)
+        self.assertIn("(fragmentPosition - physicalFrame.xy) * (atlasSpan / physicalFrame.zw)", geometry)
+        self.assertIn("return interpolated;", geometry)
+        for source in (text, paint):
+            self.assertIn("text_glyph_coverage_tex_coord", source)
+            self.assertIn("input.position.xy", source)
+            self.assertIn("@interpolate(flat) physicalGlyphFrame", source)
+        self.assertNotIn("textureLoad", geometry)
+        self.assertNotIn("round(", geometry)
+
+    def test_existing_bounded_image_geometry_and_derivative_order(self):
+        paint = (SHADERS / "HintedGlyphPaint.wgsl").read_text()
+        for corner in ("paint.textureQuad01.xy", "paint.textureQuad01.zw",
+                       "paint.textureQuad23.xy", "paint.textureQuad23.zw"):
+            self.assertIn(corner, paint)
+        self.assertIn("paintUV = mix(paint.uvBounds.xy, paint.uvBounds.zw, cornerUV)", paint)
+        self.assertLess(paint.index("let paintDy = dpdy(input.paintUV)"),
+                        paint.index("if (maskAlpha <= 0.0"))
+        self.assertIn("any(glyphFrameUV > vec2<f32>(1.0))", paint)
+
+    def test_actual_native_root_sites_and_uncertified_constructor(self):
+        glyph = (NATIVE / "Backend/progpu_native_glyph_execution.cpp").read_text()
+        scene = (NATIVE / "Scene/progpu_native_semantic_render_execution.cpp").read_text()
+        pipeline = (NATIVE / "Backend/progpu_native_pipeline.cpp").read_text()
+        constructor = pipeline.split("gpu_uniforms create_uniforms(", 1)[1].split("bool create_pipeline", 1)[0]
+        self.assertNotIn("certify_root_glyph_coverage_frame", constructor)
+        self.assertIn("gpu_uniforms uniforms{}", constructor)
+        self.assertIn("!engine->semantic_glyph_draw_active && !use_group_layer", glyph)
+        self.assertIn("if (!semantic_destination_sampling_active)", scene)
+        for source in (glyph, scene):
+            self.assertIn("certify_root_glyph_coverage_frame", source)
+            self.assertIn("wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F", source)
+        self.assertIn("target_layer == PROGPU_NATIVE_SCENE_NO_INDEX &&", scene)
+
+    def test_certificate_is_exact_and_rejection_clears_prior_value(self):
+        header = (NATIVE / "Backend/progpu_native_glyph_coverage_frame.hpp").read_text()
+        self.assertLess(header.index("uniforms.pad0 = 0.0F"), header.index("if (target_width"))
+        for proof in ("viewport_x != 0.0F", "viewport_y != 0.0F",
+                      "uniforms.render_origin[0] != 0.0F",
+                      "uniforms.model_view_projection[i] != identity",
+                      "uniforms.view[i] != identity",
+                      "uniforms.projection[i] != projection[i]",
+                      "logical_width * dpi != physical_width",
+                      "static_cast<double>(physical_width) != static_cast<double>(target_width)"):
+            self.assertIn(proof, header)
+        self.assertIn("offsetof(gpu_uniforms, pad0) == 204U", header)
+        self.assertIn("sizeof(gpu_uniforms) == 224U", header)
+
+    def test_negative_tag_preserves_original_texture_positive_policies(self):
+        geometry = (SHADERS / "TextGlyphGeometryCommon.wgsl").read_text()
+        texture = (SHADERS / "Texture.wgsl").read_text()
+        self.assertIn("uniforms.pad0 == -1.0", geometry)
+        self.assertIn("uniforms.boundedSourcePass > 0.5", texture)
+        self.assertIn("uniforms.boundedSourcePass > 1.5", texture)
+        self.assertFalse(-1.0 > 0.5)
+        self.assertFalse(-1.0 > 1.5)
+        self.assertTrue(1.0 > 0.5)
+        self.assertTrue(2.0 > 1.5)
+
+    def test_managed_actual_root_is_unique_and_other_glyph_uniforms_default_zero(self):
+        compositor = (ROOT / "src/ProGPU.Scene/Compositor.cs").read_text()
+        self.assertEqual(1, compositor.count("GlyphCoverageFramePolicy.GetRootCertificate("))
+        self.assertIn("var rootViewport = NormalizeRenderTargetViewport(", compositor)
+        self.assertIn("new Vector4(rootViewport.X, rootViewport.Y, rootViewport.Width, rootViewport.Height)", compositor)
+        blocks = re.findall(r"(?:var (\w+) =|return) new GpuUniforms\s*\{(.*?)\n\s*\};",
+                            compositor, re.DOTALL)
+        self.assertEqual(4, len(blocks))
+        for name, block in blocks:
+            if "GetRootCertificate" in block:
+                self.assertIn("Pad0 = GlyphCoverageFramePolicy", block)
+            elif name == "sourceUniforms":
+                # This distinct texture-only source has the ORIGINAL positive
+                # tags, neither equal to the negative glyph certificate.
+                self.assertIn("Pad0 = rasterOperation.IsEnabled ? 2f : 1f", block)
+            else:
+                self.assertNotIn("Pad0 =", block)
+        policy = (ROOT / "src/ProGPU.Scene/GlyphCoverageFramePolicy.cs").read_text()
+        self.assertIn("? -1f : 0f", policy)
+
+    def test_managed_certificate_cache_key_tracks_actual_physical_extent(self):
+        compositor = (ROOT / "src/ProGPU.Scene/Compositor.cs").read_text()
+        self.assertIn("private uint _compiledScenePhysicalWidth;", compositor)
+        self.assertIn("private uint _compiledScenePhysicalHeight;", compositor)
+        self.assertIn("GetRootRenderTargetSize(width, height, out uint renderWidth, out uint renderHeight);", compositor)
+        self.assertIn("_compiledScenePhysicalWidth != renderWidth || _compiledScenePhysicalHeight != renderHeight", compositor)
+        self.assertIn("_compiledScenePhysicalWidth = physicalWidth;", compositor)
+        self.assertIn("_compiledScenePhysicalHeight = physicalHeight;", compositor)
+
+    def test_native_certificate_controls_are_in_normal_ctest_inventory(self):
+        cmake = (ROOT / "src/ProGPU.Native/CMakeLists.txt").read_text()
+        self.assertIn("tests/progpu_native_glyph_coverage_frame_tests.cpp", cmake)
+        self.assertIn("add_test(NAME progpu_native_glyph_coverage_frame_tests COMMAND progpu_native_glyph_coverage_frame_tests)", cmake)
+
+    def test_integrated_affine_fields_keep_distinct_certified_frame_and_triangle_mapping(self):
+        paint = (SHADERS / "HintedGlyphPaint.wgsl").read_text()
+        outputs = paint.split("struct VertexOutput {", 1)[1].split("};", 1)[0]
+        locations = [int(x) for x in re.findall(r"@location\((\d+)\)", outputs)]
+        self.assertEqual(list(range(16)), locations)
+        self.assertLessEqual(len(locations), 16)
+        types = re.findall(r"@location\(\d+\).*?:\s*(\w+)(?:<(?:f32|u32)>)?", outputs)
+        components = sum(int(kind[3:]) if kind.startswith("vec") else 1 for kind in types)
+        self.assertEqual(41, components)
+        self.assertLessEqual(components, 60)
+        for field in ("glyphTriangle012", "glyphTriangle023", "glyphMappingFlags",
+                      "glyphDiagonal", "glyphOtherCorners",
+                      "physicalGlyphFrame", "canonicalPhysicalFrame", "physicalGlyphInverseRow"):
+            self.assertIn(field, outputs)
+            self.assertIn("output." + field + " =", paint)
+        function = paint.split("fn hinted_glyph_paint_color(", 1)[1]
+        address = function.index("texCoord = text_glyph_coverage_tex_coord")
+        self.assertLess(function.index("hinted_glyph_triangle_weights"), address)
+        self.assertLess(address, function.index("let coverage ="))
+        self.assertLess(function.index("let paintDy = dpdy"), function.index("discard;"))
+        self.assertIn("input.vertexIndex % 6u", paint)
+        self.assertIn("secondTriangle && (!boundedTexture || axisFrame)", paint)
+
+    def test_affine_shared_address_uses_actual_triangle_not_image_triangle(self):
+        geometry = (SHADERS / "TextGlyphGeometryCommon.wgsl").read_text()
+        paint = (SHADERS / "HintedGlyphPaint.wgsl").read_text()
+        text = (SHADERS / "Text.wgsl").read_text()
+        self.assertIn("let secondTriangle = input.vertexIndex >= 3u;", geometry)
+        self.assertIn("let p1 = select(q1, q2, secondTriangle) * uniforms.dpiScale;", geometry)
+        self.assertIn("let p2 = select(q2, q3, secondTriangle) * uniforms.dpiScale;", geometry)
+        self.assertIn("!exactPositiveAxes && uniforms.pad0 == -1.0 && useMvp == 0.0 && output.textMode < 1.5", geometry)
+        self.assertIn("determinant != 0.0 && abs(determinant) <= finiteLimit", geometry)
+        self.assertIn("live && all(abs(inverse) <= vec4<f32>(finiteLimit))", geometry)
+        self.assertIn("select(2u, 3u, secondTriangle)", geometry)
+        self.assertIn("select(vertexIndex, select(0u, 3u, secondTriangle), boundedTexture)", paint)
+        self.assertIn("glyph_instance(input, coverageVertex)", paint)
+        for source in (text, paint):
+            self.assertIn("input.physicalGlyphFrame, input.physicalGlyphInverseRow, input.canonicalPhysicalFrame", source)
+        # Mapping0 is still the original interpolation; mapping1 retains the
+        # qualified axis arithmetic, not an inverse-triangle approximation.
+        self.assertRegex(geometry, r"if \(canonical == 0u\) \{\s*return interpolated;\s*\}")
+        self.assertRegex(geometry, r"if \(canonical == 1u\) \{\s*//[^\n]+\n\s*return atlasMinimum \+ \(fragmentPosition - physicalFrame.xy\) \* \(atlasSpan / physicalFrame.zw\);")
+
+    def test_integrated_package_preserves_authentic_receipt_and_all_affine_cases(self):
+        fixture = (ROOT / "tests/ProGPU.Native.PackageConsumer/TextHintedGlyphPaintRenderingValidation.cs").read_text()
+        self.assertIn("glyphs, dpi, solidColor.W, fontSha256, writerBytes);", fixture)
+        self.assertIn("VerifyAffinePaints(context, createCompositor, original.Outlines, original.Segments,", fixture)
+        self.assertIn("Check(cases == 4,", fixture)
+        self.assertIn("Check(cases == 8 && referenceSubmissions == 16,", fixture)
+        self.assertIn("CheckPixels(pixels, expectedPixels, name + \": complete original Text RGBA differential\")", fixture)
+
+
+if __name__ == "__main__":
+    unittest.main()

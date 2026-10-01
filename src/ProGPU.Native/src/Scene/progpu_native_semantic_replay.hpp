@@ -46,6 +46,11 @@ struct semantic_color_glyph_raster {
     std::uint32_t atlas_y = 0U;
 };
 
+struct semantic_glyph_paint_resource {
+    std::uint64_t resource_id = 0U;
+    std::uint64_t generation = 0U;
+};
+
 struct semantic_glyph_page {
     std::uint64_t scene_hash = 0U;
     float dpi_scale = 0.0F;
@@ -59,11 +64,35 @@ struct semantic_glyph_page {
     std::vector<progpu_native_path_segment> segments;
     std::vector<progpu_native_positioned_glyph> glyphs;
     std::vector<std::uint32_t> style_indices;
+    std::vector<std::uint32_t> paint_indices;
+    std::vector<std::uint32_t> rendering_modes;
+    std::vector<progpu_native_scene_glyph_paint> paints;
+    // Exact stable original identities, never global scene ordinals (which
+    // can move while a family-local page remains valid). External views are
+    // retained separately by the engine's original binding ownership.
+    std::vector<semantic_glyph_paint_resource> paint_resources;
     std::vector<progpu_native_scene_color_glyph_bitmap> color_bitmaps;
     std::vector<std::byte> color_pixels;
     std::vector<std::uint32_t> color_bitmap_indices;
     std::vector<semantic_color_glyph_raster> color_rasters;
     std::vector<semantic_glyph_draw> draws;
+};
+
+struct semantic_glyph_paint_uniform_binding {
+    // Identity-only keys. The bind group owns its resources; never query these
+    // keys after their source container retires.
+    WGPUBuffer uniform = nullptr;
+    WGPUBuffer brushes = nullptr;
+    WGPUBuffer stops = nullptr;
+    WGPUBuffer paints = nullptr;
+    WGPUBindGroup bind_group = nullptr;
+};
+
+struct semantic_glyph_paint_texture_binding {
+    WGPUTextureView view = nullptr;
+    WGPUSampler sampler = nullptr; // Identity-only; the bind group retains it.
+    std::uint32_t kind = 0U;
+    WGPUBindGroup bind_group = nullptr;
 };
 
 struct semantic_picture_backing {

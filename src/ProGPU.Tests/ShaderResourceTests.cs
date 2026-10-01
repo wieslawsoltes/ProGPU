@@ -336,15 +336,68 @@ public class ShaderResourceTests
             Shaders.TextShader,
             StringComparison.Ordinal);
         Assert.Equal(
+            1,
+            CountOccurrences(
+                Shaders.TextShader,
+                "texelBounds.zw) / selectedSize"));
+        Assert.Equal(
             2,
             CountOccurrences(
                 Shaders.TextShader,
-                "input.texelBounds.zw) / selectedSize"));
-        Assert.Equal(
-            4,
-            CountOccurrences(
-                Shaders.TextShader,
                 "clamp(atlasCoord "));
+        Assert.Contains("text_glyph_color_with_mask_alpha(input.color, texCoord, input.texelBounds",
+            Shaders.TextShader, StringComparison.Ordinal);
+        Assert.Single(Regex.Matches(Shaders.TextShader, "fn text_glyph_color_with_mask_alpha\\("));
+    }
+
+    [Fact]
+    public void TextAndPaintShareCertifiedPhysicalCoverageAddress()
+    {
+        string common = ShaderResource.Load(typeof(Shaders), "TextGlyphGeometryCommon.wgsl");
+        Assert.Contains("uniforms.pad0 == -1.0 && useMvp == 0.0", common, StringComparison.Ordinal);
+        Assert.Contains("(fragmentPosition - physicalFrame.xy) * (atlasSpan / physicalFrame.zw)",
+            common, StringComparison.Ordinal);
+        foreach (string source in new[] { Shaders.TextShader, Shaders.HintedGlyphPaintShader })
+        {
+            Assert.Contains(common, source, StringComparison.Ordinal);
+            Assert.Single(Regex.Matches(source, "fn text_glyph_coverage_tex_coord\\("));
+            Assert.Contains("input.position.xy", source, StringComparison.Ordinal);
+            Assert.Contains("@interpolate(flat) physicalGlyphFrame", source, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void HintedPaintSharesOriginalMaterialSamplingAndGlyphCoverage()
+    {
+        string paint = Shaders.HintedGlyphPaintShader;
+        Assert.Same(paint, Shaders.HintedGlyphPaintShader);
+        foreach (string resource in new[]
+        {
+            "RegisteredMaterialCommon.wgsl", "TextGlyphGeometryCommon.wgsl",
+            "TextGlyphCoverageCommon.wgsl", "TextureImageSamplingCommon.wgsl",
+        })
+        {
+            string common = ShaderResource.Load(typeof(Shaders), resource);
+            Assert.Contains(common, paint, StringComparison.Ordinal);
+            string original = resource.StartsWith("Registered", StringComparison.Ordinal)
+                ? Shaders.VectorShader
+                : resource.StartsWith("Texture", StringComparison.Ordinal)
+                    ? Shaders.TextureShader : Shaders.TextShader;
+            Assert.Contains(common, original, StringComparison.Ordinal);
+        }
+        Assert.Single(Regex.Matches(paint, "fn sample_registered_material\\("));
+        Assert.Single(Regex.Matches(paint, "fn text_glyph_vertex\\("));
+        Assert.Single(Regex.Matches(paint, "fn text_glyph_color_with_mask_alpha\\("));
+        Assert.Single(Regex.Matches(paint, "fn sample_image\\("));
+        Assert.Contains("@location(8) paintIndex: u32", paint, StringComparison.Ordinal);
+        Assert.Contains("@group(0) @binding(3)", paint, StringComparison.Ordinal);
+        Assert.Contains("world = paint.textureQuad01.zw", paint, StringComparison.Ordinal);
+        Assert.Contains("world = paint.textureQuad23.zw", paint, StringComparison.Ordinal);
+        Assert.Contains("(boundedTexture && outsideGlyph)", paint, StringComparison.Ordinal);
+        Assert.Contains("paintExtent != vec2<f32>(0.0)", paint, StringComparison.Ordinal);
+        Assert.Contains("liveFrame = liveFrame && all(livePaintAxes)", paint, StringComparison.Ordinal);
+        Assert.Contains("color.rgb * opacity * coverage * maskAlpha", paint, StringComparison.Ordinal);
+        Assert.DoesNotContain("textureStore(", paint, StringComparison.Ordinal);
     }
 
     [Fact]

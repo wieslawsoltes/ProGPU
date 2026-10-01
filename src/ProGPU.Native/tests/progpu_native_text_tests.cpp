@@ -1,4 +1,6 @@
 #include "progpu_native_text.hpp"
+#include "../src/Text/Shaping/progpu_native_open_type_gpos_internal.hpp"
+#include "../src/Text/Shaping/progpu_native_open_type_feature_values_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,6 +11,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -21,6 +24,47 @@
 #include <vector>
 
 namespace {
+
+namespace device_gpos = progpu::native::text::detail;
+struct gpos_frame_control final {
+    bool reject_projection = false;
+    bool reject_contour = false;
+    std::array<device_gpos::gpos_metric_vector, 2> last_design{};
+};
+bool project_gpos_control(const void* owner, const std::array<device_gpos::gpos_metric_vector, 2>& input,
+    std::array<device_gpos::gpos_metric_vector, 2>& output) noexcept {
+    auto& control = *const_cast<gpos_frame_control*>(static_cast<const gpos_frame_control*>(owner));
+    control.last_design = input;
+    if (control.reject_projection) return false;
+    std::array<device_gpos::gpos_metric_vector, 2> candidate{};
+    for (std::size_t index = 0U; index < input.size(); ++index) {
+        const auto x = static_cast<std::int64_t>(input[index].x) * 2;
+        const auto y = static_cast<std::int64_t>(input[index].y) * 3;
+        if (x < std::numeric_limits<std::int32_t>::min() || x > std::numeric_limits<std::int32_t>::max() ||
+            y < std::numeric_limits<std::int32_t>::min() || y > std::numeric_limits<std::int32_t>::max()) return false;
+        candidate[index] = {static_cast<std::int32_t>(x), static_cast<std::int32_t>(y)};
+    }
+    output = candidate;
+    return true;
+}
+bool contour_gpos_control(const void* owner, std::size_t descriptor, std::uint32_t glyph,
+    std::uint16_t point, device_gpos::gpos_metric_vector& output) noexcept {
+    const auto& control = *static_cast<const gpos_frame_control*>(owner);
+    if (control.reject_contour || descriptor >= 2U || glyph != descriptor + 5U || point != 0U) return false;
+    output = descriptor == 0U ? device_gpos::gpos_metric_vector{101, 203} : device_gpos::gpos_metric_vector{307, 509};
+    return true;
+}
+device_gpos::gpos_device_frame make_gpos_control_frame(const progpu::native::text::sfnt_font_view& font,
+    gpos_frame_control& control, device_gpos::gpos_arithmetic_path path) noexcept {
+    device_gpos::gpos_device_frame frame{};
+    frame.font = &font;
+    frame.owner = &control;
+    frame.pixels_per_em_x = frame.pixels_per_em_y = 20U;
+    frame.arithmetic_path = path;
+    frame.project_design = &project_gpos_control;
+    frame.contour_point = &contour_gpos_control;
+    return frame;
+}
 
 using progpu::native::text::font_catalog_error;
 using progpu::native::text::font_catalog_face_info;
@@ -374,6 +418,26 @@ void write_u16(
     std::span<std::byte> destination,
     std::size_t offset,
     std::uint16_t value);
+
+void write_i16(
+    std::span<std::byte> destination,
+    std::size_t offset,
+    std::int16_t value);
+
+struct table_data final {
+    open_type_tag tag{};
+    std::vector<std::byte> bytes{};
+};
+
+std::vector<std::byte> make_font(
+    std::size_t face_offset = 0U,
+    std::size_t glyph_size = 22U,
+    std::size_t second_glyph_size = 0U,
+    bool include_variations = false,
+    bool include_axis_mapping = false,
+    bool include_glyph_variations = false,
+    std::span<const table_data> extra_tables = {},
+    std::span<const std::byte> cmap_override = {});
 
 void unicode_contract_and_strict_decoders_are_transactional() {
     static_assert(sizeof(shaping_feature) == 16U);
@@ -2410,6 +2474,62 @@ void open_type_gpos_single_and_pair_adjustments_are_bounded() {
     require(applied && glyphs[0U].offset_x == 4 &&
         glyphs[0U].advance_x == 8);
 
+    // Independent unpacked device mapping controls, not an admitted font or
+    // Display oracle. Original public design-unit controls above stay intact.
+    const auto control_font_bytes = make_font();
+    sfnt_font_view control_font{};
+    require(sfnt_font_view::try_create(control_font_bytes, 0U, control_font, &error));
+    gpos_frame_control control;
+    for (const auto path : {device_gpos::gpos_arithmetic_path::scalar_reference,
+        device_gpos::gpos_arithmetic_path::intrinsic_simd}) {
+#if !defined(__aarch64__) && !defined(_M_ARM64) && !defined(__SSE2__) && !defined(_M_X64)
+        if (path == device_gpos::gpos_arithmetic_path::intrinsic_simd) continue;
+#endif
+        const auto frame = make_gpos_control_frame(control_font, control, path);
+        auto options = open_type_gpos_apply_options{};
+        options.font = &control_font;
+        glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10, 0, 1, 0}};
+        require(device_gpos::try_apply_device_gpos_lookup(gpos, 0U,
+            std::span<shaping_glyph>(glyphs).first(1U), options, frame, applied, &error));
+        require(applied && glyphs[0].offset_x == 7 && glyphs[0].advance_x == 6);
+        const auto feature_tag = open_type_tag::from_chars('k', 'e', 'r', 'n');
+        const std::array features{feature_tag};
+        const std::array values{shaping_feature{feature_tag, 0U, 0U, 0xFFFFFFFFU},
+            shaping_feature{feature_tag, 1U, 1U, 2U}};
+        auto run_options = open_type_shape_run_options{};
+        run_options.requested_features = features;
+        run_options.feature_settings = values;
+        const auto resolution = progpu::native::text::feature_detail::lookup_feature_resolution{feature_tag, true, false};
+        glyphs = {shaping_glyph{5U, 0, 0, shaping_glyph_flags::none, 10},
+            shaping_glyph{5U, 0U, 1, shaping_glyph_flags::none, 10},
+            shaping_glyph{5U, 0U, 2, shaping_glyph_flags::none, 10}};
+        require(progpu::native::text::feature_detail::apply_gpos_lookup_with_feature_values(
+            gpos, run_options, 0U, glyphs, options, &error, &resolution, &frame));
+        require(glyphs[0].advance_x == 10 && glyphs[0].offset_x == 0 &&
+            glyphs[1].advance_x == 6 && glyphs[1].offset_x == 6 &&
+            glyphs[2].advance_x == 10 && glyphs[2].offset_x == 0);
+        run_options.feature_settings = {};
+        require(progpu::native::text::feature_detail::apply_gpos_lookup_with_feature_values(
+            gpos, run_options, 0U, glyphs, options, &error, &resolution, &frame));
+        require(glyphs[0].advance_x == 6 && glyphs[1].advance_x == 2 && glyphs[2].advance_x == 6);
+        // Restore the original single-glyph overflow and projection controls.
+        glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10, 0, 1, 0}};
+        glyphs[0].offset_x = std::numeric_limits<std::int32_t>::max();
+        const auto before = glyphs;
+        require(!device_gpos::try_apply_device_gpos_lookup(gpos, 0U,
+            std::span<shaping_glyph>(glyphs).first(1U), options, frame, applied, &error));
+        require(glyphs[0].offset_x == before[0].offset_x && glyphs[0].advance_x == before[0].advance_x);
+        control.reject_projection = true;
+        require(!device_gpos::try_apply_device_gpos_lookup(gpos, 0U,
+            std::span<shaping_glyph>(glyphs).first(1U), options, frame, applied, &error));
+        require(glyphs[0].offset_x == before[0].offset_x && glyphs[0].advance_x == before[0].advance_x);
+        control.reject_projection = false;
+        options.font = nullptr;
+        require(!device_gpos::try_apply_device_gpos_lookup(gpos, 0U,
+            std::span<shaping_glyph>(glyphs).first(1U), options, frame, applied, &error) &&
+            error == font_error::invalid_argument && !applied);
+    }
+
     open_type_glyph_set_digest single_digest{};
     bool has_single_digest = false;
     require(gpos.try_get_lookup_digest(
@@ -2474,6 +2594,25 @@ void open_type_gpos_single_and_pair_adjustments_are_bounded() {
         {}, applied, &error));
     require(applied && glyphs[0U].advance_x == 8 &&
         glyphs[1U].offset_x == 3);
+
+    for (const auto path : {device_gpos::gpos_arithmetic_path::scalar_reference,
+        device_gpos::gpos_arithmetic_path::intrinsic_simd}) {
+#if !defined(__aarch64__) && !defined(_M_ARM64) && !defined(__SSE2__) && !defined(_M_X64)
+        if (path == device_gpos::gpos_arithmetic_path::intrinsic_simd) continue;
+#endif
+        const auto frame = make_gpos_control_frame(control_font, control, path);
+        auto options = open_type_gpos_apply_options{};
+        options.font = &control_font;
+        glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10}, shaping_glyph{6U}};
+        require(device_gpos::try_apply_device_gpos_lookup(gpos, 0U,
+            std::span<shaping_glyph>(glyphs).first(2U), options, frame, applied, &error));
+        require(applied && glyphs[0].advance_x == 6 && glyphs[1].offset_x == 6);
+        glyphs[1].offset_x = std::numeric_limits<std::int32_t>::max();
+        const auto before = glyphs;
+        require(!device_gpos::try_apply_device_gpos_lookup(gpos, 0U,
+            std::span<shaping_glyph>(glyphs).first(2U), options, frame, applied, &error));
+        require(std::memcmp(glyphs.data(), before.data(), sizeof(glyphs)) == 0);
+    }
 
     auto malformed = pair;
     write_u16(malformed, 36U, 0xFFFFU);
@@ -2764,6 +2903,172 @@ void open_type_gpos_attachments_are_caller_owned_and_resolved() {
     require(attachments[1U].target == 0 &&
         attachments[1U].kind ==
             shaping_attachment_kind::cursive_horizontal);
+
+    const auto control_font_bytes = make_font();
+    sfnt_font_view control_font{};
+    require(sfnt_font_view::try_create(control_font_bytes, 0U, control_font, &error));
+    gpos_frame_control control;
+    for (const auto path : {device_gpos::gpos_arithmetic_path::scalar_reference,
+        device_gpos::gpos_arithmetic_path::intrinsic_simd}) {
+#if !defined(__aarch64__) && !defined(_M_ARM64) && !defined(__SSE2__) && !defined(_M_X64)
+        if (path == device_gpos::gpos_arithmetic_path::intrinsic_simd) continue;
+#endif
+        const auto frame = make_gpos_control_frame(control_font, control, path);
+        for (const auto direction : {shaping_direction::left_to_right, shaping_direction::right_to_left,
+            shaping_direction::top_to_bottom, shaping_direction::bottom_to_top}) {
+            for (const std::uint16_t flags : {std::uint16_t{0U}, std::uint16_t{1U}}) {
+                write_u16(cursive, 20U, flags);
+                require(open_type_layout_table_view::try_create(cursive, gpos, &error));
+                glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 50, 60, 1, 2},
+                    shaping_glyph{6U, 1U, 1, shaping_glyph_flags::none, 70, 80, 3, 4}};
+                auto expected = glyphs;
+                // Independent unpacked coordinates: exit (16,30), entry (4,9).
+                switch (direction) {
+                case shaping_direction::unspecified:
+                    require(false); break;
+                case shaping_direction::left_to_right:
+                    expected[0].advance_x = 17; expected[1].advance_x = 63; expected[1].offset_x = -4; break;
+                case shaping_direction::right_to_left:
+                    expected[0].advance_x = 33; expected[0].offset_x = -16; expected[1].advance_x = 7; break;
+                case shaping_direction::top_to_bottom:
+                    expected[0].advance_y = 32; expected[1].advance_y = 67; expected[1].offset_y = -9; break;
+                case shaping_direction::bottom_to_top:
+                    expected[0].advance_y = 28; expected[0].offset_y = -30; expected[1].advance_y = 9; break;
+                }
+                const std::size_t child = flags == 0U ? 1U : 0U;
+                const bool horizontal = direction == shaping_direction::left_to_right || direction == shaping_direction::right_to_left;
+                if (horizontal) expected[child].offset_y = flags == 0U ? 21 : -21;
+                else expected[child].offset_x = flags == 0U ? 12 : -12;
+                expected[1].flags = static_cast<shaping_glyph_flags>(
+                    static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break) |
+                    static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat));
+                attachments = {};
+                auto options = open_type_gpos_apply_options{};
+                options.font = &control_font;
+                options.direction = direction;
+                options.attachments = attachments;
+                require(device_gpos::try_apply_device_gpos_lookup(gpos, 0U, glyphs, options, frame, applied, &error));
+                require(applied && std::memcmp(glyphs.data(), expected.data(), sizeof(glyphs)) == 0);
+                require(attachments[child].target == static_cast<std::int32_t>(1U - child) &&
+                    attachments[child].kind == (horizontal ? shaping_attachment_kind::cursive_horizontal :
+                        shaping_attachment_kind::cursive_vertical));
+                glyphs[0].offset_x = std::numeric_limits<std::int32_t>::max();
+                glyphs[0].offset_y = std::numeric_limits<std::int32_t>::max();
+                glyphs[0].advance_x = std::numeric_limits<std::int32_t>::min();
+                glyphs[0].advance_y = std::numeric_limits<std::int32_t>::min();
+                glyphs[1].advance_x = std::numeric_limits<std::int32_t>::min();
+                glyphs[1].advance_y = std::numeric_limits<std::int32_t>::min();
+                const auto before = glyphs;
+                const auto before_attachments = attachments;
+                require(!device_gpos::try_apply_device_gpos_lookup(gpos, 0U, glyphs, options, frame, applied, &error));
+                require(std::memcmp(glyphs.data(), before.data(), sizeof(glyphs)) == 0 &&
+                    std::memcmp(attachments.data(), before_attachments.data(), sizeof(attachments)) == 0);
+            }
+        }
+    }
+}
+
+void device_gpos_anchors_and_attachments_use_one_frame() {
+    const auto bytes = make_font();
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(bytes, 0U, font, &error));
+    gpos_frame_control control;
+    for (const auto path : {device_gpos::gpos_arithmetic_path::scalar_reference,
+        device_gpos::gpos_arithmetic_path::intrinsic_simd}) {
+#if !defined(__aarch64__) && !defined(_M_ARM64) && !defined(__SSE2__) && !defined(_M_X64)
+        if (path == device_gpos::gpos_arithmetic_path::intrinsic_simd) continue;
+#endif
+        const auto frame = make_gpos_control_frame(font, control, path);
+        for (const std::uint16_t format : {std::uint16_t{1U}, std::uint16_t{2U}, std::uint16_t{3U}}) {
+            const std::size_t anchor_size = format == 1U ? 6U : format == 2U ? 8U : 10U;
+            const std::size_t base_array = 84U + anchor_size;
+            const std::size_t base_anchor = base_array + 4U;
+            const std::size_t first_device = base_anchor + anchor_size;
+            std::vector<std::byte> table(first_device + 16U);
+            write_u16(table, 0U, 1U);
+            write_u16(table, 4U, 10U);
+            write_u16(table, 6U, 12U);
+            write_u16(table, 8U, 14U);
+            write_u16(table, 14U, 1U);
+            write_u16(table, 16U, 4U);
+            write_u16(table, 18U, 4U);
+            write_u16(table, 22U, 1U);
+            write_u16(table, 24U, 8U);
+            write_u16(table, 26U, 1U);
+            write_u16(table, 28U, 40U);
+            write_u16(table, 30U, 46U);
+            write_u16(table, 32U, 1U);
+            write_u16(table, 34U, 52U);
+            write_u16(table, 36U, static_cast<std::uint16_t>(base_array - 26U));
+            write_u16(table, 66U, 1U);
+            write_u16(table, 68U, 1U);
+            write_u16(table, 70U, 6U);
+            write_u16(table, 72U, 1U);
+            write_u16(table, 74U, 1U);
+            write_u16(table, 76U, 5U);
+            write_u16(table, 78U, 1U);
+            write_u16(table, 82U, 6U);
+            write_u16(table, 84U, format);
+            write_i16(table, 86U, 2);
+            write_i16(table, 88U, 3);
+            write_u16(table, base_array, 1U);
+            write_u16(table, base_array + 2U, 4U);
+            write_u16(table, base_anchor, format);
+            write_i16(table, base_anchor + 2U, 8);
+            write_i16(table, base_anchor + 4U, 10);
+            if (format == 3U) {
+                write_u16(table, 90U, static_cast<std::uint16_t>(first_device - 84U));
+                write_u16(table, base_anchor + 8U, static_cast<std::uint16_t>(first_device + 8U - base_anchor));
+                for (const std::size_t start : {first_device, first_device + 8U}) {
+                    write_u16(table, start, 20U);
+                    write_u16(table, start + 2U, 20U);
+                    write_u16(table, start + 4U, 3U);
+                }
+                write_u16(table, first_device + 6U, 0xFF00U);
+                write_u16(table, first_device + 14U, 0x0200U);
+            }
+            open_type_layout_table_view gpos{};
+            require(open_type_layout_table_view::try_create(table, gpos, &error));
+            std::array<shaping_glyph, 2> glyphs{
+                shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 20}, shaping_glyph{6U}};
+            std::array<shaping_attachment, 2> attachments{};
+            auto options = open_type_gpos_apply_options{};
+            options.font = &font;
+            options.attachments = attachments;
+            bool applied = false;
+            require(device_gpos::try_apply_device_gpos_lookup_at(gpos, 0U, glyphs, 1U, options, frame, applied, &error));
+            const std::int32_t dx = format == 1U ? 12 : format == 2U ? -206 : 76;
+            const std::int32_t dy = format == 1U ? 21 : format == 2U ? -306 : 149;
+            require(applied && glyphs[1].offset_x == dx && glyphs[1].offset_y == dy && attachments[1].target == 0);
+            std::array<std::uint8_t, 3> states{7U, 8U, 91U};
+            require(device_gpos::try_resolve_device_gpos_attachments(glyphs, attachments,
+                progpu::native::text::shaping_direction::left_to_right, states, &error));
+            require(glyphs[1].offset_x == dx - 20 && glyphs[1].offset_y == dy && states[2] == 91U);
+            if (format == 2U) {
+                control.reject_contour = true;
+                glyphs[1].offset_x = glyphs[1].offset_y = 0;
+                attachments = {};
+                require(!device_gpos::try_apply_device_gpos_lookup_at(gpos, 0U, glyphs, 1U, options, frame, applied, &error));
+                require(glyphs[1].offset_x == 0 && glyphs[1].offset_y == 0 && attachments[1].target == -1);
+                control.reject_contour = false;
+            }
+        }
+    }
+    std::array<shaping_glyph, 2> overflow{
+        shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 0, 0, 1, 0},
+        shaping_glyph{6U, 0U, 0, shaping_glyph_flags::none, 0, 0, std::numeric_limits<std::int32_t>::max(), 0}};
+    std::array<shaping_attachment, 2> attached{};
+    attached[1].target = 0;
+    attached[1].kind = shaping_attachment_kind::mark;
+    std::array<std::uint8_t, 2> states{};
+    require(!device_gpos::try_resolve_device_gpos_attachments(overflow, attached,
+        progpu::native::text::shaping_direction::left_to_right, states, &error));
+    require(overflow[1].offset_x == std::numeric_limits<std::int32_t>::max());
+    attached[0].target = 1;
+    attached[0].kind = shaping_attachment_kind::mark;
+    require(!device_gpos::try_resolve_device_gpos_attachments(overflow, attached,
+        progpu::native::text::shaping_direction::left_to_right, states, &error));
 }
 
 void open_type_gpos_context_format3_applies_nested_lookup() {
@@ -2825,6 +3130,18 @@ void open_type_gpos_context_format3_applies_nested_lookup() {
         (static_cast<std::uint32_t>(glyphs[1U].flags) &
             static_cast<std::uint32_t>(
                 shaping_glyph_flags::unsafe_to_concat)) != 0U);
+
+    const auto control_font_bytes = make_font();
+    sfnt_font_view control_font{};
+    require(sfnt_font_view::try_create(control_font_bytes, 0U, control_font, &error));
+    gpos_frame_control control;
+    const auto frame = make_gpos_control_frame(control_font, control, device_gpos::gpos_arithmetic_path::scalar_reference);
+    auto options = open_type_gpos_apply_options{};
+    options.font = &control_font;
+    glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{6U, 0U, 1, shaping_glyph_flags::none, 10}};
+    require(device_gpos::try_apply_device_gpos_lookup(gpos, 0U, glyphs, options, frame, applied, &error));
+    require(applied && glyphs[0].advance_x == 10 && glyphs[1].advance_x == 6);
 }
 
 void open_type_gpos_rule_and_chain_contexts_are_bounded() {
@@ -3448,11 +3765,6 @@ void woff1_normalization_is_bounded_and_transactional() {
     require(error == font_error::unsupported_container);
 }
 
-struct table_data final {
-    open_type_tag tag{};
-    std::vector<std::byte> bytes{};
-};
-
 std::vector<std::byte> make_cmap() {
     std::vector<std::byte> result(80U);
     write_u16(result, 2U, 2U);
@@ -3965,14 +4277,14 @@ std::vector<std::byte> make_cff2_table() {
 }
 
 std::vector<std::byte> make_font(
-    std::size_t face_offset = 0U,
-    std::size_t glyph_size = 22U,
-    std::size_t second_glyph_size = 0U,
-    bool include_variations = false,
-    bool include_axis_mapping = false,
-    bool include_glyph_variations = false,
-    std::span<const table_data> extra_tables = {},
-    std::span<const std::byte> cmap_override = {}) {
+    std::size_t face_offset,
+    std::size_t glyph_size,
+    std::size_t second_glyph_size,
+    bool include_variations,
+    bool include_axis_mapping,
+    bool include_glyph_variations,
+    std::span<const table_data> extra_tables,
+    std::span<const std::byte> cmap_override) {
     std::vector<table_data> tables{};
     table_data head{open_type_tag::from_chars('h', 'e', 'a', 'd'),
         std::vector<std::byte>(54U)};
@@ -6834,9 +7146,9 @@ void open_type_gpos_device_and_variation_deltas_are_applied() {
         return table;
     };
 
-    const auto device_gpos = make_device_gpos(20U, 20U, 3U, 0xFF00U);
+    const auto packed_device_table = make_device_gpos(20U, 20U, 3U, 0xFF00U);
     const std::array device_tables{table_data{
-        open_type_tag::from_chars('G', 'P', 'O', 'S'), device_gpos}};
+        open_type_tag::from_chars('G', 'P', 'O', 'S'), packed_device_table}};
     const auto device_font_bytes = make_font(
         0U, 22U, 0U, false, false, false, device_tables);
     sfnt_font_view device_font{};
@@ -6867,6 +7179,25 @@ void open_type_gpos_device_and_variation_deltas_are_applied() {
         applied,
         &error));
     require(applied && glyphs[0U].advance_x == 450);
+
+    gpos_frame_control device_control;
+    for (const auto path : {device_gpos::gpos_arithmetic_path::scalar_reference,
+        device_gpos::gpos_arithmetic_path::intrinsic_simd}) {
+#if !defined(__aarch64__) && !defined(_M_ARM64) && !defined(__SSE2__) && !defined(_M_X64)
+        if (path == device_gpos::gpos_arithmetic_path::intrinsic_simd) continue;
+#endif
+        const auto frame = make_gpos_control_frame(device_font, device_control, path);
+        auto options = open_type_gpos_apply_options{};
+        options.font = &device_font;
+        options.pixels_per_em_x = 12U; // actual frame ppem, not stale caller metadata
+        glyphs[0] = shaping_glyph{3U, 0U, 0, shaping_glyph_flags::none, 500};
+        require(device_gpos::try_apply_device_gpos_lookup(gpos, 0U, glyphs, options, frame, applied, &error));
+        require(applied && glyphs[0].advance_x == 436); // exact -1 pixel, not rounded font units
+        auto unknown = frame;
+        unknown.arithmetic_path = static_cast<device_gpos::gpos_arithmetic_path>(0xFFFFFFFFU);
+        require(!device_gpos::try_apply_device_gpos_lookup(gpos, 0U, glyphs, options, unknown, applied, &error) &&
+            error == font_error::invalid_argument && !applied && glyphs[0].advance_x == 436);
+    }
 
     std::vector<std::byte> gdef(56U);
     write_u16(gdef, 0U, 1U);
@@ -6936,6 +7267,42 @@ void open_type_gpos_device_and_variation_deltas_are_applied() {
         applied,
         &error));
     require(applied && glyphs[0U].advance_x == 520);
+
+    auto combined_gpos = variation_gpos;
+    write_u16(combined_gpos, 30U, 0x0044U);
+    write_i16(combined_gpos, 32U, 7);
+    write_u16(combined_gpos, 34U, 18U);
+    const std::array combined_tables{
+        table_data{open_type_tag::from_chars('G', 'D', 'E', 'F'), gdef},
+        table_data{open_type_tag::from_chars('G', 'P', 'O', 'S'), combined_gpos}};
+    const auto combined_bytes = make_font(0U, 22U, 0U, true, false, false, combined_tables);
+    sfnt_font_view combined_font{};
+    require(sfnt_font_view::try_create(combined_bytes, 0U, combined_font, &error));
+    require(combined_font.try_get_table(open_type_tag::from_chars('G', 'P', 'O', 'S'), gpos_table));
+    require(open_type_layout_table_view::try_create(gpos_table.bytes, gpos, &error));
+    auto combined_options = open_type_gpos_apply_options{};
+    combined_options.font = &combined_font;
+    combined_options.normalized_coordinates = normalized;
+    auto combined_frame = make_gpos_control_frame(combined_font, device_control,
+        device_gpos::gpos_arithmetic_path::scalar_reference);
+    combined_frame.normalized_coordinates = normalized;
+    glyphs[0] = shaping_glyph{3U, 0U, 0, shaping_glyph_flags::none, 500};
+    require(device_gpos::try_apply_device_gpos_lookup(gpos, 0U, glyphs,
+        combined_options, combined_frame, applied, &error));
+    require(applied && glyphs[0].advance_x == 554 && device_control.last_design[1].x == 27);
+    const auto before_mismatch = glyphs;
+    const std::array<std::int16_t, 2U> other_coordinates{8192, 8193};
+    combined_options.normalized_coordinates = other_coordinates;
+    require(!device_gpos::try_apply_device_gpos_lookup(gpos, 0U, glyphs,
+        combined_options, combined_frame, applied, &error) && !applied &&
+        error == font_error::invalid_argument &&
+        std::memcmp(glyphs.data(), before_mismatch.data(), sizeof(glyphs)) == 0);
+    combined_options.normalized_coordinates = std::span<const std::int16_t>(
+        static_cast<const std::int16_t*>(nullptr), normalized.size());
+    require(!device_gpos::try_apply_device_gpos_lookup(gpos, 0U, glyphs,
+        combined_options, combined_frame, applied, &error) && !applied &&
+        error == font_error::invalid_argument &&
+        std::memcmp(glyphs.data(), before_mismatch.data(), sizeof(glyphs)) == 0);
 
     // PairPos format 1 Device offsets are relative to the containing PairSet,
     // while format 2 offsets are relative to the PairPos subtable.
@@ -13897,6 +14264,7 @@ int main() {
     open_type_feature_variations_match_managed_lookup_selection();
     open_type_gpos_single_and_pair_adjustments_are_bounded();
     open_type_gpos_attachments_are_caller_owned_and_resolved();
+    device_gpos_anchors_and_attachments_use_one_frame();
     open_type_gpos_context_format3_applies_nested_lookup();
     open_type_gpos_rule_and_chain_contexts_are_bounded();
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();

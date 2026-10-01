@@ -2,6 +2,7 @@
 #include "progpu_native_semantic_draw_execution.hpp"
 #include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_semantic_glyph_identity.hpp"
+#include "progpu_native_glyph_coverage_frame.hpp"
 #include "progpu_native_3d_execution.hpp"
 #include <unordered_map>
 #include <array>
@@ -640,6 +641,7 @@ progpu_native_status render_scene(
     std::uint64_t semantic_color_glyph_bitmap_count = 0U;
     std::uint64_t semantic_color_glyph_pixel_bytes = 0U;
     bool semantic_has_styled_glyphs = false;
+    std::uint32_t semantic_glyph_paint_count = 0U;
     bool semantic_has_image_color_matrices = false;
     bool semantic_has_state_masks = false;
     bool semantic_has_vector_mask_chains = false;
@@ -683,7 +685,7 @@ progpu_native_status render_scene(
         }
         if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
             command.kind >
-                PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
             continue;
         }
         const bool per_point_guidelines =
@@ -776,8 +778,7 @@ progpu_native_status render_scene(
             const bool mask_chain = mask_kind ==
                 PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN;
             if (mask_chain) {
-                if (command.kind ==
-                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+                if (semantic::is_glyph_command(command.kind)) {
                     semantic_has_text_mask_chains = true;
                 } else if (command.kind ==
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
@@ -793,8 +794,7 @@ progpu_native_status render_scene(
                     PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN
                 ? PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE
                 : PROGPU_NATIVE_GROUP_MASK_TEXTURE;
-            semantic_has_masked_glyphs |= !mask_chain && command.kind ==
-                PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN;
+            semantic_has_masked_glyphs |= !mask_chain && semantic::is_glyph_command(command.kind);
             semantic_has_masked_images |= !mask_chain && command.kind ==
                 PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE;
         }
@@ -1238,6 +1238,7 @@ progpu_native_status render_scene(
                 }
                 break;
             }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN:
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN: {
                 std::uint32_t glyph_payload_offset = 0U;
                 std::uint32_t glyph_count32 = 0U;
@@ -1267,6 +1268,31 @@ progpu_native_status render_scene(
                             resource.auxiliary_size,
                             sizeof(progpu_native_path_segment)));
                 const std::uint64_t glyph_count = glyph_count32;
+                if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
+                    // Hinted coverage is already in its original physical unit
+                    // frame. Only finite translation may be applied after it.
+                    if (state.transform.m11 != 1.0F || state.transform.m12 != 0.0F ||
+                        state.transform.m21 != 0.0F || state.transform.m22 != 1.0F) {
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "Direct hinted glyph paint requires its original unit basis.");
+                    }
+                    progpu_native_scene_painted_glyph_draw draw{};
+                    progpu_native_scene_glyph_paint paint{};
+                    std::memcpy(&draw, bytes + command.payload_offset, sizeof(draw));
+                    std::memcpy(&paint, bytes + command.payload_offset + sizeof(draw), sizeof(paint));
+                    std::uint32_t error_offset = 0U;
+                    valid = valid && !color_glyphs && semantic::validate_painted_glyph_draw(
+                        bytes, header, command, error_offset);
+                    if (paint.kind == PROGPU_NATIVE_SCENE_GLYPH_PAINT_TEXTURE) {
+                        const auto image = read_resource(draw.paint_resource_index);
+                        const auto* binding = engine->find_semantic_external_image_binding(
+                            image.resource_id, image.generation);
+                        valid = valid && binding != nullptr && binding->view != nullptr &&
+                            binding->width != 0U && binding->height != 0U &&
+                            binding->width <= 16384U && binding->height <= 16384U;
+                    }
+                    ++semantic_glyph_paint_count;
+                }
                 first_semantic_glyph_resource =
                     semantic_glyph_resources_budgeted[
                         command.resource_index] == 0U;
@@ -1275,6 +1301,8 @@ progpu_native_status render_scene(
                     glyph_count <= (1U << 24U);
                 compiled_vertex_bytes = glyph_count *
                     sizeof(gpu_glyph_instance);
+                if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN)
+                    compiled_vertex_bytes += sizeof(progpu_native_scene_glyph_paint);
                 compiled_texture_bytes = color_glyphs &&
                         first_semantic_glyph_resource
                     ? resource.auxiliary_size
@@ -1330,7 +1358,7 @@ progpu_native_status render_scene(
                         bytes + glyph_payload_offset +
                             glyph_index * sizeof(glyph),
                         sizeof(glyph));
-                    if ((command.flags &
+                    if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN || (command.flags &
                             PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U) {
                         apply_semantic_transform(glyph, state);
                     } else {
@@ -1467,8 +1495,7 @@ progpu_native_status render_scene(
                 ? "analytic"
                 : command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH
                     ? "path"
-                    : command.kind ==
-                            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN
+                    : semantic::is_glyph_command(command.kind)
                         ? "glyph"
                         : command.kind ==
                                 PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE
@@ -1504,7 +1531,7 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The semantic scene exceeds the bounded aggregate compilation budget.");
         }
-        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN &&
+        if (semantic::is_glyph_command(command.kind) &&
             first_semantic_glyph_resource) {
             semantic_glyph_resources_budgeted[
                 command.resource_index] = 1U;
@@ -1534,8 +1561,7 @@ progpu_native_status render_scene(
             semantic_path_count += path_count;
             semantic_path_segment_count += segment_count;
             semantic_path_boolean_node_count += boolean_node_count;
-        } else if (command.kind ==
-            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+        } else if (semantic::is_glyph_command(command.kind)) {
             std::uint32_t glyph_payload_offset = 0U;
             std::uint32_t glyph_count = 0U;
             if (!try_get_glyph_payload(
@@ -1739,20 +1765,25 @@ progpu_native_status render_scene(
     }
 
     if (capture_cpu_stages) cpu_preflight_end = cpu_clock::now();
+    if (semantic_glyph_paint_count != 0U && !semantic::admit_glyph_paint_storage(*engine,
+            static_cast<std::uint64_t>(semantic_glyph_paint_count) * sizeof(progpu_native_scene_glyph_paint)))
+        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+            "The actual device cannot bind the original hinted paint page.");
 
     std::uint64_t semantic_brush_upload_bytes = 0U;
     std::uint64_t semantic_gradient_stop_upload_bytes = 0U;
     std::uint64_t semantic_text_style_upload_bytes = 0U;
     std::uint64_t semantic_color_glyph_upload_bytes = 0U;
     if (semantic_analytic_draw_count != 0U ||
-        semantic_path_draw_count != 0U) {
-        if (engine->analytic_pipeline == nullptr &&
-            !create_analytic_pipeline(*engine)) {
+        semantic_path_draw_count != 0U || semantic_glyph_paint_count != 0U) {
+        const bool has_vector_work = semantic_analytic_draw_count != 0U || semantic_path_draw_count != 0U;
+        if (has_vector_work ? engine->analytic_pipeline == nullptr && !create_analytic_pipeline(*engine)
+            : !create_analytic_resources(*engine)) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The semantic retained-brush pipeline could not be created.");
         }
-        if (semantic_has_state_masks &&
+        if (has_vector_work && semantic_has_state_masks &&
             !create_analytic_masked_pipeline(*engine)) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -2507,6 +2538,10 @@ progpu_native_status render_scene(
         semantic_glyph_page.target_width == frame->width &&
         semantic_glyph_page.target_height == frame->height &&
         semantic_glyph_page.style_indices.size() == semantic_glyph_count &&
+        semantic_glyph_page.paint_indices.size() == semantic_glyph_count &&
+        semantic_glyph_page.rendering_modes.size() == semantic_glyph_count &&
+        semantic_glyph_page.paints.size() == semantic_glyph_paint_count &&
+        semantic_glyph_page.paint_resources.size() == semantic_glyph_paint_count &&
         semantic_glyph_page.color_bitmap_indices.size() ==
             semantic_glyph_count &&
         semantic_glyph_page.color_bitmaps.size() ==
@@ -2517,6 +2552,10 @@ progpu_native_status render_scene(
         std::vector<progpu_native_path_segment> compiled_segments;
         std::vector<progpu_native_positioned_glyph> compiled_glyphs;
         std::vector<std::uint32_t> compiled_style_indices;
+        std::vector<std::uint32_t> compiled_paint_indices;
+        std::vector<std::uint32_t> compiled_rendering_modes;
+        std::vector<progpu_native_scene_glyph_paint> compiled_paints;
+        std::vector<semantic_glyph_paint_resource> compiled_paint_resources;
         std::vector<progpu_native_scene_color_glyph_bitmap>
             compiled_color_bitmaps;
         std::vector<std::byte> compiled_color_pixels;
@@ -2544,6 +2583,10 @@ progpu_native_status render_scene(
                 static_cast<std::size_t>(semantic_glyph_count));
             compiled_style_indices.reserve(
                 static_cast<std::size_t>(semantic_glyph_count));
+            compiled_paint_indices.reserve(static_cast<std::size_t>(semantic_glyph_count));
+            compiled_rendering_modes.reserve(static_cast<std::size_t>(semantic_glyph_count));
+            compiled_paints.reserve(semantic_glyph_paint_count);
+            compiled_paint_resources.reserve(semantic_glyph_paint_count);
             compiled_color_bitmaps.reserve(static_cast<std::size_t>(
                 semantic_color_glyph_bitmap_count));
             compiled_color_pixels.reserve(static_cast<std::size_t>(
@@ -2574,8 +2617,7 @@ progpu_native_status render_scene(
                     target_extent,
                     target_cursor.current_presentation(),
                     frame->dpi_scale);
-                if (command.kind !=
-                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+                if (!semantic::is_glyph_command(command.kind)) {
                     continue;
                 }
                 const auto resource = read_resource(command.resource_index);
@@ -2646,6 +2688,42 @@ progpu_native_status render_scene(
                 const std::size_t glyph_count = glyph_count32;
                 std::uint32_t text_style_index =
                     PROGPU_NATIVE_SCENE_NO_INDEX;
+                std::uint32_t paint_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                std::uint32_t rendering_mode = PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE;
+                if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
+                    progpu_native_scene_painted_glyph_draw draw{};
+                    progpu_native_scene_glyph_paint paint{};
+                    std::memcpy(&draw, bytes + command.payload_offset, sizeof(draw));
+                    std::memcpy(&paint, bytes + command.payload_offset + sizeof(draw), sizeof(paint));
+                    rendering_mode = draw.rendering_mode;
+                    paint_index = static_cast<std::uint32_t>(compiled_paints.size());
+                    if (paint.kind == PROGPU_NATIVE_SCENE_GLYPH_PAINT_MATERIAL) {
+                        if (!try_get_draw_brush_index(semantic_brush_page, index, 0U, paint.brush_index))
+                            return engine->fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                                "The original hinted material remap changed after validation.");
+                    } else {
+                        paint.source_offset_opacity[2] *= state.opacity;
+                        const auto mode = (paint.flags & PROGPU_NATIVE_SCENE_GLYPH_PAINT_SAMPLING_MASK) >> 8U;
+                        const auto sampling = mode == 0U ? static_cast<std::uint32_t>(PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR) :
+                            mode == 1U ? static_cast<std::uint32_t>(PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) : mode;
+                        if (mode != 2U && paint.sampling[0] == 0.0F)
+                            paint.sampling[0] = base_image_sampling_coefficient(engine->engine_flags, sampling);
+                        for (auto* quad : {paint.texture_quad01, paint.texture_quad23}) {
+                            quad[0] += state.transform.m31; quad[1] += state.transform.m32;
+                            quad[2] += state.transform.m31; quad[3] += state.transform.m32;
+                        }
+                    }
+                    paint.source_offset_opacity[0] += state.transform.m31;
+                    paint.source_offset_opacity[1] += state.transform.m32;
+                    // State localization/opacity arithmetic must remain finite
+                    // before any immutable page or GPU binding is published.
+                    if (!semantic::is_valid_glyph_paint(paint))
+                        return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                            "The localized original hinted paint overflows its source frame.");
+                    compiled_paints.push_back(paint);
+                    const auto paint_resource = read_resource(draw.paint_resource_index);
+                    compiled_paint_resources.push_back({paint_resource.resource_id, paint_resource.generation});
+                }
                 // Unstyled glyphs consume their inline color and do not depend
                 // on the command-indexed retained text-style page. Its family-
                 // local identity may therefore remain valid across unrelated
@@ -2711,8 +2789,8 @@ progpu_native_status render_scene(
                         bytes + glyph_payload_offset +
                             glyph_index * sizeof(glyph),
                         sizeof(glyph));
-                    if (text_style_index ==
-                        PROGPU_NATIVE_SCENE_NO_INDEX) {
+                    if (text_style_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+                        paint_index == PROGPU_NATIVE_SCENE_NO_INDEX) {
                         apply_semantic_state(glyph, state);
                     } else {
                         apply_semantic_transform(glyph, state);
@@ -2731,10 +2809,12 @@ progpu_native_status render_scene(
                     }
                     compiled_glyphs.push_back(glyph);
                     compiled_style_indices.push_back(text_style_index);
+                    compiled_paint_indices.push_back(paint_index);
+                    compiled_rendering_modes.push_back(rendering_mode);
                 }
                 compiled_draws.push_back({
                     static_cast<std::uint32_t>(glyph_start),
-                    static_cast<std::uint32_t>(glyph_count)});
+                    static_cast<std::uint32_t>(glyph_count), paint_index});
             }
         } catch (const std::bad_alloc&) {
             return engine->fail(
@@ -2745,6 +2825,10 @@ progpu_native_status render_scene(
             compiled_segments.size() + shared_segment_count != semantic_glyph_segment_count ||
             compiled_glyphs.size() != semantic_glyph_count ||
             compiled_style_indices.size() != semantic_glyph_count ||
+            compiled_paint_indices.size() != semantic_glyph_count ||
+            compiled_rendering_modes.size() != semantic_glyph_count ||
+            compiled_paints.size() != semantic_glyph_paint_count ||
+            compiled_paint_resources.size() != semantic_glyph_paint_count ||
             compiled_color_bitmaps.size() !=
                 semantic_color_glyph_bitmap_count ||
             compiled_color_pixels.size() !=
@@ -2760,6 +2844,11 @@ progpu_native_status render_scene(
         semantic_glyph_page.glyphs = std::move(compiled_glyphs);
         semantic_glyph_page.style_indices =
             std::move(compiled_style_indices);
+        semantic_glyph_page.paint_indices = std::move(compiled_paint_indices);
+        semantic_glyph_page.rendering_modes = std::move(compiled_rendering_modes);
+        semantic_glyph_page.paints = std::move(compiled_paints);
+        semantic_glyph_page.paint_resources = std::move(compiled_paint_resources);
+        engine->glyph_paint_owner_hash = 0U;
         semantic_glyph_page.color_bitmaps =
             std::move(compiled_color_bitmaps);
         semantic_glyph_page.color_pixels =
@@ -3716,6 +3805,16 @@ progpu_native_status render_scene(
             glyph_replay_hash;
     }
 
+    std::uint64_t glyph_paint_upload_bytes = 0U;
+    if (semantic_glyph_paint_count != 0U &&
+        (!semantic::prepare_glyph_paints(*engine, glyph_replay_hash, glyph_paint_upload_bytes) ||
+            (semantic_has_masked_glyphs && !semantic::prepare_glyph_paint_pipelines(*engine, true, false)) ||
+            (semantic_has_text_mask_chains && !semantic::prepare_glyph_paint_pipelines(*engine, true, true)))) {
+        discard_encoder();
+        return engine->fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The original hinted glyph paint GPU resources could not be prepared.");
+    }
+    uniform_upload_bytes += glyph_paint_upload_bytes;
     if (semantic_has_masked_glyphs &&
         !create_text_masked_pipeline(*engine)) {
         discard_encoder();
@@ -3752,15 +3851,24 @@ progpu_native_status render_scene(
             "The semantic bounded image mask-chain pipelines could not be created.");
     }
 
-    const gpu_uniforms uniforms = create_uniforms(
+    gpu_uniforms uniforms = create_uniforms(
         frame->width,
         frame->height,
         frame->dpi_scale);
+    // Ordinary semantic root passes explicitly encode the physical viewport.
+    // Destination/layer slots retain their separate uncertified uniforms.
+    if (!semantic_destination_sampling_active) {
+        certify_root_glyph_coverage_frame(uniforms,
+            frame->width, frame->height, 0.0F, 0.0F,
+            static_cast<float>(frame->width),
+            static_cast<float>(frame->height));
+    }
     if (semantic_analytic_draw_count != 0U ||
         semantic_path_draw_count != 0U ||
         semantic_glyph_draw_count != 0U) {
-        if (engine->analytic_pipeline == nullptr &&
-            !create_analytic_pipeline(*engine)) {
+        const bool has_vector_work = semantic_analytic_draw_count != 0U || semantic_path_draw_count != 0U;
+        if (has_vector_work ? engine->analytic_pipeline == nullptr && !create_analytic_pipeline(*engine)
+            : !create_analytic_resources(*engine)) {
             discard_encoder();
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -4817,7 +4925,7 @@ progpu_native_status render_scene(
             if (command.kind <
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
                 command.kind >
-                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
                 continue;
             }
             auto scissor = resolve_semantic_target_scissor(
@@ -5026,6 +5134,7 @@ progpu_native_status render_scene(
                     }
                     break;
                 }
+                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN:
                 case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN: {
                     if (semantic_glyph_draw_index >=
                         semantic_glyph_page.draws.size()) {
@@ -5341,6 +5450,11 @@ progpu_native_status render_scene(
                 engine->semantic_encoder,
                 &pass_descriptor);
             if (pass != nullptr) {
+                if (uniforms.pad0 == -1.0F) {
+                    wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F,
+                        static_cast<float>(frame->width),
+                        static_cast<float>(frame->height), 0.0F, 1.0F);
+                }
                 color_initialized = true;
                 depth_initialized = depth_initialized || uses_depth;
                 active_pass_uses_depth = uses_depth;
@@ -5492,6 +5606,13 @@ progpu_native_status render_scene(
             pass = wgpuCommandEncoderBeginRenderPass(
                 engine->semantic_encoder,
                 &pass_descriptor);
+            if (pass != nullptr &&
+                target_layer == PROGPU_NATIVE_SCENE_NO_INDEX &&
+                uniforms.pad0 == -1.0F) {
+                wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F,
+                    static_cast<float>(frame->width),
+                    static_cast<float>(frame->height), 0.0F, 1.0F);
+            }
             active_target_layer = target_layer;
             active_pass_uses_depth = uses_depth;
             if (pass != nullptr && depth_initialized != nullptr) {

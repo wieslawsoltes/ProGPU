@@ -99,7 +99,7 @@ public sealed class DawnSystemWarpContractTests
         Assert.Contains("VerifySystemWarpRequestCancellationForDiagnostics(deviceRequest: false);", consumer, StringComparison.Ordinal);
         Assert.Contains("VerifySystemWarpRequestCancellationForDiagnostics(deviceRequest: true);", consumer, StringComparison.Ordinal);
         string script = Read("eng", "test-dawn-system-warp-windows.ps1");
-        Assert.Contains("@('readback','foreign-resolver','device-loss','request-cancellation','callback-fault')", script, StringComparison.Ordinal);
+        Assert.Contains("@('readback','foreign-resolver','device-loss','request-cancellation','callback-fault','adapter-abandonment','queue-abandonment')", script, StringComparison.Ordinal);
         Assert.Contains("$arguments += '--request-cancellation'", script, StringComparison.Ordinal);
     }
 

@@ -55,3 +55,10 @@ dotnet run --project \
   --configuration Release -- \
   --verify \
   "${repo_root}/src/ProGPU.Native/src/Text/Unicode/progpu_native_unicode_categories.generated.hpp"
+
+dotnet run --project \
+  "${repo_root}/eng/ProGPU.NativeContractGenerator/ProGPU.NativeContractGenerator.csproj" \
+  --configuration Release -- \
+  --verify \
+  "${repo_root}/src/ProGPU.Native/include/progpu_native_text_hinting.h" \
+  "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeTextHintingContract.g.cs"

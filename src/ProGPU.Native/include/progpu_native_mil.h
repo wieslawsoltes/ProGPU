@@ -34,6 +34,15 @@ typedef struct progpu_native_mil_batch_metrics {
     uint32_t total_bytes;
 } progpu_native_mil_batch_metrics;
 
+/* Returns the actual counters from the last successfully committed hinted
+ * update by value: no output pointer can alias borrowed immutable resource
+ * storage. Before the first hinted update counters are zero; failed hinted or
+ * ordinary updates leave the last hinted snapshot unchanged. A null channel
+ * returns all zero, including struct_size. Like channel updates, callers must
+ * externally serialize this query with other uses and channel destruction. */
+PROGPU_NATIVE_API progpu_native_mil_batch_metrics progpu_native_mil_channel_get_last_hinted_batch_metrics(
+    const progpu_native_mil_channel* channel);
+
 typedef struct progpu_native_mil_visual_snapshot {
     uint32_t struct_size;
     uint32_t handle;

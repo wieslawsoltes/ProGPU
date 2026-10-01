@@ -1584,6 +1584,44 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     /// <summary>
+    /// Renders the exact independently owned hinted paragraph frame through
+    /// this compositor's selected provider. No font execution or layout occurs.
+    /// The prepared target, view generation, dimensions and DPI remain exact;
+    /// this explicit flags-zero frame does not select source Display formatting.
+    /// </summary>
+    public NativeGlyphFrameMetrics RenderHintedParagraphFrame(
+        GpuTexture target, NativeHintedParagraphFrame frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        using var use = frame.Acquire();
+        var metrics = new NativeMethods.GlyphFrameMetrics
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>()
+        };
+        lock (_context.RenderLock)
+        {
+            ValidateTarget(target);
+            ThrowIfGpuUnavailable();
+            frame.BorrowForRender(use.Handle, target, out var nativeFrame);
+            // Stock CPU ownership is leased above; only the selected renderer
+            // receives its own engine. Never send a Dawn engine to stock APIs.
+            var status = NativeRendererInterop.RenderGlyphs(
+                _interopKind, _engine, &nativeFrame, &metrics);
+            if (status != NativeRendererStatus.Success)
+                throw new NativeRendererException(status, ReadLastError());
+            target.NotifyExternalContentChanged();
+            GC.KeepAlive(target);
+            GC.KeepAlive(frame);
+        }
+        return new NativeGlyphFrameMetrics(
+            metrics.DrawCallCount, metrics.GlyphCount, metrics.RasterizedGlyphCount,
+            metrics.AtlasWidth, metrics.AtlasHeight, metrics.AtlasGeneration,
+            metrics.AtlasGrowthCount, metrics.InstanceUploadBytes, metrics.OutlineUploadBytes,
+            metrics.CoverageStagingBytes, metrics.UniformUploadBytes,
+            metrics.SubmissionCount, metrics.PayloadHash);
+    }
+
+    /// <summary>
     /// Uploads a retained straight-alpha RGBA8 image and renders it through
     /// the native WebGPU image pipeline.
     /// </summary>

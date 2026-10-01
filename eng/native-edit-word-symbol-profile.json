@@ -1,0 +1,23 @@
+{
+  "schema": "native-edit-word-symbol-profile-v1",
+  "sourceRun": 36867054042,
+  "sourceJob": 110385050238,
+  "sourceHead": "4aab8ead3eafac60a57b6a646debad132184ef13",
+  "receipt": "symbol-attributes.json",
+  "receiptSha256": "ef40688691684bba820071ac712699884439da99dd456daee86b4e37878ac7c3",
+  "unicodeSourceSha256": "09d1198b93e17bd27ac419635bb60107a868701c8b62e96cc3a7b1349c353699",
+  "osBuild": "10.0.26100.0",
+  "architecture": "X64",
+  "locale": "en-US",
+  "framework": ".NET 11.0.0-preview.5.26302.115",
+  "symbolCount": 3854,
+  "caseCount": 11562,
+  "domain": "Observed BMP OtherSymbol scalars whose original ProGPU Unicode17 raw line class is ID; only all-three-context resolved AL/ID signatures are admitted",
+  "alphabeticCount": 15,
+  "ideographicCount": 902,
+  "unqualifiedCount": 82,
+  "heldoutReceipt": "item-contexts.json",
+  "heldoutReceiptSha256": "a095a0cc680cca4aea8248b16cd13e4bc9afe2d3bb8bf811a7795f279d7fa706",
+  "ordinaryProviderQualified": false,
+  "allUnicodeQualified": false
+}

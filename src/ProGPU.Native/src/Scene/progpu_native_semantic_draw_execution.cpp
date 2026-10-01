@@ -247,10 +247,10 @@ progpu_native_status encode_semantic_glyph_draw(
     WGPUBindGroup mask_chain_bind_group) {
     const std::uint64_t instance_bytes = engine.glyph_instances.size() *
         sizeof(gpu_glyph_instance);
-    WGPUBindGroup uniform_group =
-        select_semantic_text_uniform_bind_group(
-            engine,
-            target_layer);
+    const bool painted = draw.paint_index != PROGPU_NATIVE_SCENE_NO_INDEX;
+    WGPUBindGroup uniform_group = painted
+        ? semantic::glyph_paint_uniform_binding(engine, target_layer)
+        : select_semantic_text_uniform_bind_group(engine, target_layer);
     if (!engine.semantic_glyph_cache.cache_valid ||
         !engine.glyph_cache_valid || !engine.glyph_gpu_cache_valid ||
         engine.text_vertex_buffer == nullptr ||
@@ -267,6 +267,34 @@ progpu_native_status encode_semantic_glyph_draw(
     const bool masked = mask_bind_group != nullptr ||
         mask_chain_bind_group != nullptr;
     const bool chained = mask_chain_bind_group != nullptr;
+    if (painted) {
+        if (draw.paint_index >= engine.semantic_glyph_cache.paints.size() ||
+            draw.paint_index >= engine.glyph_paint_texture_bindings.size() ||
+            engine.glyph_paint_texture_bindings[draw.paint_index].bind_group == nullptr)
+            return engine.fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The original hinted glyph paint binding is incomplete.");
+        const bool premultiplied_output = semantic::glyph_paint_premultiplied_output(
+            engine.semantic_glyph_cache.paints[draw.paint_index],
+            engine.target_format == WGPUTextureFormat_R8Unorm);
+        if (!semantic::ensure_glyph_paint_pipeline(engine, masked, chained, premultiplied_output))
+            return engine.fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The original hinted glyph paint pipeline is incomplete.");
+        Commands::set_pipeline(encoder, semantic::select_glyph_paint_pipeline(
+            engine, masked, chained, premultiplied_output));
+        Commands::set_bind_group(encoder, 0U, uniform_group);
+        Commands::set_bind_group(encoder, 1U, engine.text_atlas_bind_group);
+        Commands::set_bind_group(encoder, 2U,
+            chained ? mask_chain_bind_group : masked ? mask_bind_group :
+                engine.glyph_paint_empty_mask_bind_group);
+        Commands::set_bind_group(encoder, 3U,
+            engine.glyph_paint_texture_bindings[draw.paint_index].bind_group);
+        Commands::set_vertex_buffer(encoder, engine.text_vertex_buffer, instance_bytes);
+        const auto& paint = engine.semantic_glyph_cache.paints[draw.paint_index];
+        const std::uint32_t vertex_count = paint.kind == PROGPU_NATIVE_SCENE_GLYPH_PAINT_TEXTURE &&
+            (paint.flags & PROGPU_NATIVE_SCENE_GLYPH_PAINT_BOUNDED) != 0U ? 12U : 6U;
+        Commands::draw(encoder, vertex_count, draw.instance_count, 0U, draw.first_instance);
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    }
     if (masked && !chained && engine.text_masked_pipeline == nullptr &&
         !create_text_masked_pipeline(engine)) {
         return engine.fail(

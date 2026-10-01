@@ -337,6 +337,7 @@ bool ensure_analytic_material_buffers(
     }
 
     engine.release_semantic_layer_analytic_bindings();
+    engine.release_glyph_paint_uniform_bindings();
     if (engine.analytic_uniform_bind_group != nullptr) {
         wgpuBindGroupRelease(engine.analytic_uniform_bind_group);
     }
@@ -369,6 +370,9 @@ bool ensure_analytic_brush_buffer(
 }
 
 bool create_analytic_pipeline(progpu_native_engine& engine) {
+    if (engine.analytic_pipeline != nullptr) {
+        return create_analytic_resources(engine);
+    }
     if (!create_analytic_bind_group_layouts(engine)) {
         return false;
     }
@@ -446,13 +450,31 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
     pipeline_descriptor.multisample.count = 1U;
     pipeline_descriptor.multisample.mask = 0xFFFFFFFFU;
     pipeline_descriptor.fragment = &fragment_state;
-    engine.analytic_pipeline = wgpuDeviceCreateRenderPipeline(
+    const auto pipeline = wgpuDeviceCreateRenderPipeline(
         engine.device,
         &pipeline_descriptor);
     wgpuPipelineLayoutRelease(pipeline_layout);
-    if (engine.analytic_pipeline == nullptr) {
+    if (pipeline == nullptr) {
         return false;
     }
+
+    if (!create_analytic_resources(engine)) {
+        wgpuRenderPipelineRelease(pipeline);
+        return false;
+    }
+    // A non-null pipeline is used as readiness by existing vector/path
+    // callers. Publish it only after its original resource tail completes.
+    engine.analytic_pipeline = pipeline;
+    return true;
+}
+
+bool create_analytic_resources(progpu_native_engine& engine) {
+    if (engine.analytic_resources_ready) return true;
+    if (!create_analytic_bind_group_layouts(engine) ||
+        engine.analytic_uniform_buffer != nullptr || engine.analytic_gradient_buffer != nullptr ||
+        engine.analytic_sentinel_texture != nullptr || engine.analytic_sentinel_texture_view != nullptr ||
+        engine.analytic_sentinel_sampler != nullptr || engine.analytic_atlas_bind_group != nullptr)
+        return false;
 
     WGPUBufferDescriptor uniform_descriptor{};
     uniform_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic frame uniforms");
@@ -552,5 +574,6 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
         engine.device,
         &atlas_bind_group_descriptor);
 
-    return engine.analytic_atlas_bind_group != nullptr;
+    engine.analytic_resources_ready = engine.analytic_atlas_bind_group != nullptr;
+    return engine.analytic_resources_ready;
 }

@@ -1,5 +1,54 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+EDIT boundary transport classifies the complete original UTF-16 source with its
+explicit paragraph direction once. Preserve the existing policy/dependency errors,
+original endpoints and interior-grapheme seams; never substitute UAX word stops,
+trim an unsupported inventory or classify a source-local suffix. Return metadata
+by value and publish caller spans only after full validation/classification,
+including unused-capacity alias guards. Optional ICU uses only the pinned private
+static source/data/notices and target-verified package receipt, never ambient ICU.
+DrawingTextLayout freezes the original text and explicit shaping direction with
+its retained generation; its explicit boundary query caches one exact native
+result, including rejection. Keep ordinary creation/painting free of classifier
+calls and public inventories immutable. Do not reinterpret interior EDIT endpoints
+as nearest shaped caret stops. Actual editor geometry/input qualification remains
+required before the ordinary Forms capability marker.
+See docs/native-edit-word-boundaries.md.
+
+Bounded hinted texture paint retains the original image triangles and paint UVs,
+but evaluates filtered glyph coverage from flat original glyph-frame metadata at
+each fragment. Never extrapolate atlas coordinates to distant image corners,
+replace fractional coverage with integer loads, or waive exact package pixel
+differences. Material/extended paint, original alpha policy and derivatives before
+discard remain unchanged; host shader compilation is not Windows pixel parity.
+Raw affine glyph paint uses all four canonical Text corners, preserving both
+signed triangle mappings and per-triangle contributions rather than a bbox,
+invented parallelogram or coverage union. Keep positive-axis arithmetic behind
+exact four-corner equality; material/extended glyph geometry must not reject a
+negative diagonal. Bounded paint retains each original image triangle pair,
+half-open shared edges and derivatives before discard. Both renderers must use
+the matching vertex count. Folded/near-singular edges, multisampling and complete
+provider/package pixels remain explicit gates; shader compilation is not parity.
+
+Paired Display probes preserve original Microsoft glyph/run receipts and separate
+raw signed hinted slots from full source-context shaping and positioned output.
+Keep exact source DPI and original 26.6 values beside float render projections;
+diagnostic conversion is not source output repair. Independent head/hhea inputs
+are not Microsoft output baselines or Display line policy. Require whole-successful
+exact native Build staging before execution; neither receipt-parser tests nor
+one interpreter's matching raw advance admits Display. See
+eng/HintedDisplayPolicyProbe/README.md.
+
+Hinted source lines retain the measured writer's actual double tops and ascents
+beside their original baselines. Keep the additive frame view under the original
+resource lease and preserve all alias guards. Canonical source offsets reuse the
+native validator and original nominal metrics in one atomic run batch, never
+source-local prefixes or per-glyph font calls. Source drawing and interaction
+consume this same generation; line and cloned continuation uses own independent
+leases. Empty-row, reflow/collapse and Display device-policy admission remain
+explicit until their original contracts and qualification exist. See
+docs/source-hinted-text-ownership.md.
+
 Local source visibility is independent of opacity and presentation attachment.
 Carry Visible/Hidden/Collapsed through typed state and native snapshot transport;
 exclude ordinary hidden subtrees before cache/mask/input admission. Explicit
@@ -136,6 +185,95 @@ and negative caching, atomic glyph validation and untouched caller tails.
 Device pixels are not design units, ink bounds or hinted variable-instance
 metrics. Do not infer Display admission, interpolate absent records or add a
 per-glyph crossing. See docs/native-font-device-advances.md.
+
+Native hinted-font batches own original immutable bytes and exact face, device-em,
+phase, interpreter and explicit variation identity. Capture advances, all metrics
+and complete outline metadata from one glyph load before its mutable slot changes;
+preserve every original ID and publish only whole successful batches. Native faces
+end before memory-font bytes, and snapshots survive adapter disposal. Keep the
+signed external dependency isolated and its actual static architecture verified;
+never import foreign implementation or infer loaded ownership from a version.
+The private C++ adapter and isolated controls do not admit source Display, CFF,
+color/bitmap fonts, named instances or product rendering. Context leases, bounded
+caches, fixed-width atomic transport, shared layout/interaction/raster generation
+and independent Windows/package gates remain required. See docs/native-font-hinting.md.
+Hinted generation transport validates every glyph and complete buffer capacities
+before any write. Preserve exact signed fixed-point metrics, native-long widening,
+tag bits and glyph-local contour indices; reject overlap with retained font/batch
+storage even in unused tails. Status/path return by value, never through aliased
+caller outputs. This core helper does not export a font ABI or admit source Display.
+Native text sources share immutable original bytes and collection face identity,
+never a fallback-palette index or parsed-table offset. Retain source ownership
+through every hinted face and snapshot; cold cached generations publish before
+bounded eviction, while native faults preserve the earlier exact key/batch.
+Cache synchronization does not replace the creating-thread context use lease.
+Product hinting requires an explicit exact signed producer receipt and target RID,
+including actual static/PIC build, header/archive and original-notice admission.
+Keep dependency symbols private and verify selected functions belong to the
+executing image before font loading; version alone is not ownership. Context
+caches stay lazy and unpublished native failures retain prior generations. SDK
+staging must match the actual product configuration and preserve fresh notices;
+partial dependency packages require all six verified architectures. This private
+linkage does not admit source Display or qualify a loaded shared font ABI.
+Retained hinted C batch handles own one immutable generation independent of
+context/cache retirement. Capture borrows the original exclusive context lease;
+counts/copy borrow a separate handle lease excluding destroy. Reject input/output
+and retained-handle aliases before publication, preserve exact signed fixed-point
+records and every caller tail, and never execute fonts while copying. Absent
+dependencies remain explicit Unsupported; additive C exports do not admit Display.
+Retained hinted paragraph glyph resources are independent of target views and
+paint. Keep exact source/run/descriptor maps, including every no-ink occurrence,
+and complete reachable allocation-capacity guards when frames share that owner.
+Private MIL bindings verify original positioned indices, exact font bytes/face/em
+and DPI before atomic publication. Consume hinted outlines inside existing semantic
+brush/clip scopes without design-outline decoding, ID/phase lookup or second snap.
+Identity basis and no added guidelines remain explicit gates; private C++ binding
+does not admit public transport, managed/source replay or Display selection.
+Public hinted-glyph resources retain original format, interaction and font bytes
+without fabricating a target or source generation. Prepare/borrow/destroy stay
+in the producer library under a destruction-excluding lifetime lease; a selected
+stock/Dawn renderer imports only immutable flat records. Canonical commands and
+all explicit occurrence bindings share one candidate and preserve prior graph,
+cache and native status on any later failure. Drain every managed resource lease
+even when teardown faults. Public transport does not admit managed compositor,
+recorded/source replay, nonidentity bases or Display selection.
+Public hinted-resource read leases retain the original producer independently of
+source/owner disposal. Read-only spans borrow that lease, never own native storage;
+consumers must exclude lease disposal throughout span use. One reference lease
+ends one use exactly once, including teardown faults; retained failure retry must
+not decrement that use again. Preserve every original format/interaction/font,
+axis, source-owner and physical-geometry record without new shaping or copies.
+This consumer ownership seam does not qualify either renderer or select Display.
+
+Optional source hinted formatting carries explicit device styles and both original
+16.16 axes and normalized shaping coordinates through the shared UTF-16 mapper.
+Keep original occurrence/run/style identities and measured baseline/height/pen
+origins; do not synthesize empty-row tops or expose a design-font alias. Independent
+source references retain the live native resource until final retirement, with
+once-ended uses and exact failed teardown retry. Source GlyphRun/replay wiring,
+continuation and Display selection remain separate. See docs/source-hinted-text-ownership.md.
+Explicit nominal-metric preparation reads original hmtx advances through retained
+font bytes/collection faces, never half-em, device or GPOS substitutes. Keep its
+immutable view additive to existing resource/import layouts, preserve every
+positioned/no-ink identity and reject missing metrics or coordinate-bearing
+instances before publication. Borrow spans under the original resource lease and
+guard their complete allocation against output aliases. Nominal metadata alone
+does not connect source baseline frames, offsets, carets or Display selection.
+Source nominal-offset validation uses the original owning writer line and exact
+retained hmtx/positioned advances. Keep source baseline separate from paragraph
+draw translation and baseline-relative ink; reject cross-line, vertical or
+unrepresentable mappings before publishing anything. Validate under the existing
+producer lease without reflow, per-glyph crossings or source-local correction.
+Nominal Ideal offsets do not admit Display rounding or source caret interaction.
+
+Recorded hinted replay retains original producer uses through pictures, compiled
+scenes and frame resources, not merely managed geometry references. Keep explicit
+occurrence ranges, source brush bounds, physical Y-up records, exact target DPI
+and unsnapped positions; raster padding is not source input or a paint domain.
+Spatial paint uses original glyph coverage and one canonical brush draw. Drain
+all owners on failure and retry exact failed retirements without a second use end.
+Static buffers, incremental pages and source Display/input remain separate gates.
+See docs/retained-hinted-glyph-replay.md; authored controls are not GPU qualification.
 
 Retained DrawingTextLayout painting and interaction must share one original
 formatted generation. Own exact glyph/font runs and interaction geometry; do not

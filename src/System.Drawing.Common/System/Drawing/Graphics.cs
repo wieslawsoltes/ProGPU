@@ -3591,6 +3591,7 @@ public partial class Graphics :
         {
             EnableFontFallback = (flags & StringFormatFlags.NoFontFallback) == 0,
             MeasureTrailingWhitespace = (flags & StringFormatFlags.MeasureTrailingSpaces) != 0,
+            RetainOriginalGraphemeOwnership = retainCompleteParagraph,
             FirstTabOffset = firstTabOffset,
             TabStops = tabStops
         };

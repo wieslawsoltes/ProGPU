@@ -9,7 +9,8 @@ if(NOT DEFINED SYMBOL)
 endif()
 
 set(shader_hex "")
-foreach(prefix_name IN ITEMS PREFIX_INPUT SECOND_PREFIX_INPUT)
+foreach(prefix_name IN ITEMS PREFIX_INPUT SECOND_PREFIX_INPUT
+        THIRD_PREFIX_INPUT FOURTH_PREFIX_INPUT FIFTH_PREFIX_INPUT)
     if(DEFINED ${prefix_name})
         if(NOT EXISTS "${${prefix_name}}")
             message(FATAL_ERROR

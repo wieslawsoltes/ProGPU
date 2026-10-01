@@ -50,6 +50,7 @@ inline void collect_engine_memory(
     B(analytic_gradient_buffer);
     B(text_style_buffer);
     B(text_vertex_buffer);
+    B(glyph_paint_buffer);
     B(vertex_buffer);
     B(index_buffer);
     B(path_vertex_buffer);
@@ -138,6 +139,10 @@ inline void collect_engine_memory(
     inventory.borrowed_view(engine.layer_external_mask_view);
     for (const auto& binding : engine.semantic_external_image_bindings)
         inventory.borrowed_view(binding.view);
+    for (const auto& binding : engine.glyph_paint_texture_bindings)
+        inventory.borrowed_view(binding.view);
+    // glyph_paint_uniform_bindings owns only bind groups. Its buffer fields
+    // are identity-only keys and must never be dereferenced by this inventory.
     if (engine.semantic_picture_child_engine) {
         collect_engine_memory(
             inventory, *engine.semantic_picture_child_engine);

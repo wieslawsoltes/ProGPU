@@ -2,7 +2,8 @@ namespace ProGPU.Backend.Native;
 
 // The C++ context mutates retained plans and fallback-font storage. A use owns
 // both pointer lifetime and exclusive access for the entire synchronous call.
-internal sealed class NativeTextContextOwner(nint handle, Action<nint> release) : IDisposable
+internal sealed class NativeTextContextOwner(nint handle, Action<nint> release,
+    string objectName = nameof(NativeTextShapingContext)) : IDisposable
 {
     private readonly object _gate = new();
     private nint _handle = handle;
@@ -15,7 +16,7 @@ internal sealed class NativeTextContextOwner(nint handle, Action<nint> release) 
         try
         {
             if (_disposed || _handle == 0)
-                throw new ObjectDisposedException(nameof(NativeTextShapingContext));
+                throw new ObjectDisposedException(objectName);
             _uses++;
             return new Use(this, _handle);
         }

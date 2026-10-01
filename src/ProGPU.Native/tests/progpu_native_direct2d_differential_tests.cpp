@@ -1,5 +1,9 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+#include "progpu_native_hinted_glyph_rendering_fixture.hpp"
+#include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
+#endif
 
 #include <webgpu.h>
 
@@ -614,6 +618,102 @@ std::vector<std::uint8_t> render_progpu(
     return result;
 }
 
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+progpu_native_engine* create_hinted_engine(const dawn_api& api, const gpu_context& gpu)
+{
+    progpu_native_dawn_engine_options options{};
+    options.struct_size = sizeof(options);
+    options.native_abi_version = PROGPU_NATIVE_ABI_VERSION;
+    options.adapter_abi_version = PROGPU_NATIVE_DAWN_ADAPTER_ABI_VERSION;
+    options.provider_abi_version = PROGPU_NATIVE_DAWN_REQUIRED_PROVIDER_ABI_VERSION;
+    options.target_format = PROGPU_NATIVE_TEXTURE_FORMAT_BGRA8_UNORM;
+    options.resolver_context = const_cast<dawn_api*>(&api);
+    options.resolve_proc = resolve_for_engine;
+    options.instance = reinterpret_cast<std::uintptr_t>(gpu.instance);
+    options.device = reinterpret_cast<std::uintptr_t>(gpu.device);
+    options.queue = reinterpret_cast<std::uintptr_t>(gpu.queue);
+    progpu_native_engine* engine{};
+    require(progpu_native_dawn_engine_create(&options, &engine) == PROGPU_NATIVE_STATUS_SUCCESS && engine != nullptr,
+        "hinted real Dawn engine creation failed");
+    return engine;
+}
+
+// Original render_progpu target/copy/map contract, using the same real Dawn
+// procedures and WaitAnyOnly map future/deadline. CPU font execution occurs
+// before this callback; the callback invokes only the real glyph consumer.
+template<class Draw>
+std::vector<std::uint8_t> render_hinted_glyphs(const dawn_api& api,
+    const gpu_context& gpu, progpu_native_engine* engine, Draw draw)
+{
+    constexpr std::uint32_t hinted_height = 64U;
+    WGPUTextureDescriptor texture_descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    texture_descriptor.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
+    texture_descriptor.dimension = WGPUTextureDimension_2D;
+    texture_descriptor.size = {width, hinted_height, 1U};
+    texture_descriptor.format = WGPUTextureFormat_BGRA8Unorm;
+    texture_descriptor.mipLevelCount = 1U; texture_descriptor.sampleCount = 1U;
+    auto texture = api.get<WGPUProcDeviceCreateTexture>("wgpuDeviceCreateTexture")(gpu.device, &texture_descriptor);
+    require(texture != nullptr, "hinted Dawn target creation failed");
+    WGPUTextureViewDescriptor view_descriptor = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+    auto view = api.get<WGPUProcTextureCreateView>("wgpuTextureCreateView")(texture, &view_descriptor);
+    require(view != nullptr, "hinted Dawn target view creation failed");
+    draw(engine, reinterpret_cast<std::uintptr_t>(view));
+    WGPUBufferDescriptor buffer_descriptor = WGPU_BUFFER_DESCRIPTOR_INIT;
+    buffer_descriptor.size = static_cast<std::uint64_t>(row_bytes) * hinted_height;
+    buffer_descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+    auto buffer = api.get<WGPUProcDeviceCreateBuffer>("wgpuDeviceCreateBuffer")(gpu.device, &buffer_descriptor);
+    require(buffer != nullptr, "hinted Dawn readback creation failed");
+    WGPUCommandEncoderDescriptor encoder_descriptor = WGPU_COMMAND_ENCODER_DESCRIPTOR_INIT;
+    auto encoder = api.get<WGPUProcDeviceCreateCommandEncoder>("wgpuDeviceCreateCommandEncoder")(gpu.device, &encoder_descriptor);
+    require(encoder != nullptr, "hinted Dawn copy encoder creation failed");
+    WGPUTexelCopyTextureInfo source = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+    source.texture = texture;
+    WGPUTexelCopyBufferInfo destination = WGPU_TEXEL_COPY_BUFFER_INFO_INIT;
+    destination.buffer = buffer;
+    destination.layout.bytesPerRow = row_bytes; destination.layout.rowsPerImage = hinted_height;
+    const WGPUExtent3D extent{width, hinted_height, 1U};
+    api.get<WGPUProcCommandEncoderCopyTextureToBuffer>("wgpuCommandEncoderCopyTextureToBuffer")(
+        encoder, &source, &destination, &extent);
+    WGPUCommandBufferDescriptor command_descriptor = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT;
+    auto command = api.get<WGPUProcCommandEncoderFinish>("wgpuCommandEncoderFinish")(encoder, &command_descriptor);
+    require(command != nullptr, "hinted Dawn copy command creation failed");
+    api.get<WGPUProcQueueSubmit>("wgpuQueueSubmit")(gpu.queue, 1U, &command);
+    map_request mapped;
+    WGPUBufferMapCallbackInfo callback = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+    callback.mode = WGPUCallbackMode_WaitAnyOnly;
+    callback.userdata1 = &mapped;
+    callback.callback = [](WGPUMapAsyncStatus status, WGPUStringView message, void* userdata, void*) {
+        auto* state = static_cast<map_request*>(userdata);
+        if (status != WGPUMapAsyncStatus_Success) {
+            std::fprintf(stderr, "hinted Dawn map error: %.*s\n", static_cast<int>(message.length),
+                message.data == nullptr ? "" : message.data);
+        }
+        { const std::lock_guard lock(state->mutex); state->status = status; state->complete = true; }
+        state->changed.notify_one();
+    };
+    const auto future = api.get<WGPUProcBufferMapAsync>("wgpuBufferMapAsync")(
+        buffer, WGPUMapMode_Read, 0U, static_cast<std::size_t>(buffer_descriptor.size), callback);
+    WGPUFutureWaitInfo wait = WGPU_FUTURE_WAIT_INFO_INIT;
+    wait.future = future;
+    const auto status = api.get<WGPUProcInstanceWaitAny>("wgpuInstanceWaitAny")(
+        gpu.instance, 1U, &wait, 30'000'000'000ULL);
+    require(status == WGPUWaitStatus_Success && wait.completed, "hinted Dawn readback mapping timed out");
+    require(mapped.complete && mapped.status == WGPUMapAsyncStatus_Success, "hinted Dawn map callback failed");
+    const auto* data = api.get<WGPUProcBufferGetConstMappedRange>("wgpuBufferGetConstMappedRange")(
+        buffer, 0U, static_cast<std::size_t>(buffer_descriptor.size));
+    require(data != nullptr, "hinted Dawn mapped range unavailable");
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(buffer_descriptor.size));
+    std::memcpy(pixels.data(), data, pixels.size());
+    api.get<WGPUProcBufferUnmap>("wgpuBufferUnmap")(buffer);
+    api.get<WGPUProcCommandBufferRelease>("wgpuCommandBufferRelease")(command);
+    api.get<WGPUProcCommandEncoderRelease>("wgpuCommandEncoderRelease")(encoder);
+    api.get<WGPUProcBufferRelease>("wgpuBufferRelease")(buffer);
+    api.get<WGPUProcTextureViewRelease>("wgpuTextureViewRelease")(view);
+    api.get<WGPUProcTextureRelease>("wgpuTextureRelease")(texture);
+    return pixels;
+}
+#endif
+
 // One original drawing workload invoked through both the ProGPU COM vtable and
 // Microsoft's system render target. Painting after resetting the world transform
 // makes the target AABB corners distinguishable from the source parallelogram.
@@ -936,6 +1036,20 @@ int wmain(int argc, wchar_t** argv)
         api, gpu, scene.scene_target.get());
     const std::vector<std::uint8_t> system = render_system_direct2d();
     compare_images(progpu, system);
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+    std::array<progpu_native_engine*, 2U> hinted_engines{create_hinted_engine(api, gpu), create_hinted_engine(api, gpu)};
+    progpu::native::tests::verify_hinted_glyph_rendering(
+        [&](bool reference, float, auto draw) {
+            return render_hinted_glyphs(api, gpu, hinted_engines[reference ? 1U : 0U], draw);
+        }, require);
+    for (auto* engine : hinted_engines) progpu_native_engine_destroy(engine);
+    hinted_engines = {create_hinted_engine(api, gpu), create_hinted_engine(api, gpu)};
+    progpu::native::tests::verify_hinted_paragraph_glyph_rendering(
+        [&](bool reference, float, auto draw) {
+            return render_hinted_glyphs(api, gpu, hinted_engines[reference ? 1U : 0U], draw);
+        }, require);
+    for (auto* engine : hinted_engines) progpu_native_engine_destroy(engine);
+#endif
     for (const bool opacity_mask : {false, true}) {
         record_finite_affine_layer(reinterpret_cast<ID2D1RenderTarget*>(scene.target.get()), opacity_mask);
         const auto affine_progpu = render_progpu(api, gpu, scene.scene_target.get(), 1U, 3U);

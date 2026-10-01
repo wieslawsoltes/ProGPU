@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "version": "2.14.3",
+  "repository": "https://gitlab.freedesktop.org/freetype/freetype.git",
+  "tag": "VER-2-14-3",
+  "tagObject": "c740f0fda4274d6ffd2e5b64a25b06ef69803a07",
+  "commit": "0a0221a1347e2f1e07c395263540026e9a0aa7c7",
+  "signerFingerprint": "58E0C111E39F5408C5D3EC76C1A60EACE707FDA5",
+  "author": "Werner Lemberg <wl@gnu.org>",
+  "keyUrl": "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x58E0C111E39F5408C5D3EC76C1A60EACE707FDA5",
+  "license": "FTL",
+  "libraryKind": "static",
+  "optionalDependencies": "disabled"
+}

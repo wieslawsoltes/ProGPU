@@ -3,7 +3,7 @@ using System.Numerics;
 namespace ProGPU.Text;
 
 /// <summary>Owned interaction geometry from one completed text-layout generation.</summary>
-public sealed class TextInteractionSnapshot
+public sealed partial class TextInteractionSnapshot
 {
     private readonly TextLayout.ClusterBox[] _boxes;
     private readonly TextCaretStop[] _carets;
@@ -12,9 +12,11 @@ public sealed class TextInteractionSnapshot
     private readonly int[] _caretRows;
     private readonly bool _horizontal;
     private readonly int[] _sourceRowStarts;
+    private readonly int[]? _originalGraphemeBoundaries;
 
     internal TextInteractionSnapshot(int textLength, float emptyHeight, TextLayout.ClusterBox[] boxes,
-        TextLayout.EmptyLineCaret[] emptyLines, bool horizontal, int[] sourceRowStarts)
+        TextLayout.EmptyLineCaret[] emptyLines, bool horizontal, int[] sourceRowStarts,
+        int[]? originalGraphemeBoundaries = null)
     {
         TextLength = textLength;
         _emptyHeight = emptyHeight;
@@ -22,6 +24,7 @@ public sealed class TextInteractionSnapshot
         _emptyLines = emptyLines;
         _horizontal = horizontal;
         _sourceRowStarts = sourceRowStarts;
+        _originalGraphemeBoundaries = originalGraphemeBoundaries;
         var rows = new List<int>();
         _carets = BuildCaretStops(boxes, emptyHeight, emptyLines, rows).ToArray();
         _caretRows = rows.ToArray();
@@ -101,7 +104,10 @@ public sealed class TextInteractionSnapshot
             throw new NotSupportedException("Source-position queries require writer-owned horizontal row metadata.");
     }
 
-    public TextHitTestResult HitTestPoint(Vector2 point) => HitTestPoint(_boxes, _emptyHeight, point, _emptyLines);
+    public TextHitTestResult HitTestPoint(Vector2 point) => HitTestPoint(point, out _);
+
+    internal TextHitTestResult HitTestPoint(Vector2 point, out int boxIndex)
+        => HitTestPoint(_boxes, _emptyHeight, point, _emptyLines, out boxIndex);
 
     public TextCaretStop GetCaretStop(int textPosition, bool trailingAffinity = false)
         => GetCaretStop(_carets, textPosition, trailingAffinity);
@@ -213,7 +219,13 @@ public sealed class TextInteractionSnapshot
     internal static TextHitTestResult HitTestPoint(
         IReadOnlyList<TextLayout.ClusterBox> boxes, float emptyHeight, Vector2 point,
         IReadOnlyList<TextLayout.EmptyLineCaret> emptyLines)
+        => HitTestPoint(boxes, emptyHeight, point, emptyLines, out _);
+
+    internal static TextHitTestResult HitTestPoint(
+        IReadOnlyList<TextLayout.ClusterBox> boxes, float emptyHeight, Vector2 point,
+        IReadOnlyList<TextLayout.EmptyLineCaret> emptyLines, out int boxIndex)
     {
+        boxIndex = -1;
         // Writer-owned horizontal rows select by their vertical band before
         // horizontal proximity. Otherwise a long adjacent row can steal a hit
         // beyond a short row's end. Legacy/vertical boxes have RowIndex == -1
@@ -258,6 +270,7 @@ public sealed class TextInteractionSnapshot
 
         float bestDistance = float.PositiveInfinity;
         TextLayout.ClusterBox best = boxes[0];
+        int bestIndex = 0;
         bool inside = false;
         for (int i = 0; i < boxes.Count; i++)
         {
@@ -269,11 +282,13 @@ public sealed class TextInteractionSnapshot
             if (distance >= bestDistance) continue;
             bestDistance = distance;
             best = box;
+            bestIndex = i;
             inside = dx == 0 && dy == 0;
         }
         bool visualRightHalf = point.X >= (best.Left + best.Right) * .5f;
         bool rtl = (best.Level & 1) != 0;
         bool trailing = rtl ? !visualRightHalf : visualRightHalf;
+        boxIndex = bestIndex;
         return new TextHitTestResult(trailing ? best.End : best.Start, trailing, inside,
             new TextBounds(best.Left, best.Top, best.Width, best.Height), best.Level);
     }

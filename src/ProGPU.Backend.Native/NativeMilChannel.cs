@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 
 namespace ProGPU.Backend.Native;
 
@@ -14,11 +16,22 @@ namespace ProGPU.Backend.Native;
 public sealed unsafe class NativeMilChannel : IDisposable
 {
     private readonly NativeMilBackend _backend;
+    private readonly object _disposeGate = new();
+    private readonly Action<nint> _destroy;
     private nint _channel;
     private int _disposeState;
+    private bool _destroying;
+    private Exception? _unknownDestroyCompletion;
+    private bool _hintedBatchMetricsAvailable;
 
     public NativeMilChannel(NativeMilBackend backend = NativeMilBackend.WgpuNative)
     {
+        // Prepare managed retirement storage before acquiring native ownership.
+        // These callbacks contain only the original consuming import, with no
+        // fallible managed work after native dispatch.
+        _destroy = backend == NativeMilBackend.Dawn
+            ? static handle => NativeMilDawnMethods.Destroy(handle)
+            : static handle => NativeMilMethods.Destroy(handle);
         nint channel = 0;
         NativeMilStatus status = backend == NativeMilBackend.Dawn
             ? NativeMilDawnMethods.Create(&channel)
@@ -76,6 +89,126 @@ public sealed unsafe class NativeMilChannel : IDisposable
             metrics.CreatedResourceCount,
             metrics.DeletedResourceCount,
             metrics.UpdatedResourceCount,
+            metrics.TotalBytes);
+    }
+
+    /// <summary>
+    /// Atomically applies canonical commands and all original hinted-glyph
+    /// bindings in one native update. Resources remain leased through complete
+    /// import; only flat records enter the selected renderer library. A later
+    /// invalid binding preserves the previous graph, metrics and compiled view.
+    /// </summary>
+    public void ApplyWithHintedGlyphResources(ReadOnlySpan<byte> batch,
+        ReadOnlySpan<NativeHintedGlyphResource> resources,
+        ReadOnlySpan<NativeMilHintedGlyphBinding> bindings,
+        ReadOnlySpan<uint> positionedIndices)
+        => _ = ApplyHintedGlyphResourcesCore(batch, resources, bindings, positionedIndices, captureMetrics: false);
+
+    /// <summary>
+    /// Performs the same single atomic update and returns its actual canonical
+    /// command counters. Like all uses of this channel, the caller must serialize
+    /// the complete operation with other updates and disposal. The by-value
+    /// metrics query never writes into borrowed producer storage or applies the
+    /// canonical batch a second time; hinted bindings are not invented commands.
+    /// </summary>
+    public NativeMilBatchMetrics ApplyWithHintedGlyphResourcesWithMetrics(ReadOnlySpan<byte> batch,
+        ReadOnlySpan<NativeHintedGlyphResource> resources,
+        ReadOnlySpan<NativeMilHintedGlyphBinding> bindings,
+        ReadOnlySpan<uint> positionedIndices)
+        => ApplyHintedGlyphResourcesCore(batch, resources, bindings, positionedIndices, captureMetrics: true);
+
+    private NativeMilBatchMetrics ApplyHintedGlyphResourcesCore(ReadOnlySpan<byte> batch,
+        ReadOnlySpan<NativeHintedGlyphResource> resources,
+        ReadOnlySpan<NativeMilHintedGlyphBinding> bindings,
+        ReadOnlySpan<uint> positionedIndices, bool captureMetrics)
+    {
+        nint channel = GetChannel();
+        if (_backend is not (NativeMilBackend.WgpuNative or NativeMilBackend.Dawn))
+            throw new NotSupportedException("The MIL resource import requires an exact supported native provider.");
+        if (captureMetrics && !_hintedBatchMetricsAvailable)
+        {
+            // Resolve this additive capability BEFORE the first graph update.
+            // An older loaded module must not commit the batch and only then
+            // discover that its metrics entrypoint is unavailable.
+            _ = ReadHintedBatchMetrics(channel);
+            _hintedBatchMetricsAvailable = true;
+        }
+        var views = ArrayPool<NativeMethods.HintedGlyphResourceView>.Shared.Rent(Math.Max(1, resources.Length));
+        NativeHintedGlyphResource[]? leases = null;
+        int acquired = 0;
+        Exception? primaryError = null;
+        try
+        {
+            leases = ArrayPool<NativeHintedGlyphResource>.Shared.Rent(Math.Max(1, resources.Length));
+            for (int index = 0; index < resources.Length; index++)
+            {
+                var resource = resources[index];
+                ArgumentNullException.ThrowIfNull(resource);
+                views[index] = resource.AcquireForImport();
+                leases[index] = resource;
+                acquired++;
+            }
+            fixed (byte* batchPointer = batch)
+            fixed (NativeMethods.HintedGlyphResourceView* viewPointer = views)
+            fixed (NativeMilHintedGlyphBinding* bindingPointer = bindings)
+            fixed (uint* indexPointer = positionedIndices)
+            {
+                NativeMilStatus status = _backend == NativeMilBackend.Dawn
+                    ? NativeMilDawnMethods.ApplyWithHintedGlyphResources(channel, batchPointer, (nuint)batch.Length,
+                        viewPointer, checked((uint)resources.Length), bindingPointer, checked((uint)bindings.Length),
+                        indexPointer, checked((uint)positionedIndices.Length))
+                    : NativeMilMethods.ApplyWithHintedGlyphResources(channel, batchPointer, (nuint)batch.Length,
+                        viewPointer, checked((uint)resources.Length), bindingPointer, checked((uint)bindings.Length),
+                        indexPointer, checked((uint)positionedIndices.Length));
+                if (status != NativeMilStatus.Success)
+                    throw new NativeMilException(status, $"The atomic hinted MIL update was rejected with {status}.");
+            }
+            if (!captureMetrics) return default;
+            return ReadHintedBatchMetrics(channel);
+        }
+        catch (Exception error)
+        {
+            primaryError = error;
+            throw;
+        }
+        finally
+        {
+            Exception? cleanupError = null;
+            try
+            {
+                if (leases != null)
+                {
+                    for (int index = acquired - 1; index >= 0; index--)
+                    {
+                        try { leases[index].EndImport(); }
+                        catch (Exception error) { cleanupError ??= error; }
+                    }
+                    ArrayPool<NativeHintedGlyphResource>.Shared.Return(leases, clearArray: true);
+                }
+            }
+            finally
+            {
+                ArrayPool<NativeMethods.HintedGlyphResourceView>.Shared.Return(views, clearArray: true);
+            }
+            if (cleanupError != null)
+            {
+                // Drain every owner even after a teardown fault. Preserve the
+                // original update error and retain cleanup evidence on it.
+                if (primaryError == null) ExceptionDispatchInfo.Capture(cleanupError).Throw();
+                else primaryError.Data["HintedGlyphResourceCleanupFailure"] = cleanupError;
+            }
+        }
+    }
+
+    private NativeMilBatchMetrics ReadHintedBatchMetrics(nint channel)
+    {
+        var metrics = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.GetLastHintedBatchMetrics(channel)
+            : NativeMilMethods.GetLastHintedBatchMetrics(channel);
+        if (metrics.StructSize != Unsafe.SizeOf<NativeMilMethods.BatchMetrics>())
+            throw new InvalidOperationException("The native hinted MIL metrics snapshot has an incompatible size.");
+        return new(metrics.CommandCount, metrics.SupportedCommandCount, metrics.UnsupportedCommandCount,
+            metrics.CreatedResourceCount, metrics.DeletedResourceCount, metrics.UpdatedResourceCount,
             metrics.TotalBytes);
     }
 
@@ -827,31 +960,13 @@ public sealed unsafe class NativeMilChannel : IDisposable
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
-        {
-            return;
-        }
-        nint channel = Interlocked.Exchange(ref _channel, 0);
-        if (channel != 0)
-        {
-            if (_backend == NativeMilBackend.Dawn)
-            {
-                NativeMilDawnMethods.Destroy(channel);
-            }
-            else
-            {
-                NativeMilMethods.Destroy(channel);
-            }
-        }
+        NativeMilChannelRetirement.Dispose(_disposeGate, ref _channel,
+            ref _disposeState, ref _destroying, ref _unknownDestroyCompletion, _destroy);
         GC.SuppressFinalize(this);
     }
 
     private nint GetChannel()
-    {
-        nint channel = Volatile.Read(ref _channel);
-        ObjectDisposedException.ThrowIf(channel == 0, this);
-        return channel;
-    }
+        => NativeMilChannelRetirement.GetHandle(ref _channel, ref _disposeState, this);
 
 
     private NativeMilStatus BuildScene(

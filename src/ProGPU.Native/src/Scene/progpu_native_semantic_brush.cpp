@@ -209,7 +209,15 @@ bool compile_brush_page(
              ++command_index) {
             const auto command = read_command(bytes, header, command_index);
             const auto state = state_cursor.advance(command);
-            if ((command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
+            const bool painted = command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN;
+            progpu_native_scene_painted_glyph_draw painted_draw{};
+            if (painted) {
+                painted_draw = read_record<progpu_native_scene_painted_glyph_draw>(bytes, command.payload_offset);
+                const auto paint = read_record<progpu_native_scene_glyph_paint>(bytes,
+                    command.payload_offset + sizeof(painted_draw));
+                if (paint.kind != PROGPU_NATIVE_SCENE_GLYPH_PAINT_MATERIAL) continue;
+            }
+            if ((!painted && command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
                     command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH &&
                     command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY &&
                     command.kind !=
@@ -221,9 +229,10 @@ bool compile_brush_page(
                 command.payload_size == 0U) {
                 continue;
             }
-            const auto draw = read_record<progpu_native_scene_draw_brushes>(
-                bytes,
-                command.payload_offset);
+            const auto draw = painted
+                ? progpu_native_scene_draw_brushes{sizeof(progpu_native_scene_draw_brushes),
+                    painted_draw.paint_resource_index, 1U, 0U}
+                : read_record<progpu_native_scene_draw_brushes>(bytes, command.payload_offset);
             const auto resource = read_resource(
                 bytes,
                 header,
@@ -237,7 +246,7 @@ bool compile_brush_page(
             for (std::uint32_t index = 0U;
                  index < draw.brush_count;
                  ++index) {
-                const auto local_index = read_record<std::uint32_t>(
+                const auto local_index = painted ? painted_draw.paint_index : read_record<std::uint32_t>(
                     bytes,
                     command.payload_offset + sizeof(draw) +
                         static_cast<std::size_t>(index) * sizeof(std::uint32_t));
