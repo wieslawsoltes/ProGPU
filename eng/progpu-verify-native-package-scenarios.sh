@@ -20,20 +20,22 @@ expected_text="$(printf '%s\n' \
   --text-hinted-paragraph-dawn-render-only | sort)"
 expected_text_group="$(printf '%s\n' --text-device-advances-only --text-hinted-paragraph-render-only | sort)"
 expected_dawn_group='--text-hinted-paragraph-dawn-render-only'
-expected_all="$(printf '%s\n' "${expected_mil}" "${expected_text}" | sort)"
+expected_edit_word="$(printf '%s\n' --text-edit-word-boundaries-only --text-edit-word-boundaries-dawn-only | sort)"
+expected_all="$(printf '%s\n' "${expected_mil}" "${expected_text}" "${expected_edit_word}" | sort)"
 all="$("${selector}" all | sort)"
 grouped_mil="$(for group in drawings visuals guidelines; do "${selector}" "${group}"; done | sort)"
 grouped_text="$(for group in text text-dawn; do "${selector}" "${group}"; done | sort)"
 if [[ "${all}" != "${expected_all}" || "${grouped_mil}" != "${expected_mil}" ||
       "${grouped_text}" != "${expected_text}" || "$("${selector}" text | sort)" != "${expected_text_group}" ||
-      "$("${selector}" text-dawn)" != "${expected_dawn_group}" || -n "$("${selector}" core)" ]]; then
-  echo 'Native package groups must cover the original nine MIL and three independent text cases exactly once.' >&2
+      "$("${selector}" text-dawn)" != "${expected_dawn_group}" ||
+      "$("${selector}" edit-word | sort)" != "${expected_edit_word}" || -n "$("${selector}" core)" ]]; then
+  echo 'Native package groups must cover the original nine MIL, three text and two EDIT cases exactly once.' >&2
   exit 1
 fi
-for group in drawings visuals guidelines text text-dawn; do
+for group in drawings visuals guidelines text text-dawn edit-word; do
   case "${group}" in
     drawings|visuals|guidelines) count=3 ;;
-    text) count=2 ;;
+    text|edit-word) count=2 ;;
     text-dawn) count=1 ;;
   esac
   if [[ "$("${selector}" "${group}" | wc -l | tr -d ' ')" != "${count}" ]]; then
@@ -43,8 +45,9 @@ for group in drawings visuals guidelines text text-dawn; do
 done
 if "${selector}" unknown >/dev/null 2>&1 || "${selector}" >/dev/null 2>&1 ||
    "${selector}" core unexpected >/dev/null 2>&1 || "${selector}" all unexpected >/dev/null 2>&1 ||
-   "${selector}" text unexpected >/dev/null 2>&1 || "${selector}" text-dawn unexpected >/dev/null 2>&1; then
+   "${selector}" text unexpected >/dev/null 2>&1 || "${selector}" text-dawn unexpected >/dev/null 2>&1 ||
+   "${selector}" edit-word unexpected >/dev/null 2>&1; then
   echo 'Native package scenario selection must reject invalid arguments.' >&2
   exit 1
 fi
-echo 'Native package groups preserve all nine MIL and three text JIT/NativeAOT cases exactly once.'
+echo 'Native package groups preserve all nine MIL, three text and two EDIT JIT/NativeAOT cases exactly once.'

@@ -598,3 +598,31 @@ new boundary snapshot deliberately preserves such UTF-16 endpoints without
 pretending those existing geometry methods are that missing contract. Ordinary
 Forms capability/UI admission and complete native package qualification remain
 closed; no source-local caret interpolation or prefix shaping is introduced.
+
+## Six-RID producer and independent packaged export gates
+
+The full Build workflow now supplies the exact archive pinned in
+`eng/native-edit-word-icu.json` to all six native renderer producers, retaining
+their original integration tests, sanitizer policy and deadlines. Archive hashes
+are checked before use; the existing producer and staging checks retain original
+source/data/notices, generated embedding and actual object architecture. Native
+package production requires `ProGpuNativeRequireEditWordIcu=true`, and the package
+verifier checks all six extracted payloads again before its SDK consumer.
+
+The independent `--text-edit-word-boundaries-only` and
+`--text-edit-word-boundaries-dawn-only` processes call the actual selected shipped
+C export under both JIT and NativeAOT on every RID. They reuse the public generated
+result record and preserve all 24 independently observed literal inventories,
+including both Thai dictionary inputs and original UTF-16 emoji interior seams.
+Additional controls cover original direction, source/output ownership, untouched
+tails, invalid buffers and precise unsupported-policy failures. The stock process
+also calls `NativeEditWordBoundaryInterop.Resolve` against those same independent
+literals. Missing owned dictionary data fails these package controls; it is never
+accepted as a skip or an empty inventory. The underlying classifier is unchanged.
+
+See [package groups](native-package-consumer-groups.md) for preserved selectors and
+original full/ordered/default/DX12 gates. This source-only wiring checkpoint does
+not claim a native build, packaged execution or source UI result. The 82
+nonmatching BMP symbols and remaining item/complex-script policies remain
+explicitly unsupported; no Forms capability marker or automatic source admission
+is added.
