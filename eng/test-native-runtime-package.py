@@ -2,6 +2,7 @@
 """Exercise the real native-runtime Pack item with synthetic, non-runnable files."""
 
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -23,6 +24,7 @@ class NativeRuntimePackageTests(unittest.TestCase):
         self.assertEqual(len(items), 1, "Exercise the single actual production runtime Pack item")
         with tempfile.TemporaryDirectory(prefix="progpu-native-pack-contract.") as directory:
             root = Path(directory)
+            shutil.copyfile(ROOT / "global.json", root / "global.json")
             runtime = root / "payload"
             expected = {}
             for rid in RIDS:
