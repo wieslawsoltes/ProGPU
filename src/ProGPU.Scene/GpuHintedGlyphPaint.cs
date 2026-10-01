@@ -15,6 +15,10 @@ internal struct GpuHintedGlyphPaint
     internal const uint CubicTexture = 4u;
     internal const int SamplingModeShift = 8;
 
+    // Each bounded affine glyph triangle keeps its own original image quad.
+    // The shader collapses the unused copy for the exact positive-axis path.
+    internal readonly uint VertexCount => Kind == TextureMaterial && (Flags & BoundedTexture) != 0 ? 12u : 6u;
+
     [FieldOffset(0)] public uint Kind;
     [FieldOffset(4)] public uint BrushIndex;
     [FieldOffset(8)] public uint Flags;

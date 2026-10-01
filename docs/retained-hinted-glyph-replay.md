@@ -59,6 +59,60 @@ against the new complete package binaries before this correction is qualified.
 Failure diagnostics additionally report per-channel counts and the first whole
 pixel; no byte delta is waived.
 
+The subsequent exact-head Build `36868922108` at `8adb63509` repeated the same
+62-byte/max-two bounded-texture failure in both DX12 architecture jobs. All four
+solid-paint cases still passed. The new diagnostics identify RGBA difference
+counts `12,18,12,20` and maximum deltas `1,1,1,2`, so this is not solely an RGB
+blend conversion discrepancy. The fragment-coordinate change has **not** resolved
+the Windows boundary. Its artifacts are not qualified for runtime staging.
+
+## Raw affine occurrence paint
+
+The raw native painted-glyph command already accepts finite rotated, reflected,
+skewed and singular glyph bases, separately from its unit scene-transform gate.
+The old shader instead required a positive corner-0-to-corner-2 extent for every
+paint kind. That could discard valid material/extended draws, and its bounded
+texture coverage treated a skewed quad as an axis-aligned rectangle. Managed
+source hinted preparation still emits unit bases; this fix does not broaden
+source font transforms or Display admission.
+
+Material/extended glyph paint keeps its actual canonical triangle interpolation
+without the positive-diagonal rejection. Bounded paint derives both signed
+triangle inverses from all four actual `text_glyph_vertex` corners. The existing
+axis calculation is retained only after exact four-corner rectangle equality and
+positive extents. General mapping emits the original image triangle pair once
+for each original glyph triangle (12 vertices per occurrence); the exact axis
+path collapses the unused second copy before rasterization. Both managed encoding
+and native render-pass/bundle encoding use the same bounded-paint vertex count;
+all other paint remains six vertices. Records and their 96-byte ABI are unchanged.
+
+Separate primitives retain triangle contribution order instead of unioning
+coverage when independently rounded corners overlap. Signed half-open edge tests
+reuse the identical shared-diagonal expression and preserve reflected winding.
+The top-left convention follows the
+[Direct3D triangle rasterization rules](https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-rasterizer-stage-rules),
+but the shader calculation is not proof of matching hardware subpixel precision
+or multisample ownership. Coverage and sampling derivatives still execute before
+discard, and neither gamma/filtering nor alpha policy changes.
+
+The added authentic-font package fixture retains the original four solid-paint
+and texture-replacement controls. It additionally compares quarter-turn,
+reflection, italic/shear and exact-singular occurrences against independently
+rasterized original `RenderGlyphs`: material and bounded texture, cold and warm,
+16 paired full-RGBA frames with no tolerance. Two engines and targets are reused;
+the nondegenerate cases require real ink, while the singular case requires zero
+RGBA. The fixture and actual managed Scene project compile with zero errors;
+seven focused binding/source guards pass. These new GPU cases have not executed.
+Actual shared shader/all nine pipelines compile on SilkNative Metal, not Windows.
+Explicit rounded-fold, near-singular and exact-edge controls, actual native
+producer/package execution and full provider equality remain required before
+qualification. Raw extended non-axis *paint quads* are a separate still-open
+admission/mapping mismatch; this change addresses glyph occurrence geometry.
+
+Extra vertices and, for general frames, up to two image-domain fragment copies
+cost O(1) work per occurrence/fragment and add no coverage texture or GPU submit.
+There is no measured application performance or pixel-parity claim.
+
 This explicit consumer API preserves one original prepared paragraph generation.
 It is implementation work, not Display selection, source-editor/input admission,
 native/package qualification or an application performance claim.

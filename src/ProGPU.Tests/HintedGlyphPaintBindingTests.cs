@@ -54,6 +54,46 @@ public sealed class HintedGlyphPaintBindingTests
     }
 
     [Fact]
+    public void AffinePaintRetainsBothCanonicalTrianglesAndTheirSeparateContributions()
+    {
+        string shader = ProGPU.Backend.Shaders.HintedGlyphPaintShader;
+        Assert.Contains("glyph_instance(input, 1u)", shader);
+        Assert.Contains("glyph_instance(input, 5u)", shader);
+        Assert.Contains("corner1.y == minimum.y && corner3.x == minimum.x", shader);
+        Assert.Contains("corner1.x == maximum.x && corner3.y == maximum.y", shader);
+        Assert.Contains("hinted_glyph_triangle(corner1 - minimum, maximum - minimum)", shader);
+        Assert.Contains("hinted_glyph_triangle(maximum - minimum, corner3 - minimum)", shader);
+        Assert.Contains("determinant != 0.0", shader);
+        Assert.Contains("determinant > 0.0", shader);
+        Assert.Contains("input.vertexIndex % 6u", shader);
+        Assert.Contains("input.vertexIndex >= 6u", shader);
+        Assert.Contains("secondTriangle && (!boundedTexture || axisFrame)", shader);
+        Assert.Contains("var liveFrame = true;", shader);
+        Assert.DoesNotContain("var liveFrame = all(extent >", shader);
+        Assert.DoesNotContain("!inFirst && !inSecond", shader);
+        Assert.Contains("-hinted_glyph_cross(edge2, local)", shader);
+        Assert.Contains("edge.y < 0.0 || (edge.y == 0.0 && edge.x > 0.0)", shader);
+        string paintFunction = shader[shader.IndexOf("fn hinted_glyph_paint_color(", StringComparison.Ordinal)..];
+        int coverage = paintFunction.IndexOf("let coverage = text_glyph_color_with_mask_alpha", StringComparison.Ordinal);
+        Assert.True(coverage >= 0 && coverage < paintFunction.IndexOf("        discard;", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BothRenderersEmitTwoImageQuadsOnlyForBoundedTexturePaint()
+    {
+        string draw = Read("ProGPU.Native/src/Scene/progpu_native_semantic_draw_execution.cpp");
+        Assert.Contains("paint.kind == PROGPU_NATIVE_SCENE_GLYPH_PAINT_TEXTURE &&", draw);
+        Assert.Contains("(paint.flags & PROGPU_NATIVE_SCENE_GLYPH_PAINT_BOUNDED) != 0U ? 12U : 6U", draw);
+        Assert.Contains("Commands::draw(encoder, vertex_count, draw.instance_count, 0U, draw.first_instance);", draw);
+        string managed = Read("ProGPU.Scene/Compositor.HintedGlyphPaint.cs");
+        Assert.Contains("BitConverter.SingleToUInt32Bits(_textVerticesList[checked((int)drawCall.IndexStart)].Padding)", managed);
+        Assert.Contains("_hintedGlyphPaints![checked((int)paintIndex)].VertexCount", managed);
+        Assert.Contains("RenderPassEncoderDraw(pass, vertexCount, drawCall.IndexCount, 0, 0)", managed);
+        string record = Read("ProGPU.Scene/GpuHintedGlyphPaint.cs");
+        Assert.Contains("Kind == TextureMaterial && (Flags & BoundedTexture) != 0 ? 12u : 6u", record);
+    }
+
+    [Fact]
     public void NativePaintPreparationAndDrawUseTheSameOriginalAlphaPolicy()
     {
         string policy = Read("ProGPU.Native/src/Scene/progpu_native_glyph_paint_alpha.hpp");
@@ -70,7 +110,7 @@ public sealed class HintedGlyphPaintBindingTests
         string draw = Read("ProGPU.Native/src/Scene/progpu_native_semantic_draw_execution.cpp");
         Assert.Contains("semantic::glyph_paint_premultiplied_output(\n            engine.semantic_glyph_cache.paints[draw.paint_index]", draw);
         Assert.Contains("engine, masked, chained, premultiplied_output", draw);
-        Assert.Contains("Commands::draw(encoder, 6U, draw.instance_count, 0U, draw.first_instance);", draw);
+        Assert.Contains("Commands::draw(encoder, vertex_count, draw.instance_count, 0U, draw.first_instance);", draw);
     }
 
     [Fact]
