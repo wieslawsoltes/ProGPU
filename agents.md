@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Paired Display probes preserve original Microsoft glyph/run receipts and separate
+raw signed hinted slots from full source-context shaping and positioned output.
+Keep exact source DPI and original 26.6 values beside float render projections;
+diagnostic conversion is not source output repair. Independent head/hhea inputs
+are not Microsoft output baselines or Display line policy. Require whole-successful
+exact native Build staging before execution; neither receipt-parser tests nor
+one interpreter's matching raw advance admits Display. See
+eng/HintedDisplayPolicyProbe/README.md.
+
 Hinted source lines retain the measured writer's actual double tops and ascents
 beside their original baselines. Keep the additive frame view under the original
 resource lease and preserve all alias guards. Canonical source offsets reuse the
