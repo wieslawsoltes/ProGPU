@@ -1,5 +1,6 @@
 #include "progpu_native_edit_word_boundaries.hpp"
 #include "progpu_native_text.hpp"
+#include "progpu_native_unicode_line_break_internal.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -32,6 +33,7 @@ constexpr auto thai = open_type_tag::from_chars('t', 'h', 'a', 'i');
 constexpr auto lao = open_type_tag::from_chars('l', 'a', 'o', 'o');
 constexpr auto lao_layout = open_type_tag::from_chars('l', 'a', 'o', ' ');
 constexpr auto khmer = open_type_tag::from_chars('k', 'h', 'm', 'r');
+constexpr auto arabic = open_type_tag::from_chars('a', 'r', 'a', 'b');
 using lb = unicode_line_break_class;
 
 bool fail(edit_word_boundary_error value, edit_word_boundary_error& error) noexcept
@@ -149,8 +151,6 @@ bool try_create_edit_word_boundary_snapshot(
         bool needs_thai_dictionary = false;
         for (const auto& scalar : scalars) {
             const auto raw = get_unicode_line_break_class(scalar.code_point);
-            if (scalar.code_point == 0x200DU)
-                return fail(edit_word_boundary_error::unqualified_joiner_policy, error);
             if (scalar.code_point <= 0xFFFFU && raw == lb::ideographic &&
                 get_unicode_general_category(scalar.code_point) ==
                     unicode_general_category::other_symbol)
@@ -163,7 +163,7 @@ bool try_create_edit_word_boundary_snapshot(
         }
         std::vector<lb> classes(scalars.size());
         std::vector<text_line_break_kind> breaks(scalars.size());
-        if (!try_resolve_unicode_line_breaks(scalars, classes, breaks))
+        if (!detail::try_resolve_edit_joiner_line_breaks(scalars, classes, breaks))
             return fail(edit_word_boundary_error::invalid_encoding, error);
         std::vector<std::uint8_t> boundaries(source.size() + 1U, 0U);
         boundaries.front() = boundaries.back() = 1U;
@@ -191,6 +191,23 @@ bool try_create_edit_word_boundary_snapshot(
                 boundaries[scalars[index + inside].input_index] = 0U;
             index += group_count - 1U;
         }
+        // The independent direct ScriptBreak Arabic item starts with a soft
+        // opportunity even when ordinary UAX14 has none. Our canonical script
+        // itemizer owns Common/Inherited attachment, including interior ZWJ;
+        // do not guess a Windows item-boundary rule or publish a known-wrong
+        // snapshot for that precise missing transition domain.
+        std::uint32_t run_count = 0U;
+        if (!try_get_unicode_script_run_count(scalars, run_count))
+            return fail(edit_word_boundary_error::invalid_encoding, error);
+        std::vector<unicode_script_run> runs(run_count);
+        std::uint32_t runs_written = 0U;
+        if (!try_itemize_unicode_scripts(scalars, runs, runs_written) ||
+            runs_written != run_count)
+            return fail(edit_word_boundary_error::invalid_encoding, error);
+        for (const auto& run : runs)
+            if (run.script == arabic && run.scalar_start != 0U &&
+                boundaries[run.input_start] == 0U)
+                return fail(edit_word_boundary_error::unqualified_script_item_transition_policy, error);
         if (needs_thai_dictionary) {
 #if defined(PROGPU_NATIVE_EDIT_WORD_ICU)
             if (!add_thai_dictionary_boundaries(source, scalars, boundaries, error)) return false;

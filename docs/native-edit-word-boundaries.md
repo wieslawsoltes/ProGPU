@@ -2,7 +2,7 @@
 
 The internal native profile resolves a complete original UTF-16 input once into
 an owned boundary snapshot. It currently reproduces the inventories for 22 of
-the 24 independent Microsoft EDIT requests; the BMP-symbol and emoji/joiner
+the 24 independent Microsoft EDIT requests; the BMP-symbol and emoji-context
 requests remain explicitly unadmitted. This is **not** a complete portable word
 classifier, ordinary Forms provider admission or application qualification.
 
@@ -20,7 +20,9 @@ not a newly inferred observable hit at index3.
 
 ## Explicit profile, not raw UAX or `fWordStop`
 
-The existing native Unicode17/UAX14 worker and property tables are unchanged.
+The existing native Unicode17/UAX14 default behavior and property tables are unchanged.
+An internal shared-worker profile suppresses only the modern after-ZWJ LB8a
+prohibition for EDIT selection; the ordinary worker continues applying it.
 The explicit EDIT profile assembles original line opportunities, whitespace
 seams and CR-group starts; it never feeds its results back into shaping, bidi,
 graphemes, carets or line fitting. Whitespace is not `char.IsWhiteSpace`:
@@ -107,11 +109,12 @@ qualification. Original Forms source-seam and password controls are unchanged.
 The reference joins BMP snowman/snowman-VS to adjacent Latin, unlike modern
 line-breaking; the justified general property range is not yet established.
 Its emoji request retains a word boundary at original UTF-16 index 7 inside the
-modern woman-ZWJ-laptop grapheme. Replacing it with UAX29, deleting the boundary
-to accommodate shaping, or treating every ZWJ as an ordinary combining mark
-would silently change source selection. BMP ID-class symbols and ZWJ inputs
-therefore fail with distinct unqualified-policy errors and leave the previous
-snapshot completely untouched. Unknown complex-script policies and invalid
+modern woman-ZWJ-laptop grapheme. Replacing it with UAX29 or deleting the boundary
+to accommodate shaping would silently change source selection. The independently
+observed joiner profile is now implemented below, but the original emoji-context
+request still contains an unqualified BMP symbol. BMP ID-class symbols therefore
+fail with an unqualified-policy error and leave the previous snapshot completely
+untouched. Unknown complex-script policies and invalid
 UTF-16 also fail before publication. No complete provider is claimed for the
 admitted easy-script inputs.
 
@@ -150,3 +153,59 @@ unavailable native coordinate is preserved. Server2025 outputs must be compared
 with the earlier Windows11 receipt using this provenance; they are not silently
 the same source platform. Neither these observations nor schema rejection controls
 admit the still-unresolved classifier policies or ordinary Forms capability.
+
+### Hosted result and isolated joiner policy
+
+[Run 36862800693](https://github.com/wieslawsoltes/ProGPU/actions/runs/36862800693)
+succeeded at exact source `6e7286564e1e44d1fce4e398769aa9805ecac9fb`.
+All original24 controls and contextual72 observations completed. The contextual
+receipt contains 624 observed gestures and 148 unavailable coordinates; every
+available initial double-down range agrees with its independent complete-source
+soft-break inventory and the previously recorded strict-previous-boundary rule.
+The raw symbol sweep completed 3,854 symbols in three contexts (11,562 cases),
+but records no EDIT gestures. Receipt SHA-256 identities are:
+
+| Receipt | SHA-256 |
+| --- | --- |
+| original24.json | `f1ecce8f26af8a862bcf76d7a700246f2fef3f27f5050e946bc2c359772e4c08` |
+| contexts.json | `9c94f64741b11cc131dce0c04f86417d2d411f64f3d42bf957dc6b735f0c66f8` |
+| symbol-attributes.json | `643db9eef41889455161d460bbfa7cf14449edf6e65de2ca5e5a0e6a2caa9bb1` |
+| execution.json | `ef4091230d7c75054d922141dec73b0fdd886574cd9ca8ff08e98912bc09ba40` |
+
+The actual runner reported OS build `10.0.26100.0`, X64, `en-US` current/UI
+locale and runtime `11.0.0-preview.5.26302.115`. The receipt retains the loaded
+GDI32/gdi32full/usp10/TextShaping versions and hashes. These Server2025 results
+are not automatically Windows11, other-locale or other-build qualification.
+
+ZWJ and ZWNJ have the same observed selection attachment in the supplied Latin,
+Indic, supplementary-letter, supplementary-CJK and supplementary-emoji contexts.
+They attach to the preceding line class but do not prohibit a later boundary
+merely because the preceding source scalar is ZWJ. For example,
+`x\U0001F469\u200D\U0001F4BBy ` has original UTF-16 boundaries
+`0,1,4,6,8`; index4 stays inside the modern emoji grapheme. Leading, trailing,
+space-adjacent and repeated ZWJ observations agree. The internal shared-worker
+profile changes only LB8a after ZWJ; it does not rewrite code points, UTF-16
+indices, raw properties, graphemes, shaping, bidi or ordinary line fitting.
+Nineteen literal contextual CPU controls pass in the focused no-ICU harness,
+including an explicit unchanged-default-LB8a control. The original24 inventories
+and absent-dictionary/atomic rejection controls remain intact.
+
+The contextual symbols disprove a blanket BMP `So`/`ID` to `AL` rule: snowman
+joins adjacent Latin while watch and smile split, including their VS16 variants.
+Emoji_Presentation also does not distinguish them. The symbol script properties,
+CTYPE1 and single-symbol direct ScriptBreak first byte do not identify this
+distinction. Comparing the official Unicode LineBreak data from versions
+3.2, 5.2, 6.0–9.0 and 13–17 did not yield an exact historical property profile;
+no historical table or observed-symbol exception range is admitted.
+
+A separate contextual gap is explicit: `x\u0628\u062Ay ` and its ZWJ/ZWNJ
+variants have a native boundary at index1 that the line/whitespace profile does
+not emit. The unchanged canonical script itemizer identifies an interior Arabic
+run whose start has no existing boundary; this precise domain now fails atomically
+with `unqualified_script_item_transition_policy`, including all three contextual
+rejection controls. This interim guard is not an implemented item-boundary policy
+or original-case parity. Direct ScriptBreak for the actual Arabic item starts with raw byte13,
+unlike the neighboring Latin item. That is evidence requiring a real script-item
+policy, not permission to make every script/bidi transition a word boundary.
+The BMP and mixed-script contracts therefore still block a complete classifier
+or provider. No reference-generated word/index lookup is used in production.

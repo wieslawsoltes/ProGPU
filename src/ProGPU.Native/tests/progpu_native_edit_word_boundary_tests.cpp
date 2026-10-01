@@ -28,8 +28,11 @@ void check(std::u16string_view text, std::initializer_list<std::uint32_t> expect
     const auto original = units(text);
     edit_word_boundary_snapshot actual{{73U, 91U}, 73U};
     edit_word_boundary_error error{};
-    require(try_create_edit_word_boundary_snapshot(original, actual, error),
-        "EDIT profile unexpectedly failed");
+    if (!try_create_edit_word_boundary_snapshot(original, actual, error)) {
+        std::cerr << "source length " << text.size() << "; error " <<
+            static_cast<std::uint32_t>(error) << '\n';
+        throw std::runtime_error("EDIT profile unexpectedly failed");
+    }
     if (actual.positions != std::vector<std::uint32_t>(expected)) {
         std::cerr << "source length " << text.size() << "; actual boundaries:";
         for (const auto position : actual.positions) std::cerr << ' ' << position;
@@ -98,7 +101,16 @@ void missing_contracts_are_atomic()
         edit_word_boundary_error::unqualified_bmp_symbol_policy);
     check_failure(u"a\u2603\uFE0Fb\U0001F469\u200D\U0001F4BBc ",
         edit_word_boundary_error::unqualified_bmp_symbol_policy);
-    check_failure(u"\U0001F469\u200D\U0001F4BB", edit_word_boundary_error::unqualified_joiner_policy);
+    check_failure(u"x\u2764\uFE0F\u200D\U0001F4BBy ",
+        edit_word_boundary_error::unqualified_bmp_symbol_policy);
+    // Canonical itemization, not a fixture-word lookup, identifies the precise
+    // as-yet unqualified Arabic-run entry with no existing profile boundary.
+    check_failure(u"x\u0628\u062Ay ",
+        edit_word_boundary_error::unqualified_script_item_transition_policy);
+    check_failure(u"x\u0628\u200D\u062Ay ",
+        edit_word_boundary_error::unqualified_script_item_transition_policy);
+    check_failure(u"x\u0628\u200C\u062Ay ",
+        edit_word_boundary_error::unqualified_script_item_transition_policy);
     const std::array<char16_t, 1> isolated_surrogate{0xD800U};
     check_failure({isolated_surrogate.data(), isolated_surrogate.size()},
         edit_word_boundary_error::invalid_encoding);
@@ -109,6 +121,49 @@ void missing_contracts_are_atomic()
     check_failure(u"\u0E20\u0E32\u0E29\u0E32\u0E44\u0E17\u0E22 \u0E20\u0E32\u0E29\u0E32\u0E44\u0E17\u0E22 ",
         edit_word_boundary_error::dependency_unavailable);
 #endif
+}
+
+void independently_observed_joiner_contexts()
+{
+    // Literal ScriptStringAnalyse opportunities AND actual EDIT gestures from
+    // Server2025 Build36862800693. This is separate from the Win11 original24
+    // receipt; no modern grapheme boundary is substituted for its UTF-16 seam.
+    check(u"xaby ", {0, 5});
+    check(u"xa\u200Dby ", {0, 6});
+    check(u"xa\u200Cby ", {0, 6});
+    check(u"x\u0915\u094D\u0937y ", {0, 6});
+    check(u"x\u0915\u094D\u200D\u0937y ", {0, 7});
+    check(u"x\u0915\u094D\u200C\u0937y ", {0, 7});
+    check(u"x\U0001F469\U0001F4BBy ", {0, 1, 3, 5, 7});
+    check(u"x\U0001F469\u200D\U0001F4BBy ", {0, 1, 4, 6, 8});
+    check(u"x\U0001F469\u200C\U0001F4BBy ", {0, 1, 4, 6, 8});
+    check(u"x\U00010400\U00010401y ", {0, 7});
+    check(u"x\U00010400\u200D\U00010401y ", {0, 8});
+    check(u"x\U00010400\u200C\U00010401y ", {0, 8});
+    check(u"x\U00020000\U00020001y ", {0, 1, 3, 5, 7});
+    check(u"x\U00020000\u200D\U00020001y ", {0, 1, 4, 6, 8});
+    check(u"x\U00020000\u200C\U00020001y ", {0, 1, 4, 6, 8});
+    check(u"\u200Da\U0001F600b ", {0, 2, 4, 6});
+    check(u"a\U0001F600\u200D ", {0, 1, 5});
+    check(u"a \u200Db ", {0, 2, 5});
+    check(u"a\U0001F469\u200D\u200D\U0001F4BBb ", {0, 1, 5, 7, 9});
+
+    // A non-BMP emoji profile boundary remains INSIDE the original modern
+    // emoji grapheme. Default UAX14 must continue prohibiting that same seam.
+    const auto original = units(u"x\U0001F469\u200D\U0001F4BBy ");
+    std::vector<unicode_scalar> scalars(6U);
+    std::uint32_t written = 0U;
+    require(try_decode_utf16(original, scalars, written) && written == scalars.size(),
+        "Joiner source decode failed");
+    std::vector<unicode_line_break_class> classes(scalars.size());
+    std::vector<text_line_break_kind> breaks(scalars.size());
+    require(try_resolve_unicode_line_breaks(scalars, classes, breaks),
+        "Default joiner UAX14 failed");
+    require(breaks[2] == text_line_break_kind::prohibited,
+        "EDIT joiner profile changed the original UAX14 LB8a contract");
+    require(get_unicode_line_break_class(0x200DU) ==
+        unicode_line_break_class::zero_width_joiner,
+        "EDIT joiner profile rewrote the original Unicode property");
 }
 
 void concurrent_snapshots_own_independent_outputs()
@@ -170,6 +225,7 @@ int main()
         concurrent_snapshots_own_independent_outputs();
         original_reference_inventories();
         missing_contracts_are_atomic();
+        independently_observed_joiner_contexts();
         original_units_and_default_worker_are_independent();
         std::cout << "EDIT boundary profile controls passed; ordinary provider admission remains closed\n";
         return 0;

@@ -15,7 +15,8 @@ enum class edit_word_boundary_error : std::uint32_t {
     dependency_failure,
     unqualified_bmp_symbol_policy,
     unqualified_joiner_policy,
-    unqualified_complex_script_policy
+    unqualified_complex_script_policy,
+    unqualified_script_item_transition_policy
 };
 
 // One owned original-source UTF-16 generation. This internal explicit profile
