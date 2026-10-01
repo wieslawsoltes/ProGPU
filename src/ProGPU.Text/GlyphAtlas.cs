@@ -81,7 +81,8 @@ public unsafe partial class GlyphAtlas : IDisposable
 
         internal GlyphKey(HintedGlyphGeometry geometry, uint outlineIndex)
         {
-            _source = geometry; _index = outlineIndex; _size = geometry.DpiScale; _subpixelX = 0;
+            _source = geometry.RasterGenerationIdentity;
+            _index = outlineIndex; _size = geometry.DpiScale; _subpixelX = 0;
         }
     }
 

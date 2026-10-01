@@ -24,6 +24,7 @@ public sealed class HintedGlyphGeometry : IDisposable
     private readonly GpuGlyphRecord[] _outlines;
     private readonly GpuSegment[] _segments;
     private readonly HintedGlyphOccurrence[] _occurrences;
+    private readonly object _rasterGenerationIdentity;
     private IDisposable? _sourceOwner;
     private int _uses;
     private bool _disposed;
@@ -34,6 +35,13 @@ public sealed class HintedGlyphGeometry : IDisposable
     // lease here. No public constructor accepts manufactured geometry or owners.
     internal HintedGlyphGeometry(float dpiScale, GpuGlyphRecord[] outlines,
         GpuSegment[] segments, HintedGlyphOccurrence[] occurrences, IDisposable sourceOwner)
+        : this(dpiScale, outlines, segments, occurrences, sourceOwner, new object())
+    {
+    }
+
+    private HintedGlyphGeometry(float dpiScale, GpuGlyphRecord[] outlines,
+        GpuSegment[] segments, HintedGlyphOccurrence[] occurrences, IDisposable sourceOwner,
+        object rasterGenerationIdentity)
     {
         ArgumentNullException.ThrowIfNull(outlines);
         ArgumentNullException.ThrowIfNull(segments);
@@ -45,6 +53,7 @@ public sealed class HintedGlyphGeometry : IDisposable
         _outlines = outlines;
         _segments = segments;
         _occurrences = occurrences;
+        _rasterGenerationIdentity = rasterGenerationIdentity;
         // The factory owns failure cleanup until this last nonthrowing transfer.
         _sourceOwner = sourceOwner;
     }
@@ -84,7 +93,7 @@ public sealed class HintedGlyphGeometry : IDisposable
             var selected = new HintedGlyphOccurrence[indices.Length];
             for (int i = 0; i < selected.Length; i++) selected[i] = _occurrences[indices[i]];
             IDisposable owner = RetainForRecording();
-            try { return new(DpiScale, _outlines, _segments, selected, owner); }
+            try { return new(DpiScale, _outlines, _segments, selected, owner, _rasterGenerationIdentity); }
             catch (Exception failure)
             {
                 try { owner.Dispose(); }
@@ -104,6 +113,11 @@ public sealed class HintedGlyphGeometry : IDisposable
     internal ReadOnlySpan<GpuSegment> RenderSegments { get { EnsureRenderStorage(); return _segments; } }
     internal ReadOnlySpan<HintedGlyphOccurrence> RenderOccurrences { get { EnsureRenderStorage(); return _occurrences; } }
     internal bool HasRenderStorage => !Volatile.Read(ref _retired);
+
+    // Cache identity is opaque and immutable, not a geometry/source-owner lease.
+    // Selected and nested views retain the original physical outline numbering.
+    // Comparing a retired key must never dereference its former storage owner.
+    internal object RasterGenerationIdentity => _rasterGenerationIdentity;
 
     internal void EnsureRecordingAdmission()
     {
