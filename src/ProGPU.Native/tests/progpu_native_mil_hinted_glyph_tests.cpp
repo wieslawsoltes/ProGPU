@@ -54,6 +54,17 @@ void content(bytes& out, const bytes& drawing) {
 }
 bool equal(progpu_native_point a, progpu_native_point b) { return a.x == b.x && a.y == b.y; }
 bool equal(progpu_native_color a, progpu_native_color b) { return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a; }
+bool equal(batch_metrics a, batch_metrics b) {
+    return a.command_count == b.command_count && a.supported_command_count == b.supported_command_count &&
+        a.unsupported_command_count == b.unsupported_command_count && a.created_resource_count == b.created_resource_count &&
+        a.deleted_resource_count == b.deleted_resource_count && a.updated_resource_count == b.updated_resource_count &&
+        a.total_bytes == b.total_bytes;
+}
+bool equal(progpu_native_mil_batch_metrics a, batch_metrics b) {
+    return a.struct_size == sizeof(a) && equal(batch_metrics{a.command_count, a.supported_command_count,
+        a.unsupported_command_count, a.created_resource_count, a.deleted_resource_count,
+        a.updated_resource_count, a.total_bytes}, b);
+}
 void equal_bytes(std::span<const std::byte> scene, std::size_t offset, std::size_t size,
     const void* expected, std::size_t expected_size) {
     require(size == expected_size && offset <= scene.size() && size <= scene.size() - offset);
@@ -374,13 +385,20 @@ void flat_controls(font_hint_policy policy, bool rtl, std::uint32_t coverage = P
     const progpu_native_mil_hinted_glyph_binding binding{5U,0U,0U,0U,static_cast<std::uint32_t>(e.selected.size()),0U,origin,{1,0,0,1,0,0}};
     const auto canonical = source_scene_batch(e);
     channel state;
+    require(equal(state.last_hinted_batch_metrics(), batch_metrics{}));
+    channel metrics_reference; batch_metrics expected_metrics{};
+    require(metrics_reference.apply(canonical, &expected_metrics) == status::success &&
+        expected_metrics.command_count != 0U && expected_metrics.created_resource_count != 0U &&
+        expected_metrics.total_bytes == canonical.size());
     require(state.apply_with_hinted_glyph_resources(canonical,{&view,1U},{&binding,1U},e.selected) == status::success);
+    require(equal(state.last_hinted_batch_metrics(), expected_metrics));
     scene_build_request request{}; request.target_handle = 3U; request.scene_id = 17001U;
     request.generation = request.request_serial = 1U; request.dpi_scale_x = request.dpi_scale_y = dpi;
     std::span<const std::byte> compiled; require(state.build_scene(request,compiled) == status::success);
     verify_scene(compiled,e); const bytes previous(compiled.begin(),compiled.end()); const auto* cached = compiled.data();
     const auto generation = state.resource_generation(5U), visual_generation = state.resource_generation(1U);
     const auto preserved = [&] {
+        require(equal(state.last_hinted_batch_metrics(), expected_metrics));
         require(state.resource_generation(5U) == generation && state.resource_generation(1U) == visual_generation && !state.has_resource(9U));
         require(state.build_scene(request,compiled) == status::success && compiled.data() == cached);
         equal_bytes(compiled,0U,compiled.size(),previous.data(),previous.size());
@@ -472,13 +490,21 @@ void flat_controls(font_hint_policy policy, bool rtl, std::uint32_t coverage = P
     progpu_native_mil_channel* c_channel = nullptr;
     require(progpu_native_mil_channel_create(&c_channel) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
     struct channel_cleanup final { progpu_native_mil_channel* value; ~channel_cleanup() { progpu_native_mil_channel_destroy(value); } } destroy{c_channel};
+    require(equal(progpu_native_mil_channel_get_last_hinted_batch_metrics(c_channel), batch_metrics{}));
+    require(progpu_native_mil_channel_get_last_hinted_batch_metrics(nullptr).struct_size == 0U);
     require(progpu_native_mil_channel_apply_with_hinted_glyph_resources(c_channel,
         reinterpret_cast<const std::uint8_t*>(canonical.data()),canonical.size(),&view,1U,&binding,1U,e.selected.data(),
         static_cast<std::uint32_t>(e.selected.size())) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    require(equal(progpu_native_mil_channel_get_last_hinted_batch_metrics(c_channel), expected_metrics));
+    auto detached_metrics = progpu_native_mil_channel_get_last_hinted_batch_metrics(c_channel);
+    detached_metrics.command_count = UINT32_MAX;
+    require(!equal(detached_metrics, expected_metrics) &&
+        equal(progpu_native_mil_channel_get_last_hinted_batch_metrics(c_channel), expected_metrics));
     const auto c_generation = progpu_native_mil_channel_get_resource_generation(c_channel,5U);
     require(progpu_native_mil_channel_apply_with_hinted_glyph_resources(c_channel,
         reinterpret_cast<const std::uint8_t*>(update.data()),update.size(),&view,1U,bindings.data(),2U,indices.data(),
         static_cast<std::uint32_t>(indices.size())) == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+    require(equal(progpu_native_mil_channel_get_last_hinted_batch_metrics(c_channel), expected_metrics));
     require(progpu_native_mil_channel_get_resource_generation(c_channel,5U) == c_generation && !progpu_native_mil_channel_has_resource(c_channel,9U));
     require(progpu_native_mil_channel_apply_with_hinted_glyph_resources(c_channel,nullptr,1U,&view,1U,&binding,1U,
         e.selected.data(),static_cast<std::uint32_t>(e.selected.size())) == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
@@ -486,6 +512,7 @@ void flat_controls(font_hint_policy policy, bool rtl, std::uint32_t coverage = P
     require(progpu_native_mil_channel_apply_with_hinted_glyph_resources(c_channel,
         reinterpret_cast<const std::uint8_t*>(update.data()),update.size(),&view,1U,&unsupported_binding,1U,e.selected.data(),
         static_cast<std::uint32_t>(e.selected.size())) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
+    require(equal(progpu_native_mil_channel_get_last_hinted_batch_metrics(c_channel), expected_metrics));
     require(progpu_native_mil_channel_get_resource_generation(c_channel,5U) == c_generation && !progpu_native_mil_channel_has_resource(c_channel,9U));
     progpu_native_hinted_glyph_resource_destroy(owner); owner = nullptr;
     progpu_native_hinted_paragraph_destroy(paragraph); paragraph = nullptr;
@@ -495,6 +522,10 @@ void flat_controls(font_hint_policy policy, bool rtl, std::uint32_t coverage = P
     // Both consumers retain copied bytes/occurrences after producer retirement.
     bytes recompile; cmd(recompile,command::matrix_transform,6U,1.0,0.0,0.0,1.0,3.5,-2.25,0U);
     require(state.apply(recompile) == status::success && state.build_scene(request,compiled) == status::success); verify_scene(compiled,e);
+    require(equal(state.last_hinted_batch_metrics(), expected_metrics));
+    require(progpu_native_mil_channel_apply_with_hinted_glyph_resources(c_channel, nullptr, 0U,
+        nullptr, 0U, nullptr, 0U, nullptr, 0U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    require(equal(progpu_native_mil_channel_get_last_hinted_batch_metrics(c_channel), batch_metrics{}));
     progpu_native_mil_scene_build_request c_request{}; c_request.struct_size = sizeof(c_request); c_request.target_handle = 3U;
     c_request.scene_id = request.scene_id; c_request.generation = c_request.request_serial = 1U; c_request.dpi_scale_x = c_request.dpi_scale_y = dpi;
     std::size_t needed = 0U;

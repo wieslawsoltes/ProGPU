@@ -38,6 +38,33 @@ records I. Run acquisition copies O(K) original indices; retaining an existing
 reference is O(1). No GPU target, pipeline, submission or font decoder is created
 by acquiring a reference. These are complexity statements, not measured speedups.
 
+`HintedGlyphGeometry.SelectOccurrences` shares the original physical arrays and
+retains their producer through the existing recorded-use lease. Its indices address
+the current view, but every original positioned/logical/run/descriptor identity
+survives reordering, repetition and nested selection. Empty and no-ink selections
+remain distinct. One opaque raster-generation identity follows all selections;
+atlas keys retain original outline slots and exact DPI without dereferencing a
+retired wrapper or retaining source metadata through a cache key.
+
+`DrawingContext.TryGetHintedGlyphInkBounds` uses those original outlines and writer
+positions, publishing no partial bounds on failure. Physical-to-logical division
+matches the native binding and canonical Text vertex shader; reciprocal
+multiplication differs at non-power-of-two DPI. Ink, advance/input and padded
+raster bounds remain separate. Additive recording overloads preserve hit-owner
+identity through the normal resource-owning recorder, leaving original signatures
+and default-transform calls unchanged.
+
+`ApplyWithHintedGlyphResourcesWithMetrics` applies the canonical batch once and
+reads its real native counters. The channel retains them only after the complete
+hinted transaction commits; a later invalid binding leaves graph, cache and the
+previous snapshot unchanged. The C query returns the existing fixed-width
+32-byte metrics record by value, so no output pointer can alias immutable resource
+inputs. No hinted binding is counted as a manufactured canonical command. The
+managed host resolves the additive query before its first graph mutation, then
+reads the committed result while retaining the original import owners. Like all
+channel use, callers must serialize the full operation with updates/destruction.
+The original void API still performs only its original update call.
+
 ## Architecture and qualification
 
 This adapter follows the separation already researched in
@@ -56,7 +83,7 @@ implementation is copied. Startup/lazy pipelines, atlas eviction, visibility,
 upload/batching, worker scheduling and device-loss handling stay in the existing
 renderers. This seam changes none of those policies and claims no performance win.
 
-Focused capability and lifetime controls are authored. They do not qualify loaded
+Focused capability and lifetime controls pass. They do not qualify loaded
 native/font execution, pixels, source editing or application startup. Source
 GlyphRun publication, authoritative hinted ink bounds, managed/recorded and native
 MIL replay bindings, continuation/collapse, tabs/objects, empty rows and transformed
@@ -69,4 +96,11 @@ the UTF-16 overload with the existing scalar entrypoint across its original
 mixed-style, supplementary UTF-16, bidi/digit and hard-break inputs. These loaded
 producer checks are authored but unexecuted here. A narrow source-only Release
 compile of the companion adapter and new test sources passed with zero warnings
-and errors; no native/font/GPU calls or test cases were executed.
+and errors. All 29 focused source contract/admission/lifetime tests and all 44
+selected-geometry/recording/cache tests passed without skipped cases. The latter
+includes four exact fractional-DPI division controls. Strict C++20 syntax checks
+passed for the actual MIL implementation, C interop and hinted MIL test source;
+the managed native backend compiled with zero warnings/errors. Loaded C and both
+provider package controls compare all metrics to an independent canonical update,
+test replacement/empty batches and preserve original input/tail/rollback controls;
+these new native/font/package cases are authored but not yet executed.

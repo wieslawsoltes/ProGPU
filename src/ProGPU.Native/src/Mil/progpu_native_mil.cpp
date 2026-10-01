@@ -21970,6 +21970,7 @@ status channel::apply_with_hinted_glyph_resources(
         }
         implementation_ = std::move(candidate.implementation_);
         build_cache_.reset();
+        last_hinted_batch_metrics_ = local_metrics;
         return status::success;
     } catch (const std::bad_alloc&) { return status::capacity_exceeded; }
     catch (...) { return status::invalid_argument; }

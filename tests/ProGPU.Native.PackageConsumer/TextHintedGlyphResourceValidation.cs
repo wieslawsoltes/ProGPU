@@ -159,7 +159,12 @@ internal static class TextHintedGlyphResourceValidation
             "late original occurrence rejects the complete initial canonical graph");
         Check(channel.ResourceCount == 0 && !channel.TryGetVisual(Visual, out _) && !channel.TryGetTarget(Target, out _),
             "failed initial import publishes no resource/visual/target");
-        channel.ApplyWithHintedGlyphResources(batch, [resource], bindings, indices);
+        using var metricsReference = new NativeMilChannel(backend);
+        var expectedMetrics = metricsReference.Apply(batch);
+        var actualMetrics = channel.ApplyWithHintedGlyphResourcesWithMetrics(batch, [resource], bindings, indices);
+        Check(actualMetrics == expectedMetrics && actualMetrics.TotalBytes == batch.Length &&
+            actualMetrics.CommandCount != 0 && actualMetrics.CreatedResourceCount != 0,
+            "actual hinted transaction counters match the independent original canonical update, without applying twice");
         Check(batchBefore.AsSpan().SequenceEqual(batch) && bindingBefore.AsSpan().SequenceEqual(MemoryMarshal.AsBytes(bindings.AsSpan())) &&
             indicesBefore.AsSpan().SequenceEqual(indices), "every original batch/binding/index byte and unused tail remains unchanged");
         raw.Unchanged(original);
@@ -229,7 +234,10 @@ internal static class TextHintedGlyphResourceValidation
         // Scalar import actually republishes the same original generation; it
         // must preserve the complete public scene, not just the topmost draw.
         var recreation = new NativeMilBatchBuilder(); WriteRun(recreation, GlyphRun, selected);
-        channel.ApplyWithHintedGlyphResources(recreation.WrittenSpan, [scalar], bindings, indices);
+        expectedMetrics = metricsReference.Apply(recreation.WrittenSpan);
+        actualMetrics = channel.ApplyWithHintedGlyphResourcesWithMetrics(recreation.WrittenSpan, [scalar], bindings, indices);
+        Check(actualMetrics == expectedMetrics && actualMetrics.TotalBytes == recreation.WrittenSpan.Length,
+            "replacement hinted transaction reports its own canonical counters rather than previous accumulated metrics");
         Unchanged(channel, Compile, backend, noInk, baseline);
         raw.Unchanged(original);
         Check(originalVariations.AsSpan().SequenceEqual(variations) && originalNormalized.AsSpan().SequenceEqual(normalized),
@@ -238,7 +246,8 @@ internal static class TextHintedGlyphResourceValidation
         Reject<ObjectDisposedException>(() => channel.ApplyWithHintedGlyphResources(lateBinding.WrittenSpan,
             [resource, scalar], twoBindings, twoIndices), "disposed later resource after acquiring the first import lease");
         Unchanged(channel, Compile, backend, noInk, baseline);
-        channel.ApplyWithHintedGlyphResources([], [resource], bindings, indices);
+        Check(channel.ApplyWithHintedGlyphResourcesWithMetrics([], [resource], bindings, indices) == default,
+            "binding-only update has exactly zero canonical commands, resources and bytes; bindings are not fake commands");
         Unchanged(channel, Compile, backend, noInk, baseline);
 
         original.Dispose(); context.Dispose(); paragraph.Dispose(); resource.Dispose();

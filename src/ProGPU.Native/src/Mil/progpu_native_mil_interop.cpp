@@ -20,6 +20,14 @@ progpu_native_mil_status to_abi(
     return static_cast<progpu_native_mil_status>(value);
 }
 
+progpu_native_mil_batch_metrics to_batch_metrics(
+    const progpu::native::mil::batch_metrics& source) noexcept {
+    return {sizeof(progpu_native_mil_batch_metrics), source.command_count,
+        source.supported_command_count, source.unsupported_command_count,
+        source.created_resource_count, source.deleted_resource_count,
+        source.updated_resource_count, source.total_bytes};
+}
+
 void write_scene_metrics(
     progpu_native_mil_scene_metrics* destination,
     std::size_t caller_size,
@@ -53,6 +61,8 @@ void write_scene_metrics(
 }
 
 static_assert(sizeof(progpu_native_mil_scene_build_request) == 64U);
+static_assert(sizeof(progpu_native_mil_batch_metrics) == 32U);
+static_assert(alignof(progpu_native_mil_batch_metrics) == alignof(std::uint32_t));
 static_assert(sizeof(progpu_native_mil_scene_build_result) == 32U);
 static_assert(sizeof(progpu_native_mil_visual_visibility) == 8U);
 static_assert(offsetof(progpu_native_mil_visual_visibility, visibility) == 4U);
@@ -81,6 +91,12 @@ progpu_native_mil_status progpu_native_mil_channel_create(
 void progpu_native_mil_channel_destroy(
     progpu_native_mil_channel* channel) {
     delete channel;
+}
+
+progpu_native_mil_batch_metrics progpu_native_mil_channel_get_last_hinted_batch_metrics(
+    const progpu_native_mil_channel* channel) {
+    return channel == nullptr ? progpu_native_mil_batch_metrics{} :
+        to_batch_metrics(channel->state.last_hinted_batch_metrics());
 }
 
 progpu_native_mil_status progpu_native_mil_channel_apply(

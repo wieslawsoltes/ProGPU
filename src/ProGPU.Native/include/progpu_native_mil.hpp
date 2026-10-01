@@ -141,6 +141,10 @@ public:
         std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
         std::span<const std::uint32_t> positioned_indices) noexcept;
 
+    // Actual canonical counters from the last successful hinted transaction.
+    // Failed hinted updates and unrelated ordinary updates do not replace it.
+    batch_metrics last_hinted_batch_metrics() const noexcept { return last_hinted_batch_metrics_; }
+
     // Binds pointer-free RGBA8 pixels to a canonical TYPE_BITMAPSOURCE
     // handle. WPF's native MilCmdBitmapSource carries an in-process WIC
     // pointer, so portable hosts provide the equivalent pixels through this
@@ -331,6 +335,7 @@ private:
         scene_build_result* result) const noexcept;
     std::unique_ptr<implementation> implementation_;
     std::unique_ptr<build_cache> build_cache_;
+    batch_metrics last_hinted_batch_metrics_{};
 };
 
 constexpr bool is_known(command value) noexcept {
