@@ -505,6 +505,48 @@ independent stock/Dawn package selectors contain the same original literals,
 but those packaged executions remain pending. Neither these changes nor the
 larger observation set completes general editor policy or interior-cluster UI.
 
+### Thai, Lao and Khmer numeric roles and singleton items
+
+The same pinned `source-roles.json` receipt contains twelve additional original
+inventories: two digits followed by one nominal letter, bare and Latin-prefixed,
+under both paragraph directions, for Thai, Lao and Khmer. All retain only the
+source endpoints as word boundaries. All 108 available EDIT double-down results
+agree; the 24 unavailable coordinates remain unavailable.
+
+Their actual numeric items have direct `ScriptBreak` bytes `4,4`. The following
+Thai/Lao nominal items each contain exactly one original UTF-16 unit and return
+byte `4`, whereas the existing two-unit Thai/Lao controls return `13,4`. Khmer's
+singleton returns `12`: its word-stop bit is not an EDIT mouse-word boundary.
+The direct calls receive only the complete original item and its actual analysis,
+so the singleton result does not depend on text outside that item. A blanket
+soft-entry flag for Thai/Lao was therefore insufficient.
+
+The shared classifier now assigns actual Nd/L digits with decimal values zero
+through nine to the numeric bridge for these three scripts. Thai/Lao entry
+suppression uses exactly one scalar with original input length one in the actual
+typed item; longer-item entry and Khmer's separate policy remain unchanged.
+Extending this rule beyond the measured singleton letters is an explicit
+Unicode-property/item-length inference, not an exhaustive Windows version claim.
+It introduces no observed-scalar, word or endpoint lookup and does not change
+ordinary Unicode line breaking, source UTF-16, bidi or shaping.
+
+Dictionary need is selected from the actual nominal Thai items. Numeric items and
+singletons have no interior nominal dictionary seam; every existing multi-unit
+Thai dictionary requirement remains. When needed, the same private ICU iterator
+still receives the complete unchanged source once. Its published seams now also
+require nominal Thai profiles on both sides, so newly admitted numeric items
+cannot receive dictionary boundaries. There is no ambient dependency or fallback.
+
+The strict AppleClang21 C++20 no-ICU harness passes all existing controls and the
+twelve new literal classifier/C-export inventories. New controls cover numeric
+input output-capacity failure, numeric-to-multi-unit Thai dependency failure, all
+thirty original decimal values, and still-unqualified standalone marks and
+punctuation. Existing buffer-alias, output-tail and original24 controls remain.
+Both packaged provider selectors contain the independent literals; package and
+owned-ICU execution are deferred to the original gates. No full native build,
+download, VM, CI dispatch or source UI qualification was performed here. The 82
+unresolved BMP symbols and other unqualified source roles remain explicit.
+
 ## Product UTF-16 boundary transport
 
 `progpu_native_text_resolve_edit_word_boundaries_utf16` now calls the existing

@@ -143,11 +143,14 @@ inline bool try_classify_edit_item_properties(
         candidate.role = edit_item_source_role::white_space;
     } else if (category == gc::decimal_digit_number) {
         // A Script tag alone must not turn numeric source into nominal text.
-        // Original Devanagari Nd/L observations also use the numeric bridge;
-        // other L-valued families retain their separate unresolved entry rules.
+        // Original Devanagari/Thai/Lao/Khmer Nd/L observations use separate
+        // numeric items. Nominal entry policy belongs to the actual next item,
+        // not to a digit's Script tag or to a guessed Windows engine identity.
         const auto decimal = get_unicode_decimal_digit_value(scalar.code_point);
         const bool numeric_policy = bidi == bc::european_number || bidi == bc::arabic_number ||
-            (nominal == edit_item_profile::devanagari_nominal && bidi == bc::left_to_right);
+            (bidi == bc::left_to_right && (nominal == edit_item_profile::devanagari_nominal ||
+                nominal == edit_item_profile::thai_nominal || nominal == edit_item_profile::lao_nominal ||
+                nominal == edit_item_profile::khmer_nominal));
         if (decimal < 0 || decimal > 9 ||
             !numeric_policy) {
             if (nominal != edit_item_profile::paragraph_bridge) return false;

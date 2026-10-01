@@ -68,6 +68,14 @@ void run_edit_word_interop_controls() {
     check(u"x\U0001F469\u200D\U0001F4BBy ", {0, 1, 4, 6, 8});
     check(u"x\u0628\u062Ay ", {0, 1, 5}, 0, 0);
     check(u"x\u0628\u062Ay ", {0, 1, 5}, 0, 1);
+    for (const auto level : {0, 1}) {
+        check(u"\u0E50\u0E51\u0E01y ", {0, 5}, 0, level);
+        check(u"x\u0E50\u0E51\u0E01y ", {0, 6}, 0, level);
+        check(u"\u0ED0\u0ED1\u0E81y ", {0, 5}, 0, level);
+        check(u"x\u0ED0\u0ED1\u0E81y ", {0, 6}, 0, level);
+        check(u"\u17E0\u17E1\u1780y ", {0, 5}, 0, level);
+        check(u"x\u17E0\u17E1\u1780y ", {0, 6}, 0, level);
+    }
 
     std::array<std::uint32_t, 16> output{};
     output.fill(sentinel);
@@ -76,6 +84,9 @@ void run_edit_word_interop_controls() {
         failed(progpu_native_text_resolve_edit_word_boundaries_utf16(source.data(), 6U, level, output.data(), 16U),
             PROGPU_NATIVE_EDIT_WORD_BOUNDARY_INVALID_PARAGRAPH_LEVEL, output);
     failed(progpu_native_text_resolve_edit_word_boundaries_utf16(source.data(), 6U, 0, output.data(), 1U),
+        PROGPU_NATIVE_EDIT_WORD_BOUNDARY_OUTPUT_TOO_SMALL, output);
+    const std::array<std::uint16_t, 5> thai_numeric{0x0E50U, 0x0E51U, 0x0E01U, 'y', ' '};
+    failed(progpu_native_text_resolve_edit_word_boundaries_utf16(thai_numeric.data(), 5U, 0, output.data(), 1U),
         PROGPU_NATIVE_EDIT_WORD_BOUNDARY_OUTPUT_TOO_SMALL, output);
     failed(progpu_native_text_resolve_edit_word_boundaries_utf16(nullptr, 0U, 0, nullptr, 0U),
         PROGPU_NATIVE_EDIT_WORD_BOUNDARY_OUTPUT_TOO_SMALL, output);

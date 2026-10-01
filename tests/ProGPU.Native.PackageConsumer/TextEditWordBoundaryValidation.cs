@@ -78,6 +78,12 @@ internal static unsafe class TextEditWordBoundaryValidation
             Verify("arabic-entry", "x\u0628\u062Ay ", [0, 1, 5], level: level);
             Verify("thai-cjk-entry", "\u4E00\u0E01\u0E02y ", [0, 1, 5], level: level);
             Verify("thai-space-entry", "x \u0E01\u0E02y ", [0, 2, 6], level: level);
+            Verify("thai-numeric-singleton", "\u0E50\u0E51\u0E01y ", [0, 5], level: level);
+            Verify("thai-numeric-singleton-latin", "x\u0E50\u0E51\u0E01y ", [0, 6], level: level);
+            Verify("lao-numeric-singleton", "\u0ED0\u0ED1\u0E81y ", [0, 5], level: level);
+            Verify("lao-numeric-singleton-latin", "x\u0ED0\u0ED1\u0E81y ", [0, 6], level: level);
+            Verify("khmer-numeric-singleton", "\u17E0\u17E1\u1780y ", [0, 5], level: level);
+            Verify("khmer-numeric-singleton-latin", "x\u17E0\u17E1\u1780y ", [0, 6], level: level);
 
             // Separate original source-role observations, Windows run36900452884
             // at2dafdc178; source-roles.json SHA256

@@ -64,6 +64,7 @@ bool assemble_edit_item_breaks(
     std::span<detail::edit_item_properties> properties,
     std::int8_t requested_level,
     std::span<text_line_break_kind> breaks,
+    bool& needs_thai_dictionary,
     edit_word_boundary_error& error)
 {
     // Reuse the actual complete-source native bidi worker; no independent
@@ -118,6 +119,15 @@ bool assemble_edit_item_breaks(
         const auto start = item.scalar_start;
         const auto count = item.scalar_count;
         if (item.properties.flags == 0U) continue; // original paragraph bridge
+        // The independent direct ScriptBreak requests distinguish an actual
+        // one-UTF16-unit Thai/Lao item (no entry soft break) from longer items.
+        // This property generalization never examines an observed scalar/word
+        // identity or the preceding item. Retain the full source line context.
+        const bool singleton_dictionary_item = count == 1U && scalars[start].input_length == 1U &&
+            (item.properties.profile == detail::edit_item_profile::thai_nominal ||
+                item.properties.profile == detail::edit_item_profile::lao_nominal);
+        if (item.properties.profile == detail::edit_item_profile::thai_nominal && !singleton_dictionary_item)
+            needs_thai_dictionary = true;
         // Resolve each whole original typed item. A local terminal sentinel
         // is NOT a boundary at the next item: only its interior is copied.
         if (!detail::try_resolve_edit_selection_line_breaks(scalars.subspan(start, count),
@@ -149,7 +159,8 @@ bool assemble_edit_item_breaks(
         if (start != 0U && !is_edit_white_space(scalars[start].code_point) &&
             breaks[start - 1U] != text_line_break_kind::mandatory) {
             if ((item.properties.flags & detail::edit_item_soft_entry) != 0U)
-                breaks[start - 1U] = text_line_break_kind::opportunity;
+                breaks[start - 1U] = singleton_dictionary_item
+                    ? text_line_break_kind::prohibited : text_line_break_kind::opportunity;
             else if ((item.properties.flags & detail::edit_item_suppressed_entry) != 0U)
                 breaks[start - 1U] = text_line_break_kind::prohibited;
         }
@@ -204,6 +215,7 @@ edit_word_boundary_error initialize_owned_icu() noexcept
 bool add_thai_dictionary_boundaries(
     std::span<const std::uint16_t> source,
     std::span<const unicode_scalar> scalars,
+    std::span<const detail::edit_item_properties> properties,
     std::vector<std::uint8_t>& boundaries,
     edit_word_boundary_error& error)
 {
@@ -226,12 +238,15 @@ bool add_thai_dictionary_boundaries(
             return fail(edit_word_boundary_error::dependency_failure, error);
         while (scalar < scalars.size() && scalars[scalar].input_index <
             static_cast<std::uint32_t>(index)) ++scalar;
-        // Admit ONLY an interior Thai-to-Thai original scalar seam. Lao and
+        // Admit ONLY an interior nominal Thai-to-Thai original scalar seam.
+        // Newly admitted numeric items are not dictionary text. Lao and
         // Khmer dictionary results (known to contradict EDIT) are not used;
         // whitespace/script transitions come solely from the explicit profile.
         if (scalar != 0U && scalar < scalars.size() &&
             scalars[scalar].input_index == static_cast<std::uint32_t>(index) &&
-            scalars[scalar - 1U].script == thai && scalars[scalar].script == thai)
+            scalars[scalar - 1U].script == thai && scalars[scalar].script == thai &&
+            properties[scalar - 1U].profile == detail::edit_item_profile::thai_nominal &&
+            properties[scalar].profile == detail::edit_item_profile::thai_nominal)
             boundaries[static_cast<std::size_t>(index)] = 1U;
     }
     return true;
@@ -276,13 +291,13 @@ bool try_create_edit_word_boundary_snapshot(
             // scalar table is regression evidence only, not a runtime allowlist.
             if (!detail::try_classify_edit_item_properties(scalar, item_properties[index]))
                 return fail(edit_word_boundary_error::unqualified_script_item_transition_policy, error);
-            needs_thai_dictionary |= scalar.script == thai;
         }
         std::vector<lb> classes(scalars.size());
         std::vector<text_line_break_kind> breaks(scalars.size());
         if (!detail::try_resolve_edit_selection_line_breaks(scalars, classes, breaks))
             return fail(edit_word_boundary_error::invalid_encoding, error);
-        if (!assemble_edit_item_breaks(scalars, item_properties, paragraph_level, breaks, error)) return false;
+        if (!assemble_edit_item_breaks(scalars, item_properties, paragraph_level, breaks,
+                needs_thai_dictionary, error)) return false;
         std::vector<std::uint8_t> boundaries(source.size() + 1U, 0U);
         boundaries.front() = boundaries.back() = 1U;
         for (std::size_t index = 1U; index < scalars.size(); ++index) {
@@ -311,7 +326,7 @@ bool try_create_edit_word_boundary_snapshot(
         }
         if (needs_thai_dictionary) {
 #if defined(PROGPU_NATIVE_EDIT_WORD_ICU)
-            if (!add_thai_dictionary_boundaries(source, scalars, boundaries, error)) return false;
+            if (!add_thai_dictionary_boundaries(source, scalars, item_properties, boundaries, error)) return false;
 #else
             return fail(edit_word_boundary_error::dependency_unavailable, error);
 #endif
