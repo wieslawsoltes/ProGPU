@@ -1,4 +1,4 @@
-// Algorithm: rasterize a full capture rectangle and call its validated ps_2_0
+// Algorithm: rasterize a full capture rectangle and call its validated D3D9
 // straight-line program. Source UVs clamp to the retained capture, not spare
 // allocation pixels. Input and output retain WPF premultiplied texture values.
 // Time complexity: O(I + S) per fragment for I instructions and S texture reads.

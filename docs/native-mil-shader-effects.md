@@ -81,10 +81,25 @@ assumed from an automatic [wgpu cache](https://github.com/gfx-rs/wgpu/issues/771
 
 ## Remaining qualification
 
-The implementation checkpoint has not run a native build or GPU test. Required
-follow-up includes independent original-bytecode pixels, malformed token/resource
-and atomic MIL update controls, cold/warm programs and constant updates, nested
-clips, retirement/budgets, both providers, Windows package/NativeAOT and source
-applications. Broader ps_3_0 semantics/instructions, dynamic flow, additional samplers,
+The implementation checkpoint has not run a renderer build or GPU test. The
+bounded [CPU translator controls](native-shader-model-three.md#authored-controls-and-qualification)
+pass independently; the complete contract generator, MIL ledger and 93-field
+GPU ownership guard pass. Those checks do not qualify pixels.
+
+Authored MIL controls exercise original odd-sized Int16 register arrays, exact
+bytecode retention, sampler/constant updates, atomic invalid-resource rejection,
+raw descriptor rejection and the custom-effect input gate. The shared GPU
+fixture is wired into the existing wgpu-native Direct2D and Dawn provider tests:
+four original ps_2_0/ps_3_0 programs/constant generations, cold/warm/independent
+replays, all 4,096 RGBA pixels, exact source capture/final clip, one submission
+and explicit effect pass/uniform-upload counts. Its oracle is exact white times
+an original constant over opaque black; it does not reuse translated output as
+expected pixels. The existing picture-axis pixel/submission checks are preserved.
+These native MIL and GPU fixtures have not been executed locally.
+
+Required follow-up includes the authored native/GPU checks, additional original
+Microsoft-bytecode pixel references, nested clips, retirement/budgets, both
+providers, Windows package/NativeAOT and source applications. Broader ps_3_0
+semantics/instructions, dynamic flow, additional samplers,
 nonintegral/expanded captures and animated inputs remain open. No parity,
 performance, desktop rendering or complete ShaderEffect claim is made.

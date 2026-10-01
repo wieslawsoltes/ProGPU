@@ -8,7 +8,7 @@
 
 namespace progpu::native::shader_effect {
 
-// Original clean-room D3D9 ps_2_0 token decoder. Validation is O(T) time and
+// Original clean-room bounded D3D9 ps_2_0/ps_3_0 decoder. Validation is O(T) time and
 // O(1) scratch for T tokens. Optional WGSL emission is O(T) owned output; it
 // never executes a pixel, creates a device, or publishes partial shader text.
 bool translate(

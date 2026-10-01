@@ -6,6 +6,7 @@
 #include "progpu_native_semantic_glyph_sharing_fixture.hpp"
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
 #include "progpu_native_picture_axis_fixture.hpp"
+#include "progpu_native_shader_effect_pixel_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -2073,6 +2074,19 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(picture_reference_engine);
     phase("per-axis picture pixels passed");
+    auto* shader_reference_engine = create_engine(gpu);
+    progpu::native::tests::verify_original_shader_effect_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation,
+            progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            auto* selected = reference ? shader_reference_engine : engine;
+            auto pixels = render_scene(gpu, selected, nullptr, 1U, 3U, 1U,
+                stream, 0x9493U, generation, &metrics);
+            require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "original shader layer metrics unavailable");
+            return pixels;
+        }, require);
+    progpu_native_engine_destroy(shader_reference_engine);
+    phase("original bytecode shader effects passed");
     auto* glyph_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_semantic_glyph_sharing(
         [&](bool reference, const auto& stream, std::uint64_t generation,

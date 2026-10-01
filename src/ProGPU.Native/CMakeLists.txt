@@ -1930,6 +1930,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     add_executable(progpu_native_internal_tests
         tests/progpu_native_internal_tests.cpp
+        tests/progpu_native_shader_effect_translation_tests.cpp
         tests/progpu_native_scene_builder_tests.cpp
         tests/progpu_native_scene_builder_tests.hpp
         tests/progpu_native_semantic_brush_tests.cpp

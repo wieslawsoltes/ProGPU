@@ -2184,7 +2184,10 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 
 } // namespace
 
+bool run_shader_effect_translation_tests();
+
 int main() {
+    require(run_shader_effect_translation_tests());
     native_texture_copy_staging_uses_portable_d3d12_alignment();
     translated_boolean_programs_split_into_independent_gpu_records();
     clipped_miter_join_uses_the_wpf_three_triangle_wedge();

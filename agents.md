@@ -1,7 +1,7 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
 Native WPF shader effects retain original validated bytecode and constant values,
-not WGSL registry substitutions. The bounded ps_2_0 family uses an owned fragment
+not WGSL registry substitutions. Bounded ps_2_0/ps_3_0 families use an owned fragment
 pipeline in both native providers; reject unsupported tokens, resources and
 capture frames before publication. Preserve exact-byte program identity, live
 binding ownership, budgets and final source clipping. No CPU shader fallback or
