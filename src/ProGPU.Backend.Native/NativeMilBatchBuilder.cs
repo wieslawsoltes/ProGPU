@@ -36,7 +36,7 @@ public sealed class NativeMilBatchBuilder
     public void DestroyResourcesOnChannel(uint channelHandle = 0)
     {
         Span<byte> packet = NativeMilBatchEncoding.Allocate(_writer, NativeMilCommand.DestroyResourcesOnChannel, 8);
-        NativeMilBatchEncoding.WriteUInt32(packet, 4, channelHandle);
+        WriteUInt32(packet, 4, channelHandle);
     }
 
     public void CreateResource(uint handle, NativeMilResourceType resourceType)
