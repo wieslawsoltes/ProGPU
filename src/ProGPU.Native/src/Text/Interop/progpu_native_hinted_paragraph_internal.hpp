@@ -94,6 +94,13 @@ struct hinted_paragraph_generation final {
     progpu_native_text_paragraph_result paragraph_result{};
 };
 
+// Pointer-level guard shared by publication and adversarial alias controls.
+// Never bind/dereference an oversized diagnostic reference merely to reject an
+// overlap; both complete output ranges must be valid and disjoint first.
+bool hinted_paragraph_publication_disjoint(
+    const std::shared_ptr<const hinted_paragraph_generation>* result,
+    const progpu_native_text_paragraph_result* diagnostic) noexcept;
+
 // Private horizontal opt-in over the original paragraph producer and measured
 // writer. Nonempty input requires one explicit source metric/device config per
 // style. Tabs, objects and synthetic trimming are rejected; exclusions, floats,

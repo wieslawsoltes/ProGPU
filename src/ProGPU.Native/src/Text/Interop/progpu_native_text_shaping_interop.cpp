@@ -4147,6 +4147,13 @@ bool retain_paragraph_source_coverage(hinted_paragraph_generation& value) {
 
 } // namespace
 
+bool hinted_paragraph_publication_disjoint(
+    const std::shared_ptr<const hinted_paragraph_generation>* result,
+    const progpu_native_text_paragraph_result* diagnostic) noexcept {
+    return valid_hinted_buffer(result, 1U) && valid_hinted_buffer(diagnostic, 1U) &&
+        !byte_ranges_overlap(result, sizeof(*result), diagnostic, sizeof(*diagnostic));
+}
+
 progpu_native_status try_layout_context_hinted_paragraph(
     progpu_native_text_context* context,
     const progpu_native_text_shape_request& shaping,
@@ -4162,8 +4169,8 @@ progpu_native_status try_layout_context_hinted_paragraph(
         return (count == 0U || data != nullptr) && count <=
             std::numeric_limits<std::uintptr_t>::max() - reinterpret_cast<std::uintptr_t>(data);
     };
-    if (!valid_hinted_buffer(context, 1U) || !valid_hinted_buffer(&result, 1U) ||
-        !valid_hinted_buffer(&diagnostic, 1U) || !valid_hinted_buffer(&shaping, 1U) ||
+    if (!valid_hinted_buffer(context, 1U) || !hinted_paragraph_publication_disjoint(&result, &diagnostic) ||
+        !valid_hinted_buffer(&shaping, 1U) ||
         !valid_hinted_buffer(&layout, 1U) || !valid_bytes(&shaping, shaping.struct_size) ||
         !valid_bytes(&layout, layout.struct_size) || !valid_bytes(shaping.font_data, shaping.font_size) ||
         !valid_bytes(shaping.normalization_data, shaping.normalization_data_size) || styles.size() > UINT32_MAX ||
@@ -4175,8 +4182,7 @@ progpu_native_status try_layout_context_hinted_paragraph(
         !valid_hinted_buffer(shaping.pre_context, shaping.pre_context_count) ||
         !valid_hinted_buffer(shaping.post_context, shaping.post_context_count) ||
         !valid_hinted_buffer(shaping.features, shaping.feature_count) ||
-        !valid_hinted_buffer(shaping.normalized_coordinates, shaping.normalized_coordinate_count) ||
-        byte_ranges_overlap(&result, sizeof(result), &diagnostic, sizeof(diagnostic))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        !valid_hinted_buffer(shaping.normalized_coordinates, shaping.normalized_coordinate_count)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     for (const auto& device : device_styles)
         if (device.hinting.variation_coordinates_16_16.size() > 65535U ||
             !valid_hinted_buffer(device.hinting.variation_coordinates_16_16.data(),

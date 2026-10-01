@@ -743,9 +743,13 @@ void atomic_failure_and_alias_controls() {
     alias_reject(const_cast<progpu_native_text_paragraph_result*>(&previous->paragraph_result));
     alias_reject(reinterpret_cast<progpu_native_text_paragraph_result*>(const_cast<shaping_glyph*>(previous->logical_glyphs.data())));
     alias_reject(reinterpret_cast<progpu_native_text_paragraph_result*>(const_cast<std::byte*>(previous->font_sources[0]->bytes.data())));
-    require(try_layout_context_hinted_paragraph(font.context.value, valid.shaping, valid.layout, valid.styles, valid.metrics,
-        valid.configurations, result, *reinterpret_cast<progpu_native_text_paragraph_result*>(&result)) ==
-        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && result == previous); // no diagnostic dereference/publication
+    progpu_native_text_paragraph_result separate_diagnostic{};
+    require(hinted_paragraph_publication_disjoint(&result, &separate_diagnostic));
+    // The diagnostic object is larger than shared_ptr. Check the same actual
+    // publication guard with pointers: binding such a reference already fails
+    // UBSan in the caller, before the callee can reject the overlap.
+    require(!hinted_paragraph_publication_disjoint(&result,
+        reinterpret_cast<const progpu_native_text_paragraph_result*>(&result)) && result == previous);
 
     // Raw old-output capacity fixture owns actual shared runs, but does not
     // pretend its default shaping request is a copied source generation.
