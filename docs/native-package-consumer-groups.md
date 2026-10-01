@@ -86,3 +86,25 @@ source review, Bash syntax and whitespace checks only; its selectors and GPU
 consumers have not been executed locally. A fresh all-green exact-head Build,
 downstream dependency alignment and final LibreWPF package/application/platform
 gates remain required before ordered merges.
+
+## Linux Dawn runtime prerequisites
+
+Read-only ELF metadata inspection of the already-reviewed WebGPUSharp `0.5.5`
+`linux-x64` and `linux-arm64` assets shows that both require `libc++.so.1`,
+`libc++abi.so.1` and `libunwind.so.1`. The consumer job previously requested only
+Vulkan/Mesa prerequisites; no other setup step supplies that runtime chain.
+The exact-head [Ubuntu Avalonia Dawn job](https://github.com/wieslawsoltes/ProGPU/actions/runs/36814881786/job/110217682238)
+at `278707dbba49f1c5c7a2098571082f6f003cbdb3` reported `libc++1` initially missing
+and installed `libc++1-18`, `libc++abi1-18` and `libunwind-18` through its existing
+`libc++1` request. This agrees with Ubuntu Noble's
+[libc++1 dependency](https://packages.ubuntu.com/noble/amd64/libc%2B%2B1) and
+[paired runtime dependencies](https://packages.ubuntu.com/noble/libc%2B%2B1-18).
+
+The native package consumer now makes the same distro `libc++1` request through
+the unchanged installer. These independent facts support a missing-prerequisite
+repair; attributing the earlier provider load failure to that omission remains
+an inference, not proof of its sole cause. No runtime asset was downloaded or
+staged for this repair, and no local product was executed. All original package
+selectors, renderer/adapter defaults, assertions, deadlines and exact successful
+Build staging gates remain unchanged; runtime and application qualification are
+still required.

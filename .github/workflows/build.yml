@@ -1000,7 +1000,8 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 10
         run: |
-          ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
+          # The pinned Dawn provider needs the distro C++/ABI/unwind runtimes.
+          ./eng/progpu-install-linux-packages.sh libc++1 libvulkan1 mesa-vulkan-drivers
 
       - name: Download native NuGet package
         uses: actions/download-artifact@v8
