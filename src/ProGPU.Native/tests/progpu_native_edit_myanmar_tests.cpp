@@ -36,7 +36,7 @@ void inventory(std::u16string_view text, std::span<const std::uint32_t> expected
         std::all_of(output.begin() + transported.boundary_count, output.end(), [](auto value) { return value == sentinel; }),
         "Myanmar C transport changed metadata, inventory or caller tail");
     require(source == original, "Myanmar EDIT rewrote original UTF16");
-    std::fill(source.begin(), source.end(), 0U);
+    std::fill(source.begin(), source.end(), std::uint16_t{0});
     require(std::ranges::equal(result.positions, expected), "Myanmar snapshot retained mutable original storage");
 }
 }
