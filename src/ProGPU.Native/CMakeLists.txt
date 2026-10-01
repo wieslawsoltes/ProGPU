@@ -277,12 +277,14 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_VECTOR_SHADER}"
         "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
+        "-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl"
         "-DOUTPUT=${generated_vector_shader}"
         "-DSYMBOL=vector_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_VECTOR_SHADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathAtlasSampling.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Vector.wgsl shader"
     VERBATIM)
@@ -306,11 +308,17 @@ add_custom_command(
     OUTPUT "${generated_text_shader}"
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_TEXT_SHADER}"
+        "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphGeometryCommon.wgsl"
+        "-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
+        "-DTHIRD_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphCoverageCommon.wgsl"
         "-DOUTPUT=${generated_text_shader}"
         "-DSYMBOL=text_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_TEXT_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphGeometryCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphCoverageCommon.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Text.wgsl shader"
     VERBATIM)
@@ -321,14 +329,40 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_TEXTURE_SHADER}"
         "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
+        "-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextureImageSamplingCommon.wgsl"
         "-DOUTPUT=${generated_texture_shader}"
         "-DSYMBOL=texture_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_TEXTURE_SHADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/SampledMaskCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextureImageSamplingCommon.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Texture.wgsl shader"
+    VERBATIM)
+set(generated_hinted_glyph_paint_shader
+    "${generated_directory}/HintedGlyphPaintWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_hinted_glyph_paint_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/HintedGlyphPaint.wgsl"
+        "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl"
+        "-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphGeometryCommon.wgsl"
+        "-DTHIRD_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
+        "-DFOURTH_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphCoverageCommon.wgsl"
+        "-DFIFTH_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextureImageSamplingCommon.wgsl"
+        "-DOUTPUT=${generated_hinted_glyph_paint_shader}"
+        "-DSYMBOL=hinted_glyph_paint_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/HintedGlyphPaint.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphGeometryCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextGlyphCoverageCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextureImageSamplingCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared original hinted glyph paint shader"
     VERBATIM)
 set(generated_image_effect_shader
     "${generated_directory}/ImageEffectWgsl.generated.hpp")
@@ -575,6 +609,7 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_path_signed_winding_coverage_shader}"
         "${generated_glyph_rasterizer_shader}"
         "${generated_text_shader}"
+        "${generated_hinted_glyph_paint_shader}"
         "${generated_texture_shader}"
         "${generated_image_effect_shader}"
         "${generated_texture_gaussian_blur_shader}"

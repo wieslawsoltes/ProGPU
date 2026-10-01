@@ -15,8 +15,11 @@ native/package qualification or an application performance claim.
   separates reusable layout/interaction from rendering and supports spatial
   glyph brushes. [Win2D CanvasTextLayout](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm)
   exposes retained formatted text. Adopt retained lifetime and paint separation;
-  adapt spatial paint to ProGPU's existing white glyph mask plus one ordinary
-  brush draw, preserving the caller's brush domain. Reject automatic platform
+  adapt spatial paint to ProGPU's existing canonical brush sampler and Text
+  coverage in each original occurrence, preserving the caller's brush domain.
+  The [public DrawGlyphRun contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-drawglyphrun)
+  keeps the original positioned glyph run separate from its selected brush; it
+  does not establish ProGPU overlap or pixel parity. Reject automatic platform
   measuring/rendering-policy substitution.
 - [WebRender font-instance contract](https://doc.servo.org/webrender_api/font/struct.FontInstanceOptions.html)
   keeps rendering flags in instance identity. Its [historical overview](https://github.com/servo/servo/wiki/Webrender-Overview)
@@ -38,7 +41,7 @@ native/package qualification or an application performance claim.
 
 No foreign implementation is copied. These are architectural comparisons; the
 production algorithms reused here are original ProGPU GlyphAtlas/Text.wgsl,
-native glyph execution and MIL brushed-glyph coverage composition.
+native glyph execution, registered materials and texture sampling.
 
 The caller keeps an owned `NativeCompiledPicture` live throughout any cached or
 rendered use and explicitly disposes it at retirement, retrying a failed teardown.
@@ -59,12 +62,12 @@ snapshots without hinted sources preserve their existing copied-byte behavior.
 | DPI, phase and hinting | Exact prepared DPI, scale one and phase zero at raster replay; original positions remain unsnapped. Nonidentity bases and static zoom stay explicit gates. |
 | Fallback/variables | Preserve producer-selected font/face/axes and every source owner. Never substitute design outlines or fallback after atlas failure. |
 | Device loss/atlas generations | Existing atlas lifetime remains authoritative; failed or abandoned encoders invalidate unpublished physical coverage. |
-| Paint | Solid glyph styles or canonical glyph coverage masked spatial paint; source Rect remains unchanged, with original outer opacity/clip/blend. |
+| Paint | Solid glyph styles or direct per-occurrence canonical coverage and spatial paint; source Rect remains unchanged, with original outer opacity/clip/blend. |
 
 ## Source domain and private coverage storage
 
-The recorded `Rect` remains the caller's original ink/paint domain. Private mask
-and paint storage must cover the selected floor/ceil raster bounds, including
+The recorded `Rect` remains the caller's original ink/paint domain. Private
+culling and atlas storage cover the selected floor/ceil raster bounds, including
 the canonical four-physical-pixel padding, so a fractional source edge cannot
 clip nonzero glyph coverage by a second rectangle pixel-center test.
 
@@ -76,14 +79,31 @@ storage growth is not permission to stretch, retile or move the original paint.
 
 ## Required evidence before integration
 
-The provisional spatial route is not yet equivalent to per-occurrence solid
-painting: its R8 intermediate can requantize gamma-corrected coverage, and
+The initial white-mask spatial design was rejected: its R8 intermediate can
+requantize gamma-corrected coverage, and
 unioning white coverage before translucent paint changes overlapping occurrence
 composition. Source arithmetic demonstrates both risks; it is not a GPU receipt.
 Exact full-pixel fractional-edge and overlapping-occurrence differentials remain
-authored and unrun. Direct canonical brush painting in each original glyph
-fragment is still required; changing assertions, excluding those occurrences or
+authored and unrun. The replacement directly evaluates the original shared
+registered material or texture sampler and canonical Text coverage in every
+original glyph fragment; changing assertions, excluding those occurrences or
 substituting higher precision alone would not resolve the complete contract.
+
+The dedicated lazy pipeline retains the original 96-byte glyph instance. Its
+unused final four bytes carry an exact unsigned paint-record index through a new
+vertex attribute; legacy text attributes and style lookup stay unchanged. One
+96-byte immutable paint record owns original source coordinates, opacity, brush
+index or source UV endpoints, original texture corners and sampling policy.
+Material paint reuses the exact original registered brush/stops. Bounded texture
+paint emits the original two hardware triangles, including independently snapped
+corners; glyph tile-frame guards prevent ink outside the original allocation.
+Extended texture paint uses only its already-admitted original axis mapping.
+The shared shader helpers also remain the production algorithms for ordinary
+Text, Vector and Texture draws, rather than a separate algorithm copy.
+
+Bounded image quads may increase fragment work relative to glyph-only geometry.
+The architecture is not a measured speedup; whole-pixel, lifetime, resource,
+sampling/opacity/blend and complete package gates remain unqualified.
 
 Matched cold/first-interaction timings, sustained-scroll percentiles/worst frames,
 allocation/residency measurements, raw GPU differential/image controls, browser

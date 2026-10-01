@@ -279,7 +279,9 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void VectorPerlinShaderAvoidsRuntimeIndexedVectorWritesForD3D()
     {
-        string shaders = ReadSource("src", "ProGPU.Backend", "Shaders", "Vector.wgsl");
+        string shaders = ReadSource("src", "ProGPU.Backend", "Shaders", "RegisteredMaterialCommon.wgsl");
+        Assert.Contains(shaders, ProGPU.Backend.Shaders.VectorShader, StringComparison.Ordinal);
+        Assert.Contains(shaders, ProGPU.Backend.Shaders.HintedGlyphPaintShader, StringComparison.Ordinal);
 
         Assert.Contains("fn perlin_table_noise_channel(", shaders, StringComparison.Ordinal);
         Assert.Contains("brush, 0u, index00, index10, index01, index11, fraction, smoothValue", shaders, StringComparison.Ordinal);
