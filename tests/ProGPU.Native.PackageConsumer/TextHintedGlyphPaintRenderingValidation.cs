@@ -108,7 +108,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
                     var expected = reference.RenderGlyphs(referenceTarget, dpi,
                         original.Outlines, original.Segments, glyphs, Vector4.Zero);
                     byte[] expectedPixels = CompleteAndRead(reference, referenceTarget, referenceBefore);
-                    Check(pixels.Length == 96 * 96 * 4 && pixels.AsSpan().SequenceEqual(expectedPixels),
+                    CheckPixels(pixels, expectedPixels,
                         $"full RGBA differential dpi={dpi}, overlap={overlap}, frame={frame}");
                     // Scene metrics describe this RenderScene call; the original
                     // RenderGlyphs metric is the engine's cumulative count.
@@ -227,7 +227,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
             var referenceBefore = reference.GetLastSubmissionToken();
             var expected = reference.RenderGlyphs(referenceTarget, dpi, outlines, segments, solidGlyphs, Vector4.Zero);
             byte[] expectedPixels = CompleteAndRead(reference, referenceTarget, referenceBefore);
-            Check(pixels.Length == 96 * 96 * 4 && pixels.AsSpan().SequenceEqual(expectedPixels),
+            CheckPixels(pixels, expectedPixels,
                 $"same-count actual texture replacement full RGBA frame={frame}");
             Check(actual.CommandCount == 1 && actual.DrawCallCount == 1 && expected.DrawCallCount == 1 &&
                 expected.GlyphCount == glyphs.Length && actual.SubmissionCount == 1 &&
@@ -315,5 +315,21 @@ internal static class TextHintedGlyphPaintRenderingValidation
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException("Native hinted direct paint GPU package: " + message);
+    }
+
+    private static void CheckPixels(byte[] actual, byte[] expected, string message)
+    {
+        Check(actual.Length == 96 * 96 * 4 && expected.Length == actual.Length,
+            message + $"; byte lengths actual={actual.Length}, expected={expected.Length}");
+        int first = -1, different = 0, maximumDelta = 0;
+        for (int index = 0; index < actual.Length; index++)
+        {
+            if (actual[index] == expected[index]) continue;
+            if (first < 0) first = index;
+            different++;
+            maximumDelta = Math.Max(maximumDelta, Math.Abs(actual[index] - expected[index]));
+        }
+        Check(first < 0, message + (first < 0 ? string.Empty :
+            $"; different bytes={different}, max delta={maximumDelta}, first x={(first / 4) % 96}, y={(first / 4) / 96}, channel={first % 4}, actual={actual[first]}, expected={expected[first]}"));
     }
 }
