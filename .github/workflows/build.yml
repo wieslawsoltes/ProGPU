@@ -1541,6 +1541,15 @@ jobs:
         with:
           global-json-file: global.json
 
+      # Catch consumer source errors before native packaging; the independent
+      # package-consumer jobs still build and execute against actual packages.
+      - name: Compile native package consumer sources
+        if: runner.os == 'Linux'
+        run: >-
+          dotnet build tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj
+          --configuration Release -p:ProGpuNativeUseProjectReference=true
+          -p:ContinuousIntegrationBuild=true
+
       - name: Restore
         run: |
           dotnet restore src/ProGPU.Tests/ProGPU.Tests.csproj --runtime ${{ matrix.rid }}
