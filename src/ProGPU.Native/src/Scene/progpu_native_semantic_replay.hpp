@@ -109,6 +109,7 @@ struct semantic_picture_backing {
     WGPUTexture texture = nullptr;
     WGPUTextureView view = nullptr;
     progpu_native_scene_picture_image descriptor{};
+    progpu_native_scene_presentation presentation{};
     std::uint64_t engine_flags = 0U;
     bool copy_source_compatible = false;
     std::vector<std::byte> scene;

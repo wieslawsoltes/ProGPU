@@ -175,6 +175,12 @@ int main() {
     image.flags = progpu::native::PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
     if (!builder.add_picture_image(picture, {child_stream.data(), child_written}, picture_index) ||
         !builder.draw_image(picture_index, image, image.destination_rect)) return 1;
+    picture.flags = progpu::native::PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION;
+    progpu::native::progpu_native_scene_presentation presentation{
+        sizeof(presentation), 0U, 0U, 2U, 2U, 2.0F, 1.25F, 0U};
+    if (!builder.add_picture_image(picture, &presentation,
+            {child_stream.data(), child_written}, picture_index) ||
+        !builder.draw_image(picture_index, image, image.destination_rect)) return 1;
     const auto before_copy_size = builder.required_stream_size();
     std::array<std::byte, 4096U> before_copy{};
     std::array<std::byte, 4096U> after_failed_copy{};

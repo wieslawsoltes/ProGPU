@@ -1415,7 +1415,9 @@ progpu_native_status render_scene(
                     (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
                 const bool picture_image = (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
                 progpu_native_scene_picture_image picture{};
-                if (picture_image) std::memcpy(&picture, bytes + resource.payload_offset, sizeof(picture));
+                progpu_native_scene_presentation picture_presentation{};
+                const bool valid_picture = !picture_image || semantic::read_semantic_picture_image(
+                    bytes + resource.payload_offset, resource.payload_size, picture, picture_presentation);
                 const std::uint64_t validation_bytes = (external_image || picture_image)
                     ? static_cast<std::uint64_t>(image.row_bytes) *
                             (image.image_height - 1U) +
@@ -1438,7 +1440,7 @@ progpu_native_status render_scene(
                         resource.generation,
                         PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_MASK)
                     : nullptr;
-                valid = (picture_image || resource.auxiliary_size == 0U) &&
+                valid = valid_picture && (picture_image || resource.auxiliary_size == 0U) &&
                     (!picture_image || (picture.width == image.image_width && picture.height == image.image_height &&
                         image.row_bytes == picture.width * 4U &&
                         (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) != 0U)) &&
@@ -3252,9 +3254,11 @@ progpu_native_status render_scene(
                         progpu::native::webgpu::texture_view_add_ref(draw.view);
                     } else {
                         progpu_native_scene_picture_image picture{};
-                        std::memcpy(&picture, bytes + resource.payload_offset, sizeof(picture));
+                        progpu_native_scene_presentation presentation{};
                         progpu_native_scene_frame_metrics child_metrics{};
-                        if (!create_semantic_picture_image(*engine, picture,
+                        if (!semantic::read_semantic_picture_image(bytes + resource.payload_offset,
+                                resource.payload_size, picture, presentation) ||
+                            !create_semantic_picture_image(*engine, picture, presentation,
                                 bytes + resource.auxiliary_offset, resource.auxiliary_size, draw, child_metrics)) {
                             release_compiled();
                             return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,

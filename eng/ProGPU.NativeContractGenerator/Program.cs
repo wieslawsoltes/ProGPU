@@ -107,7 +107,8 @@ static string Generate(string header, string sourceName)
                 string elementType = field.Groups["type"].Value;
                 if ((elementType != "uint32_t" && elementType != "float") ||
                     field.Groups["pointer"].Success || typeOverride.Success ||
-                    !int.TryParse(field.Groups["count"].Value, out int count) || count is < 1 or > 128)
+                    !int.TryParse(field.Groups["count"].Value, out int count) || count < 1 ||
+                    count > (elementType == "float" ? 128 : 64))
                     throw new InvalidDataException($"Unsupported inline array in {target}: {value}.");
                 for (int index = 0; index < count; ++index)
                     fields.Add(new ContractField(MapType(elementType), ToPascalCase(field.Groups["name"].Value) + index));

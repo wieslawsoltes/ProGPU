@@ -5,6 +5,7 @@
 #include "progpu_native_scene_builder_capacity.hpp"
 #include "progpu_native_semantic_identity.hpp"
 #include "progpu_native_semantic_state.hpp"
+#include "progpu_native_semantic_validation.hpp"
 
 #include <array>
 #include <cstring>
@@ -14,6 +15,9 @@
 
 namespace progpu::native::tests {
 static_assert(sizeof(progpu_native_scene_picture_image) == 48U);
+static_assert(sizeof(progpu_native_scene_presentation) == 32U);
+static_assert(sizeof(scene_full_image_copy) == 8U + sizeof(progpu_native_scene_image_draw) +
+    sizeof(progpu_native_scene_image_color_matrix) + sizeof(progpu_native_scene_picture_image));
 namespace {
 
 template<class T>
@@ -1192,6 +1196,81 @@ bool semantic_scene_builder_reuses_retained_images() {
         if (invalid_case == 4U) bad.flags = 1U;
         if (pictures.add_picture_image(bad, bgra_stream, picture_index)) return false;
     }
+    // The optional presentation owns original float axes, never a ratio derived
+    // from rounded logical bounds. Uniform payload remains exactly 48 bytes.
+    auto axis_picture = picture;
+    axis_picture.flags = PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION;
+    const progpu_native_scene_presentation axes{sizeof(axes), 0U, 0U, 2U, 2U,
+        std::nextafter(1.25F, 2.0F), std::nextafter(1.5F, 2.0F), 0U};
+    semantic_scene_builder axis_builder(7034U, 1U);
+    std::uint32_t axis_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!axis_builder.add_picture_image(axis_picture, &axes, bgra_stream, axis_index)) return false;
+    std::vector<std::byte> axis_stream;
+    if (!axis_builder.build(axis_stream)) return false;
+    const auto axis_validation = scene::validate(axis_stream.data(), axis_stream.size());
+    if (axis_validation.status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    const auto axis_resource = read<progpu_native_scene_resource>(axis_stream, axis_validation.header.resource_offset);
+    if (axis_resource.payload_size != sizeof(axis_picture) + sizeof(axes)) return false;
+    auto captured_axes = read<progpu_native_scene_presentation>(axis_stream,
+        axis_resource.payload_offset + sizeof(axis_picture));
+    if (std::memcmp(&captured_axes, &axes, sizeof(axes)) != 0) return false;
+    for (unsigned int invalid_case = 0U; invalid_case < 17U; ++invalid_case) {
+        auto corrupt = axis_stream;
+        auto bad_picture = axis_picture;
+        auto bad_axes = axes;
+        auto bad_resource = axis_resource;
+        if (invalid_case == 0U) bad_picture.flags |= 2U;
+        if (invalid_case == 1U) bad_picture.struct_size += 4U;
+        if (invalid_case == 2U) bad_picture.flags = 0U; // Unselected trailing suffix.
+        if (invalid_case == 3U) bad_resource.payload_size = sizeof(axis_picture);
+        if (invalid_case == 4U) --bad_resource.payload_size;
+        if (invalid_case == 5U) ++bad_resource.payload_size;
+        if (invalid_case == 6U) --bad_axes.struct_size;
+        if (invalid_case == 7U) bad_axes.viewport_x = 1U;
+        if (invalid_case == 8U) bad_axes.viewport_y = 1U;
+        if (invalid_case == 9U) ++bad_axes.viewport_width;
+        if (invalid_case == 10U) ++bad_axes.viewport_height;
+        if (invalid_case == 11U) bad_axes.reserved = 1U;
+        if (invalid_case == 12U) bad_axes.dpi_scale_x = 0.0F;
+        if (invalid_case == 13U) bad_axes.dpi_scale_y = std::numeric_limits<float>::quiet_NaN();
+        if (invalid_case == 14U) bad_axes.dpi_scale_y = std::numeric_limits<float>::infinity();
+        if (invalid_case == 15U) bad_axes.dpi_scale_x = std::numeric_limits<float>::denorm_min();
+        if (invalid_case == 16U) bad_axes.dpi_scale_y = -1.0F;
+        std::memcpy(corrupt.data() + axis_validation.header.resource_offset, &bad_resource, sizeof(bad_resource));
+        std::memcpy(corrupt.data() + axis_resource.payload_offset, &bad_picture, sizeof(bad_picture));
+        std::memcpy(corrupt.data() + axis_resource.payload_offset + sizeof(bad_picture), &bad_axes, sizeof(bad_axes));
+        auto untouched_picture = picture;
+        auto untouched_axes = axes;
+        if (scene::validate(corrupt.data(), corrupt.size()).status == PROGPU_NATIVE_STATUS_SUCCESS ||
+            semantic::read_semantic_picture_image(corrupt.data() + bad_resource.payload_offset,
+                bad_resource.payload_size, untouched_picture, untouched_axes) ||
+            std::memcmp(&untouched_picture, &picture, sizeof(picture)) != 0 ||
+            std::memcmp(&untouched_axes, &axes, sizeof(axes)) != 0) return false;
+    }
+    const auto before_axis_size = axis_builder.required_stream_size();
+    if (axis_builder.add_picture_image(axis_picture, bgra_stream, axis_index) ||
+        axis_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        axis_builder.add_picture_image(picture, &axes, bgra_stream, axis_index) ||
+        axis_builder.required_stream_size() != before_axis_size) return false;
+    // Copy/import and full-copy flattening own the complete suffix too.
+    semantic_scene_builder imported_axis(7035U, 1U);
+    if (!imported_axis.copy_image_resource_from(axis_builder, 0U, axis_index)) return false;
+    auto exact_draw = image;
+    exact_draw.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+    exact_draw.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    exact_draw.row_bytes = 8U;
+    exact_draw.destination_rect = exact_draw.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    exact_draw.transform = semantic_scene_builder::identity_transform();
+    exact_draw.opacity = 1.0F;
+    semantic_scene_builder full_axis(7036U, 1U);
+    scene_full_image_copy full_copy{};
+    progpu_native_scene_presentation full_presentation{};
+    if (!full_axis.copy_image_from_builder(std::move(imported_axis), axis_index, exact_draw) ||
+        !full_axis.try_get_full_image_copy(exact_draw.destination_rect, 2U, 2U, full_copy, full_presentation) ||
+        std::memcmp(&full_presentation, &axes, sizeof(axes)) != 0 ||
+        full_copy.picture.flags != axis_picture.flags ||
+        full_axis.try_get_full_image_copy(exact_draw.destination_rect, 2U, 2U, full_copy) ||
+        full_copy.resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) return false;
     auto deep_scene = bgra_stream;
     for (unsigned int depth = 0U; depth <= PROGPU_NATIVE_SCENE_MAX_PICTURE_MASK_DEPTH; ++depth) {
         semantic_scene_builder nested(7040U + depth, 1U);

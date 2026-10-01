@@ -252,6 +252,7 @@ bool same_generation_independent_picture_scene(
 std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
     progpu_native_engine& engine,
     const progpu_native_scene_picture_image& descriptor,
+    const progpu_native_scene_presentation& presentation,
     const std::byte* nested_scene,
     const progpu_native_scene_header& header) noexcept {
     for (const auto& entry : engine.semantic_picture_mask_cache) {
@@ -260,7 +261,10 @@ std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
             entry->engine_flags != engine.engine_flags ||
             !semantic::scene_bytes_equal(
                 std::as_bytes(std::span(&entry->descriptor, 1U)),
-                std::as_bytes(std::span(&descriptor, 1U)))) {
+                std::as_bytes(std::span(&descriptor, 1U))) ||
+            !semantic::scene_bytes_equal(
+                std::as_bytes(std::span(&entry->presentation, 1U)),
+                std::as_bytes(std::span(&presentation, 1U)))) {
             continue;
         }
         progpu_native_scene_header prior{};
@@ -395,7 +399,7 @@ static bool create_semantic_picture_binding(
     if (image_output == nullptr && seed_texture == nullptr &&
         raster_cache_eligible) {
         mask_picture_backing = find_retained_picture_raster(
-            engine, raster_descriptor, nested_scene, nested_header);
+            engine, raster_descriptor, child_frame.presentation, nested_scene, nested_header);
         if (mask_picture_backing) {
             source_view = mask_picture_backing->view;
             webgpu::texture_view_add_ref(source_view);
@@ -646,6 +650,7 @@ static bool create_semantic_picture_binding(
         try {
             auto backing = std::make_shared<semantic_picture_backing>();
             backing->descriptor = raster_descriptor;
+            backing->presentation = child_frame.presentation;
             backing->engine_flags = engine.engine_flags;
             backing->scene.assign(
                 nested_scene, nested_scene + picture.stream_size);
@@ -802,6 +807,7 @@ bool create_semantic_picture_mask_binding(
 bool create_semantic_picture_image(
     progpu_native_engine& engine,
     const progpu_native_scene_picture_image& source,
+    const progpu_native_scene_presentation& presentation,
     const std::byte* nested_scene, std::uint32_t scene_size,
     semantic_image_draw& draw,
     progpu_native_scene_frame_metrics& child_metrics) {
@@ -823,6 +829,8 @@ bool create_semantic_picture_image(
                 same_external_image_identity(*entry, engine) &&
                 semantic::scene_bytes_equal(std::as_bytes(std::span(&entry->descriptor, 1U)),
                     std::as_bytes(std::span(&source, 1U))) &&
+                semantic::scene_bytes_equal(std::as_bytes(std::span(&entry->presentation, 1U)),
+                    std::as_bytes(std::span(&presentation, 1U))) &&
                 semantic::find_append_only_scene_suffix(entry->scene.data(), prior, nested_scene, header, first_command)) {
                 previous = entry;
                 break;
@@ -841,6 +849,7 @@ bool create_semantic_picture_image(
     try {
         backing = std::make_shared<semantic_picture_backing>();
         backing->descriptor = source;
+        backing->presentation = presentation;
         backing->engine_flags = engine.engine_flags;
         backing->copy_source_compatible = true;
         if (retain_history) backing->scene.assign(nested_scene, nested_scene + scene_size);
@@ -859,7 +868,7 @@ bool create_semantic_picture_image(
     if (!create_semantic_picture_binding(engine, picture, nested_scene,
         {0U, 0U, source.width, source.height, true}, source.dpi_scale,
         nullptr, nullptr, unused_mask, &draw, &child_metrics, &source.clear_color,
-        previous ? previous->texture : nullptr, first_command)) return false;
+        previous ? previous->texture : nullptr, first_command, &presentation)) return false;
     backing->texture = draw.texture;
     backing->view = draw.view;
     draw.texture = nullptr;

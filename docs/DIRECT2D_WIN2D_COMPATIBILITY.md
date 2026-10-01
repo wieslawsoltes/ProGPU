@@ -5021,3 +5021,81 @@ Public-contract references (no third-party implementation text used): Microsoft
 [compatible target inheritance](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-createcompatiblerendertarget),
 [IsSupported](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-issupported%28constd2d1_render_target_properties%29)
 and [render target properties](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ns-d2d1-d2d1_render_target_properties).
+
+### Independent-axis picture copies
+
+Formatted ordinary scene sources and compatible bitmap destinations now retain
+nonuniform raster DPI through the shared picture-image path. This supersedes the
+nonuniform-copy rejection above, not the mixed-DPI-history restriction. Source
+capture keeps its original physical dimensions and `dpi_x / 96`, `dpi_y / 96`
+values; destination pixel rectangles convert X/width and Y/height independently.
+The bitmap view's creation-time DPI, requested format/alpha, factory ownership,
+physical crop and copy-before-lock snapshot rules remain unchanged. Whole-memory
+replacement can establish a new raster-DPI epoch; partial copies cannot silently
+reinterpret existing DIP commands after either axis changes. Hairline strokes
+with nonuniform DPI remain separately unsupported.
+
+The existing 48-byte `progpu_native_scene_picture_image` is unchanged. Its new
+`PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION` flag selects exactly one appended
+32-byte `progpu_native_scene_presentation`. That suffix must cover the complete
+physical image at origin zero and owns both finite positive scales. No ratio is
+computed to wrap or rewrite the nested scene. Unknown flags, wrong descriptor or
+suffix sizes, extra/missing bytes, mismatched extents, reserved words and axes
+whose logical viewport is not representable reject before publication. Uniform
+records still use exactly their original 48-byte payload. Existing COM interfaces,
+IIDs and native frame layouts do not change.
+The public C++ `scene_full_image_copy` layout also stays unchanged: a new overload
+returns presentation separately. Its original overload rejects flagged pictures
+instead of silently returning incomplete DPI metadata.
+
+The central payload reader publishes descriptor/presentation together. Builder
+import, scene export, copy-resource moves and full-copy flattening preserve all
+owned suffix bytes. Both native providers share the same picture renderer, which
+passes the original presentation to its existing child frame. Retained picture
+image and picture-mask caches compare complete presentation identity in addition
+to their existing descriptor/scene/provider/dependency keys. Earlier captures
+retain their independent resource leases; a changed suffix cannot reuse a raster
+from another mapping. Runtime work and retained size remain O(H) for H owned
+scene bytes, plus a constant 32-byte suffix. No new renderer, shader, CPU readback,
+fallback, synchronization or performance claim is introduced.
+
+Managed Scene is a producer of native wire streams, not an IMAGE_PICTURE wire
+interpreter. `NativeSceneStreamBuilder.TryAddResource` continues to reject this
+native-only resource flag, with an explicit rejection test. A managed caller
+submitting raw owned bytes through `NativeCompositor.UpdateScene` uses the same
+native validation/rendering implementation; no managed fallback interprets them
+as upload pixels. The internal generated `ScenePictureImage` descriptor and
+existing `ScenePresentation` layout are synchronized from the native header.
+The generator flattens only bounded literal inline `uint32_t` arrays into
+sequential fields so the C reserved-array declaration and 48-byte ABI stay intact.
+
+Authored controls cover seventeen malformed suffix/flag/size/axis cases, atomic
+outputs, exact adjacent-float metadata, old uniform payloads, import/full-copy
+ownership and the C++ module overload. Shared portable/Windows factory contracts
+exercise five format/alpha pairs at three nonuniform source densities, independent
+destination DPI, active/completed source capture, physical crop, foreign-factory
+rejection, self/overlap copies, source mutation/disposal, immutable child bitmap
+DPI and mixed-history/full-replacement policy. A paired wgpu-native/Dawn fixture
+compares every pixel of cold/warm/independent replay, including cropped placement
+and unchanged nested bytes with only the suffix axes changed. Existing five-format
+GPU copy controls retain their alpha/lifetime oracle at uniform and swapped
+nonuniform source densities with nonuniform destination DPI.
+
+These new behavioral/GPU tests are authored but unexecuted at the substantive
+commit. No local native build, GPU run, Windows reference, runtime staging or
+application qualification is claimed. Exact producer Build, both provider/package
+gates and independent Windows pixel/source application evidence remain required.
+
+Post-commit bounded checks: Apple Clang strict C++20 syntax-only checks passed for
+the Direct2D target, image builder, scene validator, semantic value validator,
+portable compatibility test translation unit and scene-builder tests, plus an
+instantiation of the shared pixel fixture template. No native object/library was
+built or executed. The managed generator's `--verify` check passed for the exact
+header/generated file, and its two focused tests passed (three admitted literal
+array lengths and ten rejected declarations, preserving existing outputs).
+The first test invocation exposed a test expectation of public instead of the
+generator's existing internal fields; the assertion was corrected to require
+every exact internal field in order. The memory-inventory source guard passed
+(92 owned fields, seven non-owning identities excluded). Provider GPU translation
+units, Windows SDK/module builds, native behavioral tests and managed scene tests
+remain unexecuted here; these source checks do not substitute for their gates.

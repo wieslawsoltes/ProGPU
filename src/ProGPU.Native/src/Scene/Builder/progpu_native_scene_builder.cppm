@@ -19,6 +19,8 @@ using ::progpu_native_point;
 using ::progpu_native_image_rect;
 using ::progpu_native_scene_image_draw;
 using ::progpu_native_scene_picture_image;
+using ::progpu_native_scene_presentation;
+using ::PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION;
 using ::PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
 using ::PROGPU_NATIVE_SCENE_IMAGE_BGRA8;
 using ::PROGPU_NATIVE_SCENE_IMAGE_R8;
