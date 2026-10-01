@@ -638,15 +638,19 @@ actual production project, not shim DrawingTextLayout/Graphics implementations.
 These are ownership/transport controls, not a
 new Microsoft oracle or execution of the native classifier/ICU dependency.
 
-The remaining editor geometry boundary is concrete: the current retained
-`TextInteractionSnapshot.GetCaretStop` selects the nearest existing shaped stop;
+Editor geometry must be checked against the actual retained generation:
+`TextInteractionSnapshot.GetCaretStop` can select the nearest existing shaped
+stop, so a source endpoint requires an exact returned TextPosition, not merely
+a successful query. The tested Forms font/generation does contain exact stops
+at the original emoji endpoints 7 and 4; being inside a modern grapheme does not
+by itself prove that an endpoint lacks a retained stop. Conversely,
 `GetSourcePositionPoint` returns the owning cluster's leading logical edge, and
-selection rectangles retain whole intersected cluster boxes. None publishes an
-independent original EDIT interior-cluster caret/partial-selection frame. The
-new boundary snapshot deliberately preserves such UTF-16 endpoints without
-pretending those existing geometry methods are that missing contract. Ordinary
-Forms capability/UI admission and complete native package qualification remain
-closed; no source-local caret interpolation or prefix shaping is introduced.
+selection rectangles retain whole intersected cluster boxes. Exact source-index
+preservation alone therefore does not prove original EDIT caret, highlight or
+scrolling geometry. The new snapshot keeps every original UTF-16 endpoint;
+independent editor geometry and complete native package qualification remain
+required before ordinary Forms capability/UI admission. No source-local caret
+interpolation, prefix shaping or endpoint substitution is introduced.
 
 ## Six-RID producer and independent packaged export gates
 
