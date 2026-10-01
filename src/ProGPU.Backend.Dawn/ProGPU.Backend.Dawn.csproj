@@ -18,6 +18,7 @@
     <InternalsVisibleTo Include="Avalonia.ProGpu.UnitTests, PublicKey=$(ProGPUPublicKey)" />
     <InternalsVisibleTo Include="ProGPU.Backend.Native, PublicKey=$(ProGPUPublicKey)" />
     <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.DawnSystemWarp.Conformance, PublicKey=$(ProGPUPublicKey)" />
   </ItemGroup>
   <Import Project="../../eng/dawn-system-warp/packaging.targets" />
 </Project>

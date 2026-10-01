@@ -52,7 +52,7 @@ foreach ($kind in @('jit','aot')) {
             Copy-Item -LiteralPath (Join-Path $payload $name) -Destination $destination
         }
     }
-    foreach ($control in @('readback','foreign-resolver','device-loss')) {
+    foreach ($control in @('readback','foreign-resolver','device-loss','request-cancellation','callback-fault')) {
         $stdout = Join-Path $evidence "$kind-$control-stdout.log"
         $stderr = Join-Path $evidence "$kind-$control-stderr.log"
         $arguments = @($architecture)
@@ -63,6 +63,12 @@ foreach ($kind in @('jit','aot')) {
         } elseif ($control -eq 'device-loss') {
             $arguments += '--device-loss'
             $expected = 'Dawn system WARP native device loss and independent replacement readback passed.'
+        } elseif ($control -eq 'request-cancellation') {
+            $arguments += '--request-cancellation'
+            $expected = 'Dawn system WARP native adapter and device request cancellation retired exactly once.'
+        } elseif ($control -eq 'callback-fault') {
+            $arguments += '--callback-fault'
+            $expected = 'Dawn system WARP throwing loss subscriber and diagnostic writer preserved native retirement.'
         }
         $process = Start-Process -FilePath (Join-Path $publish 'ProGPU.DawnSystemWarp.Conformance.exe') -ArgumentList $arguments -WorkingDirectory $publish -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         try {

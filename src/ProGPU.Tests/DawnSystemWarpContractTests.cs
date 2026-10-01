@@ -78,6 +78,50 @@ public sealed class DawnSystemWarpContractTests
     }
 
     [Fact]
+    public void CancellationControlAbandonsRealRequestsBeforeWaitAndRequiresNativeRetirement()
+    {
+        string source = Read("src", "ProGPU.Backend.Dawn", "DawnGpuContext.SystemWarp.cs");
+        Assert.Contains("=> CreateSystemWarpOffscreenCore(companionDirectory, null);", source, StringComparison.Ordinal);
+        Assert.Contains("cancellationProbe?.BeforeWait(deviceRequest: false);", source, StringComparison.Ordinal);
+        Assert.Contains("cancellationProbe?.BeforeWait(deviceRequest: true);", source, StringComparison.Ordinal);
+        Assert.Contains("probe.Adapter.Verify((int)W.RequestAdapterStatus.Success, releasedResults: 1);", source, StringComparison.Ordinal);
+        Assert.Contains("probe.Device.Verify((int)W.RequestDeviceStatus.Success, releasedResults: 1);", source, StringComparison.Ordinal);
+        Assert.Contains("instance.WaitAny(1, &wait, 0)", source, StringComparison.Ordinal);
+        Assert.Contains("state.RetainUntilRetirement(retainedLoss.Free);", source, StringComparison.Ordinal);
+        Assert.Contains("_receipt?.ReleaseResult();", source, StringComparison.Ordinal);
+        Assert.Contains("ReferenceEquals(error, probe.Failure)", source, StringComparison.Ordinal);
+        Assert.Contains("_receipt?.Complete(status, _completionFailure);", source, StringComparison.Ordinal);
+        Assert.Contains("_receipt?.Fail(error);", source, StringComparison.Ordinal);
+        Assert.Contains("_self.Free();", source, StringComparison.Ordinal);
+        Assert.Contains("_receipt?.Retire();", source, StringComparison.Ordinal);
+        Assert.Contains("Volatile.Read(ref _callbacks) != 1 || Volatile.Read(ref _retirements) != 1", source, StringComparison.Ordinal);
+        string consumer = Read("tests", "ProGPU.DawnSystemWarp.Conformance", "Program.cs");
+        Assert.Contains("VerifySystemWarpRequestCancellationForDiagnostics(deviceRequest: false);", consumer, StringComparison.Ordinal);
+        Assert.Contains("VerifySystemWarpRequestCancellationForDiagnostics(deviceRequest: true);", consumer, StringComparison.Ordinal);
+        string script = Read("eng", "test-dawn-system-warp-windows.ps1");
+        Assert.Contains("@('readback','foreign-resolver','device-loss','request-cancellation','callback-fault')", script, StringComparison.Ordinal);
+        Assert.Contains("$arguments += '--request-cancellation'", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NativeLossAndErrorCallbacksContainApplicationAndDiagnosticFaults()
+    {
+        string source = Read("src", "ProGPU.Backend.Dawn", "DawnGpuContext.cs");
+        int errorCallback = source.IndexOf("private static void OnUncapturedError(", StringComparison.Ordinal);
+        int lossCallback = source.IndexOf("private static void OnDeviceLost(", errorCallback, StringComparison.Ordinal);
+        string errorBody = source[errorCallback..lossCallback];
+        int report = errorBody.IndexOf("state.Report(errorMessage);", StringComparison.Ordinal);
+        int notify = errorBody.IndexOf("WgpuContext.RaiseWebGpuError(ErrorType(type), errorMessage);", StringComparison.Ordinal);
+        Assert.True(report >= 0 && notify > report, "Terminal state must precede application error handlers.");
+        Assert.Contains("catch (Exception error) { ReportCallbackFailure(error); }", errorBody, StringComparison.Ordinal);
+        Assert.Contains("try { Console.Error.WriteLine(message); }", source, StringComparison.Ordinal);
+        string consumer = Read("tests", "ProGPU.DawnSystemWarp.Conformance", "Program.cs");
+        Assert.Contains("ExerciseDeviceLoss(throwFromCallback: true)", consumer, StringComparison.Ordinal);
+        Assert.Contains("finally { Console.SetError(originalError); }", consumer, StringComparison.Ordinal);
+        Assert.Contains("if (throwingWriter.Attempts == 0)", consumer, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AvailabilityValidatesOriginalFileAndActualBoundModuleIdentities()
     {
         string source = Read("src", "ProGPU.Backend.Dawn", "DawnSystemWarpArtifact.cs");

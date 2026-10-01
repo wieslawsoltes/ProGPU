@@ -125,11 +125,13 @@ this original Dawn D3D backend rejects generic forced fallback before processing
 LUID. The selected original adapter must independently report D3D12/CPU; its owned
 DXGI adapter must be software and match both the captured and freshly queried
 system WARP LUID before a device is requested. New adapter/device request userdata
-holds separate managed/native uses through success or shutdown cancellation. A
-failed wait ends only the managed use; callback userdata cannot be freed while
-native work still retains it. The creating factory keeps device-loss userdata
-until complete instance shutdown, drains all acquired owners and preserves the
-first setup error. Existing waits and deadlines are not lengthened or bypassed.
+holds separate managed/native uses through completion. A failed wait drains the
+original completed event with one zero-timeout WaitAny before ending the managed
+use. Callback userdata cannot be freed while native work still retains it. If
+that drain itself fails, the pending request retains device-loss userdata until
+actual retirement instead of trusting instance release. The factory drains all
+acquired owners and preserves the first setup error. Existing waits and deadlines
+are not lengthened or bypassed.
 
 Foreign-resolver rejection, failed-request cancellation and device-loss
 paths still require runtime evidence. Existing independent package/RID,
@@ -181,3 +183,45 @@ the lost context remains owned. Both contexts retire before success is printed.
 The source and NuGet JIT/NativeAOT jobs execute this same case. These authored
 loss/replacement controls await hosted evidence and do not yet qualify failed
 adapter/device-request cancellation or arbitrary callback exceptions.
+
+The isolated `--request-cancellation` control now abandons each real native
+`WaitAnyOnly` adapter/device request after it is queued but before waiting. A
+friend-only diagnostic uses the same factory and request owner; the public
+factory passes no diagnostic state. The original injected exception must survive
+cleanup, the real completed callback must run exactly once, its unpublished
+native result must be released exactly once, and request userdata must retire
+exactly once. Device-request cancellation also requires the preceding adapter
+request to have succeeded and transferred its result without duplicate release.
+Callback decoding or release failures reject the receipt, even when the ABI
+boundary catches them. No managed completion is synthesized and no timeout is
+extended. Source and NuGet JIT/NativeAOT consumers execute both stages under the
+existing process bound. These new controls require hosted runtime evidence;
+arbitrary external callback faults and complete application gates remain separate.
+
+The initial ARM64 control failed in Build 36841025586: releasing the instance
+did not establish request retirement. The pinned original
+[adapter request](https://dawn.googlesource.com/dawn/+/01249a97332468dbdd6cf5edb8dd7bae77875de5/src/dawn/native/Instance.cpp)
+and [device request](https://dawn.googlesource.com/dawn/+/01249a97332468dbdd6cf5edb8dd7bae77875de5/src/dawn/native/Adapter.cpp)
+create completed events retaining their result objects. Assuming instance release
+would immediately produce `CallbackCancelled` was incorrect. Failure cleanup now
+delivers that actual completion without waiting for more GPU work, then retires
+the unpublished result. The test requires its real success status plus independent
+release and userdata counts; it cannot qualify a leak by accepting no callback or
+a different status. This is managed request abandonment, not a claim that Dawn
+offers an explicit native request-cancel API.
+
+Dawn's shared native error/loss entry points now contain managed event-handler
+and diagnostic-writer exceptions at the ABI boundary. Terminal device state is
+published before application error handlers; a throwing loss subscriber cannot
+suppress the independent error notification. Native message decoding failure
+retains an explicit diagnostic message, and console failures cannot prevent loss
+publication or unwind into native code. Direct managed event-invocation APIs keep
+their existing behavior.
+
+The isolated `--callback-fault` control installs both a throwing loss subscriber
+and a throwing `Console.Error` writer, forces real native device loss and retains
+the original lost-handle rejection, independent replacement readback and disposal
+checks. It requires the writer to have actually run and restores caller state.
+Both source and NuGet JIT/NativeAOT modes run it under the unchanged process bound.
+Hosted proof is pending; this specifically exercises device-loss subscriber and
+writer faults, not every possible native error or invalid foreign pointer.

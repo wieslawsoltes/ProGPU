@@ -908,19 +908,24 @@ public sealed unsafe partial class DawnGpuContext :
         void* userData1,
         void* userData2)
     {
-        string errorMessage = Message(message);
-        Console.Error.WriteLine(
-            $"[Dawn WebGPU Error] {type}: {errorMessage}");
-        WgpuContext.RaiseWebGpuError(
-            ErrorType(type),
-            errorMessage);
-        if (userData1 != null &&
-            IsTerminalDeviceFailure(type, errorMessage) &&
-            GCHandle.FromIntPtr((nint)userData1).Target is
-                DeviceLossCallbackState state)
+        try
         {
-            state.Report(errorMessage);
+            string errorMessage = CallbackMessage(message);
+            // Publish terminal state before invoking application diagnostics.
+            // A throwing loss subscriber must not suppress the error callback.
+            try
+            {
+                if (userData1 != null &&
+                    IsTerminalDeviceFailure(type, errorMessage) &&
+                    GCHandle.FromIntPtr((nint)userData1).Target is DeviceLossCallbackState state)
+                    state.Report(errorMessage);
+            }
+            catch (Exception error) { ReportCallbackFailure(error); }
+            try { WgpuContext.RaiseWebGpuError(ErrorType(type), errorMessage); }
+            catch (Exception error) { ReportCallbackFailure(error); }
+            WriteCallbackDiagnostic($"[Dawn WebGPU Error] {type}: {errorMessage}");
         }
+        catch (Exception error) { ReportCallbackFailure(error); }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
@@ -935,15 +940,43 @@ public sealed unsafe partial class DawnGpuContext :
         {
             return;
         }
-        string lossMessage = Message(message);
-        Console.Error.WriteLine(
-            $"[Dawn Device Lost] {reason}: {lossMessage}");
-        if (userData1 != null &&
-            GCHandle.FromIntPtr((nint)userData1).Target is
-                DeviceLossCallbackState state)
+        try
         {
-            state.Report(lossMessage);
+            string lossMessage = CallbackMessage(message);
+            try
+            {
+                if (userData1 != null &&
+                    GCHandle.FromIntPtr((nint)userData1).Target is DeviceLossCallbackState state)
+                    state.Report(lossMessage);
+            }
+            catch (Exception error) { ReportCallbackFailure(error); }
+            WriteCallbackDiagnostic($"[Dawn Device Lost] {reason}: {lossMessage}");
         }
+        catch (Exception error) { ReportCallbackFailure(error); }
+    }
+
+    private static string CallbackMessage(StringViewFFI message)
+    {
+        try { return Message(message); }
+        catch (Exception error)
+        {
+            ReportCallbackFailure(error);
+            return "Dawn native callback message could not be decoded.";
+        }
+    }
+
+    private static void WriteCallbackDiagnostic(string message)
+    {
+        // Console.Error is caller-replaceable and may itself throw. Diagnostics
+        // must never unwind across an unmanaged callback or prevent retirement.
+        try { Console.Error.WriteLine(message); }
+        catch { }
+    }
+
+    private static void ReportCallbackFailure(Exception error)
+    {
+        try { WriteCallbackDiagnostic($"[Dawn callback failure] {error}"); }
+        catch { }
     }
 
     private static string Message(StringViewFFI message) =>
