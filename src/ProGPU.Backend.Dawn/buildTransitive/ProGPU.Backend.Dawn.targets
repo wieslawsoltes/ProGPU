@@ -1,0 +1,31 @@
+<Project>
+  <!-- Opt-in file delivery only, NEVER automatic adapter/fallback selection. -->
+  <PropertyGroup>
+    <ProGpuEnableDawnSystemWarp Condition="'$(ProGpuEnableDawnSystemWarp)' == ''">false</ProGpuEnableDawnSystemWarp>
+    <_DawnSystemWarpSelected Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == 'win-arm64'">true</_DawnSystemWarpSelected>
+    <_DawnSystemWarpPayload>$(MSBuildThisFileDirectory)runtimes/$(RuntimeIdentifier)/native/</_DawnSystemWarpPayload>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ProGpuEnableDawnSystemWarp)' == 'true' And '$(_DawnSystemWarpSelected)' == 'true'">
+    <Content Include="$(_DawnSystemWarpPayload)progpu_dawn_system_warp.dll;$(_DawnSystemWarpPayload)progpu-dawn-system-warp.json;$(_DawnSystemWarpPayload)Dawn-LICENSE.txt"
+             Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true"
+             ProGpuDawnSystemWarpOwned="true" />
+  </ItemGroup>
+  <Target Name="ValidateDawnSystemWarpConsumer" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(ProGpuEnableDawnSystemWarp)' != 'true' And '$(ProGpuEnableDawnSystemWarp)' != 'false'"
+           Text="ProGpuEnableDawnSystemWarp must be explicitly true or false." />
+    <Error Condition="'$(ProGpuEnableDawnSystemWarp)' == 'true' And '$(_DawnSystemWarpSelected)' != 'true'"
+           Text="The optional Dawn system WARP companion requires an explicit win-x64 or win-arm64 RuntimeIdentifier." />
+    <Error Condition="'$(ProGpuEnableDawnSystemWarp)' == 'true' And (!Exists('$(_DawnSystemWarpPayload)progpu_dawn_system_warp.dll') Or !Exists('$(_DawnSystemWarpPayload)progpu-dawn-system-warp.json') Or !Exists('$(_DawnSystemWarpPayload)Dawn-LICENSE.txt'))"
+           Text="The selected original-header Dawn system WARP companion payload is absent. No renderer fallback is permitted." />
+  </Target>
+  <Target Name="RejectDawnSystemWarpCallerAssetReplacement" BeforeTargets="GetCopyToOutputDirectoryItems;ComputeFilesToPublish"
+          Condition="'$(ProGpuEnableDawnSystemWarp)' == 'true'">
+    <ItemGroup>
+      <_DawnSystemWarpCallerContent Include="@(Content);@(None);@(NativeCopyLocalItems)"
+          Condition="('%(Filename)%(Extension)' == 'progpu_dawn_system_warp.dll' Or '%(Filename)%(Extension)' == 'progpu-dawn-system-warp.json' Or '%(Filename)%(Extension)' == 'Dawn-LICENSE.txt') And '%(ProGpuDawnSystemWarpOwned)' != 'true'" />
+    </ItemGroup>
+    <Error Condition="'@(_DawnSystemWarpCallerContent)' != ''"
+           Text="Dawn system WARP will not replace caller-owned same-name content: @(_DawnSystemWarpCallerContent)." />
+  </Target>
+</Project>

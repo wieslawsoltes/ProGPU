@@ -1,0 +1,22 @@
+<Project>
+  <!-- Ordinary Dawn build/pack is unchanged. Explicit publication requires BOTH
+       original Windows companion producers, fresh receipts and read-only checks. -->
+  <PropertyGroup>
+    <ProGpuIncludeDawnSystemWarp Condition="'$(ProGpuIncludeDawnSystemWarp)' == ''">false</ProGpuIncludeDawnSystemWarp>
+    <ProGpuDawnSystemWarpPowerShell Condition="'$(ProGpuDawnSystemWarpPowerShell)' == ''">pwsh</ProGpuDawnSystemWarpPowerShell>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ProGpuIncludeDawnSystemWarp)' == 'true'">
+    <None Include="$(ProGpuDawnSystemWarpPayloadRoot)/win-x64/native/progpu_dawn_system_warp.dll;$(ProGpuDawnSystemWarpPayloadRoot)/win-x64/native/progpu-dawn-system-warp.json;$(ProGpuDawnSystemWarpPayloadRoot)/win-x64/native/Dawn-LICENSE.txt"
+          Pack="true" PackagePath="buildTransitive/runtimes/win-x64/native/" />
+    <None Include="$(ProGpuDawnSystemWarpPayloadRoot)/win-arm64/native/progpu_dawn_system_warp.dll;$(ProGpuDawnSystemWarpPayloadRoot)/win-arm64/native/progpu-dawn-system-warp.json;$(ProGpuDawnSystemWarpPayloadRoot)/win-arm64/native/Dawn-LICENSE.txt"
+          Pack="true" PackagePath="buildTransitive/runtimes/win-arm64/native/" />
+  </ItemGroup>
+  <Target Name="ValidateDawnSystemWarpPublication" BeforeTargets="_GetPackageFiles;GenerateNuspec">
+    <Error Condition="'$(ProGpuIncludeDawnSystemWarp)' != 'true' And '$(ProGpuIncludeDawnSystemWarp)' != 'false'"
+           Text="ProGpuIncludeDawnSystemWarp must be explicitly true or false." />
+    <Error Condition="'$(ProGpuIncludeDawnSystemWarp)' == 'true' And '$(ProGpuDawnSystemWarpPayloadRoot)' == ''"
+           Text="Explicit Dawn WARP publication requires a verified external ProGpuDawnSystemWarpPayloadRoot." />
+    <Exec Condition="'$(ProGpuIncludeDawnSystemWarp)' == 'true'"
+          Command="&quot;$(ProGpuDawnSystemWarpPowerShell)&quot; -NoProfile -File &quot;$(MSBuildThisFileDirectory)../validate-dawn-system-warp-payload.ps1&quot; -PayloadRoot &quot;$(ProGpuDawnSystemWarpPayloadRoot)&quot;" />
+  </Target>
+</Project>
