@@ -76,6 +76,50 @@ internal static class ShaderSourceControls
                 BitConverter.ToSingle(translatedInstances, start + 52) == 27,
                 "Translated texture bounds do not match the original23×25 tile at(2,2).");
         }
+
+        byte[] nativeInstances = NativeFrameControl.Instances(), nativeAtlas = NativeFrameControl.Atlas();
+        Check(NativeFrameControl.BearingX == -3 && NativeFrameControl.BearingY == -18 &&
+            NativeFrameControl.Width == 20 && NativeFrameControl.Height == 22 && NativeFrameControl.Padding == 4,
+            "Native frame does not preserve the original producer's floor/ceil and padding arithmetic.");
+        // Independently packed from original reference-glyphs.bin, captured
+        // outline bounds and the native gpu_glyph_instance writer; not a hash
+        // calculated by this C# instance helper, nor a captured GPU buffer.
+        Check(ShaderDiagnostics.Hash(nativeInstances) == "7238032D7F006B96C46684366A4009DEA2C06B22A8C106D413BFE5EA49263314",
+            "Native-frame instances differ from independently derived original96byte records.");
+        Check(ShaderDiagnostics.Hash(Program.PaintBytes(true, 96)) == "2D56BE36B794AE5BBE080FB813F99677732A88329F606BD0000DA58532EDE807",
+            "Bounded paint changed from the authentic frame0 receipt.");
+        for (int occurrence = 0; occurrence < 2; occurrence++)
+        {
+            int start = occurrence * 96;
+            Check(nativeInstances.AsSpan(start + 8, 16).SequenceEqual(translatedInstances.AsSpan(start + 8, 16)) &&
+                nativeInstances.AsSpan(start + 56, 40).SequenceEqual(translatedInstances.AsSpan(start + 56, 40)),
+                "Native frame changed basis, original reference color, scale, flags or brush/paint identity.");
+            float x = BitConverter.ToSingle(nativeInstances, start) + BitConverter.ToSingle(nativeInstances, start + 24) / 2;
+            float y = BitConverter.ToSingle(nativeInstances, start + 4) + BitConverter.ToSingle(nativeInstances, start + 28) / 2;
+            Check(x == (occurrence == 0 ? 2.5625f : 2.75f) && y == (occurrence == 0 ? 4.1875f : 4.25f) &&
+                x + BitConverter.ToSingle(nativeInstances, start + 32) / 2 == (occurrence == 0 ? 12.5625f : 12.75f) &&
+                y + BitConverter.ToSingle(nativeInstances, start + 36) / 2 == (occurrence == 0 ? 15.1875f : 15.25f),
+                "Native logical frame differs from original division-by-DPI and writer placement.");
+        }
+        Check(nativeAtlas.Length == 1024 * 1024 && nativeAtlas.Count(value => value != 0) == 12 * 14,
+            "Controlled synthetic interior escaped the native frame's four-texel clear padding.");
+        for (int row = 0; row < 22; row++)
+        {
+            var data = nativeAtlas.AsSpan((2 + row) * 1024 + 2, 20);
+            if (row < 4 || row >= 18)
+                Check(data.IndexOfAnyExcept((byte)0) < 0, "Native frame vertical padding is not clear.");
+            else
+                Check(data[..4].IndexOfAnyExcept((byte)0) < 0 && data[16..].IndexOfAnyExcept((byte)0) < 0 &&
+                    data.Slice(4, 12).SequenceEqual(translatedAtlas.AsSpan((2 + row) * 1024 + 6, 12)),
+                    "Native frame padding or controlled relative coverage formula changed.");
+        }
+        byte[] uniform96 = Program.UniformBytes(96), uniform128 = Program.UniformBytes(128);
+        Check(BitConverter.ToUInt32(uniform96, 0) == 0x3d2aaaab && BitConverter.ToUInt32(uniform96, 20) == 0xbd2aaaab &&
+            BitConverter.ToSingle(uniform96, 192) == 48 && BitConverter.ToSingle(uniform96, 200) == 2,
+            "Native96px projection no longer matches original float32(2/48) and DPI2.");
+        Check(BitConverter.ToSingle(uniform128, 0) == .03125f && BitConverter.ToSingle(uniform128, 20) == -.03125f &&
+            BitConverter.ToSingle(uniform128, 192) == 64 && BitConverter.ToSingle(uniform128, 200) == 2,
+            "128px projection control changed physical DPI or canvas extent.");
         return passed;
 
         void Check(bool condition, string message)

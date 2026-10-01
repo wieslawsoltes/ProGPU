@@ -32,16 +32,17 @@ internal static unsafe class Program
         {
             if (args.Length == 1 && args[0] == "--verify-source-only")
             {
-                Console.WriteLine($"PASS {ShaderSourceControls.Run()} deterministic source, instrumentation and atlas-translation controls; no GPU initialization.");
+                Console.WriteLine($"PASS {ShaderSourceControls.Run()} deterministic source, instrumentation, atlas-translation and native-frame controls; no GPU initialization.");
                 return 0;
             }
             string? output = null;
-            bool fallback = false;
+            bool fallback = false, nativeFrame = false;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--output" && i + 1 < args.Length) output = args[++i];
                 else if (args[i] == "--fallback") fallback = true;
-                else throw new ArgumentException("Usage: HintedTextureSamplingProbe --output <new directory> [--fallback]");
+                else if (args[i] == "--native-frame") nativeFrame = true;
+                else throw new ArgumentException("Usage: HintedTextureSamplingProbe --output <new directory> [--fallback] [--native-frame]");
             }
             if (output is null) throw new ArgumentException("--output is required.");
             if (fallback && !OperatingSystem.IsWindows()) throw new ArgumentException("--fallback explicitly requires Windows D3D12.");
@@ -54,7 +55,7 @@ internal static unsafe class Program
             {
                 string caseOutput = Path.Combine(output, "target-" + size);
                 Directory.CreateDirectory(caseOutput);
-                Run(caseOutput, fallback, size);
+                Run(caseOutput, fallback, size, nativeFrame);
                 ThrowErrors(); // Includes errors queued during all resource/context retirement.
             }
             return 0;
@@ -66,7 +67,7 @@ internal static unsafe class Program
         }
     }
 
-    private static void Run(string output, bool fallback, uint size)
+    private static void Run(string output, bool fallback, uint size, bool nativeFrame)
     {
         int initialSubmissions = _submissions, initialCompletions = _completed;
         string text = ShaderDiagnostics.VerifySource(false), paint = ShaderDiagnostics.VerifySource(true);
@@ -111,11 +112,11 @@ internal static unsafe class Program
             using var brushes = Buffer(context, brushBytes, BufferUsage.Storage);
             using var stops = Buffer(context, new byte[32], BufferUsage.Storage);
             using var paints = Buffer(context, PaintBytes(false, size), BufferUsage.Storage);
-            byte[] instanceBytes = Instances();
+            byte[] instanceBytes = nativeFrame ? NativeFrameControl.Instances() : Instances();
             using var instances = Buffer(context, instanceBytes, BufferUsage.Vertex);
 
             using var atlas = new GpuTexture(context, AtlasSize, AtlasSize, TextureFormat.R8Unorm, TextureUsage.TextureBinding | TextureUsage.CopyDst);
-            byte[] atlasBytes = Atlas();
+            byte[] atlasBytes = nativeFrame ? NativeFrameControl.Atlas() : Atlas();
             atlas.WritePixels<byte>(atlasBytes);
             byte[] textureBytes = [64, 192, 128, 255];
             using var texture = new GpuTexture(context, 1, 1, TextureFormat.Rgba8Unorm, TextureUsage.TextureBinding | TextureUsage.CopyDst);
@@ -215,7 +216,11 @@ internal static unsafe class Program
                 var assembly = typeof(WgpuContext).Assembly;
                 var report = new
                 {
-                    Scope = "Synthetic shared-shader sampling diagnostic; not native font, renderer, package or Display qualification.",
+                    Scope = nativeFrame
+                        ? "Derived authentic native frame with controlled synthetic coverage, NOT original atlas coverage; not native font, renderer, package or Display qualification."
+                        : "Synthetic shared-shader sampling diagnostic; not native font, renderer, package or Display qualification.",
+                    FrameControl = nativeFrame ? "native-frame" : "synthetic-frame",
+                    NativeFrameReference = nativeFrame ? NativeFrameControl.Provenance() : null,
                     ShaderParent = "8adb6350927fa64d8d4a025cb8181ff111868b74",
                     Provider = context.BackendKind.ToString(), Backend = context.AdapterBackendType.ToString(),
                     context.AdapterName, Compiler = context.SelectedDx12ShaderCompiler?.ToString(), RequestedFallback = fallback,
@@ -229,8 +234,11 @@ internal static unsafe class Program
                     ShaderSha256 = sources.ToDictionary(x => x.Key, x => ShaderDiagnostics.Hash(x.Value)),
                     CanonicalLfShaderSha256 = sources.ToDictionary(x => x.Key, x => ShaderDiagnostics.CanonicalHash(x.Value)),
                     Size = size, Dpi, Opacity, AtlasWidth = AtlasSize, AtlasHeight = AtlasSize, InstanceStride = 96,
-                    AtlasTileOrigin = new[] { AtlasTileX, AtlasTileY }, AtlasTileExtent = new[] { 23, 25 },
-                    AtlasPlacementControl = "Original (17,11) at cc1fbdf33f9580a9804a898f528dfe3b32b65aeb, Windows run36877876254; only atlas placement changes to(2,2).",
+                    AtlasTileOrigin = new[] { AtlasTileX, AtlasTileY },
+                    AtlasTileExtent = nativeFrame ? new[] { NativeFrameControl.Width, NativeFrameControl.Height } : new[] { 23, 25 },
+                    AtlasPlacementControl = nativeFrame
+                        ? "Original native first-allocation origin(2,2), derived20x22 frame with4pixelpadding; interior coverage is controlled synthetic data."
+                        : "Original (17,11) at cc1fbdf33f9580a9804a898f528dfe3b32b65aeb, Windows run36877876254; only atlas placement changes to(2,2).",
                     AtlasSha256 = ShaderDiagnostics.Hash(atlasBytes), InstanceSha256 = ShaderDiagnostics.Hash(instanceBytes),
                     AtlasSampler = "linear min/mag, nearest mip, clamp-to-edge, LOD 0, anisotropy 1; shared by all paths",
                     TargetPolicy = "one shared RGBA8Unorm target with straight source-over; one shared unblended RGBA32Float diagnostic target",
@@ -267,7 +275,7 @@ internal static unsafe class Program
         catch { buffer.Dispose(); throw; }
     }
 
-    private static byte[] UniformBytes(uint size)
+    internal static byte[] UniformBytes(uint size)
     {
         byte[] bytes = new byte[224];
         Span<float> values = MemoryMarshal.Cast<byte, float>(bytes.AsSpan());
@@ -298,7 +306,7 @@ internal static unsafe class Program
         return bytes;
     }
 
-    private static byte[] PaintBytes(bool texture, uint size)
+    internal static byte[] PaintBytes(bool texture, uint size)
     {
         byte[] bytes = new byte[96];
         Span<uint> integers = MemoryMarshal.Cast<byte, uint>(bytes.AsSpan());
@@ -310,11 +318,12 @@ internal static unsafe class Program
         return bytes;
     }
 
-    internal static byte[] Atlas(int atlasX = AtlasTileX, int atlasY = AtlasTileY)
+    internal static byte[] Atlas(int atlasX = AtlasTileX, int atlasY = AtlasTileY,
+        int width = 23, int height = 25, int padding = 1)
     {
         byte[] bytes = new byte[AtlasSize * AtlasSize];
-        for (int localY = 1; localY < 24; localY++)
-            for (int localX = 1; localX < 22; localX++)
+        for (int localY = padding; localY < height - padding; localY++)
+            for (int localX = padding; localX < width - padding; localX++)
             {
                 // Preserve the exact original coverage formula at its original
                 // (17,11) coordinates; translate storage only, never the values.
