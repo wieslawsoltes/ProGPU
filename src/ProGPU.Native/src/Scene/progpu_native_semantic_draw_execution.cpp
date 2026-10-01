@@ -277,8 +277,9 @@ progpu_native_status encode_semantic_glyph_draw(
             masked ? engine.glyph_paint_masked_pipeline : engine.glyph_paint_pipeline);
         Commands::set_bind_group(encoder, 0U, uniform_group);
         Commands::set_bind_group(encoder, 1U, engine.text_atlas_bind_group);
-        if (masked) Commands::set_bind_group(encoder, 2U,
-            chained ? mask_chain_bind_group : mask_bind_group);
+        Commands::set_bind_group(encoder, 2U,
+            chained ? mask_chain_bind_group : masked ? mask_bind_group :
+                engine.glyph_paint_empty_mask_bind_group);
         Commands::set_bind_group(encoder, 3U,
             engine.glyph_paint_texture_bindings[draw.paint_index].bind_group);
         Commands::set_vertex_buffer(encoder, engine.text_vertex_buffer, instance_bytes);
