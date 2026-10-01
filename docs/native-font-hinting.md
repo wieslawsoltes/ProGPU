@@ -662,6 +662,42 @@ The actual owned-frame GPU fixture selects this contract explicitly, without
 changing font size, capture, GPU work, counters, completion or deadlines.
 Neither policy claims FreeType grayscale/B/W pixel parity or source Display.
 
+The separate `antialiased_vector` / `AntialiasedVector` capability has public
+value 2; `strict` and `nonzero_vector` retain their exact masks and negative
+controls. This capability also admits the documented smart-dropout and
+include-stubs outline metadata. The
+[FreeType flag contract](https://freetype.org/freetype2/docs/reference/ft2-outline_processing.html#ft_outline_xxx)
+separates B/W dropout control from antialiased scan conversion: the smooth
+rasterizer ignores these dropout flags. ProGPU still executes its original
+nonzero antialiased vector geometry, not a FreeType rasterizer. Even-odd,
+overlap/oversampling, single-pass and unknown outline policies remain rejected,
+including on an empty or zero-area descriptor before no-ink handling.
+
+Only a contour's first point may carry the SCANTYPE marker and its complete
+three-bit field. All declared values 0 through 7 are admitted by this capability;
+the [OpenType SCANTYPE contract](https://learn.microsoft.com/en-us/typography/opentype/spec/tt_instructions#scantype)
+defines 3, 6 and 7 as aliases of fast mode 2. Original bytes remain unchanged,
+without normalizing those aliases. Upper scan bits without a marker, a marker
+or mode away from a contour start, invalid curve kinds and invalid contour
+partitions fail before publication. No new allocation, font execution, managed
+crossing or GPU work is introduced by outline policy selection.
+
+Exact-head hosted package diagnostics identified Inter-Regular's visible glyph 2
+with flags `0x130`, 17 points and 2 contours at interpreter 35 and 13 pixels/em.
+That profile genuinely remains Unsupported under both original policies. The
+loaded GPU fixture retains their original independent raw assertions and checks
+native rejection on incompatible original records before selecting the new
+capability. Independently unpacked original contours still compare every pixel,
+every metrics field, source/style ownership, scalar/automatic frames and no-ink
+output after the original completion/readback path. Independent authored native
+controls cover every dropout/high-precision combination and every declared scan
+mode, scalar/SIMD geometry, raw records, tails, aliases and later invalid input.
+These new controls require their own successful whole exact-head hosted CI.
+The Windows Dawn offscreen-adapter Unavailable failure is a separate gate, before
+the glyph fixture; no software default or adapter substitution is added.
+This capability does not claim FreeType grayscale/B/W pixels or admit source
+Display, application UI, atlas retention or independent Microsoft text parity.
+
 ### Owned glyph frame and original renderer consumer
 
 `try_create_hinted_glyph_frame` now owns the exact retained layout/run and all

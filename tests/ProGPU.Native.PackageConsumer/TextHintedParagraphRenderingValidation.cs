@@ -24,6 +24,7 @@ internal static class TextHintedParagraphRenderingValidation
         Check(!ReferenceEquals(subject, referenceRenderer), "independent fresh selected-provider compositors");
         int cases = 0;
         ulong submittedFrames = 0;
+        bool strictRejected = false, nonzeroRejected = false;
         foreach (var interpreter in new[] { NativeFontHintInterpreter.TrueType35, NativeFontHintInterpreter.TrueType40 })
         for (int variant = 0; variant < 3; variant++)
         {
@@ -69,7 +70,8 @@ internal static class TextHintedParagraphRenderingValidation
             Check(paragraph.Runs.Length >= 2 && paragraph.SourceScalars.Length == source.Length &&
                 paragraph.Lines.Length > 0 && paragraph.Lines.ToArray().All(line => line.Height > 0 && line.BaselineY > 0),
                 "real complete mixed-style measured paragraph with positive source metrics");
-            var raw = Unpack(textContext, paragraph, source, features, devices, origin, colors);
+            var raw = Unpack(textContext, paragraph, source, features, devices, origin, colors,
+                NativeHintedCoverage.AntialiasedVector);
             Check(noInk ? raw.Glyphs.Length == 0 : raw.Glyphs.Length > 3,
                 "source-indexed repeated draws and no-ink descriptors remain distinct");
             if (!noInk)
@@ -79,23 +81,44 @@ internal static class TextHintedParagraphRenderingValidation
 
             var beforePreparation = subject.GetLastSubmissionToken();
             uint targetGeneration = target.Generation;
+            void VerifyLegacyCoverage(NativeHintedCoverage legacy, bool admitted)
+            {
+                if (!admitted)
+                {
+                    Reject<NotSupportedException>(() => { using var denied = paragraph.PrepareFrame(target, dpi,
+                        colors, origin, clear, coverage: legacy); }, $"original {legacy} metadata compatibility");
+                    Reject<InvalidOperationException>(() => Unpack(textContext, paragraph, source, features,
+                        devices, origin, colors, legacy), $"independent original {legacy} raw metadata contract");
+                    return;
+                }
+                using var compatible = paragraph.PrepareFrame(target, dpi, colors, origin, clear, coverage: legacy);
+                var originalRaw = Unpack(textContext, paragraph, source, features, devices, origin, colors, legacy);
+                Check(compatible.Coverage == legacy &&
+                    MemoryMarshal.AsBytes(originalRaw.Outlines.AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(raw.Outlines.AsSpan())) &&
+                    MemoryMarshal.AsBytes(originalRaw.Segments.AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(raw.Segments.AsSpan())) &&
+                    MemoryMarshal.AsBytes(originalRaw.Glyphs.AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(raw.Glyphs.AsSpan())),
+                    $"admitted original {legacy} metadata retains the independently unpacked geometry");
+            }
+            VerifyLegacyCoverage(NativeHintedCoverage.Strict, raw.StrictCompatible);
+            VerifyLegacyCoverage(NativeHintedCoverage.NonzeroVector, raw.NonzeroVectorCompatible);
+            strictRejected |= !raw.StrictCompatible; nonzeroRejected |= !raw.NonzeroVectorCompatible;
             var invalidColors = colors.ToArray(); invalidColors[^1].W = float.NaN;
             Reject<ArgumentException>(() => { using var invalid = paragraph.PrepareFrame(target, dpi, invalidColors,
-                origin, clear, coverage: NativeHintedCoverage.NonzeroVector); }, "late invalid style color");
+                origin, clear, coverage: NativeHintedCoverage.AntialiasedVector); }, "late invalid style color");
             Reject<NotSupportedException>(() => { using var invalid = paragraph.PrepareFrame(target, dpi * 2, colors,
-                origin, clear, coverage: NativeHintedCoverage.NonzeroVector); }, "device/DPI mapping mismatch");
+                origin, clear, coverage: NativeHintedCoverage.AntialiasedVector); }, "device/DPI mapping mismatch");
             Reject<NotSupportedException>(() => { using var invalid = paragraph.PrepareFrame(target, dpi, colors,
-                origin, clear, NativeHintedProjectionPolicy.NativeCompute, NativeHintedCoverage.NonzeroVector); }, "unsupported forced projection");
+                origin, clear, NativeHintedProjectionPolicy.NativeCompute, NativeHintedCoverage.AntialiasedVector); }, "unsupported forced projection");
             Check(subject.GetLastSubmissionToken().Equals(beforePreparation) && target.Generation == targetGeneration,
                 "failed CPU preparation neither submits nor publishes target contents");
 
             using var automatic = paragraph.PrepareFrame(target, dpi, colors, origin, clear,
-                NativeHintedProjectionPolicy.Automatic, NativeHintedCoverage.NonzeroVector);
+                NativeHintedProjectionPolicy.Automatic, NativeHintedCoverage.AntialiasedVector);
             using var scalar = paragraph.PrepareFrame(target, dpi, colors, origin, clear,
-                NativeHintedProjectionPolicy.ScalarReference, NativeHintedCoverage.NonzeroVector);
+                NativeHintedProjectionPolicy.ScalarReference, NativeHintedCoverage.AntialiasedVector);
             Check(automatic.Width == target.Width && automatic.Height == target.Height && automatic.DpiScale == dpi &&
                 automatic.Projection == NativeHintedProjectionPolicy.Automatic && scalar.Projection == NativeHintedProjectionPolicy.ScalarReference &&
-                automatic.Coverage == NativeHintedCoverage.NonzeroVector && scalar.Coverage == NativeHintedCoverage.NonzeroVector &&
+                automatic.Coverage == NativeHintedCoverage.AntialiasedVector && scalar.Coverage == NativeHintedCoverage.AntialiasedVector &&
                 subject.GetLastSubmissionToken().Equals(beforePreparation) && target.Generation == targetGeneration,
                 "prepared immutable policy/target identity, no GPU preparation work");
             var retainedPositions = MemoryMarshal.AsBytes(paragraph.Glyphs).ToArray();
@@ -108,7 +131,7 @@ internal static class TextHintedParagraphRenderingValidation
                 retainedOwners.AsSpan().SequenceEqual(MemoryMarshal.AsBytes(paragraph.PositionedOwners)),
                 "original formatted snapshots survive source/context/paragraph retirement");
             Reject<ObjectDisposedException>(() => { using var invalid = paragraph.PrepareFrame(target, dpi,
-                new Vector4[2], origin, clear, coverage: NativeHintedCoverage.NonzeroVector); }, "retired paragraph cannot publish a new frame");
+                new Vector4[2], origin, clear, coverage: NativeHintedCoverage.AntialiasedVector); }, "retired paragraph cannot publish a new frame");
 
             using (var wrongTarget = CreateTarget(context, "Same-size wrong paragraph target identity"))
             {
@@ -160,8 +183,9 @@ internal static class TextHintedParagraphRenderingValidation
             Check(subject.GetLastSubmissionToken().Equals(completed), "disposed target rejected before GPU submission");
             cases++;
             Console.WriteLine($"package-consumer: loaded hinted paragraph GPU provider={context.BackendKind}, interpreter={interpreter}, " +
-                $"variant={variant}, draws={raw.Glyphs.Length}, full pixels/every metric and retired ownership passed");
+                $"variant={variant}, coverage={NativeHintedCoverage.AntialiasedVector}, draws={raw.Glyphs.Length}, full pixels/every metric and retired ownership passed");
         }
+        Check(strictRejected && nonzeroRejected, "actual original raw metadata exercises both unchanged legacy Unsupported contracts");
         Console.WriteLine($"package-consumer: loaded prepared hinted paragraph rendering passed ({cases} layouts, actual {context.BackendKind}); " +
             "independent raw source outlines with retained actual writer positions, not a public full-writer differential");
     }
@@ -179,16 +203,19 @@ internal static class TextHintedParagraphRenderingValidation
         return target.ReadPixels(); // original texture copy/map ownership and deadline
     }
 
-    private sealed record RawFrame(NativeGlyphOutline[] Outlines, NativePathSegment[] Segments, NativePositionedGlyph[] Glyphs);
+    private sealed record RawFrame(NativeGlyphOutline[] Outlines, NativePathSegment[] Segments, NativePositionedGlyph[] Glyphs,
+        bool StrictCompatible, bool NonzeroVectorCompatible);
 
     private static RawFrame Unpack(NativeTextShapingContext context, NativeHintedParagraph paragraph, NativeTextScalar[] source,
-        NativeTextFeature[] features, NativeHintedParagraphDeviceStyle[] devices, Vector2 origin, Vector4[] colors)
+        NativeTextFeature[] features, NativeHintedParagraphDeviceStyle[] devices, Vector2 origin, Vector4[] colors,
+        NativeHintedCoverage coverage = NativeHintedCoverage.NonzeroVector)
     {
         var outlines = new List<NativeGlyphOutline>();
         var segments = new List<NativePathSegment>();
         var maps = new List<uint[]>();
         var originalOwners = new List<NativeHintedParagraphGlyphOwner>();
         var logical = new List<NativeTextShapingGlyph>();
+        bool strictCompatible = true, nonzeroCompatible = true;
         for (int runIndex = 0; runIndex < paragraph.Runs.Length; runIndex++)
         {
             var run = paragraph.Runs[runIndex]; var style = paragraph.Styles[checked((int)run.StyleIndex)];
@@ -230,11 +257,33 @@ internal static class TextHintedParagraphRenderingValidation
                 var localPoints = points.AsSpan(checked((int)raw.PointOffset), checked((int)raw.PointCount));
                 var localTags = tags.AsSpan(checked((int)raw.PointOffset), checked((int)raw.PointCount));
                 var localContours = contours.AsSpan(checked((int)raw.ContourOffset), checked((int)raw.ContourCount));
-                Check((raw.OutlineFlags & ~0x10Du) == 0,
-                    $"raw outline belongs to explicit nonzero-vector public flag contract: run={runIndex}, descriptor={descriptor}, " +
-                    $"glyph={raw.GlyphIndex}, flags=0x{raw.OutlineFlags:X}, points={raw.PointCount}, contours={raw.ContourCount}, " +
-                    $"interpreter={device.Interpreter}, ppem=({device.XPixelsPerEm266},{device.YPixelsPerEm266}), " +
-                    $"phase=({device.XPhase266},{device.YPhase266})");
+                strictCompatible &= (raw.OutlineFlags & ~0x05u) == 0;
+                nonzeroCompatible &= (raw.OutlineFlags & ~0x10Du) == 0;
+                foreach (byte tag in localTags)
+                {
+                    strictCompatible &= (tag & ~0x1B) == 0;
+                    nonzeroCompatible &= (tag & ~0x1F) == 0;
+                }
+                if (coverage == NativeHintedCoverage.NonzeroVector)
+                {
+                    Check((raw.OutlineFlags & ~0x10Du) == 0,
+                        $"raw outline belongs to explicit nonzero-vector public flag contract: run={runIndex}, descriptor={descriptor}, " +
+                        $"glyph={raw.GlyphIndex}, flags=0x{raw.OutlineFlags:X}, points={raw.PointCount}, contours={raw.ContourCount}, " +
+                        $"interpreter={device.Interpreter}, ppem=({device.XPixelsPerEm266},{device.YPixelsPerEm266}), " +
+                        $"phase=({device.XPhase266},{device.YPhase266})");
+                }
+                else if (coverage == NativeHintedCoverage.Strict)
+                {
+                    Check((raw.OutlineFlags & ~0x05u) == 0, "raw outline belongs to unchanged strict public flag contract");
+                    foreach (byte tag in localTags)
+                        Check((tag & ~0x1B) == 0, "raw tags belong to unchanged strict metadata contract");
+                }
+                else
+                    Check(coverage == NativeHintedCoverage.AntialiasedVector && (raw.OutlineFlags & ~0x13Du) == 0,
+                        $"raw outline belongs to explicit antialiased-vector public flag contract: run={runIndex}, descriptor={descriptor}, " +
+                        $"glyph={raw.GlyphIndex}, flags=0x{raw.OutlineFlags:X}, points={raw.PointCount}, contours={raw.ContourCount}, " +
+                        $"interpreter={device.Interpreter}, ppem=({device.XPixelsPerEm266},{device.YPixelsPerEm266}), " +
+                        $"phase=({device.XPhase266},{device.YPhase266})");
                 if (localPoints.IsEmpty)
                 {
                     Check(localTags.IsEmpty && localContours.IsEmpty, "original no-ink topology");
@@ -242,7 +291,7 @@ internal static class TextHintedParagraphRenderingValidation
                 }
                 Vector2 minimum = Physical(localPoints[0]), maximum = minimum;
                 foreach (var point in localPoints) { var physical = Physical(point); minimum = Vector2.Min(minimum, physical); maximum = Vector2.Max(maximum, physical); }
-                var decoded = DecodeContours(localPoints, localTags, localContours);
+                var decoded = DecodeContours(localPoints, localTags, localContours, coverage);
                 if (decoded.Count == 0 || maximum.X <= minimum.X || maximum.Y <= minimum.Y) continue;
                 map[descriptor] = checked((uint)outlines.Count);
                 outlines.Add(new(checked((nuint)segments.Count), checked((nuint)decoded.Count), minimum, maximum, 1));
@@ -269,13 +318,14 @@ internal static class TextHintedParagraphRenderingValidation
             glyphs.Add(new(outline, new(positioned.X + origin.X, positioned.Y + origin.Y), new(1, 0), new(0, 1),
                 colors[checked((int)run.StyleIndex)]));
         }
-        return new(outlines.ToArray(), segments.ToArray(), glyphs.ToArray());
+        return new(outlines.ToArray(), segments.ToArray(), glyphs.ToArray(), strictCompatible, nonzeroCompatible);
     }
 
     // Independent raw TrueType on/conic contour records. Only the curve-kind
     // bits determine topology; touch/scan metadata stays byte-exact above. The
     // package font is TrueType, so unexpected cubic/unknown topology fails.
-    private static List<NativePathSegment> DecodeContours(ReadOnlySpan<NativeHintedPoint> points, ReadOnlySpan<byte> tags, ReadOnlySpan<int> contours)
+    private static List<NativePathSegment> DecodeContours(ReadOnlySpan<NativeHintedPoint> points, ReadOnlySpan<byte> tags,
+        ReadOnlySpan<int> contours, NativeHintedCoverage coverage)
     {
         var output = new List<NativePathSegment>();
         int start = 0;
@@ -285,8 +335,15 @@ internal static class TextHintedParagraphRenderingValidation
             int count = end + 1 - start;
             var contour = points.Slice(start, count); var kinds = tags.Slice(start, count);
             for (int i = 0; i < count; i++)
-                Check((kinds[i] & 3) <= 1 && (kinds[i] & 0xE0) == 0 && (i == 0 || (kinds[i] & 4) == 0),
-                    "original TrueType curve kinds and contour-start scan-mode-zero contract");
+            {
+                if (coverage == NativeHintedCoverage.AntialiasedVector)
+                    Check((kinds[i] & 3) <= 1 && ((kinds[i] & 0xE0) == 0 || (kinds[i] & 4) != 0) &&
+                        (i == 0 || (kinds[i] & 0xE4) == 0),
+                        "original TrueType kinds and declared contour-start SCANTYPE field, without orphan/nonstart metadata");
+                else
+                    Check((kinds[i] & 3) <= 1 && (kinds[i] & 0xE0) == 0 && (i == 0 || (kinds[i] & 4) == 0),
+                        "original TrueType curve kinds and contour-start scan-mode-zero contract");
+            }
             start = end + 1;
             if (count < 2) continue;
             bool firstOn = (kinds[0] & 1) != 0, lastOn = (kinds[^1] & 1) != 0;

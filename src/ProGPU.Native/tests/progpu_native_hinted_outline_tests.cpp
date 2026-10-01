@@ -550,6 +550,133 @@ void explicit_nonzero_vector_coverage() {
         hinted_outline_coverage::nonzero_vector) == hinted_outline_error::invalid_argument && bytes(output) == before);
     require(observed->glyphs == saved_descriptors && run.descriptor_indices == saved_indices);
 }
+void explicit_antialiased_vector_coverage() {
+    const auto authored = batch();
+    buffers reference;
+    require(reference.write(run_for(authored)) == hinted_outline_error::none);
+    // Independent declared metadata matrix, not a whitelist of one hosted
+    // profile: every dropout/high-precision combination and all SCANTYPE values
+    // 0..7 (including the documented fast-mode aliases 3/6/7) retain geometry.
+    for (unsigned int profile = 0U; profile < 16U; ++profile) {
+        const auto flags = ((profile & 1U) != 0U ? 0x08U : 0U) |
+            ((profile & 2U) != 0U ? 0x10U : 0U) | ((profile & 4U) != 0U ? 0x20U : 0U) |
+            ((profile & 8U) != 0U ? 0x100U : 0U);
+        for (unsigned int mode = 0U; mode < 8U; ++mode) {
+            const auto observed = batch();
+            for (std::size_t descriptor = 0U; descriptor < 7U; ++descriptor) {
+                auto& source = observed->glyphs[descriptor];
+                source.outline_flags |= static_cast<int>(flags);
+                std::size_t start = 0U;
+                for (const auto end : source.contour_ends) {
+                    source.tags[start] |= static_cast<std::uint8_t>(0x04U | (mode << 5U));
+                    start = static_cast<std::size_t>(end) + 1U;
+                }
+            }
+            const auto raw_before = observed->glyphs;
+            const auto run = run_for(observed);
+            hinted_outline_requirements counts{71U, 73U, 79U, 83U, 89U};
+            require(get_hinted_outline_requirements(run, counts, hinted_projection_policy::scalar_reference,
+                hinted_outline_coverage::antialiased_vector) == hinted_outline_error::none && counts == reference.written);
+            buffers output;
+            require(output.write(run, hinted_projection_policy::scalar_reference,
+                hinted_outline_coverage::antialiased_vector) == hinted_outline_error::none);
+            require(output.written == reference.written && bytes(output.outlines) == bytes(reference.outlines) &&
+                bytes(output.segments) == bytes(reference.segments) && bytes(output.physical) == bytes(reference.physical) &&
+                output.source == reference.source && output.positioned == reference.positioned);
+            for (std::size_t index = 0U; index < output.topology.size(); ++index)
+                require(output.topology[index].x == reference.topology[index].x &&
+                    output.topology[index].y == reference.topology[index].y &&
+                    output.topology[index].flags == reference.topology[index].flags);
+            require(observed->glyphs == raw_before);
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(__SSE2__) || defined(_M_X64)
+            buffers intrinsic;
+            require(intrinsic.write(run, hinted_projection_policy::intrinsic_simd,
+                hinted_outline_coverage::antialiased_vector) == hinted_outline_error::none);
+            require(bytes(intrinsic.outlines) == bytes(output.outlines) && bytes(intrinsic.segments) == bytes(output.segments) &&
+                bytes(intrinsic.physical) == bytes(output.physical) && intrinsic.source == output.source &&
+                intrinsic.positioned == output.positioned && intrinsic.written == output.written);
+            for (std::size_t index = 0U; index < intrinsic.topology.size(); ++index)
+                require(intrinsic.topology[index].x == output.topology[index].x &&
+                    intrinsic.topology[index].y == output.topology[index].y &&
+                    intrinsic.topology[index].flags == output.topology[index].flags);
+            require(observed->glyphs == raw_before);
+#endif
+            buffers legacy;
+            const auto legacy_before = bytes(legacy);
+            require(legacy.write(run) == hinted_outline_error::unsupported_flags && bytes(legacy) == legacy_before);
+            const bool legacy_vector_admitted = (flags & 0x30U) == 0U && mode == 0U;
+            const auto legacy_result = legacy.write(run, hinted_projection_policy::scalar_reference,
+                hinted_outline_coverage::nonzero_vector);
+            require(legacy_result == (legacy_vector_admitted ? hinted_outline_error::none : hinted_outline_error::unsupported_flags));
+            if (!legacy_vector_admitted) require(bytes(legacy) == legacy_before);
+            require(observed->glyphs == raw_before);
+        }
+    }
+
+    const auto observed = batch();
+    for (std::size_t descriptor = 0U; descriptor < 7U; ++descriptor)
+        observed->glyphs[descriptor].outline_flags |= 0x130;
+    observed->glyphs[4].tags[4] = 0x95U; // ON|TOUCH_Y|HAS_SCANMODE, declared mode 4.
+    auto run = run_for(observed);
+    buffers output;
+    const auto before = bytes(output);
+    const auto fail = [&](const hinted_shaped_run& invalid, hinted_outline_error expected) {
+        const auto raw_before = invalid.batch->glyphs;
+        require(output.write(invalid, hinted_projection_policy::scalar_reference,
+            hinted_outline_coverage::antialiased_vector) == expected && bytes(output) == before);
+        hinted_outline_requirements counts{1U, 2U, 3U, 4U, 5U};
+        const auto counts_before = counts;
+        require(get_hinted_outline_requirements(invalid, counts, hinted_projection_policy::scalar_reference,
+            hinted_outline_coverage::antialiased_vector) == expected && counts == counts_before &&
+            invalid.batch->glyphs == raw_before);
+    };
+    // Flag validation still precedes no-ink/topology decisions, including a
+    // late singleton descriptor and an earlier truly empty descriptor.
+    for (const int flags : {-1, 0x02, 0x40, 0x200, 0x400, 0x132, 0x170, 0x330, 0x530}) {
+        for (const auto descriptor : {1U, 6U}) {
+            auto invalid = std::make_shared<hinted_glyph_batch>(*observed);
+            invalid->glyphs[descriptor].outline_flags = flags;
+            fail(run_for(invalid), hinted_outline_error::unsupported_flags);
+        }
+    }
+    for (const std::uint8_t tag : {std::uint8_t{0x21}, std::uint8_t{0xE1}}) {
+        auto invalid = std::make_shared<hinted_glyph_batch>(*observed);
+        invalid->glyphs[4].tags[4] = tag; // Upper mode bits have no marker.
+        fail(run_for(invalid), hinted_outline_error::unsupported_flags);
+    }
+    for (const std::uint8_t tag : {std::uint8_t{0x15}, std::uint8_t{0x25}, std::uint8_t{0xF5}}) {
+        auto invalid = std::make_shared<hinted_glyph_batch>(*observed);
+        invalid->glyphs[4].tags[5] = tag; // Marker/mode away from contour start.
+        fail(run_for(invalid), hinted_outline_error::unsupported_flags);
+    }
+    auto invalid_kind = std::make_shared<hinted_glyph_batch>(*observed);
+    invalid_kind->glyphs[6].tags[0] = 0xE7U;
+    fail(run_for(invalid_kind), hinted_outline_error::invalid_topology);
+    auto invalid_end = std::make_shared<hinted_glyph_batch>(*observed);
+    invalid_end->glyphs[6].contour_ends = {-1};
+    fail(run_for(invalid_end), hinted_outline_error::invalid_topology);
+    for (unsigned int missing = 0U; missing < 6U; ++missing) {
+        require(write_hinted_run_outlines(run,
+            {std::span(output.topology).first(missing == 0U ? 7U : 16U), std::span(output.physical).first(missing == 1U ? 7U : 16U)},
+            std::span(output.outlines).first(missing == 2U ? 3U : 12U), std::span(output.segments).first(missing == 3U ? 17U : 64U),
+            std::span(output.source).first(missing == 4U ? 6U : 16U), std::span(output.positioned).first(missing == 5U ? 7U : 16U),
+            output.written, hinted_projection_policy::scalar_reference, hinted_outline_coverage::antialiased_vector) ==
+            hinted_outline_error::insufficient_capacity && bytes(output) == before);
+    }
+    const auto raw_before = observed->glyphs;
+    require(write_hinted_run_outlines(run, {output.topology, output.physical}, output.outlines, output.segments,
+        run.descriptor_indices, output.positioned, output.written, hinted_projection_policy::scalar_reference,
+        hinted_outline_coverage::antialiased_vector) == hinted_outline_error::invalid_argument && bytes(output) == before);
+    run.descriptor_indices.reserve(32U);
+    auto* spare = run.descriptor_indices.data() + run.descriptor_indices.size();
+    require(write_hinted_run_outlines(run, {output.topology, output.physical}, output.outlines, output.segments,
+        std::span{spare, 16U}, output.positioned, output.written, hinted_projection_policy::scalar_reference,
+        hinted_outline_coverage::antialiased_vector) == hinted_outline_error::invalid_argument && bytes(output) == before);
+    require(write_hinted_run_outlines(run, {output.topology, output.physical}, output.outlines, output.segments,
+        output.source, output.source, output.written, hinted_projection_policy::scalar_reference,
+        hinted_outline_coverage::antialiased_vector) == hinted_outline_error::invalid_argument && bytes(output) == before);
+    require(observed->glyphs == raw_before);
+}
 } // namespace
 
 int main() {
@@ -560,6 +687,7 @@ int main() {
         shaping_input_aliases();
         failures_precede_all_publication();
         explicit_nonzero_vector_coverage();
+        explicit_antialiased_vector_coverage();
         std::cout << "{\"sourceIndexedGeometry\":true,\"originalQuadraticWriter\":true,\"exactCubicRecords\":true,\"retainedShapingInputAliases\":true,\"wholeRunAtomicPreflight\":true}\n";
         return 0;
     } catch (const std::exception& error) {
