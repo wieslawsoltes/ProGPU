@@ -8,6 +8,24 @@ namespace Avalonia.ProGpu.ContractTests;
 public sealed class DawnNativeWindowSourceTests
 {
     [Theory]
+    [InlineData(0u, false)]
+    [InlineData(0u, true)]
+    [InlineData(uint.MaxValue, false)]
+    [InlineData(uint.MaxValue, true)]
+    public void OffscreenCreationRequiresAnExplicitSupportedBackendBeforeNativeCreation(
+        uint backend,
+        bool forceFallbackAdapter)
+    {
+        ArgumentOutOfRangeException error = Assert.Throws<ArgumentOutOfRangeException>(
+            () => DawnGpuContext.CreateOffscreen(
+                (Silk.NET.WebGPU.BackendType)backend,
+                forceFallbackAdapter));
+
+        Assert.Equal("backendType", error.ParamName);
+        Assert.Equal((Silk.NET.WebGPU.BackendType)backend, error.ActualValue);
+    }
+
+    [Theory]
     [InlineData("HWND", true, false, DawnNativeWindowKind.Win32)]
     [InlineData("XID", false, true, DawnNativeWindowKind.Xlib)]
     public void TypedAvaloniaHandleMapsToNativeDawnBackend(
