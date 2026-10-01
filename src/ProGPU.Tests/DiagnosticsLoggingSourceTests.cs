@@ -667,7 +667,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("resource.Dispose();", source, StringComparison.Ordinal);
         Assert.Contains("retainedResources.Add(resource);", source, StringComparison.Ordinal);
         Assert.Contains("for (int i = 0; i < _retainedResources.Count; i++)", source, StringComparison.Ordinal);
-        Assert.Contains("_retainedResources[i].Dispose();", source, StringComparison.Ordinal);
+        Assert.Contains("_retainedResources = null;\n        try { RetainedResourceLease.DisposeAll(resources); }", source, StringComparison.Ordinal);
         Assert.Contains("private List<Vector2>? _pointBuffer;", source, StringComparison.Ordinal);
         Assert.Contains("_pointBuffer?.Clear();", source, StringComparison.Ordinal);
         Assert.DoesNotContain("_recordingContext.Commands.ToArray()", source, StringComparison.Ordinal);
