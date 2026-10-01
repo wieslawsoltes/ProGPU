@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <string_view>
 
 semantic_shader_program::~semantic_shader_program() {
     if (pipeline != nullptr) wgpuRenderPipelineRelease(pipeline);
@@ -44,13 +45,13 @@ std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engin
     auto program = std::make_shared<semantic_shader_program>();
     program->bytecode.assign(bytecode.begin(), bytecode.end());
     program->source_sampler = descriptor.source_sampler;
-    std::string source(generated::wpf_bytecode_effect_wgsl,
+    std::string source(reinterpret_cast<const char*>(generated::wpf_bytecode_effect_wgsl),
         generated::wpf_bytecode_effect_wgsl_size);
     constexpr std::string_view marker = "// PROGPU_VALIDATED_BYTECODE_BODY";
     const auto position = source.find(marker);
     if (position == std::string::npos) return {};
     source.replace(position, marker.size(), body);
-    webgpu::wgsl_source wgsl(source.data(), source.size());
+    webgpu::wgsl_source wgsl(reinterpret_cast<const std::uint8_t*>(source.data()), source.size());
     WGPUShaderModuleDescriptor shader{};
     shader.nextInChain = wgsl.chain();
     shader.label = webgpu::string_view("ProGPU validated original WPF ps_2_0 program");

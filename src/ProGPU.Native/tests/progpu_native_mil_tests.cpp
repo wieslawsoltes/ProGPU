@@ -10,6 +10,7 @@
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
 #include "../src/Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../src/Scene/progpu_native_semantic_state.hpp"
+#include "../src/Scene/progpu_native_scene.hpp"
 #include "progpu_native_text.hpp"
 #include "../src/Geometry/progpu_native_arc.hpp"
 #include "../src/Backend/progpu_native_geometry_base.hpp"
@@ -21587,6 +21588,116 @@ bool bitmap_cache_brush_preserves_root_raster_policy() {
     return true;
 }
 
+bool original_shader_effect_resources_compile_and_reject_atomically() {
+    static_assert(sizeof(progpu_native_scene_shader_effect) == 544U);
+    // Authored original ps_2_0 tokens, not a WGSL registry replacement:
+    // dcl t0.xy; dcl_2d s0; texld r0,t0,s0; mul oC0,r0,c0; end.
+    const std::array<std::uint32_t, 16U> program{
+        0xFFFF0200U, 0x0200001FU, 0x80000000U, 0xB0030000U,
+        0x0200001FU, 0x90000000U, 0xA00F0800U,
+        0x03000042U, 0x800F0000U, 0xB0E40000U, 0xA0E40800U,
+        0x03000005U, 0x800F0800U, 0x80E40000U, 0xA0E40000U, 0x0000FFFFU};
+    const auto append_effect = [](std::vector<std::byte>& batch,
+        float red = 0.25F, std::uint32_t sampler_mode = 2U,
+        double padding = 0.0, std::uint32_t brush = 7U) {
+        append_command(batch, command::shader_effect, 5U,
+            padding, 0.0, 0.0, 0.0, 6U, 0xFFFFFFFFU,
+            std::array<std::uint32_t, 8U>{2U, 16U, 0U, 0U, 0U, 0U, 8U, 4U},
+            std::uint16_t{0U}, std::array{red, 0.5F, 0.75F, 1.0F},
+            0U, sampler_mode, brush);
+    };
+    channel state;
+    std::vector<std::byte> batch, content;
+    append_create(batch, 1U, 39U); append_create(batch, 2U, 43U);
+    append_create(batch, 3U, 47U); append_create(batch, 4U, 75U);
+    append_create(batch, 5U, 38U); append_create(batch, 6U, 33U);
+    append_create(batch, 7U, 34U);
+    append_command(batch, command::visual_create, 1U);
+    append_command(batch, command::solid_color_brush, 4U, 1.0,
+        progpu_native_color{1, 1, 1, 1}, 0U, 0U, 0U, 0U);
+    append_command(batch, command::pixel_shader, 6U, 0U,
+        static_cast<std::uint32_t>(sizeof(program)), 0U, program);
+    append_command(batch, command::implicit_input_brush, 7U, 1.0, 0U, 0U, 0U);
+    append_effect(batch);
+    append_command(batch, command::visual_set_effect, 1U, 5U);
+    append_command(content, command::draw_rectangle, 8.0, 10.0, 32.0, 24.0, 4U, 0U);
+    append_render_data(batch, 2U, content);
+    append_command(batch, command::visual_set_content, 1U, 2U);
+    append_command(batch, command::generic_target_create, 3U,
+        std::uint64_t{0U}, std::uint64_t{0U}, 64U, 64U, 0U);
+    append_command(batch, command::target_set_root, 3U, 1U);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(state.set_visual_cache_bounds(1U, 8, 10, 32, 24) == status::success);
+    scene_build_request request{};
+    request.target_handle = 3U; request.scene_id = 9829U;
+    request.generation = request.request_serial = 1U;
+    request.dpi_scale_x = request.dpi_scale_y = 1.0;
+    const auto compile = [&]() {
+        std::span<const std::byte> compiled;
+        PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+        return std::vector<std::byte>(compiled.begin(), compiled.end());
+    };
+    const auto before = compile();
+    PROGPU_REQUIRE(progpu::native::scene::validate(before.data(), before.size()).status ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    const auto header = read_value<progpu_native_scene_header>(before, 0U);
+    progpu_native_scene_resource shader_resource{};
+    for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+        const auto resource = read_value<progpu_native_scene_resource>(before,
+            header.resource_offset + i * header.resource_stride);
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) shader_resource = resource;
+    }
+    PROGPU_REQUIRE(shader_resource.payload_size == sizeof(progpu_native_scene_shader_effect));
+    const auto shader = read_value<progpu_native_scene_shader_effect>(before, shader_resource.payload_offset);
+    PROGPU_REQUIRE(shader.version == 1U && shader.source_sampler == 0U && shader.sampling_mode == 1U);
+    PROGPU_REQUIRE(shader.constants[0] == 0.25F && shader.constants[3] == 1.0F);
+    PROGPU_REQUIRE(shader_resource.auxiliary_size == sizeof(program));
+    PROGPU_REQUIRE(std::memcmp(before.data() + shader_resource.auxiliary_offset,
+        program.data(), sizeof(program)) == 0);
+
+    // Each rejection preserves both the original resource generation and the
+    // original compiled scene. Include actual odd Int16-register framing.
+    for (std::uint32_t variant = 0U; variant < 8U; ++variant) {
+        batch.clear();
+        if (variant == 0U) append_effect(batch, 0.9F, 3U);
+        if (variant == 1U) append_effect(batch, std::numeric_limits<float>::quiet_NaN());
+        if (variant == 2U) append_effect(batch, 0.9F, 2U, 1.0);
+        if (variant == 3U) append_effect(batch, 0.9F, 2U, 0.0, 4U);
+        if (variant == 4U) {
+            append_effect(batch, 0.9F);
+            batch.back() = std::byte{1U}; // framing is not a shader constant
+        }
+        if (variant == 5U) append_command(batch, command::implicit_input_brush, 7U, 0.5, 0U, 0U, 0U);
+        if (variant == 6U) append_command(batch, command::pixel_shader, 6U, 1U,
+            static_cast<std::uint32_t>(sizeof(program)), 0U, program); // SoftwareOnly
+        if (variant == 7U) {
+            auto malformed = program; malformed[7] = 0x030000FFU;
+            append_command(batch, command::pixel_shader, 6U, 0U,
+                static_cast<std::uint32_t>(sizeof(malformed)), 0U, malformed);
+        }
+        const auto old_effect = state.resource_generation(5U);
+        const auto old_shader = state.resource_generation(6U);
+        const auto old_input = state.resource_generation(7U);
+        PROGPU_REQUIRE(state.apply(batch) != status::success);
+        PROGPU_REQUIRE(state.resource_generation(5U) == old_effect);
+        PROGPU_REQUIRE(state.resource_generation(6U) == old_shader);
+        PROGPU_REQUIRE(state.resource_generation(7U) == old_input);
+        PROGPU_REQUIRE(compile() == before);
+    }
+    // A successful constant update changes only retained constants/program
+    // dependency identity, not original bytecode or source sampling mode.
+    batch.clear(); append_effect(batch, 0.875F, 1U);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    request.generation = request.request_serial = 2U;
+    const auto after = compile();
+    PROGPU_REQUIRE(after != before);
+    request.flags = scene_build_request_flags::hit_test_index;
+    std::span<const std::byte> rejected;
+    PROGPU_REQUIRE(state.build_scene(request, rejected) != status::success);
+    PROGPU_REQUIRE(rejected.empty()); // custom effect is not identity input
+    return true;
+}
+
 bool malformed_and_unsupported_packets_fail_closed() {
     channel state;
     const std::array malformed{
@@ -21885,6 +21996,7 @@ bool c_abi_is_typed_and_size_versioned() {
 } // namespace
 
 int main() {
+    PROGPU_REQUIRE(original_shader_effect_resources_compile_and_reject_atomically());
     const auto capture_hits = [](progpu::native::semantic_scene_builder& builder,
         progpu::native::scene_hit_test_opacity_mode opacity_mode =
             progpu::native::scene_hit_test_opacity_mode::rendered_visibility) {

@@ -763,6 +763,13 @@ bool semantic_scene_builder::push_layer(
         !valid_composite_state()) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
+    if (layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
+        implementation_->resources[layer.effect_resource_index].record.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT &&
+        (((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U) ||
+         (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+             PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U))
+        return implementation_->fail(scene_build_error::invalid_argument);
     if (source_mask && layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
         implementation_->resources[layer.mask_resource_index].source_geometry_clip) {
         return implementation_->fail(scene_build_error::invalid_argument);

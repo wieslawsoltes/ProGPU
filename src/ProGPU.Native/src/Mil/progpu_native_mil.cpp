@@ -9239,7 +9239,12 @@ struct channel::implementation {
                 if (size > view.packet.size() || total > view.packet.size() - size) return status::malformed_batch;
                 total += size;
             }
-            if (total != view.packet.size() || sizes[0] % 2U != 0U || sizes[0] > 64U ||
+            // A single Int16 register index leaves two framing bytes. They
+            // are outside all original array sizes, never additional values.
+            if (((total + 3U) & ~std::size_t{3U}) != view.packet.size() ||
+                std::ranges::any_of(view.packet.subspan(total),
+                    [](std::byte value) { return value != std::byte{}; }) ||
+                sizes[0] % 2U != 0U || sizes[0] > 64U ||
                 sizes[1] != sizes[0] * 8U) return status::malformed_batch;
             if (!require_resource(handle, type_shader_effect) ||
                 !require_resource(effect.pixel_shader_handle, type_pixel_shader) ||

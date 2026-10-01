@@ -1462,6 +1462,13 @@ validation_result validate(
                     PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                     offset);
             }
+            if (layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
+                valid_layer_resource(layer.effect_resource_index,
+                    PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) &&
+                (((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U) ||
+                 (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+                     PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U))
+                return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
             const bool local_cache = (layer.flags &
                 PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
             const bool tile_cache = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U;
