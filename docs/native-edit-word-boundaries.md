@@ -626,3 +626,64 @@ not claim a native build, packaged execution or source UI result. The 82
 nonmatching BMP symbols and remaining item/complex-script policies remain
 explicitly unsupported; no Forms capability marker or automatic source admission
 is added.
+
+## Original Myanmar syllable items
+
+[Original Windows reference 36900452884](https://github.com/wieslawsoltes/ProGPU/actions/runs/36900452884)
+completed at `2dafdc17825761415552a9639be1ff1baa54f670`. Its new
+`source-roles.json` receipt has SHA-256
+`858e7c8e34a694a1ff4e153b7a4c6946f451daaf6dc371cc0296519a468048b8`.
+The Myanmar subset contains sixteen source sequences, each bare and Latin-prefixed
+under both paragraph directions (64 cases). The separate original six Myanmar
+item-context requests remain independent controls; that same run's
+`item-contexts.json` hash is
+`248fa537f8f68fd0e748344c045b5bec89470173f81a4799b201b69ec63507ef`.
+The receipt identifies Windows build `10.0.26100.0`, x64, `en-US` and .NET
+`11.0.0-preview.5.26302.115`, retaining the actual native module hashes. It does
+not qualify physical input, a shown application or another Windows version.
+
+Before admission, the unmodified ProGPU-owned category lookup and Myanmar
+syllable machine were compared with every complete original `ScriptItemize`
+Myanmar item. All 70 item-start inventories agree exactly with independently
+recorded direct `ScriptBreak` soft-break bits. All 692 available original EDIT
+double-down selections also agree with the independently recorded boundary
+inventory and strict-previous-boundary rule. The 140 unavailable native
+coordinates remain unavailable; no selection result was invented for them.
+
+The classifier now uses one typed `myanmar_syllabic` item family. It executes
+`get_unicode_indic_shaping_properties` and `try_assign_unicode_syllables` over
+the whole unchanged item, reusing the original algorithms in
+`Text/Shaping/progpu_native_unicode_shaping.cpp` and
+`Text/Shaping/progpu_native_unicode_syllables.cpp` at `59ec6b2eb`. It does not
+shape a font, reorder glyphs, substitute a grapheme inventory or copy a foreign
+algorithm. Adjacent distinct syllable identities supply original source seams;
+serial-number wrapping is preserved. Original whitespace and hard-control policy
+remain separate from syllable identities. Scratch storage is linear in the
+largest selected item and reused between its source items; non-Myanmar input
+does not allocate that scratch. No performance improvement is claimed.
+
+The machine retains real consonant/vowel/medial/asat groups, stacked consonants,
+kinzi, tone/visarga and pre-vowels. Broken leading marks and malformed
+vowel-plus-asat groups remain actual machine groups, without fabricated bases.
+The observed ZWJ and ZWNJ each retain the machine's distinct non-Myanmar token
+and original source boundary. Myanmar digits use their exact decimal property
+and machine category; they are not promoted into another script's numeric item.
+
+Extension through original properties is explicitly an inference: BMP Myanmar
+letters, marks and decimal values zero through nine require L/NSM bidi and a
+nonzero owned shaping category. This is not an exhaustive Windows Unicode-table
+equivalence claim. Foreign/inherited marks, punctuation, supplementary source and
+unknown category roles remain unqualified. The independent reference did not
+exhaust every whitespace/item-edge combination. Other complex scripts, including
+Tai Tham, keep their precise unsupported result. The 82 unresolved BMP symbol
+policies and ordinary Forms provider admission are unchanged.
+
+The new literal native controls retain all 64 source-role and six original
+item-context inventories, testing both the classifier and actual C export with
+source ownership and untouched output tails. Additional forty-syllable serial
+wrap controls are algorithm tests, not extra Microsoft observations. The existing
+stock/Dawn package fixture now requests measured Myanmar entry, stacked, broken
+and joiner cases; unrelated complex-policy rejection remains explicit. The strict
+AppleClang21 C++20 no-ICU focused harness passed 1/1 with all previous controls.
+No ICU download, full native product build, packaged execution, GPU, VM or source
+application run was performed for this checkpoint.
