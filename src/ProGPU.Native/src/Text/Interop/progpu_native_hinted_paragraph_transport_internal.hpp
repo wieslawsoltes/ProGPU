@@ -14,5 +14,7 @@ std::shared_ptr<const hinted_paragraph_interaction> select_hinted_paragraph_inte
     const progpu_native_hinted_paragraph* paragraph) noexcept;
 std::shared_ptr<const hinted_paragraph_glyph_frame> select_hinted_paragraph_frame_generation(
     const progpu_native_hinted_paragraph_frame* frame) noexcept;
+std::shared_ptr<const hinted_paragraph_glyph_resource> select_hinted_glyph_resource_generation(
+    const progpu_native_hinted_glyph_resource* resource) noexcept;
 
 } // namespace progpu::native::text

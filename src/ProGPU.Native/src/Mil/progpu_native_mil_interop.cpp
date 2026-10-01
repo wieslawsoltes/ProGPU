@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstring>
 #include <memory>
+#include <limits>
 #include <new>
 #include <span>
 
@@ -113,6 +114,26 @@ progpu_native_mil_status progpu_native_mil_channel_apply(
             native_metrics.updated_resource_count;
         metrics->total_bytes = native_metrics.total_bytes;
     }
+    return to_abi(result);
+}
+
+progpu_native_mil_status progpu_native_mil_channel_apply_with_hinted_glyph_resources(
+    progpu_native_mil_channel* channel,
+    const std::uint8_t* batch_bytes, std::size_t batch_size,
+    const progpu_native_hinted_glyph_resource_view* resources, std::uint32_t resource_count,
+    const progpu_native_mil_hinted_glyph_binding* bindings, std::uint32_t binding_count,
+    const std::uint32_t* positioned_indices, std::uint32_t positioned_index_count) {
+    const auto valid = []<class T>(const T* data, std::size_t count, std::size_t maximum) noexcept {
+        const auto address = reinterpret_cast<std::uintptr_t>(data);
+        return count <= maximum && (count == 0U || (data != nullptr && address % alignof(T) == 0U)) &&
+            count <= (std::numeric_limits<std::uintptr_t>::max() - address) / sizeof(T);
+    };
+    if (channel == nullptr || !valid(batch_bytes, batch_size, UINT32_MAX) || !valid(resources, resource_count, 1U << 20U) ||
+        !valid(bindings, binding_count, 1U << 20U) || !valid(positioned_indices, positioned_index_count, 1U << 24U))
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    const auto result = channel->state.apply_with_hinted_glyph_resources(
+        {reinterpret_cast<const std::byte*>(batch_bytes), batch_size}, {resources, resource_count},
+        {bindings, binding_count}, {positioned_indices, positioned_index_count});
     return to_abi(result);
 }
 

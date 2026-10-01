@@ -21838,6 +21838,8 @@ channel::channel()
 }
 
 channel::~channel() = default;
+channel::channel(std::unique_ptr<implementation> state) noexcept
+    : implementation_(std::move(state)) {}
 channel::channel(channel&&) noexcept = default;
 channel& channel::operator=(channel&&) noexcept = default;
 
@@ -21889,6 +21891,88 @@ status channel::apply(
         }
         return status::invalid_argument;
     }
+}
+
+status channel::apply_with_hinted_glyph_resources(
+    std::span<const std::byte> bytes,
+    std::span<const progpu_native_hinted_glyph_resource_view> resources,
+    std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
+    std::span<const std::uint32_t> positioned_indices) noexcept {
+    const auto valid_span = []<class T>(std::span<const T> span, std::size_t maximum) noexcept {
+        const auto address = reinterpret_cast<std::uintptr_t>(span.data());
+        return span.size() <= maximum && (span.empty() || (span.data() != nullptr && address % alignof(T) == 0U)) &&
+            span.size() <= (std::numeric_limits<std::uintptr_t>::max() - address) / sizeof(T);
+    };
+    if (implementation_ == nullptr || !valid_span(bytes, UINT32_MAX) || !valid_span(resources, 1U << 20U) ||
+        !valid_span(bindings, 1U << 20U) || !valid_span(positioned_indices, 1U << 24U)) return status::invalid_argument;
+    try {
+        std::unordered_set<std::uint32_t> handles;
+        for (const auto& binding : bindings) {
+            if (binding.reserved != 0U || binding.glyph_run_handle == 0U || binding.resource_index >= resources.size() ||
+                binding.positioned_index_count == 0U || binding.positioned_index_count > UINT16_MAX ||
+                binding.positioned_index_start > positioned_indices.size() ||
+                binding.positioned_index_count > positioned_indices.size() - binding.positioned_index_start ||
+                !handles.insert(binding.glyph_run_handle).second) return status::invalid_argument;
+        }
+        std::vector<std::shared_ptr<const text::hinted_paragraph_glyph_resource>> imported;
+        imported.reserve(resources.size());
+        for (const auto& view : resources) {
+            const auto result = text::import_hinted_paragraph_glyph_resource(view);
+            if (result.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                if (result.status == PROGPU_NATIVE_STATUS_OUT_OF_MEMORY) return status::capacity_exceeded;
+                if (result.status == PROGPU_NATIVE_STATUS_UNSUPPORTED) return status::unsupported_command;
+                return status::invalid_argument;
+            }
+            imported.push_back(result.generation);
+        }
+        // Exactly one full graph clone. Calling apply() here would clone again
+        // and publish canonical state before validating the retained sideband.
+        channel candidate(std::make_unique<implementation>(*implementation_));
+        batch_metrics local_metrics{};
+        local_metrics.total_bytes = static_cast<std::uint32_t>(bytes.size());
+        batch_reader reader(bytes); command_view command{};
+        for (;;) {
+            const auto read_status = reader.next(command);
+            if (read_status == status::end_of_batch) break;
+            if (read_status != status::success) return read_status;
+            ++local_metrics.command_count;
+            const auto applied = candidate.implementation_->apply_command(command, local_metrics);
+            if (applied != status::success) return applied;
+            ++local_metrics.supported_command_count;
+        }
+        for (const auto& binding : bindings) {
+            const auto& resource = imported[binding.resource_index];
+            const auto view = resource->binding_view();
+            if (binding.font_index >= view.fonts.size()) return status::invalid_argument;
+            const auto& font = view.fonts[binding.font_index];
+            const auto font_bytes = std::as_bytes(view.font_bytes.subspan(font.byte_offset, font.byte_count));
+            const auto matches = [&](const implementation::glyph_run_state& glyph) noexcept {
+                return glyph.style_simulations == 0U && glyph.face_index == font.face_index && glyph.font_data != nullptr &&
+                    glyph.font_data->size() == font_bytes.size() && std::memcmp(glyph.font_data->data(), font_bytes.data(), font_bytes.size()) == 0;
+            };
+            // Canonical recreation may clear the candidate sideband. It is not
+            // authority to silently replace an already associated source font.
+            const auto previous = implementation_->glyph_runs.find(binding.glyph_run_handle);
+            if (previous != implementation_->glyph_runs.end() && previous->second.font_data != nullptr && !matches(previous->second))
+                return status::invalid_argument;
+            const auto found = candidate.implementation_->glyph_runs.find(binding.glyph_run_handle);
+            if (found == candidate.implementation_->glyph_runs.end()) return status::invalid_handle;
+            if (found->second.font_data != nullptr) {
+                if (!matches(found->second)) return status::invalid_argument;
+            } else {
+                const auto associated = candidate.set_glyph_run_font_sfnt(binding.glyph_run_handle, font.face_index, 0U, font_bytes);
+                if (associated != status::success) return associated;
+            }
+            const auto bound = hinted_glyph_binding_access::bind(candidate, binding.glyph_run_handle, resource,
+                positioned_indices.subspan(binding.positioned_index_start, binding.positioned_index_count), binding.font_index,
+                resource->dpi_scale(), binding.logical_origin, binding.basis);
+            if (bound != status::success) return bound;
+        }
+        implementation_ = std::move(candidate.implementation_);
+        build_cache_.reset();
+        return status::success;
+    } catch (const std::bad_alloc&) { return status::capacity_exceeded; }
+    catch (...) { return status::invalid_argument; }
 }
 
 status channel::get_bitmap_source_dpi(
@@ -22487,17 +22571,17 @@ status hinted_glyph_binding_access::bind(channel& target, std::uint32_t handle,
     if (basis.m11 != 1.0F || basis.m12 != 0.0F || basis.m21 != 0.0F || basis.m22 != 1.0F ||
         basis.m31 != 0.0F || basis.m32 != 0.0F) return status::unsupported_command;
     auto& glyph = target.implementation_->glyph_runs.at(handle);
-    const auto& paragraph = *resource->paragraph();
+    const auto paragraph = resource->binding_view();
     if (glyph.style_simulations != 0U || (glyph.flags & 0x0001U) != 0U)
         return status::unsupported_command;
     if (positioned_indices.size() != glyph.glyph_indices.size() ||
-        font_index >= paragraph.font_sources.size() || paragraph.font_sources[font_index] == nullptr ||
+        font_index >= paragraph.fonts.size() ||
         glyph.font_data == nullptr || glyph.font_data->empty() ||
         resource->positioned_outline_indices().size() != paragraph.glyphs.size() ||
         resource->positioned_owners().size() != paragraph.glyphs.size()) return status::invalid_argument;
-    const auto& source = *paragraph.font_sources[font_index];
-    if (source.face_index != glyph.face_index || source.bytes.size() != glyph.font_data->size() ||
-        std::memcmp(source.bytes.data(), glyph.font_data->data(), source.bytes.size()) != 0)
+    const auto& source = paragraph.fonts[font_index];
+    if (source.face_index != glyph.face_index || source.byte_count != glyph.font_data->size() ||
+        std::memcmp(paragraph.font_bytes.data() + source.byte_offset, glyph.font_data->data(), source.byte_count) != 0)
         return status::invalid_argument;
     const double bounds_right = glyph.bounds_x + glyph.bounds_width;
     const double bounds_bottom = glyph.bounds_y + glyph.bounds_height;
@@ -22510,7 +22594,7 @@ status hinted_glyph_binding_access::bind(channel& target, std::uint32_t handle,
         const auto owner = resource->positioned_owners()[occurrence];
         const auto& original = paragraph.glyphs[occurrence];
         const auto& run = paragraph.runs[owner.run_index];
-        const auto upm = run.generation->batch->identity->device_frame.units_per_em;
+        const auto upm = paragraph.fonts[run.font_index].units_per_em;
         const auto offset = glyph.offsets.empty() ? progpu_native_point{} : glyph.offsets[i];
         if (owner.font_index != font_index || upm == 0U ||
             run.source_scale != glyph.em_size / static_cast<float>(upm) ||

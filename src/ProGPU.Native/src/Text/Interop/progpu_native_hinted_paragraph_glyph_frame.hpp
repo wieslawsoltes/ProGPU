@@ -2,6 +2,7 @@
 
 #include "progpu_native_hinted_paragraph_internal.hpp"
 #include "../Font/progpu_native_hinted_glyph_frame.hpp"
+#include "progpu_native_text_hinting.h"
 
 namespace progpu::native::text {
 
@@ -34,6 +35,17 @@ struct hinted_paragraph_run_outline_slice final {
 };
 
 struct hinted_paragraph_glyph_resource_result;
+struct owned_hinted_glyph_import;
+
+// The same exact binding records are used for original producer resources and
+// copied flat imports. An imported resource never fabricates a hinted paragraph,
+// font context, batch identity or driver generation.
+struct hinted_glyph_binding_view final {
+    std::span<const progpu_native_hinted_glyph_font_source> fonts;
+    std::span<const std::uint8_t> font_bytes;
+    std::span<const progpu_native_hinted_paragraph_run> runs;
+    std::span<const progpu_native_positioned_text_glyph> glyphs;
+};
 
 // Target-independent geometry from one original formatted generation. Every
 // positioned occurrence keeps its own owner and explicit no-ink mapping; colors,
@@ -54,6 +66,7 @@ public:
     std::span<const hinted_paragraph_outline_owner> outline_owners() const noexcept { return outline_owners_; }
     std::span<const std::uint32_t> positioned_outline_indices() const noexcept { return positioned_outline_indices_; }
     std::span<const hinted_paragraph_draw_owner> positioned_owners() const noexcept { return positioned_owners_; }
+    hinted_glyph_binding_view binding_view() const noexcept;
     // Local object/vector capacities. The original paragraph's complete reachable
     // allocations remain covered by the existing paragraph ownership walk.
     bool allocation_aliases(const void* output, std::size_t bytes) const noexcept;
@@ -69,9 +82,17 @@ private:
     std::vector<std::uint32_t> source_outline_indices_{}, run_outline_indices_{}, positioned_outline_indices_{};
     std::vector<hinted_paragraph_outline_owner> outline_owners_{};
     std::vector<hinted_paragraph_draw_owner> positioned_owners_{};
+    std::vector<progpu_native_hinted_glyph_font_source> binding_fonts_{};
+    std::vector<std::uint8_t> binding_font_bytes_{};
+    std::vector<progpu_native_hinted_paragraph_run> binding_runs_{};
+    std::vector<progpu_native_positioned_text_glyph> binding_glyphs_{};
+    std::shared_ptr<const owned_hinted_glyph_import> imported_{};
+    bool imported_allocation_aliases(const void*, std::size_t) const noexcept;
     friend hinted_paragraph_glyph_resource_result create_hinted_paragraph_glyph_resource(
         std::shared_ptr<const hinted_paragraph_generation>, float,
         hinted_projection_policy, hinted_outline_coverage) noexcept;
+    friend hinted_paragraph_glyph_resource_result import_hinted_paragraph_glyph_resource(
+        const progpu_native_hinted_glyph_resource_view&) noexcept;
 };
 
 struct hinted_paragraph_glyph_resource_result final {
@@ -84,6 +105,11 @@ hinted_paragraph_glyph_resource_result create_hinted_paragraph_glyph_resource(
     std::shared_ptr<const hinted_paragraph_generation> paragraph, float dpi_scale,
     hinted_projection_policy policy = hinted_projection_policy::automatic,
     hinted_outline_coverage coverage = hinted_outline_coverage::strict) noexcept;
+
+// Copies all borrowed records before publication. Source metadata, no-ink
+// occurrences and exact font bytes survive caller/producer retirement.
+hinted_paragraph_glyph_resource_result import_hinted_paragraph_glyph_resource(
+    const progpu_native_hinted_glyph_resource_view& view) noexcept;
 
 struct hinted_paragraph_glyph_frame_result;
 

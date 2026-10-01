@@ -3,6 +3,7 @@
 #include "progpu_native_text.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -160,39 +161,20 @@ bool get_requirements(
     return true;
 }
 
-template<class Glyph, class Line, class Box, class Caret, class Fragment = text_fragment_placement>
-bool build(
+// One original writer owns both emission and retained-record verification.
+// Callers validate spans first; visitors cannot replace source records or shape.
+template<class Glyph, class Line, class Box, class Caret, class Fragment, class EmitBox, class EmitCaret>
+bool emit_records(
     std::span<const Glyph> glyphs,
     std::span<const Line> lines,
     std::span<const std::int32_t> cluster_ends,
     std::span<const std::int8_t> bidi_levels,
-    std::span<Box> cluster_boxes,
-    std::span<Caret> caret_stops,
-    std::uint32_t& cluster_box_count,
-    std::uint32_t& caret_stop_count,
-    font_error* error,
-    bool measured_lines = false,
-    std::span<const Fragment> fragments = {},
-    std::span<const float> line_origins = {}) noexcept {
-    cluster_box_count = 0U;
-    caret_stop_count = 0U;
-    text_interaction_requirements requirements{};
-    if (!get_requirements(
-            glyphs,
-            lines,
-            cluster_ends,
-            bidi_levels,
-            requirements,
-            error,
-            measured_lines, fragments, line_origins)) {
-        return false;
-    }
-    if (cluster_boxes.size() < requirements.cluster_box_capacity ||
-        caret_stops.size() < requirements.caret_stop_capacity) {
-        set_error(error, font_error::insufficient_buffer);
-        return false;
-    }
-
+    bool measured_lines,
+    std::span<const Fragment> fragments,
+    std::span<const float> line_origins,
+    EmitBox emit_box, EmitCaret emit_caret) noexcept {
+    Caret previous{};
+    bool has_previous = false;
     // Same dependency-bound double prefix as the measured paragraph writer.
     double line_top = 0.0;
     for (std::uint32_t line_index = 0U;
@@ -242,7 +224,7 @@ bool build(
                 measured_lines || !fragments.empty() ? static_cast<float>(line_top) : line.baseline_y,
                 std::max(0.0F, right - left),
                 measured_lines || !fragments.empty() ? line.height : std::max(1.0F, line.height)};
-            cluster_boxes[cluster_box_count++] = box;
+            if (!emit_box(box)) return false;
             const bool rtl = (box.bidi_level & 1) != 0;
             const Caret leading{
                 rtl ? box.input_end : box.input_start,
@@ -261,24 +243,90 @@ bool build(
                 box.bidi_level,
                 !rtl, 0U, 0U};
             const auto append_caret = [&](const Caret& value) {
-                if (caret_stop_count != 0U) {
-                    const auto& previous = caret_stops[caret_stop_count - 1U];
+                if (has_previous) {
                     if (previous.input_position == value.input_position &&
                         previous.trailing == value.trailing &&
                         std::abs(previous.x - value.x) < 0.0001F &&
                         std::abs(previous.y - value.y) < 0.0001F) {
-                        return;
+                        return true;
                     }
                 }
-                caret_stops[caret_stop_count++] = value;
+                if (!emit_caret(value)) return false;
+                previous = value;
+                has_previous = true;
+                return true;
             };
-            append_caret(leading);
-            append_caret(trailing);
+            if (!append_caret(leading) || !append_caret(trailing)) return false;
         }
         line_top += static_cast<double>(line.height);
     }
-    set_error(error, font_error::none);
     return true;
+}
+
+template<class Glyph, class Line, class Box, class Caret, class Fragment = text_fragment_placement>
+bool build(
+    std::span<const Glyph> glyphs, std::span<const Line> lines,
+    std::span<const std::int32_t> cluster_ends, std::span<const std::int8_t> bidi_levels,
+    std::span<Box> cluster_boxes, std::span<Caret> caret_stops,
+    std::uint32_t& cluster_box_count, std::uint32_t& caret_stop_count, font_error* error,
+    bool measured_lines = false, std::span<const Fragment> fragments = {},
+    std::span<const float> line_origins = {}) noexcept {
+    cluster_box_count = caret_stop_count = 0U;
+    text_interaction_requirements requirements{};
+    if (!get_requirements(glyphs, lines, cluster_ends, bidi_levels, requirements, error,
+            measured_lines, fragments, line_origins)) return false;
+    if (cluster_boxes.size() < requirements.cluster_box_capacity ||
+        caret_stops.size() < requirements.caret_stop_capacity) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    const bool success = emit_records<Glyph, Line, Box, Caret>(glyphs, lines, cluster_ends, bidi_levels,
+        measured_lines, fragments, line_origins,
+        [&](const Box& value) { cluster_boxes[cluster_box_count++] = value; return true; },
+        [&](const Caret& value) { caret_stops[caret_stop_count++] = value; return true; });
+    set_error(error, success ? font_error::none : font_error::invalid_argument);
+    return success;
+}
+
+template<class Glyph, class Line, class Box, class Caret, class Fragment = text_fragment_placement>
+bool validate_retained_records(
+    std::span<const Glyph> glyphs, std::span<const Line> lines,
+    std::span<const std::int32_t> cluster_ends, std::span<const std::int8_t> bidi_levels,
+    std::span<const Box> boxes, std::span<const Caret> carets, font_error* error,
+    bool measured_lines = false, std::span<const Fragment> fragments = {},
+    std::span<const float> line_origins = {}) noexcept {
+    text_interaction_requirements requirements{};
+    if (!get_requirements(glyphs, lines, cluster_ends, bidi_levels, requirements, error,
+            measured_lines, fragments, line_origins)) return false;
+    if (boxes.size() != requirements.cluster_box_capacity || carets.size() > requirements.caret_stop_capacity) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    // Compare fields, not struct padding; signed zero and every original float
+    // bit survive transport. The existing writer's dedup remains authoritative.
+    const auto exact = [](float a, float b) { return std::bit_cast<std::uint32_t>(a) == std::bit_cast<std::uint32_t>(b); };
+    std::size_t box_index = 0U, caret_index = 0U;
+    const bool success = emit_records<Glyph, Line, Box, Caret>(glyphs, lines, cluster_ends, bidi_levels,
+        measured_lines, fragments, line_origins,
+        [&](const Box& expected) {
+            if (box_index == boxes.size()) return false;
+            const auto& actual = boxes[box_index++];
+            return actual.input_start == expected.input_start && actual.input_end == expected.input_end &&
+                actual.line_index == expected.line_index && actual.bidi_level == expected.bidi_level &&
+                actual.reserved0 == expected.reserved0 && actual.reserved1 == expected.reserved1 && actual.reserved2 == expected.reserved2 &&
+                exact(actual.x,expected.x) && exact(actual.y,expected.y) && exact(actual.width,expected.width) && exact(actual.height,expected.height);
+        },
+        [&](const Caret& expected) {
+            if (caret_index == carets.size()) return false;
+            const auto& actual = carets[caret_index++];
+            return actual.input_position == expected.input_position && actual.line_index == expected.line_index &&
+                actual.bidi_level == expected.bidi_level && actual.trailing == expected.trailing &&
+                actual.reserved0 == expected.reserved0 && actual.reserved1 == expected.reserved1 &&
+                exact(actual.x,expected.x) && exact(actual.y,expected.y) && exact(actual.height,expected.height);
+        });
+    const bool complete = success && box_index == boxes.size() && caret_index == carets.size();
+    set_error(error, complete ? font_error::none : font_error::invalid_argument);
+    return complete;
 }
 
 template<class Box, class Hit>

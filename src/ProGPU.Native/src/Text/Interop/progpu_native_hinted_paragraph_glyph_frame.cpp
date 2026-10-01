@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <new>
 
@@ -200,7 +201,9 @@ bool hinted_paragraph_glyph_resource::allocation_aliases(const void* output, std
     return range.overlaps(this, sizeof(*this)) || range.overlaps(outlines_) || range.overlaps(segments_) ||
         range.overlaps(run_slices_) || range.overlaps(source_outline_indices_) ||
         range.overlaps(run_outline_indices_) || range.overlaps(outline_owners_) ||
-        range.overlaps(positioned_outline_indices_) || range.overlaps(positioned_owners_);
+        range.overlaps(positioned_outline_indices_) || range.overlaps(positioned_owners_) ||
+        range.overlaps(binding_fonts_) || range.overlaps(binding_font_bytes_) ||
+        range.overlaps(binding_runs_) || range.overlaps(binding_glyphs_) || imported_allocation_aliases(output, bytes);
 }
 
 bool hinted_paragraph_glyph_frame::allocation_aliases(const void* output, std::size_t bytes) const noexcept {
@@ -256,6 +259,31 @@ hinted_paragraph_glyph_resource_result create_hinted_paragraph_glyph_resource(
         auto candidate = std::shared_ptr<hinted_paragraph_glyph_resource>(new hinted_paragraph_glyph_resource{});
         candidate->paragraph_ = std::move(paragraph); candidate->dpi_scale_ = dpi_scale;
         candidate->coverage_ = coverage; candidate->projection_policy_ = policy;
+        candidate->binding_fonts_.reserve(candidate->paragraph_->font_sources.size());
+        candidate->binding_runs_.reserve(candidate->paragraph_->runs.size());
+        candidate->binding_glyphs_.reserve(candidate->paragraph_->glyphs.size());
+        for (const auto& source : candidate->paragraph_->font_sources) {
+            sfnt_font_view font{}; sfnt_header_metrics metrics{};
+            if (source == nullptr || !sfnt_font_view::try_create(source->bytes, source->face_index, font) ||
+                !font.try_get_header_metrics(metrics) || metrics.units_per_em == 0U ||
+                source->bytes.size() > UINT32_MAX - candidate->binding_font_bytes_.size())
+                return fail(hinted_glyph_frame_error_code::invalid_layout);
+            candidate->binding_fonts_.push_back({static_cast<std::uint32_t>(candidate->binding_font_bytes_.size()),
+                static_cast<std::uint32_t>(source->bytes.size()), source->face_index, metrics.units_per_em});
+            const auto start = candidate->binding_font_bytes_.size();
+            candidate->binding_font_bytes_.resize(start + source->bytes.size());
+            // libc copies the exact immutable byte span using its qualified
+            // bulk path; no per-byte vector growth or font-table conversion.
+            std::memcpy(candidate->binding_font_bytes_.data() + start, source->bytes.data(), source->bytes.size());
+        }
+        for (const auto& run : candidate->paragraph_->runs)
+            candidate->binding_runs_.push_back({run.scalar_start, run.scalar_count, run.logical_start, run.logical_count,
+                run.font_index, run.style_index, run.bidi_level, run.source_scale, run.logical_units_per_physical_pixel,
+                static_cast<std::uint32_t>(run.generation->source_descriptor_count)});
+        for (const auto& glyph : candidate->paragraph_->glyphs)
+            candidate->binding_glyphs_.push_back({glyph.glyph_index, glyph.glyph_id,
+                candidate->paragraph_->logical_font_indices[glyph.glyph_index], glyph.cluster,
+                glyph.x, glyph.y, glyph.advance_x, glyph.advance_y});
         candidate->outlines_.resize(outline_count); candidate->segments_.resize(segment_count);
         candidate->source_outline_indices_.resize(source_count); candidate->run_outline_indices_.resize(run_count);
         candidate->outline_owners_.resize(outline_count); candidate->run_slices_.reserve(requirements.size());

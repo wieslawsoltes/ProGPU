@@ -8,6 +8,7 @@
 #include "../Font/progpu_native_hinted_shaper.hpp"
 #include "progpu_native_hinted_paragraph_internal.hpp"
 #include "progpu_native_hinted_paragraph_transport_internal.hpp"
+#include "progpu_native_owned_allocation_internal.hpp"
 #include "../progpu_native_text_layout_retained_internal.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "../Font/progpu_native_hinted_font_cache.hpp"
@@ -58,6 +59,28 @@ struct progpu_native_hinted_paragraph final {
 struct progpu_native_hinted_paragraph_frame final {
     std::shared_ptr<const progpu::native::text::hinted_paragraph_glyph_frame> generation{};
     std::shared_ptr<const progpu::native::text::hinted_paragraph_interaction> interaction{};
+};
+
+// Original-library owner for a cached, read-only C borrow. Already-flat records
+// remain in the retained original paragraph/resource; only native writer types
+// need fieldwise conversion. No target, paint or reconstructed generation is
+// part of this producer handle.
+struct progpu_native_hinted_glyph_resource final {
+    std::shared_ptr<const progpu::native::text::hinted_paragraph_glyph_resource> generation{};
+    std::shared_ptr<const progpu::native::text::hinted_paragraph_interaction> interaction{};
+    std::vector<progpu_native_hinted_paragraph_device_style> device_styles{};
+    std::vector<std::int32_t> variation_coordinates_16_16{};
+    std::vector<progpu_native_hinted_glyph_run_slice> run_slices{};
+    std::vector<progpu_native_hinted_glyph_outline_owner> outline_owners{};
+    std::vector<progpu_native_text_scalar> admitted_scalars{};
+    std::vector<progpu_native_text_bidi_level> scalar_levels{};
+    std::vector<progpu_native_text_shaping_glyph> logical_glyphs{};
+    std::vector<progpu_native_hinted_paragraph_glyph_owner> logical_owners{};
+    std::vector<progpu_native_hinted_paragraph_glyph_owner> positioned_owners{};
+    std::vector<progpu_native_positioned_text_line> lines{};
+    std::vector<progpu_native_text_cluster_box> boxes{};
+    std::vector<progpu_native_text_caret_stop> carets{};
+    progpu_native_hinted_glyph_resource_view view{};
 };
 
 struct progpu_native_text_plan_entry final {
@@ -4422,6 +4445,162 @@ void copy_paragraph_vector(const std::vector<T>& source, T* output) noexcept {
     if (!source.empty()) std::copy(source.begin(), source.end(), output);
 }
 
+bool hinted_glyph_resource_format_bounded(const hinted_paragraph_generation& paragraph) noexcept {
+    const auto bounded = [](std::size_t size) noexcept { return size <= UINT32_MAX; };
+    if (!bounded(paragraph.font_sources.size()) || !bounded(paragraph.pre_context.size()) ||
+        !bounded(paragraph.post_context.size()) || !bounded(paragraph.features.size()) ||
+        !bounded(paragraph.normalized_coordinates.size())) return false;
+    std::size_t byte_count = 0U, axis_count = 0U;
+    for (const auto& font : paragraph.font_sources) {
+        if (font == nullptr || font->bytes.empty() || font->bytes.size() > UINT32_MAX - byte_count) return false;
+        byte_count += font->bytes.size();
+    }
+    for (const auto& style : paragraph.device_styles) {
+        if (style.variation_coordinates_16_16.size() > 65535U ||
+            style.variation_coordinates_16_16.size() > UINT32_MAX - axis_count) return false;
+        axis_count += style.variation_coordinates_16_16.size();
+    }
+    return true;
+}
+
+template<class Container>
+auto hinted_glyph_wire_data(const Container& values) noexcept {
+    return values.empty() ? nullptr : values.data();
+}
+
+bool cache_hinted_glyph_resource_view(progpu_native_hinted_glyph_resource& handle) {
+    const auto& resource = *handle.generation;
+    const auto& paragraph = *resource.paragraph();
+    const auto binding = resource.binding_view();
+    const auto bounded = [](std::size_t size) noexcept { return size <= UINT32_MAX; };
+    if (!bounded(binding.fonts.size()) || !bounded(binding.font_bytes.size()) ||
+        !bounded(resource.outlines().size()) || !bounded(resource.segments().size()) ||
+        !bounded(resource.source_outline_indices().size()) || !bounded(resource.run_outline_indices().size()) ||
+        binding.fonts.size() != paragraph.font_sources.size() || binding.runs.size() != paragraph.runs.size() ||
+        binding.glyphs.size() != paragraph.glyphs.size() || resource.run_slices().size() != paragraph.runs.size() ||
+        resource.outline_owners().size() != resource.outlines().size() ||
+        resource.positioned_outline_indices().size() != paragraph.glyphs.size()) return false;
+
+    handle.device_styles.reserve(paragraph.device_styles.size());
+    for (const auto& style : paragraph.device_styles) {
+        const auto start = static_cast<std::uint32_t>(handle.variation_coordinates_16_16.size());
+        const auto count = static_cast<std::uint32_t>(style.variation_coordinates_16_16.size());
+        handle.device_styles.push_back({style.font_index, style.source_scale, style.logical_units_per_physical_pixel,
+            style.x_pixels_per_em_26_6, style.y_pixels_per_em_26_6, static_cast<std::uint32_t>(style.policy),
+            style.x_phase_26_6, style.y_phase_26_6, start, count, 0U});
+        handle.variation_coordinates_16_16.insert(handle.variation_coordinates_16_16.end(),
+            style.variation_coordinates_16_16.begin(), style.variation_coordinates_16_16.end());
+    }
+    handle.run_slices.reserve(resource.run_slices().size());
+    for (const auto& slice : resource.run_slices())
+        handle.run_slices.push_back({slice.source_start, slice.source_count, slice.run_start, slice.run_count,
+            slice.outline_start, slice.outline_count, slice.segment_start, slice.segment_count});
+    handle.outline_owners.reserve(resource.outline_owners().size());
+    for (const auto& owner : resource.outline_owners())
+        handle.outline_owners.push_back({owner.run_index, owner.descriptor_index});
+    handle.admitted_scalars.reserve(paragraph.shaping_input.size());
+    handle.scalar_levels.reserve(paragraph.scalar_levels.size());
+    for (std::size_t index = 0U; index < paragraph.shaping_input.size(); ++index) {
+        const auto& scalar = paragraph.shaping_input[index];
+        handle.admitted_scalars.push_back({scalar.code_point, scalar.input_index, scalar.input_length,
+            scalar.canonical_combining_class, scalar.reserved, scalar.script.value});
+        const auto& level = paragraph.scalar_levels[index];
+        handle.scalar_levels.push_back({level.input_index, level.input_length, level.level, level.reserved});
+    }
+    handle.logical_glyphs.reserve(paragraph.logical_glyphs.size());
+    handle.logical_owners.reserve(paragraph.logical_owners.size());
+    for (std::size_t index = 0U; index < paragraph.logical_glyphs.size(); ++index) {
+        const auto& glyph = paragraph.logical_glyphs[index];
+        // The original logical writer has already selected C Y-down metrics.
+        handle.logical_glyphs.push_back({glyph.glyph_id, glyph.code_point, glyph.cluster,
+            static_cast<std::uint32_t>(glyph.flags), glyph.advance_x, glyph.advance_y, glyph.offset_x, glyph.offset_y});
+        handle.logical_owners.push_back(copy_paragraph_owner(paragraph.logical_owners[index]));
+    }
+    handle.positioned_owners.reserve(paragraph.positioned_owners.size());
+    for (const auto& owner : paragraph.positioned_owners)
+        handle.positioned_owners.push_back(copy_paragraph_owner(owner));
+    handle.lines.reserve(paragraph.lines.size());
+    for (const auto& line : paragraph.lines)
+        handle.lines.push_back({line.glyph_start, line.glyph_count, line.input_start, line.input_end, line.width,
+            line.baseline_y, line.height, static_cast<std::uint8_t>(line.clipped ? 1U : 0U), line.flags, 0U, 0U});
+    handle.boxes.reserve(handle.interaction->boxes().size());
+    for (const auto& box : handle.interaction->boxes())
+        handle.boxes.push_back({box.input_start, box.input_end, box.line_index, box.bidi_level,
+            0U, 0U, 0U, box.x, box.y, box.width, box.height});
+    handle.carets.reserve(handle.interaction->carets().size());
+    for (const auto& caret : handle.interaction->carets())
+        handle.carets.push_back({caret.input_position, caret.line_index, caret.x, caret.y, caret.height,
+            caret.bidi_level, static_cast<std::uint8_t>(caret.trailing ? 1U : 0U), 0U, 0U});
+
+    // Publish pointers only after every cache allocation is complete. All other
+    // spans are already C records in owners retained by this exact resource.
+    auto& view = handle.view;
+    view.abi_version = PROGPU_NATIVE_ABI_VERSION; view.struct_size = sizeof(view);
+    view.dpi_scale = resource.dpi_scale(); view.projection_policy = static_cast<std::uint32_t>(resource.projection_policy());
+    view.coverage = static_cast<std::uint32_t>(resource.coverage());
+    view.source_digit_bidi = paragraph.source_digit_bidi ? 1U : 0U; view.paragraph_level = paragraph.paragraph_level;
+    view.shaping_direction = paragraph.shaping.direction; view.shaping_flags = paragraph.shaping.flags;
+    view.counts = {static_cast<std::uint32_t>(paragraph.source_input.size()),
+        static_cast<std::uint32_t>(paragraph.shaping_input.size()), static_cast<std::uint32_t>(paragraph.styles.size()),
+        static_cast<std::uint32_t>(paragraph.runs.size()), static_cast<std::uint32_t>(paragraph.logical_glyphs.size()),
+        static_cast<std::uint32_t>(paragraph.glyphs.size()), static_cast<std::uint32_t>(paragraph.lines.size()),
+        static_cast<std::uint32_t>(handle.boxes.size()), static_cast<std::uint32_t>(handle.carets.size())};
+    view.result = paragraph.paragraph_result; view.layout = paragraph.layout;
+    view.font_sources = hinted_glyph_wire_data(binding.fonts); view.font_source_count = static_cast<std::uint32_t>(binding.fonts.size());
+    view.font_bytes = hinted_glyph_wire_data(binding.font_bytes); view.font_byte_count = static_cast<std::uint32_t>(binding.font_bytes.size());
+    view.device_styles = hinted_glyph_wire_data(handle.device_styles);
+    view.variation_coordinates_16_16 = hinted_glyph_wire_data(handle.variation_coordinates_16_16);
+    view.variation_coordinate_count = static_cast<std::uint32_t>(handle.variation_coordinates_16_16.size());
+    view.normalized_coordinates = hinted_glyph_wire_data(paragraph.normalized_coordinates);
+    view.normalized_coordinate_count = static_cast<std::uint32_t>(paragraph.normalized_coordinates.size());
+    view.outlines = hinted_glyph_wire_data(resource.outlines()); view.outline_count = static_cast<std::uint32_t>(resource.outlines().size());
+    view.segments = hinted_glyph_wire_data(resource.segments()); view.segment_count = static_cast<std::uint32_t>(resource.segments().size());
+    view.run_slices = hinted_glyph_wire_data(handle.run_slices);
+    view.source_outline_indices = hinted_glyph_wire_data(resource.source_outline_indices());
+    view.source_outline_count = static_cast<std::uint32_t>(resource.source_outline_indices().size());
+    view.run_outline_indices = hinted_glyph_wire_data(resource.run_outline_indices());
+    view.run_outline_count = static_cast<std::uint32_t>(resource.run_outline_indices().size());
+    view.outline_owners = hinted_glyph_wire_data(handle.outline_owners);
+    view.positioned_outline_indices = hinted_glyph_wire_data(resource.positioned_outline_indices());
+    view.source_scalars = hinted_glyph_wire_data(paragraph.source_input);
+    view.admitted_scalars = hinted_glyph_wire_data(handle.admitted_scalars);
+    view.scalar_levels = hinted_glyph_wire_data(handle.scalar_levels);
+    view.styles = hinted_glyph_wire_data(paragraph.styles); view.source_metrics = hinted_glyph_wire_data(paragraph.source_metrics);
+    view.runs = hinted_glyph_wire_data(binding.runs); view.logical_glyphs = hinted_glyph_wire_data(handle.logical_glyphs);
+    view.logical_owners = hinted_glyph_wire_data(handle.logical_owners);
+    view.logical_cluster_ends = hinted_glyph_wire_data(paragraph.logical_cluster_ends);
+    view.logical_bidi_levels = hinted_glyph_wire_data(paragraph.logical_bidi_levels);
+    view.glyph_scales = hinted_glyph_wire_data(paragraph.glyph_scales);
+    view.positioned_glyphs = hinted_glyph_wire_data(binding.glyphs); view.positioned_owners = hinted_glyph_wire_data(handle.positioned_owners);
+    view.positioned_cluster_ends = hinted_glyph_wire_data(paragraph.cluster_ends);
+    view.positioned_bidi_levels = hinted_glyph_wire_data(paragraph.bidi_levels);
+    view.lines = hinted_glyph_wire_data(handle.lines); view.line_origins = hinted_glyph_wire_data(paragraph.line_origins);
+    view.boxes = hinted_glyph_wire_data(handle.boxes); view.carets = hinted_glyph_wire_data(handle.carets);
+    view.pre_context = hinted_glyph_wire_data(paragraph.pre_context); view.pre_context_count = static_cast<std::uint32_t>(paragraph.pre_context.size());
+    view.post_context = hinted_glyph_wire_data(paragraph.post_context); view.post_context_count = static_cast<std::uint32_t>(paragraph.post_context.size());
+    view.features = hinted_glyph_wire_data(paragraph.features); view.feature_count = static_cast<std::uint32_t>(paragraph.features.size());
+    return true;
+}
+
+bool valid_hinted_glyph_resource(const progpu_native_hinted_glyph_resource* handle) noexcept {
+    return valid_hinted_buffer(handle, 1U) && handle->generation != nullptr && handle->interaction != nullptr &&
+        handle->generation->paragraph() != nullptr && handle->generation->paragraph() == handle->interaction->paragraph() &&
+        handle->view.abi_version == PROGPU_NATIVE_ABI_VERSION && handle->view.struct_size == sizeof(handle->view);
+}
+
+bool hinted_glyph_resource_aliases(const progpu_native_hinted_glyph_resource& handle,
+    const void* output, std::size_t bytes) noexcept {
+    const owned_output_range range{output, bytes};
+    return range.overlaps(&handle, sizeof(handle)) || range.overlaps(handle.device_styles) ||
+        range.overlaps(handle.variation_coordinates_16_16) || range.overlaps(handle.run_slices) ||
+        range.overlaps(handle.outline_owners) || range.overlaps(handle.admitted_scalars) ||
+        range.overlaps(handle.scalar_levels) || range.overlaps(handle.logical_glyphs) ||
+        range.overlaps(handle.logical_owners) || range.overlaps(handle.positioned_owners) ||
+        range.overlaps(handle.lines) || range.overlaps(handle.boxes) || range.overlaps(handle.carets) ||
+        handle.generation->allocation_aliases(output, bytes) || handle.interaction->allocation_aliases(output, bytes) ||
+        progpu::native::text::hinted_paragraph_aliases(*handle.generation->paragraph(), output, bytes);
+}
+
 } // namespace
 
 namespace progpu::native::text {
@@ -4439,6 +4618,11 @@ std::shared_ptr<const hinted_paragraph_interaction> select_hinted_paragraph_inte
 std::shared_ptr<const hinted_paragraph_glyph_frame> select_hinted_paragraph_frame_generation(
     const progpu_native_hinted_paragraph_frame* frame) noexcept {
     return valid_hinted_paragraph_frame(frame) ? frame->generation : nullptr;
+}
+
+std::shared_ptr<const hinted_paragraph_glyph_resource> select_hinted_glyph_resource_generation(
+    const progpu_native_hinted_glyph_resource* resource) noexcept {
+    return valid_hinted_glyph_resource(resource) ? resource->generation : nullptr;
 }
 
 } // namespace progpu::native::text
@@ -4639,6 +4823,57 @@ progpu_native_status progpu_native_hinted_paragraph_copy_interaction(const progp
 }
 
 void progpu_native_hinted_paragraph_destroy(progpu_native_hinted_paragraph* paragraph) { delete paragraph; }
+
+progpu_native_status progpu_native_hinted_paragraph_prepare_glyph_resource(
+    const progpu_native_hinted_paragraph* paragraph,
+    const progpu_native_hinted_glyph_resource_request* request,
+    progpu_native_hinted_glyph_resource** resource) {
+    static_assert(static_cast<std::uint32_t>(hinted_projection_policy::scalar_reference) == PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE);
+    static_assert(static_cast<std::uint32_t>(hinted_outline_coverage::nonzero_vector) == PROGPU_NATIVE_HINTED_COVERAGE_NONZERO_VECTOR);
+    static_assert(static_cast<std::uint32_t>(hinted_outline_coverage::antialiased_vector) == PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR);
+    if (!valid_hinted_paragraph(paragraph) || !valid_hinted_buffer(request, 1U) || !valid_hinted_buffer(resource, 1U) ||
+        hinted_paragraph_handle_aliases(*paragraph, request, sizeof(*request)) ||
+        byte_ranges_overlap(resource, sizeof(*resource), request, sizeof(*request)) ||
+        hinted_paragraph_handle_aliases(*paragraph, resource, sizeof(*resource)))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (request->abi_version != PROGPU_NATIVE_ABI_VERSION || request->struct_size != sizeof(*request) || request->reserved != 0U ||
+        !std::isfinite(request->dpi_scale) || request->dpi_scale <= 0.0F ||
+        request->projection_policy > PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE ||
+        request->coverage > PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR ||
+        !hinted_glyph_resource_format_bounded(*paragraph->generation)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    try {
+        auto candidate = std::make_unique<progpu_native_hinted_glyph_resource>();
+        const auto prepared = create_hinted_paragraph_glyph_resource(paragraph->generation, request->dpi_scale,
+            static_cast<hinted_projection_policy>(request->projection_policy), static_cast<hinted_outline_coverage>(request->coverage));
+        if (prepared.status != PROGPU_NATIVE_STATUS_SUCCESS) return prepared.status;
+        candidate->generation = prepared.generation;
+        candidate->interaction = paragraph->interaction;
+        if (candidate->generation == nullptr || candidate->generation->paragraph() != paragraph->generation ||
+            !cache_hinted_glyph_resource_view(*candidate) || !valid_hinted_glyph_resource(candidate.get()))
+            return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+        // Never read the old caller slot. Original geometry, interaction and
+        // every immutable wire cache exist before the sole publication write.
+        *resource = candidate.release();
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
+}
+
+progpu_native_status progpu_native_hinted_glyph_resource_borrow(
+    const progpu_native_hinted_glyph_resource* resource, progpu_native_hinted_glyph_resource_view* view) {
+    if (!valid_hinted_glyph_resource(resource) || !valid_hinted_buffer(view, 1U) ||
+        hinted_glyph_resource_aliases(*resource, view, sizeof(*view))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    *view = resource->view; // No allocation or new projection under the caller's producer-library lease.
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+void progpu_native_hinted_glyph_resource_destroy(progpu_native_hinted_glyph_resource* resource) {
+    static_assert(std::is_nothrow_destructible_v<progpu_native_hinted_glyph_resource>);
+    delete resource;
+}
 
 progpu_native_status progpu_native_hinted_paragraph_prepare_frame(const progpu_native_hinted_paragraph* paragraph,
     const progpu_native_hinted_paragraph_frame_request* request,
