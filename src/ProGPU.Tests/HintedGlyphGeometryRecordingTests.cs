@@ -1,6 +1,7 @@
 using System.Numerics;
 using ProGPU.Scene;
 using ProGPU.Text;
+using ProGPU.Vector;
 using Xunit;
 
 namespace ProGPU.Tests;
