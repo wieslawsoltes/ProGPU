@@ -10,9 +10,13 @@ internal static class ShaderDiagnostics
     internal const string BaselineProfile = "original-interpolated-coverage";
     internal const string CanonicalFrameProfile = "canonical-physical-coverage-frame";
     internal const string AffineCanonicalFrameProfile = "affine-canonical-physical-coverage-frame";
+    internal const string PhysicalTriangleProfile = "certified-original-physical-triangles";
 
     internal static bool HasCanonicalFrame(string profile) =>
-        profile is CanonicalFrameProfile or AffineCanonicalFrameProfile;
+        profile is CanonicalFrameProfile or AffineCanonicalFrameProfile or PhysicalTriangleProfile;
+
+    internal static bool HasAffinePaint(string profile) =>
+        profile is AffineCanonicalFrameProfile or PhysicalTriangleProfile;
 
     internal static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes));
     internal static string Hash(string text) => Hash(Encoding.UTF8.GetBytes(text));
@@ -60,6 +64,10 @@ internal static class ShaderDiagnostics
         if (hash == canonicalFrameHash) return CanonicalFrameProfile;
         if (paint && hash == "124A87992503FD20771874316FA26306B9CBE0949B3553C200CE33AA16D18B26")
             return AffineCanonicalFrameProfile;
+        string physicalTriangleHash = paint
+            ? "FA9C394116E20770DA7AA3BC152B7EB2DC0990E21E65A3B8D97C28555D058426"
+            : "5D0F0919B1F63FF8E7952877A9993FDA54410A85120E64AC84EB66D539DC9030";
+        if (hash == physicalTriangleHash) return PhysicalTriangleProfile;
         throw new InvalidOperationException("Production shader differs from every reviewed sampling diagnostic source profile.");
     }
 
