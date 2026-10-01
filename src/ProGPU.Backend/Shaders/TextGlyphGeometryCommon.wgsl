@@ -1,6 +1,6 @@
 // Algorithm: Expand each original glyph instance with the canonical Text vertex arithmetic and decode its unchanged legacy/shared rendering policy.
 // Time complexity: O(1) per vertex.
-// Space complexity: O(1); this helper does not allocate, rasterize or combine occurrences.
+// Space complexity: O(1), including one flat four-float physical coverage frame and its admission bit; this helper does not allocate, rasterize or combine occurrences.
 struct TextGlyphInstance {
     vertexIndex: u32,
     snappedLogicalPos: vec2<f32>,
@@ -22,6 +22,8 @@ struct TextGlyphVertexFrame {
     strokeThickness: f32,
     textMode: f32,
     texelBounds: vec4<f32>,
+    physicalGlyphFrame: vec4<f32>,
+    canonicalPhysicalFrame: u32,
 };
 
 fn text_glyph_vertex(input: TextGlyphInstance, sharedColor: vec4<f32>, sharedRenderingMode: u32, hasSharedTextStyle: bool) -> TextGlyphVertexFrame {
@@ -120,5 +122,43 @@ fn text_glyph_vertex(input: TextGlyphInstance, sharedColor: vec4<f32>, sharedRen
         select(select(0.0, 2.0, clearTypeText), 1.0, aliasedText),
         3.0,
         colorGlyph);
+    // pad0 == -1 is a private actual-pass certificate, not an inference from
+    // canvas size. Positive pad0 values belong to original bounded Texture
+    // source/ROP passes and must never certify glyphs. Only an unshifted,
+    // full-target native/managed owner may set this distinct negative tag.
+    // Preserve the original interpolation for all unproven passes, late MVP,
+    // ClearType/color and non-axis glyphs. Prove ALL original quad corners;
+    // a diagonal alone cannot prove an italic/sheared rectangle.
+    let q0 = input.snappedLogicalPos + (lsx0 * input.basisX + ly0 * input.basisY);
+    let q1 = input.snappedLogicalPos + (lsx1 * input.basisX + ly0 * input.basisY);
+    let q2 = input.snappedLogicalPos + (lsx2 * input.basisX + ly1 * input.basisY);
+    let q3 = input.snappedLogicalPos + (lsx3 * input.basisX + ly1 * input.basisY);
+    let exactPositiveAxes = q0.y == q1.y && q1.x == q2.x &&
+        q2.y == q3.y && q3.x == q0.x && all(q2 > q0);
+    // Compute directly in the certified physical pass, never invert clip
+    // coordinates (that cancellation can itself lose the original dyadic min).
+    let physicalFrame = vec4<f32>(q0 * uniforms.dpiScale, (q2 - q0) * uniforms.dpiScale);
+    let finiteFrame = all(abs(physicalFrame) <= vec4<f32>(3.402823466e+38)) &&
+        all(abs(q2 * uniforms.dpiScale) <= vec2<f32>(3.402823466e+38)) &&
+        all(abs((texCoordMax - texCoordMin) / physicalFrame.zw) <= vec2<f32>(3.402823466e+38));
+    let admitted = uniforms.pad0 == -1.0 && useMvp == 0.0 &&
+        output.textMode < 1.5 && exactPositiveAxes && finiteFrame &&
+        all(physicalFrame.zw > vec2<f32>(0.0));
+    output.physicalGlyphFrame = select(vec4<f32>(0.0, 0.0, 1.0, 1.0), physicalFrame, admitted);
+    output.canonicalPhysicalFrame = select(0u, 1u, admitted);
     return output;
+}
+
+// Both ordinary Text and painted occurrences use this same address, retaining
+// the existing half-texel clamp, sampler, filtering, contrast and gamma below it.
+// @builtin(position).xy is the actual framebuffer fragment center; no pixel
+// snapping, bias, integer load or interpolation-dependent UV correction occurs.
+fn text_glyph_coverage_tex_coord(interpolated: vec2<f32>, fragmentPosition: vec2<f32>,
+    texelBounds: vec4<f32>, physicalFrame: vec4<f32>, canonical: u32) -> vec2<f32> {
+    if (canonical == 0u) {
+        return interpolated;
+    }
+    let atlasMinimum = texelBounds.xy - vec2<f32>(0.5);
+    let atlasSpan = texelBounds.zw + vec2<f32>(0.5) - atlasMinimum;
+    return atlasMinimum + (fragmentPosition - physicalFrame.xy) * (atlasSpan / physicalFrame.zw);
 }

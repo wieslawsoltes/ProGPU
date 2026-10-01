@@ -1,6 +1,6 @@
 // Algorithm: Paint each original hinted glyph occurrence directly with the shared registered material or original image sampler, then apply canonical Text coverage. Bounded image paint emits its original two hardware triangles, including independently snapped corners; extended paint retains its original admitted axis mapping. No coverage union or R8 intermediate is used.
 // Time complexity: O(1) vertex work plus the original bounded material/sampling work per fragment; bounded paint deliberately preserves original image geometry rather than approximating its edges.
-// Space complexity: One immutable 96-byte paint record per command and one original 96-byte glyph instance per occurrence; O(1) fragment storage, no new coverage texture.
+// Space complexity: One immutable 96-byte paint record per command and one original 96-byte glyph instance per occurrence; O(1) fragment storage including a flat four-float physical coverage frame plus admission bit, no new coverage texture.
 struct Uniforms {
     projection: mat4x4<f32>,
     mvp: mat4x4<f32>,
@@ -57,6 +57,8 @@ struct VertexOutput {
     @location(5) @interpolate(flat) paintIndex: u32,
     @location(6) @interpolate(flat) glyphLogicalFrame: vec4<f32>,
     @location(7) @interpolate(flat) liveGlyphFrame: u32,
+    @location(8) @interpolate(flat) physicalGlyphFrame: vec4<f32>,
+    @location(9) @interpolate(flat) canonicalPhysicalFrame: u32,
 };
 
 fn glyph_instance(input: VertexInput, vertexIndex: u32) -> TextGlyphInstance {
@@ -119,6 +121,8 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.paintIndex = input.paintIndex;
     output.glyphLogicalFrame = vec4<f32>(minimum, safeExtent);
     output.liveGlyphFrame = select(0u, 1u, liveFrame);
+    output.physicalGlyphFrame = frame.physicalGlyphFrame;
+    output.canonicalPhysicalFrame = frame.canonicalPhysicalFrame;
     return output;
 }
 
@@ -138,6 +142,8 @@ fn hinted_glyph_paint_color(input: VertexOutput, maskAlpha: f32, premultipliedOu
         let atlasSpan = input.texelBounds.zw + vec2<f32>(0.5) - atlasMinimum;
         texCoord = atlasMinimum + glyphLocal * (atlasSpan / input.glyphLogicalFrame.zw);
     }
+    texCoord = text_glyph_coverage_tex_coord(texCoord, input.position.xy,
+        input.texelBounds, input.physicalGlyphFrame, input.canonicalPhysicalFrame);
     // Evaluate derivatives before material policy, tile guards or masks can
     // discard. The white input is only a float coverage calculation, never a
     // published draw, style stream or intermediate quantized texture.

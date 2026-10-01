@@ -1542,6 +1542,18 @@ endif()
 endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+    # Pure actual-pass certificate controls; no WebGPU device/runtime linkage.
+    add_executable(progpu_native_glyph_coverage_frame_tests
+        tests/progpu_native_glyph_coverage_frame_tests.cpp)
+    target_compile_features(progpu_native_glyph_coverage_frame_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_glyph_coverage_frame_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Backend")
+    progpu_native_enable_warnings(progpu_native_glyph_coverage_frame_tests)
+    progpu_native_enable_sanitizers(progpu_native_glyph_coverage_frame_tests)
+    add_test(NAME progpu_native_glyph_coverage_frame_tests COMMAND progpu_native_glyph_coverage_frame_tests)
+    set_tests_properties(progpu_native_glyph_coverage_frame_tests PROPERTIES TIMEOUT 15)
+
     add_executable(progpu_native_browser_scene_tests
         browser/npm/scene_packet.cpp
         browser/npm/tests/scene_packet_tests.cpp)

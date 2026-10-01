@@ -2,6 +2,7 @@
 #include "progpu_native_semantic_draw_execution.hpp"
 #include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_semantic_glyph_identity.hpp"
+#include "progpu_native_glyph_coverage_frame.hpp"
 #include "progpu_native_3d_execution.hpp"
 #include <unordered_map>
 #include <array>
@@ -3850,10 +3851,18 @@ progpu_native_status render_scene(
             "The semantic bounded image mask-chain pipelines could not be created.");
     }
 
-    const gpu_uniforms uniforms = create_uniforms(
+    gpu_uniforms uniforms = create_uniforms(
         frame->width,
         frame->height,
         frame->dpi_scale);
+    // Ordinary semantic root passes explicitly encode the physical viewport.
+    // Destination/layer slots retain their separate uncertified uniforms.
+    if (!semantic_destination_sampling_active) {
+        certify_root_glyph_coverage_frame(uniforms,
+            frame->width, frame->height, 0.0F, 0.0F,
+            static_cast<float>(frame->width),
+            static_cast<float>(frame->height));
+    }
     if (semantic_analytic_draw_count != 0U ||
         semantic_path_draw_count != 0U ||
         semantic_glyph_draw_count != 0U) {
@@ -5441,6 +5450,11 @@ progpu_native_status render_scene(
                 engine->semantic_encoder,
                 &pass_descriptor);
             if (pass != nullptr) {
+                if (uniforms.pad0 == -1.0F) {
+                    wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F,
+                        static_cast<float>(frame->width),
+                        static_cast<float>(frame->height), 0.0F, 1.0F);
+                }
                 color_initialized = true;
                 depth_initialized = depth_initialized || uses_depth;
                 active_pass_uses_depth = uses_depth;
@@ -5592,6 +5606,13 @@ progpu_native_status render_scene(
             pass = wgpuCommandEncoderBeginRenderPass(
                 engine->semantic_encoder,
                 &pass_descriptor);
+            if (pass != nullptr &&
+                target_layer == PROGPU_NATIVE_SCENE_NO_INDEX &&
+                uniforms.pad0 == -1.0F) {
+                wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F,
+                    static_cast<float>(frame->width),
+                    static_cast<float>(frame->height), 0.0F, 1.0F);
+            }
             active_target_layer = target_layer;
             active_pass_uses_depth = uses_depth;
             if (pass != nullptr && depth_initialized != nullptr) {
