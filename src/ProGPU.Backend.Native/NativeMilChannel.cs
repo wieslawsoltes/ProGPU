@@ -16,12 +16,22 @@ namespace ProGPU.Backend.Native;
 public sealed unsafe class NativeMilChannel : IDisposable
 {
     private readonly NativeMilBackend _backend;
+    private readonly object _disposeGate = new();
+    private readonly Action<nint> _destroy;
     private nint _channel;
     private int _disposeState;
+    private bool _destroying;
+    private Exception? _unknownDestroyCompletion;
     private bool _hintedBatchMetricsAvailable;
 
     public NativeMilChannel(NativeMilBackend backend = NativeMilBackend.WgpuNative)
     {
+        // Prepare managed retirement storage before acquiring native ownership.
+        // These callbacks contain only the original consuming import, with no
+        // fallible managed work after native dispatch.
+        _destroy = backend == NativeMilBackend.Dawn
+            ? static handle => NativeMilDawnMethods.Destroy(handle)
+            : static handle => NativeMilMethods.Destroy(handle);
         nint channel = 0;
         NativeMilStatus status = backend == NativeMilBackend.Dawn
             ? NativeMilDawnMethods.Create(&channel)
@@ -950,31 +960,13 @@ public sealed unsafe class NativeMilChannel : IDisposable
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
-        {
-            return;
-        }
-        nint channel = Interlocked.Exchange(ref _channel, 0);
-        if (channel != 0)
-        {
-            if (_backend == NativeMilBackend.Dawn)
-            {
-                NativeMilDawnMethods.Destroy(channel);
-            }
-            else
-            {
-                NativeMilMethods.Destroy(channel);
-            }
-        }
+        NativeMilChannelRetirement.Dispose(_disposeGate, ref _channel,
+            ref _disposeState, ref _destroying, ref _unknownDestroyCompletion, _destroy);
         GC.SuppressFinalize(this);
     }
 
     private nint GetChannel()
-    {
-        nint channel = Volatile.Read(ref _channel);
-        ObjectDisposedException.ThrowIf(channel == 0, this);
-        return channel;
-    }
+        => NativeMilChannelRetirement.GetHandle(ref _channel, ref _disposeState, this);
 
 
     private NativeMilStatus BuildScene(
