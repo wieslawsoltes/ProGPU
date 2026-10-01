@@ -24,11 +24,19 @@ device-abandonment control now traverses the shared device-request entry point.
 These additions await hosted execution; prior WARP results do not qualify this
 follow-up or all ordinary backend/platform choices.
 
-This change does not claim to complete ordinary factory ownership transfer after
-device creation, queue-work callback retirement, native presentation teardown or
-application qualification. Those retain separate requirements. It introduces no
-public API or automatic WARP selection, and never treats an incomplete callback
-as a successful request or release.
+Metal and native-presentation creation also reuse the offscreen factory's shared
+releasing-owner pattern. Raw handles transfer before context allocation and
+initialization; factory and partial-context cleanup cannot each release the same
+chain. Device-loss state binds before initialization and is checked before and
+afterward. The temporary compatibility surface retires after adapter/format
+selection, before publishing a context. Failure cleanup preserves the originating
+exception and keeps loss userdata until after instance/device teardown.
+
+Actual injected factory failures on each presentation platform, queue-work
+callback retirement, native presentation teardown and application qualification
+remain separate requirements. This change introduces no public API or automatic
+WARP selection, and never treats an incomplete callback as a successful request
+or release.
 
 ## Renderer applicability and validation
 
@@ -42,7 +50,9 @@ therefore no duplicate C++ request implementation to patch for this defect.
 Local checks built the backend and the conformance consumer with zero warnings
 and errors. An isolated test project linked the unchanged bodies of
 `DawnStartupRequestOwnershipTests`, `DawnSystemWarpContractTests` and
-`DawnAdapterRequestFailureDiagnosticsTests`: all 25 device-free cases passed.
+`DawnAdapterRequestFailureDiagnosticsTests`: all 30 device-free cases passed,
+including all three factory ownership-order guards and reentrant/throwing shared
+owner cleanup. The latter uses a counting lifetime, not fabricated GPU handles.
 PowerShell parsing and `git diff --check` also passed. These checks do not execute
 native requests; complete exact-head Build and Windows source/package controls
 remain required before merge.

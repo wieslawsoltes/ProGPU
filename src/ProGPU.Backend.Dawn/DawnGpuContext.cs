@@ -288,6 +288,7 @@ public sealed unsafe partial class DawnGpuContext :
         DeviceLossCallbackState? deviceLossState = null;
         GCHandle deviceLossStateHandle = default;
         WgpuContext? context = null;
+        DawnDeviceLifetime? lifetime = null;
         try
         {
             adapter = RequestMetalAdapter(instance);
@@ -343,24 +344,32 @@ public sealed unsafe partial class DawnGpuContext :
                     "Could not query Dawn device limits.");
             }
 
-            var lifetime =
-                new NativeLifetime(
-                    instance,
-                    adapter,
-                    device,
-                    queue,
-                    deviceLossStateHandle);
+            lifetime = new DawnDeviceLifetime(new NativeLifetime(
+                instance, adapter, device, queue, deviceLossStateHandle));
+            InstanceHandle ownedInstance = instance;
+            AdapterHandle ownedAdapter = adapter;
+            DeviceHandle ownedDevice = device;
+            QueueHandle ownedQueue = queue;
+            instance = InstanceHandle.Null;
+            adapter = AdapterHandle.Null;
+            device = DeviceHandle.Null;
+            queue = QueueHandle.Null;
             deviceLossStateHandle = default;
             context = new WgpuContext {
                 ComputeLimits = new(limits.MaxStorageBufferBindingSize,
                     limits.MaxStorageBuffersPerShaderStage, limits.MaxComputeInvocationsPerWorkgroup,
                     limits.MaxComputeWorkgroupSizeX, limits.MaxComputeWorkgroupsPerDimension)
             };
+            var api = new DawnWebGpuApi();
+            var result = new DawnGpuContext(context, ownedInstance, ownedAdapter, ownedDevice, ownedQueue);
+            deviceLossState.Bind(context);
+            if (context.IsDeviceLost)
+                throw new InvalidOperationException("The requested Dawn device was lost during creation.");
             context.InitializeExternalNativeDevice(
-                new DawnWebGpuApi(),
+                api,
                 lifetime,
-                (SW.Device*)device.GetAddress(),
-                (SW.Queue*)queue.GetAddress(),
+                (SW.Device*)ownedDevice.GetAddress(),
+                (SW.Queue*)ownedQueue.GetAddress(),
                 SW.TextureFormat.Bgra8Unorm,
                 maxSampledTexturesPerShaderStage:
                     limits.MaxSampledTexturesPerShaderStage,
@@ -372,48 +381,29 @@ public sealed unsafe partial class DawnGpuContext :
                     supportsTextureFormatsTier1,
                 adapterBackendType: SW.BackendType.Metal,
                 adapterName: "Dawn Metal");
-            deviceLossState.Bind(context);
-
-            InstanceHandle ownedInstance = instance;
-            AdapterHandle ownedAdapter = adapter;
-            // WgpuContext now owns the exact handles through lifetime.
-            instance = InstanceHandle.Null;
-            adapter = AdapterHandle.Null;
-            device = DeviceHandle.Null;
-            queue = QueueHandle.Null;
-            return new DawnGpuContext(
-                context,
-                ownedInstance,
-                ownedAdapter,
-                new DeviceHandle(
-                    (nuint)context.Device),
-                new QueueHandle(
-                    (nuint)context.Queue));
+            if (context.IsDeviceLost)
+                throw new InvalidOperationException("The requested Dawn device was lost during initialization.");
+            lifetime = null;
+            context = null;
+            return result;
         }
         catch
         {
-            context?.Dispose();
-            if (deviceLossStateHandle.IsAllocated)
+            try { context?.Dispose(); } catch { }
+            try { lifetime?.Dispose(); } catch { }
+            try { if (queue != QueueHandle.Null) queue.Release(); } catch { }
+            try
             {
-                deviceLossStateHandle.Free();
+                if (device != DeviceHandle.Null)
+                {
+                    try { device.Destroy(); }
+                    finally { device.Release(); }
+                }
             }
-            if (queue != QueueHandle.Null)
-            {
-                queue.Release();
-            }
-            if (device != DeviceHandle.Null)
-            {
-                device.Destroy();
-                device.Release();
-            }
-            if (adapter != AdapterHandle.Null)
-            {
-                adapter.Release();
-            }
-            if (instance != InstanceHandle.Null)
-            {
-                instance.Release();
-            }
+            catch { }
+            try { if (adapter != AdapterHandle.Null) adapter.Release(); } catch { }
+            try { if (instance != InstanceHandle.Null) instance.Release(); } catch { }
+            if (deviceLossStateHandle.IsAllocated) deviceLossStateHandle.Free();
             throw;
         }
     }

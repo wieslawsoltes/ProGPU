@@ -54,7 +54,7 @@ public sealed unsafe partial class DawnGpuContext
         QueueHandle queue = QueueHandle.Null;
         GCHandle deviceLossStateHandle = default;
         WgpuContext? context = null;
-        OffscreenDeviceLifetime? lifetime = null;
+        DawnDeviceLifetime? lifetime = null;
         try
         {
             adapter = RequestOffscreenAdapter(instance, requestedBackend, forceFallbackAdapter);
@@ -125,7 +125,7 @@ public sealed unsafe partial class DawnGpuContext
             // Raw locals remain the sole releasing owner until BOTH managed
             // lifetime allocations succeed. Thereafter this idempotent wrapper
             // owns the whole chain, even if context initialization is partial.
-            lifetime = new OffscreenDeviceLifetime(new NativeLifetime(
+            lifetime = new DawnDeviceLifetime(new NativeLifetime(
                 instance, adapter, device, queue, deviceLossStateHandle));
             InstanceHandle ownedInstance = instance;
             AdapterHandle ownedAdapter = adapter;
@@ -212,21 +212,4 @@ public sealed unsafe partial class DawnGpuContext
             $"request an offscreen {backendType} adapter", offscreenFallbackPolicy: forceFallbackAdapter);
     }
 
-    // InitializeExternalNativeDevice installs its lifetime after several fields
-    // and before further allocations. Its exception path therefore cannot tell
-    // the factory whether ownership moved. This wrapper makes both possible
-    // cleanup paths safe without changing that existing initialization API.
-    private sealed class OffscreenDeviceLifetime(NativeLifetime lifetime) : IWebGpuExternalDeviceLifetime
-    {
-        private NativeLifetime? _lifetime = lifetime;
-
-        public void Poll(bool wait)
-        {
-            NativeLifetime? active = Volatile.Read(ref _lifetime);
-            ObjectDisposedException.ThrowIf(active is null, this);
-            active.Poll(wait);
-        }
-
-        public void Dispose() => Interlocked.Exchange(ref _lifetime, null)?.Dispose();
-    }
 }

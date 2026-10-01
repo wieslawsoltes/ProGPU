@@ -1,3 +1,5 @@
+using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -42,6 +44,69 @@ public sealed class DawnStartupRequestOwnershipTests
         Assert.Contains("new OwnedDawnRequest<DeviceHandle>", owned);
         Assert.Contains("state.RetainUntilRetirement(retainedLoss.Free);", owned);
         Assert.Contains("lossHandle = default;", owned);
+    }
+
+    [Theory]
+    [InlineData("DawnGpuContext.cs", "public static DawnGpuContext CreateMetalPresentation()")]
+    [InlineData("DawnNativePresentation.cs", "public static DawnGpuContext CreateNativePresentation(")]
+    [InlineData("DawnGpuContext.Offscreen.cs", "public static DawnGpuContext CreateOffscreen(")]
+    public void FactoriesTransferRawHandlesBeforeAnyContextPublication(string file, string factory)
+    {
+        string source = Read(file);
+        int start = source.IndexOf(factory, StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        source = source[start..];
+        int transfer = source.IndexOf("lifetime = new DawnDeviceLifetime(new NativeLifetime(", StringComparison.Ordinal);
+        int allocate = source.IndexOf("context = new WgpuContext", transfer, StringComparison.Ordinal);
+        int initialize = source.IndexOf("context.InitializeExternalNativeDevice(", allocate, StringComparison.Ordinal);
+        Assert.True(transfer >= 0 && allocate > transfer && initialize > allocate);
+        string transferred = source[transfer..allocate];
+        foreach (string raw in new[] { "instance = InstanceHandle.Null;", "adapter = AdapterHandle.Null;",
+                     "device = DeviceHandle.Null;", "queue = QueueHandle.Null;", "deviceLossStateHandle = default;" })
+            Assert.Contains(raw, transferred);
+        Assert.Contains("var result = new DawnGpuContext(", source[allocate..initialize]);
+        Assert.Contains("deviceLossState.Bind(context);", source[allocate..initialize]);
+        Assert.Contains("if (context.IsDeviceLost)", source[allocate..initialize]);
+        int published = source.IndexOf("return result;", initialize, StringComparison.Ordinal);
+        Assert.Contains("if (context.IsDeviceLost)", source[initialize..published]);
+        string cleanup = source[published..];
+        Assert.Contains("try { context?.Dispose(); } catch { }", cleanup);
+        Assert.Contains("try { lifetime?.Dispose(); } catch { }", cleanup);
+        Assert.True(cleanup.IndexOf("instance.Release();", StringComparison.Ordinal) <
+                    cleanup.IndexOf("deviceLossStateHandle.Free();", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SharedFactoryOwnerReleasesOnceEvenWithReentrantOrThrowingCleanup(bool throwOnRelease)
+    {
+        var native = new CountingLifetime();
+        var owner = new DawnDeviceLifetime(native);
+        native.OnDispose = () =>
+        {
+            owner.Dispose();
+            if (throwOnRelease) throw new InvalidOperationException("original cleanup failure");
+        };
+        owner.Poll(false);
+        owner.Poll(true);
+        Assert.Equal(new[] { false, true }, native.Polls);
+        if (throwOnRelease)
+            Assert.Equal("original cleanup failure", Assert.Throws<InvalidOperationException>(owner.Dispose).Message);
+        else owner.Dispose();
+        owner.Dispose();
+        Assert.Equal(1, native.Releases);
+        Assert.Throws<ObjectDisposedException>(() => owner.Poll(false));
+        Assert.Equal(2, native.Polls.Count);
+    }
+
+    private sealed class CountingLifetime : IWebGpuExternalDeviceLifetime
+    {
+        internal readonly List<bool> Polls = [];
+        internal int Releases;
+        internal Action? OnDispose;
+        public void Poll(bool wait) => Polls.Add(wait);
+        public void Dispose() { Releases++; OnDispose?.Invoke(); }
     }
 
     private static string Read(string name)
