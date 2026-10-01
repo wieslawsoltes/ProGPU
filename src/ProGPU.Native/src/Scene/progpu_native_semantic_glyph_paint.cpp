@@ -7,9 +7,13 @@ namespace {
 
 bool ensure_layouts(progpu_native_engine& engine) {
     if (engine.glyph_paint_uniform_layout != nullptr &&
-        engine.glyph_paint_texture_layout != nullptr) return true;
+        engine.glyph_paint_texture_layout != nullptr &&
+        engine.glyph_paint_empty_mask_layout != nullptr &&
+        engine.glyph_paint_empty_mask_bind_group != nullptr) return true;
     if (engine.glyph_paint_uniform_layout != nullptr ||
-        engine.glyph_paint_texture_layout != nullptr) return false;
+        engine.glyph_paint_texture_layout != nullptr ||
+        engine.glyph_paint_empty_mask_layout != nullptr ||
+        engine.glyph_paint_empty_mask_bind_group != nullptr) return false;
     std::array<WGPUBindGroupLayoutEntry, 4U> entries{};
     const std::array<std::uint64_t, 4U> sizes{{sizeof(gpu_uniforms),
         sizeof(progpu_native_scene_brush), sizeof(progpu_native_scene_gradient_stop),
@@ -36,8 +40,28 @@ bool ensure_layouts(progpu_native_engine& engine) {
     descriptor.entryCount = textures.size(); descriptor.entries = textures.data();
     auto texture = wgpuDeviceCreateBindGroupLayout(engine.device, &descriptor);
     if (texture == nullptr) { wgpuBindGroupLayoutRelease(uniforms); return false; }
+    // Paint textures occupy group 3. The unmasked entrypoint needs an explicit
+    // empty group 2, not an unbound nonempty mask-chain layout in that slot.
+    descriptor.label = webgpu::string_view("ProGPU unmasked hinted paint slot");
+    descriptor.entryCount = 0U; descriptor.entries = nullptr;
+    auto empty_mask = wgpuDeviceCreateBindGroupLayout(engine.device, &descriptor);
+    if (empty_mask == nullptr) {
+        wgpuBindGroupLayoutRelease(texture); wgpuBindGroupLayoutRelease(uniforms);
+        return false;
+    }
+    WGPUBindGroupDescriptor empty_group_descriptor{};
+    empty_group_descriptor.label = webgpu::string_view("ProGPU unmasked hinted paint binding");
+    empty_group_descriptor.layout = empty_mask;
+    auto empty_group = wgpuDeviceCreateBindGroup(engine.device, &empty_group_descriptor);
+    if (empty_group == nullptr) {
+        wgpuBindGroupLayoutRelease(empty_mask);
+        wgpuBindGroupLayoutRelease(texture); wgpuBindGroupLayoutRelease(uniforms);
+        return false;
+    }
     engine.glyph_paint_uniform_layout = uniforms;
     engine.glyph_paint_texture_layout = texture;
+    engine.glyph_paint_empty_mask_layout = empty_mask;
+    engine.glyph_paint_empty_mask_bind_group = empty_group;
     return true;
 }
 
@@ -81,7 +105,7 @@ bool ensure_glyph_paint_pipeline(progpu_native_engine& engine, bool masked, bool
     if (pipeline != nullptr) return true;
     if (!create_glyph_resources(engine) || !create_analytic_resources(engine) ||
         !ensure_layouts(engine) || (masked && !create_layer_mask_resources(engine)) ||
-        !create_semantic_mask_chain_layout(engine)) return false;
+        (chained && !create_semantic_mask_chain_layout(engine))) return false;
     if (engine.glyph_paint_shader == nullptr) {
         webgpu::wgsl_source source(generated::hinted_glyph_paint_wgsl,
             generated::hinted_glyph_paint_wgsl_size);
@@ -92,8 +116,9 @@ bool ensure_glyph_paint_pipeline(progpu_native_engine& engine, bool masked, bool
         if (engine.glyph_paint_shader == nullptr) return false;
     }
     const std::array<WGPUBindGroupLayout, 4U> layouts{{engine.glyph_paint_uniform_layout,
-        engine.text_atlas_layout, masked && !chained ? engine.layer_mask_layout :
-            engine.semantic_mask_chain_layout, engine.glyph_paint_texture_layout}};
+        engine.text_atlas_layout, chained ? engine.semantic_mask_chain_layout :
+            masked ? engine.layer_mask_layout : engine.glyph_paint_empty_mask_layout,
+        engine.glyph_paint_texture_layout}};
     WGPUPipelineLayoutDescriptor layout_descriptor{};
     layout_descriptor.bindGroupLayoutCount = layouts.size(); layout_descriptor.bindGroupLayouts = layouts.data();
     auto layout = wgpuDeviceCreatePipelineLayout(engine.device, &layout_descriptor);
