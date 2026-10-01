@@ -106,6 +106,56 @@ validations pass. No draw/dispatch/font or ProGPU-native renderer ran locally;
 the shader check used the existing four-byte WebGPU initialization queue probe.
 Actual affine pixels and authentic package qualification remain pending.
 
+### Windows shared-shader observations
+
+At exact candidate `31e95cfbd414bff3e5dc6ebdcda147a70764f041`, the
+[Windows shared-shader job](https://github.com/wieslawsoltes/ProGPU/actions/runs/36906881895/job/110519551269)
+passed on SilkNative/D3D12/FXC, Microsoft Basic Render Driver. This is the job
+result, not a claim that its containing workflow succeeded: unrelated package
+jobs were incorrectly selected and failed; later routing correction `bd7cc7f20`
+does not change these product shaders. Artifact `11184926920` has archive digest
+`4322ce75805e9ab7bb3acca47d17d05826f2bdd225ed3cefcfb9927c173b7385`.
+
+All 240 saved output hashes, 60 compiled shader-source hashes and 20 atlas/instance
+hashes were verified. All 180 reported comparisons were independently recomputed
+from original bytes/floats. Each of ten reports records 24 real submissions and
+24 completions, nonempty ink and stable cold/warm output. Both production modules
+match the separately pinned physical-triangle source profile; exact compiled
+CRLF hashes and canonical-LF hashes remain distinct in the receipts.
+
+For the **derived italic/shear frame with synthetic coverage**, both 96- and
+128-pixel targets observe:
+
+| Same-head input | Text versus bounded texture, single | Text versus bounded texture, overlap | Raw sampled coverage differences, glyphs 0/1 |
+| --- | ---: | ---: | ---: |
+| Gate zero | 37 RGBA bytes | 46 RGBA bytes | 52 / 44 |
+| Certified physical triangles | 0 | 0 | 0 / 0 |
+
+The certified paths also match every raw UV, clamped normalized UV, gamma-adjusted
+sample and final-alpha component, for Text/material/bounded paint. Material
+already matched Text at gate zero. Crucially, certified bounded-texture RGBA is
+unchanged from its own gate-zero output; Text/material move to the common physical
+address. Relative to legacy Text this changes 37 single-occurrence bytes (maximum
+one) and 46 overlap bytes (maximum two), without changing any nonzero-alpha support.
+This is **not bit preservation of legacy affine Text sampling**. The observed
+legacy UV discrepancy reaches about 0.00227 atlas texels; no coordinate epsilon,
+sampler tolerance or final-color allowance was introduced to accept it.
+
+The original axis gate-zero control preserves all 48 output hashes from immutable
+run `36884526788`. All 144 outputs across the three axis modes also match the prior
+axis-correction receipts. All 24 saved binary-oracle captures were independently
+rechecked against the exact dyadic CPU coordinate/bilinear oracle, including
+outside support and zero-coverage boundaries. The original 43 boundary positions
+with coordinate-only differences remain unchanged. **There is no binary-oracle
+claim for the non-dyadic affine case.**
+
+These data establish the chosen shared-shader affine reproduction and unchanged
+axis controls, not original hinted-font coverage, native provider parity or a
+successful product Build. The fresh authentic native consumer, Metal pixels,
+other provider/architecture lanes, folded/near-singular edges and complete
+package/application qualification remain separate gates. No runtime from the
+failed parent Build was downloaded or staged for this analysis.
+
 ## Design references and preserved contracts
 
 This is original ProGPU code, informed by public architectural contracts, not
