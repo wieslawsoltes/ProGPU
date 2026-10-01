@@ -28,6 +28,16 @@ public interface IPortableHintedTextFormatting
         in PortableHintedTextOptions options,
         ReadOnlySpan<int> variationCoordinates16_16 = default,
         ReadOnlySpan<short> normalizedCoordinates = default);
+
+    /// <summary>
+    /// Explicit original nominal hmtx retention for source offset binding.
+    /// Missing metrics and coordinate-bearing instances reject atomically;
+    /// the ordinary preparation above remains unchanged. Not Display admission.
+    /// </summary>
+    IPortableHintedTextParagraph FormatHintedWithNominalMetrics(in PortableTextParagraphRequest request,
+        ReadOnlySpan<PortableTextStyleMetrics> metrics, ReadOnlySpan<PortableTextHintingStyle> deviceStyles,
+        in PortableHintedTextOptions options)
+        => throw new NotSupportedException("The hinted provider does not retain original nominal design metrics.");
 }
 
 /// <summary>Original positioned occurrence, including no-ink and repeated glyphs. Coordinates stay in paragraph DIPs.</summary>

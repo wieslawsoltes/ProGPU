@@ -46,12 +46,14 @@ public sealed unsafe partial class NativeHintedGlyphResource : IDisposable
     // a native dependency. Production preparation still uses the original
     // native borrow/validation constructor above and the cached native destroy.
     internal NativeHintedGlyphResource(nint handle, in NativeMethods.HintedGlyphResourceView view,
-        Action<nint> destroy, NativeMethods.HintedGlyphNominalMetricsView? nominalMetrics = null)
+        Action<nint> destroy, NativeMethods.HintedGlyphNominalMetricsView? nominalMetrics = null,
+        HintedSourceFrameValidator? validateSourceFrame = null)
     {
         ArgumentNullException.ThrowIfNull(destroy);
         _view = view;
         _nominalMetrics = nominalMetrics;
         _destroy = destroy;
+        if (validateSourceFrame is not null) _validateSourceFrame = validateSourceFrame;
         _handle = handle;
     }
 

@@ -210,6 +210,12 @@ positioned/no-ink identity and reject missing metrics or coordinate-bearing
 instances before publication. Borrow spans under the original resource lease and
 guard their complete allocation against output aliases. Nominal metadata alone
 does not connect source baseline frames, offsets, carets or Display selection.
+Source nominal-offset validation uses the original owning writer line and exact
+retained hmtx/positioned advances. Keep source baseline separate from paragraph
+draw translation and baseline-relative ink; reject cross-line, vertical or
+unrepresentable mappings before publishing anything. Validate under the existing
+producer lease without reflow, per-glyph crossings or source-local correction.
+Nominal Ideal offsets do not admit Display rounding or source caret interaction.
 
 Recorded hinted replay retains original producer uses through pictures, compiled
 scenes and frame resources, not merely managed geometry references. Keep explicit

@@ -14,9 +14,20 @@ public sealed class PortableHintedTextContractTests
         IPortableHintedGlyphRunBindingFactory factory = provider;
         Assert.Throws<NotSupportedException>(() => factory.BindGlyphRun(
             new PortableTextFont(new byte[] { 1 }, 0, 1000), 12, default, new double[] { 4 }));
+        Assert.Throws<NotSupportedException>(() => factory.BindGlyphRun(
+            new PortableTextFont(new byte[] { 1 }, 0, 1000), 12, default, new double[] { 4 }, new PortablePoint[] { default }));
         Assert.Equal(0, provider.OriginalCalls);
         Assert.Throws<InvalidOperationException>(() => factory.BindGlyphRun(12, default));
         Assert.Equal(1, provider.OriginalCalls);
+    }
+
+    [Fact]
+    public void OriginalProviderCannotSilentlyIgnoreRequiredNominalPreparation()
+    {
+        var provider = new OriginalHintedProvider();
+        IPortableHintedTextFormatting capability = provider;
+        Assert.Throws<NotSupportedException>(() => capability.FormatHintedWithNominalMetrics(default, [], [], default));
+        Assert.Equal(0, provider.Calls);
     }
 
     [Fact]
@@ -98,6 +109,15 @@ public sealed class PortableHintedTextContractTests
     {
         public IPortableTextParagraph Format(in PortableTextParagraphRequest request)
             => throw new NotSupportedException();
+    }
+
+    private sealed class OriginalHintedProvider : IPortableHintedTextFormatting
+    {
+        internal int Calls;
+        public IPortableHintedTextParagraph FormatHinted(in PortableTextParagraphRequest request,
+            ReadOnlySpan<PortableTextStyleMetrics> metrics, ReadOnlySpan<PortableTextHintingStyle> devices,
+            in PortableHintedTextOptions options, ReadOnlySpan<int> coordinates = default, ReadOnlySpan<short> normalized = default)
+        { Calls++; throw new InvalidOperationException(); }
     }
 
     private sealed class OriginalBindingFactory : IPortableHintedGlyphRunBindingFactory

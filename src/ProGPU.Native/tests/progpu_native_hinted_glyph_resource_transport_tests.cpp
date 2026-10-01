@@ -543,6 +543,37 @@ void nominal_metric_controls() {
                 repeated |= metrics.value.metrics[prior].glyph_id == metric.glyph_id;
         }
         require(no_ink && repeated && positioned_differs);
+        const std::uint32_t selected = original.lines[0].glyph_start;
+        const auto& first = original.positioned_glyphs[selected];
+        const double advance = first.advance_x;
+        const float em = 10.6125F; // Original first source style, UPM 1000.
+        require(em / 1000.0F == original.runs[original.positioned_owners[selected].run_index].source_scale);
+        const progpu_native_hinted_source_glyph_offset offset{
+            (original.positioned_bidi_levels[selected] & 1) == 0 ? static_cast<double>(first.x) :
+                -0.5 * static_cast<double>(em) - static_cast<double>(first.x),
+            -(static_cast<double>(first.y) - original.lines[0].baseline_y)};
+        auto frame = sentinel<progpu_native_hinted_source_glyph_frame>(); const auto frame_before = frame;
+        const progpu_native_point baseline{5.0F, original.lines[0].baseline_y};
+        require(progpu_native_hinted_glyph_resource_validate_source_frame(ordinary.value, &selected, 1U,
+            em, baseline, &advance, &offset, &frame.value) == PROGPU_NATIVE_STATUS_UNSUPPORTED && same_bytes(frame, frame_before));
+        require(progpu_native_hinted_glyph_resource_validate_source_frame(resource.value, &selected, 1U,
+            em, baseline, &advance, &offset, &frame.value) == PROGPU_NATIVE_STATUS_SUCCESS && frame.tail == frame_before.tail);
+        require(frame.value.line_index == 0U && frame.value.paragraph_origin.x == 5.0F && frame.value.paragraph_origin.y == 0.0F &&
+            frame.value.source_baseline_origin.y == original.lines[0].baseline_y &&
+            frame.value.baseline_relative_origin.y == -original.lines[0].baseline_y);
+        const auto admitted_frame = frame;
+        const progpu_native_hinted_source_glyph_offset wrong_offset{offset.x + 1.0, offset.y};
+        require(progpu_native_hinted_glyph_resource_validate_source_frame(resource.value, &selected, 1U,
+            em, baseline, &advance, &wrong_offset, &frame.value) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && same_bytes(frame, admitted_frame));
+        require(progpu_native_hinted_glyph_resource_validate_source_frame(resource.value, &selected, 1U,
+            em, baseline, &advance, &offset,
+            reinterpret_cast<progpu_native_hinted_source_glyph_frame*>(const_cast<std::uint8_t*>(original.font_bytes))) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        alignas(progpu_native_hinted_source_glyph_frame) std::array<double, 8U> overlapping{};
+        overlapping[0] = advance; const auto overlapping_before = overlapping;
+        require(progpu_native_hinted_glyph_resource_validate_source_frame(resource.value, &selected, 1U,
+            em, baseline, overlapping.data(), &offset, reinterpret_cast<progpu_native_hinted_source_glyph_frame*>(overlapping.data())) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && same_bytes(overlapping, overlapping_before));
         // Both old and additive borrows reject aliases into the new allocation,
         // including an output larger than the remaining selected storage.
         const auto* storage = metrics.value.metrics;

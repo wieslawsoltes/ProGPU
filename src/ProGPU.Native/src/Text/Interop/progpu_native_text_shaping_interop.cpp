@@ -4909,6 +4909,26 @@ void progpu_native_hinted_glyph_resource_destroy(progpu_native_hinted_glyph_reso
     delete resource;
 }
 
+progpu_native_status progpu_native_hinted_glyph_resource_validate_source_frame(
+    const progpu_native_hinted_glyph_resource* resource,
+    const std::uint32_t* positioned_indices, std::uint32_t glyph_count,
+    float source_em_size, progpu_native_point source_baseline_origin,
+    const double* source_advances, const progpu_native_hinted_source_glyph_offset* source_offsets,
+    progpu_native_hinted_source_glyph_frame* frame) {
+    if (!valid_hinted_glyph_resource(resource) || !valid_hinted_buffer(frame, 1U) ||
+        !valid_hinted_buffer(positioned_indices, glyph_count) || !valid_hinted_buffer(source_advances, glyph_count) ||
+        !valid_hinted_buffer(source_offsets, glyph_count) ||
+        hinted_glyph_resource_aliases(*resource, frame, sizeof(*frame)) ||
+        byte_ranges_overlap(frame, sizeof(*frame), positioned_indices, static_cast<std::uint64_t>(glyph_count) * sizeof(*positioned_indices)) ||
+        byte_ranges_overlap(frame, sizeof(*frame), source_advances, static_cast<std::uint64_t>(glyph_count) * sizeof(*source_advances)) ||
+        byte_ranges_overlap(frame, sizeof(*frame), source_offsets, static_cast<std::uint64_t>(glyph_count) * sizeof(*source_offsets)))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (!resource->has_nominal_metrics) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    return progpu::native::text::validate_hinted_source_frame(resource->view, resource->nominal_metrics,
+        {positioned_indices, glyph_count}, source_em_size, source_baseline_origin,
+        {source_advances, glyph_count}, {source_offsets, glyph_count}, *frame);
+}
+
 progpu_native_status progpu_native_hinted_paragraph_prepare_frame(const progpu_native_hinted_paragraph* paragraph,
     const progpu_native_hinted_paragraph_frame_request* request,
     const progpu_native_color* style_colors, std::uint32_t style_color_count,

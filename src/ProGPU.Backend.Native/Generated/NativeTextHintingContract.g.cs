@@ -312,6 +312,27 @@ public partial struct NativeHintedGlyphNominalMetrics
     public uint AdvanceWidthDesignUnits;
 }
 
+// Native source: progpu_native_hinted_source_glyph_offset.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedSourceGlyphOffset
+{
+    public double X;
+    public double Y;
+}
+
+// Native source: progpu_native_hinted_source_glyph_frame.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedSourceGlyphFrame
+{
+    public uint LineIndex;
+    public uint FontIndex;
+    public int BidiLevel;
+    public float ParagraphBaselineY;
+    public Vector2 SourceBaselineOrigin;
+    public Vector2 ParagraphOrigin;
+    public Vector2 BaselineRelativeOrigin;
+}
+
 // Native source: progpu_native_mil_hinted_glyph_binding.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeMilHintedGlyphBinding

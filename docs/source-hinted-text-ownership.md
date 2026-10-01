@@ -104,7 +104,8 @@ Read-lease acquisition and span access remain O(1). The complete new allocation 
 included in both old and new borrow alias guards. No hinting/font program is
 executed to obtain or copy these advances, and no per-glyph boundary call is added.
 Source baseline versus paragraph draw origin, exact offsets and owning-line/source
-maps still need their separate original-frame contract before formatter selection.
+maps are separate from these raw metrics. The frame validation below connects the
+existing nominal-offset convention; Display/source interaction remain unadmitted.
 
 Validation for this unit: 20 focused managed lease/metadata tests passed without a
 native module, font parser or GPU. The actual managed native backend built Release
@@ -115,6 +116,44 @@ late missing-metric rollback, coordinate rejection, original producer retirement
 and old/new alias failures. Native/font execution and complete package/application
 qualification were not run. The prior source Display, caret and outline gates stay
 closed; this metadata is not interaction or rendering parity.
+
+## Original source line frames
+
+`NativeHintedGlyphResourceReadLease.ValidateSourceFrame` makes one synchronous
+producer call under its existing destruction-excluding lease. Explicit nominal
+preparation is required. The producer validates original selected indices, font,
+em, bidi, measured advances and source horizontal nominal offsets, requiring one
+actual retained writer line. RTL nominal advances use original hmtx / UPM * em,
+not hinted device advances or a reconstruction from GPOS placement. Source offset
+comparisons are exact numeric equality (zero signs are equivalent); measured
+advances retain exact bit identity. No epsilon, snapping or prefix reshaping occurs.
+
+The typed result separates the source baseline from the paragraph draw translation
+and baseline-relative ink translation. The native line's actual baseline owns Y
+conversion. Cross-line selections, vertical layout, nonfinite or unrepresentable
+frames and every later invalid offset fail without output publication. Alias guards
+protect all original allocations and supplied input spans. Old preparation and
+binding signatures retain their existing behavior; new neutral default methods
+reject unsupported providers rather than ignoring nominal/frame requirements.
+
+The companion real source GlyphRun now uses the full overload, snapshots all
+source offsets before validation, and consumes returned translations through the
+existing recorded/native MIL paths. Its explicit publication accepts only the
+existing Ideal nominal-offset convention. This is not ordinary Display selection,
+Display metric rounding, source caret/cluster-map ownership or public outline
+admission. Preparation and validation never change renderer raster/cache policy.
+Validation is O(lines + selected occurrences), bounded temporary source transport
+is O(selected occurrences), and native validation allocates nothing. It performs
+no font loading, shaping, reflow, device work or per-glyph boundary crossing.
+
+26 focused managed metadata/lease/frame-marshalling controls passed with no native
+module, font parser or GPU, and the real managed backend compiled without warnings
+or errors. Actual source and reference PresentationCore compiled with zero warnings
+or errors using an explicit external dependency remap; all 56 focused adapter and
+neutral controls passed, zero skipped. Actual native validation/interop and authored
+independent arithmetic/producer/alias fixtures passed strict C++20 syntax checks
+only. Native arithmetic/font execution, package pixels and application behavior
+remain unqualified. Both source Display and caret/outline gates stay closed.
 
 This adapter follows the separation already researched in
 [retained hinted glyph replay](retained-hinted-glyph-replay.md). The public

@@ -11,6 +11,12 @@ namespace progpu::native::text {
 progpu_native_status capture_hinted_nominal_metrics(const hinted_paragraph_generation& paragraph,
     std::vector<progpu_native_hinted_glyph_nominal_metrics>& result) noexcept;
 
+progpu_native_status validate_hinted_source_frame(const progpu_native_hinted_glyph_resource_view& view,
+    std::span<const progpu_native_hinted_glyph_nominal_metrics> nominal,
+    std::span<const std::uint32_t> indices, float source_em_size, progpu_native_point source_baseline,
+    std::span<const double> advances, std::span<const progpu_native_hinted_source_glyph_offset> offsets,
+    progpu_native_hinted_source_glyph_frame& result) noexcept;
+
 // Same-module read-only diagnostics/native controls under the caller's handle
 // lease. These are not a public ABI, provider crossing or mutable generation.
 std::shared_ptr<const hinted_paragraph_generation> select_hinted_paragraph_generation(

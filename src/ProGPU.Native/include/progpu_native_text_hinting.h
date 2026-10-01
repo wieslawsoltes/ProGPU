@@ -346,6 +346,28 @@ typedef struct progpu_native_hinted_glyph_nominal_metrics_view {
     const progpu_native_hinted_glyph_nominal_metrics* metrics;
 } progpu_native_hinted_glyph_nominal_metrics_view;
 
+/* Exact source nominal-offset convention: horizontal doubles, Y positive up.
+ * These are source inputs, never reconstructed positioned advances. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceGlyphOffset */
+typedef struct progpu_native_hinted_source_glyph_offset {
+    double x;
+    double y;
+} progpu_native_hinted_source_glyph_offset;
+
+/* One proven original writer line. Baseline origin belongs to the source run;
+ * paragraph origin is the ONLY translation added to original glyph positions.
+ * This does not admit Display rounding, cross-line runs or caret interaction. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceGlyphFrame */
+typedef struct progpu_native_hinted_source_glyph_frame {
+    uint32_t line_index;
+    uint32_t font_index;
+    int32_t bidi_level;
+    float paragraph_baseline_y;
+    progpu_native_point source_baseline_origin;
+    progpu_native_point paragraph_origin;
+    progpu_native_point baseline_relative_origin;
+} progpu_native_hinted_source_glyph_frame;
+
 /* A read-only flat borrow held by an ORIGINAL producer-library lifetime lease
  * excluding destruction. Immutable cached records admit concurrent readers.
  * A renderer receives only these records, never the producer's opaque handle.
@@ -488,6 +510,18 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_borro
 PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_borrow_nominal_metrics(
     const progpu_native_hinted_glyph_resource* resource,
     progpu_native_hinted_glyph_nominal_metrics_view* view);
+
+/* Synchronous original-generation validation, one crossing per explicit run.
+ * Requires explicit nominal preparation. All selected occurrences must belong
+ * to one retained line/font/bidi level. Source arrays are borrowed until return;
+ * on every error frame and all inputs remain untouched. No layout or font call. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_validate_source_frame(
+    const progpu_native_hinted_glyph_resource* resource,
+    const uint32_t* positioned_indices, uint32_t glyph_count,
+    float source_em_size, progpu_native_point source_baseline_origin,
+    const double* source_advances,
+    const progpu_native_hinted_source_glyph_offset* source_offsets,
+    progpu_native_hinted_source_glyph_frame* frame);
 PROGPU_NATIVE_API void progpu_native_hinted_glyph_resource_destroy(progpu_native_hinted_glyph_resource* resource);
 
 /* Canonical commands, flat resource imports and all bindings form ONE staged
