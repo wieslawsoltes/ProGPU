@@ -4103,8 +4103,10 @@ claim about native Direct2D's permitted calls.
 Native compatible bitmap destinations now implement `CopyFromBitmap` and
 `CopyFromRenderTarget` through the private typed image-source contract. Bitmap
 sources include owned uploads, WIC lock-backed/shared views and compatible target
-views. Render-target sources currently mean native compatible targets, not
-arbitrary HWND, DC, DXGI or public-scene-only target implementations. Null origin
+views. Render-target sources originally meant native compatible targets; the later
+[formatted scene source](#formatted-ordinary-scene-copy-sources) capability also
+admits explicitly formatted ordinary scene targets. Arbitrary HWND, DC, DXGI and
+legacy formatless targets remain unsupported. Null origin
 means (0,0), null source rectangle means the complete source, and all copy
 coordinates are physical pixels. Source format and alpha mode must match the
 destination; bounds and extent checks avoid integer wrapping and resizing.
@@ -4939,3 +4941,78 @@ independent scalar fixtures and paired native/WPF mapping cases. No COM/Win2D
 surface or ABI changes; runtime, SIMD/performance, VM and CI qualification remain
 deferred. Curved/dashed cached paths and the wider API goal remain open. See
 [linear cached paths](cached-pictures.md#linear-path-cached-pens-and-gap-preserving-contours).
+
+## Formatted ordinary scene copy sources
+
+`formatted_scene_factory_native` is an additive, separately identified COM
+capability on both the portable factory and the Windows `ID2D1Factory1` provider.
+`CreateFormattedSceneRenderTarget` receives the existing scene extent/DPI/identity
+descriptor and an explicit immutable pixel format. It creates an ordinary scene
+recorder, not a compatible bitmap target or a GPU device. The original factory
+interfaces, method order and descriptor layouts are unchanged. Original
+`CreateSceneRenderTarget` still returns `UNKNOWN` format and cannot be used as a
+bitmap copy source: the destination must never supply a guessed source format.
+
+The admitted concrete formats are RGBA8/BGRA8 with premultiplied or ignored alpha,
+and A8 with premultiplied alpha. UNKNOWN format/alpha, straight alpha, other
+formats and dimensions beyond the existing 16,384-pixel resource limit reject
+before publication. The existing positive finite DPI contract remains explicit.
+Each ordinary `BeginDraw` starts a new frame, initialized transparent (opaque
+black for ignored alpha); it does not acquire compatible targets' retained-session
+behavior. Omitted compatible-child format now inherits the actual parent format,
+while omitted alpha stays premultiplied. Legacy formatless parents retain their
+BGRA8 compatible-child default.
+
+A compatible bitmap's existing `CopyFromRenderTarget` can consume the formatted
+ordinary target through the same private `CaptureForCopy` seam used by compatible
+targets. The source is captured before destination locking. Completed captures
+reuse the owned export, active balanced recordings build fresh immutable bytes,
+and the destination receives a staged GPU picture resource. No source COM target
+is retained by that copy, no CPU rendering/readback is added, and no new shader,
+GPU submission or managed/native crossing is introduced. Copy coordinates remain
+physical pixels independent of the two targets' DPI, with exact factory, format,
+alpha, bounds and destination-capacity checks. Active clips/layers, source errors,
+nonuniform DPI and mixed-DPI drawing history still reject. A whole Clear or a new
+ordinary frame establishes a fresh history; failed copies preserve destination
+generation/content. An ordinary source may contain an older immutable capture of
+the destination without forming a COM ownership cycle.
+
+The formerly opaque `render_target_properties` now has its canonical 28-byte
+value layout and enums. Formatted and compatible targets implement `IsSupported`
+using the same admitted format predicate as target construction. They report
+only DEFAULT type, NONE usage and DEFAULT minimum feature level. This device-free
+recorder cannot prove hardware/software selection, GDI/remoting or Direct3D
+feature levels, and does not infer them from the OS. The capability query ignores
+DPI as required by the public API; creation and copy validation do not. Existing
+formatless targets continue to report unsupported. A positive query is not a
+device allocation guarantee, window/presentation capability or rendering parity.
+
+Original-code provenance is `portable_scene_render_target::capture_picture_locked`,
+`copy_from_source`, `record_bitmap_copy_locked` and the shared semantic picture
+resource builder in this repository. This is an extension of their existing
+resource admission and ownership, not a new rendering architecture. Creation and
+capability checks are O(1); capture remains O(H) work/storage for H serialized
+scene bytes, with existing picture history/depth limits. No speedup is claimed.
+Both provider factories call the same implementation. Native and managed Direct2D
+callers consume that endpoint; the independent managed WPF renderer has no COM
+factory or bitmap-copy implementation to change.
+
+Authored controls are shared between the portable factory test and the Windows
+provider test: original COM identity, five format/alpha combinations, legacy
+formatless rejection, active/completed snapshots, physical crop/DPI metadata,
+source mutation/disposal, prior-generation self-reference, cross-factory/format
+rejection, clip/error/DPI rejection, untouched destination snapshots and creation
+output clearing. Windows layout assertions compare the new descriptor to the
+SDK. GPU fixtures independently check every pixel of the captured 16-by-16 region
+for those five formats after source mutation/disposal. These controls have not
+been executed, and no native rebuild, GPU run or Windows qualification was done
+for this implementation-first change. Full provider/package gates, independent
+Windows behavior/pixels, performance and application qualification remain open.
+No pending native artifacts are staged or claimed as qualified.
+
+Public-contract references (no third-party implementation text used): Microsoft
+[CopyFromRenderTarget](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1bitmap-copyfromrendertarget),
+[supported pixel formats](https://learn.microsoft.com/en-us/windows/win32/direct2d/supported-pixel-formats-and-alpha-modes),
+[compatible target inheritance](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-createcompatiblerendertarget),
+[IsSupported](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-issupported%28constd2d1_render_target_properties%29)
+and [render target properties](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ns-d2d1-d2d1_render_target_properties).

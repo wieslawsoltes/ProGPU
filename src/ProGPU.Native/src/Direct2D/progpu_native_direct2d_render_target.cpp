@@ -121,6 +121,15 @@ constexpr com::guid scene_mesh_native_interface_id{
         dpi_x > 0.0F && dpi_y > 0.0F;
 }
 
+[[nodiscard]] bool supported_target_format(pixel_format format) noexcept
+{
+    return (format.format == dxgi_format_r8g8b8a8_unorm ||
+            format.format == dxgi_format_b8g8r8a8_unorm ||
+            format.format == dxgi_format_a8_unorm) &&
+        (format.alpha == alpha_mode::premultiplied ||
+            (format.format != dxgi_format_a8_unorm && format.alpha == alpha_mode::ignore));
+}
+
 [[nodiscard]] bool valid_opacity(float value) noexcept
 {
     return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
@@ -3473,7 +3482,8 @@ public:
         } else if (compatible_ && com::guid_equal(
                 interface_id, bitmap_render_target_interface_id)) {
             *value = static_cast<bitmap_render_target*>(this);
-        } else if (compatible_ && com::guid_equal(interface_id, scene_bitmap_native_interface_id)) {
+        } else if (pixel_format_.format != 0U &&
+                com::guid_equal(interface_id, scene_bitmap_native_interface_id)) {
             *value = static_cast<scene_bitmap_native*>(this);
         } else if (com::guid_equal(
                 interface_id, scene_render_target_native_interface_id)) {
@@ -4133,21 +4143,16 @@ public:
         }
         pixel_format format = desired_format == nullptr
             ? pixel_format{
-                dxgi_format_b8g8r8a8_unorm,
+                pixel_format_.format == 0U ? dxgi_format_b8g8r8a8_unorm : pixel_format_.format,
                 alpha_mode::premultiplied}
             : *desired_format;
         if (format.format == 0U) {
-            format.format = dxgi_format_b8g8r8a8_unorm;
+            format.format = pixel_format_.format == 0U ? dxgi_format_b8g8r8a8_unorm : pixel_format_.format;
         }
         if (format.alpha == alpha_mode::unknown) {
             format.alpha = alpha_mode::premultiplied;
         }
-        if ((format.format != dxgi_format_r8g8b8a8_unorm &&
-                format.format != dxgi_format_b8g8r8a8_unorm &&
-                format.format != dxgi_format_a8_unorm) ||
-            (format.alpha != alpha_mode::premultiplied &&
-                !(format.format != dxgi_format_a8_unorm &&
-                    format.alpha == alpha_mode::ignore))) {
+        if (!supported_target_format(format)) {
             return not_implemented;
         }
         float dpi_x = 96.0F;
@@ -5725,9 +5730,9 @@ public:
             draw_count_ = 0U;
             // Native compatible bitmaps own their complete contents. A fresh
             // recorder starts transparent (opaque black for ignored alpha).
-            if (compatible_ && pixel_format_.alpha == alpha_mode::ignore)
+            if (pixel_format_.alpha == alpha_mode::ignore)
                 clear_color_.alpha = 1.0F;
-            has_clear_ = compatible_;
+            has_clear_ = pixel_format_.format != 0U;
             compatible_history_dpi_valid_ = true;
         }
         clip_depth_ = 0U;
@@ -5817,7 +5822,7 @@ public:
         // Replaying old DIP commands at a different raster DPI would change
         // existing pixels. Until mixed-DPI epochs have physical target backing,
         // require a full Clear to establish a new history at the requested DPI.
-        if (compatible_ && draw_count_ != 0U && (dpi_x != dpi_x_ || dpi_y != dpi_y_))
+        if (pixel_format_.format != 0U && draw_count_ != 0U && (dpi_x != dpi_x_ || dpi_y != dpi_y_))
             compatible_history_dpi_valid_ = false;
         dpi_x_ = dpi_x;
         dpi_y_ = dpi_y;
@@ -5856,9 +5861,19 @@ public:
     }
 
     std::int32_t PROGPU_NATIVE_COM_CALL IsSupported(
-        const render_target_properties*) const noexcept override
+        const render_target_properties* properties) const noexcept override
     {
-        return 0;
+        // This recorder has no selected device. Do not infer hardware/software,
+        // GDI/remoting or a Direct3D feature level from the host OS. DPI is
+        // deliberately not consulted by the Direct2D capability query.
+        if (properties == nullptr || pixel_format_.format == 0U ||
+            properties->type != render_target_type::default_value ||
+            properties->usage != render_target_usage::none ||
+            properties->minimum_level != feature_level::default_value) return 0;
+        auto format = properties->pixel_format_value;
+        if (format.format == 0U) format.format = pixel_format_.format;
+        if (format.alpha == alpha_mode::unknown) format.alpha = alpha_mode::premultiplied;
+        return supported_target_format(format) ? 1 : 0;
     }
 
     std::uint64_t PROGPU_NATIVE_COM_CALL GetRequiredSceneSize()
@@ -6203,7 +6218,7 @@ private:
     com::result get_bitmap_snapshot_locked(bitmap_snapshot& snapshot, bool allow_active = false) const noexcept
     {
         snapshot = {};
-        if (!compatible_) return not_implemented;
+        if (pixel_format_.format == 0U) return not_implemented;
         if (dpi_x_ != dpi_y_) return not_implemented;
         if (!begun_ || (!ended_ && !allow_active) || com::failed(failure_) || !compatible_history_dpi_valid_) return wrong_state;
         snapshot = {pixel_width_, pixel_height_, pixel_width_ * 4U, pixel_format_,
@@ -8821,6 +8836,29 @@ com::result create_scene_render_target(
     if (created == nullptr) {
         return com::out_of_memory;
     }
+    *value = created;
+    return com::ok;
+}
+
+com::result create_formatted_scene_render_target(
+    factory* owner,
+    const scene_render_target_properties* properties,
+    const pixel_format* format,
+    render_target** value) noexcept
+{
+    if (value == nullptr) return com::pointer_error;
+    *value = nullptr;
+    if (owner == nullptr || properties == nullptr || format == nullptr ||
+        properties->pixel_width == 0U || properties->pixel_height == 0U ||
+        properties->pixel_width > 16384U || properties->pixel_height > 16384U ||
+        properties->scene_id == 0U || properties->generation == 0U ||
+        !valid_dpi(properties->dpi_x, properties->dpi_y)) return com::invalid_argument;
+    // Unlike the original formatless recorder, this caller selects concrete
+    // immutable image semantics. UNKNOWN must not be guessed at copy time.
+    if (!supported_target_format(*format)) return not_implemented;
+    auto* created = new (std::nothrow) portable_scene_render_target(
+        owner, *properties, false, *format);
+    if (created == nullptr) return com::out_of_memory;
     *value = created;
     return com::ok;
 }

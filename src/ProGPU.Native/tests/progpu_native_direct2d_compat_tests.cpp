@@ -3,6 +3,7 @@
 #include "progpu_native_direct2d_clip_fixture.hpp"
 #include "progpu_native_direct2d_brush_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
+#include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -30,7 +31,14 @@ namespace com = progpu::native::com;
 
 #if defined(_WIN32)
 static_assert(compat::render_target_has_layer_or_cliprect == D2DERR_RENDER_TARGET_HAS_LAYER_OR_CLIPRECT);
+static_assert(sizeof(compat::render_target_properties) == sizeof(D2D1_RENDER_TARGET_PROPERTIES));
+static_assert(offsetof(compat::render_target_properties, pixel_format_value) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, pixelFormat));
+static_assert(offsetof(compat::render_target_properties, dpi_x) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, dpiX));
+static_assert(offsetof(compat::render_target_properties, minimum_level) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, minLevel));
+static_assert(static_cast<std::uint32_t>(compat::feature_level::level_9) == D2D1_FEATURE_LEVEL_9);
+static_assert(static_cast<std::uint32_t>(compat::feature_level::level_10) == D2D1_FEATURE_LEVEL_10);
 #endif
+static_assert(sizeof(compat::render_target_properties) == 28U);
 
 namespace {
 
@@ -6347,6 +6355,7 @@ int run_tests()
     }
     if (!mutable_brush_regressions(scene_factory.get())) return 401;
     if (!full_target_clear_regressions(scene_factory.get())) return 402;
+    if (!progpu::native::direct2d::tests::formatted_scene_copy_contract(factory.get(), second_factory.get())) return 403;
     const compat::scene_render_target_properties target_properties{
         640U, 480U, 96.0F, 96.0F, 7001U, 11U};
     compat::render_target* raw_target = nullptr;

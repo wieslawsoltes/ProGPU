@@ -2271,7 +2271,8 @@ private:
 class portable_factory final :
     public factory,
     public factory_native,
-    public scene_factory_native {
+    public scene_factory_native,
+    public formatted_scene_factory_native {
 public:
     com::result PROGPU_NATIVE_COM_CALL QueryInterface(
         com::guid_ref interface_id,
@@ -2290,6 +2291,9 @@ public:
         } else if (com::guid_equal(
                 interface_id, scene_factory_native_interface_id)) {
             *value = static_cast<scene_factory_native*>(this);
+        } else if (com::guid_equal(
+                interface_id, formatted_scene_factory_native_interface_id)) {
+            *value = static_cast<formatted_scene_factory_native*>(this);
         } else {
             return com::no_interface;
         }
@@ -2496,6 +2500,14 @@ public:
         render_target** value) noexcept override
     {
         return detail::create_scene_render_target(this, properties, value);
+    }
+
+    com::result PROGPU_NATIVE_COM_CALL CreateFormattedSceneRenderTarget(
+        const scene_render_target_properties* properties,
+        const pixel_format* format,
+        render_target** value) noexcept override
+    {
+        return detail::create_formatted_scene_render_target(this, properties, format, value);
     }
 
 private:

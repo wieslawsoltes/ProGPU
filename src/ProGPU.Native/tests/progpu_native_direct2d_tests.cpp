@@ -3,6 +3,7 @@
 #include "progpu_native_direct2d_clip_fixture.hpp"
 #include "progpu_native_direct2d_brush_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
+#include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native.h"
 
 #include <d2d1_3.h>
@@ -724,6 +725,16 @@ int main()
         "ProGPU compatibility factory COM identity changed");
     compat_multithread->Enter();
     compat_multithread->Leave();
+    void* foreign_factory_value = nullptr;
+    require(progpu_native_direct2d_compat_factory_create(&foreign_factory_value, &native_hresult) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && foreign_factory_value != nullptr && native_hresult == S_OK,
+        "Windows foreign formatted scene factory creation failed");
+    ComPtr<ID2D1Factory1> foreign_copy_factory;
+    foreign_copy_factory.Attach(static_cast<ID2D1Factory1*>(foreign_factory_value));
+    require(progpu::native::direct2d::tests::formatted_scene_copy_contract(
+            reinterpret_cast<compat::factory*>(compat_base_factory.Get()),
+            reinterpret_cast<compat::factory*>(static_cast<ID2D1Factory*>(foreign_copy_factory.Get()))),
+        "Windows formatted scene factory/copy contract failed");
 
     compat::scene_factory_native* raw_scene_factory = nullptr;
     require(
