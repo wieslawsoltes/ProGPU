@@ -75,6 +75,26 @@ and makes no new performance claim about those systems.
 
 ## Focused validation and remaining gates
 
+At exact correction head `4a5c93b08397f8ec6ea532b1e4722299db8d3648`, the
+[Windows shader/oracle run](https://github.com/wieslawsoltes/ProGPU/actions/runs/36889398905)
+passed on SilkNative/D3D12/FXC, Microsoft Basic Render Driver. All 144 saved
+output hashes were verified. The uncertified control's 48 outputs exactly match
+immutable run `36884526788`, including the original 65-byte single-occurrence and
+111-byte overlap differences. The certified nonuniform and binary controls have
+zero RGBA, sampled-coverage or final-alpha differences at both target sizes.
+All 24 independent binary-oracle captures match exact coordinates/coverage.
+The remaining coordinate-only differences at the second glyph's right/bottom
+edge retain its original zero-coverage per-path boundary ownership.
+
+The [fresh original native consumer](https://github.com/wieslawsoltes/ProGPU/actions/runs/36889403967)
+also passed at that exact head (7m35s): prepared hinted layouts, all four original
+solid DPI/overlap cases, and the previously failing bounded-texture cold/warm and
+same-count texture-replacement assertion. Both providers compiled, but this run
+executes stock Windows x64 wgpu-native only. Its artifact `11176057366` contains
+logs/data, not native runtime DLLs. The affine/readback/source-stack integration
+is later work and requires its own exact-head validation; these runs do not
+qualify those later changes or release packages.
+
 - Device-free managed/native certificate tests reject changed projection,
   shifted/non-full viewport, invalid DPI/dimensions and unsupported pass state.
 - Source and rational-coordinate controls preserve shared shader wiring,
