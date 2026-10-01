@@ -1,5 +1,5 @@
 using System.Numerics;
-using System.Runtime.CompilerServices;
+using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using ProGPU.Text;
 using ProGPU.Vector;
@@ -11,11 +11,7 @@ public static partial class GpuPictureNativeSceneCompiler
     private static bool TryAppendHintedGlyphs(
         GpuPicture picture, in RenderCommand command, Matrix3x2 transform,
         NativePictureCompileOptions options, StateSnapshot currentState,
-        List<StateSnapshot> states, List<StateMaskProgram> stateMasks,
-        ulong sceneId, ulong generation, PictureMaskCompileContext pictureMaskContext,
         NativeCompiledPicture.SourceTransaction sourceTransaction,
-        List<NativeAnalyticPrimitive> analytics, List<uint> analyticBrushIndices,
-        List<NativeGeometryPrimitive> geometry, List<uint> geometryBrushIndices,
         List<NativeSceneGlyphOutline> outlines, List<NativePathSegment> segments,
         List<NativePositionedGlyph> glyphs, List<NativeSceneTextStyle> styles,
         List<ExternalImageDraw> externalImages, List<Batch> batches,
@@ -52,7 +48,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     out NativePathSegment[] drawSegments,
                     out NativePositionedGlyph[] drawGlyphs,
                     out NativeImageRect bounds,
-                    out Rect storageBounds))
+                    out _))
             {
                 error = NativePictureCompileError.InvalidGeometry;
                 return false;
@@ -84,43 +80,42 @@ public static partial class GpuPictureNativeSceneCompiler
                 return true;
             }
 
-            // Canonical spatial-brush route: one original white glyph scene
-            // owns coverage, followed by one original rectangle/image paint.
-            // Source Rect remains the caller's ink/domain metadata. Private
-            // storage and paint extents cover the canonical padded raster quad.
-            // This is the same route used by append_brushed_glyph_run_core.
-            if (!pictureMaskContext.TryAllocate(sceneId, out ulong maskSceneId, out _) ||
-                !TryBuildHintedCoveragePicture(drawOutlines, drawSegments, drawGlyphs,
-                    bounds, command.TextRenderingMode, options.DpiScale, maskSceneId, generation,
-                    out NativeCompiledPicture? coverage))
+            NativeSceneGlyphPaint paint;
+            int imageIndex = -1;
+            if (command.Brush is GpuTextureBrush textureBrush)
             {
-                error = NativePictureCompileError.CapacityExceeded;
-                return false;
+                if (!TryCreateHintedTexturePaint(picture, textureBrush, command.Rect, transform,
+                        options.DpiScale, out paint, out ExternalImageDraw image, out bool hasPaint, out error))
+                    return false;
+                if (!hasPaint) return true;
+                imageIndex = externalImages.Count;
+                externalImages.Add(image);
             }
-            // White coverage owns only copied GPU bytes; the parent transaction
-            // owns the original generation. Dispose the candidate on every path.
-            using NativeCompiledPicture coverageCandidate = coverage!;
-            var mask = new NativeSceneLayerPictureMask(0, checked((uint)coverage!.Length),
-                bounds, Matrix3x2.Identity);
-            if (!TryAppendHintedCoverageMask(currentState, stateMasks, mask, coverage,
-                    out StateSnapshot paintState, out error))
-                return false;
-            int stateIndex = states.Count;
-            states.Add(paintState);
-            operations.Add(new Operation(OperationKind.Save, StateIndex: stateIndex));
-            RenderCommand paint = command;
-            paint.Type = RenderCommandType.DrawRect;
-            paint.Rect = storageBounds;
-            paint.Pen = null;
-            paint.IsEdgeAliased = true; // The white glyph mask alone supplies coverage.
-            bool appended = paint.Brush is GpuTextureBrush textureBrush
-                ? TryAppendHintedTexturePaint(picture, textureBrush, command.Rect, storageBounds, transform,
-                    externalImages, batches, operations, options, out error)
-                : TryAppendAnalyticPrimitive(paint, NativeAnalyticPrimitiveKind.Rectangle,
-                    paint.Rect, 0f, transform, analytics, analyticBrushIndices,
-                    geometry, geometryBrushIndices, batches, operations, materials, out error);
-            if (!appended) return false;
-            operations.Add(new Operation(OperationKind.Restore));
+            else
+            {
+                if (!materials.TryRegister(command.Brush, out uint brushIndex, out error)) return false;
+                paint = new NativeSceneGlyphPaint(NativeSceneGlyphPaint.Material, brushIndex, 0,
+                    new Vector4(transform.M31, transform.M32, 0f, 0f));
+            }
+            int outlineBase = outlines.Count, segmentBase = segments.Count, glyphBase = glyphs.Count;
+            outlines.AddRange(drawOutlines);
+            segments.AddRange(drawSegments);
+            glyphs.AddRange(drawGlyphs);
+            batches.Add(new Batch
+            {
+                Kind = BatchKind.GlyphPaint, Start = outlineBase, Count = drawOutlines.Length,
+                AuxiliaryStart = segmentBase, AuxiliaryCount = drawSegments.Length,
+                SecondaryStart = glyphBase, SecondaryCount = drawGlyphs.Length,
+                Bounds = bounds, GlyphPaint = paint, PaintImageIndex = imageIndex,
+                GlyphPaintMode = ToNativeTextRenderingMode(command.TextRenderingMode)
+            });
+            // Ordinary paint keeps the original instance batch. Only a
+            // destination-reading composite needs a command per occurrence.
+            if (HintedPaintRequiresDestinationComposite(currentState.BlendMode))
+                for (int index = 0; index < drawGlyphs.Length; index++)
+                    operations.Add(new Operation(OperationKind.Draw, batches.Count - 1,
+                        PositionedGlyphIndex: checked(glyphBase + index)));
+            else operations.Add(new Operation(OperationKind.Draw, batches.Count - 1));
             return true;
         }
         catch (Exception exception) when (exception is OverflowException or ArgumentOutOfRangeException)
@@ -129,6 +124,12 @@ public static partial class GpuPictureNativeSceneCompiler
             return false;
         }
     }
+
+    private static bool HintedPaintRequiresDestinationComposite(GpuBlendMode blendMode) => blendMode is
+        GpuBlendMode.Multiply or GpuBlendMode.Screen or GpuBlendMode.Darken or GpuBlendMode.Lighten or
+        GpuBlendMode.Exclusion or GpuBlendMode.Overlay or GpuBlendMode.ColorDodge or GpuBlendMode.ColorBurn or
+        GpuBlendMode.HardLight or GpuBlendMode.SoftLight or GpuBlendMode.Difference or GpuBlendMode.Hue or
+        GpuBlendMode.Saturation or GpuBlendMode.Color or GpuBlendMode.Luminosity;
 
     private static bool TryPrepareHintedGlyphDraw(in RenderCommand command,
         Matrix3x2 transform, int start, int count,
@@ -181,50 +182,20 @@ public static partial class GpuPictureNativeSceneCompiler
             float.IsFinite(bounds.X + bounds.Width) && float.IsFinite(bounds.Y + bounds.Height);
     }
 
-    private static bool TryAppendHintedTexturePaint(GpuPicture picture,
-        GpuTextureBrush brush, Rect sourceBounds, Rect storageBounds, Matrix3x2 sourceTransform,
-        List<ExternalImageDraw> externalImages, List<Batch> batches,
-        List<Operation> operations, NativePictureCompileOptions options,
+    private static bool TryCreateHintedTexturePaint(GpuPicture picture,
+        GpuTextureBrush brush, Rect sourceBounds, Matrix3x2 sourceTransform, float dpiScale,
+        out NativeSceneGlyphPaint paint, out ExternalImageDraw image, out bool hasPaint,
         out NativePictureCompileError error)
     {
-        bool originalSnap = brush.ExtendToFillBounds && brush.SnapToPixels;
-        if (!brush.TryCreateTextureCommand(originalSnap ? sourceBounds : storageBounds,
-                out RenderCommand textureCommand))
+        paint = default; image = default; hasPaint = false;
+        if (!brush.TryCreateTextureCommand(sourceBounds, out RenderCommand textureCommand))
         {
             error = NativePictureCompileError.UnsupportedBrush;
             return false;
         }
         Matrix3x2 transform = sourceTransform;
-        if (originalSnap)
-        {
-            // Native snap_semantic_image_point and the canonical managed image
-            // path both round original world endpoints to even. Expanding and
-            // then snapping storage would change the original sampling map.
-            try
-            {
-                if (!TexturePaintMapping.TryExtendSnappedTextureCommand(textureCommand,
-                        storageBounds, new Matrix4x4(sourceTransform), options.DpiScale,
-                        out textureCommand))
-                {
-                    error = NativePictureCompileError.None;
-                    return true; // The original snapped destination has no area.
-                }
-            }
-            catch (InvalidOperationException)
-            {
-                error = NativePictureCompileError.InvalidGeometry;
-                return false;
-            }
-        }
         if (!brush.ExtendToFillBounds)
         {
-            // The original bounded brush remains bounded by its own authored
-            // destination and mapping, not by the tight source ink rectangle.
-            // Extended brushes instead extrapolate the ORIGINAL source/dest
-            // mapping across storageBounds, retaining sampler addressing.
-            // Brush mapping uses Vector2.Transform's six original components,
-            // not RenderCommand's default-matrix-as-identity convention. The
-            // other Matrix4x4 components do not enter that canonical mapping.
             Matrix4x4 mapping = textureCommand.Transform;
             var brushTransform = new Matrix3x2(mapping.M11, mapping.M12,
                 mapping.M21, mapping.M22, mapping.M41, mapping.M42);
@@ -233,8 +204,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 error = NativePictureCompileError.UnsupportedTransform;
                 return false;
             }
-            // Compute exact float-product determinant in double: no epsilon or
-            // float underflow may collapse a genuine tiny invertible mapping.
+            // Retain the original exact singular no-ink policy, never epsilon.
             double determinant = (double)brushTransform.M11 * brushTransform.M22 -
                 (double)brushTransform.M12 * brushTransform.M21;
             if (determinant == 0d)
@@ -248,10 +218,6 @@ public static partial class GpuPictureNativeSceneCompiler
                 error = NativePictureCompileError.UnsupportedTransform;
                 return false;
             }
-            // ExtendToFillBounds controls paint extent, not sampler admission.
-            // Preserve explicitly authored addressing/out-of-image source
-            // coordinates through the existing native extended-source wire
-            // contract. This decision never derives from raster storage padding.
             Rect source = textureCommand.SrcRect;
             if (textureCommand.TextureAddressModeU != TextureAddressMode.Clamp ||
                 textureCommand.TextureAddressModeV != TextureAddressMode.Clamp ||
@@ -260,71 +226,49 @@ public static partial class GpuPictureNativeSceneCompiler
                 source.Bottom > textureCommand.Texture.Height)
                 textureCommand.AllowExtendedTextureSourceRect = true;
         }
-        return TryAppendExternalImage(picture, textureCommand, transform, options.DpiScale,
-            externalImages, batches, operations, out error);
-    }
-
-    private static bool TryAppendHintedCoverageMask(StateSnapshot current,
-        List<StateMaskProgram> programs, in NativeSceneLayerPictureMask mask,
-        NativeCompiledPicture coverage, out StateSnapshot next,
-        out NativePictureCompileError error)
-    {
-        next = current; error = NativePictureCompileError.None;
-        StateMaskProgram program;
-        if (current.MaskIndex < 0)
-            program = new StateMaskProgram(mask, coverage);
-        else
+        Rect destination = textureCommand.Rect;
+        Vector2 p0 = Vector2.Transform(new Vector2(destination.X, destination.Y), transform);
+        Vector2 p1 = Vector2.Transform(new Vector2(destination.Right, destination.Y), transform);
+        Vector2 p2 = Vector2.Transform(new Vector2(destination.Right, destination.Bottom), transform);
+        Vector2 p3 = Vector2.Transform(new Vector2(destination.X, destination.Bottom), transform);
+        if (textureCommand.SnapTextureToPixels)
         {
-            StateMaskProgram active = programs[current.MaskIndex];
-            var node = new PictureMaskNode(active.PictureMasks, mask, coverage);
-            uint components = checked((uint)(active.BrushMasks?.Count ?? 0) +
-                (uint)(active.GeometryMasks?.Count ?? 0) + (uint)node.Count +
-                (active.VectorMask is null ? 0U : 1U));
-            if (components > NativeSceneLayerCompositeMask.MaximumComponentCount)
-            {
-                error = NativePictureCompileError.CapacityExceeded;
-                return false;
-            }
-            if (active.Kind == StateMaskProgramKind.Analytic &&
-                !TryCompileVectorMaskChain(active.VectorMask!, out error))
-                return false;
-            program = new StateMaskProgram(active.VectorMask, active.BrushMasks,
-                active.GeometryMasks, node);
+            p0 = TexturePaintMapping.SnapPoint(p0, dpiScale); p1 = TexturePaintMapping.SnapPoint(p1, dpiScale);
+            p2 = TexturePaintMapping.SnapPoint(p2, dpiScale); p3 = TexturePaintMapping.SnapPoint(p3, dpiScale);
         }
-        int maskIndex = programs.Count;
-        programs.Add(program);
-        next = current with { MaskIndex = maskIndex };
-        return true;
-    }
-
-    private static bool TryBuildHintedCoveragePicture(NativeSceneGlyphOutline[] outlines,
-        NativePathSegment[] segments, NativePositionedGlyph[] glyphs,
-        NativeImageRect bounds, TextRenderingMode mode, float dpiScale,
-        ulong sceneId, ulong generation, out NativeCompiledPicture? picture)
-    {
-        picture = null;
-        int arena = checked(outlines.Length * Unsafe.SizeOf<NativeSceneGlyphOutline>() +
-            segments.Length * Unsafe.SizeOf<NativePathSegment>() +
-            glyphs.Length * Unsafe.SizeOf<NativePositionedGlyph>() +
-            Unsafe.SizeOf<NativeSceneTextStyle>() + NativeSceneGlyphDrawSize + 64);
-        byte[] storage = new byte[NativeSceneStreamBuilder.GetRequiredBufferSize(1, 2, arena)];
-        var builder = new NativeSceneStreamBuilder(storage, sceneId, generation, 1, 2);
-        NativeSceneTextStyle[] styles = [new NativeSceneTextStyle(Vector4.One,
-            mode == TextRenderingMode.Aliased ? NativeSceneTextRenderingMode.Aliased :
-                NativeSceneTextRenderingMode.Grayscale)];
-        if (!builder.TryAddGlyphResource(1, generation, outlines, segments, out uint resourceIndex) ||
-            !builder.TryAddTextStyleResource(2, generation, styles, out uint styleIndex) ||
-            !builder.TryDrawGlyphRun(1, resourceIndex, bounds, glyphs, styleIndex, 0) ||
-            !builder.TryBuild(out ReadOnlySpan<byte> stream))
+        if (!IsFinite(p0) || !IsFinite(p1) || !IsFinite(p2) || !IsFinite(p3))
+        {
+            error = NativePictureCompileError.InvalidGeometry;
             return false;
-        picture = new NativeCompiledPicture(storage, stream.Length, sceneId, generation, dpiScale,
-            sourceCommandCount: 1, nativeCommandCount: 1, nativeDrawCount: 1,
-            analyticPrimitiveCount: 0, geometryPrimitiveCount: 0, pathCount: 0, pathSegmentCount: 0,
-            pointBatchCount: 0, pointCount: 0, vertexMeshCount: 0, meshVertexCount: 0, meshIndexCount: 0,
-            strokeCount: 0, strokePointCount: 0, strokeDoubleCount: 0,
-            glyphOutlineCount: outlines.Length, glyphSegmentCount: segments.Length,
-            colorGlyphBitmapCount: 0, colorGlyphPixelBytes: 0, positionedGlyphCount: glyphs.Length,
-            textStyleCount: 1, line3DCount: 0, brushCount: 0, gradientStopCount: 0, externalImages: []);
+        }
+        if (brush.ExtendToFillBounds && (p0.X == p2.X || p0.Y == p2.Y))
+        {
+            error = NativePictureCompileError.None;
+            return true; // The original snapped map collapsed, not its storage.
+        }
+
+        // Reuse the original IMAGE validator/binding metadata without publishing
+        // an image draw, mask scene or mutable producer owner to the real stream.
+        var images = new List<ExternalImageDraw>();
+        var imageBatches = new List<Batch>();
+        var imageOperations = new List<Operation>();
+        if (!TryAppendExternalImage(picture, textureCommand, transform, dpiScale,
+                images, imageBatches, imageOperations, out error)) return false;
+        image = images[0];
+        GpuTexture texture = image.Texture;
+        uint flags = (uint)textureCommand.TextureSamplingMode << NativeSceneGlyphPaint.SamplingModeShift;
+        if (texture.AlphaMode == GpuTextureAlphaMode.Premultiplied) flags |= NativeSceneGlyphPaint.PremultipliedTexture;
+        if (texture.AlphaMode == GpuTextureAlphaMode.Opaque) flags |= NativeSceneGlyphPaint.OpaqueTexture;
+        if (!brush.ExtendToFillBounds) flags |= NativeSceneGlyphPaint.BoundedTexture;
+        if (textureCommand.TextureSamplingMode == TextureSamplingMode.Cubic) flags |= NativeSceneGlyphPaint.CubicTexture;
+        Rect sourceRect = textureCommand.SrcRect;
+        paint = new NativeSceneGlyphPaint(NativeSceneGlyphPaint.Texture, 0, flags,
+            new Vector4(sourceTransform.M31, sourceTransform.M32, textureCommand.TextureOpacity, 0f),
+            new Vector4(sourceRect.X / texture.Width, sourceRect.Y / texture.Height,
+                sourceRect.Right / texture.Width, sourceRect.Bottom / texture.Height),
+            new Vector4(p0, p1.X, p1.Y), new Vector4(p2, p3.X, p3.Y),
+            new Vector4(0f, .5f, (float)textureCommand.TextureAddressModeU, (float)textureCommand.TextureAddressModeV));
+        hasPaint = true;
         return true;
     }
 }

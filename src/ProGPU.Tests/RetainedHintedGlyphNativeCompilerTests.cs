@@ -97,7 +97,7 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
     }
 
     [Fact]
-    public void SpatialPaintUsesOneWhitePictureMaskAndUnchangedCallerDomainWithOuterState()
+    public void SpatialPaintKeepsEachDestinationCompositeAndOriginalCallerDomainWithOuterState()
     {
         using var geometry = Geometry(new Owner());
         var gradient = new LinearGradientBrush(new Vector2(0, 0), new Vector2(1, 0),
@@ -118,37 +118,36 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
             new NativePictureCompileOptions(2), out var compiled, out var failure), failure.ToString());
         Assert.NotNull(compiled);
         using var compiledUse = compiled;
-        Assert.Equal(1, compiled.NativeDrawCount);
-        Assert.Equal(1, compiled.AnalyticPrimitiveCount);
+        Assert.Equal(2, compiled.NativeDrawCount);
+        Assert.Equal(0, compiled.AnalyticPrimitiveCount);
+        Assert.Equal(1, compiled.GlyphOutlineCount);
+        Assert.Equal(2, compiled.PositionedGlyphCount);
         var resources = Resources(compiled.Stream);
-        var analyticResource = resources.Single(x => x.Kind == NativeSceneResourceKind.AnalyticBatch);
-        var rectangle = MemoryMarshal.Read<NativeAnalyticPrimitive>(compiled.Stream.Slice((int)analyticResource.PayloadOffset));
         Assert.Equal(SourceDomain, picture.RetainedCommands[4].Rect);
-        Assert.Equal(14f, rectangle.X); Assert.Equal(18.5f, rectangle.Y);
-        Assert.Equal(17f, rectangle.Width); Assert.Equal(7f, rectangle.Height);
-        Assert.Equal(Matrix3x2.CreateTranslation(7, 11), rectangle.Transform);
-        Assert.Equal(NativeAnalyticPrimitiveFlags.EdgeAliased, rectangle.Flags);
-        var maskResource = resources.Last(x => x.Kind == NativeSceneResourceKind.LayerMask &&
-            x.PayloadSize == Unsafe.SizeOf<NativeSceneLayerCompositeMask>());
-        var composite = MemoryMarshal.Read<NativeSceneLayerCompositeMask>(compiled.Stream.Slice((int)maskResource.PayloadOffset));
-        Assert.Equal(1U, composite.BrushMaskCount); Assert.Equal(1U, composite.PictureMaskCount);
-        int pictureMaskOffset = (int)maskResource.AuxiliaryOffset + Unsafe.SizeOf<NativeSceneLayerBrushMask>();
-        var mask = MemoryMarshal.Read<NativeSceneLayerPictureMask>(compiled.Stream.Slice(pictureMaskOffset));
-        Assert.Equal(new NativeImageRect(21, 29.5f, 17, 7), mask.Bounds);
-        Assert.Equal(Matrix3x2.Identity, mask.Transform);
-        ReadOnlySpan<byte> coverage = compiled.Stream.Slice(
-            pictureMaskOffset + Unsafe.SizeOf<NativeSceneLayerPictureMask>(), (int)mask.StreamSize);
-        var coverageResources = Resources(coverage);
-        var whiteResource = coverageResources.Single(x => x.Kind == NativeSceneResourceKind.TextStyleTable);
-        var white = MemoryMarshal.Read<NativeSceneTextStyle>(coverage.Slice((int)whiteResource.PayloadOffset));
-        Assert.Equal(Vector4.One, white.Color);
-        Assert.Equal(NativeSceneTextRenderingMode.Grayscale, white.TextRenderingMode);
+        var draws = Commands(compiled.Stream).Where(x => x.Kind == NativeSceneCommandKind.DrawPaintedGlyphRun).ToArray();
+        Assert.Equal(2, draws.Length);
+        Assert.Equal(draws[0].ResourceIndex, draws[1].ResourceIndex);
+        for (int index = 0; index < draws.Length; index++)
+        {
+            var prefix = MemoryMarshal.Read<NativeScenePaintedGlyphDraw>(compiled.Stream.Slice((int)draws[index].PayloadOffset));
+            Assert.Equal(32U, prefix.StructSize); Assert.Equal(1U, prefix.GlyphCount);
+            Assert.Equal((uint)NativeSceneTextRenderingMode.Grayscale, prefix.RenderingMode);
+            var paint = PaintedMaterial(compiled.Stream, draws[index]);
+            Assert.Equal(NativeSceneGlyphPaint.Material, paint.Kind);
+            Assert.Equal(prefix.PaintIndex, paint.BrushIndex);
+            Assert.Equal(new Vector4(7, 11, 0, 0), paint.SourceOffsetOpacity);
+            var glyph = MemoryMarshal.Read<NativePositionedGlyph>(compiled.Stream.Slice((int)draws[index].PayloadOffset + 128));
+            Assert.Equal(new Vector2(24 + index * 10, 36), glyph.Position);
+        }
+        Assert.DoesNotContain(resources, x => x.Kind is NativeSceneResourceKind.AnalyticBatch or NativeSceneResourceKind.TextStyleTable);
+        var maskResource = resources.Single(x => x.Kind == NativeSceneResourceKind.LayerMask);
+        Assert.Equal((uint)Unsafe.SizeOf<NativeSceneLayerBrushMask>(), maskResource.PayloadSize);
         var paintState = resources.Where(x => x.Kind == NativeSceneResourceKind.State)
             .Select(x => MemoryMarshal.Read<NativeSceneState>(compiled.Stream.Slice((int)x.PayloadOffset))).Last();
         Assert.Equal(.5f, paintState.Opacity);
         Assert.True((paintState.Flags & NativeSceneStateFlags.ClipRect) != 0);
         Assert.True((paintState.Flags & NativeSceneStateFlags.Mask) != 0);
-        Assert.Contains(Commands(compiled.Stream), x => x.Kind == NativeSceneCommandKind.PushLayer);
+        Assert.Equal(2, Commands(compiled.Stream).Count(x => x.Kind == NativeSceneCommandKind.PushLayer));
     }
 
     [Fact]
@@ -169,15 +168,11 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
         using var compiledUse = compiled;
         Assert.Equal(source.Rect, picture.RetainedCommands[0].Rect);
         NativeMethods.SceneResource[] resources = Resources(compiled.Stream);
-        NativeMethods.SceneResource analytic = resources.Single(x => x.Kind == NativeSceneResourceKind.AnalyticBatch);
-        var paint = MemoryMarshal.Read<NativeAnalyticPrimitive>(compiled.Stream.Slice((int)analytic.PayloadOffset));
-        Assert.Equal(new Rect(14.875f, 18.5f, 7, 7.5f), new Rect(paint.X, paint.Y, paint.Width, paint.Height));
-        Assert.True(paint.X < source.Rect.X && paint.Y < source.Rect.Y);
-        Assert.True(paint.X + paint.Width > source.Rect.Right && paint.Y + paint.Height > source.Rect.Bottom);
-        Assert.Equal(NativeAnalyticPrimitiveFlags.EdgeAliased, paint.Flags);
-        NativeMethods.SceneResource maskResource = resources.Single(x => x.Kind == NativeSceneResourceKind.LayerMask);
-        var mask = MemoryMarshal.Read<NativeSceneLayerPictureMask>(compiled.Stream.Slice((int)maskResource.PayloadOffset));
-        Assert.Equal(new NativeImageRect(15, 18.875f, 7, 7.5f), mask.Bounds);
+        var draw = Commands(compiled.Stream).Single(x => x.Kind == NativeSceneCommandKind.DrawPaintedGlyphRun);
+        var paint = PaintedMaterial(compiled.Stream, draw);
+        Assert.Equal(new Vector4(.125f, .375f, 0, 0), paint.SourceOffsetOpacity);
+        Assert.Equal(new NativeImageRect(15, 18.875f, 7, 7.5f), draw.Bounds);
+        Assert.DoesNotContain(resources, x => x.Kind is NativeSceneResourceKind.LayerMask or NativeSceneResourceKind.AnalyticBatch);
         NativeMethods.SceneResource brushes = resources.Single(x => x.Kind == NativeSceneResourceKind.BrushTable);
         var retainedBrush = MemoryMarshal.Read<NativeSceneBrush>(compiled.Stream.Slice((int)brushes.PayloadOffset));
         Assert.Equal(gradient.StartPoint, retainedBrush.StartPoint);
@@ -185,7 +180,6 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
         Assert.Equal(new Vector4(1.25f, 0, 3.5f, 0), retainedBrush.CoordinateTransform0);
         Assert.Equal(new Vector4(0, .75f, -2.25f, 0), retainedBrush.CoordinateTransform1);
         Assert.Equal(.625f, retainedBrush.Opacity);
-        Assert.Equal(Matrix3x2.CreateTranslation(.125f, .375f), paint.Transform);
     }
 
     [Theory]
@@ -215,30 +209,36 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
         Assert.Equal(new Rect(10, 20, 8, 10), brush.DestinationRect);
         Assert.Equal(1, compiled.NativeDrawCount);
         Assert.Equal(1, compiled.ExternalImages.Length);
-        NativeMethods.SceneCommand draw = Commands(compiled.Stream).Single(x => x.Kind == NativeSceneCommandKind.DrawImage);
-        var image = MemoryMarshal.Read<NativeSceneImageDraw>(compiled.Stream.Slice((int)draw.PayloadOffset));
-        Assert.Equal(.625f, image.Opacity);
-        Assert.Equal(NativeImageSampling.Nearest, image.Sampling);
+        NativeMethods.SceneCommand draw = Commands(compiled.Stream).Single(x => x.Kind == NativeSceneCommandKind.DrawPaintedGlyphRun);
+        var paint = PaintedMaterial(compiled.Stream, draw);
+        Assert.Equal(NativeSceneGlyphPaint.Texture, paint.Kind);
+        Assert.Equal(new Vector4(.125f, .375f, .625f, 0f), paint.SourceOffsetOpacity);
+        Assert.Equal(new NativeImageRect(15, 18.875f, 7, 7.5f), draw.Bounds);
         if (extend)
         {
-            // Independently apply the original local mapping: sourceScale=.5,
-            // localLeft=(14.875-3)/2, localTop=(18.5-7)/.5.
-            Assert.Equal(new NativeImageRect(-.03125f, 4.5f, 1.75f, 7.5f), image.SourceRect);
-            Assert.Equal(new NativeImageRect(14.875f, 18.5f, 7, 7.5f), image.DestinationRect);
-            Assert.Equal(Matrix3x2.CreateTranslation(.125f, .375f), image.Transform);
-            Assert.Equal(NativeSceneImageFlags.AddressURepeat | NativeSceneImageFlags.AddressVMirrorRepeat |
-                NativeSceneImageFlags.ExtendedSourceRect, image.Flags);
+            // Original source domain, not padded storage, defines UV mapping.
+            float x = 2f + (((source.Rect.X - 3f) / 2f) - 10f) * .5f;
+            float y = 3f + (((source.Rect.Y - 7f) / .5f) - 20f) * .5f;
+            float width = (source.Rect.Width / 2f) * .5f;
+            float height = (source.Rect.Height / .5f) * .5f;
+            Assert.Equal(new Vector4(x / 16f, y / 16f, (x + width) / 16f, (y + height) / 16f), paint.UVBounds);
+            Assert.Equal(new Vector4(source.Rect.X + .125f, source.Rect.Y + .375f,
+                source.Rect.Right + .125f, source.Rect.Y + .375f), paint.TextureQuad01);
+            Assert.Equal(0U, paint.Flags);
+            Assert.Equal(new Vector4(0, .5f, 1, 2), paint.Sampling);
         }
         else
         {
-            Assert.Equal(new NativeImageRect(2, 3, 4, 5), image.SourceRect);
-            Assert.Equal(new NativeImageRect(10, 20, 8, 10), image.DestinationRect);
-            Assert.Equal(new Matrix3x2(2, 0, 0, .5f, 3.125f, 7.375f), image.Transform);
-            Assert.Equal(NativeSceneImageFlags.None, image.Flags);
+            Assert.Equal(new Vector4(.125f, .1875f, .375f, .5f), paint.UVBounds);
+            Assert.Equal(new Vector4(23.125f, 17.375f, 39.125f, 17.375f), paint.TextureQuad01);
+            Assert.Equal(new Vector4(39.125f, 22.375f, 23.125f, 22.375f), paint.TextureQuad23);
+            Assert.Equal(NativeSceneGlyphPaint.BoundedTexture, paint.Flags);
+            Assert.Equal(new Vector4(0, .5f, 0, 0), paint.Sampling);
         }
-        NativeMethods.SceneResource maskResource = Resources(compiled.Stream).Single(x => x.Kind == NativeSceneResourceKind.LayerMask);
-        var mask = MemoryMarshal.Read<NativeSceneLayerPictureMask>(compiled.Stream.Slice((int)maskResource.PayloadOffset));
-        Assert.Equal(new NativeImageRect(15, 18.875f, 7, 7.5f), mask.Bounds);
+        Assert.DoesNotContain(Resources(compiled.Stream), x => x.Kind == NativeSceneResourceKind.LayerMask);
+        var prefix = MemoryMarshal.Read<NativeScenePaintedGlyphDraw>(compiled.Stream.Slice((int)draw.PayloadOffset));
+        Assert.Equal(1U, prefix.GlyphCount);
+        Assert.Equal(NativeSceneResourceKind.Image, Resources(compiled.Stream)[(int)prefix.PaintResourceIndex].Kind);
     }
 
     [Theory]
@@ -266,21 +266,19 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
             new NativePictureCompileOptions(2), out var compiled, out var failure), failure.ToString());
         Assert.NotNull(compiled);
         using var compiledUse = compiled;
-        NativeMethods.SceneCommand draw = Commands(compiled.Stream).Single(x => x.Kind == NativeSceneCommandKind.DrawImage);
-        var image = MemoryMarshal.Read<NativeSceneImageDraw>(compiled.Stream.Slice((int)draw.PayloadOffset));
-        Assert.Equal(new NativeImageRect(sourceX, sourceY, 4, 5), image.SourceRect);
-        Assert.Equal(new NativeImageRect(10, 20, 8, 10), image.DestinationRect);
-        Assert.Equal(new Matrix3x2(2, 0, 0, .5f, 3.125f, 7.375f), image.Transform);
-        NativeSceneImageFlags expected = NativeSceneImageFlags.ExtendedSourceRect;
-        if (u == TextureAddressMode.Repeat) expected |= NativeSceneImageFlags.AddressURepeat;
-        if (v == TextureAddressMode.MirrorRepeat) expected |= NativeSceneImageFlags.AddressVMirrorRepeat;
-        Assert.Equal(expected, image.Flags);
-        Assert.Equal(.625f, image.Opacity);
+        NativeMethods.SceneCommand draw = Commands(compiled.Stream).Single(x => x.Kind == NativeSceneCommandKind.DrawPaintedGlyphRun);
+        var paint = PaintedMaterial(compiled.Stream, draw);
+        Assert.Equal(new Vector4(sourceX / 16f, sourceY / 16f, (sourceX + 4) / 16f, (sourceY + 5) / 16f), paint.UVBounds);
+        Assert.Equal(new Vector4(23.125f, 17.375f, 39.125f, 17.375f), paint.TextureQuad01);
+        Assert.Equal(new Vector4(39.125f, 22.375f, 23.125f, 22.375f), paint.TextureQuad23);
+        Assert.Equal(NativeSceneGlyphPaint.BoundedTexture, paint.Flags);
+        Assert.Equal(new Vector4(0, .5f, (float)u, (float)v), paint.Sampling);
+        Assert.Equal(.625f, paint.SourceOffsetOpacity.Z);
         Assert.Equal(source.Rect, picture.RetainedCommands[0].Rect);
     }
 
     [Fact]
-    public void SnappedTextureExtensionUsesOriginalSnappedEndpointsBeforeExpandingStorage()
+    public void SnappedTextureExtensionKeepsOriginalSnappedQuadAndUvWithoutExpandingItsMapping()
     {
         using var texture = CreateUnbackedTexture(16, 16);
         using var geometry = FractionalGeometry(new Owner());
@@ -299,19 +297,18 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
             new NativePictureCompileOptions(2), out var compiled, out var failure), failure.ToString());
         Assert.NotNull(compiled);
         using var compiledUse = compiled;
-        var draw = Commands(compiled.Stream).Single(x => x.Kind == NativeSceneCommandKind.DrawImage);
-        var image = MemoryMarshal.Read<NativeSceneImageDraw>(compiled.Stream.Slice((int)draw.PayloadOffset));
+        var draw = Commands(compiled.Stream).Single(x => x.Kind == NativeSceneCommandKind.DrawPaintedGlyphRun);
+        var paint = PaintedMaterial(compiled.Stream, draw);
         // Original source UV rectangle is (.5,6.5,.75,3.5). Original world
         // destination endpoints (17.125,20.875)/(20.125,24.375) snap to
         // (17,21)/(20,24.5), so source/world scale is exactly (.25,1).
-        // Only then expand across world storage (15,18.875)/(22,26.375).
-        Assert.Equal(new NativeImageRect(0, 4.375f, 1.75f, 7.5f), image.SourceRect);
-        Assert.Equal(new NativeImageRect(14.875f, 18.5f, 7, 7.5f), image.DestinationRect);
-        Assert.Equal(Matrix3x2.CreateTranslation(.125f, .375f), image.Transform);
-        Assert.Equal(NativeSceneImageFlags.ExtendedSourceRect | NativeSceneImageFlags.AddressURepeat |
-            NativeSceneImageFlags.AddressVMirrorRepeat, image.Flags); // Snap is already baked, not repeated.
-        Assert.Equal(NativeImageSampling.Linear, image.Sampling);
-        Assert.Equal(.625f, image.Opacity);
+        // Glyph storage is independent; the shader extrapolates this map.
+        Assert.Equal(new Vector4(.03125f, .40625f, .078125f, .625f), paint.UVBounds);
+        Assert.Equal(new Vector4(17, 21, 20, 21), paint.TextureQuad01);
+        Assert.Equal(new Vector4(20, 24.5f, 17, 24.5f), paint.TextureQuad23);
+        Assert.Equal((uint)TextureSamplingMode.Linear << NativeSceneGlyphPaint.SamplingModeShift, paint.Flags);
+        Assert.Equal(new Vector4(0, .5f, 1, 2), paint.Sampling);
+        Assert.Equal(.625f, paint.SourceOffsetOpacity.Z);
         Assert.Equal(source.Rect, picture.RetainedCommands[0].Rect);
     }
 
@@ -334,7 +331,7 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
         using var compiledUse = compiled;
         Assert.Equal(0, compiled.NativeDrawCount);
         Assert.Empty(compiled.ExternalImages.ToArray());
-        Assert.DoesNotContain(Commands(compiled.Stream), x => x.Kind == NativeSceneCommandKind.DrawImage);
+        Assert.DoesNotContain(Commands(compiled.Stream), x => x.Kind is NativeSceneCommandKind.DrawImage or NativeSceneCommandKind.DrawPaintedGlyphRun);
     }
 
     [Fact]
@@ -354,12 +351,77 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
             new NativePictureCompileOptions(2), out var compiled, out var failure), failure.ToString());
         Assert.NotNull(compiled);
         using var compiledUse = compiled;
-        var draw = Commands(compiled.Stream).Single(x => x.Kind == NativeSceneCommandKind.DrawImage);
-        var image = MemoryMarshal.Read<NativeSceneImageDraw>(compiled.Stream.Slice((int)draw.PayloadOffset));
-        Assert.Equal(new Matrix3x2(1e-30f, 0, 0, 1e-30f, 0, 0), image.Transform);
-        Assert.Equal(new NativeImageRect(2, 3, 4, 5), image.SourceRect);
-        Assert.Equal(new NativeImageRect(10, 20, 8, 10), image.DestinationRect);
-        Assert.Equal(NativeSceneImageFlags.None, image.Flags);
+        var draw = Commands(compiled.Stream).Single(x => x.Kind == NativeSceneCommandKind.DrawPaintedGlyphRun);
+        var paint = PaintedMaterial(compiled.Stream, draw);
+        Assert.Equal(new Vector4(10f * 1e-30f, 20f * 1e-30f, 18f * 1e-30f, 20f * 1e-30f), paint.TextureQuad01);
+        Assert.Equal(new Vector4(18f * 1e-30f, 30f * 1e-30f, 10f * 1e-30f, 30f * 1e-30f), paint.TextureQuad23);
+        Assert.Equal(new Vector4(.125f, .1875f, .375f, .5f), paint.UVBounds);
+        Assert.Equal(NativeSceneGlyphPaint.BoundedTexture | (uint)TextureSamplingMode.Linear << NativeSceneGlyphPaint.SamplingModeShift, paint.Flags);
+    }
+
+    [Fact]
+    public void OrdinarySpatialPaintBatchesOriginalOccurrencesWithoutAWhiteCoverageResource()
+    {
+        var owner = new Owner();
+        using var geometry = Geometry(owner);
+        var brush = new LinearGradientBrush(new Vector2(4, 7), new Vector2(30, 17),
+            [new GradientStop(Vector4.One, 0), new GradientStop(Vector4.Zero, 1)]) { Opacity = .625f };
+        using var picture = Picture(Command(geometry, brush));
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(picture, 1006, 3,
+            new NativePictureCompileOptions(2), out var compiled, out var failure), failure.ToString());
+        Assert.NotNull(compiled);
+        using var compiledUse = compiled;
+        var draw = Commands(compiled.Stream).Single(x => x.Kind == NativeSceneCommandKind.DrawPaintedGlyphRun);
+        var prefix = MemoryMarshal.Read<NativeScenePaintedGlyphDraw>(compiled.Stream.Slice((int)draw.PayloadOffset));
+        Assert.Equal(2U, prefix.GlyphCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(1, compiled.GlyphOutlineCount);
+        Assert.Equal(0, compiled.TextStyleCount);
+        var glyphs = MemoryMarshal.Cast<byte, NativePositionedGlyph>(compiled.Stream.Slice(
+            (int)draw.PayloadOffset + 128, 2 * Unsafe.SizeOf<NativePositionedGlyph>()));
+        Assert.Equal(new Vector2(17, 25), glyphs[0].Position);
+        Assert.Equal(new Vector2(27, 25), glyphs[1].Position);
+        Assert.DoesNotContain(Resources(compiled.Stream), x => x.Kind == NativeSceneResourceKind.LayerMask);
+        geometry.Dispose(); picture.Dispose();
+        Assert.Equal(0, owner.Disposals);
+        compiled.Dispose();
+        Assert.Equal(1, owner.Disposals);
+    }
+
+    [Fact]
+    public void BoundedRotatedTextureKeepsAllFourIndependentlySnappedWorldCorners()
+    {
+        using var texture = CreateUnbackedTexture(16, 16);
+        using var geometry = FractionalGeometry(new Owner());
+        var mapping = new Matrix4x4(new Matrix3x2(.8f, .6f, -.6f, .8f, .2f, .35f));
+        var brush = new GpuTextureBrush
+        {
+            Texture = texture, SourceRect = new Rect(2, 3, 4, 5), DestinationRect = new Rect(1, 2, 3, 4),
+            Transform = mapping, ExtendToFillBounds = false, SnapToPixels = true, SamplingMode = TextureSamplingMode.Cubic
+        };
+        using var picture = Picture(FractionalCommand(geometry, brush));
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(picture, 1007, 3,
+            new NativePictureCompileOptions(2), out var compiled, out var failure), failure.ToString());
+        Assert.NotNull(compiled);
+        using var compiledUse = compiled;
+        var draw = Commands(compiled.Stream).Single(x => x.Kind == NativeSceneCommandKind.DrawPaintedGlyphRun);
+        var paint = PaintedMaterial(compiled.Stream, draw);
+        Vector2 Snap(float x, float y) => new(MathF.Round(x * 2f) / 2f, MathF.Round(y * 2f) / 2f);
+        Vector2 p0 = Snap(1f * .8f - 2f * .6f + (.2f + .125f), 1f * .6f + 2f * .8f + (.35f + .375f));
+        Vector2 p1 = Snap(4f * .8f - 2f * .6f + (.2f + .125f), 4f * .6f + 2f * .8f + (.35f + .375f));
+        Vector2 p2 = Snap(4f * .8f - 6f * .6f + (.2f + .125f), 4f * .6f + 6f * .8f + (.35f + .375f));
+        Vector2 p3 = Snap(1f * .8f - 6f * .6f + (.2f + .125f), 1f * .6f + 6f * .8f + (.35f + .375f));
+        Assert.Equal(new Vector4(p0, p1.X, p1.Y), paint.TextureQuad01);
+        Assert.Equal(new Vector4(p2, p3.X, p3.Y), paint.TextureQuad23);
+        Assert.Equal(new Vector4(.125f, .1875f, .375f, .5f), paint.UVBounds);
+        Assert.Equal(NativeSceneGlyphPaint.BoundedTexture | NativeSceneGlyphPaint.CubicTexture |
+            (uint)TextureSamplingMode.Cubic << NativeSceneGlyphPaint.SamplingModeShift, paint.Flags);
+        Assert.Equal(new Vector4(0, .5f, 0, 0), paint.Sampling);
+        var prefix = MemoryMarshal.Read<NativeScenePaintedGlyphDraw>(compiled.Stream.Slice((int)draw.PayloadOffset));
+        NativeMethods.SceneResource image = Resources(compiled.Stream)[(int)prefix.PaintResourceIndex];
+        Assert.Equal(NativeSceneResourceKind.Image, image.Kind);
+        Assert.Equal(image.ResourceId, compiled.ExternalImages[0].ResourceId);
+        Assert.Same(texture, compiled.ExternalImages[0].Texture);
     }
 
     [Fact]
@@ -517,6 +579,8 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
         return MemoryMarshal.Cast<byte, NativeMethods.SceneCommand>(stream.Slice(
             (int)header.CommandOffset, (int)header.CommandCount * Unsafe.SizeOf<NativeMethods.SceneCommand>())).ToArray();
     }
+    private static NativeSceneGlyphPaint PaintedMaterial(ReadOnlySpan<byte> stream, NativeMethods.SceneCommand draw) =>
+        MemoryMarshal.Read<NativeSceneGlyphPaint>(stream.Slice((int)draw.PayloadOffset + 32));
     private static HintedGlyphGeometry Geometry(IDisposable owner) => new(2,
         [new GpuGlyphRecord { SegmentCount = 4, MinX = -2, MinY = 3, MaxX = 4, MaxY = 9 }],
         [Line(new(-2, 3), new(4, 3)), Line(new(4, 3), new(4, 9)),
