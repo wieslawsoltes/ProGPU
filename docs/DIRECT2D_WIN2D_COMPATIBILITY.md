@@ -5082,3 +5082,17 @@ These new behavioral/GPU tests are authored but unexecuted at the substantive
 commit. No local native build, GPU run, Windows reference, runtime staging or
 application qualification is claimed. Exact producer Build, both provider/package
 gates and independent Windows pixel/source application evidence remain required.
+
+Post-commit bounded checks: Apple Clang strict C++20 syntax-only checks passed for
+the Direct2D target, image builder, scene validator, semantic value validator,
+portable compatibility test translation unit and scene-builder tests, plus an
+instantiation of the shared pixel fixture template. No native object/library was
+built or executed. The managed generator's `--verify` check passed for the exact
+header/generated file, and its two focused tests passed (three admitted literal
+array lengths and ten rejected declarations, preserving existing outputs).
+The first test invocation exposed a test expectation of public instead of the
+generator's existing internal fields; the assertion was corrected to require
+every exact internal field in order. The memory-inventory source guard passed
+(92 owned fields, seven non-owning identities excluded). Provider GPU translation
+units, Windows SDK/module builds, native behavioral tests and managed scene tests
+remain unexecuted here; these source checks do not substitute for their gates.
