@@ -84,6 +84,9 @@ void run_edit_word_interop_controls() {
         check(u"x\u0628\u064E\u062Ay ", {0, 1, 6}, 0, level);
         check(u"\u0710\u0730\u0712y ", {0, 5}, 0, level);
         check(u"x\u0710\u0730\u0712y ", {0, 1, 6}, 0, level);
+#if defined(PROGPU_NATIVE_EDIT_WORD_ICU)
+        check(u"\u064E\u0628y ", {0, 4}, 0, level);
+#endif
     }
 
     std::array<std::uint32_t, 16> output{};
@@ -144,13 +147,25 @@ void run_edit_word_interop_controls() {
     failed(progpu_native_text_resolve_edit_word_boundaries_utf16(unqualified.data(), 4U, 0, output.data(), 16U),
         PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_SCRIPT_ITEM_TRANSITION_POLICY, output, PROGPU_NATIVE_STATUS_UNSUPPORTED);
     for (const auto level : {0, 1}) {
-        for (const auto text : {u"\u064E\u0628y ", u"\u0301\u0628y ", u" \u0301ay ", u"\u0301\u200Day "}) {
+        for (const auto text : {u" \u0301ay ", u"\u0301\u200Day "}) {
             const std::u16string_view view(text);
             const std::vector<std::uint16_t> rejected(view.begin(), view.end());
             failed(progpu_native_text_resolve_edit_word_boundaries_utf16(rejected.data(),
                 static_cast<std::uint32_t>(rejected.size()), level, output.data(), 16U),
                 PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_SCRIPT_ITEM_TRANSITION_POLICY, output,
                 PROGPU_NATIVE_STATUS_UNSUPPORTED);
+        }
+        for (const auto text : {u"\u0301\u0628y ", u"\u064E\u0301\u0628y "}) {
+            const std::u16string_view view(text);
+            const std::vector<std::uint16_t> rejected(view.begin(), view.end());
+            failed(progpu_native_text_resolve_edit_word_boundaries_utf16(rejected.data(),
+                static_cast<std::uint32_t>(rejected.size()), level, output.data(), 16U),
+#if defined(PROGPU_NATIVE_EDIT_WORD_ICU)
+                PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_SCRIPT_ITEM_TRANSITION_POLICY,
+#else
+                PROGPU_NATIVE_EDIT_WORD_BOUNDARY_DEPENDENCY_UNAVAILABLE,
+#endif
+                output, PROGPU_NATIVE_STATUS_UNSUPPORTED);
         }
     }
 #if defined(PROGPU_NATIVE_EDIT_WORD_ICU)

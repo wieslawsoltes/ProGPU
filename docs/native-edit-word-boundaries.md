@@ -874,7 +874,8 @@ unqualified supplementary leading marks do not enter the new bridge. The complet
 source still reaches the original Thai dependency check; no leading-prefix
 admission bypasses an unsupported suffix.
 
-**The Arabic-leading bare contract remains missing.** Original U+064E, U+0628
+**At the leading-bridge checkpoint, the Arabic-leading bare contract was still
+missing.** Original U+064E, U+0628
 and `y ` have `[0,4]`: Windows places the initial mark and letter in one Arabic
 item at level1, with direct attributes `[21,4]`. In contrast, the Latin-prefixed
 request places the mark with the existing Latin item. Owned `get_unicode_script`
@@ -889,3 +890,61 @@ The strict AppleClang21 C++20 no-ICU focused harness passed 1/1, retaining all
 earlier symbol, Myanmar, original24, alias, tail and error controls. This source
 checkpoint adds no observer, pin, CI change or Forms admission marker and claims
 no native product build, packaged execution or source UI qualification.
+
+## Owned inherited-script context assignment
+
+The following checkpoint closes that bare Fatha/Arabic case with a reusable
+original-source context assignment, rather than a scalar or combining-class
+exception. `try_itemize_unicode_scripts` reads the complete original scalar
+sequence and supplies candidate runs with their actual scalar/UTF-16 ranges.
+A typed pending context validates the leading mark run, its immediate original
+letter owner and the owner's resolved bidi level. A candidate alone never
+admits a nominal family: the owned ICU verifies the true Inherited Script and
+Script_Extensions membership of **every** leading mark before the context is
+published. The existing preceding-owner path still takes priority when actual
+preceding source exists; a Latin-prefixed Fatha does not migrate into the next
+Arabic item.
+
+The [ICU Script API](https://unicode-org.github.io/icu-docs/apidoc/released/icu4c/uscript_8h.html)
+supplies real Unicode properties from the same pinned private ICU78.3 source/data,
+not a second table, an observed-word inventory or an ambient ICU. Its original
+`ppucd.txt` records Fatha/Fathatan as Inherited with `Arab Syrc` extensions;
+acute accent's extensions do not contain Arabic. Both produce the same pending
+Arabic candidate in the pure context test, but only the validated property
+membership admits the Arabic item. Unknown/mixed extensions fail atomically;
+without the owned property source, candidates return `dependency_unavailable`
+instead of guessed acceptance or guessed incompatibility.
+
+Only scratch-owned item metadata receives the selected family and the actual
+owner's item level. Each scalar retains its original code point, UTF-16 index and
+length, raw Script, original inherited role, false attachment-owner state and
+unchanged complete-source bidi level. This distinction matters for LTR leading
+NSM source: its raw level0 remains level0, while the independently observed Arabic
+item uses the following owner's level1. No prefix/suffix bidi resolution or
+source rewriting is involved. Initial Latin bridges retain their existing rule;
+other unproved forward families, barriers and isolated mark-only input remain
+unsupported. Extending the measured single mark to compatible mark runs is an
+explicit property-based inference, not an exhaustive Windows itemization claim.
+
+The two original bare Fatha+Arabic inventories now retain `[0,4]` in both paragraph
+directions through snapshots and the actual C export. The original source receipt
+confirms all ten available double-down selections; six unavailable coordinates
+stay unclaimed. Together with the preceding fourteen mark inventories, all
+sixteen have literal stock/Dawn package fixtures. Mixed compatible/incompatible
+prefixes prove no partial context or caller output escapes a later failure.
+Pure context controls retain actual source ranges, require the separate membership
+proof and reject a truncated owned run without changing the prior context.
+
+`uscript_getCode`, `uscript_getScript` and `uscript_hasScript` join the selected-API
+executing-image ownership check, in addition to the unchanged exact version,
+private suffix, source/data/license hashes and disabled file access. Dictionary
+and script-context clients share one serialized private-data initialization;
+neither reinstalls data after the other has started using it. The inspected CPU
+binary contains hidden `_uscript_*_78_progpu_edit` symbols, not ambient imports.
+
+The exact pinned archive was downloaded to fresh internal temporary storage and
+hash-verified. Only private ICU common/data and the strict CPU harness were built.
+AppleClang21 C++20 tests passed both without ICU (1/1) and with that owned ICU
+(1/1), retaining all original24 including both Thai dictionary inventories in
+the owned run. No renderer/product build, package staging/execution, new Windows
+observer, CI dispatch, package pin or source UI admission was introduced.

@@ -115,11 +115,11 @@ void original_source_role_inventories()
 
 void original_mark_source_role_inventories()
 {
-    // Fourteen independent literal source-role inventories from original
+    // Sixteen independent literal source-role inventories from original
     // Windows run36900452884, source-roles.json SHA256
     // 858e7c8e34a694a1ff4e153b7a4c6946f451daaf6dc371cc0296519a468048b8.
-    // Arabic leading bare items remain unqualified; a Latin prefix is actual
-    // preceding context, not permission to infer a forward Arabic family.
+    // The leading Arabic item needs owned Script_Extensions proof; a Latin
+    // prefix keeps actual preceding ownership rather than the next family.
     for (const auto level : {std::int8_t{0}, std::int8_t{1}}) {
         check(u"\u0301ay ", {0, 4}, 0, level);
         check(u"x\u0301ay ", {0, 5}, 0, level);
@@ -128,11 +128,78 @@ void original_mark_source_role_inventories()
         check(u"x\u0628\u064E\u062Ay ", {0, 1, 6}, 0, level);
         check(u"\u0710\u0730\u0712y ", {0, 5}, 0, level);
         check(u"x\u0710\u0730\u0712y ", {0, 1, 6}, 0, level);
+#if defined(PROGPU_NATIVE_EDIT_WORD_ICU)
+        check(u"\u064E\u0628y ", {0, 4}, 0, level);
+        // Property/run algorithm control, not another Windows observation.
+        check(u"\u064B\u064E\u0628y ", {0, 5}, 0, level);
+#endif
         // Property/run algorithm controls, not additional Windows receipts:
         // preserve the former rejected request as a positive Latin bridge and
         // extend the whole leading role without fabricating a mark owner.
         check(u"\u0301y ", {0, 3}, 0, level);
         check(u"\u0300\u0301ay ", {0, 5}, 0, level);
+    }
+}
+
+void original_script_context_preserves_source_metadata()
+{
+    using profile = detail::edit_item_profile;
+    for (const auto level : {std::int8_t{0}, std::int8_t{1}}) {
+        for (const auto text : {u"\u064E\u0628y ", u"\u0301\u0628y ", u"\u0301ay "}) {
+            const auto source = units(text);
+            std::vector<unicode_scalar> scalars(source.size());
+            std::uint32_t written = 0U;
+            require(try_decode_utf16(source, scalars, written) && written == scalars.size(),
+                "Script context source decode failed");
+            std::vector<detail::edit_item_properties> properties(scalars.size());
+            for (std::size_t index = 0U; index < scalars.size(); ++index)
+                require(detail::try_classify_edit_item_properties(scalars[index], properties[index]),
+                    "Script context property classification failed");
+            unicode_bidi_requirements requirements{};
+            require(try_get_unicode_bidi_requirements(scalars, requirements), "Script context bidi requirements failed");
+            std::vector<unicode_bidi_unit> bidi_units(requirements.unit_count);
+            std::vector<std::uint32_t> indices(requirements.index_count);
+            std::vector<unicode_bidi_level_run> bidi_runs(requirements.run_count);
+            std::vector<unicode_bidi_bracket_pair> brackets(requirements.bracket_pair_count);
+            std::vector<unicode_bidi_level> levels(scalars.size());
+            std::int8_t resolved = -1;
+            require(try_resolve_unicode_bidi(scalars, level, {bidi_units, indices, bidi_runs, brackets},
+                levels, resolved, written) && written == scalars.size() && resolved == level,
+                "Script context did not use complete-source bidi");
+            std::uint32_t run_count = 0U;
+            require(try_get_unicode_script_run_count(scalars, run_count), "Script context run count failed");
+            std::vector<unicode_script_run> runs(run_count);
+            require(try_itemize_unicode_scripts(scalars, runs, written) && written == runs.size(),
+                "Script context did not use the owned whole-source itemizer");
+            const auto count = detail::get_edit_initial_mark_count(scalars, properties, levels, level);
+            detail::edit_leading_item_context context{};
+            require(count == 1U && detail::try_get_edit_leading_item_context(
+                scalars, properties, levels, runs, count, level, context),
+                "Owned initial script run did not produce its typed candidate");
+            const bool arabic = scalars[1].script == open_type_tag::from_chars('a', 'r', 'a', 'b');
+            require(context.mark_count == 1U && context.owner_scalar == 1U &&
+                context.script == scalars[1].script && context.owner_level == levels[1].level &&
+                context.profile == (arabic ? profile::arabic_nominal : profile::paragraph_bridge) &&
+                context.requires_script_extensions == arabic,
+                "Context candidate guessed an owner or omitted its required property proof");
+            // Fatha and acute produce the SAME pending Arabic candidate here.
+            // Actual owned Script_Extensions, not this worker or a test scalar
+            // table, later admits Fatha and rejects the incompatible acute.
+            require(scalars[0].code_point == source[0] && scalars[0].input_index == 0U &&
+                scalars[0].input_length == 1U &&
+                scalars[0].script == open_type_tag::from_chars('D', 'F', 'L', 'T') &&
+                levels[0].level == level && properties[0].profile == profile::paragraph_bridge &&
+                properties[0].role == detail::edit_item_source_role::inherited_mark &&
+                !properties[0].has_attachment_owner,
+                "Context preparation rewrote raw source metadata or published an unproved family");
+            const auto saved = context;
+            runs[0].input_length = 1U;
+            require(!detail::try_get_edit_leading_item_context(scalars, properties, levels, runs,
+                count, level, context) && context.mark_count == saved.mark_count &&
+                context.owner_scalar == saved.owner_scalar && context.profile == saved.profile &&
+                context.owner_level == saved.owner_level,
+                "Invalid original run range published a partial item context");
+        }
     }
 }
 
@@ -171,10 +238,22 @@ void missing_contracts_are_atomic()
     check_failure(u"\u0628 \u064By ",
         edit_word_boundary_error::unqualified_script_item_transition_policy);
     for (const auto level : {std::int8_t{0}, std::int8_t{1}})
-        for (const auto source : {u"\u0301", u"\u0301\u0628y ", u"\u064E\u0628y ",
+        for (const auto source : {u"\u0301",
                 u"\u0301\u4E00y ", u"\u0301\u0711y ", u" \u0301ay ",
                 u"\t\u0301ay ", u"\u202B\u0301ay ", u"\u0301\u200Day ", u"\U0001D185ay "})
             check_failure(source, edit_word_boundary_error::unqualified_script_item_transition_policy, level);
+    for (const auto level : {std::int8_t{0}, std::int8_t{1}}) {
+#if defined(PROGPU_NATIVE_EDIT_WORD_ICU)
+        for (const auto source : {u"\u0301\u0628y ", u"\u064E\u0301\u0628y ", u"\u0301\u064E\u0628y "})
+            check_failure(source, edit_word_boundary_error::unqualified_script_item_transition_policy, level);
+#else
+        // Without the owned property source, no candidate is guessed valid or
+        // invalid from a scalar/CCC allowlist. Preserve dependency failure.
+        for (const auto source : {u"\u064E\u0628y ", u"\u0301\u0628y ",
+                u"\u064E\u0301\u0628y ", u"\u0301\u064E\u0628y "})
+            check_failure(source, edit_word_boundary_error::dependency_unavailable, level);
+#endif
+    }
     check_failure(u"\u200D\u0301y ",
         edit_word_boundary_error::unqualified_script_item_transition_policy);
     check_failure(u"\u0628 \u200D\u064By ",
@@ -579,6 +658,7 @@ int main()
         original_reference_inventories();
         original_source_role_inventories();
         original_mark_source_role_inventories();
+        original_script_context_preserves_source_metadata();
         missing_contracts_are_atomic();
         reusable_property_profiles_are_not_observed_scalar_admission();
         independently_observed_joiner_contexts();

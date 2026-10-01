@@ -11,6 +11,7 @@
 #if defined(PROGPU_NATIVE_EDIT_WORD_ICU)
 #include <unicode/ubrk.h>
 #include <unicode/udata.h>
+#include <unicode/uscript.h>
 #include <unicode/uversion.h>
 #include <array>
 #include <memory>
@@ -59,6 +60,11 @@ struct edit_item final {
     std::int8_t level = 0;
 };
 
+bool validate_owned_script_context(
+    std::span<const unicode_scalar> marks,
+    open_type_tag script,
+    edit_word_boundary_error& error) noexcept;
+
 bool assemble_edit_item_breaks(
     std::span<const unicode_scalar> scalars,
     std::span<detail::edit_item_properties> properties,
@@ -83,8 +89,30 @@ bool assemble_edit_item_breaks(
             {units, indices, runs, brackets}, levels, resolved_level, written) ||
         written != scalars.size() || resolved_level != requested_level)
         return fail(edit_word_boundary_error::invalid_encoding, error);
-    const auto leading_mark_count = detail::get_edit_leading_mark_item_length(
+    const auto leading_mark_count = detail::get_edit_initial_mark_count(
         scalars, properties, levels, requested_level);
+    detail::edit_leading_item_context leading_context{};
+    if (leading_mark_count != 0U) {
+        std::uint32_t script_run_count = 0U;
+        if (!try_get_unicode_script_run_count(scalars, script_run_count))
+            return fail(edit_word_boundary_error::invalid_encoding, error);
+        std::vector<unicode_script_run> source_runs(script_run_count);
+        if (!try_itemize_unicode_scripts(scalars, source_runs, written) || written != source_runs.size())
+            return fail(edit_word_boundary_error::invalid_encoding, error);
+        if (!detail::try_get_edit_leading_item_context(scalars, properties, levels, source_runs,
+                leading_mark_count, requested_level, leading_context))
+            return fail(edit_word_boundary_error::unqualified_script_item_transition_policy, error);
+        if (leading_context.requires_script_extensions) {
+            if (!validate_owned_script_context(scalars.first(leading_mark_count), leading_context.script, error))
+                return false;
+            for (std::size_t index = 0U; index < leading_mark_count; ++index) {
+                // Only the scratch-owned policy family acquires context. Keep
+                // the original inherited role and false attachment-owner bit.
+                properties[index].profile = leading_context.profile;
+                properties[index].flags = detail::get_edit_profile_flags(leading_context.profile);
+            }
+        }
+    }
     for (std::size_t index = 0U; index < scalars.size(); ++index) {
         const auto* previous_scalar = index == 0U ? nullptr : &scalars[index - 1U];
         const auto* previous_properties = index == 0U ? nullptr : &properties[index - 1U];
@@ -109,9 +137,14 @@ bool assemble_edit_item_breaks(
     }
     std::vector<edit_item> items;
     for (std::size_t index = 0U; index < scalars.size(); ++index) {
+        // Item context is not raw scalar bidi. The verified leading marks use
+        // their real following owner's item level, while the original complete-
+        // source levels remain immutable for all other source policies.
+        const auto item_level = index < leading_context.mark_count && leading_context.requires_script_extensions
+            ? leading_context.owner_level : levels[index].level;
         if (items.empty() || items.back().properties.profile != properties[index].profile ||
-            items.back().level != levels[index].level)
-            items.push_back({index, 1U, properties[index], levels[index].level});
+            items.back().level != item_level)
+            items.push_back({index, 1U, properties[index], item_level});
         else ++items.back().scalar_count;
     }
     std::vector<lb> item_classes(scalars.size());
@@ -199,10 +232,10 @@ const void* module_of(const void* address) noexcept
 #endif
 }
 
-edit_word_boundary_error initialize_owned_icu() noexcept
+edit_word_boundary_error initialize_owned_icu_once() noexcept
 {
-    const auto owner = module_of(reinterpret_cast<const void*>(&initialize_owned_icu));
-    const std::array<const void*, 8> functions{
+    const auto owner = module_of(reinterpret_cast<const void*>(&initialize_owned_icu_once));
+    const std::array<const void*, 11> functions{
         reinterpret_cast<const void*>(&u_getVersion),
         reinterpret_cast<const void*>(&udata_setCommonData),
         reinterpret_cast<const void*>(&udata_setFileAccess),
@@ -210,7 +243,10 @@ edit_word_boundary_error initialize_owned_icu() noexcept
         reinterpret_cast<const void*>(&ubrk_first),
         reinterpret_cast<const void*>(&ubrk_next),
         reinterpret_cast<const void*>(&ubrk_close),
-        reinterpret_cast<const void*>(&ubrk_getRuleStatus)};
+        reinterpret_cast<const void*>(&ubrk_getRuleStatus),
+        reinterpret_cast<const void*>(&uscript_getCode),
+        reinterpret_cast<const void*>(&uscript_getScript),
+        reinterpret_cast<const void*>(&uscript_hasScript)};
     if (owner == nullptr) return edit_word_boundary_error::dependency_unavailable;
     for (const auto address : functions)
         if (module_of(address) != owner)
@@ -229,6 +265,14 @@ edit_word_boundary_error initialize_owned_icu() noexcept
         edit_word_boundary_error::dependency_failure;
 }
 
+edit_word_boundary_error initialize_owned_icu() noexcept
+{
+    // One initialization shared by dictionary AND script-context clients. Never
+    // install data again after either client has started using the private ICU.
+    static const auto initialized = initialize_owned_icu_once();
+    return initialized;
+}
+
 bool add_thai_dictionary_boundaries(
     std::span<const std::uint16_t> source,
     std::span<const unicode_scalar> scalars,
@@ -236,7 +280,7 @@ bool add_thai_dictionary_boundaries(
     std::vector<std::uint8_t>& boundaries,
     edit_word_boundary_error& error)
 {
-    static const auto initialized = initialize_owned_icu();
+    const auto initialized = initialize_owned_icu();
     if (initialized != edit_word_boundary_error::none) return fail(initialized, error);
     static_assert(sizeof(UChar) == sizeof(std::uint16_t));
     // Own the API's exact character type: no aliasing cast and no normalized,
@@ -269,6 +313,38 @@ bool add_thai_dictionary_boundaries(
     return true;
 }
 #endif
+
+bool validate_owned_script_context(
+    std::span<const unicode_scalar> marks,
+    open_type_tag script,
+    edit_word_boundary_error& error) noexcept
+{
+#if defined(PROGPU_NATIVE_EDIT_WORD_ICU)
+    const auto initialized = initialize_owned_icu();
+    if (initialized != edit_word_boundary_error::none) return fail(initialized, error);
+    const std::array<char, 5> name{
+        static_cast<char>((script.value >> 24U) & 0xFFU), static_cast<char>((script.value >> 16U) & 0xFFU),
+        static_cast<char>((script.value >> 8U) & 0xFFU), static_cast<char>(script.value & 0xFFU), '\0'};
+    UScriptCode code = USCRIPT_INVALID_CODE;
+    UErrorCode status = U_ZERO_ERROR;
+    if (uscript_getCode(name.data(), &code, 1, &status) != 1 || U_FAILURE(status) ||
+        code == USCRIPT_INVALID_CODE || code == USCRIPT_COMMON || code == USCRIPT_INHERITED || code == USCRIPT_UNKNOWN)
+        return fail(edit_word_boundary_error::dependency_failure, error);
+    for (const auto& scalar : marks) {
+        const auto cp = static_cast<UChar32>(scalar.code_point);
+        const auto source_script = uscript_getScript(cp, &status);
+        if (U_FAILURE(status)) return fail(edit_word_boundary_error::dependency_failure, error);
+        // Real Unicode metadata only, not an observed mark/word/CCC allowlist.
+        if (source_script != USCRIPT_INHERITED || !uscript_hasScript(cp, code))
+            return fail(edit_word_boundary_error::unqualified_script_item_transition_policy, error);
+    }
+    return true;
+#else
+    static_cast<void>(marks);
+    static_cast<void>(script);
+    return fail(edit_word_boundary_error::dependency_unavailable, error);
+#endif
+}
 } // namespace
 
 bool try_create_edit_word_boundary_snapshot(

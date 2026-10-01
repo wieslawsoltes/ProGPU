@@ -109,6 +109,7 @@ internal static unsafe class TextEditWordBoundaryValidation
             Verify("inherited-leading-mark", "\u0301ay ", [0, 4], level: level);
             Verify("inherited-latin-mark", "x\u0301ay ", [0, 5], level: level);
             Verify("arabic-mark-latin-owner", "x\u064E\u0628y ", [0, 2, 5], level: level);
+            Verify("arabic-mark-leading-owner", "\u064E\u0628y ", [0, 4], level: level);
             Verify("arabic-compatible-mark-bare", "\u0628\u064E\u062Ay ", [0, 5], level: level);
             Verify("arabic-compatible-mark-latin", "x\u0628\u064E\u062Ay ", [0, 1, 6], level: level);
             Verify("syriac-compatible-mark-bare", "\u0710\u0730\u0712y ", [0, 5], level: level);
@@ -187,7 +188,8 @@ internal static unsafe class TextEditWordBoundaryValidation
         {
             Reject("\u3200\uAC00", NativeEditWordBoundaryError.UnqualifiedScriptItemTransitionPolicy, level: level);
             Reject("\u1B61\u0301y ", NativeEditWordBoundaryError.UnqualifiedScriptItemTransitionPolicy, level: level);
-            Reject("\u064E\u0628y ", NativeEditWordBoundaryError.UnqualifiedScriptItemTransitionPolicy, level: level);
+            Reject("\u0301\u0628y ", NativeEditWordBoundaryError.UnqualifiedScriptItemTransitionPolicy, level: level);
+            Reject("\u064E\u0301\u0628y ", NativeEditWordBoundaryError.UnqualifiedScriptItemTransitionPolicy, level: level);
             Reject(" \u0301ay ", NativeEditWordBoundaryError.UnqualifiedScriptItemTransitionPolicy, level: level);
             Reject("x\u1A20\u1A21y ", NativeEditWordBoundaryError.UnqualifiedComplexScriptPolicy, level: level);
             Reject("x\u0711y ", NativeEditWordBoundaryError.UnqualifiedScriptItemTransitionPolicy, level: level);
