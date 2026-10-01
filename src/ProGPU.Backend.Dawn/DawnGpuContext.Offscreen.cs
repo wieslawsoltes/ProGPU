@@ -202,47 +202,14 @@ public sealed unsafe partial class DawnGpuContext
     private static AdapterHandle RequestOffscreenAdapter(
         InstanceHandle instance, W.BackendType backendType, bool forceFallbackAdapter)
     {
-        var state = new AdapterRequest();
-        GCHandle stateHandle = GCHandle.Alloc(state);
-        try
+        var options = new RequestAdapterOptionsFFI
         {
-            var options = new RequestAdapterOptionsFFI
-            {
-                BackendType = backendType,
-                ForceFallbackAdapter = forceFallbackAdapter,
-                PowerPreference = W.PowerPreference.HighPerformance
-            };
-            var callback = new RequestAdapterCallbackInfoFFI
-            {
-                Mode = W.CallbackMode.WaitAnyOnly,
-                Callback = &CompleteAdapterRequest,
-                Userdata1 = (void*)GCHandle.ToIntPtr(stateHandle)
-            };
-            W.Future future = instance.RequestAdapter(&options, callback);
-            Wait(instance, future, $"request an offscreen {backendType} adapter");
-            if (state.Status != W.RequestAdapterStatus.Success || state.Adapter == AdapterHandle.Null)
-            {
-                var failure = new InvalidOperationException(
-                    $"Dawn failed to request an offscreen adapter: {state.Status}. {state.Message}");
-                DawnAdapterRequestFailureDiagnostics.Attach(failure, options.BackendType,
-                    forceFallbackAdapter, options.FeatureLevel, options.PowerPreference);
-                throw failure;
-            }
-            AdapterHandle result = state.Adapter;
-            state.Adapter = AdapterHandle.Null;
-            return result;
-        }
-        finally
-        {
-            try
-            {
-                if (state.Adapter != AdapterHandle.Null) state.Adapter.Release();
-            }
-            finally
-            {
-                stateHandle.Free();
-            }
-        }
+            BackendType = backendType,
+            ForceFallbackAdapter = forceFallbackAdapter,
+            PowerPreference = W.PowerPreference.HighPerformance
+        };
+        return RequestOwnedAdapter(instance, options,
+            $"request an offscreen {backendType} adapter", offscreenFallbackPolicy: forceFallbackAdapter);
     }
 
     // InitializeExternalNativeDevice installs its lifetime after several fields

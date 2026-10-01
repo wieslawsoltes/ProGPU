@@ -35,7 +35,7 @@ public sealed unsafe partial class DawnGpuContext
         => CreateSystemWarpOffscreenCore(companionDirectory, null);
 
     private static DawnGpuContext CreateSystemWarpOffscreenCore(
-        string? companionDirectory, SystemWarpCancellationProbe? cancellationProbe)
+        string? companionDirectory, DawnRequestAbandonmentProbe? cancellationProbe)
     {
         DawnSystemWarpArtifact.EnsureAvailable(companionDirectory);
         W.InstanceFeatureName timedWaitAny = W.InstanceFeatureName.TimedWaitAny;
@@ -81,7 +81,7 @@ public sealed unsafe partial class DawnGpuContext
             bool formatsTier1 = adapter.HasFeature(W.FeatureName.TextureFormatsTier1);
             int featureCount = 0;
             if (formatsTier1) features[featureCount++] = W.FeatureName.TextureFormatsTier1;
-            device = RequestSystemWarpDevice(instance, adapter, features[..featureCount],
+            device = RequestDevice(instance, adapter, features[..featureCount],
                 out DeviceLossCallbackState lossState, out lossHandle, cancellationProbe);
             queue = device.GetQueue();
             if (queue == QueueHandle.Null)
@@ -151,16 +151,16 @@ public sealed unsafe partial class DawnGpuContext
 
     private static AdapterHandle RequestSystemWarpAdapter(
         InstanceHandle instance, out DawnSystemWarpAdapterLuid luid,
-        SystemWarpCancellationProbe? cancellationProbe)
+        DawnRequestAbandonmentProbe? cancellationProbe)
     {
-        var state = new SystemWarpRequest<AdapterHandle>(static owned => owned.Release(), cancellationProbe?.Adapter);
+        var state = new OwnedDawnRequest<AdapterHandle>(static owned => owned.Release(), cancellationProbe?.Adapter);
         Exception? failure = null;
         W.Future queued = default;
         try
         {
             var callback = new RequestAdapterCallbackInfoFFI
             {
-                Mode = W.CallbackMode.WaitAnyOnly, Callback = &CompleteSystemWarpAdapterRequest,
+                Mode = W.CallbackMode.WaitAnyOnly, Callback = &CompleteOwnedAdapterRequest,
                 Userdata1 = (void*)state.BeginNativeUse()
             };
             Span<byte> error = stackalloc byte[256];
@@ -190,19 +190,19 @@ public sealed unsafe partial class DawnGpuContext
         catch (Exception error)
         {
             failure = error;
-            DrainAbandonedSystemWarpRequest(instance, queued, state, error);
+            DrainAbandonedDawnRequest(instance, queued, state, error);
             throw;
         }
         finally { state.EndManagedUse(failure); }
     }
 
-    private static DeviceHandle RequestSystemWarpDevice(InstanceHandle instance, AdapterHandle adapter,
+    private static DeviceHandle RequestOwnedDevice(InstanceHandle instance, AdapterHandle adapter,
         ReadOnlySpan<W.FeatureName> features, out DeviceLossCallbackState lossState, out GCHandle lossHandle,
-        SystemWarpCancellationProbe? cancellationProbe)
+        DawnRequestAbandonmentProbe? cancellationProbe)
     {
         lossState = new DeviceLossCallbackState();
         lossHandle = GCHandle.Alloc(lossState);
-        var state = new SystemWarpRequest<DeviceHandle>(static owned =>
+        var state = new OwnedDawnRequest<DeviceHandle>(static owned =>
         {
             try { owned.Destroy(); } finally { owned.Release(); }
         }, cancellationProbe?.Device);
@@ -229,7 +229,7 @@ public sealed unsafe partial class DawnGpuContext
                 };
                 var callback = new RequestDeviceCallbackInfoFFI
                 {
-                    Mode = W.CallbackMode.WaitAnyOnly, Callback = &CompleteSystemWarpDeviceRequest,
+                    Mode = W.CallbackMode.WaitAnyOnly, Callback = &CompleteOwnedDeviceRequest,
                     Userdata1 = (void*)state.BeginNativeUse()
                 };
                 W.Future future;
@@ -244,7 +244,7 @@ public sealed unsafe partial class DawnGpuContext
         catch (Exception error)
         {
             failure = error;
-            DrainAbandonedSystemWarpRequest(instance, queued, state, error);
+            DrainAbandonedDawnRequest(instance, queued, state, error);
             if (state.IsNativePending)
             {
                 // A failed drain is not permission to free callback userdata.
@@ -259,8 +259,8 @@ public sealed unsafe partial class DawnGpuContext
         finally { state.EndManagedUse(failure); }
     }
 
-    private static void DrainAbandonedSystemWarpRequest<T>(InstanceHandle instance,
-        W.Future future, SystemWarpRequest<T> state, Exception failure) where T : unmanaged
+    private static void DrainAbandonedDawnRequest<T>(InstanceHandle instance,
+        W.Future future, OwnedDawnRequest<T> state, Exception failure) where T : unmanaged
     {
         if (!state.IsNativePending) return;
         try
@@ -283,7 +283,7 @@ public sealed unsafe partial class DawnGpuContext
 
     // A failed wait never ends native ownership. Drain actual completion first;
     // if draining fails, retain all pending callback userdata until completion.
-    private sealed class SystemWarpRequest<T> where T : unmanaged
+    private sealed class OwnedDawnRequest<T> where T : unmanaged
     {
         private readonly object _gate = new();
         private readonly Action<T> _release;
@@ -293,10 +293,10 @@ public sealed unsafe partial class DawnGpuContext
         private T _handle;
         private string _message = string.Empty;
         private Exception? _completionFailure;
-        private readonly SystemWarpRequestReceipt? _receipt;
+        private readonly DawnRequestReceipt? _receipt;
         private Action? _retirementCleanup;
 
-        internal SystemWarpRequest(Action<T> release, SystemWarpRequestReceipt? receipt)
+        internal OwnedDawnRequest(Action<T> release, DawnRequestReceipt? receipt)
         {
             _release = release;
             _receipt = receipt;
@@ -409,7 +409,7 @@ public sealed unsafe partial class DawnGpuContext
     // Native completion must drain and retire the unpublished result/GCHandle.
     internal static void VerifySystemWarpRequestCancellationForDiagnostics(bool deviceRequest)
     {
-        var probe = new SystemWarpCancellationProbe(deviceRequest);
+        var probe = new DawnRequestAbandonmentProbe(deviceRequest);
         try
         {
             using DawnGpuContext unexpected = CreateSystemWarpOffscreenCore(null, probe);
@@ -428,18 +428,18 @@ public sealed unsafe partial class DawnGpuContext
         else probe.Adapter.Verify((int)W.RequestAdapterStatus.Success, releasedResults: 1);
     }
 
-    private sealed class SystemWarpCancellationProbe(bool cancelDeviceRequest)
+    private sealed class DawnRequestAbandonmentProbe(bool cancelDeviceRequest)
     {
-        internal readonly Exception Failure = new InvalidOperationException("Abandon queued system WARP request before its wait.");
-        internal readonly SystemWarpRequestReceipt Adapter = new();
-        internal readonly SystemWarpRequestReceipt Device = new();
+        internal readonly Exception Failure = new InvalidOperationException("Abandon queued Dawn request before its wait.");
+        internal readonly DawnRequestReceipt Adapter = new();
+        internal readonly DawnRequestReceipt Device = new();
         internal void BeforeWait(bool deviceRequest)
         {
             if (deviceRequest == cancelDeviceRequest) throw Failure;
         }
     }
 
-    private sealed class SystemWarpRequestReceipt
+    private sealed class DawnRequestReceipt
     {
         private int _callbacks, _retirements, _releasedResults, _status;
         private Exception? _failure;
@@ -462,20 +462,20 @@ public sealed unsafe partial class DawnGpuContext
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void CompleteSystemWarpAdapterRequest(W.RequestAdapterStatus status,
+    private static void CompleteOwnedAdapterRequest(W.RequestAdapterStatus status,
         AdapterHandle adapter, StringViewFFI message, void* userdata1, void* userdata2)
     {
         // Original callback userdata is retained through this call. Native release
         // imports are void; no managed exception may escape this ABI boundary.
-        try { ((SystemWarpRequest<AdapterHandle>)GCHandle.FromIntPtr((nint)userdata1).Target!).Complete((int)status, adapter, message); }
+        try { ((OwnedDawnRequest<AdapterHandle>)GCHandle.FromIntPtr((nint)userdata1).Target!).Complete((int)status, adapter, message); }
         catch { }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void CompleteSystemWarpDeviceRequest(W.RequestDeviceStatus status,
+    private static void CompleteOwnedDeviceRequest(W.RequestDeviceStatus status,
         DeviceHandle device, StringViewFFI message, void* userdata1, void* userdata2)
     {
-        try { ((SystemWarpRequest<DeviceHandle>)GCHandle.FromIntPtr((nint)userdata1).Target!).Complete((int)status, device, message); }
+        try { ((OwnedDawnRequest<DeviceHandle>)GCHandle.FromIntPtr((nint)userdata1).Target!).Complete((int)status, device, message); }
         catch { }
     }
 

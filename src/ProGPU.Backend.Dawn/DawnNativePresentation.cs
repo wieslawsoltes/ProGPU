@@ -365,40 +365,13 @@ public sealed unsafe partial class DawnGpuContext
         SurfaceHandle compatibleSurface,
         string backendName)
     {
-        var state = new AdapterRequest();
-        GCHandle stateHandle = GCHandle.Alloc(state);
-        try
+        var options = new RequestAdapterOptionsFFI
         {
-            var options = new RequestAdapterOptionsFFI
-            {
-                BackendType = backendType,
-                PowerPreference = W.PowerPreference.HighPerformance,
-                CompatibleSurface = compatibleSurface
-            };
-            var callback = new RequestAdapterCallbackInfoFFI
-            {
-                Mode = W.CallbackMode.WaitAnyOnly,
-                Callback = &CompleteAdapterRequest,
-                Userdata1 =
-                    (void*)GCHandle.ToIntPtr(stateHandle)
-            };
-            W.Future future =
-                instance.RequestAdapter(&options, callback);
-            Wait(instance, future, $"request a {backendName} adapter");
-        }
-        finally
-        {
-            stateHandle.Free();
-        }
-
-        if (state.Status != W.RequestAdapterStatus.Success ||
-            state.Adapter == AdapterHandle.Null)
-        {
-            throw new InvalidOperationException(
-                $"Dawn failed to request a {backendName} adapter: " +
-                $"{state.Status}. {state.Message}");
-        }
-        return state.Adapter;
+            BackendType = backendType,
+            PowerPreference = W.PowerPreference.HighPerformance,
+            CompatibleSurface = compatibleSurface
+        };
+        return RequestOwnedAdapter(instance, options, $"request a {backendName} adapter");
     }
 
     internal static NativeSurfaceCapabilities QuerySurfaceCapabilities(

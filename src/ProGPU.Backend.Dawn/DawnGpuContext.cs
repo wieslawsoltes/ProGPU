@@ -57,20 +57,6 @@ public sealed unsafe partial class DawnGpuContext :
     /// </remarks>
     public static bool IsNativeLibraryAvailable() => DawnNativeProvider.IsAvailable();
 
-    private sealed class AdapterRequest
-    {
-        internal W.RequestAdapterStatus Status;
-        internal AdapterHandle Adapter;
-        internal string Message = string.Empty;
-    }
-
-    private sealed class DeviceRequest
-    {
-        internal W.RequestDeviceStatus Status;
-        internal DeviceHandle Device;
-        internal string Message = string.Empty;
-    }
-
     private sealed class QueueWait
     {
         internal W.QueueWorkDoneStatus Status;
@@ -687,41 +673,14 @@ public sealed unsafe partial class DawnGpuContext :
         }
     }
 
-    private static AdapterHandle RequestMetalAdapter(
-        InstanceHandle instance)
+    private static AdapterHandle RequestMetalAdapter(InstanceHandle instance)
     {
-        var state = new AdapterRequest();
-        GCHandle stateHandle = GCHandle.Alloc(state);
-        try
+        var options = new RequestAdapterOptionsFFI
         {
-            var options = new RequestAdapterOptionsFFI
-            {
-                BackendType = W.BackendType.Metal,
-                PowerPreference = W.PowerPreference.HighPerformance
-            };
-            var callback = new RequestAdapterCallbackInfoFFI
-            {
-                Mode = W.CallbackMode.WaitAnyOnly,
-                Callback = &CompleteAdapterRequest,
-                Userdata1 =
-                    (void*)GCHandle.ToIntPtr(stateHandle)
-            };
-            W.Future future =
-                instance.RequestAdapter(&options, callback);
-            Wait(instance, future, "request a Metal adapter");
-        }
-        finally
-        {
-            stateHandle.Free();
-        }
-
-        if (state.Status != W.RequestAdapterStatus.Success ||
-            state.Adapter == AdapterHandle.Null)
-        {
-            throw new InvalidOperationException(
-                $"Dawn failed to request a Metal adapter: {state.Status}. {state.Message}");
-        }
-        return state.Adapter;
+            BackendType = W.BackendType.Metal,
+            PowerPreference = W.PowerPreference.HighPerformance
+        };
+        return RequestOwnedAdapter(instance, options, "request a Metal adapter");
     }
 
     private static DeviceHandle RequestDevice(
@@ -729,81 +688,10 @@ public sealed unsafe partial class DawnGpuContext :
         AdapterHandle adapter,
         ReadOnlySpan<W.FeatureName> requiredFeatures,
         out DeviceLossCallbackState deviceLossState,
-        out GCHandle deviceLossStateHandle)
-    {
-        var state = new DeviceRequest();
-        GCHandle stateHandle = GCHandle.Alloc(state);
-        deviceLossState = new DeviceLossCallbackState();
-        deviceLossStateHandle = GCHandle.Alloc(deviceLossState);
-        try
-        {
-            fixed (W.FeatureName* features = requiredFeatures)
-            fixed (byte* label =
-                "ProGPU Dawn Primary Device\0"u8)
-            {
-                try
-                {
-                    var descriptor = new DeviceDescriptorFFI
-                    {
-                        Label =
-                            StringViewFFI.CreateNullTerminated(label),
-                        RequiredFeatureCount =
-                            (nuint)requiredFeatures.Length,
-                        RequiredFeatures = features,
-                        DeviceLostCallbackInfo =
-                            new DeviceLostCallbackInfoFFI
-                            {
-                                Mode =
-                                    W.CallbackMode.AllowSpontaneous,
-                                Callback = &OnDeviceLost,
-                                Userdata1 =
-                                    (void*)GCHandle.ToIntPtr(
-                                        deviceLossStateHandle)
-                            },
-                        UncapturedErrorCallbackInfo =
-                            new UncapturedErrorCallbackInfoFFI
-                            {
-                                Callback = &OnUncapturedError,
-                                Userdata1 =
-                                    (void*)GCHandle.ToIntPtr(
-                                        deviceLossStateHandle)
-                            }
-                    };
-                    var callback = new RequestDeviceCallbackInfoFFI
-                    {
-                        Mode = W.CallbackMode.WaitAnyOnly,
-                        Callback = &CompleteDeviceRequest,
-                        Userdata1 =
-                            (void*)GCHandle.ToIntPtr(stateHandle)
-                    };
-                    W.Future future =
-                        adapter.RequestDevice(&descriptor, callback);
-                    Wait(instance, future, "request a Dawn device");
-                }
-                finally
-                {
-                    stateHandle.Free();
-                }
-            }
-
-            if (state.Status != W.RequestDeviceStatus.Success ||
-                state.Device == DeviceHandle.Null)
-            {
-                throw new InvalidOperationException(
-                    $"Dawn failed to request a device: {state.Status}. {state.Message}");
-            }
-            return state.Device;
-        }
-        catch
-        {
-            if (deviceLossStateHandle.IsAllocated)
-            {
-                deviceLossStateHandle.Free();
-            }
-            deviceLossStateHandle = default;
-            throw;
-        }
-    }
+        out GCHandle deviceLossStateHandle,
+        DawnRequestAbandonmentProbe? cancellationProbe = null)
+        => RequestOwnedDevice(instance, adapter, requiredFeatures,
+            out deviceLossState, out deviceLossStateHandle, cancellationProbe);
 
     private static void WaitForQueue(
         InstanceHandle instance,
@@ -852,38 +740,6 @@ public sealed unsafe partial class DawnGpuContext :
             throw new InvalidOperationException(
                 $"Dawn failed to {operation}: {status}.");
         }
-    }
-
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void CompleteAdapterRequest(
-        W.RequestAdapterStatus status,
-        AdapterHandle adapter,
-        StringViewFFI message,
-        void* userData1,
-        void* userData2)
-    {
-        var state =
-            (AdapterRequest)
-            GCHandle.FromIntPtr((nint)userData1).Target!;
-        state.Status = status;
-        state.Adapter = adapter;
-        state.Message = Message(message);
-    }
-
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void CompleteDeviceRequest(
-        W.RequestDeviceStatus status,
-        DeviceHandle device,
-        StringViewFFI message,
-        void* userData1,
-        void* userData2)
-    {
-        var state =
-            (DeviceRequest)
-            GCHandle.FromIntPtr((nint)userData1).Target!;
-        state.Status = status;
-        state.Device = device;
-        state.Message = Message(message);
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]

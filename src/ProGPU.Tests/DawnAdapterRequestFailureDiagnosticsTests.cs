@@ -12,19 +12,22 @@ public sealed class DawnAdapterRequestFailureDiagnosticsTests
     [Fact]
     public void AttributionStaysInsideOriginalFailureBranchAndDoesNotLoadOrRetry()
     {
-        string source = ReadRepoFile("src", "ProGPU.Backend.Dawn", "DawnGpuContext.Offscreen.cs");
-        int start = source.IndexOf("if (state.Status != W.RequestAdapterStatus.Success || state.Adapter == AdapterHandle.Null)", StringComparison.Ordinal);
+        string source = ReadRepoFile("src", "ProGPU.Backend.Dawn", "DawnGpuContext.Requests.cs");
+        int start = source.IndexOf("catch (Exception error)", StringComparison.Ordinal);
         Assert.True(start >= 0);
-        int end = source.IndexOf("AdapterHandle result = state.Adapter;", start, StringComparison.Ordinal);
+        int end = source.IndexOf("finally { state.EndManagedUse(failure); }", start, StringComparison.Ordinal);
         Assert.True(end > start);
         string failure = source[start..end], success = source[..start] + source[end..];
-        Assert.Contains("Dawn failed to request an offscreen adapter: {state.Status}. {state.Message}", failure, StringComparison.Ordinal);
-        Assert.Contains("DawnAdapterRequestFailureDiagnostics.Attach(failure, options.BackendType,", failure, StringComparison.Ordinal);
-        Assert.Contains("forceFallbackAdapter, options.FeatureLevel, options.PowerPreference);", failure, StringComparison.Ordinal);
-        Assert.Contains("throw failure;", failure, StringComparison.Ordinal);
+        Assert.Contains("if (offscreenFallbackPolicy.HasValue)", failure, StringComparison.Ordinal);
+        Assert.Contains("DawnAdapterRequestFailureDiagnostics.Attach(error, options.BackendType,", failure, StringComparison.Ordinal);
+        Assert.Contains("offscreenFallbackPolicy.Value, options.FeatureLevel, options.PowerPreference);", failure, StringComparison.Ordinal);
+        Assert.Contains("throw;", failure, StringComparison.Ordinal);
         Assert.DoesNotContain("DawnAdapterRequestFailureDiagnostics", success, StringComparison.Ordinal);
-        Assert.Contains("ForceFallbackAdapter = forceFallbackAdapter", success, StringComparison.Ordinal);
-        Assert.Contains("PowerPreference = W.PowerPreference.HighPerformance", success, StringComparison.Ordinal);
+        Assert.Contains("state.TakeHandle((int)W.RequestAdapterStatus.Success, operation)", success, StringComparison.Ordinal);
+        string offscreen = ReadRepoFile("src", "ProGPU.Backend.Dawn", "DawnGpuContext.Offscreen.cs");
+        Assert.Contains("ForceFallbackAdapter = forceFallbackAdapter", offscreen, StringComparison.Ordinal);
+        Assert.Contains("offscreenFallbackPolicy: forceFallbackAdapter", offscreen, StringComparison.Ordinal);
+        Assert.Contains("PowerPreference = W.PowerPreference.HighPerformance", offscreen, StringComparison.Ordinal);
 
         string diagnostic = ReadRepoFile("src", "ProGPU.Backend.Dawn", "DawnAdapterRequestFailureDiagnostics.cs");
         Assert.Contains("DawnNativeProvider.GetModule()", diagnostic, StringComparison.Ordinal);
