@@ -117,8 +117,13 @@ internal static class HintedGlyphCommandGeometry
                 GpuGlyphRecord outline = outlines[(int)occurrence.OutlineIndex];
                 var raster = GlyphAtlas.GetHintedRasterBounds(in outline);
                 Vector2 origin = occurrence.Position + command.Position;
-                Vector2 low = origin + new Vector2(raster.XStart, raster.YStart) * inverseDpi;
-                Vector2 high = low + new Vector2(raster.Width, raster.Height) * inverseDpi;
+                Vector2 offset = new Vector2(raster.XStart, raster.YStart) * inverseDpi;
+                Vector2 extent = new Vector2(raster.Width, raster.Height) * inverseDpi;
+                Vector2 low = origin + offset;
+                // Match Text.wgsl: form the physical offset plus extent before
+                // adding the original logical position. Reassociation changes
+                // endpoints at large/fractional representable source frames.
+                Vector2 high = origin + (offset + extent);
                 if (!float.IsFinite(low.X) || !float.IsFinite(low.Y) ||
                     !float.IsFinite(high.X) || !float.IsFinite(high.Y)) return false;
                 minimum = Vector2.Min(minimum, low);

@@ -196,6 +196,28 @@ public sealed class HintedGlyphGeometryRecordingTests
     }
 
     [Fact]
+    public void RasterEndpointsUseTheOriginalWriterAdditionOrder()
+    {
+        const float sourceX = 100_000_000f;
+        using var geometry = new HintedGlyphGeometry(2f,
+            [new GpuGlyphRecord { SegmentCount = 1, MinX = -4f, MaxX = -3.875f, MinY = 0f, MaxY = 1f }],
+            [new GpuSegment { P0 = new(-4f, 0f), P1 = new(-3.875f, 1f), SegmentType = 0 }],
+            [new(0, 0, 7, 0, 0, 0, 0, 0, 0, 1, 0, new(sourceX, 20f), Vector2.Zero)],
+            new Owner());
+        var command = new RenderCommand
+        {
+            Type = RenderCommandType.DrawHintedGlyphs,
+            HintedGlyphGeometry = geometry,
+            GlyphRangeCount = 1
+        };
+        Assert.True(HintedGlyphCommandGeometry.TryGetRasterBounds(command, out Rect bounds, out bool hasInk));
+        Assert.True(hasInk);
+        Assert.Equal(sourceX, bounds.X);
+        Assert.Equal(sourceX + (-4f + 4.5f), bounds.Right);
+        Assert.NotEqual((sourceX + -4f) + 4.5f, bounds.Right);
+    }
+
+    [Fact]
     public void ContextDrainsEveryOwnerAndPreservesFirstRetirementFailure()
     {
         var first = new Owner { Failures = 1 };

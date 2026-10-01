@@ -40,6 +40,12 @@ No foreign implementation is copied. These are architectural comparisons; the
 production algorithms reused here are original ProGPU GlyphAtlas/Text.wgsl,
 native glyph execution and MIL brushed-glyph coverage composition.
 
+The caller keeps an owned `NativeCompiledPicture` live throughout any cached or
+rendered use and explicitly disposes it at retirement, retrying a failed teardown.
+Parent compilation acquires independent original geometry uses before flattening
+new child candidates; it never disposes a borrowed caller/renderer cache. Ordinary
+snapshots without hinted sources preserve their existing copied-byte behavior.
+
 ## Decisions across the complete rendering contract
 
 | Concern | Consumer decision |
@@ -55,7 +61,29 @@ native glyph execution and MIL brushed-glyph coverage composition.
 | Device loss/atlas generations | Existing atlas lifetime remains authoritative; failed or abandoned encoders invalidate unpublished physical coverage. |
 | Paint | Solid glyph styles or canonical glyph coverage masked spatial paint; source Rect remains unchanged, with original outer opacity/clip/blend. |
 
+## Source domain and private coverage storage
+
+The recorded `Rect` remains the caller's original ink/paint domain. Private mask
+and paint storage must cover the selected floor/ceil raster bounds, including
+the canonical four-physical-pixel padding, so a fractional source edge cannot
+clip nonzero glyph coverage by a second rectangle pixel-center test.
+
+ProGPU gradient points are local coordinates transformed by the brush's original
+coordinate matrix; they are not implicitly normalized to a draw rectangle.
+Private storage must not change those points or that matrix. Texture paint keeps
+its original source/destination rectangles, extension policy and brush transform;
+storage growth is not permission to stretch, retile or move the original paint.
+
 ## Required evidence before integration
+
+The provisional spatial route is not yet equivalent to per-occurrence solid
+painting: its R8 intermediate can requantize gamma-corrected coverage, and
+unioning white coverage before translucent paint changes overlapping occurrence
+composition. Source arithmetic demonstrates both risks; it is not a GPU receipt.
+Exact full-pixel fractional-edge and overlapping-occurrence differentials remain
+authored and unrun. Direct canonical brush painting in each original glyph
+fragment is still required; changing assertions, excluding those occurrences or
+substituting higher precision alone would not resolve the complete contract.
 
 Matched cold/first-interaction timings, sustained-scroll percentiles/worst frames,
 allocation/residency measurements, raw GPU differential/image controls, browser

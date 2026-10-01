@@ -2915,65 +2915,80 @@ public unsafe partial class Compositor : IDisposable
             _wavefrontFrameEnabled =
                 VectorEngine == VectorRenderingEngine.Wavefront &&
                 !retriedWithAtlas;
+            Exception? frameFailure = null;
             try
             {
-                RenderSceneCore(root, width, height, targetView);
-                return;
-            }
-            catch (WavefrontFrameFallbackException)
-            {
-                if (retriedWithAtlas)
+                try
                 {
-                    throw;
+                    RenderSceneCore(root, width, height, targetView);
+                    return;
                 }
-
-                retriedWithAtlas = true;
-                retriedAfterPathAtlasReset = false;
-                _compiledSceneReusable = false;
-                ReturnPendingMaskTexturesToPool();
-                ProGpuSceneDiagnostics.WriteLine(
-                    "[Compositor] Retrying the experimental Wavefront frame with the ordered Atlas renderer because the scene uses unsupported or mixed content.");
-            }
-            catch (RasterOperationPresentationFallbackException)
-            {
-                RenderRasterOperationPresentation(
-                    root,
-                    width,
-                    height,
-                    targetView);
-                return;
-            }
-            catch (PathAtlasCapacityExceededException)
-            {
-                if (retriedAfterPathAtlasReset)
+                catch (WavefrontFrameFallbackException)
                 {
-                    throw CreatePathAtlasTerminalException(_pathAtlas);
-                }
+                    if (retriedWithAtlas)
+                    {
+                        throw;
+                    }
 
-                retriedAfterPathAtlasReset = true;
-                _pathAtlas.ResetForRenderRetry();
-                _compiledSceneReusable = false;
-                ReturnPendingMaskTexturesToPool();
-                ProGpuSceneDiagnostics.WriteLine(
-                    "[Compositor] Retrying frame compilation after recoverable PathAtlas capacity exhaustion.");
+                    retriedWithAtlas = true;
+                    retriedAfterPathAtlasReset = false;
+                    _compiledSceneReusable = false;
+                    ReturnPendingMaskTexturesToPool();
+                    ProGpuSceneDiagnostics.WriteLine(
+                        "[Compositor] Retrying the experimental Wavefront frame with the ordered Atlas renderer because the scene uses unsupported or mixed content.");
+                }
+                catch (RasterOperationPresentationFallbackException)
+                {
+                    RenderRasterOperationPresentation(
+                        root,
+                        width,
+                        height,
+                        targetView);
+                    return;
+                }
+                catch (PathAtlasCapacityExceededException)
+                {
+                    if (retriedAfterPathAtlasReset)
+                    {
+                        throw CreatePathAtlasTerminalException(_pathAtlas);
+                    }
+
+                    retriedAfterPathAtlasReset = true;
+                    _pathAtlas.ResetForRenderRetry();
+                    _compiledSceneReusable = false;
+                    ReturnPendingMaskTexturesToPool();
+                    ProGpuSceneDiagnostics.WriteLine(
+                        "[Compositor] Retrying frame compilation after recoverable PathAtlas capacity exhaustion.");
+                }
             }
+            catch (Exception failure) { frameFailure = failure; throw; }
             finally
             {
                 _wavefrontFrameEnabled = false;
-                ReleaseFrameRetainedResources();
+                ReleaseFrameRetainedResourcesPreserving(frameFailure);
             }
         }
     }
 
     private void ReleaseFrameRetainedResources()
     {
-        for (int index = 0;
-             index < _frameRetainedResources.Count;
-             index++)
+        try { RetainedResourceLease.DisposeAll(_frameRetainedResources); }
+        finally { _frameRetainedResources.Clear(); }
+    }
+
+    private void ReleaseFrameRetainedResourcesPreserving(Exception? frameFailure)
+    {
+        if (frameFailure is null)
         {
-            _frameRetainedResources[index].Dispose();
+            ReleaseFrameRetainedResources();
+            return;
         }
-        _frameRetainedResources.Clear();
+        try { ReleaseFrameRetainedResources(); }
+        catch (Exception cleanup)
+        {
+            try { frameFailure.Data["RetainedFrameResourceCleanupFailure"] = cleanup; }
+            catch { }
+        }
     }
 
     private void RenderRasterOperationPresentation(
@@ -3325,6 +3340,9 @@ public unsafe partial class Compositor : IDisposable
                             break;
                         case RenderCommandType.DrawText:
                             CompileTextCommand(cmd, null, activeTransform);
+                            break;
+                        case RenderCommandType.DrawHintedGlyphs:
+                            CompileHintedGlyphCommand(cmd, activeTransform);
                             break;
                         case RenderCommandType.DrawTexture:
                             CompileTextureCommand(cmd, activeTransform);
@@ -5057,6 +5075,11 @@ SceneStateUploadComplete:
 
         public readonly int Count => _count;
 
+        public void EnsureCapacity(int capacity)
+        {
+            if (capacity > 1) EnsureArray(capacity);
+        }
+
         public void Push(T item)
         {
             if (_count == 0)
@@ -5937,6 +5960,9 @@ SceneStateUploadComplete:
                 case RenderCommandType.DrawGlyphRun:
                     CompileGlyphRunCommand(command, activeTransform);
                     break;
+                case RenderCommandType.DrawHintedGlyphs:
+                    CompileHintedGlyphCommand(command, activeTransform);
+                    break;
             }
 
             AddHitTestDrawCommand(command, hitTestTransform, context);
@@ -6408,6 +6434,9 @@ SceneStateUploadComplete:
                 case RenderCommandType.DrawGlyphRun:
                     CompileGlyphRunCommand(cmd, activeTransform);
                     break;
+                case RenderCommandType.DrawHintedGlyphs:
+                    CompileHintedGlyphCommand(cmd, activeTransform);
+                    break;
             }
 
             AddHitTestDrawCommand(cmd, hitTestTransform, picture);
@@ -6551,6 +6580,7 @@ SceneStateUploadComplete:
             RenderCommandType.DrawCircle or
             RenderCommandType.DrawRoundedRect or
             RenderCommandType.DrawPath or
+            RenderCommandType.DrawHintedGlyphs or
             RenderCommandType.DrawPointBatch;
     }
 
@@ -12290,7 +12320,8 @@ CompilePathStroke:
         }
     }
 
-    private void CompileFillQuadCommand(RenderCommand cmd, Matrix4x4 transform)
+    private void CompileFillQuadCommand(RenderCommand cmd, Matrix4x4 transform,
+        bool clampVerticesToClip = true)
     {
         SwitchBatch(BatchType.Vector);
         if (cmd.Brush == null) return;
@@ -12326,7 +12357,7 @@ CompilePathStroke:
         indexSpan[4] = idxStart + 2;
         indexSpan[5] = idxStart + 3;
 
-        if (_activeClipRect.HasValue)
+        if (clampVerticesToClip && _activeClipRect.HasValue)
         {
             var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
             for (int i = startIndex; i < vertices.Length; i++)
@@ -14916,9 +14947,7 @@ CompilePathStroke:
     }
 
     private static Vector2 SnapTexturePoint(Vector2 value, float dpiScale) =>
-        new(
-            MathF.Round(value.X * dpiScale) / dpiScale,
-            MathF.Round(value.Y * dpiScale) / dpiScale);
+        TexturePaintMapping.SnapPoint(value, dpiScale);
 
     internal Sampler* GetTextureSampler(
         TextureSamplingMode samplingMode,
@@ -15443,8 +15472,7 @@ CompilePathStroke:
 
             _atlas.Dispose();
             _pathAtlas.Dispose();
-            ReleaseFrameRetainedResources();
-            ReleaseCompiledSceneRetainedResources();
+            ReleaseAllRetainedResources();
 
             lock (_registeredExtensions)
             {
@@ -17821,6 +17849,7 @@ CompilePathStroke:
                 _offscreenRenderDepth == 0 &&
                 _visualCompilationDepth == 0;
             _offscreenRenderDepth++;
+            Exception? offscreenFailure = null;
             try
             {
                 if (ownsOffscreenFrame)
@@ -17868,12 +17897,13 @@ CompilePathStroke:
                     }
                 }
             }
+            catch (Exception failure) { offscreenFailure = failure; throw; }
             finally
             {
                 _offscreenRenderDepth--;
                 if (ownsOffscreenFrame)
                 {
-                    ReleaseFrameRetainedResources();
+                    ReleaseFrameRetainedResourcesPreserving(offscreenFailure);
                     _frameNumber++;
                     EvictUnusedBindGroups();
                 }
@@ -19024,6 +19054,9 @@ CompilePathStroke:
                     case RenderCommandType.DrawGlyphRun:
                         CompileGlyphRunCommand(cmd, activeTransform);
                         break;
+                    case RenderCommandType.DrawHintedGlyphs:
+                        CompileHintedGlyphCommand(cmd, activeTransform);
+                        break;
                     case RenderCommandType.DrawTexture:
                         CompileTextureCommand(cmd, activeTransform);
                         break;
@@ -19493,6 +19526,9 @@ CompilePathStroke:
                     case RenderCommandType.DrawGlyphRun:
                         CompileGlyphRunCommand(cmd, activeTransform);
                         break;
+                    case RenderCommandType.DrawHintedGlyphs:
+                        CompileHintedGlyphCommand(cmd, activeTransform);
+                        break;
                     case RenderCommandType.DrawTexture:
                         CompileTextureCommand(cmd, activeTransform);
                         break;
@@ -19860,7 +19896,10 @@ CompilePathStroke:
             for (var recordIndex = 0; recordIndex < textRecords.Length; recordIndex++)
             {
                 var record = textRecords[recordIndex];
-                CompileTextCommand(record.Command, null, record.Transform);
+                if (record.Command.Type == RenderCommandType.DrawHintedGlyphs)
+                    CompileHintedGlyphCommand(record.Command, record.Transform);
+                else
+                    CompileTextCommand(record.Command, null, record.Transform);
             }
 
             for (int i = 0; i < _textVerticesList.Count; i++)
@@ -20688,12 +20727,14 @@ CompilePathStroke:
 
             if (tex.Width == bounds.Width && tex.Height == bounds.Height)
             {
-                _maskTexturePool.RemoveAt(i);
                 ConfigureMaskTextureBounds(tex, bounds);
+                _maskTexturePool.RemoveAt(i);
                 return tex;
             }
         }
 
+        // A failed bounds/uniform setup must keep the actual texture owned.
+        _maskTexturePool.EnsureCapacity(checked(_maskTexturePool.Count + 1));
         var texture = new GpuTexture(
             _context,
             bounds.Width,
@@ -20702,7 +20743,12 @@ CompilePathStroke:
             TextureUsage.TextureBinding | TextureUsage.RenderAttachment | TextureUsage.CopyDst,
             "Geometry Mask Texture"
         );
-        ConfigureMaskTextureBounds(texture, bounds);
+        try { ConfigureMaskTextureBounds(texture, bounds); }
+        catch
+        {
+            _maskTexturePool.Add(texture);
+            throw;
+        }
         return texture;
     }
 
@@ -20906,13 +20952,24 @@ CompilePathStroke:
 
     private void ReleaseCompiledSceneRetainedResources()
     {
-        for (int index = 0;
-             index < _compiledSceneRetainedResources.Count;
-             index++)
+        try { RetainedResourceLease.DisposeAll(_compiledSceneRetainedResources); }
+        finally { _compiledSceneRetainedResources.Clear(); }
+    }
+
+    private void ReleaseAllRetainedResources()
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstFailure = null;
+        try { ReleaseFrameRetainedResources(); }
+        catch (Exception failure)
         {
-            _compiledSceneRetainedResources[index].Dispose();
+            firstFailure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure);
         }
-        _compiledSceneRetainedResources.Clear();
+        try { ReleaseCompiledSceneRetainedResources(); }
+        catch (Exception failure)
+        {
+            firstFailure ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure);
+        }
+        firstFailure?.Throw();
     }
 
     private void DisposeMaskBindGroupResource(
@@ -22383,7 +22440,14 @@ CompilePathStroke:
     private MaskCompilationState ResetStateForMaskCompilation()
     {
         var savedOpacityStack = RentStackSnapshot(_opacityStack, out var savedOpacityStackCount);
-        var savedBlendModeStack = RentStackSnapshot(_blendModeStack, out var savedBlendModeStackCount);
+        GpuBlendMode[] savedBlendModeStack;
+        int savedBlendModeStackCount;
+        try { savedBlendModeStack = RentStackSnapshot(_blendModeStack, out savedBlendModeStackCount); }
+        catch
+        {
+            ReturnStackSnapshot(savedOpacityStack, savedOpacityStackCount);
+            throw;
+        }
         var savedState = new MaskCompilationState(
             _activeOpacity,
             savedOpacityStack,
