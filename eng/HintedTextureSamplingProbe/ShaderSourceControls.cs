@@ -120,7 +120,12 @@ internal static class ShaderSourceControls
         Check(BitConverter.ToSingle(uniform128, 0) == .03125f && BitConverter.ToSingle(uniform128, 20) == -.03125f &&
             BitConverter.ToSingle(uniform128, 192) == 64 && BitConverter.ToSingle(uniform128, 200) == 2,
             "128px projection control changed physical DPI or canvas extent.");
-        return passed;
+        byte[] certified = Program.UniformBytes(96, canonicalFrame: true);
+        Check(BitConverter.ToSingle(certified, 204) == 1 && BitConverter.ToSingle(uniform96, 204) == 0 &&
+            certified.AsSpan(0, 204).SequenceEqual(uniform96.AsSpan(0, 204)) &&
+            certified.AsSpan(208).SequenceEqual(uniform96.AsSpan(208)),
+            "Canonical-frame opt-in changed more than the private host certificate or changed defaultgate0.");
+        return passed + CanonicalCoverageOracle.RunControls();
 
         void Check(bool condition, string message)
         {

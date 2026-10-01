@@ -6,6 +6,9 @@ namespace HintedTextureSamplingProbe;
 
 internal static class ShaderDiagnostics
 {
+    internal const string BaselineCommit = "8adb6350927fa64d8d4a025cb8181ff111868b74";
+    internal const string CanonicalFrameProfile = "canonical-physical-coverage-frame";
+
     internal static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes));
     internal static string Hash(string text) => Hash(Encoding.UTF8.GetBytes(text));
     internal static string CanonicalHash(string text) => Hash(text.Replace("\r\n", "\n", StringComparison.Ordinal));
@@ -31,13 +34,26 @@ internal static class ShaderDiagnostics
         // UTF-8 decoding. Only the separate parent-content check permits CRLF.
         string files = string.Join("\n", components);
         if (original != files) throw new InvalidOperationException("Embedded shader differs from the recorded source components.");
-        string expectedHash = paint
-            ? "2EE776CD0912D979E24F65B201C2AAEA11AFFEFCA454A00418F80AB4C5BAADEC"
-            : "008A9A9E0B8CDC4FAEFF422BA799E45896F18FBA2E5AB646DCAE6EC498BB25D1";
-        if (CanonicalHash(original) != expectedHash)
-            throw new InvalidOperationException("Production shader differs from the reviewed 8adb sampling diagnostic parent.");
+        _ = SourceProfile(original, paint);
         // Never normalize the shader returned to compilation or exact hashing.
         return original;
+    }
+
+    internal static string SourceProfile(string source, bool paint)
+    {
+        // Admit only the original immutable control or the reviewed coverage-
+        // frame candidate. Never accept arbitrary changed shaders, normalize
+        // compilation input, or pretend the candidate is the original parent.
+        string baselineHash = paint
+            ? "2EE776CD0912D979E24F65B201C2AAEA11AFFEFCA454A00418F80AB4C5BAADEC"
+            : "008A9A9E0B8CDC4FAEFF422BA799E45896F18FBA2E5AB646DCAE6EC498BB25D1";
+        string canonicalFrameHash = paint
+            ? "359150D2437D40D867E8D27FF94A05C0B5816E2014DB3A073BE9064D1442CA06"
+            : "5C48708499D2A3890A05EAF0B3AD12E2C5DEAC7D534D5567955FDAF4E0DC8270";
+        string hash = CanonicalHash(source);
+        if (hash == baselineHash) return "original-interpolated-coverage";
+        if (hash == canonicalFrameHash) return CanonicalFrameProfile;
+        throw new InvalidOperationException("Production shader differs from both reviewed sampling diagnostic source profiles.");
     }
 
     // Diagnostic-only instrumentation. All original vertex arithmetic, coverage
@@ -55,10 +71,14 @@ internal static class ShaderDiagnostics
             "    let grayscaleAlpha = text_coverage_to_alpha(alpha, strokeThickness, gamma, aliasedText);\n    diagnosticHelperSample = vec4<f32>(atlasCoord, alpha, grayscaleAlpha);");
         if (!paint)
         {
-            const string anchor = "    return text_glyph_color_with_mask_alpha(input.color, input.texCoord, input.texelBounds,\n        input.textMode, input.cornerRadius, input.strokeThickness, maskAlpha);";
+            // Gate0 still passes its original varying through the new helper;
+            // gate1 observes the actual canonical address, not stale input UV.
+            bool canonicalSource = original.Contains("fn text_glyph_coverage_tex_coord(", StringComparison.Ordinal);
+            string coordinate = canonicalSource ? "texCoord" : "input.texCoord";
+            string anchor = "    return text_glyph_color_with_mask_alpha(input.color, " + coordinate + ", input.texelBounds,\n        input.textMode, input.cornerRadius, input.strokeThickness, maskAlpha);";
             return ReplaceOnce(result, anchor,
-                "    let diagnosticColor = text_glyph_color_with_mask_alpha(input.color, input.texCoord, input.texelBounds,\n        input.textMode, input.cornerRadius, input.strokeThickness, maskAlpha);\n    return " +
-                (helperSample ? "diagnosticHelperSample;" : "vec4<f32>(input.texCoord, diagnosticRawCoverage, diagnosticColor.a);"));
+                "    let diagnosticColor = text_glyph_color_with_mask_alpha(input.color, " + coordinate + ", input.texelBounds,\n        input.textMode, input.cornerRadius, input.strokeThickness, maskAlpha);\n    return " +
+                (helperSample ? "diagnosticHelperSample;" : "vec4<f32>(" + coordinate + ", diagnosticRawCoverage, diagnosticColor.a);"));
         }
 
         // Scope substitutions to this function: helpers may contain identical

@@ -32,19 +32,23 @@ internal static unsafe class Program
         {
             if (args.Length == 1 && args[0] == "--verify-source-only")
             {
-                Console.WriteLine($"PASS {ShaderSourceControls.Run()} deterministic source, instrumentation, atlas-translation and native-frame controls; no GPU initialization.");
+                Console.WriteLine($"PASS {ShaderSourceControls.Run()} deterministic source, instrumentation, atlas-translation, native-frame and independent binary-oracle controls; no GPU initialization.");
                 return 0;
             }
             string? output = null;
-            bool fallback = false, nativeFrame = false;
+            bool fallback = false, nativeFrame = false, canonicalFrame = false, binaryOracle = false;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--output" && i + 1 < args.Length) output = args[++i];
                 else if (args[i] == "--fallback") fallback = true;
                 else if (args[i] == "--native-frame") nativeFrame = true;
-                else throw new ArgumentException("Usage: HintedTextureSamplingProbe --output <new directory> [--fallback] [--native-frame]");
+                else if (args[i] == "--canonical-frame") canonicalFrame = true;
+                else if (args[i] == "--binary-oracle") binaryOracle = true;
+                else throw new ArgumentException("Usage: HintedTextureSamplingProbe --output <new directory> [--fallback] [--native-frame [--canonical-frame [--binary-oracle]]]");
             }
             if (output is null) throw new ArgumentException("--output is required.");
+            if (canonicalFrame && !nativeFrame) throw new ArgumentException("--canonical-frame requires the proven --native-frame control.");
+            if (binaryOracle && !canonicalFrame) throw new ArgumentException("--binary-oracle requires --native-frame --canonical-frame.");
             if (fallback && !OperatingSystem.IsWindows()) throw new ArgumentException("--fallback explicitly requires Windows D3D12.");
             if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("Probe targets Windows/D3D12 or macOS/Metal.");
             output = Path.GetFullPath(output);
@@ -55,7 +59,7 @@ internal static unsafe class Program
             {
                 string caseOutput = Path.Combine(output, "target-" + size);
                 Directory.CreateDirectory(caseOutput);
-                Run(caseOutput, fallback, size, nativeFrame);
+                Run(caseOutput, fallback, size, nativeFrame, canonicalFrame, binaryOracle);
                 ThrowErrors(); // Includes errors queued during all resource/context retirement.
             }
             return 0;
@@ -67,10 +71,13 @@ internal static unsafe class Program
         }
     }
 
-    private static void Run(string output, bool fallback, uint size, bool nativeFrame)
+    private static void Run(string output, bool fallback, uint size, bool nativeFrame, bool canonicalFrame, bool binaryOracle)
     {
         int initialSubmissions = _submissions, initialCompletions = _completed;
         string text = ShaderDiagnostics.VerifySource(false), paint = ShaderDiagnostics.VerifySource(true);
+        string textProfile = ShaderDiagnostics.SourceProfile(text, false), paintProfile = ShaderDiagnostics.SourceProfile(paint, true);
+        if (canonicalFrame && (textProfile != ShaderDiagnostics.CanonicalFrameProfile || paintProfile != ShaderDiagnostics.CanonicalFrameProfile))
+            throw new InvalidOperationException("Canonical-frame opt-in requires both exact reviewed candidate modules.");
         string textDiagnostic = ShaderDiagnostics.Instrument(text, false);
         string paintDiagnostic = ShaderDiagnostics.Instrument(paint, true);
         var sources = new Dictionary<string, string>
@@ -103,7 +110,7 @@ internal static unsafe class Program
                 ShaderDiagnostics.Hash(File.ReadAllBytes(providerPath)))).Distinct().ToArray();
 
             using var cache = new RenderPipelineCache(context);
-            using var uniforms = Buffer(context, UniformBytes(size), BufferUsage.Uniform);
+            using var uniforms = Buffer(context, UniformBytes(size, canonicalFrame), BufferUsage.Uniform);
             using var styles = Buffer(context, new byte[32], BufferUsage.Storage);
             byte[] brushBytes = new byte[256];
             Span<float> brush = MemoryMarshal.Cast<byte, float>(brushBytes.AsSpan());
@@ -116,7 +123,8 @@ internal static unsafe class Program
             using var instances = Buffer(context, instanceBytes, BufferUsage.Vertex);
 
             using var atlas = new GpuTexture(context, AtlasSize, AtlasSize, TextureFormat.R8Unorm, TextureUsage.TextureBinding | TextureUsage.CopyDst);
-            byte[] atlasBytes = nativeFrame ? NativeFrameControl.Atlas() : Atlas();
+            byte[] atlasBytes = binaryOracle ? CanonicalCoverageOracle.Atlas()
+                : nativeFrame ? NativeFrameControl.Atlas() : Atlas();
             atlas.WritePixels<byte>(atlasBytes);
             byte[] textureBytes = [64, 192, 128, 255];
             using var texture = new GpuTexture(context, 1, 1, TextureFormat.Rgba8Unorm, TextureUsage.TextureBinding | TextureUsage.CopyDst);
@@ -181,6 +189,7 @@ internal static unsafe class Program
                     }
                 }
                 var comparisons = new List<object>();
+                int canonicalPixelDifferences = 0;
                 foreach (string path in paths)
                 foreach (string placement in new[] { "-single", "-overlap" })
                 {
@@ -195,6 +204,7 @@ internal static unsafe class Program
                     {
                         string suffix = placement + "-cold";
                         var difference = Difference(frames["text" + suffix], frames[path + suffix], false, size);
+                        canonicalPixelDifferences += difference.DifferentComponents;
                         Console.WriteLine($"{size}px RGBA8 text vs {path}{placement}: differentBytes={difference.DifferentComponents}, maxDelta={difference.MaximumAbsoluteDifference}");
                         comparisons.Add(new { Reference = "text" + suffix, Subject = path + suffix, Difference = difference });
                     }
@@ -207,9 +217,21 @@ internal static unsafe class Program
                         comparisons.Add(new { Reference = "text" + suffix, Subject = path + suffix, Difference = floats });
                     }
                 }
+                var oracle = new List<CanonicalCoverageOracle.Result>();
+                if (binaryOracle)
+                    foreach (string path in paths)
+                    foreach (string diagnosticKind in new[] { "-caller", "-sample" })
+                    for (int occurrence = 0; occurrence < 2; occurrence++)
+                    {
+                        string capture = path + diagnosticKind + "-glyph-" + occurrence;
+                        var result = CanonicalCoverageOracle.Check(capture, frames[capture], size, occurrence,
+                            atlasBytes, normalized: diagnosticKind == "-sample", boundedTexture: path == "bounded-texture");
+                        oracle.Add(result);
+                        Console.WriteLine($"{size}px independent binary oracle {capture}: differences={result.DifferentComponents}, interior={result.InteriorPixels}, boundary={result.BoundaryPixels}, outside={result.OutsidePixels}");
+                    }
                 File.WriteAllBytes(Path.Combine(output, "atlas.r8"), atlasBytes);
                 File.WriteAllBytes(Path.Combine(output, "instances.bin"), instanceBytes);
-                File.WriteAllBytes(Path.Combine(output, "uniforms.bin"), UniformBytes(size));
+                File.WriteAllBytes(Path.Combine(output, "uniforms.bin"), UniformBytes(size, canonicalFrame));
                 File.WriteAllBytes(Path.Combine(output, "material.bin"), brushBytes);
                 File.WriteAllBytes(Path.Combine(output, "bounded-paint.bin"), PaintBytes(true, size));
                 File.WriteAllBytes(Path.Combine(output, "texture.rgba8"), textureBytes);
@@ -220,8 +242,12 @@ internal static unsafe class Program
                         ? "Derived authentic native frame with controlled synthetic coverage, NOT original atlas coverage; not native font, renderer, package or Display qualification."
                         : "Synthetic shared-shader sampling diagnostic; not native font, renderer, package or Display qualification.",
                     FrameControl = nativeFrame ? "native-frame" : "synthetic-frame",
+                    CanonicalCoverageGate = canonicalFrame ? 1 : 0,
+                    CoverageInput = binaryOracle ? "binary-checkerboard-oracle" : "nonuniform-synthetic-regression",
                     NativeFrameReference = nativeFrame ? NativeFrameControl.Provenance() : null,
-                    ShaderParent = "8adb6350927fa64d8d4a025cb8181ff111868b74",
+                    ReviewedShaderBaselineCommit = ShaderDiagnostics.BaselineCommit,
+                    ShaderProfiles = new { Text = textProfile, HintedGlyphPaint = paintProfile },
+                    OriginalGate0Comparison = "Immutable native-frame run36884526788 at c0e9d839644f9e46664cd51ee66e637828fe63cc; compare exact receipts separately, not a claim of cross-provider parity.",
                     Provider = context.BackendKind.ToString(), Backend = context.AdapterBackendType.ToString(),
                     context.AdapterName, Compiler = context.SelectedDx12ShaderCompiler?.ToString(), RequestedFallback = fallback,
                     context.AdapterSelectionDiagnostics,
@@ -237,7 +263,7 @@ internal static unsafe class Program
                     AtlasTileOrigin = new[] { AtlasTileX, AtlasTileY },
                     AtlasTileExtent = nativeFrame ? new[] { NativeFrameControl.Width, NativeFrameControl.Height } : new[] { 23, 25 },
                     AtlasPlacementControl = nativeFrame
-                        ? "Original native first-allocation origin(2,2), derived20x22 frame with4pixelpadding; interior coverage is controlled synthetic data."
+                        ? "Original native first-allocation origin(2,2), derived20x22 frame with4pixelpadding; interior coverage is controlled synthetic data, never captured original atlas data."
                         : "Original (17,11) at cc1fbdf33f9580a9804a898f528dfe3b32b65aeb, Windows run36877876254; only atlas placement changes to(2,2).",
                     AtlasSha256 = ShaderDiagnostics.Hash(atlasBytes), InstanceSha256 = ShaderDiagnostics.Hash(instanceBytes),
                     AtlasSampler = "linear min/mag, nearest mip, clamp-to-edge, LOD 0, anisotropy 1; shared by all paths",
@@ -247,12 +273,18 @@ internal static unsafe class Program
                     DrawSubmissions = _submissions - initialSubmissions, ActualQueueCompletions = _completed - initialCompletions,
                     Readback = "Each returned row buffer followed a successful map callback; 15-second map and queue deadlines, 180-second process watchdog.",
                     Comparisons = comparisons,
+                    IndependentCoverageOracle = oracle,
+                    OraclePrecision = "Independent double physical frames and texel-center bilinear math; binary0/255 plus dyadic weights give exact representable values. Exact selected-host coordinate/raw-coverage assertions, not a universal R8 sampler guarantee. Gamma/alpha remain observed original arithmetic and paired RGBA controls; no CPU pow tolerance.",
                     MissingInk = missingInk,
                     Artifacts = frames.ToDictionary(x => x.Key, x => ShaderDiagnostics.Hash(x.Value))
                 };
                 File.WriteAllText(Path.Combine(output, "report.json"), JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
                 ThrowErrors();
                 if (missingInk.Count != 0) throw new InvalidOperationException("No ink in: " + string.Join(", ", missingInk));
+                if (canonicalFrame && canonicalPixelDifferences != 0)
+                    throw new InvalidOperationException("Canonical-frame original full-RGBA differential failed; see exact captures.");
+                if (oracle.Any(result => result.DifferentComponents != 0))
+                    throw new InvalidOperationException("Independent binary coordinate/coverage oracle failed; see exact captures.");
                 Console.WriteLine($"Completed {_completed} actual draw queue callbacks; differences reported without tolerance or parity admission. Artifacts: {output}");
             }
             finally
@@ -275,7 +307,7 @@ internal static unsafe class Program
         catch { buffer.Dispose(); throw; }
     }
 
-    internal static byte[] UniformBytes(uint size)
+    internal static byte[] UniformBytes(uint size, bool canonicalFrame = false)
     {
         byte[] bytes = new byte[224];
         Span<float> values = MemoryMarshal.Cast<byte, float>(bytes.AsSpan());
@@ -284,6 +316,9 @@ internal static unsafe class Program
         for (int matrix = 1; matrix < 3; matrix++)
             for (int diagonal = 0; diagonal < 4; diagonal++) values[matrix * 16 + diagonal * 5] = 1;
         values[48] = size / Dpi; values[49] = size / Dpi; values[50] = Dpi;
+        // Private native host certificate at unchanged uniform byte204. Only
+        // the explicit proven full-target native-frame probe opts into it.
+        values[51] = canonicalFrame ? 1 : 0;
         return bytes;
     }
 
