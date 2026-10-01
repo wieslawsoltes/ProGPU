@@ -273,7 +273,7 @@ hinted_paragraph_glyph_resource_result create_hinted_paragraph_glyph_resource(
                 static_cast<std::uint32_t>(source->bytes.size()), source->face_index, metrics.units_per_em});
             const auto start = candidate->binding_font_bytes_.size();
             candidate->binding_font_bytes_.resize(start + source->bytes.size());
-            // libc copies the exact immutable byte span using its qualified
+            // libc copies the exact immutable byte span using its existing
             // bulk path; no per-byte vector growth or font-table conversion.
             std::memcpy(candidate->binding_font_bytes_.data() + start, source->bytes.data(), source->bytes.size());
         }

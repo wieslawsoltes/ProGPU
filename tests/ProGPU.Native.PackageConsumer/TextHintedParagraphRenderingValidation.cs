@@ -17,6 +17,8 @@ internal static class TextHintedParagraphRenderingValidation
         Check(context.IsInitialized && !context.IsDisposed &&
             context.BackendKind is WgpuBackendKind.SilkNative or WgpuBackendKind.DawnNative,
             "real initialized native provider context");
+        TextHintedGlyphResourceValidation.Run(fontPath, context.BackendKind == WgpuBackendKind.DawnNative
+            ? NativeMilBackend.Dawn : NativeMilBackend.WgpuNative);
         // One dedicated fresh pair per provider run. Both engines retain the
         // same exact render history across all fixtures and projections.
         using var subject = createCompositor();
