@@ -73,6 +73,16 @@ WGPUBuffer select_uniform(progpu_native_engine& engine, std::uint32_t target_lay
             ? engine.semantic_layer_slots[target_layer].uniform_buffer : nullptr;
 }
 
+WGPURenderPipeline& pipeline_slot(progpu_native_engine& engine,
+    bool masked, bool chained, bool premultiplied_output) noexcept {
+    if (premultiplied_output) {
+        return chained ? engine.glyph_paint_chain_pipeline :
+            masked ? engine.glyph_paint_masked_pipeline : engine.glyph_paint_pipeline;
+    }
+    return chained ? engine.glyph_paint_straight_chain_pipeline :
+        masked ? engine.glyph_paint_straight_masked_pipeline : engine.glyph_paint_straight_pipeline;
+}
+
 } // namespace
 
 bool admit_glyph_paint_storage(progpu_native_engine& engine, std::uint64_t paint_bytes) {
@@ -99,9 +109,14 @@ bool admit_glyph_paint_storage(progpu_native_engine& engine, std::uint64_t paint
         paint_bytes <= engine.glyph_paint_max_buffer_size;
 }
 
-bool ensure_glyph_paint_pipeline(progpu_native_engine& engine, bool masked, bool chained) {
-    auto& pipeline = chained ? engine.glyph_paint_chain_pipeline :
-        masked ? engine.glyph_paint_masked_pipeline : engine.glyph_paint_pipeline;
+WGPURenderPipeline select_glyph_paint_pipeline(progpu_native_engine& engine,
+    bool masked, bool chained, bool premultiplied_output) noexcept {
+    return pipeline_slot(engine, masked, chained, premultiplied_output);
+}
+
+bool ensure_glyph_paint_pipeline(progpu_native_engine& engine,
+    bool masked, bool chained, bool premultiplied_output) {
+    auto& pipeline = pipeline_slot(engine, masked, chained, premultiplied_output);
     if (pipeline != nullptr) return true;
     if (!create_glyph_resources(engine) || !create_analytic_resources(engine) ||
         !ensure_layouts(engine) || (masked && !create_layer_mask_resources(engine)) ||
@@ -136,20 +151,24 @@ bool ensure_glyph_paint_pipeline(progpu_native_engine& engine, bool masked, bool
     WGPUVertexBufferLayout vertices{};
     vertices.arrayStride = sizeof(gpu_glyph_instance); vertices.stepMode = WGPUVertexStepMode_Instance;
     vertices.attributeCount = attributes.size(); vertices.attributes = attributes.data();
+    const bool alpha_mask_target = engine.target_format == WGPUTextureFormat_R8Unorm;
     WGPUBlendState blend{};
-    blend.color.srcFactor = WGPUBlendFactor_One;
+    blend.color.srcFactor = alpha_mask_target || premultiplied_output
+        ? WGPUBlendFactor_One : WGPUBlendFactor_SrcAlpha;
     blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
     blend.color.operation = WGPUBlendOperation_Add;
     blend.alpha = blend.color;
+    blend.alpha.srcFactor = WGPUBlendFactor_One;
     WGPUColorTargetState target{};
     target.format = engine.target_format; target.blend = &blend; target.writeMask = WGPUColorWriteMask_All;
     WGPUFragmentState fragment{};
     fragment.module = engine.glyph_paint_shader;
-    const bool alpha_mask_target = engine.target_format == WGPUTextureFormat_R8Unorm;
     fragment.entryPoint = webgpu::string_view(alpha_mask_target
         ? chained ? "fs_mask_chain" : masked ? "fs_mask" : "fs_mask_unmasked"
-        : chained ? "fs_main_mask_chain_premultiplied" :
-            masked ? "fs_main_premultiplied" : "fs_main_premultiplied_unmasked");
+        : premultiplied_output
+            ? chained ? "fs_main_mask_chain_premultiplied" :
+                masked ? "fs_main_premultiplied" : "fs_main_premultiplied_unmasked"
+            : chained ? "fs_main_mask_chain" : masked ? "fs_main" : "fs_main_unmasked");
     fragment.targetCount = 1U; fragment.targets = &target;
     WGPURenderPipelineDescriptor descriptor{};
     descriptor.label = webgpu::string_view("ProGPU direct original occurrence paint");
@@ -165,13 +184,23 @@ bool ensure_glyph_paint_pipeline(progpu_native_engine& engine, bool masked, bool
     return pipeline != nullptr;
 }
 
+bool prepare_glyph_paint_pipelines(progpu_native_engine& engine,
+    bool masked, bool chained) {
+    const bool alpha_mask_target = engine.target_format == WGPUTextureFormat_R8Unorm;
+    for (const auto& paint : engine.semantic_glyph_cache.paints) {
+        if (!ensure_glyph_paint_pipeline(engine, masked, chained,
+            glyph_paint_premultiplied_output(paint, alpha_mask_target))) return false;
+    }
+    return true;
+}
+
 bool prepare_glyph_paints(progpu_native_engine& engine,
     std::uint64_t identity, std::uint64_t& upload_bytes) {
     upload_bytes = 0U;
     const auto& page = engine.semantic_glyph_cache;
     if (page.paints.empty()) return true;
     if (page.paints.size() != page.paint_resources.size() ||
-        !ensure_glyph_paint_pipeline(engine, false, false)) return false;
+        !prepare_glyph_paint_pipelines(engine, false, false)) return false;
     const std::uint64_t required = page.paints.size() * sizeof(progpu_native_scene_glyph_paint);
     if (!admit_glyph_paint_storage(engine, required) ||
         engine.analytic_brush_buffer_size > engine.glyph_paint_storage_limit ||
