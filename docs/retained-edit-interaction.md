@@ -20,6 +20,11 @@ endpoint strictly inside that owner returns its unchanged UTF-16 index at the
 exact retained logical trailing caret. It does not interpolate ink, reshape a
 prefix, change a glyph cluster or borrow mutable font/format state. Point hits
 use the whole-owner start/end inventory, which remains distinct from word stops.
+The explicit EDIT source-point query changes only a strict original-grapheme
+interior's X to that exact retained trailing X; Y stays the original source row's
+top, not a native caret raster offset. True boundaries and no-draw hard-delimiter
+positions delegate unchanged ordinary source mapping. Forms keeps its original
+single-line `EM_POSFROMCHAR` Y=0 policy and client/viewport/scroll conversion.
 
 Missing ownership, malformed UTF-16, vertical frames, a grapheme crossing rows or
 bidi frames, gaps/noncontiguous visual ownership, a shaping cluster spanning

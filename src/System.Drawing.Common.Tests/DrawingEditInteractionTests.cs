@@ -27,6 +27,7 @@ public sealed class DrawingEditInteractionTests
             format.Alignment = StringAlignment.Far;
         }
         var ordinaryCaret = layout.GetCaretStop(interior);
+        PointF ordinaryPoint = layout.GetSourcePositionPoint(interior);
         var whole = layout.GetEditSelectionRectangles(start, end - start).ToArray();
         Assert.NotEmpty(whole);
         Assert.Equal(whole, layout.GetEditSelectionRectangles(start, interior - start));
@@ -35,6 +36,11 @@ public sealed class DrawingEditInteractionTests
         Assert.Equal(interior, caret.TextPosition);
         Assert.Equal(layout.GetCaretStop(end, true).Position, caret.Position);
         Assert.Equal(layout.GetCaretStop(end, true).Height, caret.Height);
+        Assert.Equal(layout.GetEditSourcePositionPoint(end), layout.GetEditSourcePositionPoint(interior));
+        Assert.Equal(layout.GetSourcePositionPoint(start), layout.GetEditSourcePositionPoint(start));
+        Assert.Equal(layout.GetSourcePositionPoint(end), layout.GetEditSourcePositionPoint(end));
+        Assert.Equal(ordinaryPoint.Y, layout.GetEditSourcePositionPoint(interior).Y);
+        Assert.Equal(ordinaryPoint, layout.GetSourcePositionPoint(interior));
         Assert.Equal(ordinaryCaret, layout.GetCaretStop(interior));
         Assert.Empty(recorded.Commands);
         using Graphics replay = Graphics.FromProGpuDrawingContext(recorded);
@@ -61,9 +67,12 @@ public sealed class DrawingEditInteractionTests
                 Assert.Equal(hard.GetCaretStop(start, affinity), hard.GetEditCaretStop(start, affinity));
         }
         Assert.Throws<NotSupportedException>(() => hard.GetEditCaretStop(7));
+        for (int position = 6; position <= hard.TextLength; position++)
+            Assert.Equal(hard.GetSourcePositionPoint(position), hard.GetEditSourcePositionPoint(position));
         DrawingTextLayout empty = DrawingTextLayout.Create(graphics, "", font, new SizeF(100, 100), format);
         Assert.Equal(empty.GetCaretStop(0), empty.GetEditCaretStop(0));
         Assert.Empty(empty.GetEditSelectionRectangles(0, 0));
+        Assert.Equal(empty.GetSourcePositionPoint(0), empty.GetEditSourcePositionPoint(0));
         DrawingTextLayout wrapped = DrawingTextLayout.Create(graphics, "a b c d", font, new SizeF(12, 100), format);
         Assert.True(wrapped.RowCount > 1);
         for (int row = 1; row < wrapped.RowCount; row++)
@@ -71,6 +80,7 @@ public sealed class DrawingEditInteractionTests
             int start = wrapped.GetRowSourceStart(row);
             foreach (bool affinity in new[] { false, true })
                 Assert.Equal(wrapped.GetCaretStop(start, affinity), wrapped.GetEditCaretStop(start, affinity));
+            Assert.Equal(wrapped.GetSourcePositionPoint(start), wrapped.GetEditSourcePositionPoint(start));
         }
     }
 }
