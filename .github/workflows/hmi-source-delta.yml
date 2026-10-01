@@ -1,0 +1,29 @@
+name: HMI source delta
+on:
+  push:
+    branches: [feat/hmi-designer]
+    paths: ['.github/workflows/hmi-source-delta.yml']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 64
+          persist-credentials: false
+      - name: Export source-only changes from the retained build workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          git diff --binary e60a8a59c57e31980a78f7badb926489578bc849 HEAD -- . ':!*.ttf' ':!*.otf' ':!*.woff*' > artifacts/hmi-source.patch
+          git rev-parse HEAD > artifacts/source-revision.txt
+          sha256sum artifacts/hmi-source.patch > artifacts/source-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hmi-source-delta
+          path: artifacts
+          retention-days: 1

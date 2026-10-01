@@ -2,6 +2,10 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFrameworks>net10.0;net10.0-macos</TargetFrameworks>
+    <!-- Restrict only this host's restore graph for portable builds without Apple
+         workloads. Do not override TargetFrameworks globally: that would also
+         retarget the netstandard2.0 XAML compiler/source-generator dependencies. -->
+    <TargetFrameworks Condition="'$(ProGpuSamplesDesktopPortableOnly)' == 'true'">net10.0</TargetFrameworks>
     <ApplicationId Condition="'$(TargetFramework)' == 'net10.0-macos'">org.progpu.samples.desktop</ApplicationId>
     <ApplicationTitle Condition="'$(TargetFramework)' == 'net10.0-macos'">ProGPU Samples Desktop</ApplicationTitle>
     <ImplicitUsings>enable</ImplicitUsings>

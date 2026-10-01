@@ -452,6 +452,13 @@ pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 - `ProGPU.WinUI.Themes.Fluent`
 - `ProGPU.WinUI.Charts`
 - `ProGPU.WinUI.Designer`
+- `ProGPU.Hmi`
+- `ProGPU.WinUI.Hmi`
+- `ProGPU.WinUI.Hmi.Workplace`
+- `ProGPU.WinUI.Hmi.Designer`
+- `ProGPU.Hmi.Modbus`
+- `ProGPU.Hmi.Mqtt`
+- `ProGPU.Hmi.OpcUa`
 - `ProGPU.Xaml`
 - `ProGPU.Xaml.Roslyn`
 - `ProGPU.Xaml.SourceGenerator`

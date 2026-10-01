@@ -83,8 +83,10 @@ public sealed class Viewbox : FrameworkElement
             return Vector2.Zero;
         }
 
-        child.Measure(new Vector2(float.PositiveInfinity, float.PositiveInfinity));
-        _naturalSize = child.DesiredSize;
+        // Measure through the actual parent, not around it: child invalidation must
+        // propagate through the presenter to this Viewbox on subsequent telemetry/layout changes.
+        _presenter.Measure(new Vector2(float.PositiveInfinity, float.PositiveInfinity));
+        _naturalSize = _presenter.DesiredSize;
         Vector2 scale = CalculateScale(availableSize, _naturalSize);
         Vector2 desired = _naturalSize * scale;
         if (float.IsFinite(availableSize.X)) desired.X = Math.Min(desired.X, availableSize.X);
