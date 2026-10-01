@@ -43,11 +43,22 @@ class NativeContractInlineArrayTests(unittest.TestCase):
         for declaration in ("uint32_t reserved[0];", "uint32_t reserved[65];",
                             "uint32_t reserved[-1];", "uint32_t reserved[COUNT];",
                             "uint32_t reserved[999999999999999999999];",
-                            "uint32_t* reserved[3];", "float reserved[3];",
+                            "uint32_t* reserved[3];", "float reserved[0];", "float reserved[129];",
+                            "float* reserved[3];", "float reserved[COUNT];",
                             "uint64_t reserved[3];", "uint32_t reserved[3][2];",
                             "/* PROGPU_CSHARP_TYPE: uint */ uint32_t reserved[3];"):
             with self.subTest(declaration=declaration):
                 self.generate(declaration, False)
+
+    def test_shader_float_register_arrays_preserve_inline_order(self):
+        for count in (1, 4, 128):
+            with self.subTest(count=count):
+                generated = self.generate(f"uint32_t before; float constants[{count}]; uint32_t after;", True)
+                fields = "\n".join(line.strip() for line in generated.splitlines()
+                                   if line.strip().startswith(("internal uint ", "internal float ")))
+                self.assertEqual(fields, "internal uint Before;\n" +
+                                 "\n".join(f"internal float Constants{i};" for i in range(count)) +
+                                 "\ninternal uint After;")
 
 
 if __name__ == "__main__":

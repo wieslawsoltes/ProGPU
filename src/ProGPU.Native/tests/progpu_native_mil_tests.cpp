@@ -21655,6 +21655,46 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
     PROGPU_REQUIRE(std::memcmp(before.data() + shader_resource.auxiliary_offset,
         program.data(), sizeof(program)) == 0);
 
+    // Typed builder and raw consumer agree on every descriptor rejection;
+    // neither publishes a partial resource or accepts invalid original bytes.
+    progpu::native::semantic_scene_builder builder(9830U, 1U);
+    const auto bytecode = std::as_bytes(std::span(program));
+    std::uint32_t shader_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    PROGPU_REQUIRE(builder.add_shader_effect(shader, bytecode, shader_index));
+    for (std::uint32_t variant = 0U; variant < 7U; ++variant) {
+        auto invalid = shader;
+        if (variant == 0U) invalid.version = 2U;
+        if (variant == 1U) invalid.bytecode_size -= 4U;
+        if (variant == 2U) invalid.source_sampler = 1U;
+        if (variant == 3U) invalid.sampling_mode = 2U;
+        if (variant == 4U) invalid.revision = 0U;
+        if (variant == 5U) invalid.reserved = 1U;
+        if (variant == 6U) invalid.constants[127] = std::numeric_limits<float>::infinity();
+        std::uint32_t rejected_index = 42U;
+        PROGPU_REQUIRE(!builder.add_shader_effect(invalid, bytecode, rejected_index));
+        PROGPU_REQUIRE(rejected_index == PROGPU_NATIVE_SCENE_NO_INDEX);
+        auto damaged = before;
+        write_value(damaged, shader_resource.payload_offset, invalid);
+        PROGPU_REQUIRE(progpu::native::scene::validate(damaged.data(), damaged.size()).status !=
+            PROGPU_NATIVE_STATUS_SUCCESS);
+    }
+    progpu_native_scene_layer layer{};
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+    layer.bounds = {0.0F, 0.0F, 32.0F, 24.0F};
+    layer.opacity = 1.0F; layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.effect_resource_index = shader_index;
+    PROGPU_REQUIRE(!builder.push_layer(layer, progpu::native::scene_layer_hit_test_mode::source_identity_effect));
+    layer.flags |= PROGPU_NATIVE_SCENE_LAYER_BACKDROP;
+    PROGPU_REQUIRE(!builder.push_layer(layer));
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+    PROGPU_REQUIRE(builder.push_layer(layer));
+    PROGPU_REQUIRE(builder.pop_layer());
+    std::vector<std::byte> typed_scene;
+    PROGPU_REQUIRE(builder.build(typed_scene));
+    PROGPU_REQUIRE(progpu::native::scene::validate(typed_scene.data(), typed_scene.size()).status ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+
     // Each rejection preserves both the original resource generation and the
     // original compiled scene. Include actual odd Int16-register framing.
     for (std::uint32_t variant = 0U; variant < 8U; ++variant) {
