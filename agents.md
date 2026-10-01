@@ -7,8 +7,12 @@ trim an unsupported inventory or classify a source-local suffix. Return metadata
 by value and publish caller spans only after full validation/classification,
 including unused-capacity alias guards. Optional ICU uses only the pinned private
 static source/data/notices and target-verified package receipt, never ambient ICU.
-Transport is not a Forms capability marker: the immutable DrawingTextLayout
-generation and actual editor interaction still need to consume the same snapshot.
+DrawingTextLayout freezes the original text and explicit shaping direction with
+its retained generation; its explicit boundary query caches one exact native
+result, including rejection. Keep ordinary creation/painting free of classifier
+calls and public inventories immutable. Do not reinterpret interior EDIT endpoints
+as nearest shaped caret stops. Actual editor geometry/input qualification remains
+required before the ordinary Forms capability marker.
 See docs/native-edit-word-boundaries.md.
 
 Bounded hinted texture paint retains the original image triangles and paint UVs,
