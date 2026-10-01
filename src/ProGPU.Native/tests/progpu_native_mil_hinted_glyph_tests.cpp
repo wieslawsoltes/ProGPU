@@ -268,7 +268,13 @@ void verify_scene(std::span<const std::byte> scene, const expected& e, bool cove
             require(!coverage && brush.type == PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT && brush.stop_count == 2U && brush.opacity == 1.0F);
             const auto start = read<progpu_native_scene_gradient_stop>(scene,r.auxiliary_offset + brush.stop_offset*sizeof(progpu_native_scene_gradient_stop));
             const auto end = read<progpu_native_scene_gradient_stop>(scene,r.auxiliary_offset + (brush.stop_offset+1U)*sizeof(progpu_native_scene_gradient_stop));
-            require(equal(start.color,{1,0,0,1}) && equal(end.color,{0,0,1,1}) && start.offset == 0.0F && end.offset == 1.0F); ++gradients;
+            // Preserve the existing linear_to_srgb float arithmetic: the
+            // original 1.055F * pow(1, 1/2.4F) - 0.055F endpoint is the float
+            // immediately below one. This is an exact expectation, not a
+            // tolerance or a change to source gamma/brush behavior.
+            constexpr float encoded_one = 0x1.fffffep-1F;
+            require(equal(start.color,{encoded_one,0,0,1}) && equal(end.color,{0,0,encoded_one,1}) &&
+                start.offset == 0.0F && end.offset == 1.0F); ++gradients;
         }
     }
     require(layer_opacities.size() == 1U && source_opacities == (coverage ? 0U : 1U));
