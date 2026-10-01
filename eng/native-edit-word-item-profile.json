@@ -1,0 +1,34 @@
+{
+  "schema": "native-edit-word-item-profile-v1",
+  "sourceRun": 36867054042,
+  "sourceJob": 110385050238,
+  "sourceHead": "4aab8ead3eafac60a57b6a646debad132184ef13",
+  "receipts": {
+    "original24.json": "830aeade980c9629433a03637b4d69f74289b7b323be811e92b0a34c88e2277d",
+    "contexts.json": "a40dd219752cd8e41dd53867e280e14d5debe712766089ad8d914881137d8417",
+    "item-contexts.json": "a095a0cc680cca4aea8248b16cd13e4bc9afe2d3bb8bf811a7795f279d7fa706"
+  },
+  "unicodeSourceSha256": "09d1198b93e17bd27ac419635bb60107a868701c8b62e96cc3a7b1349c353699",
+  "osBuild": "10.0.26100.0",
+  "architecture": "X64",
+  "locale": "en-US",
+  "framework": ".NET 11.0.0-preview.5.26302.115",
+  "scriptDomains": ["arab", "syrc", "hebr", "deva", "thai", "laoo", "khmr"],
+  "trainingCases": 121,
+  "observedScalars": 41,
+  "heldoutItemCases": 103,
+  "domain": "Only consistent actual native-engine identities for observed scalars in the stated original Unicode17 script domains; script membership selects/fails closed, never assigns an engine",
+  "engines": {
+    "5": {"flags": 0, "firstSoft": false},
+    "24": {"flags": 2, "firstSoft": false},
+    "26": {"flags": 1, "firstSoft": true},
+    "27": {"flags": 0, "firstSoft": false},
+    "30": {"flags": 1, "firstSoft": true},
+    "31": {"flags": 1, "firstSoft": true},
+    "34": {"flags": 2, "firstSoft": false},
+    "56": {"flags": 1, "firstSoft": true},
+    "58": {"flags": 6, "firstSoft": false}
+  },
+  "ordinaryProviderQualified": false,
+  "allUnicodeQualified": false
+}

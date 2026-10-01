@@ -6,8 +6,8 @@ Microsoft EDIT inventories; the two formerly unadmitted BMP-symbol/emoji
 inventories now pass with a pinned measured property profile. The two Thai
 inventories require the exact owned ICU dependency. This is **not** a complete
 portable word classifier, ordinary Forms provider admission or application
-qualification: unmeasured/nonmatching symbol and real script-item policies remain
-explicitly unsupported.
+qualification: unmeasured/nonmatching symbols, unobserved engine properties and
+unimplemented complex syllable policies remain explicitly unsupported.
 
 The independent receipt is from LibreWinForms Build 36802156343,
 Windows job 110178653752, source head 639fe6938027c6e2565ae84968e1010b8ed665d8.
@@ -202,16 +202,18 @@ distinction. Comparing the official Unicode LineBreak data from versions
 no historical table is substituted. The measured domain below is generated
 mechanically from exact original-API observations, not guessed property ranges.
 
-A separate contextual gap is explicit: `x\u0628\u062Ay ` and its ZWJ/ZWNJ
+At the earlier joiner checkpoint, a separate contextual gap was explicit:
+`x\u0628\u062Ay ` and its ZWJ/ZWNJ
 variants have a native boundary at index1 that the line/whitespace profile does
 not emit. The unchanged canonical script itemizer identifies an interior Arabic
-run whose start has no existing boundary; this precise domain now fails atomically
+run whose start has no existing boundary; that precise domain failed atomically
 with `unqualified_script_item_transition_policy`, including all three contextual
 rejection controls. This interim guard is not an implemented item-boundary policy
 or original-case parity. Direct ScriptBreak for the actual Arabic item starts with raw byte13,
 unlike the neighboring Latin item. That is evidence requiring a real script-item
 policy, not permission to make every script/bidi transition a word boundary.
-Unmeasured BMP and mixed-script contracts therefore still block a complete classifier
+The bounded item implementation below now resolves that observed entry domain;
+unmeasured BMP and mixed-script contracts still block a complete classifier
 or provider. No reference-generated word/index lookup is used in production.
 
 The next observer revision retains the original24 and contextual72 inventories
@@ -264,7 +266,8 @@ members with different signatures remain atomic unsupported controls. Original
 Unicode17 properties, shaping, source units and modern default line breaking are
 unchanged. The original symbol and emoji requests now retain their independently
 observed UTF-16 inventories `0,5,7,9` and `0,4,7,9,11`, including the interior
-modern-grapheme boundary. General per-item engine assembly remains required.
+modern-grapheme boundary. A complete engine-property source and broader complex
+engine policies remain required even after the bounded item assembler below.
 
 The generator validates exact receipt/property hashes, completion/platform/API
 identity, full UTF-16 inputs, all-three-context coverage and the pinned decision
@@ -282,7 +285,88 @@ python3 eng/progpu-generate-edit-word-symbol-profile.py --receipt /absolute/path
 python3 -m unittest discover -s eng/tests -p 'test_edit_word*.py'
 ```
 
-The complete-source Arabic/complex-script entry policy is still not implemented.
 CTYPE2/3, general category and UnicodeScript alone do not identify the original
-Windows engine or its contextual item-first behavior. The existing atomic
-transition guard is interim safety, not issue completion or Forms admission.
+Windows engine or its contextual item-first behavior. No complete general
+classifier or Forms admission follows from the measured symbol profile.
+
+### Reusable whole-item policy and bounded property source
+
+The private item assembler now consumes a **separate** engine-property source;
+it does not infer a Windows engine from UnicodeScript or change the measured
+symbol line-class table. A complete property source can replace the bounded
+source without changing the assembly contract. The current source deliberately
+admits only 41 observed scalar/engine identities, not entire script ranges.
+Unobserved members of the stated Arabic/Syriac/Hebrew/Devanagari/Thai/Lao/Khmer
+domains fail atomically before any output. UnicodeScript selects this rejection
+domain only; positive engine identities come from actual native item records.
+Myanmar remains unsupported rather than promoting two observed letters to a
+whole-syllable policy. This is an implementation increment, not finished TextBox
+support or a permanently sufficient observed-scalar provider.
+
+[eng/native-edit-word-item-profile.json](../eng/native-edit-word-item-profile.json)
+pins the same original Server2025 run/source/native receipt identities. Its
+generator reads original24, contextual72, and exactly 25 declared LTR item cases
+(18 Arabic-prefix and seven Latin-entry script cases): 121 training requests.
+The other **103 item requests are held out** and do not supply scalar mappings,
+entry policy or expected seams. Original24/context72 and those 25 mapping inputs
+are now trained oracle-derived regression controls, **not independent classifier
+qualification**. The retained literal inventories are unchanged; product data
+contains scalar properties and engine policies, never fixture words or endpoints.
+The item generator reproduces the exact pinned data byte-for-byte and rejects
+changed hashes, partial/native-failed items, unknown flags, inconsistent observed
+engines, invented whitespace exits, altered platform and general-provider claims.
+Eight new synthetic schema tests bring the focused Python suite to 28; these are
+not native evidence.
+
+The observed policies are distinct:
+
+| Actual observed engines | Item entry policy |
+| --- | --- |
+| Arabic26, Syriac30, Thai31, Lao56 | original soft entry |
+| Hebrew24, Devanagari34, Khmer58 | suppress paragraph bridge at entry |
+| Generic/presentation5, numeric27 | original paragraph bridge |
+
+Khmer also retains its original before-whitespace exit. The private generic
+paragraph-bridge identity zero is **not** a fabricated Windows eScript value.
+Arabic presentation form U+FE8F and Arabic digit U+0661 retain their actual
+observed generic/numeric properties rather than becoming Arabic26 by script.
+Typed marks and joiners attach to their preceding original item; they do not
+create a new item based on their raw script property.
+
+The assembler reuses the complete-source native bidi worker with explicit
+paragraph level 0/1, retaining every original UTF-16 position and resolved level.
+Changes of observed policy identity or resolved level delimit its typed items.
+Complex item interiors use the shared line worker on the **whole original item**;
+its artificial terminal sentinel is never copied to the following item.
+Generic paragraph bridges retain the complete-source opportunities. Entry
+suppression or soft entry applies only to a non-whitespace item start; a leading
+RTL-attached space remains raw whitespace, not an invented entry opportunity.
+Explicit whitespace seams and CR/CRLF/CRCRLF groups are assembled afterward.
+The dictionary still sees the complete unchanged paragraph once and contributes
+only admitted interior Thai seams. No glyph, grapheme, caret or source rewrite
+is used to repair a boundary.
+
+The strict CPU-only no-ICU harness passes the 22 available original inventories,
+all 72 trained contextual inventories, and 92 accepted held-out item controls:
+44 repeated-symbol/VS16, 18 RTL Arabic-prefix and 30 composed script/direction
+cases. The six held-out Myanmar cases fail precisely as unsupported and the
+five held-out Thai cases fail precisely for the absent owned dependency, all
+without changing either snapshot field. Those 11 rejections are **not parity**.
+The five positive Thai composed controls are authored for the owned-ICU harness,
+but that larger configuration was not rerun here; no new dictionary or provider
+qualification is claimed. Invalid paragraph directions, unobserved complex
+members and invalid UTF-16 also retain the exact previous snapshot atomically.
+The first held-out run exposed an extra seam before an RTL Arabic leading space;
+the assembly was corrected and the exact original assertion retained.
+
+```sh
+python3 eng/progpu-generate-edit-word-item-profile.py --evidence /absolute/path/to/original-run-receipts --check src/ProGPU.Native/src/Text/progpu_native_edit_item_data.generated.hpp
+```
+
+[ScriptItemize](https://learn.microsoft.com/en-us/windows/win32/api/usp10/nf-usp10-scriptitemize)
+documents shaping-engine/direction boundaries and complete-paragraph bidi input;
+[ScriptBreak](https://learn.microsoft.com/en-us/windows/win32/api/usp10/nf-usp10-scriptbreak)
+requires whole original items rather than combined items or formatting fragments.
+These contracts guide the reusable assembly, but the portable property source,
+unobserved engines/syllables and complete-source generality remain required
+before publishing Forms capability markers or connecting ordinary TextBox input.

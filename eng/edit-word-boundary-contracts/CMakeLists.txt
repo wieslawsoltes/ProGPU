@@ -10,6 +10,8 @@ add_executable(progpu_native_edit_word_boundary_tests
     "${_native}/src/Text/progpu_native_edit_word_boundaries.cpp"
     "${_native}/src/Text/progpu_native_unicode.cpp"
     "${_native}/src/Text/Unicode/progpu_native_unicode_category.cpp"
+    "${_native}/src/Text/Unicode/progpu_native_unicode_directional.cpp"
+    "${_native}/src/Text/Bidi/progpu_native_unicode_bidi.cpp"
     "${_native}/src/Text/progpu_native_unicode_grapheme.cpp"
     "${_native}/src/Text/progpu_native_unicode_line_break.cpp")
 target_compile_features(progpu_native_edit_word_boundary_tests PRIVATE cxx_std_20)

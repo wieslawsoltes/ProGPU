@@ -1,6 +1,7 @@
 #include "progpu_native_edit_word_boundaries.hpp"
 #include "progpu_native_text.hpp"
 #include "progpu_native_unicode_line_break_internal.hpp"
+#include "progpu_native_edit_item_policy.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -33,7 +34,6 @@ constexpr auto thai = open_type_tag::from_chars('t', 'h', 'a', 'i');
 constexpr auto lao = open_type_tag::from_chars('l', 'a', 'o', 'o');
 constexpr auto lao_layout = open_type_tag::from_chars('l', 'a', 'o', ' ');
 constexpr auto khmer = open_type_tag::from_chars('k', 'h', 'm', 'r');
-constexpr auto arabic = open_type_tag::from_chars('a', 'r', 'a', 'b');
 using lb = unicode_line_break_class;
 
 bool fail(edit_word_boundary_error value, edit_word_boundary_error& error) noexcept
@@ -49,6 +49,92 @@ bool is_edit_white_space(std::uint32_t code_point) noexcept
     return get_unicode_general_category(code_point) ==
         unicode_general_category::space_separator &&
         code_point != 0x00A0U && code_point != 0x3000U;
+}
+
+struct edit_item final {
+    std::size_t scalar_start = 0U;
+    std::size_t scalar_count = 0U;
+    detail::edit_item_properties properties{};
+    std::int8_t level = 0;
+};
+
+bool assemble_edit_item_breaks(
+    std::span<const unicode_scalar> scalars,
+    std::span<detail::edit_item_properties> properties,
+    std::int8_t requested_level,
+    std::span<text_line_break_kind> breaks,
+    edit_word_boundary_error& error)
+{
+    // Reuse the actual complete-source native bidi worker; no independent
+    // prefix resolution, inferred direction from script or rewritten input.
+    unicode_bidi_requirements requirements{};
+    if (!try_get_unicode_bidi_requirements(scalars, requirements))
+        return fail(edit_word_boundary_error::input_too_large, error);
+    std::vector<unicode_bidi_unit> units(requirements.unit_count);
+    std::vector<std::uint32_t> indices(requirements.index_count);
+    std::vector<unicode_bidi_level_run> runs(requirements.run_count);
+    std::vector<unicode_bidi_bracket_pair> brackets(requirements.bracket_pair_count);
+    std::vector<unicode_bidi_level> levels(scalars.size());
+    std::int8_t resolved_level = 0;
+    std::uint32_t written = 0U;
+    if (!try_resolve_unicode_bidi(scalars, requested_level,
+            {units, indices, runs, brackets}, levels, resolved_level, written) ||
+        written != scalars.size() || resolved_level != requested_level)
+        return fail(edit_word_boundary_error::invalid_encoding, error);
+    for (std::size_t index = 1U; index < scalars.size(); ++index) {
+        const auto raw = get_unicode_line_break_class(scalars[index].code_point);
+        const auto previous_raw = get_unicode_line_break_class(scalars[index - 1U].code_point);
+        // Typed marks/joiners attach to the preceding item, never their raw
+        // UnicodeScript. Preserve the original source unit and its bidi frame.
+        if ((raw == lb::combining_mark || raw == lb::zero_width_joiner) &&
+            previous_raw != lb::mandatory && previous_raw != lb::carriage_return &&
+            previous_raw != lb::line_feed && previous_raw != lb::space &&
+            previous_raw != lb::zero_width_space) {
+            properties[index] = properties[index - 1U];
+        } else if (is_edit_white_space(scalars[index].code_point)) {
+            // Paragraph direction can attach a space to the following RTL
+            // item. Match its real resolved level, not array order alone.
+            if (levels[index].level == levels[index - 1U].level)
+                properties[index] = properties[index - 1U];
+            else {
+                auto following = index + 1U;
+                while (following < scalars.size() &&
+                    is_edit_white_space(scalars[following].code_point)) ++following;
+                if (following < scalars.size() && levels[following].level == levels[index].level)
+                    properties[index] = properties[following];
+            }
+        }
+    }
+    std::vector<edit_item> items;
+    for (std::size_t index = 0U; index < scalars.size(); ++index) {
+        if (items.empty() || items.back().properties.policy_identity != properties[index].policy_identity ||
+            items.back().level != levels[index].level)
+            items.push_back({index, 1U, properties[index], levels[index].level});
+        else ++items.back().scalar_count;
+    }
+    std::vector<lb> item_classes(scalars.size());
+    std::vector<text_line_break_kind> item_breaks(scalars.size());
+    for (const auto& item : items) {
+        const auto start = item.scalar_start;
+        const auto count = item.scalar_count;
+        if (item.properties.flags == 0U) continue; // original paragraph bridge
+        // Resolve each whole original typed item. A local terminal sentinel
+        // is NOT a boundary at the next item: only its interior is copied.
+        if (!detail::try_resolve_edit_selection_line_breaks(scalars.subspan(start, count),
+                std::span(item_classes).subspan(start, count),
+                std::span(item_breaks).subspan(start, count)))
+            return fail(edit_word_boundary_error::invalid_encoding, error);
+        for (std::size_t offset = 0U; offset + 1U < count; ++offset)
+            breaks[start + offset] = item_breaks[start + offset];
+        if (start != 0U && !is_edit_white_space(scalars[start].code_point) &&
+            breaks[start - 1U] != text_line_break_kind::mandatory) {
+            if ((item.properties.flags & detail::edit_item_soft_entry) != 0U)
+                breaks[start - 1U] = text_line_break_kind::opportunity;
+            else if ((item.properties.flags & detail::edit_item_suppressed_entry) != 0U)
+                breaks[start - 1U] = text_line_break_kind::prohibited;
+        }
+    }
+    return true;
 }
 
 #if defined(PROGPU_NATIVE_EDIT_WORD_ICU)
@@ -136,8 +222,11 @@ bool add_thai_dictionary_boundaries(
 bool try_create_edit_word_boundary_snapshot(
     std::span<const std::uint16_t> source,
     edit_word_boundary_snapshot& result,
-    edit_word_boundary_error& error) noexcept
+    edit_word_boundary_error& error,
+    std::int8_t paragraph_level) noexcept
 {
+    if (paragraph_level != 0 && paragraph_level != 1)
+        return fail(edit_word_boundary_error::invalid_paragraph_level, error);
     if (source.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
         return fail(edit_word_boundary_error::input_too_large, error);
     unicode_decode_requirements requirements{};
@@ -149,7 +238,9 @@ bool try_create_edit_word_boundary_snapshot(
         if (!try_decode_utf16(source, scalars, written) || written != scalars.size())
             return fail(edit_word_boundary_error::invalid_encoding, error);
         bool needs_thai_dictionary = false;
-        for (const auto& scalar : scalars) {
+        std::vector<detail::edit_item_properties> item_properties(scalars.size());
+        for (std::size_t index = 0U; index < scalars.size(); ++index) {
+            const auto& scalar = scalars[index];
             const auto raw = get_unicode_line_break_class(scalar.code_point);
             if (scalar.code_point <= 0xFFFFU && raw == lb::ideographic &&
                 get_unicode_general_category(scalar.code_point) ==
@@ -160,12 +251,19 @@ bool try_create_edit_word_boundary_snapshot(
                 scalar.script != lao && scalar.script != lao_layout && scalar.script != khmer &&
                 scalar.script != open_type_tag::from_chars('D', 'F', 'L', 'T'))
                 return fail(edit_word_boundary_error::unqualified_complex_script_policy, error);
+            // UnicodeScript identifies only a domain requiring measured
+            // properties, NEVER the original Windows engine or entry policy.
+            const bool observed = detail::try_get_observed_edit_item_properties(
+                scalar.code_point, item_properties[index]);
+            if (!observed && detail::requires_observed_edit_item_properties(scalar.script.value))
+                return fail(edit_word_boundary_error::unqualified_script_item_transition_policy, error);
             needs_thai_dictionary |= scalar.script == thai;
         }
         std::vector<lb> classes(scalars.size());
         std::vector<text_line_break_kind> breaks(scalars.size());
         if (!detail::try_resolve_edit_selection_line_breaks(scalars, classes, breaks))
             return fail(edit_word_boundary_error::invalid_encoding, error);
+        if (!assemble_edit_item_breaks(scalars, item_properties, paragraph_level, breaks, error)) return false;
         std::vector<std::uint8_t> boundaries(source.size() + 1U, 0U);
         boundaries.front() = boundaries.back() = 1U;
         for (std::size_t index = 1U; index < scalars.size(); ++index) {
@@ -175,7 +273,7 @@ bool try_create_edit_word_boundary_snapshot(
             const bool current_white = is_edit_white_space(current.code_point);
             if (breaks[index - 1U] != text_line_break_kind::prohibited ||
                 (previous_white && !current_white) ||
-                (previous.script == khmer && current_white))
+                ((item_properties[index - 1U].flags & detail::edit_item_white_exit) != 0U && current_white))
                 boundaries[current.input_index] = 1U;
         }
         // Keep original CRLF / CRCRLF units intact, but retain the EDIT word
@@ -192,23 +290,6 @@ bool try_create_edit_word_boundary_snapshot(
                 boundaries[scalars[index + inside].input_index] = 0U;
             index += group_count - 1U;
         }
-        // The independent direct ScriptBreak Arabic item starts with a soft
-        // opportunity even when ordinary UAX14 has none. Our canonical script
-        // itemizer owns Common/Inherited attachment, including interior ZWJ;
-        // do not guess a Windows item-boundary rule or publish a known-wrong
-        // snapshot for that precise missing transition domain.
-        std::uint32_t run_count = 0U;
-        if (!try_get_unicode_script_run_count(scalars, run_count))
-            return fail(edit_word_boundary_error::invalid_encoding, error);
-        std::vector<unicode_script_run> runs(run_count);
-        std::uint32_t runs_written = 0U;
-        if (!try_itemize_unicode_scripts(scalars, runs, runs_written) ||
-            runs_written != run_count)
-            return fail(edit_word_boundary_error::invalid_encoding, error);
-        for (const auto& run : runs)
-            if (run.script == arabic && run.scalar_start != 0U &&
-                boundaries[run.input_start] == 0U)
-                return fail(edit_word_boundary_error::unqualified_script_item_transition_policy, error);
         if (needs_thai_dictionary) {
 #if defined(PROGPU_NATIVE_EDIT_WORD_ICU)
             if (!add_thai_dictionary_boundaries(source, scalars, boundaries, error)) return false;

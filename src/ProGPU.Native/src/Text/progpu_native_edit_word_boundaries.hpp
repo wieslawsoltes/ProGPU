@@ -16,7 +16,8 @@ enum class edit_word_boundary_error : std::uint32_t {
     unqualified_bmp_symbol_policy,
     unqualified_joiner_policy,
     unqualified_complex_script_policy,
-    unqualified_script_item_transition_policy
+    unqualified_script_item_transition_policy,
+    invalid_paragraph_level
 };
 
 // One owned original-source UTF-16 generation. This internal explicit profile
@@ -31,6 +32,7 @@ struct edit_word_boundary_snapshot final {
 bool try_create_edit_word_boundary_snapshot(
     std::span<const std::uint16_t> source,
     edit_word_boundary_snapshot& result,
-    edit_word_boundary_error& error) noexcept;
+    edit_word_boundary_error& error,
+    std::int8_t paragraph_level = 0) noexcept;
 
 } // namespace progpu::native::text
