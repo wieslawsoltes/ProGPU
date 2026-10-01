@@ -184,6 +184,7 @@ jobs:
       - name: Run focused quality and allocation gates
         run: |
           python3 -m unittest discover -s eng/tests -p test_system_drawing_trace.py -v
+          python3 -m unittest discover -s eng/tests -p test_managed_picture_diagnostics.py -v
           python3 eng/progpu-test-system-drawing.py \
             --require-method System.Drawing.Common.Tests.MetafileParserTests \
             WarmedEnumerationDoesNotAllocatePerRecordPayloads
