@@ -207,6 +207,33 @@ class GlyphCoverageFrameSourceTests(unittest.TestCase):
         self.assertIn("tests/progpu_native_glyph_coverage_frame_tests.cpp", cmake)
         self.assertIn("add_test(NAME progpu_native_glyph_coverage_frame_tests COMMAND progpu_native_glyph_coverage_frame_tests)", cmake)
 
+    def test_integrated_affine_fields_keep_distinct_certified_frame_and_triangle_mapping(self):
+        paint = (SHADERS / "HintedGlyphPaint.wgsl").read_text()
+        outputs = paint.split("struct VertexOutput {", 1)[1].split("};", 1)[0]
+        locations = [int(x) for x in re.findall(r"@location\((\d+)\)", outputs)]
+        self.assertEqual(list(range(15)), locations)
+        self.assertLess(len(locations), 16)
+        for field in ("glyphTriangle012", "glyphTriangle023", "glyphMappingFlags",
+                      "glyphDiagonal", "glyphOtherCorners",
+                      "physicalGlyphFrame", "canonicalPhysicalFrame"):
+            self.assertIn(field, outputs)
+            self.assertIn("output." + field + " =", paint)
+        function = paint.split("fn hinted_glyph_paint_color(", 1)[1]
+        address = function.index("texCoord = text_glyph_coverage_tex_coord")
+        self.assertLess(function.index("hinted_glyph_triangle_weights"), address)
+        self.assertLess(address, function.index("let coverage ="))
+        self.assertLess(function.index("let paintDy = dpdy"), function.index("discard;"))
+        self.assertIn("input.vertexIndex % 6u", paint)
+        self.assertIn("secondTriangle && (!boundedTexture || axisFrame)", paint)
+
+    def test_integrated_package_preserves_authentic_receipt_and_all_affine_cases(self):
+        fixture = (ROOT / "tests/ProGPU.Native.PackageConsumer/TextHintedGlyphPaintRenderingValidation.cs").read_text()
+        self.assertIn("glyphs, dpi, solidColor.W, fontSha256, writerBytes);", fixture)
+        self.assertIn("VerifyAffinePaints(context, createCompositor, original.Outlines, original.Segments,", fixture)
+        self.assertIn("Check(cases == 4,", fixture)
+        self.assertIn("Check(cases == 8 && referenceSubmissions == 16,", fixture)
+        self.assertIn("CheckPixels(pixels, expectedPixels, name + \": complete original Text RGBA differential\")", fixture)
+
 
 if __name__ == "__main__":
     unittest.main()
