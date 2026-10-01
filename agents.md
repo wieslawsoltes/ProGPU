@@ -36,7 +36,10 @@ Keep exact source DPI and original 26.6 values beside float render projections;
 diagnostic conversion is not source output repair. Independent head/hhea inputs
 are not Microsoft output baselines or Display line policy. Require whole-successful
 exact native Build staging before execution; neither receipt-parser tests nor
-one interpreter's matching raw advance admits Display. See
+one interpreter's matching raw advance admits Display. Original shaped WPF
+GlyphRuns publish direction 0/1; compare that projection only after proving one
+uniform full native embedding level within each original source run. Preserve
+raw native levels and reject same-parity mixed-level runs. See
 eng/HintedDisplayPolicyProbe/README.md.
 
 Hinted source lines retain the measured writer's actual double tops and ascents

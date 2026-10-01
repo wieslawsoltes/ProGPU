@@ -6,22 +6,23 @@ using Xunit;
 
 public sealed class SourceComparisonTests
 {
-    private static JsonDocument Source(double advance = 1, double dpi = 1, string text = "ab", uint[]? ids = null, int[]? clusters = null, int? lineLength = null)
+    private static JsonDocument Source(double advance = 1, double dpi = 1, string text = "ab", uint[]? ids = null,
+        int[]? clusters = null, int? lineLength = null, int bidiLevel = 0)
         => JsonDocument.Parse(JsonSerializer.Serialize(new
         {
             Text = text, Dpi = dpi, Direction = "RightToLeft", Lines = new[] { new
             {
                 SourceStart = 0, Length = lineLength ?? text.Length + 1, Width = advance * 2, WidthIncludingTrailingWhitespace = advance * 2,
-                Runs = new[] { new { TextSourceCharacterIndex = 0, TextSourceLength = text.Length, BidiLevel = 0,
+                Runs = new[] { new { TextSourceCharacterIndex = 0, TextSourceLength = text.Length, BidiLevel = bidiLevel,
                     GlyphIds = ids ?? [10U, 11U], Clusters = clusters ?? [0, 1], Advances = new[] { advance, advance },
                     Offsets = new[] { new[] { 0.0, 0.0 }, new[] { 0.0, 0.0 } } } }
             } }
         }));
 
-    private static NativeSourceParagraph Native(long advance = 64, float projection = 1)
+    private static NativeSourceParagraph Native(long advance = 64, float projection = 1, int bidiLevel = 0)
         => new(ReferenceInput.FontHash, 0, [new('a', 0, 1), new('b', 1, 1)],
-            [new(0, 0, 10, 0, 0, 1, 0, advance, 0, 0, projection, 0, 10),
-             new(1, 1, 11, 0, 1, 2, 0, advance, 0, 0, projection, projection, 10)],
+            [new(0, 0, 10, 0, 0, 1, bidiLevel, advance, 0, 0, projection, 0, 10),
+             new(1, 1, 11, 0, 1, 2, bidiLevel, advance, 0, 0, projection, projection, 10)],
             [new(0, 2, 0, 2, projection * 2, 12, 10)]);
 
     [Fact]
@@ -88,7 +89,7 @@ public sealed class SourceComparisonTests
     [Theory]
     [InlineData("glyph", "different-original-glyph-sequence")]
     [InlineData("cluster", "different-original-UTF16-cluster-coverage")]
-    [InlineData("bidi", "different-original-run-bidi-level")]
+    [InlineData("bidi", "mixed-native-embedding-levels-within-original-source-run")]
     [InlineData("font", "different-original-physical-font-owner")]
     public void ExactOccurrencePreconditionsCannotBeMatchedByGlyphIdSearch(string mutation, string reason)
     {
@@ -107,6 +108,74 @@ public sealed class SourceComparisonTests
         Assert.Equal("Unmatched", run.Status); Assert.Contains(reason, run.Reasons);
         Assert.Equal(2, result.SourceOccurrenceCount); Assert.Equal(0, result.ComparedOccurrenceCount);
         Assert.Equal(new[] { 0, 1 }, result.UnmatchedNativePositionedIndices);
+    }
+
+    [Theory]
+    [InlineData(0, 0)] [InlineData(1, 1)] [InlineData(2, 0)] [InlineData(3, 1)]
+    public void UniformNativeEmbeddingLevelProjectsOnlyTheSourceDirection(int nativeLevel, int sourceLevel)
+    {
+        using var source = Source(bidiLevel: sourceLevel);
+        string originalSource = source.RootElement.GetRawText();
+        var native = Native(bidiLevel: nativeLevel);
+        var originalGlyphs = native.Glyphs.ToArray();
+        var result = SourceComparison.Compare(source.RootElement, native);
+        Assert.Equal("AlignedExactAdvances", result.Status);
+        var run = Assert.Single(result.Runs);
+        Assert.Equal(sourceLevel, run.SourceGlyphRunBidiLevel);
+        Assert.Equal(nativeLevel, run.NativeBidiLevel);
+        Assert.Equal(sourceLevel, run.NativeProjectedSourceGlyphRunBidiLevel);
+        Assert.All(run.Occurrences, occurrence =>
+        {
+            Assert.Equal(nativeLevel, occurrence.BidiLevel); // Existing field remains raw.
+            Assert.Equal(sourceLevel, occurrence.SourceGlyphRunBidiLevel);
+            Assert.Equal(sourceLevel, occurrence.NativeProjectedSourceGlyphRunBidiLevel);
+        });
+        Assert.Equal(originalSource, source.RootElement.GetRawText());
+        Assert.Equal(originalGlyphs, native.Glyphs);
+        using var serialized = JsonDocument.Parse(JsonSerializer.Serialize(result));
+        var output = serialized.RootElement.GetProperty("Runs")[0].GetProperty("Occurrences")[0];
+        Assert.Equal(nativeLevel, output.GetProperty("BidiLevel").GetInt32());
+        Assert.Equal(sourceLevel, output.GetProperty("NativeProjectedSourceGlyphRunBidiLevel").GetInt32());
+    }
+
+    [Theory]
+    [InlineData(0, 2, 0)] [InlineData(2, 0, 0)] [InlineData(1, 3, 1)] [InlineData(3, 1, 1)]
+    public void EqualParityCannotMergeDifferentNativeLevelsInsideOneOriginalSourceRun(int first, int second, int sourceLevel)
+    {
+        using var source = Source(bidiLevel: sourceLevel);
+        var native = Native(bidiLevel: first);
+        native.Glyphs[1] = native.Glyphs[1] with { BidiLevel = second };
+        var result = SourceComparison.Compare(source.RootElement, native);
+        var run = Assert.Single(result.Runs);
+        Assert.Equal("Unmatched", run.Status);
+        Assert.Contains("mixed-native-embedding-levels-within-original-source-run", run.Reasons);
+        Assert.Null(run.NativeBidiLevel);
+        Assert.Null(run.NativeProjectedSourceGlyphRunBidiLevel);
+        Assert.Empty(run.Occurrences);
+        Assert.Equal(new[] { 0, 1 }, result.UnmatchedNativePositionedIndices);
+    }
+
+    [Theory]
+    [InlineData(2, 1)] [InlineData(3, 0)]
+    public void UniformEmbeddingStillRejectsTheWrongSourceDirection(int nativeLevel, int sourceLevel)
+    {
+        using var source = Source(bidiLevel: sourceLevel);
+        var result = SourceComparison.Compare(source.RootElement, Native(bidiLevel: nativeLevel));
+        var run = Assert.Single(result.Runs);
+        Assert.Contains("different-original-run-bidi-level", run.Reasons);
+        Assert.Equal(nativeLevel, run.NativeBidiLevel);
+        Assert.Equal(nativeLevel & 1, run.NativeProjectedSourceGlyphRunBidiLevel);
+        Assert.Equal(0, result.ComparedOccurrenceCount);
+    }
+
+    [Theory]
+    [InlineData(-1)] [InlineData(2)] [InlineData(3)] [InlineData(126)]
+    public void SourceOracleCannotClaimAnUnprojectedPublicRunLevel(int sourceLevel)
+    {
+        using var source = Source(bidiLevel: sourceLevel);
+        var result = SourceComparison.Compare(source.RootElement, Native(bidiLevel: Math.Max(0, sourceLevel)));
+        Assert.Contains("unsupported-original-source-glyph-run-bidi-level", Assert.Single(result.Runs).Reasons);
+        Assert.Equal(0, result.ComparedOccurrenceCount);
     }
 
     [Theory]
