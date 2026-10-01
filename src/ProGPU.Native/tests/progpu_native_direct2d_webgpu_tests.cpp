@@ -6,6 +6,7 @@
 #include "progpu_native_semantic_glyph_sharing_fixture.hpp"
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
 #include "progpu_native_picture_axis_fixture.hpp"
+#include "progpu_native_picture_ownership_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -2105,11 +2106,13 @@ int main(int argc, char** argv)
         }, require);
     phase("exact path pixel mapping passed");
     auto* picture_reference_engine = create_engine(gpu);
-    progpu::native::tests::verify_picture_axis_presentation(
+    const auto render_picture =
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
             return render_scene(gpu, reference ? picture_reference_engine : engine,
                 nullptr, 1U, 1U, submissions, stream, 0x9491U, generation);
-        }, require);
+        };
+    progpu::native::tests::verify_picture_axis_presentation(render_picture, require);
+    progpu::native::tests::verify_picture_resource_ownership(render_picture, require);
     progpu_native_engine_destroy(picture_reference_engine);
     phase("per-axis picture pixels passed");
     auto* glyph_reference_engine = create_engine(gpu);

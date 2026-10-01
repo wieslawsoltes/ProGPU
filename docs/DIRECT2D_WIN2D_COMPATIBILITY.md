@@ -5133,6 +5133,16 @@ original uniform test's first differing pixel; diagnostics are not a fix or a
 qualification result. No local native/GPU execution or runtime staging was done.
 Hosted provider/package and original application qualification remain required.
 
+A paired wgpu-native/Dawn GPU fixture also keeps resource record shape/version
+fixed while switching distinct owners and colliding same-owner captures. Its
+opaque grayscale oracle compares every byte of cold/warm/independent replay;
+revisiting an unchanged retained backing requires one submission, while a new
+capture requires two. The existing provider readback/deadline paths are reused.
+These additional GPU cases are authored, not locally executed. Post-commit strict
+C++20 syntax checks passed for the shared identity implementation and complete
+builder-test translation unit, and the memory ownership guard retained its 92
+owned fields/seven excluded identities. No backend binary was built or run.
+
 The first hosted Build `36936696701` compiled the native implementation but
 exposed two new fixture errors. The full-copy fixture inherited default-zero
 anisotropy instead of the exact-copy path's required explicit one; it now
