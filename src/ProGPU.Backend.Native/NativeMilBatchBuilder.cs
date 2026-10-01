@@ -26,6 +26,14 @@ public sealed class NativeMilBatchBuilder
 
     public byte[] ToArray() => _writer.WrittenSpan.ToArray();
 
+    /// <summary>
+    /// Removes this channel's complete retained resource graph and sidebands
+    /// when the batch commits. Does not destroy the channel or wait for GPU
+    /// submissions; previously compiled scene ownership remains independent.
+    /// </summary>
+    public void DestroyResourcesOnChannel()
+        => NativeMilBatchEncoding.Allocate(_writer, NativeMilCommand.DestroyResourcesOnChannel, 4);
+
     public void CreateResource(uint handle, NativeMilResourceType resourceType)
     {
         ValidateHandle(handle);
@@ -3238,6 +3246,7 @@ internal static class NativeMilBatchEncoding
 
 internal static class NativeMilCommand
 {
+    internal const uint DestroyResourcesOnChannel = 0x02;
     internal const uint D3DImage = 0x0a;
     internal const uint D3DImagePresent = 0x0b;
     internal const uint BitmapSource = 0x0c;

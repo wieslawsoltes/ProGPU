@@ -13,15 +13,15 @@
     },
     "decoder": {
       "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
-      "sha256": "2b781208bb30623603553d6fae6c8a5d18b1bacb2382cb3801f17c92a490db8c"
+      "sha256": "68e8ea6a26ac097fe51e7379cf5fbeeb5c250ac66b8ef3cab37d9235e3dc46a0"
     }
   },
   "summary": {
     "commandCount": 143,
     "sentinel": 2,
-    "topLevelDecoder": 105,
+    "topLevelDecoder": 106,
     "nestedRenderDataDispatch": 25,
-    "notDispatched": 11
+    "notDispatched": 10
   },
   "commands": [
     {
@@ -41,7 +41,7 @@
       "name": "transport_destroy_resources_on_channel",
       "wpfName": "MilCmdTransportDestroyResourcesOnChannel",
       "value": 2,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_TRANSPORT_DESTROYRESOURCESONCHANNEL"
     },
     {

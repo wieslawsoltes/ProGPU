@@ -1,5 +1,44 @@
 # Native MIL compositor
 
+## Channel resource teardown
+
+The canonical `MilCmdTransportDestroyResourcesOnChannel` packet now removes the
+complete resource graph owned by one ProGPU MIL channel. Exact generated framing
+is required. Unlike individual deletes, this whole-graph operation also retires
+interdependent resources, typed bitmap/font/visibility sidebands and retained
+preparation keys. It runs inside the existing candidate transaction: a later
+invalid packet preserves the published graph and its scene cache. Only successful
+batch publication invalidates the borrowed compiled-scene view. Previously copied
+pointer-free scene streams and other channels remain independent.
+
+The existing stroke-preparation accounting owner survives the reset: outstanding
+immutable preparation leases remain charged until their original final release.
+No renderer engine, queue, GPU submission, external texture owner or native window
+is destroyed or synchronously drained. The channel object remains usable for
+later batches; this is resource cleanup, not a claim to implement Microsoft's
+whole connection/partition shutdown or cross-channel resource duplication.
+`NativeMilBatchBuilder.DestroyResourcesOnChannel` emits the same eight-byte record
+inside a caller's current batch; it does not clear the authored command buffer.
+
+This is an original extension of ProGPU's existing transactional channel and
+complete typed graph, informed only by the canonical generated wire layout and
+the resource-teardown behavior of WPF's
+[transport shutdown command](https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/WpfGfx/core/uce/composition.cpp).
+No upstream implementation text is incorporated. Both C++ providers share this
+decoder and C export. The managed renderer does not decode MIL channels; the
+managed native-MIL producer is updated alongside the native consumer. Resource
+destruction follows dependent container/lease ownership, not an independent
+numeric workload suitable for SIMD or GPU dispatch. Reset costs O(R + B) for R
+retained entries and B owned payload bytes, within the existing batch-clone cost;
+it introduces no per-resource managed/native crossings.
+
+Authored controls cover exact framing, dependencies, metrics, invalid-tail
+rollback, warm scene-cache invalidation, bitmap and visibility retirement,
+independent channels, repeated empty cleanup, subsequent source batches and the
+shared C ABI. Managed encoding checks preserve preceding packets. Validation is
+deferred until after the implementation commit, per the current work policy;
+full provider/package and application checks remain required before merge.
+
 ## Goal
 
 ProGPU will provide a reflection-free C++ composition endpoint that can consume

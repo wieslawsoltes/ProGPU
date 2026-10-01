@@ -16,6 +16,7 @@
 #include "../src/Backend/progpu_native_geometry_stroke.hpp"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -1809,6 +1810,114 @@ bool channel_retains_visual_target_graph() {
     PROGPU_REQUIRE(target.clear_blue == 0.3F);
     PROGPU_REQUIRE(target.clear_alpha == 1.0F);
     PROGPU_REQUIRE(target.flags == 7U);
+    return true;
+}
+
+bool channel_resource_reset_is_atomic_and_retires_sidebands() {
+    constexpr std::uint32_t visual = 1U, target = 2U, bitmap = 3U, content = 4U, brush = 5U;
+    std::vector<std::byte> graph;
+    append_create(graph, visual, 39U);
+    append_create(graph, target, 47U);
+    append_create(graph, bitmap, 95U);
+    append_create(graph, content, 43U);
+    append_create(graph, brush, 75U);
+    append_command(graph, command::visual_create, visual);
+    append_command(graph, command::visual_set_offset, visual, 12.5, -3.0);
+    append_command(graph, command::solid_color_brush, brush, 1.0,
+        progpu_native_color{0.2F, 0.4F, 0.8F, 1.0F}, 0U, 0U, 0U, 0U);
+    std::vector<std::byte> drawing;
+    append_command(drawing, command::draw_rectangle, 2.0, 3.0, 10.0, 12.0, brush, 0U);
+    append_render_data(graph, content, drawing);
+    append_command(graph, command::visual_set_content, visual, content);
+    append_command(graph, command::generic_target_create, target,
+        std::uint64_t{0U}, std::uint64_t{0U}, 32U, 32U, 0U);
+    append_command(graph, command::target_set_root, target, visual);
+
+    channel state, independent;
+    PROGPU_REQUIRE(state.apply(graph) == status::success);
+    PROGPU_REQUIRE(independent.apply(graph) == status::success);
+    const std::array<std::byte, 4U> pixel{
+        std::byte{0x20}, std::byte{0x40}, std::byte{0x80}, std::byte{0xff}};
+    PROGPU_REQUIRE(state.set_bitmap_source_rgba8(bitmap, 1U, 1U, 4U, pixel) == status::success);
+    const progpu_native_mil_visual_visibility visibility{visual, PROGPU_NATIVE_MIL_VISIBILITY_HIDDEN};
+    PROGPU_REQUIRE(state.set_visual_visibilities({&visibility, 1U}) == status::success);
+    const scene_build_request request{scene_build_request_flags::none, target, 91U, 1U, 1.0, 1.0, 0U, 1U};
+    std::span<const std::byte> retained;
+    progpu::native::mil::scene_metrics scene_metrics{};
+    PROGPU_REQUIRE(state.build_scene(request, retained, &scene_metrics) == status::success);
+    PROGPU_REQUIRE(scene_metrics.rectangle_count == 0U);
+    const std::vector<std::byte> original_stream(retained.begin(), retained.end());
+    const auto original_generation = state.resource_generation(visual);
+
+    std::vector<std::byte> reset;
+    append_command(reset, command::transport_destroy_resources_on_channel);
+    PROGPU_REQUIRE(reset.size() == 8U);
+    std::vector<std::byte> invalid = reset;
+    append_command(invalid, command::visual_set_offset, visual, 0.0, 0.0);
+    PROGPU_REQUIRE(state.apply(invalid) == status::invalid_handle);
+    PROGPU_REQUIRE(state.resource_count() == 5U);
+    PROGPU_REQUIRE(state.resource_generation(visual) == original_generation);
+    double dpi_x = -1.0, dpi_y = -1.0;
+    PROGPU_REQUIRE(state.get_bitmap_source_dpi(bitmap, dpi_x, dpi_y) == status::success);
+    PROGPU_REQUIRE(state.build_scene(request, retained) == status::success);
+    PROGPU_REQUIRE(std::ranges::equal(retained, original_stream));
+
+    // Exact canonical framing; a larger otherwise well-framed packet cannot
+    // silently reset anything, even if its extra word is zero.
+    std::vector<std::byte> oversized;
+    append_command(oversized, command::transport_destroy_resources_on_channel, 0U);
+    PROGPU_REQUIRE(state.apply(oversized) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_count() == 5U);
+
+    batch_metrics metrics{};
+    PROGPU_REQUIRE(state.apply(reset, &metrics) == status::success);
+    PROGPU_REQUIRE(metrics.command_count == 1U && metrics.supported_command_count == 1U);
+    PROGPU_REQUIRE(metrics.deleted_resource_count == 5U && metrics.created_resource_count == 0U);
+    PROGPU_REQUIRE(metrics.updated_resource_count == 0U && metrics.unsupported_command_count == 0U);
+    PROGPU_REQUIRE(metrics.total_bytes == reset.size());
+    PROGPU_REQUIRE(state.resource_count() == 0U && !state.has_resource(visual));
+    PROGPU_REQUIRE(state.resource_generation(visual) == 0U);
+    progpu::native::mil::visual_snapshot visual_snapshot{};
+    progpu::native::mil::target_snapshot target_snapshot{};
+    PROGPU_REQUIRE(!state.try_get_visual(visual, visual_snapshot));
+    PROGPU_REQUIRE(!state.try_get_target(target, target_snapshot));
+    dpi_x = -1.0; dpi_y = -2.0;
+    PROGPU_REQUIRE(state.get_bitmap_source_dpi(bitmap, dpi_x, dpi_y) == status::invalid_handle);
+    PROGPU_REQUIRE(dpi_x == -1.0 && dpi_y == -2.0);
+    PROGPU_REQUIRE(state.build_scene(request, retained) == status::invalid_handle);
+    PROGPU_REQUIRE(retained.empty());
+    auto owned_stream = original_stream;
+    PROGPU_REQUIRE(state.build_scene(target, 91U, 1U, owned_stream) == status::invalid_handle);
+    PROGPU_REQUIRE(owned_stream == original_stream);
+    PROGPU_REQUIRE(independent.resource_count() == 5U);
+    PROGPU_REQUIRE(independent.try_get_target(target, target_snapshot));
+
+    // This packet resets resources, not the channel object. Empty resets and
+    // later source batches remain valid and cannot revive old typed sidebands.
+    PROGPU_REQUIRE(state.apply(reset, &metrics) == status::success);
+    PROGPU_REQUIRE(metrics.deleted_resource_count == 0U);
+    std::vector<std::byte> replacement = reset;
+    replacement.insert(replacement.end(), graph.begin(), graph.end());
+    PROGPU_REQUIRE(state.apply(replacement, &metrics) == status::success);
+    PROGPU_REQUIRE(metrics.deleted_resource_count == 0U && metrics.created_resource_count == 5U);
+    PROGPU_REQUIRE(state.get_bitmap_source_dpi(bitmap, dpi_x, dpi_y) == status::invalid_handle);
+    PROGPU_REQUIRE(state.try_get_visual(visual, visual_snapshot));
+    PROGPU_REQUIRE(visual_snapshot.offset_x == 12.5 && visual_snapshot.offset_y == -3.0);
+    PROGPU_REQUIRE(state.build_scene(request, retained, &scene_metrics) == status::success);
+    PROGPU_REQUIRE(scene_metrics.rectangle_count == 1U);
+
+    // Both native providers export the same C transport implementation.
+    progpu_native_mil_channel* native_channel = nullptr;
+    PROGPU_REQUIRE(progpu_native_mil_channel_create(&native_channel) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(progpu_native_mil_channel_apply(native_channel, graph.data(), graph.size(), nullptr)
+        == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    progpu_native_mil_batch_metrics native_metrics{};
+    native_metrics.struct_size = sizeof(native_metrics);
+    PROGPU_REQUIRE(progpu_native_mil_channel_apply(native_channel, reset.data(), reset.size(), &native_metrics)
+        == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(native_metrics.deleted_resource_count == 5U);
+    PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_count(native_channel) == 0U);
+    progpu_native_mil_channel_destroy(native_channel);
     return true;
 }
 
@@ -25268,6 +25377,7 @@ int main() {
         semantic_path_strokes_preserve_curves_and_forced_joins());
     PROGPU_REQUIRE(semantic_path_strokes_compact_constant_segments());
     PROGPU_REQUIRE(channel_retains_visual_target_graph());
+    PROGPU_REQUIRE(channel_resource_reset_is_atomic_and_retires_sidebands());
     PROGPU_REQUIRE(canonical_hwnd_target_uses_portable_surface_state());
     PROGPU_REQUIRE(failed_batches_roll_back());
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());

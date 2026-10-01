@@ -5204,6 +5204,27 @@ struct channel::implementation {
         batch_metrics& metrics) {
         std::uint32_t handle = 0U;
         switch (view.kind) {
+        case command::transport_destroy_resources_on_channel: {
+            if (!has_exact_size(view,
+                    command_layouts::transport_destroy_resources_on_channel::fixed_size)) {
+                return status::malformed_batch;
+            }
+            if (resources.size() > std::numeric_limits<std::uint32_t>::max() -
+                    metrics.deleted_resource_count) {
+                return status::capacity_exceeded;
+            }
+            const auto removed = static_cast<std::uint32_t>(resources.size());
+            // Drop the complete candidate graph at once, including typed
+            // sidebands and dependencies which prevent individual deletion.
+            // The enclosing batch transaction still owns the published graph
+            // until every later packet has succeeded. Outstanding immutable
+            // preparation leases keep their original accounting owner.
+            implementation empty;
+            empty.stroke_preparation_budget = stroke_preparation_budget;
+            *this = std::move(empty);
+            metrics.deleted_resource_count += removed;
+            return status::success;
+        }
         case command::transport_sync_flush:
             return has_exact_size(
                 view,
