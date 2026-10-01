@@ -184,6 +184,7 @@ jobs:
       - name: Run focused quality and allocation gates
         run: |
           python3 -m unittest discover -s eng/tests -p test_system_drawing_trace.py -v
+          python3 -m unittest discover -s eng/tests -p test_managed_picture_diagnostics.py -v
           python3 eng/progpu-test-system-drawing.py \
             --require-method System.Drawing.Common.Tests.MetafileParserTests \
             WarmedEnumerationDoesNotAllocatePerRecordPayloads
@@ -476,6 +477,14 @@ jobs:
           -Rid "${{ matrix.rid }}"
           -BenchmarkProfile Smoke
           -FontManifest "${{ env.PROGPU_FREETYPE_WORKSPACE }}/install/progpu-freetype.json"
+
+      - name: Upload failed managed-picture allocation diagnostics
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-managed-picture-diagnostics-${{ matrix.rid }}
+          path: artifacts/progpu-native/diagnostics/managed-picture
+          if-no-files-found: warn
 
       - name: Upload native MIL ImageBrush frames
         if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'
