@@ -38,7 +38,7 @@ void check(std::u16string_view text, std::initializer_list<std::uint32_t> expect
     require(std::all_of(positions.begin() + result.boundary_count, positions.end(),
         [](auto value) { return value == sentinel; }), "C EDIT transport changed unused output tail");
     require(source == original, "C EDIT transport rewrote source units");
-    std::fill(source.begin(), source.end(), 0U);
+    std::fill(source.begin(), source.end(), std::uint16_t{0});
     require(std::equal(expected.begin(), expected.end(), positions.begin()),
         "Published inventory retained mutable source storage");
 }
