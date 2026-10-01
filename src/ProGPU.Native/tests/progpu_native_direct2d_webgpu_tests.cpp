@@ -5,6 +5,7 @@
 #include "progpu_native_mil_image_brush_fixture.hpp"
 #include "progpu_native_semantic_glyph_sharing_fixture.hpp"
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
+#include "progpu_native_picture_axis_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -1281,13 +1282,14 @@ void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine*
     require(parent.factory.as(d2d::formatted_scene_factory_native_interface_id, factory) == native_com::ok,
         "formatted scene factory query");
     std::uint64_t source_id = 9304U;
+    for (const d2d::size_f density : {d2d::size_f{192, 192}, d2d::size_f{192, 144}, d2d::size_f{144, 192}}) {
     for (const d2d::pixel_format format : {
             d2d::pixel_format{28U, d2d::alpha_mode::premultiplied},
             d2d::pixel_format{87U, d2d::alpha_mode::premultiplied},
             d2d::pixel_format{28U, d2d::alpha_mode::ignore},
             d2d::pixel_format{87U, d2d::alpha_mode::ignore},
             d2d::pixel_format{65U, d2d::alpha_mode::premultiplied}}) {
-        const d2d::scene_render_target_properties properties{16U, 16U, 192.0F, 192.0F, source_id++, 1U};
+        const d2d::scene_render_target_properties properties{16U, 16U, density.width, density.height, source_id++, 1U};
         native_com::pointer<d2d::render_target> source;
         require(factory->CreateFormattedSceneRenderTarget(&properties, &format, source.put()) == native_com::ok,
             "formatted scene target creation");
@@ -1301,9 +1303,10 @@ void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine*
         const d2d::rectangle_f patch{2, 2, 4, 4};
         source->FillRectangle(&patch, brush.get());
         const d2d::size_u pixel_size{16U, 16U};
+        const d2d::size_f logical_size{8.0F, 16.0F}; // Independent destination axes: 192 x 96.
         native_com::pointer<d2d::bitmap_render_target> destination;
         native_com::pointer<d2d::bitmap> bitmap;
-        require(parent.target->CreateCompatibleRenderTarget(nullptr, &pixel_size, &format,
+        require(parent.target->CreateCompatibleRenderTarget(&logical_size, &pixel_size, &format,
                 d2d::compatible_render_target_options::none, destination.put()) == native_com::ok &&
             destination->GetBitmap(bitmap.put()) == native_com::ok &&
             bitmap->CopyFromRenderTarget(nullptr, source.get(), nullptr) == native_com::ok,
@@ -1321,7 +1324,8 @@ void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine*
         const auto pixels = render_scene(gpu, engine, parent.scene_target.get(), 1U, 1U, 0U);
         for (std::uint32_t y = 0U; y < 16U; ++y) {
             for (std::uint32_t x = 0U; x < 16U; ++x) {
-                const bool opaque_patch = x >= 4U && x < 8U && y >= 4U && y < 8U;
+                const bool opaque_patch = x >= 2.0F * density.width / 96.0F && x < 4.0F * density.width / 96.0F &&
+                    y >= 2.0F * density.height / 96.0F && y < 4.0F * density.height / 96.0F;
                 const bool alpha_only = format.format == 65U;
                 const int transparent_channel = format.alpha == d2d::alpha_mode::ignore ? 0 : 127;
                 const std::array<int, 3U> expected = opaque_patch
@@ -1335,6 +1339,7 @@ void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine*
                     "formatted copy changed source pixels, alpha, DPI or snapshot lifetime");
             }
         }
+    }
     }
 }
 
@@ -2059,6 +2064,14 @@ int main(int argc, char** argv)
                 clip ? 0x9482U : 0x9481U, 1U, &metrics);
         }, require);
     phase("exact path pixel mapping passed");
+    auto* picture_reference_engine = create_engine(gpu);
+    progpu::native::tests::verify_picture_axis_presentation(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_scene(gpu, reference ? picture_reference_engine : engine,
+                nullptr, 2U, 2U, submissions, stream, 0x9491U, generation);
+        }, require);
+    progpu_native_engine_destroy(picture_reference_engine);
+    phase("per-axis picture pixels passed");
     auto* glyph_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_semantic_glyph_sharing(
         [&](bool reference, const auto& stream, std::uint64_t generation,

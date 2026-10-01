@@ -71,6 +71,7 @@ struct scene_full_image_copy final {
     progpu_native_scene_image_draw image{};
     progpu_native_scene_image_color_matrix color_matrix{};
     progpu_native_scene_picture_image picture{};
+    progpu_native_scene_presentation presentation{};
 };
 
 /*
@@ -200,6 +201,11 @@ public:
     // sampling it as an ordinary premultiplied image. No CPU pixel materialization.
     bool add_picture_image(
         const progpu_native_scene_picture_image& picture,
+        std::span<const std::byte> nested_scene,
+        std::uint32_t& resource_index) noexcept;
+    bool add_picture_image(
+        const progpu_native_scene_picture_image& picture,
+        const progpu_native_scene_presentation* presentation,
         std::span<const std::byte> nested_scene,
         std::uint32_t& resource_index) noexcept;
     bool add_external_image(

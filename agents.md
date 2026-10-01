@@ -1,5 +1,15 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Retained picture-image copies own original per-axis presentation in an explicit
+validated suffix, never a DPI ratio or inferred logical extent. Keep the original
+48-byte uniform descriptor and COM slots, exact suffix sizes/flags, whole pixel
+viewport, cache identity and immutable import/full-copy ownership paired in both
+providers. Pixel copy destinations use separate axes; changed-DPI history still
+requires a whole replacement. Managed Scene does not interpret this wire kind;
+its builder rejects it while raw NativeCompositor replay uses the shared native
+validator. Source/package/Windows qualification remains separate. See
+docs/DIRECT2D_WIN2D_COMPATIBILITY.md, independent-axis picture copies.
+
 The isolated drawing package group includes the real Native and Dawn backend
 dependencies in source-reference order. Preserve exact version closure and native
 runtime validation; consumers stage real payloads only from the exact successful

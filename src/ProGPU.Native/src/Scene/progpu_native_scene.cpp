@@ -491,12 +491,13 @@ validation_result validate(
         const bool r8_image = (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_R8) != 0U;
         const bool picture_image = (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
         if (picture_image) {
+            progpu_native_scene_picture_image picture{};
+            progpu_native_scene_presentation presentation{};
             if (external_image || bgra8_image || r8_image ||
                 resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
-                resource.payload_size != sizeof(progpu_native_scene_picture_image) ||
                 resource.auxiliary_size < sizeof(progpu_native_scene_header) ||
-                !semantic::is_valid_semantic_picture_image(read_record<progpu_native_scene_picture_image>(
-                    bytes, resource.payload_offset)) ||
+                !semantic::read_semantic_picture_image(bytes + resource.payload_offset,
+                    resource.payload_size, picture, presentation) ||
                 validate(bytes + resource.auxiliary_offset, resource.auxiliary_size).status != PROGPU_NATIVE_STATUS_SUCCESS)
                 return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
         }

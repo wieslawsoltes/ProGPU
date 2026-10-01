@@ -289,8 +289,8 @@ bool semantic_scene_builder::try_get_full_image_copy(
         draw.payload.size() != sizeof(image) + (matrix ? sizeof(candidate.color_matrix) : 0U)) return false;
     if (matrix) std::memcpy(&candidate.color_matrix, draw.payload.data() + sizeof(image), sizeof(candidate.color_matrix));
     if (resource.picture_image) {
-        if (resource.payload.size() != sizeof(candidate.picture)) return false;
-        std::memcpy(&candidate.picture, resource.payload.data(), sizeof(candidate.picture));
+        if (!semantic::read_semantic_picture_image(resource.payload.data(), resource.payload.size(),
+                candidate.picture, candidate.presentation)) return false;
     }
     candidate.resource_index = draw.record.resource_index;
     candidate.resource_flags = resource.record.flags;
@@ -461,8 +461,16 @@ bool semantic_scene_builder::add_picture_image(
     const progpu_native_scene_picture_image& picture,
     std::span<const std::byte> nested_scene,
     std::uint32_t& resource_index) noexcept {
+    return add_picture_image(picture, nullptr, nested_scene, resource_index);
+}
+
+bool semantic_scene_builder::add_picture_image(
+    const progpu_native_scene_picture_image& picture,
+    const progpu_native_scene_presentation* presentation,
+    std::span<const std::byte> nested_scene,
+    std::uint32_t& resource_index) noexcept {
     resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-    if (!semantic::is_valid_semantic_picture_image(picture) ||
+    if (!semantic::is_valid_semantic_picture_image(picture, presentation) ||
         nested_scene.size() < sizeof(progpu_native_scene_header) ||
         nested_scene.size() > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
         implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES)
@@ -476,8 +484,10 @@ bool semantic_scene_builder::add_picture_image(
         resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED | PROGPU_NATIVE_SCENE_IMAGE_PICTURE;
         resource.record.resource_id = implementation_->resources.size() + 1U;
         resource.record.generation = implementation_->generation;
-        resource.payload.resize(sizeof(picture));
+        resource.payload.resize(sizeof(picture) + (presentation != nullptr ? sizeof(*presentation) : 0U));
         std::memcpy(resource.payload.data(), &picture, sizeof(picture));
+        if (presentation != nullptr)
+            std::memcpy(resource.payload.data() + sizeof(picture), presentation, sizeof(*presentation));
         resource.auxiliary.assign(nested_scene.begin(), nested_scene.end());
         resource.picture_image = true;
         resource.image_width = picture.width;
