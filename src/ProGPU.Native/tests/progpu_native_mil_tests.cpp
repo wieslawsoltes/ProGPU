@@ -21772,7 +21772,8 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
         wrapped.sampler_resource_index < shader_slot && wrapped.program.sampling_mode == 0U);
     const auto picture_resource = read_value<progpu_native_scene_resource>(captured,
         captured_header.resource_offset + wrapped.sampler_resource_index * captured_header.resource_stride);
-    PROGPU_REQUIRE(picture_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE_PICTURE);
+    PROGPU_REQUIRE(picture_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE &&
+        (picture_resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U);
     const auto picture = read_value<progpu_native_scene_picture_image>(captured, picture_resource.payload_offset);
     PROGPU_REQUIRE(picture.width == 32U && picture.height == 24U && picture.dpi_scale == 1.0F);
     PROGPU_REQUIRE(picture.clear_color.a == 0.0F); // Full RGBA transparent capture, not a mask.

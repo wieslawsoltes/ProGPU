@@ -562,7 +562,8 @@ bool semantic_scene_builder::add_shader_effect(
     resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     if (!shader_effect::validate(effect, bytecode) ||
         sampler_picture >= implementation_->resources.size() ||
-        implementation_->resources[sampler_picture].record.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE_PICTURE ||
+        implementation_->resources[sampler_picture].record.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+        (implementation_->resources[sampler_picture].record.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U ||
         implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES)
         return implementation_->fail(scene_build_error::invalid_argument);
     try {

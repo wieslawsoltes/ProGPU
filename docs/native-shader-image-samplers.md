@@ -5,8 +5,8 @@ an owned bitmap upload. This is an additional supported source family, not full
 ShaderEffect, external-sampler or application qualification.
 
 The original version-1, 544-byte shader resource is unchanged. Version 2 is an
-explicit 560-byte wrapper: size/version, an earlier same-scene IMAGE_PICTURE
-resource index, a zero reserved word and the unchanged version-1 program. The
+explicit 560-byte wrapper: size/version, an earlier same-scene IMAGE resource
+index with the IMAGE_PICTURE flag, a zero reserved word and the unchanged version-1 program. The
 reader validates the entire original bytecode before publication. Unknown
 versions, malformed sizes, self/forward references and non-picture references
 fail; no device pointer or managed texture enters the wire contract.

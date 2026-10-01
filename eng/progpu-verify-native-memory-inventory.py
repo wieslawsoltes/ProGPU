@@ -46,6 +46,13 @@ def fields(text, name):
 
 
 collector = source(root / "Backend/progpu_native_engine_memory.hpp")
+# Shader bindings retain picture backings even after the optional picture cache
+# evicts them. Enumerating only the cache misses these in-flight owned textures.
+shader_binding = source(root / "Scene/progpu_native_shader_effect_execution.hpp")
+if not re.search(r"std::shared_ptr<semantic_picture_backing>\s+sampler_picture\s*;", shader_binding):
+    raise ValueError("Shader sampler picture ownership declaration needs review")
+if not re.search(r"inventory\.texture\(value\.sampler_picture->texture\)", collector):
+    raise ValueError("Shader sampler picture leases are missing from memory inventory")
 owners = [
     ("Scene/progpu_native_shader_effect_execution.hpp", "semantic_shader_binding", "value", "semantic_shader_binding"),
     ("Backend/progpu_native_engine.hpp", "progpu_native_engine", "engine", None),

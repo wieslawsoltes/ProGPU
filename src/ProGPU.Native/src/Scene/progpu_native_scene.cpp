@@ -763,7 +763,8 @@ validation_result validate(
                 if (sampler >= index) return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
                 const auto source = read_record<progpu_native_scene_resource>(bytes,
                     header.resource_offset + static_cast<std::size_t>(sampler) * header.resource_stride);
-                if (source.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE_PICTURE)
+                if (source.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+                    (source.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U)
                     return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
             }
         }

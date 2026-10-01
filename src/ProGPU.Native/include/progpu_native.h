@@ -2780,7 +2780,7 @@ typedef struct progpu_native_scene_effect_chain {
     uint32_t reserved;
 } progpu_native_scene_effect_chain;
 
-/* Version 1: bounded ps_2_0 float program and one implicit-input 2D sampler.
+/* Version 1: bounded ps_2_0/ps_3_0 float program and one implicit-input 2D sampler.
  * Original little-endian bytecode is the resource auxiliary payload. Constants
  * retain c0..c31 component order. Sampling is 0=nearest, 1=linear with clamp.
  * No pointer, WGSL replacement, animation handle or source object crosses here.
@@ -2799,7 +2799,7 @@ typedef struct progpu_native_scene_shader_effect {
     float constants[128];
 } progpu_native_scene_shader_effect;
 
-/* Version 2 binds an owned picture in this same immutable scene to the
+/* Version 2 binds an earlier IMAGE with IMAGE_PICTURE in this same immutable scene to the
  * program's original sampler register. The nested program retains the exact
  * version-1 layout and validation. No external GPU address is admitted.
  */
