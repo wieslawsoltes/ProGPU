@@ -1258,6 +1258,9 @@ bool semantic_scene_builder_reuses_retained_images() {
     auto exact_draw = image;
     exact_draw.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
     exact_draw.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    // Full-copy flattening requires the explicit canonical nearest sampler;
+    // the generic image above intentionally retains the default-zero spelling.
+    exact_draw.max_anisotropy = 1U;
     exact_draw.row_bytes = 8U;
     exact_draw.destination_rect = exact_draw.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
     exact_draw.transform = semantic_scene_builder::identity_transform();
