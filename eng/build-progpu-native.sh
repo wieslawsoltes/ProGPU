@@ -327,11 +327,29 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
       --rectangles 384 --warmup 4 --iterations 8
-  DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+  if DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
-      --managed-picture --rectangles 384 --warmup 4 --iterations 8
+      --managed-picture --rectangles 384 --warmup 4 --iterations 8; then
+    :
+  else
+    managed_picture_exit=$?
+    # The original uninstrumented gate remains authoritative. This hosted-only
+    # rerun can collect evidence, never qualify a failed frame or replace its exit.
+    if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+      DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+        python3 "${repo_root}/eng/progpu-diagnose-managed-picture.py" \
+          --original-exit-code "${managed_picture_exit}" \
+          --output "${repo_root}/artifacts/progpu-native/diagnostics/managed-picture" -- \
+          dotnet run \
+            --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+            -c Release -- \
+            --managed-picture --rectangles 384 --warmup 4 --iterations 8 || \
+        echo "Managed-picture gate remains failed with original exit ${managed_picture_exit}." >&2
+    fi
+    exit "${managed_picture_exit}"
+  fi
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
