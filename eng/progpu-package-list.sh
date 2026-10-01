@@ -35,6 +35,13 @@ progpu_portable_package_ids=(
   ProGPU.WinUI.Themes.Fluent
   ProGPU.WinUI.Charts
   ProGPU.WinUI.Designer
+  ProGPU.Hmi
+  ProGPU.WinUI.Hmi
+  ProGPU.WinUI.Hmi.Workplace
+  ProGPU.WinUI.Hmi.Designer
+  ProGPU.Hmi.Modbus
+  ProGPU.Hmi.Mqtt
+  ProGPU.Hmi.OpcUa
   ProGPU.Xaml
   ProGPU.Xaml.Roslyn
   ProGPU.Xaml.SourceGenerator
@@ -85,6 +92,13 @@ progpu_portable_package_projects=(
   src/ProGPU.WinUI.Themes.Fluent/ProGPU.WinUI.Themes.Fluent.csproj
   src/ProGPU.WinUI.Charts/ProGPU.WinUI.Charts.csproj
   src/ProGPU.WinUI.Designer/ProGPU.WinUI.Designer.csproj
+  src/ProGPU.Hmi/ProGPU.Hmi.csproj
+  src/ProGPU.WinUI.Hmi/ProGPU.WinUI.Hmi.csproj
+  src/ProGPU.WinUI.Hmi.Workplace/ProGPU.WinUI.Hmi.Workplace.csproj
+  src/ProGPU.WinUI.Hmi.Designer/ProGPU.WinUI.Hmi.Designer.csproj
+  src/ProGPU.Hmi.Modbus/ProGPU.Hmi.Modbus.csproj
+  src/ProGPU.Hmi.Mqtt/ProGPU.Hmi.Mqtt.csproj
+  src/ProGPU.Hmi.OpcUa/ProGPU.Hmi.OpcUa.csproj
   src/ProGPU.Xaml/ProGPU.Xaml.csproj
   src/ProGPU.Xaml.Roslyn/ProGPU.Xaml.Roslyn.csproj
   src/ProGPU.Xaml.SourceGenerator/ProGPU.Xaml.SourceGenerator.csproj
@@ -135,6 +149,13 @@ progpu_portable_package_purposes=(
   "Source-generated unchanged WinUI Fluent theme resources and inspectable XAML content."
   "Chart controls and chart rendering primitives for the WinUI-shaped layer."
   "Designer/editor controls and diagnostics for ProGPU WinUI surfaces."
+  "Typed HMI documents, equipment templates, alarms and guarded acquisition contracts."
+  "Reusable retained-vector HMI equipment controls and runtime screen views."
+  "Embeddable operator workplace with linked process, faceplate, alarm and trend views."
+  "Shared-canvas HMI authoring, state rules, equipment templates and commissioning UI."
+  "Strict Modbus TCP acquisition and single-attempt absolute commands."
+  "MQTT 5 typed telemetry and non-retained absolute commands with strict TLS."
+  "Certificate-validated OPC UA scalar acquisition, bounded node browsing and session-bound absolute writes."
   "Framework-neutral XAML syntax, schema, diagnostics, and compiler contracts."
   "Roslyn symbol type system and structured C# emitter for the XAML compiler."
   "Incremental XAML source generator plus transitive MSBuild integration."

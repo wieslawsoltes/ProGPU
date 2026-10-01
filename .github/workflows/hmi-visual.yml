@@ -1,0 +1,72 @@
+name: HMI visual and pointer regression
+
+on:
+  push:
+    branches: [main, feat/hmi-designer]
+    paths:
+      - 'src/ProGPU.Hmi/**'
+      - 'src/ProGPU.WinUI.Hmi*/**'
+      - 'src/ProGPU.WinUI.Designer/**'
+      - 'src/ProGPU.WinUI/Controls/DataGrid.cs'
+      - 'src/ProGPU.WinUI/Controls/TextBox.cs'
+      - 'tests/ProGPU.Hmi.VisualSmoke/**'
+      - 'tests/ProGPU.Hmi.DcsSmoke/**'
+      - 'src/ProGPU.WinUI/Controls/Viewbox.cs'
+      - '.github/workflows/hmi-visual.yml'
+  pull_request:
+    paths:
+      - 'src/ProGPU.Hmi/**'
+      - 'src/ProGPU.WinUI.Hmi*/**'
+      - 'src/ProGPU.WinUI.Designer/**'
+      - 'src/ProGPU.WinUI/Controls/DataGrid.cs'
+      - 'src/ProGPU.WinUI/Controls/TextBox.cs'
+      - 'tests/ProGPU.Hmi.VisualSmoke/**'
+      - 'tests/ProGPU.Hmi.DcsSmoke/**'
+      - 'src/ProGPU.WinUI/Controls/Viewbox.cs'
+      - '.github/workflows/hmi-visual.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: hmi-visual-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROGPU_WGPU_BACKEND: vulkan
+      XDG_RUNTIME_DIR: /tmp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install software Vulkan and test font
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 fonts-dejavu-core
+      - name: Build native retained-renderer probe
+        run: dotnet build tests/ProGPU.Hmi.VisualSmoke/ProGPU.Hmi.VisualSmoke.csproj -c Release
+      - name: Build standalone DCS native probe
+        run: dotnet build tests/ProGPU.Hmi.DcsSmoke/ProGPU.Hmi.DcsSmoke.csproj -c Release
+      - name: Render glyphs, status, designer and actual pointer interactions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ulimit -c 0
+          export VK_ICD_FILENAMES=$(find /usr/share/vulkan/icd.d -name '*lvp*json' -print -quit)
+          test -n "$VK_ICD_FILENAMES"
+          mkdir -p artifacts/hmi-visual
+          git rev-parse HEAD > artifacts/hmi-visual/commit.txt
+          dotnet --info > artifacts/hmi-visual/dotnet-info.txt
+          cat "$VK_ICD_FILENAMES" > artifacts/hmi-visual/vulkan-icd.json
+          for palette in Light Dark HighContrast; do
+            timeout -k 5s 180s dotnet run --project tests/ProGPU.Hmi.VisualSmoke/ProGPU.Hmi.VisualSmoke.csproj -c Release --no-build -- /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf artifacts/hmi-visual "$palette" | tee "artifacts/hmi-visual/$palette.log"
+            timeout -k 5s 180s dotnet run --project tests/ProGPU.Hmi.DcsSmoke/ProGPU.Hmi.DcsSmoke.csproj -c Release --no-build -- /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf artifacts/hmi-visual "$palette" | tee "artifacts/hmi-visual/dcs-$palette.log"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hmi-retained-visuals
+          path: artifacts/hmi-visual
+          retention-days: 14

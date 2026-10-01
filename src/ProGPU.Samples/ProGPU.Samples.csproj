@@ -16,6 +16,11 @@
     <ProjectReference Include="..\ProGPU.WinUI.Charts\ProGPU.WinUI.Charts.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Designer\ProGPU.WinUI.Designer.csproj"
                       Condition="'$(ProGpuSamplesMobile)' != 'true'" />
+    <ProjectReference Include="..\ProGPU.Hmi.Modbus\ProGPU.Hmi.Modbus.csproj" Condition="'$(ProGpuSamplesMobile)' != 'true'" />
+    <ProjectReference Include="..\ProGPU.Hmi.Mqtt\ProGPU.Hmi.Mqtt.csproj" Condition="'$(ProGpuSamplesMobile)' != 'true'" />
+    <ProjectReference Include="..\ProGPU.Hmi.OpcUa\ProGPU.Hmi.OpcUa.csproj" Condition="'$(ProGpuSamplesMobile)' != 'true'" />
+    <ProjectReference Include="..\ProGPU.WinUI.Hmi.Designer\ProGPU.WinUI.Hmi.Designer.csproj"
+                      Condition="'$(ProGpuSamplesMobile)' != 'true'" />
     <ProjectReference Include="..\ProGPU.Voxel\ProGPU.Voxel.csproj" />
     <ProjectReference Include="..\ProGPU.Voxel.WinUI\ProGPU.Voxel.WinUI.csproj" />
     <ProjectReference Include="..\ProGPU.Xaml\ProGPU.Xaml.csproj" />

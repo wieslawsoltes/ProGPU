@@ -1120,7 +1120,7 @@ public class TextBox : Control, ITextInputClient
                         PlaceholderText,
                         Font,
                         FontSize,
-                        ThemeManager.GetBrush("TextBoxForegroundDisabled"),
+                        PlaceholderForeground ?? ThemeManager.GetBrush("TextBoxForegroundDisabled", ActualTheme, ActualThemeFamily),
                         new Vector2(Padding.Left, textY),
                         Matrix4x4.Identity,
                         new Rect(0f, 0f, Math.Max(0f, Size.X - Padding.Horizontal), Size.Y),
@@ -1131,7 +1131,7 @@ public class TextBox : Control, ITextInputClient
             else
             {
                 // Draw normal text
-                var fgBrush = GetCurrentForeground() ?? ThemeManager.GetBrush("TextBoxForeground");
+                var fgBrush = GetCurrentForeground() ?? ThemeManager.GetBrush("TextBoxForeground", ActualTheme, ActualThemeFamily);
                 context.DrawText(
                     Text,
                     Font,
@@ -1149,7 +1149,7 @@ public class TextBox : Control, ITextInputClient
             {
                 float caretX = GetCaretX();
                 Rect caretRect = new Rect(caretX, textY - 1f, 1.5f, FontSize + 2f);
-                context.DrawRectangle(ThemeManager.GetBrush("TextBoxBorderBrushFocused"), null, caretRect);
+                context.DrawRectangle(ThemeManager.GetBrush("TextBoxBorderBrushFocused", ActualTheme, ActualThemeFamily), null, caretRect);
             }
 
             context.PopClip();

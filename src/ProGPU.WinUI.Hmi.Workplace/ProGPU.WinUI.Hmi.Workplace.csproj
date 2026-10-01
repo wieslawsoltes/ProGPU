@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Reusable DCS operator workplace, object aspects, alarm lists and local command reviews for ProGPU WinUI.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon />
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ProGPU.WinUI.Hmi/ProGPU.WinUI.Hmi.csproj" />
+    <None Include="../../docs/hmi-dcs-workplace.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
+</Project>

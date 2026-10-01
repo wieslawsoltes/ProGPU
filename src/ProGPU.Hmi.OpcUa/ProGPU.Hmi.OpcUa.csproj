@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Certificate-validated OPC UA client, typed I/O and bounded node browsing for ProGPU HMI.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ProGPU.Hmi/ProGPU.Hmi.csproj" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Client" />
+  </ItemGroup>
+</Project>

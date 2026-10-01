@@ -1,0 +1,95 @@
+name: HMI diagram integration
+on:
+  push:
+    branches: [feat/hmi-designer]
+    paths: ['eng/hmi-diagram-apply.py']
+permissions:
+  contents: read
+jobs:
+  integrate:
+    if: github.repository == 'wieslawsoltes/ProGPU' && github.ref == 'refs/heads/feat/hmi-designer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      PROGPU_WGPU_BACKEND: vulkan
+      XDG_RUNTIME_DIR: /tmp
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Commit the integrity-checked source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 eng/hmi-diagram-apply.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(hmi): add semantic nozzle routing and retained diagram authoring'
+          git push origin HEAD:refs/heads/feat/hmi-designer
+          mkdir -p artifacts/hmi-diagram
+          git rev-parse HEAD | tee artifacts/hmi-diagram/commit.txt
+      - name: Reflection-disabled HMI, routing and transport regressions
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger 'trx;LogFileName=hmi.trx' --results-directory artifacts/hmi-diagram/tests | tee artifacts/hmi-diagram/hmi-tests.log
+      - name: OPC UA real-server regressions
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet test tests/ProGPU.Hmi.OpcUa.Tests/ProGPU.Hmi.OpcUa.Tests.csproj -c Release --logger 'trx;LogFileName=opcua.trx' --results-directory artifacts/hmi-diagram/tests | tee artifacts/hmi-diagram/opcua-tests.log
+      - name: CoreCLR and NativeAOT diagram persistence
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/ProGPU.Hmi.SerializationSmoke -c Release | tee artifacts/hmi-diagram/serialization.log
+          dotnet publish tests/ProGPU.Hmi.SerializationSmoke -c Release -r linux-x64 -p:PublishAot=true -p:TreatWarningsAsErrors=true -o artifacts/hmi-aot | tee artifacts/hmi-diagram/aot-build.log
+          artifacts/hmi-aot/ProGPU.Hmi.SerializationSmoke | tee artifacts/hmi-diagram/aot.log
+      - name: Standalone and real desktop gallery builds
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release | tee artifacts/hmi-diagram/standalone-build.log
+          dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release | tee artifacts/hmi-diagram/gallery-build.log
+          dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:ProGpuSamplesDesktopPortableOnly=true | tee artifacts/hmi-diagram/desktop-build.log
+          dotnet run --project tests/ProGPU.Hmi.GallerySmoke -c Release | tee artifacts/hmi-diagram/gallery-smoke.log
+      - name: Actual retained rendering and nozzle pointer gestures
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers libvulkan1 fonts-dejavu-core
+          export VK_ICD_FILENAMES=$(find /usr/share/vulkan/icd.d -name '*lvp*json' -print -quit)
+          test -n "$VK_ICD_FILENAMES"
+          echo "Mesa software Vulkan: $VK_ICD_FILENAMES" > artifacts/hmi-diagram/render-adapter.txt
+          dotnet build tests/ProGPU.Hmi.VisualSmoke -c Release
+          for palette in Light Dark HighContrast; do
+            timeout 180s dotnet run --project tests/ProGPU.Hmi.VisualSmoke -c Release --no-build -- /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf artifacts/hmi-diagram/visuals "$palette" | tee "artifacts/hmi-diagram/$palette.log"
+          done
+      - name: Pack all six reusable HMI libraries
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in ProGPU.Hmi ProGPU.WinUI.Hmi ProGPU.WinUI.Hmi.Designer ProGPU.Hmi.Modbus ProGPU.Hmi.Mqtt ProGPU.Hmi.OpcUa; do
+            dotnet pack "src/$project/$project.csproj" -c Release --no-build -o artifacts/hmi-diagram/packages
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hmi-diagram-validation
+          path: artifacts/hmi-diagram
+          retention-days: 14
+          if-no-files-found: warn

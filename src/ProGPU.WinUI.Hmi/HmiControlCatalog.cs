@@ -1,0 +1,124 @@
+using ProGPU.Hmi;
+
+namespace ProGPU.WinUI.Hmi;
+
+public sealed record HmiControlDescriptor(HmiSymbol Symbol, string Name, string Category, float Width, float Height);
+
+public static class HmiControlCatalog
+{
+    public static IReadOnlyList<HmiControlDescriptor> Items { get; } = Array.AsReadOnly(new HmiControlDescriptor[]
+    {
+        new(HmiSymbol.InstrumentBubble, "Instrument bubble", "Instrumentation", 180, 190),
+        new(HmiSymbol.ControlFunction, "Shared control function", "Instrumentation", 180, 190),
+        new(HmiSymbol.NormallyOpenContact, "Normally open contact", "Electrical", 200, 145),
+        new(HmiSymbol.NormallyClosedContact, "Normally closed contact", "Electrical", 200, 145),
+        new(HmiSymbol.RelayCoil, "Relay coil", "Electrical", 200, 145),
+        new(HmiSymbol.CircuitBreaker, "Circuit breaker", "Electrical", 180, 160),
+        new(HmiSymbol.Transformer, "Transformer", "Electrical", 200, 175),
+        new(HmiSymbol.ProtectiveEarth, "Protective earth", "Electrical", 150, 145),
+        new(HmiSymbol.ControlValve, "Modulating valve", "Valves", 190, 190),
+        new(HmiSymbol.CheckValve, "Check valve", "Valves", 175, 145),
+        new(HmiSymbol.ButterflyValve, "Butterfly valve", "Valves", 170, 155),
+        new(HmiSymbol.Agitator, "Agitated vessel", "Vessels", 220, 265),
+        new(HmiSymbol.Silo, "Storage silo", "Vessels", 195, 275),
+        new(HmiSymbol.Hopper, "Feed hopper", "Vessels", 205, 240),
+        new(HmiSymbol.Separator, "Process separator", "Vessels", 210, 240),
+        new(HmiSymbol.Reactor, "Jacketed reactor", "Vessels", 235, 280),
+        new(HmiSymbol.FlowMeter, "Flow meter", "Instruments", 230, 155),
+        new(HmiSymbol.Strainer, "Y-strainer", "Valves", 195, 150),
+        new(HmiSymbol.PressureTransmitter, "Pressure transmitter", "Instruments", 180, 190),
+        new(HmiSymbol.LevelTransmitter, "Level transmitter", "Instruments", 180, 210),
+        new(HmiSymbol.HeatExchanger, "Heat exchanger", "Equipment", 220, 170),
+        new(HmiSymbol.Filter, "Process filter", "Equipment", 170, 170),
+        new(HmiSymbol.Compressor, "Compressor", "Equipment", 200, 175),
+        new(HmiSymbol.Fan, "Ventilation fan", "Equipment", 170, 175),
+        new(HmiSymbol.Heater, "Process heater", "Equipment", 180, 150),
+        new(HmiSymbol.Thermometer, "Thermometer", "Equipment", 150, 245),
+        new(HmiSymbol.Boiler, "Steam boiler", "Equipment", 205, 245),
+        new(HmiSymbol.CoolingTower, "Cooling tower", "Equipment", 215, 235),
+        new(HmiSymbol.Tank, "Storage tank", "Process", 200, 270),
+        new(HmiSymbol.Pump, "Centrifugal pump", "Process", 170, 155),
+        new(HmiSymbol.Valve, "Isolation valve", "Process", 135, 135),
+        new(HmiSymbol.Motor, "Electric motor", "Process", 160, 150),
+        new(HmiSymbol.Pipe, "Flow pipe", "Process", 250, 44),
+        new(HmiSymbol.Conveyor, "Conveyor", "Process", 270, 125),
+        new(HmiSymbol.Gauge, "Analog gauge", "Instruments", 250, 190),
+        new(HmiSymbol.BarGraph, "Bar graph", "Instruments", 230, 100),
+        new(HmiSymbol.NumericDisplay, "Numeric display", "Instruments", 210, 105),
+        new(HmiSymbol.Indicator, "Status indicator", "Instruments", 145, 130),
+        new(HmiSymbol.Trend, "Historical trend", "Monitoring", 400, 230),
+        new(HmiSymbol.AlarmBanner, "Alarm banner", "Monitoring", 620, 70),
+        new(HmiSymbol.AlarmList, "Alarm list", "Monitoring", 620, 240),
+        new(HmiSymbol.PushButton, "Command button", "Operator input", 190, 65),
+        new(HmiSymbol.ToggleSwitch, "Toggle switch", "Operator input", 230, 70),
+        new(HmiSymbol.NumericInput, "Numeric input", "Operator input", 280, 95),
+        new(HmiSymbol.NavigationButton, "Screen navigation", "Operator input", 230, 60),
+        new(HmiSymbol.RecipeButton, "Recipe button", "Operator input", 230, 65),
+        new(HmiSymbol.Label, "Text label", "Drawing", 260, 55),
+        new(HmiSymbol.Rectangle, "Panel / rectangle", "Drawing", 280, 180)
+    });
+    public static HmiControl Create(HmiSymbol symbol)
+    {
+        var control = symbol switch
+        {
+            HmiSymbol.ControlValve => (HmiControl)new HmiControlValve(),
+            HmiSymbol.CheckValve => (HmiControl)new HmiCheckValve(),
+            HmiSymbol.ButterflyValve => (HmiControl)new HmiButterflyValve(),
+            HmiSymbol.Agitator => (HmiControl)new HmiAgitator(),
+            HmiSymbol.Silo => (HmiControl)new HmiSilo(),
+            HmiSymbol.Hopper => (HmiControl)new HmiHopper(),
+            HmiSymbol.Separator => (HmiControl)new HmiSeparator(),
+            HmiSymbol.Reactor => (HmiControl)new HmiReactor(),
+            HmiSymbol.FlowMeter => (HmiControl)new HmiFlowMeter(),
+            HmiSymbol.Strainer => (HmiControl)new HmiStrainer(),
+            HmiSymbol.PressureTransmitter => (HmiControl)new HmiPressureTransmitter(),
+            HmiSymbol.LevelTransmitter => (HmiControl)new HmiLevelTransmitter(),
+            HmiSymbol.HeatExchanger => (HmiControl)new HmiHeatExchanger(),
+            HmiSymbol.Filter => (HmiControl)new HmiFilter(),
+            HmiSymbol.Compressor => (HmiControl)new HmiCompressor(),
+            HmiSymbol.Fan => (HmiControl)new HmiFan(),
+            HmiSymbol.Heater => (HmiControl)new HmiHeater(),
+            HmiSymbol.Thermometer => (HmiControl)new HmiThermometer(),
+            HmiSymbol.Boiler => (HmiControl)new HmiBoiler(),
+            HmiSymbol.CoolingTower => (HmiControl)new HmiCoolingTower(),
+            HmiSymbol.Tank => (HmiControl)new HmiTank(),
+            HmiSymbol.Pump => new HmiPump(),
+            HmiSymbol.Valve => new HmiValve(),
+            HmiSymbol.Motor => new HmiMotor(),
+            HmiSymbol.Gauge => new HmiGauge(),
+            HmiSymbol.Trend => new HmiTrend(),
+            HmiSymbol.AlarmList => new HmiAlarmList(),
+            HmiSymbol.NumericDisplay => new HmiNumericDisplay(),
+            HmiSymbol.InstrumentBubble => new HmiInstrumentBubble(),
+            HmiSymbol.ControlFunction => new HmiControlFunction(),
+            HmiSymbol.NormallyOpenContact => new HmiNormallyOpenContact(),
+            HmiSymbol.NormallyClosedContact => new HmiNormallyClosedContact(),
+            HmiSymbol.RelayCoil => new HmiRelayCoil(),
+            HmiSymbol.CircuitBreaker => new HmiCircuitBreaker(),
+            HmiSymbol.Transformer => new HmiTransformer(),
+            HmiSymbol.ProtectiveEarth => new HmiProtectiveEarth(),
+            _ => new HmiControl(symbol)
+        };
+        control.ApplyDefinition(CreateDefinition(symbol));
+        return control;
+    }
+
+    /// <summary>Detached insertion defaults shared by the designer and standalone consumers; creates no UI objects.</summary>
+    public static HmiElement CreateDefinition(HmiSymbol symbol)
+    {
+        var descriptor = Items.Single(d => d.Symbol == symbol);
+        var definition = new HmiElement { Symbol = symbol, Name = descriptor.Name, Label = descriptor.Name, Width = descriptor.Width, Height = descriptor.Height };
+        if (HmiSymbolTraits.IsSchematicSymbol(symbol))
+        {
+            definition.Appearance.GraphicStyle = HmiGraphicStyle.Schematic;
+            definition.Appearance.ShowValue = false;
+            definition.Appearance.ShowEngineeringRange = false;
+            if (HmiSymbolTraits.IsInstrument(symbol))
+            {
+                definition.Appearance.InstrumentCode = symbol == HmiSymbol.ControlFunction ? "FIC" : "PT";
+                definition.Appearance.InstrumentLoop = "101";
+            }
+        }
+        return definition;
+    }
+}

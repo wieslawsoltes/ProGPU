@@ -1,0 +1,124 @@
+name: HMI designer
+
+on:
+  push:
+    branches: [main, feat/hmi-designer]
+    paths:
+      - 'src/ProGPU.Hmi*/**'
+      - 'src/ProGPU.WinUI.Hmi*/**'
+      - 'src/ProGPU.WinUI.Designer/**'
+      - 'src/ProGPU.WinUI/Controls/DataGrid.cs'
+      - 'src/ProGPU.WinUI/Controls/TextBox.cs'
+      - 'src/ProGPU.Samples/Pages/VisualDesignerPage.cs'
+      - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
+      - 'src/ProGPU.Samples.Desktop/**'
+      - 'samples/HmiDesigner/**'
+      - 'samples/HmiDcs/**'
+      - 'src/ProGPU.WinUI/Controls/Viewbox.cs'
+      - 'tests/ProGPU.Hmi*/**'
+      - 'docs/hmi-*.md'
+      - 'Directory.Build.props'
+      - 'Directory.Build.targets'
+      - 'Directory.Packages.props'
+      - 'eng/progpu-package-list.sh'
+      - '.github/workflows/hmi-designer.yml'
+  pull_request:
+    paths:
+      - 'src/ProGPU.Hmi*/**'
+      - 'src/ProGPU.WinUI.Hmi*/**'
+      - 'src/ProGPU.WinUI.Designer/**'
+      - 'src/ProGPU.WinUI/Controls/DataGrid.cs'
+      - 'src/ProGPU.WinUI/Controls/TextBox.cs'
+      - 'src/ProGPU.Samples/Pages/VisualDesignerPage.cs'
+      - 'src/ProGPU.Samples/ProGPU.Samples.csproj'
+      - 'src/ProGPU.Samples.Desktop/**'
+      - 'samples/HmiDesigner/**'
+      - 'samples/HmiDcs/**'
+      - 'src/ProGPU.WinUI/Controls/Viewbox.cs'
+      - 'tests/ProGPU.Hmi*/**'
+      - 'docs/hmi-*.md'
+      - 'Directory.Build.props'
+      - 'Directory.Build.targets'
+      - 'Directory.Packages.props'
+      - 'eng/progpu-package-list.sh'
+      - '.github/workflows/hmi-designer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hmi-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build, test and pack (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Record source and SDK provenance
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/hmi | Out-Null
+          git rev-parse HEAD | Out-File artifacts/hmi/commit.txt -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet --info | Out-File artifacts/hmi/dotnet-info.txt -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test reflection-disabled HMI and Modbus/MQTT integrations
+        run: dotnet test tests/ProGPU.Hmi.Tests/ProGPU.Hmi.Tests.csproj -c Release --logger "trx;LogFileName=hmi.trx" --results-directory artifacts/hmi/tests
+      - name: Test OPC UA against a real loopback server
+        if: ${{ !cancelled() }}
+        run: dotnet test tests/ProGPU.Hmi.OpcUa.Tests/ProGPU.Hmi.OpcUa.Tests.csproj -c Release --logger "trx;LogFileName=opcua.trx" --results-directory artifacts/hmi/tests
+      - name: Build standalone WinUI HMI designer
+        if: ${{ !cancelled() }}
+        run: dotnet build samples/HmiDesigner/HmiDesigner.csproj -c Release
+      - name: Build standalone DCS operator and engineering app
+        if: ${{ !cancelled() }}
+        run: dotnet build samples/HmiDcs/HmiDcs.csproj -c Release
+      - name: Build shared sample gallery
+        if: ${{ !cancelled() }}
+        run: dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+      - name: Verify host-only target selection preserves compiler dependencies
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $hostTargets = dotnet msbuild src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -nologo -getProperty:TargetFrameworks -p:ProGpuSamplesDesktopPortableOnly=true
+          if ($LASTEXITCODE -ne 0 -or "$hostTargets".Trim() -ne 'net10.0') { throw 'Portable desktop target selection failed.' }
+          foreach ($project in @('ProGPU.Xaml', 'ProGPU.Xaml.SourceGenerator')) {
+            $target = dotnet msbuild "src/$project/$project.csproj" -nologo -getProperty:TargetFramework -p:ProGpuSamplesDesktopPortableOnly=true
+            if ($LASTEXITCODE -ne 0 -or "$target".Trim() -ne 'netstandard2.0') { throw "$project was incorrectly retargeted." }
+          }
+      # Restore must not discover the host's optional Apple targets on portable CI.
+      # This property is consumed only by the host, unlike a global TargetFrameworks override.
+      - name: Build the desktop gallery host
+        if: ${{ !cancelled() }}
+        run: dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:ProGpuSamplesDesktopPortableOnly=true
+      - name: Exercise actual gallery page construction without reflection JSON
+        if: ${{ !cancelled() }}
+        run: dotnet run --project tests/ProGPU.Hmi.GallerySmoke/ProGPU.Hmi.GallerySmoke.csproj -c Release
+      # The HMI designer consumes the new shared authoring APIs; retain a matching shared package.
+      - name: Pack HMI libraries and shared designer services
+        shell: pwsh
+        run: |
+          foreach ($project in @('ProGPU.WinUI.Designer', 'ProGPU.Hmi', 'ProGPU.WinUI.Hmi', 'ProGPU.WinUI.Hmi.Workplace', 'ProGPU.WinUI.Hmi.Designer', 'ProGPU.Hmi.Modbus', 'ProGPU.Hmi.Mqtt', 'ProGPU.Hmi.OpcUa')) {
+            dotnet pack "src/$project/$project.csproj" -c Release --no-build -o artifacts/hmi/packages
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Upload packages and test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hmi-${{ matrix.os }}
+          path: artifacts/hmi
+          if-no-files-found: ignore
