@@ -178,7 +178,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
         byte[][] sourcePixels = [[64, 192, 128, 255], [192, 64, 32, 255]];
         first.WritePixels<byte>(sourcePixels[0]); second.WritePixels<byte>(sourcePixels[1]);
         const ulong sceneId = 0x771A;
-        byte[] scene = CreateTextureScene(sceneId, dpi, outlines, segments, glyphs, opacity);
+        byte[] scene = CreateTextureScene(sceneId, dpi, outlines, segments, glyphs, opacity, out var paint);
         var update = subject.UpdateScene(scene);
         Check(update.CommandCount == 1 && update.ResourceCount == 2 && update.DrawCount == 1,
             "one original glyph draw and one external IMAGE binding slot");
@@ -294,7 +294,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
             {
                 ulong sceneId = 0x7720UL + (ulong)cases;
                 byte[] scene = boundedTexture
-                    ? CreateTextureScene(sceneId, dpi, outlines, segments, glyphs, opacity)
+                    ? CreateTextureScene(sceneId, dpi, outlines, segments, glyphs, opacity, out _)
                     : CreateScene(sceneId, dpi, outlines, segments, glyphs, Vector2.Zero, color, 1f);
                 byte[] sceneBytes = scene.ToArray();
                 var beforeUpdate = subject.GetLastSubmissionToken();
@@ -349,7 +349,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
     }
 
     private static byte[] CreateTextureScene(ulong sceneId, float dpi, NativeGlyphOutline[] outlines,
-        NativePathSegment[] segments, NativePositionedGlyph[] glyphs, float opacity)
+        NativePathSegment[] segments, NativePositionedGlyph[] glyphs, float opacity, out NativeSceneGlyphPaint paint)
     {
         var sceneOutlines = new NativeSceneGlyphOutline[outlines.Length];
         for (int i = 0; i < outlines.Length; i++)
@@ -366,7 +366,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
             "texture control shares exact independently unpacked original glyph geometry");
         Check(builder.TryAddExternalImageResource(2, 1, out uint imageResource), "original external IMAGE resource");
         float extent = 96 / dpi;
-        var paint = new NativeSceneGlyphPaint(NativeSceneGlyphPaint.Texture, 0,
+        paint = new NativeSceneGlyphPaint(NativeSceneGlyphPaint.Texture, 0,
             NativeSceneGlyphPaint.BoundedTexture,
             new(0, 0, opacity, 0), new(0, 0, 1, 1), new(0, 0, extent, 0),
             new(extent, extent, 0, extent), new(0, 0.5f, 0, 0));
