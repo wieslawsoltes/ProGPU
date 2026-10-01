@@ -1303,7 +1303,8 @@ void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine*
         const d2d::rectangle_f patch{2, 2, 4, 4};
         source->FillRectangle(&patch, brush.get());
         const d2d::size_u pixel_size{16U, 16U};
-        const d2d::size_f logical_size{8.0F, 16.0F}; // Independent destination axes: 192 x 96.
+        // Keep the original uniform control; additional cases use 192 x 96 destination DPI.
+        const d2d::size_f logical_size{density.width == density.height ? 16.0F : 8.0F, 16.0F};
         native_com::pointer<d2d::bitmap_render_target> destination;
         native_com::pointer<d2d::bitmap> bitmap;
         require(parent.target->CreateCompatibleRenderTarget(&logical_size, &pixel_size, &format,

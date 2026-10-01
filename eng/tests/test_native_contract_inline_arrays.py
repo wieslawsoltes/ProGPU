@@ -33,10 +33,11 @@ class NativeContractInlineArrayTests(unittest.TestCase):
         for count in (1, 3, 64):
             with self.subTest(count=count):
                 generated = self.generate(f"uint32_t before; uint32_t reserved[{count}]; float after;", True)
-                fields = "\n".join(line.strip() for line in generated.splitlines() if "public " in line)
-                self.assertEqual(fields, "public uint Before;\n" +
-                                 "\n".join(f"public uint Reserved{i};" for i in range(count)) +
-                                 "\npublic float After;")
+                fields = "\n".join(line.strip() for line in generated.splitlines()
+                                   if line.strip().startswith(("internal uint ", "internal float ")))
+                self.assertEqual(fields, "internal uint Before;\n" +
+                                 "\n".join(f"internal uint Reserved{i};" for i in range(count)) +
+                                 "\ninternal float After;")
 
     def test_invalid_array_forms_preserve_existing_output(self):
         for declaration in ("uint32_t reserved[0];", "uint32_t reserved[65];",
