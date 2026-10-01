@@ -11,6 +11,12 @@ WgpuContext.OnWebGpuError += (type, message) =>
 WgpuContext.OnWebGpuDeviceLost += (reason, message) =>
     Console.Error.WriteLine($"package-consumer: WebGPU device lost {reason}: {message}");
 
+if (args.Length == 1 && args[0] is "--text-edit-word-boundaries-only" or "--text-edit-word-boundaries-dawn-only")
+{
+    TextEditWordBoundaryValidation.Run(dawn: args[0] == "--text-edit-word-boundaries-dawn-only");
+    return;
+}
+
 if (args.Contains("--text-device-advances-only", StringComparer.Ordinal))
 {
     TextDeviceAdvanceValidation.Run();
