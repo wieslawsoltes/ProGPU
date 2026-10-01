@@ -1,5 +1,9 @@
 # Retained hinted glyph replay
 
+The later Windows address investigation and paired host correction are recorded
+in [Glyph coverage coordinate frame](glyph-coverage-coordinate-frame.md). Earlier
+runs below retain their original scope; they do not qualify that correction.
+
 The native unmasked paint pipeline binds an explicitly empty group 2 between its
 atlas and paint texture groups. A nonempty mask-chain layout with no binding is
 invalid on the actual Dawn retained-bundle path, even when the fragment entrypoint

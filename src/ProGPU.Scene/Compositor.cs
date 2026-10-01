@@ -1459,6 +1459,8 @@ public unsafe partial class Compositor : IDisposable
     private uint _compiledSceneHeight;
     private uint? _compiledSceneRenderTargetWidth;
     private uint? _compiledSceneRenderTargetHeight;
+    private uint _compiledScenePhysicalWidth;
+    private uint _compiledScenePhysicalHeight;
     private RenderTargetViewport? _compiledSceneRenderTargetViewport;
     private float _compiledSceneDpiScale;
     private Visual? _compiledSceneToolTip;
@@ -3482,16 +3484,7 @@ SceneCompilationComplete:
             throw PathAtlasCapacityExceededException.Instance;
         }
 
-        uint renderWidth = _explicitRenderTargetWidth ?? width;
-        uint renderHeight = _explicitRenderTargetHeight ?? height;
-        if (!_explicitRenderTargetWidth.HasValue &&
-            _context.Window != null &&
-            width == (uint)_context.Window.Size.X &&
-            height == (uint)_context.Window.Size.Y)
-        {
-            renderWidth = (uint)_context.Window.FramebufferSize.X;
-            renderHeight = (uint)_context.Window.FramebufferSize.Y;
-        }
+        GetRootRenderTargetSize(width, height, out uint renderWidth, out uint renderHeight);
 
         if (wavefrontEnabled)
         {
@@ -3577,6 +3570,12 @@ DynamicBufferUploadComplete:
             goto SceneStateUploadComplete;
         }
 
+        // This is the same normalized viewport encoded by ApplyRenderPassViewport
+        // for the root pass. Other uniform constructors remain uncertified.
+        var rootViewport = NormalizeRenderTargetViewport(
+            _explicitRenderTargetViewport ?? RenderTargetViewport.Full(renderWidth, renderHeight),
+            renderWidth,
+            renderHeight);
         // Upload unified projection and MVP matrices
         var uniformsData = new GpuUniforms
         {
@@ -3584,7 +3583,12 @@ DynamicBufferUploadComplete:
             Mvp = _hasGpuTransformsInFrame ? Matrix4x4.Identity : projection,
             View = _hasGpuTransformsInFrame ? _gpuTransformsCameraView : Matrix4x4.Identity,
             CanvasSize = new Vector2(renderWidth, renderHeight),
-            DpiScale = _currentDpiScale
+            DpiScale = _currentDpiScale,
+            Pad0 = GlyphCoverageFramePolicy.GetRootCertificate(
+                width, height, renderWidth, renderHeight,
+                _currentDpiScale, Options.PrimarySampleCount, _hasGpuTransformsInFrame,
+                projection,
+                new Vector4(rootViewport.X, rootViewport.Y, rootViewport.Width, rootViewport.Height))
         };
         UploadIncrementalSceneBuffer(
             _uniformBuffer,
@@ -3627,6 +3631,8 @@ DynamicBufferUploadComplete:
             root,
             width,
             height,
+            renderWidth,
+            renderHeight,
             externalLayers,
             activeToolTip,
             hasDynamicDiagnostics);
@@ -4261,6 +4267,20 @@ SceneStateUploadComplete:
         }
     }
 
+    private void GetRootRenderTargetSize(uint width, uint height, out uint renderWidth, out uint renderHeight)
+    {
+        renderWidth = _explicitRenderTargetWidth ?? width;
+        renderHeight = _explicitRenderTargetHeight ?? height;
+        if (!_explicitRenderTargetWidth.HasValue &&
+            _context.Window != null &&
+            width == (uint)_context.Window.Size.X &&
+            height == (uint)_context.Window.Size.Y)
+        {
+            renderWidth = (uint)_context.Window.FramebufferSize.X;
+            renderHeight = (uint)_context.Window.FramebufferSize.Y;
+        }
+    }
+
     private bool CanReuseCompiledScene(
         Visual root,
         uint width,
@@ -4277,6 +4297,9 @@ SceneStateUploadComplete:
         if (_compiledSceneRootVersion != root.ChangeVersion) return MissCompiledSceneCache("Root version changed");
         if (_compiledSceneWidth != width || _compiledSceneHeight != height)
             return MissCompiledSceneCache("Logical target changed");
+        GetRootRenderTargetSize(width, height, out uint renderWidth, out uint renderHeight);
+        if (_compiledScenePhysicalWidth != renderWidth || _compiledScenePhysicalHeight != renderHeight)
+            return MissCompiledSceneCache("Framebuffer target changed");
         if (_compiledSceneRenderTargetWidth != _explicitRenderTargetWidth ||
             _compiledSceneRenderTargetHeight != _explicitRenderTargetHeight ||
             _compiledSceneRenderTargetViewport != _explicitRenderTargetViewport ||
@@ -4360,6 +4383,8 @@ SceneStateUploadComplete:
         Visual root,
         uint width,
         uint height,
+        uint physicalWidth,
+        uint physicalHeight,
         IReadOnlyList<Visual>? externalLayers,
         Visual? activeToolTip,
         bool hasDynamicDiagnostics)
@@ -4394,6 +4419,8 @@ SceneStateUploadComplete:
         _compiledSceneHeight = height;
         _compiledSceneRenderTargetWidth = _explicitRenderTargetWidth;
         _compiledSceneRenderTargetHeight = _explicitRenderTargetHeight;
+        _compiledScenePhysicalWidth = physicalWidth;
+        _compiledScenePhysicalHeight = physicalHeight;
         _compiledSceneRenderTargetViewport = _explicitRenderTargetViewport;
         _compiledSceneDpiScale = _currentDpiScale;
         _compiledSceneToolTip = activeToolTip;

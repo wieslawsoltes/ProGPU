@@ -345,9 +345,25 @@ public class ShaderResourceTests
             CountOccurrences(
                 Shaders.TextShader,
                 "clamp(atlasCoord "));
-        Assert.Contains("text_glyph_color_with_mask_alpha(input.color, input.texCoord, input.texelBounds",
+        Assert.Contains("text_glyph_color_with_mask_alpha(input.color, texCoord, input.texelBounds",
             Shaders.TextShader, StringComparison.Ordinal);
         Assert.Single(Regex.Matches(Shaders.TextShader, "fn text_glyph_color_with_mask_alpha\\("));
+    }
+
+    [Fact]
+    public void TextAndPaintShareCertifiedPhysicalCoverageAddress()
+    {
+        string common = ShaderResource.Load(typeof(Shaders), "TextGlyphGeometryCommon.wgsl");
+        Assert.Contains("uniforms.pad0 == -1.0 && useMvp == 0.0", common, StringComparison.Ordinal);
+        Assert.Contains("(fragmentPosition - physicalFrame.xy) * (atlasSpan / physicalFrame.zw)",
+            common, StringComparison.Ordinal);
+        foreach (string source in new[] { Shaders.TextShader, Shaders.HintedGlyphPaintShader })
+        {
+            Assert.Contains(common, source, StringComparison.Ordinal);
+            Assert.Single(Regex.Matches(source, "fn text_glyph_coverage_tex_coord\\("));
+            Assert.Contains("input.position.xy", source, StringComparison.Ordinal);
+            Assert.Contains("@interpolate(flat) physicalGlyphFrame", source, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
