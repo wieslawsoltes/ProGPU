@@ -22,11 +22,21 @@ class EditPolicyReceiptTests(unittest.TestCase):
                        "wordStop": False, "invalid": False} for index, unit in enumerate(source)]
         types = [{"index": index, "utf16": unit, "raw": 0, "space": False, "punctuation": False,
                   "control": False, "blank": False, "alphabetic": False} for index, unit in enumerate(source)]
+        bidi_types = [{"index": index, "utf16": unit, "raw": 0} for index, unit in enumerate(source)]
+        processing_types = []
+        for index, unit in enumerate(source):
+            value = {"index": index, "utf16": unit, "raw": 0, "reserved": 0}
+            value.update({name: False for name in ("nonspacing", "diacritic", "vowelMark", "symbol",
+                "katakana", "hiragana", "halfWidth", "fullWidth", "ideograph", "kashida", "lexical",
+                "highSurrogate", "lowSurrogate", "alphabetic")})
+            processing_types.append(value)
         observation = {"completed": True, "actualText": text, "actualUtf16": source, "flags": 0x40,
                        "hdc": 0, "charset": -1, "attributeByteSize": 1, "analyseHResult": 0, "freeHResult": 0,
                        "rawBytes": [4] * len(source), "attributes": attributes,
                        "classification": {"completed": True, "terminalPosition": len(source), "itemByteSize": 8,
                            "characterTypesSucceeded": True, "ctype1": types,
+                           "ctype2Succeeded": True, "ctype2Error": 0, "ctype2": bidi_types,
+                           "ctype3Succeeded": True, "ctype3Error": 0, "ctype3": processing_types,
                            "runs": [{"start": 0, "end": len(source), "script": 5, "rawAnalysis": 5,
                                      "rawPropertiesFirst": 0, "needsWordBreaking": False,
                                      "directScriptBreak": {"hResult": 0, "inputStart": 0,
@@ -84,6 +94,33 @@ class EditPolicyReceiptTests(unittest.TestCase):
         value = self.receipt()
         value["cases"][1]["Name"] = value["cases"][0]["Name"]
         with self.assertRaisesRegex(ValueError, "duplicate"):
+            self.verify(value)
+
+    def test_ctype2_original_unit_rewrite_is_rejected(self):
+        value = self.receipt()
+        value["cases"][0]["scriptBreak"]["classification"]["ctype2"][2]["utf16"] = 0
+        with self.assertRaisesRegex(ValueError, "CTYPE2 unit identity"):
+            self.verify(value)
+
+    def test_ctype3_missing_unit_is_rejected(self):
+        value = self.receipt()
+        value["cases"][0]["scriptBreak"]["classification"]["ctype3"].pop()
+        with self.assertRaisesRegex(ValueError, "CTYPE3 coverage"):
+            self.verify(value)
+
+    def test_ctype3_property_invention_is_rejected(self):
+        value = self.receipt()
+        value["cases"][0]["scriptBreak"]["classification"]["ctype3"][0]["ideograph"] = True
+        with self.assertRaisesRegex(ValueError, "CTYPE3 bit interpretation"):
+            self.verify(value)
+
+    def test_ctype3_reserved_bits_are_preserved(self):
+        value = self.receipt()
+        item = value["cases"][0]["scriptBreak"]["classification"]["ctype3"][0]
+        item["raw"] = item["reserved"] = 0x6000
+        self.assertEqual(self.verify(value)["cases"], 72)
+        item["reserved"] = 0
+        with self.assertRaisesRegex(ValueError, "CTYPE3 reserved identity"):
             self.verify(value)
 
     def test_nonmatching_process_or_qualification_is_rejected(self):

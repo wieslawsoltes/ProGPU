@@ -64,6 +64,8 @@ def verify_receipt(path, mode, phase, binary):
         raise ValueError("Original24 controls changed or disappeared")
     if mode == "contexts" and len(cases) != 72:
         raise ValueError("Context inventory changed")
+    if mode == "item-contexts" and len(cases) != 128:
+        raise ValueError("Item-context inventory changed")
     if mode == "symbol-attributes":
         if (receipt.get("editGesturesObserved") is not False or not 1 <= receipt["symbolCount"] <= 4096
                 or len(cases) != receipt["symbolCount"] * 3):
@@ -106,6 +108,25 @@ def verify_receipt(path, mode, phase, binary):
             for name, bit in (("space", 8), ("punctuation", 16), ("control", 32), ("blank", 64), ("alphabetic", 256)):
                 if value[name] is not bool(value["raw"] & bit):
                     raise ValueError("Original CTYPE1 bit interpretation changed")
+        for name in ("ctype2", "ctype3"):
+            values = classification[name]
+            if (classification.get(name + "Succeeded") is not True or classification[name + "Error"] != 0
+                    or len(values) != len(source)):
+                raise ValueError("Original " + name.upper() + " coverage incomplete")
+            for index, value in enumerate(values):
+                if (value["index"] != index or value["utf16"] != source[index]
+                        or type(value["raw"]) is not int or not 0 <= value["raw"] <= 65535):
+                    raise ValueError("Original " + name.upper() + " unit identity changed")
+                if name == "ctype3":
+                    for flag, bit in (("nonspacing", 1), ("diacritic", 2), ("vowelMark", 4),
+                                      ("symbol", 8), ("katakana", 16), ("hiragana", 32),
+                                      ("halfWidth", 64), ("fullWidth", 128), ("ideograph", 256),
+                                      ("kashida", 512), ("lexical", 1024), ("highSurrogate", 2048),
+                                      ("lowSurrogate", 4096), ("alphabetic", 32768)):
+                        if value[flag] is not bool(value["raw"] & bit):
+                            raise ValueError("Original CTYPE3 bit interpretation changed")
+                    if value["reserved"] != value["raw"] & 0x6000:
+                        raise ValueError("Original CTYPE3 reserved identity changed")
         end = 0
         for run in classification["runs"]:
             if run["start"] != end or not end < run["end"] <= len(source):
@@ -190,7 +211,7 @@ def main():
                       "-o", str(evidence / "bin"), "-m:1", "-nodeReuse:false", "-p:UseSharedCompilation=false",
                       "-p:BaseIntermediateOutputPath=" + str(evidence / "obj") + os.sep], 180)
         binary = evidence / "bin/NativeEditWordPolicyReference.dll"
-        for mode in ("original24", "contexts", "symbol-attributes"):
+        for mode in ("original24", "contexts", "symbol-attributes", "item-contexts"):
             receipt = evidence / (mode + ".json")
             phase = run(mode, ["dotnet", str(binary), mode, str(receipt)], 60)
             manifest["receipts"].append(verify_receipt(receipt, mode, phase, binary))

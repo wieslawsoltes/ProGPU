@@ -12,6 +12,7 @@ internal static class Program
         {
             "original24" => WordSelectionReference.Run(args[1], "PerMonitorV2", "true"),
             "contexts" => WordSelectionReference.RunPolicyContexts(args[1]),
+            "item-contexts" => WordSelectionReference.RunItemPolicyContexts(args[1]),
             "symbol-attributes" => WordSelectionReference.RunSymbolAttributes(args[1]),
             _ => throw new ArgumentOutOfRangeException(nameof(args))
         };

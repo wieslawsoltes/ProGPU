@@ -209,3 +209,16 @@ unlike the neighboring Latin item. That is evidence requiring a real script-item
 policy, not permission to make every script/bidi transition a word boundary.
 The BMP and mixed-script contracts therefore still block a complete classifier
 or provider. No reference-generated word/index lookup is used in production.
+
+The next observer revision retains the original24 and contextual72 inventories
+and adds a **separate** 128-input item-context phase: repeated symbols/VS16 within
+actual native items, varied Arabic entries, and several distinct script entries
+in both paragraph directions. Direct ScriptBreak still receives only the whole
+actual ScriptItemize item and its original SCRIPT_ANALYSIS; it never combines
+items or constructs a substitute script identity. Raw
+[CTYPE2/3](https://learn.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-getstringtypew)
+records are preserved per original WCHAR, including surrogate halves, alongside
+CTYPE1. They are not assumed equivalent to modern scalar properties or to a
+soft-break class. Original 30/60-second process limits, callback limits, CreateNew
+evidence and the 16/128MiB receipt bounds remain unchanged. All new results are
+unknown observations without generated expected word endpoints.

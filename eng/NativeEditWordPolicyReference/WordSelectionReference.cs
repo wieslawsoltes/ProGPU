@@ -1,6 +1,6 @@
 // Original ProGPU-owned reference algorithm/24 fixtures from LibreWinForms
 // def9a31a9192bd560da34c49787089fec848b4ab, eng/NativeTextBoxReference/WordSelectionReference.cs.
-// This attributed copy adds independent direct ScriptBreak metadata and context inputs only.
+// This attributed copy adds independent raw script/character metadata and context inputs only.
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
@@ -268,7 +268,10 @@ internal static partial class WordSelectionReference
             bool uniscribe = name.Equals("usp10.dll", StringComparison.OrdinalIgnoreCase);
             if (!uniscribe && !name.Equals("gdi32.dll", StringComparison.OrdinalIgnoreCase)
                 && !name.Equals("gdi32full.dll", StringComparison.OrdinalIgnoreCase)
-                && !name.Equals("textshaping.dll", StringComparison.OrdinalIgnoreCase)) continue;
+                && !name.Equals("textshaping.dll", StringComparison.OrdinalIgnoreCase)
+                && !name.Equals("kernel32.dll", StringComparison.OrdinalIgnoreCase)
+                && !name.Equals("kernelbase.dll", StringComparison.OrdinalIgnoreCase)
+                && !name.Equals("user32.dll", StringComparison.OrdinalIgnoreCase)) continue;
             modules.Add(new
             {
                 name, path, fileVersion = module.FileVersionInfo.FileVersion,
@@ -460,6 +463,37 @@ internal static partial class WordSelectionReference
             space = (value & 8) != 0, punctuation = (value & 16) != 0,
             control = (value & 32) != 0, blank = (value & 64) != 0,
             alphabetic = (value & 256) != 0
+        }).ToArray();
+        // Record the original per-WCHAR bidi/text-processing types separately.
+        // Neither API is presumed equivalent to the Unicode17 scalar worker,
+        // a soft-break property, a portable engine ID or an EDIT boundary.
+        ushort[] bidiTypes = new ushort[text.Length];
+        bool bidiTyped = GetStringTypeW(2, text, text.Length, bidiTypes);
+        int bidiError = bidiTyped ? 0 : Marshal.GetLastPInvokeError();
+        result["ctype2Succeeded"] = bidiTyped;
+        result["ctype2Error"] = bidiError;
+        if (!bidiTyped) throw new InvalidOperationException($"GetStringTypeW CTYPE2 failed: {bidiError}.");
+        result["ctype2"] = bidiTypes.Select((value, index) => new
+        {
+            index, utf16 = (int)text[index], raw = (int)value
+        }).ToArray();
+        ushort[] processingTypes = new ushort[text.Length];
+        bool processingTyped = GetStringTypeW(4, text, text.Length, processingTypes);
+        int processingError = processingTyped ? 0 : Marshal.GetLastPInvokeError();
+        result["ctype3Succeeded"] = processingTyped;
+        result["ctype3Error"] = processingError;
+        if (!processingTyped) throw new InvalidOperationException($"GetStringTypeW CTYPE3 failed: {processingError}.");
+        result["ctype3"] = processingTypes.Select((value, index) => new
+        {
+            index, utf16 = (int)text[index], raw = (int)value,
+            nonspacing = (value & 0x0001) != 0, diacritic = (value & 0x0002) != 0,
+            vowelMark = (value & 0x0004) != 0, symbol = (value & 0x0008) != 0,
+            katakana = (value & 0x0010) != 0, hiragana = (value & 0x0020) != 0,
+            halfWidth = (value & 0x0040) != 0, fullWidth = (value & 0x0080) != 0,
+            ideograph = (value & 0x0100) != 0, kashida = (value & 0x0200) != 0,
+            lexical = (value & 0x0400) != 0, highSurrogate = (value & 0x0800) != 0,
+            lowSurrogate = (value & 0x1000) != 0, alphabetic = (value & 0x8000) != 0,
+            reserved = value & 0x6000
         }).ToArray();
         result["completed"] = true;
         return hasWordBreakingRun;
