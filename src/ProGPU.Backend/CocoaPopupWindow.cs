@@ -26,7 +26,7 @@ internal sealed class CocoaPopupWindow : IWindow
     private int _dispatchDepth;
     private ulong _geometryVersion;
     private double _lastUpdate, _lastRender;
-    private bool _vsync, _eventDriven;
+    private bool _vsync, _eventDriven, _topMost, _applyingOptions;
 
     internal CocoaPopupWindow(IWindowHost parent, NativeWindowHandle owner, WindowOptions options,
         Action wakeOwner, Func<NativeWindowBounds, bool, CocoaOwnedPopupSurface> create)
@@ -44,7 +44,7 @@ internal sealed class CocoaPopupWindow : IWindow
         ArgumentNullException.ThrowIfNull(create);
         if (!allowOwnerBinding && (owner.Kind != NativeWindowKind.Cocoa || !owner.IsValid || owner.Display != 0))
             throw new ArgumentException("A live Cocoa owner is required.", nameof(owner));
-        if (options.API.API != ContextAPI.None || options.IsVisible || options.TopMost ||
+        if (options.API.API != ContextAPI.None || options.IsVisible ||
             options.WindowState != WindowState.Normal || options.WindowBorder != WindowBorder.Hidden ||
             options.ShouldSwapAutomatically || !options.IsContextControlDisabled ||
             options.SharedContext is not null || !string.IsNullOrEmpty(options.Title) ||
@@ -61,6 +61,7 @@ internal sealed class CocoaPopupWindow : IWindow
         _size = options.Size;
         _vsync = options.VSync;
         _eventDriven = options.IsEventDriven;
+        _topMost = options.TopMost;
         _wakeHost = wakeHost;
         _create = create;
         _native = new(this);
@@ -149,6 +150,57 @@ internal sealed class CocoaPopupWindow : IWindow
         if (!_initialized) throw new InvalidOperationException("Initialize the owned popup before setting mouse pass-through.");
         _inputTransparent = transparent;
         return ApplyInputPolicy();
+    }
+
+    internal bool SetTopMost(bool value)
+    {
+        CheckUsable();
+        if (_initializing && !_initialized)
+            throw new InvalidOperationException("Popup options cannot change during native creation.");
+        if (_initialized && !ApplyOption(value, static (surface, requested) => surface.SetTopMost(requested))) return false;
+        _topMost = value;
+        return true;
+    }
+
+    internal bool SetOpacity(double value) => ApplyOption(value, static (surface, requested) => surface.SetOpacity(requested));
+    internal bool SetZOrder(NativeWindowZOrder value)
+    {
+        CheckUsable();
+        if (value is not NativeWindowZOrder.Front and not NativeWindowZOrder.Back)
+            throw new ArgumentOutOfRangeException(nameof(value));
+        if (!_visible || !Owner.IsValid) return false;
+        return ApplyOption(value, static (surface, requested) => surface.SetZOrder(requested));
+    }
+    internal bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum) =>
+        ApplyOption((minimum, maximum), static (surface, requested) => surface.SetSizeConstraints(requested.minimum, requested.maximum));
+
+    private bool ApplyOption<T>(T value, Func<CocoaOwnedPopupSurface, T, bool> apply)
+    {
+        CheckUsable();
+        if (_applyingOptions || _initializing && !_initialized)
+            throw new InvalidOperationException("Popup options cannot reenter a native transition.");
+        var surface = RequireSurface();
+        _applyingOptions = true;
+        ++_dispatchDepth;
+        Exception? failure = null;
+        bool accepted = false;
+        try { accepted = apply(surface, value); }
+        catch (Exception exception) { failure = exception; throw; }
+        finally
+        {
+            _applyingOptions = false;
+            try
+            {
+                try
+                {
+                    if (_closing && !_disposeRequested && !surface.Hide())
+                        throw new InvalidOperationException("The closing owned popup could not be hidden.");
+                }
+                finally { EndDispatch(); }
+            }
+            catch (Exception cleanup) when (failure is not null) { CocoaPopupFailure.AttachCleanup(failure, "PopupOptionRetirement", cleanup); }
+        }
+        return accepted && !_closing && !_disposeRequested;
     }
 
     private bool ApplyInputPolicy()
@@ -309,8 +361,8 @@ internal sealed class CocoaPopupWindow : IWindow
     }
     public bool TopMost
     {
-        get => false;
-        set { CheckUsable(); if (value) throw new NotSupportedException("Popup stacking belongs to its native owner."); }
+        get => _topMost;
+        set { if (!SetTopMost(value)) throw new InvalidOperationException("The owned Cocoa popup rejected its level."); }
     }
     public WindowBorder WindowBorder
     {
@@ -364,12 +416,16 @@ internal sealed class CocoaPopupWindow : IWindow
         if (_initialized) return;
         if (_initializing) throw new InvalidOperationException("Owned popup initialization cannot be nested.");
         _initializing = true;
+        Exception? failure = null;
         // Assign ownership before any callback or read that could fail. Cleanup
         // failures leave the surface here for a later explicit retirement retry.
         try
         {
             _surface = _create(new(_position.X, _position.Y, _size.X, _size.Y), TransparentFramebuffer);
             CheckUsable(); // Native creation may have reentered close/disposal.
+            if (!_surface.SetTopMost(_topMost))
+                throw new InvalidOperationException("The owned Cocoa popup rejected its initial level.");
+            CheckUsable();
             PublishGeometry(ReadGeometry(), notify: false);
             _initialized = true;
             _lastUpdate = _lastRender = Time;
@@ -377,15 +433,18 @@ internal sealed class CocoaPopupWindow : IWindow
             try { Load?.Invoke(); }
             finally { EndDispatch(); }
         }
-        catch
+        catch (Exception exception)
         {
-            Dispose();
+            failure = exception;
+            try { Dispose(); }
+            catch (Exception cleanup) { CocoaPopupFailure.AttachCleanup(failure, "PopupInitializationDisposal", cleanup); }
             throw;
         }
         finally
         {
             _initializing = false;
-            if (_disposeRequested) TryCompleteDispose();
+            try { if (_disposeRequested) TryCompleteDispose(); }
+            catch (Exception cleanup) when (failure is not null) { CocoaPopupFailure.AttachCleanup(failure, "PopupInitializationRetirement", cleanup); }
         }
     }
 
@@ -443,7 +502,10 @@ internal sealed class CocoaPopupWindow : IWindow
         if (_closing) return;
         _closing = true;
         _visible = false;
-        if (_surface is not null && !_disposeRequested && !_surface.Hide())
+        // A reentrant option callback cannot hide until its native transition
+        // returns, but closing must cancel queued/held input immediately.
+        if (_applyingOptions || _initializing && !_initialized) _surface?.CloseInput();
+        if (_surface is not null && !_disposeRequested && !_applyingOptions && !(_initializing && !_initialized) && !_surface.Hide())
             throw new InvalidOperationException("The closing owned popup could not be hidden.");
         _inputContext?.ObservePolicyChange();
         ++_dispatchDepth;

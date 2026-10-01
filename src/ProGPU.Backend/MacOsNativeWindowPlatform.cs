@@ -14,8 +14,8 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
     private const ulong ViewWidthSizable = 1UL << 1;
     private const ulong ViewHeightSizable = 1UL << 4;
     private const long WindowBelow = -1;
-    private const long NormalWindowLevel = 0;
-    private const long FloatingWindowLevel = 3;
+    internal const long NormalWindowLevel = 0;
+    internal const long FloatingWindowLevel = 3;
 
     private readonly nint _nsWindow;
     private nint _visualEffectView;

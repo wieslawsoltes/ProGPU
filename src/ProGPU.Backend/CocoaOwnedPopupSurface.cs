@@ -117,6 +117,43 @@ internal sealed class CocoaOwnedPopupSurface : IDisposable
         finally { Exit(); }
     }
 
+    internal bool SetTopMost(bool value) => SetOption(value, static (operations, requested) => operations.SetTopMost(requested));
+
+    internal bool SetOpacity(double value)
+    {
+        if (!double.IsFinite(value) || value is < 0 or > 1) throw new ArgumentOutOfRangeException(nameof(value));
+        return SetOption(value, static (operations, requested) => operations.SetOpacity(requested));
+    }
+
+    internal bool SetZOrder(NativeWindowZOrder value)
+    {
+        if (value is not NativeWindowZOrder.Front and not NativeWindowZOrder.Back)
+            throw new ArgumentOutOfRangeException(nameof(value));
+        return SetOption(value, static (operations, requested) => operations.SetZOrder(requested));
+    }
+
+    internal bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum)
+    {
+        if (minimum.Width < 0 || minimum.Height < 0 || maximum.Width < minimum.Width || maximum.Height < minimum.Height)
+            throw new ArgumentOutOfRangeException(nameof(minimum));
+        return SetOption((minimum, maximum), static (operations, requested) => operations.SetSizeConstraints(requested.minimum, requested.maximum));
+    }
+
+    private bool SetOption<T>(T value, Func<ICocoaOwnedPopupOperations, T, bool> apply)
+    {
+        var operations = Enter();
+        Exception? failure = null;
+        bool accepted = false;
+        try { accepted = apply(operations, value) && !_closeRequested && operations.IsCurrent; }
+        catch (Exception exception) { failure = exception; throw; }
+        finally
+        {
+            try { Exit(); }
+            catch (Exception cleanup) when (failure is not null) { CocoaPopupFailure.AttachCleanup(failure, "PopupOptionRetirement", cleanup); }
+        }
+        return accepted && !_closeRequested;
+    }
+
     internal bool TryGetGeometry(out NativeWindowGeometrySnapshot snapshot)
     {
         snapshot = default;
@@ -177,9 +214,10 @@ internal sealed class CocoaOwnedPopupSurface : IDisposable
             ObjectDisposedException.ThrowIf(_closeRequested, this);
             return operations;
         }
-        catch
+        catch (Exception failure)
         {
-            Exit();
+            try { Exit(); }
+            catch (Exception cleanup) { CocoaPopupFailure.AttachCleanup(failure, "PopupTransitionRetirement", cleanup); }
             throw;
         }
     }
@@ -254,6 +292,10 @@ internal interface ICocoaOwnedPopupOperations : IDisposable
     bool Show();
     bool Hide();
     bool SetBounds(NativeWindowBounds bounds);
+    bool SetTopMost(bool value);
+    bool SetOpacity(double value);
+    bool SetZOrder(NativeWindowZOrder value);
+    bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum);
     bool SupportsCursor(StandardCursor cursor);
     bool SetCursor(StandardCursor cursor, bool hidden);
     bool TryGetGeometry(out NativeWindowGeometrySnapshot snapshot);

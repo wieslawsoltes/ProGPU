@@ -6,7 +6,9 @@ internal sealed class CocoaPopupNativeWindowPlatform(CocoaPopupWindow window) : 
 {
     public NativeWindowHandle Handle => window.NativeHandle;
     public NativeWindowCapabilities Capabilities => new(NativeWindowKind.Cocoa,
-        window.TransparentFramebuffer ? NativeWindowFeatures.Transparent : NativeWindowFeatures.None);
+        NativeWindowFeatures.TopMost | NativeWindowFeatures.SizeConstraints |
+        NativeWindowFeatures.Opacity | NativeWindowFeatures.ZOrder |
+        (window.TransparentFramebuffer ? NativeWindowFeatures.Transparent : NativeWindowFeatures.None));
     public bool RequiresManagedDecorations => false;
     public NativeDrawnDecorationParts RequestedDrawnDecorations => NativeDrawnDecorationParts.None;
     public NativeWindowFrameInsets FrameInsets => NativeWindowFrameInsets.Empty;
@@ -22,12 +24,12 @@ internal sealed class CocoaPopupNativeWindowPlatform(CocoaPopupWindow window) : 
         state.IsPopup && state.Decorations == NativeWindowDecorations.None &&
         !state.ExtendClientArea && !state.CanResize;
     public bool SetEnabled(bool value) => window.SetInputAllowed(value);
-    public bool SetTopMost(bool value) => !value;
-    public bool SetOpacity(double value) => false;
-    public bool SetZOrder(NativeWindowZOrder value) => false;
+    public bool SetTopMost(bool value) => window.SetTopMost(value);
+    public bool SetOpacity(double value) => window.SetOpacity(value);
+    public bool SetZOrder(NativeWindowZOrder value) => window.SetZOrder(value);
     public bool SetShowInTaskbar(bool value) => !value;
     public bool SetParent(NativeWindowHandle parent) => window.BindOwner(parent);
-    public bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum) => false;
+    public bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum) => window.SetSizeConstraints(minimum, maximum);
     public bool SetClientAreaExtension(bool enabled, double titleBarHeight) => !enabled;
     public bool SetTheme(NativeWindowTheme theme) => false;
     public bool SetBackdrop(NativeWindowBackdrop backdrop) => window.TransparentFramebuffer
