@@ -51,6 +51,50 @@ public sealed class NativeTextHintingContractTests
     }
 
     [Fact]
+    public void RetainedParagraphRecordsMatchIndependentWireOffsets()
+    {
+        Assert.Equal(44, Marshal.SizeOf<NativeHintedParagraphDeviceStyle>());
+        Assert.Equal(36, Marshal.SizeOf<NativeHintedParagraphCounts>());
+        Assert.Equal(40, Marshal.SizeOf<NativeHintedParagraphRun>());
+        Assert.Equal(12, Marshal.SizeOf<NativeHintedParagraphGlyphOwner>());
+        string[] device = ["FontIndex", "SourceScale", "LogicalUnitsPerPhysicalPixel", "XPixelsPerEm266",
+            "YPixelsPerEm266", "Interpreter", "XPhase266", "YPhase266", "VariationStart", "VariationCount", "Reserved"];
+        string[] counts = ["SourceScalarCount", "AdmittedScalarCount", "StyleCount", "RunCount", "LogicalGlyphCount",
+            "PositionedGlyphCount", "LineCount", "ClusterBoxCount", "CaretStopCount"];
+        string[] runs = ["ScalarStart", "ScalarCount", "LogicalStart", "LogicalCount", "FontIndex", "StyleIndex",
+            "BidiLevel", "SourceScale", "LogicalUnitsPerPhysicalPixel", "SourceDescriptorCount"];
+        for (int index = 0; index < device.Length; index++)
+            Assert.Equal(index * 4, (int)Marshal.OffsetOf<NativeHintedParagraphDeviceStyle>(device[index]));
+        for (int index = 0; index < counts.Length; index++)
+            Assert.Equal(index * 4, (int)Marshal.OffsetOf<NativeHintedParagraphCounts>(counts[index]));
+        for (int index = 0; index < runs.Length; index++)
+            Assert.Equal(index * 4, (int)Marshal.OffsetOf<NativeHintedParagraphRun>(runs[index]));
+        Assert.Equal(typeof(int), typeof(NativeHintedParagraphRun).GetField("BidiLevel")!.FieldType);
+
+        string[] buffers = ["SourceScalars", "AdmittedScalars", "ScalarLevels", "Styles", "SourceMetrics", "Runs",
+            "LogicalGlyphs", "LogicalOwners", "LogicalClusterEnds", "LogicalBidiLevels", "GlyphScales",
+            "PositionedGlyphs", "PositionedOwners", "PositionedClusterEnds", "PositionedBidiLevels", "Lines", "LineOrigins"];
+        string[] capacities = ["SourceScalarCapacity", "AdmittedScalarCapacity", "ScalarLevelCapacity", "StyleCapacity",
+            "SourceMetricCapacity", "RunCapacity", "LogicalGlyphCapacity", "LogicalOwnerCapacity", "LogicalClusterEndCapacity",
+            "LogicalBidiLevelCapacity", "GlyphScaleCapacity", "PositionedGlyphCapacity", "PositionedOwnerCapacity",
+            "PositionedClusterEndCapacity", "PositionedBidiLevelCapacity", "LineCapacity", "LineOriginCapacity"];
+        int pairSize = IntPtr.Size == 8 ? 16 : 8;
+        Assert.Equal(8 + buffers.Length * pairSize, Marshal.SizeOf<NativeMethods.HintedParagraphFormatBuffers>());
+        for (int index = 0; index < buffers.Length; index++)
+        {
+            Assert.Equal(8 + index * pairSize, (int)Marshal.OffsetOf<NativeMethods.HintedParagraphFormatBuffers>(buffers[index]));
+            Assert.Equal(8 + index * pairSize + IntPtr.Size,
+                (int)Marshal.OffsetOf<NativeMethods.HintedParagraphFormatBuffers>(capacities[index]));
+        }
+        int targetOffset = (20 + IntPtr.Size - 1) & -IntPtr.Size;
+        Assert.Equal(targetOffset, (int)Marshal.OffsetOf<NativeMethods.HintedParagraphFrameRequest>("TargetView"));
+        Assert.Equal(targetOffset + IntPtr.Size,
+            (int)Marshal.OffsetOf<NativeMethods.HintedParagraphFrameRequest>("LogicalOrigin"));
+        int frameSize = (targetOffset + IntPtr.Size + 36 + IntPtr.Size - 1) & -IntPtr.Size;
+        Assert.Equal(frameSize, Marshal.SizeOf<NativeMethods.HintedParagraphFrameRequest>());
+    }
+
+    [Fact]
     public void BatchLeasesHaveTheirOwnDisposedIdentityAndReleaseOnce()
     {
         int releases = 0;

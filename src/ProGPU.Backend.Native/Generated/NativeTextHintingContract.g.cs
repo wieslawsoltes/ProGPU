@@ -24,6 +24,65 @@ internal static unsafe partial class NativeMethods
         internal uint VariationCount;
         internal uint Reserved;
     }
+
+    // Native source: progpu_native_hinted_paragraph_format_buffers.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct HintedParagraphFormatBuffers
+    {
+        internal uint StructSize;
+        internal uint Reserved;
+        internal nuint SourceScalars;
+        internal uint SourceScalarCapacity;
+        internal nuint AdmittedScalars;
+        internal uint AdmittedScalarCapacity;
+        internal nuint ScalarLevels;
+        internal uint ScalarLevelCapacity;
+        internal nuint Styles;
+        internal uint StyleCapacity;
+        internal nuint SourceMetrics;
+        internal uint SourceMetricCapacity;
+        internal nuint Runs;
+        internal uint RunCapacity;
+        internal nuint LogicalGlyphs;
+        internal uint LogicalGlyphCapacity;
+        internal nuint LogicalOwners;
+        internal uint LogicalOwnerCapacity;
+        internal nuint LogicalClusterEnds;
+        internal uint LogicalClusterEndCapacity;
+        internal nuint LogicalBidiLevels;
+        internal uint LogicalBidiLevelCapacity;
+        internal nuint GlyphScales;
+        internal uint GlyphScaleCapacity;
+        internal nuint PositionedGlyphs;
+        internal uint PositionedGlyphCapacity;
+        internal nuint PositionedOwners;
+        internal uint PositionedOwnerCapacity;
+        internal nuint PositionedClusterEnds;
+        internal uint PositionedClusterEndCapacity;
+        internal nuint PositionedBidiLevels;
+        internal uint PositionedBidiLevelCapacity;
+        internal nuint Lines;
+        internal uint LineCapacity;
+        internal nuint LineOrigins;
+        internal uint LineOriginCapacity;
+    }
+
+    // Native source: progpu_native_hinted_paragraph_frame_request.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct HintedParagraphFrameRequest
+    {
+        internal uint AbiVersion;
+        internal uint StructSize;
+        internal uint Width;
+        internal uint Height;
+        internal float DpiScale;
+        internal nuint TargetView;
+        internal Vector2 LogicalOrigin;
+        internal NativeColor ClearColor;
+        internal uint ProjectionPolicy;
+        internal uint Coverage;
+        internal uint Reserved;
+    }
 }
 // Native source: progpu_native_hinted_point.
 [StructLayout(LayoutKind.Sequential)]
@@ -66,4 +125,61 @@ public partial struct NativeHintedBatchCounts
     public uint Glyphs;
     public uint Points;
     public uint Contours;
+}
+
+// Native source: progpu_native_hinted_paragraph_device_style.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedParagraphDeviceStyle
+{
+    public uint FontIndex;
+    public float SourceScale;
+    public float LogicalUnitsPerPhysicalPixel;
+    public uint XPixelsPerEm266;
+    public uint YPixelsPerEm266;
+    public uint Interpreter;
+    public uint XPhase266;
+    public uint YPhase266;
+    public uint VariationStart;
+    public uint VariationCount;
+    public uint Reserved;
+}
+
+// Native source: progpu_native_hinted_paragraph_counts.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedParagraphCounts
+{
+    public uint SourceScalarCount;
+    public uint AdmittedScalarCount;
+    public uint StyleCount;
+    public uint RunCount;
+    public uint LogicalGlyphCount;
+    public uint PositionedGlyphCount;
+    public uint LineCount;
+    public uint ClusterBoxCount;
+    public uint CaretStopCount;
+}
+
+// Native source: progpu_native_hinted_paragraph_run.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedParagraphRun
+{
+    public uint ScalarStart;
+    public uint ScalarCount;
+    public uint LogicalStart;
+    public uint LogicalCount;
+    public uint FontIndex;
+    public uint StyleIndex;
+    public int BidiLevel;
+    public float SourceScale;
+    public float LogicalUnitsPerPhysicalPixel;
+    public uint SourceDescriptorCount;
+}
+
+// Native source: progpu_native_hinted_paragraph_glyph_owner.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedParagraphGlyphOwner
+{
+    public uint RunIndex;
+    public uint RunGlyphIndex;
+    public uint DescriptorIndex;
 }
