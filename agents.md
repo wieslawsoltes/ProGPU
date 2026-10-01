@@ -15,6 +15,25 @@ half-open shared edges and derivatives before discard. Both renderers must use
 the matching vertex count. Folded/near-singular edges, multisampling and complete
 provider/package pixels remain explicit gates; shader compilation is not parity.
 
+Paired Display probes preserve original Microsoft glyph/run receipts and separate
+raw signed hinted slots from full source-context shaping and positioned output.
+Keep exact source DPI and original 26.6 values beside float render projections;
+diagnostic conversion is not source output repair. Independent head/hhea inputs
+are not Microsoft output baselines or Display line policy. Require whole-successful
+exact native Build staging before execution; neither receipt-parser tests nor
+one interpreter's matching raw advance admits Display. See
+eng/HintedDisplayPolicyProbe/README.md.
+
+Hinted source lines retain the measured writer's actual double tops and ascents
+beside their original baselines. Keep the additive frame view under the original
+resource lease and preserve all alias guards. Canonical source offsets reuse the
+native validator and original nominal metrics in one atomic run batch, never
+source-local prefixes or per-glyph font calls. Source drawing and interaction
+consume this same generation; line and cloned continuation uses own independent
+leases. Empty-row, reflow/collapse and Display device-policy admission remain
+explicit until their original contracts and qualification exist. See
+docs/source-hinted-text-ownership.md.
+
 Local source visibility is independent of opacity and presentation attachment.
 Carry Visible/Hidden/Collapsed through typed state and native snapshot transport;
 exclude ordinary hidden subtrees before cache/mask/input admission. Explicit
@@ -218,6 +237,19 @@ origins; do not synthesize empty-row tops or expose a design-font alias. Indepen
 source references retain the live native resource until final retirement, with
 once-ended uses and exact failed teardown retry. Source GlyphRun/replay wiring,
 continuation and Display selection remain separate. See docs/source-hinted-text-ownership.md.
+Explicit nominal-metric preparation reads original hmtx advances through retained
+font bytes/collection faces, never half-em, device or GPOS substitutes. Keep its
+immutable view additive to existing resource/import layouts, preserve every
+positioned/no-ink identity and reject missing metrics or coordinate-bearing
+instances before publication. Borrow spans under the original resource lease and
+guard their complete allocation against output aliases. Nominal metadata alone
+does not connect source baseline frames, offsets, carets or Display selection.
+Source nominal-offset validation uses the original owning writer line and exact
+retained hmtx/positioned advances. Keep source baseline separate from paragraph
+draw translation and baseline-relative ink; reject cross-line, vertical or
+unrepresentable mappings before publishing anything. Validate under the existing
+producer lease without reflow, per-glyph crossings or source-local correction.
+Nominal Ideal offsets do not admit Display rounding or source caret interaction.
 
 Recorded hinted replay retains original producer uses through pictures, compiled
 scenes and frame resources, not merely managed geometry references. Keep explicit

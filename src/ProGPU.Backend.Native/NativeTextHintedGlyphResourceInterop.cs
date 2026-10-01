@@ -15,7 +15,7 @@ public partial struct NativeMilHintedGlyphBinding { }
 /// receive only immutable flat records under a destruction-excluding lease.
 /// This explicit resource does not select source Display rendering.
 /// </summary>
-public sealed unsafe class NativeHintedGlyphResource : IDisposable
+public sealed unsafe partial class NativeHintedGlyphResource : IDisposable
 {
     private static readonly Action<nint> NativeDestroy = NativeMethods.DestroyHintedGlyphResource;
     private readonly object _gate = new();
@@ -26,7 +26,7 @@ public sealed unsafe class NativeHintedGlyphResource : IDisposable
     private bool _disposed;
 
     internal NativeHintedGlyphResource(nint handle, float dpiScale,
-        NativeHintedProjectionPolicy projection, NativeHintedCoverage coverage)
+        NativeHintedProjectionPolicy projection, NativeHintedCoverage coverage, bool nominalMetrics = false)
     {
         NativeMethods.HintedGlyphResourceView view = default;
         NativeHintedParagraph.ThrowForStatus(NativeMethods.BorrowHintedGlyphResource(handle, &view), "glyph resource borrow");
@@ -36,6 +36,8 @@ public sealed unsafe class NativeHintedGlyphResource : IDisposable
             view.ProjectionPolicy != (uint)projection || view.Coverage != (uint)coverage)
             throw new InvalidOperationException("Native hinted geometry changed its exact prepared execution contract.");
         _view = view;
+        if (nominalMetrics) _nominalMetrics = BorrowNominalMetrics(handle, view.Counts.PositionedGlyphCount);
+        _lineFrames = BorrowLineFrames(handle, view.Counts.LineCount);
         // Ownership transfers last. The factory destroys the raw handle if
         // borrowing or validation throws before this nonthrowing assignment.
         _handle = handle;
@@ -45,11 +47,18 @@ public sealed unsafe class NativeHintedGlyphResource : IDisposable
     // a native dependency. Production preparation still uses the original
     // native borrow/validation constructor above and the cached native destroy.
     internal NativeHintedGlyphResource(nint handle, in NativeMethods.HintedGlyphResourceView view,
-        Action<nint> destroy)
+        Action<nint> destroy, NativeMethods.HintedGlyphNominalMetricsView? nominalMetrics = null,
+        HintedSourceFrameValidator? validateSourceFrame = null,
+        NativeMethods.HintedTextLineFramesView? lineFrames = null,
+        HintedResourceReflow? reflow = null)
     {
         ArgumentNullException.ThrowIfNull(destroy);
         _view = view;
+        _nominalMetrics = nominalMetrics;
+        _lineFrames = lineFrames;
         _destroy = destroy;
+        if (validateSourceFrame is not null) _validateSourceFrame = validateSourceFrame;
+        if (reflow is not null) _reflow = reflow;
         _handle = handle;
     }
 
@@ -72,7 +81,7 @@ public sealed unsafe class NativeHintedGlyphResource : IDisposable
         NativeMethods.HintedGlyphResourceView view = AcquireForImport();
         try
         {
-            return new NativeHintedGlyphResourceReadLease(this, in view);
+            return new NativeHintedGlyphResourceReadLease(this, in view, _nominalMetrics, _lineFrames);
         }
         catch (Exception error)
         {
@@ -117,9 +126,20 @@ public sealed unsafe class NativeHintedGlyphResource : IDisposable
 
     private void ReleaseIfUnused()
     {
-        if (!_disposed || _uses != 0 || _handle == 0) return;
-        _destroy(_handle);
-        _handle = 0;
+        if (!_disposed || _uses != 0) return;
+        Exception? primary = null;
+        if (_handle != 0)
+        {
+            try { _destroy(_handle); _handle = 0; }
+            catch (Exception error) { primary = error; }
+        }
+        try { DrainReflowRetirements(); }
+        catch (Exception error)
+        {
+            if (primary is null) primary = error;
+            else AttachCleanup(primary, error);
+        }
+        if (primary is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(primary).Throw();
         GC.SuppressFinalize(this);
     }
 
@@ -151,7 +171,7 @@ public sealed unsafe class NativeHintedGlyphResource : IDisposable
 /// Do not dispose the lease concurrently with span use. Disposing the resource
 /// itself is allowed while this lease remains live.
 /// </remarks>
-public sealed unsafe class NativeHintedGlyphResourceReadLease : IDisposable
+public sealed unsafe partial class NativeHintedGlyphResourceReadLease : IDisposable
 {
     private readonly object _gate = new();
     private readonly NativeMethods.HintedGlyphResourceView _view;
@@ -159,10 +179,15 @@ public sealed unsafe class NativeHintedGlyphResourceReadLease : IDisposable
     private bool _ended;
 
     internal NativeHintedGlyphResourceReadLease(NativeHintedGlyphResource owner,
-        in NativeMethods.HintedGlyphResourceView view)
+        in NativeMethods.HintedGlyphResourceView view, NativeMethods.HintedGlyphNominalMetricsView? nominalMetrics = null,
+        NativeMethods.HintedTextLineFramesView? lineFrames = null)
     {
         ValidateRanges(in view);
+        if (nominalMetrics is { } metrics) ValidateNominalMetrics(in metrics, view.Counts.PositionedGlyphCount);
+        if (lineFrames is { } frames) ValidateLineFrames(in frames, view.Counts.LineCount);
         _view = view;
+        _nominalMetrics = nominalMetrics;
+        _lineFrames = lineFrames;
         // Only a complete checked view can publish a retained reader.
         _owner = owner;
     }

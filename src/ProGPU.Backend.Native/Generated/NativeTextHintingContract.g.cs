@@ -96,6 +96,28 @@ internal static unsafe partial class NativeMethods
         internal uint Reserved;
     }
 
+    // Native source: progpu_native_hinted_glyph_nominal_metrics_view.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct HintedGlyphNominalMetricsView
+    {
+        internal uint AbiVersion;
+        internal uint StructSize;
+        internal uint MetricCount;
+        internal uint Reserved;
+        internal nuint Metrics;
+    }
+
+    // Native source: progpu_native_hinted_text_line_frames_view.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct HintedTextLineFramesView
+    {
+        internal uint AbiVersion;
+        internal uint StructSize;
+        internal uint LineCount;
+        internal uint Reserved;
+        internal nuint Frames;
+    }
+
     // Native source: progpu_native_hinted_glyph_resource_view.
     [StructLayout(LayoutKind.Sequential)]
     internal partial struct HintedGlyphResourceView
@@ -289,6 +311,46 @@ public partial struct NativeHintedGlyphOutlineOwner
 {
     public uint RunIndex;
     public uint DescriptorIndex;
+}
+
+// Native source: progpu_native_hinted_glyph_nominal_metrics.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedGlyphNominalMetrics
+{
+    public uint PositionedIndex;
+    public uint FontIndex;
+    public uint GlyphId;
+    public uint AdvanceWidthDesignUnits;
+}
+
+// Native source: progpu_native_hinted_source_glyph_offset.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedSourceGlyphOffset
+{
+    public double X;
+    public double Y;
+}
+
+// Native source: progpu_native_hinted_source_glyph_frame.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedSourceGlyphFrame
+{
+    public uint LineIndex;
+    public uint FontIndex;
+    public int BidiLevel;
+    public float ParagraphBaselineY;
+    public Vector2 SourceBaselineOrigin;
+    public Vector2 ParagraphOrigin;
+    public Vector2 BaselineRelativeOrigin;
+}
+
+// Native source: progpu_native_hinted_text_line_frame.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedTextLineFrame
+{
+    public double Top;
+    public float BaselineOffset;
+    public uint Flags;
 }
 
 // Native source: progpu_native_mil_hinted_glyph_binding.

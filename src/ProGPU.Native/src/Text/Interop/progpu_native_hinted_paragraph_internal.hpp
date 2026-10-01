@@ -3,6 +3,7 @@
 #include "../Font/progpu_native_hinted_shaper.hpp"
 #include "progpu_native_text_styles.h"
 #include "progpu_native_text_flow.h"
+#include "../progpu_native_text_layout_retained_internal.hpp"
 
 namespace progpu::native::text {
 
@@ -82,7 +83,7 @@ struct hinted_paragraph_generation final {
     std::vector<text_item_metrics> item_metrics{};
     // Explicit original scalar-range coverage; actual producer BK/NL/CR/LF
     // boundaries and admitted CRLF pairing never relabel the source text.
-    // This is not empty-hard-row caret metadata or a continuation contract.
+    // This is not empty-hard-row caret metadata.
     std::vector<std::int32_t> logical_cluster_ends{};
     std::vector<positioned_text_glyph> glyphs{}; // Original logical glyph_index.
     std::vector<positioned_text_line> lines{}; // Original writer fields unchanged.
@@ -90,6 +91,7 @@ struct hinted_paragraph_generation final {
     std::vector<std::int8_t> bidi_levels{}; // Actual writer L1/L2-used levels.
     std::vector<std::int32_t> cluster_ends{};
     std::vector<float> line_origins{}; // Literal writer pen + alignment, never ink X.
+    std::vector<text_layout_line_frame> line_frames{}; // Actual writer double top and source ascent.
     text_layout_metrics metrics{};
     progpu_native_text_paragraph_result paragraph_result{};
 };
@@ -118,5 +120,19 @@ progpu_native_status try_layout_context_hinted_paragraph(
     std::span<const hinted_paragraph_style_configuration> device_styles,
     std::shared_ptr<const hinted_paragraph_generation>& result,
     progpu_native_text_paragraph_result& diagnostic) noexcept;
+
+struct hinted_paragraph_reflow_result final {
+    progpu_native_status status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    std::shared_ptr<const hinted_paragraph_generation> generation{};
+};
+
+// Reuses the ORIGINAL complete logical generation and shared run/font owners.
+// Only the existing measured writer places a suffix at an exact shaped cluster
+// boundary; no shaping, hinting, bidi resolution or context lookup is repeated.
+// The new generation owns its positioning/interaction inputs independently.
+// Nested continuation cannot move before the current view's first input.
+hinted_paragraph_reflow_result reflow_hinted_paragraph(
+    const hinted_paragraph_generation& paragraph, std::int32_t input_start,
+    float maximum_width) noexcept;
 
 } // namespace progpu::native::text

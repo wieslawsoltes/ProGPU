@@ -322,6 +322,71 @@ typedef struct progpu_native_hinted_glyph_outline_owner {
     uint32_t descriptor_index;
 } progpu_native_hinted_glyph_outline_owner;
 
+/* Original hmtx horizontal advance, NOT hinted device or positioned/GPOS advance.
+ * Each record addresses one original positioned occurrence, including no-ink
+ * and repeated glyphs. Font/face/UPM and owner identity remain in the same
+ * resource's ordinary view. Coordinate-bearing instances are not admitted. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedGlyphNominalMetrics */
+typedef struct progpu_native_hinted_glyph_nominal_metrics {
+    uint32_t positioned_index;
+    uint32_t font_index;
+    uint32_t glyph_id;
+    uint32_t advance_width_design_units;
+} progpu_native_hinted_glyph_nominal_metrics;
+
+/* Separate additive view: no existing resource record or import ABI changes.
+ * Borrow under the original destruction-excluding resource lease. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.HintedGlyphNominalMetricsView */
+typedef struct progpu_native_hinted_glyph_nominal_metrics_view {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    uint32_t metric_count;
+    uint32_t reserved;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_hinted_glyph_nominal_metrics* metrics;
+} progpu_native_hinted_glyph_nominal_metrics_view;
+
+/* Exact source nominal-offset convention: horizontal doubles, Y positive up.
+ * These are source inputs, never reconstructed positioned advances. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceGlyphOffset */
+typedef struct progpu_native_hinted_source_glyph_offset {
+    double x;
+    double y;
+} progpu_native_hinted_source_glyph_offset;
+
+/* One proven original writer line. Baseline origin belongs to the source run;
+ * paragraph origin is the ONLY translation added to original glyph positions.
+ * This does not admit Display rounding, cross-line runs or caret interaction. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceGlyphFrame */
+typedef struct progpu_native_hinted_source_glyph_frame {
+    uint32_t line_index;
+    uint32_t font_index;
+    int32_t bidi_level;
+    float paragraph_baseline_y;
+    progpu_native_point source_baseline_origin;
+    progpu_native_point paragraph_origin;
+    progpu_native_point baseline_relative_origin;
+} progpu_native_hinted_source_glyph_frame;
+
+/* Original writer double top and source ascent, captured during placement.
+ * Flags bit zero means measured input; no other flags are valid. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedTextLineFrame */
+typedef struct progpu_native_hinted_text_line_frame {
+    double top;
+    float baseline_offset;
+    uint32_t flags;
+} progpu_native_hinted_text_line_frame;
+
+/* PROGPU_CSHARP_STRUCT: NativeMethods.HintedTextLineFramesView */
+typedef struct progpu_native_hinted_text_line_frames_view {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    uint32_t line_count;
+    uint32_t reserved;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_hinted_text_line_frame* frames;
+} progpu_native_hinted_text_line_frames_view;
+
 /* A read-only flat borrow held by an ORIGINAL producer-library lifetime lease
  * excluding destruction. Immutable cached records admit concurrent readers.
  * A renderer receives only these records, never the producer's opaque handle.
@@ -449,9 +514,59 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_paragraph_prepare_gl
     const progpu_native_hinted_paragraph* paragraph,
     const progpu_native_hinted_glyph_resource_request* request,
     progpu_native_hinted_glyph_resource** resource);
+/* Explicit nominal-metric preparation. Missing original hmtx advances or any
+ * selected design/context normalized coordinates return Unsupported, never an
+ * invented advance. All preparation must succeed before publishing resource. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_paragraph_prepare_glyph_resource_with_nominal_metrics(
+    const progpu_native_hinted_paragraph* paragraph,
+    const progpu_native_hinted_glyph_resource_request* request,
+    progpu_native_hinted_glyph_resource** resource);
+
+/* Places a suffix of the retained original logical generation at a proven
+ * cluster boundary, without shaping/hinting again or borrowing a context.
+ * Inherits DPI/projection/coverage and nominal-metric preparation. The new
+ * resource owns its lines, actual writer frames and interaction independently;
+ * original font/run/glyph/source identities and full shaping remain retained.
+ * Width is finite/nonnegative (zero preserves existing unbounded semantics).
+ * Nested continuations cannot precede the current view. Invalid requests and
+ * reachable output aliases leave the caller slot untouched. No collapse,
+ * Display policy, exact-double metric or empty-hard-row admission is implied. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_reflow(
+    const progpu_native_hinted_glyph_resource* resource,
+    int32_t input_start, float maximum_width,
+    progpu_native_hinted_glyph_resource** continuation);
 PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_borrow(
     const progpu_native_hinted_glyph_resource* resource,
     progpu_native_hinted_glyph_resource_view* view);
+/* Ordinary preparation has no nominal view and returns Unsupported. Failures
+ * leave the output untouched, including aliases into all retained storage. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_borrow_nominal_metrics(
+    const progpu_native_hinted_glyph_resource* resource,
+    progpu_native_hinted_glyph_nominal_metrics_view* view);
+
+/* Synchronous original-generation validation, one crossing per explicit run.
+ * Requires explicit nominal preparation. All selected occurrences must belong
+ * to one retained line/font/bidi level. Source arrays are borrowed until return;
+ * on every error frame and all inputs remain untouched. No layout or font call. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_validate_source_frame(
+    const progpu_native_hinted_glyph_resource* resource,
+    const uint32_t* positioned_indices, uint32_t glyph_count,
+    float source_em_size, progpu_native_point source_baseline_origin,
+    const double* source_advances,
+    const progpu_native_hinted_source_glyph_offset* source_offsets,
+    progpu_native_hinted_source_glyph_frame* frame);
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_borrow_line_frames(
+    const progpu_native_hinted_glyph_resource* resource,
+    progpu_native_hinted_text_line_frames_view* view);
+
+/* Copies canonical nominal source offsets for the exact original selection;
+ * same equations and admission as validate_source_frame. All output/tails stay
+ * untouched on failure; successful copies leave unused capacity untouched. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_copy_source_offsets(
+    const progpu_native_hinted_glyph_resource* resource,
+    const uint32_t* positioned_indices, uint32_t glyph_count, float source_em_size,
+    progpu_native_hinted_source_glyph_offset* offsets, uint32_t offset_capacity);
 PROGPU_NATIVE_API void progpu_native_hinted_glyph_resource_destroy(progpu_native_hinted_glyph_resource* resource);
 
 /* Canonical commands, flat resource imports and all bindings form ONE staged

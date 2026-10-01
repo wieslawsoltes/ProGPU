@@ -243,13 +243,15 @@ public sealed unsafe class NativeHintedGlyphResourceLeaseTests
         Assert.Empty(reader.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
         PropertyInfo[] spans = reader.GetProperties().Where(property => property.PropertyType.IsGenericType &&
             property.PropertyType.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>)).ToArray();
-        Assert.Equal(34, spans.Length);
+        Assert.Equal(36, spans.Length);
         Assert.All(reader.GetProperties(), property => Assert.Null(property.SetMethod));
         Assert.All(reader.GetProperties(), property => Assert.NotEqual(typeof(nint), property.PropertyType));
         Assert.All(reader.GetProperties(), property => Assert.NotEqual(typeof(nuint), property.PropertyType));
         Assert.Equal(typeof(ReadOnlySpan<NativeGlyphOutline>), reader.GetProperty(nameof(NativeHintedGlyphResourceReadLease.Outlines))!.PropertyType);
         Assert.Equal(typeof(ReadOnlySpan<NativePathSegment>), reader.GetProperty(nameof(NativeHintedGlyphResourceReadLease.Segments))!.PropertyType);
         Assert.Equal(typeof(ReadOnlySpan<NativeHintedGlyphOutlineOwner>), reader.GetProperty(nameof(NativeHintedGlyphResourceReadLease.OutlineOwners))!.PropertyType);
+        Assert.Equal(typeof(ReadOnlySpan<NativeHintedGlyphNominalMetrics>), reader.GetProperty(nameof(NativeHintedGlyphResourceReadLease.NominalMetrics))!.PropertyType);
+        Assert.Equal(typeof(ReadOnlySpan<NativeHintedTextLineFrame>), reader.GetProperty(nameof(NativeHintedGlyphResourceReadLease.LineFrames))!.PropertyType);
     }
 
     [Fact]

@@ -937,7 +937,8 @@ static bool layout_measured_core(
     line_count = 0U;
     if (retained != nullptr && (options.trimming != text_trimming::none ||
         !valid_retained_metadata_span(retained->positioned_bidi_levels) ||
-        !valid_retained_metadata_span(retained->line_origins))) {
+        !valid_retained_metadata_span(retained->line_origins) ||
+        !valid_retained_metadata_span(retained->line_frames))) {
         set_error(error, font_error::invalid_argument);
         return false;
     }
@@ -988,7 +989,8 @@ static bool layout_measured_core(
     }
     if ((retained != nullptr &&
             (retained->positioned_bidi_levels.size() < requirements.glyph_capacity ||
-             retained->line_origins.size() < requirements.line_capacity)) ||
+             retained->line_origins.size() < requirements.line_capacity ||
+             (!retained->line_frames.empty() && retained->line_frames.size() < requirements.line_capacity))) ||
         (tabs.interval > 0.0F && advance_scratch.size() < requirements.glyph_capacity) ||
         scratch.visual_groups.size() < requirements.glyph_capacity ||
         scratch.visual_indices.size() < requirements.glyph_capacity ||
@@ -1081,6 +1083,7 @@ static bool layout_measured_core(
         }
         float line_height = options.line_height;
         float baseline = static_cast<float>(line_count) * options.line_height;
+        float baseline_offset = 0.0F;
         if (!item_metrics.empty()) {
             text_item_metrics envelope{};
             // Entire input was validated before publishing any output.
@@ -1088,6 +1091,7 @@ static bool layout_measured_core(
                 visible.end - input_start_index), envelope);
             line_height = std::max(line_height, envelope.ascent + envelope.descent);
             baseline = static_cast<float>(measured_top + envelope.ascent);
+            baseline_offset = envelope.ascent;
         }
         const float sign_width = should_trim ? options.ellipsis_advance * options.scale : 0.0F;
         const bool leading_sign = should_trim && options.collapse_width >= 0.0F && (paragraph_level & 1) != 0;
@@ -1184,6 +1188,9 @@ static bool layout_measured_core(
             expansion > 0.0F && (paragraph_level & 1) != 0
                 ? static_cast<std::uint8_t>(positioned_text_line_flags::right_to_left_justified)
                 : static_cast<std::uint8_t>(positioned_text_line_flags::none)};
+        if (retained != nullptr && !retained->line_frames.empty())
+            retained->line_frames[line_count] = {item_metrics.empty() ? static_cast<double>(baseline) : measured_top,
+                baseline_offset, !item_metrics.empty()};
         ++line_count;
         measured_top += line_height;
         input_start_index = line.end;

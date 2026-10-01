@@ -162,6 +162,21 @@ public sealed unsafe class NativeHintedParagraph : IDisposable
     public NativeHintedGlyphResource PrepareGlyphResource(float dpiScale,
         NativeHintedProjectionPolicy projection = NativeHintedProjectionPolicy.Automatic,
         NativeHintedCoverage coverage = NativeHintedCoverage.Strict)
+        => PrepareGlyphResourceCore(dpiScale, projection, coverage, false);
+
+    /// <summary>
+    /// Also retains the original horizontal hmtx design advance for every
+    /// positioned occurrence. Missing metrics and coordinate-bearing instances
+    /// reject atomically; no half-em, device-advance or GPOS substitution occurs.
+    /// This does not admit source offsets, frames, carets or Display selection.
+    /// </summary>
+    public NativeHintedGlyphResource PrepareGlyphResourceWithNominalMetrics(float dpiScale,
+        NativeHintedProjectionPolicy projection = NativeHintedProjectionPolicy.Automatic,
+        NativeHintedCoverage coverage = NativeHintedCoverage.Strict)
+        => PrepareGlyphResourceCore(dpiScale, projection, coverage, true);
+
+    private NativeHintedGlyphResource PrepareGlyphResourceCore(float dpiScale,
+        NativeHintedProjectionPolicy projection, NativeHintedCoverage coverage, bool nominalMetrics)
     {
         if (!float.IsFinite(dpiScale) || dpiScale <= 0)
             throw new ArgumentOutOfRangeException(nameof(dpiScale));
@@ -175,9 +190,11 @@ public sealed unsafe class NativeHintedParagraph : IDisposable
         nint resource = 0;
         try
         {
-            ThrowForStatus(NativeMethods.PrepareHintedGlyphResource(use.Handle, &request, &resource), "glyph resource preparation");
+            ThrowForStatus(nominalMetrics
+                ? NativeMethods.PrepareHintedGlyphResourceWithNominalMetrics(use.Handle, &request, &resource)
+                : NativeMethods.PrepareHintedGlyphResource(use.Handle, &request, &resource), "glyph resource preparation");
             if (resource == 0) throw new InvalidOperationException("Native glyph preparation returned no owner.");
-            return new NativeHintedGlyphResource(resource, dpiScale, projection, coverage);
+            return new NativeHintedGlyphResource(resource, dpiScale, projection, coverage, nominalMetrics);
         }
         catch
         {

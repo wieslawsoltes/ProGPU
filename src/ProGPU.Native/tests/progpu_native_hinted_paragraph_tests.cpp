@@ -319,6 +319,8 @@ void verify_writer(const hinted_paragraph_generation& retained) {
             retained.positioned_owners[index] == retained.logical_owners[a.glyph_index] &&
             retained.cluster_ends[index] == retained.logical_cluster_ends[a.glyph_index]);
     }
+    require(retained.line_frames.size() == line_count);
+    double expected_top = 0.0;
     for (std::size_t index = 0U; index < line_count; ++index) {
         const auto& a = lines[index]; const auto& b = retained.lines[index];
         require(a.glyph_start == b.glyph_start && a.glyph_count == b.glyph_count && a.input_start == b.input_start &&
@@ -330,6 +332,13 @@ void verify_writer(const hinted_paragraph_generation& retained) {
             first = std::min(first, static_cast<std::size_t>(logical)); last = std::max(last, static_cast<std::size_t>(logical) + 1U);
         }
         require(last - first == a.glyph_count);
+        float expected_ascent = 0.0F;
+        for (std::size_t item = first; item < last; ++item)
+            expected_ascent = std::max(expected_ascent, retained.item_metrics[item].ascent);
+        require(retained.line_frames[index].measured && retained.line_frames[index].top == expected_top &&
+            retained.line_frames[index].baseline_offset == expected_ascent &&
+            a.baseline_y == static_cast<float>(expected_top + expected_ascent));
+        expected_top += a.height;
         const auto logical_line = std::span(retained.logical_glyphs).subspan(first, last - first);
         std::vector<text_visual_cluster_group> visual_groups(a.glyph_count);
         std::vector<std::uint32_t> visual_indices(a.glyph_count);
@@ -369,17 +378,33 @@ void verify_writer(const hinted_paragraph_generation& retained) {
         retained.metrics.measured_width == measured.measured_width && retained.metrics.measured_height == measured.measured_height);
     std::vector<std::int8_t> used_levels(required.glyph_capacity + 2U, -77);
     std::vector<float> used_origins(required.line_capacity + 2U, -717.0F);
+    const text_layout_line_frame frame_tail{-717.0, -713.0F, false};
+    std::vector<text_layout_line_frame> used_frames(required.line_capacity + 2U, frame_tail);
     font_error sink_error = font_error::verification_failed;
     require(try_layout_measured_logical_shaped_text_retained(retained.logical_glyphs, retained.breaks_after,
         retained.logical_bidi_levels, retained.glyph_scales, retained.paragraph_level, options, {}, {}, {groups, indices},
         std::span(glyphs).first(required.glyph_capacity), std::span(lines).first(required.line_capacity), glyph_count, line_count,
-        retained.justification_classes, retained.item_metrics, {used_levels, used_origins}, &sink_error) && sink_error == font_error::none);
+        retained.justification_classes, retained.item_metrics, {used_levels, used_origins, used_frames}, &sink_error) && sink_error == font_error::none);
     require(std::equal(retained.bidi_levels.begin(), retained.bidi_levels.end(), used_levels.begin()) &&
         std::equal(retained.line_origins.begin(), retained.line_origins.end(), used_origins.begin()));
+    require(std::equal(retained.line_frames.begin(), retained.line_frames.end(), used_frames.begin()) &&
+        std::all_of(used_frames.begin() + line_count, used_frames.end(), [&](const auto& frame) { return frame == frame_tail; }));
     require(std::all_of(used_levels.begin() + glyph_count, used_levels.end(), [](auto value) { return value == -77; }) &&
         std::all_of(used_origins.begin() + line_count, used_origins.end(), [](auto value) { return value == -717.0F; }));
     const auto saved_glyphs = glyphs; const auto saved_lines = lines; const auto saved_groups = groups; const auto saved_indices = indices;
     const auto saved_levels = used_levels; const auto saved_origins = used_origins;
+    const auto saved_frames = used_frames;
+    if (required.line_capacity > 1U) {
+        require(!try_layout_measured_logical_shaped_text_retained(retained.logical_glyphs, retained.breaks_after,
+            retained.logical_bidi_levels, retained.glyph_scales, retained.paragraph_level, options, {}, {}, {groups, indices},
+            std::span(glyphs).first(required.glyph_capacity), std::span(lines).first(required.line_capacity), glyph_count, line_count,
+            retained.justification_classes, retained.item_metrics,
+            {used_levels, used_origins, std::span(used_frames).first(required.line_capacity - 1U)}, &sink_error) &&
+            sink_error == font_error::insufficient_buffer && glyph_count == 0U && line_count == 0U &&
+            used_frames == saved_frames && used_levels == saved_levels && used_origins == saved_origins &&
+            std::memcmp(glyphs.data(), saved_glyphs.data(), glyphs.size() * sizeof(glyphs[0])) == 0 &&
+            std::memcmp(lines.data(), saved_lines.data(), lines.size() * sizeof(lines[0])) == 0);
+    }
     for (const bool short_levels : {false, true}) {
         require(required.glyph_capacity != 0U && required.line_capacity != 0U);
         glyph_count = 71U; line_count = 73U;
