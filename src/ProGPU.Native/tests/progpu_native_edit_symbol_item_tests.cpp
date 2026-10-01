@@ -41,7 +41,7 @@ void check(std::u16string_view text, std::initializer_list<std::uint32_t> expect
             [](auto value) { return value == sentinel; }),
         "Symbol C export lost exact source endpoints or changed its output tail");
     require(source == original, "Symbol policy changed original UTF16 units");
-    std::fill(source.begin(), source.end(), 0U);
+    std::fill(source.begin(), source.end(), std::uint16_t{0});
     require(snapshot.positions == std::vector<std::uint32_t>(expected) &&
         std::equal(expected.begin(), expected.end(), output.begin()),
         "Symbol outputs retained mutable source storage");
