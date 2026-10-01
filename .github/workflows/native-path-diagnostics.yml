@@ -63,10 +63,12 @@ jobs:
           }
           if ($env:USE_AFFINE_FRAME -eq 'true') {
             # Preserve all original axis controls and its independent binary
-            # oracle. Affine captures do not claim a binary-coverage oracle.
+            # oracle and the unchanged non-binary affine captures. The separate
+            # dyadic control proves exact triangle addresses/binary coverage.
             $probes += @(
               @{ Name = 'original-affine-frame'; Arguments = @('--native-frame', '--affine-frame') },
-              @{ Name = 'canonical-affine-frame'; Arguments = @('--native-frame', '--affine-frame', '--canonical-frame') }
+              @{ Name = 'canonical-affine-frame'; Arguments = @('--native-frame', '--affine-frame', '--canonical-frame') },
+              @{ Name = 'affine-binary-oracle'; Arguments = @('--canonical-frame', '--affine-binary-oracle') }
             )
           }
           $firstFailure = 0
