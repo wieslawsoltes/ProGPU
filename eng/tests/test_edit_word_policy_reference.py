@@ -58,13 +58,35 @@ class EditPolicyReceiptTests(unittest.TestCase):
                     "nativeTextModules": [{"name": "usp10.dll", "path": "usp10.dll",
                         "fileSha256": "hash", "fileVersion": "schema-only"}]}}
 
-    def verify(self, receipt):
+    def verify(self, receipt, mode="contexts"):
         with patch.object(Path, "is_file", return_value=True), patch.object(Path, "stat", return_value=SimpleNamespace(st_size=1)), \
                 patch.object(Path, "read_text", return_value=json.dumps(receipt)), patch.object(OBSERVER, "sha", return_value="hash"):
-            return OBSERVER.verify_receipt(Path("control.json"), "contexts", {"pid": 7}, Path("control.dll"))
+            return OBSERVER.verify_receipt(Path("control.json"), mode, {"pid": 7}, Path("control.dll"))
 
     def test_schema_only_control_is_accepted(self):
         self.assertEqual(self.verify(self.receipt())["cases"], 72)
+
+    def test_complete_source_role_schema_preserves_all_unknown_observations(self):
+        value = self.receipt()
+        value["cases"] = [copy.deepcopy(value["cases"][0]) for _ in range(128)]
+        for index, case in enumerate(value["cases"]):
+            case["Name"] = "schema-role-" + str(index)
+        value["expectedCases"] = 128
+        self.assertEqual(self.verify(value, "source-roles")["cases"], 128)
+        value["cases"].pop()
+        value["expectedCases"] = 127
+        with self.assertRaisesRegex(ValueError, "Source-role inventory"):
+            self.verify(value, "source-roles")
+
+    def test_source_role_direction_cannot_change_native_analysis_flags(self):
+        value = self.receipt()
+        value["cases"] = [copy.deepcopy(value["cases"][0]) for _ in range(128)]
+        for index, case in enumerate(value["cases"]):
+            case["Name"] = "schema-role-" + str(index)
+        value["expectedCases"] = 128
+        value["cases"][0]["RightToLeft"] = True
+        with self.assertRaisesRegex(ValueError, "source/API"):
+            self.verify(value, "source-roles")
 
     def test_native_bitfield_invention_is_rejected(self):
         value = self.receipt()

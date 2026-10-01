@@ -78,6 +78,21 @@ internal static unsafe class TextEditWordBoundaryValidation
             Verify("arabic-entry", "x\u0628\u062Ay ", [0, 1, 5], level: level);
             Verify("thai-cjk-entry", "\u4E00\u0E01\u0E02y ", [0, 1, 5], level: level);
             Verify("thai-space-entry", "x \u0E01\u0E02y ", [0, 2, 6], level: level);
+
+            // Separate original source-role observations, Windows run36900452884
+            // at2dafdc178; source-roles.json SHA256
+            // 858e7c8e34a694a1ff4e153b7a4c6946f451daaf6dc371cc0296519a468048b8.
+            Verify("hebrew-presentation-bare", "\uFB1D\u05D1y ", [0, 4], level: level);
+            Verify("hebrew-presentation-latin", "x\uFB1D\u05D1y ", [0, 5], level: level);
+            Verify("arabic-supplementary-bare", "\U0001EE00\U0001EE01y ", [0, 6], level: level);
+            Verify("arabic-supplementary-latin", "x\U0001EE00\U0001EE01y ", [0, 1, 7], level: level);
+            Verify("devanagari-digits-bare", "\u0966\u0967\u0915y ", [0, 5], level: level);
+            Verify("devanagari-digits-latin", "x\u0966\u0967\u0915y ", [0, 6], level: level);
+            Verify("myanmar-entry", "x\u1000\u1001y ", [0, 1, 2, 5], level: level);
+            Verify("myanmar-stack", "x\u1000\u1039\u1001\u1002y ", [0, 1, 4, 7], level: level);
+            Verify("myanmar-broken", "x\u1000\u102D\u103A\u1001y ", [0, 1, 3, 4, 7], level: level);
+            Verify("myanmar-zwj", "x\u1000\u1039\u200D\u1001y ", [0, 1, 3, 4, 7], level: level);
+            Verify("myanmar-zwnj", "x\u1000\u1039\u200C\u1001y ", [0, 1, 3, 4, 7], level: level);
         }
 
         void Verify(string name, string text, uint[] expected, uint leading = 0, int level = 0)
@@ -146,7 +161,7 @@ internal static unsafe class TextEditWordBoundaryValidation
         Reject("a\u1B61b ", NativeEditWordBoundaryError.UnqualifiedBmpSymbolPolicy);
         foreach (int level in new[] { 0, 1 })
         {
-            Reject("x\u1000\u1001y ", NativeEditWordBoundaryError.UnqualifiedComplexScriptPolicy, level: level);
+            Reject("x\u1A20\u1A21y ", NativeEditWordBoundaryError.UnqualifiedComplexScriptPolicy, level: level);
             Reject("x\u0711y ", NativeEditWordBoundaryError.UnqualifiedScriptItemTransitionPolicy, level: level);
         }
         // Rejection must not poison a later source generation.

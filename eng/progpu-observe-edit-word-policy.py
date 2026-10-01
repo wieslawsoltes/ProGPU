@@ -66,6 +66,8 @@ def verify_receipt(path, mode, phase, binary):
         raise ValueError("Context inventory changed")
     if mode == "item-contexts" and len(cases) != 128:
         raise ValueError("Item-context inventory changed")
+    if mode == "source-roles" and len(cases) != 128:
+        raise ValueError("Source-role inventory changed")
     if mode == "symbol-attributes":
         if (receipt.get("editGesturesObserved") is not False or not 1 <= receipt["symbolCount"] <= 4096
                 or len(cases) != receipt["symbolCount"] * 3):
@@ -211,7 +213,7 @@ def main():
                       "-o", str(evidence / "bin"), "-m:1", "-nodeReuse:false", "-p:UseSharedCompilation=false",
                       "-p:BaseIntermediateOutputPath=" + str(evidence / "obj") + os.sep], 180)
         binary = evidence / "bin/NativeEditWordPolicyReference.dll"
-        for mode in ("original24", "contexts", "symbol-attributes", "item-contexts"):
+        for mode in ("original24", "contexts", "symbol-attributes", "item-contexts", "source-roles"):
             receipt = evidence / (mode + ".json")
             phase = run(mode, ["dotnet", str(binary), mode, str(receipt)], 60)
             manifest["receipts"].append(verify_receipt(receipt, mode, phase, binary))

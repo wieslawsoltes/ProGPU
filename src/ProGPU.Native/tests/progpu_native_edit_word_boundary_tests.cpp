@@ -90,6 +90,23 @@ void original_reference_inventories()
         {0, 18, 19});
 }
 
+void original_source_role_inventories()
+{
+    // Original Server2025 EDIT/ScriptBreak observations from run36900452884,
+    // source2dafdc178; source-roles.json SHA256
+    // 858e7c8e34a694a1ff4e153b7a4c6946f451daaf6dc371cc0296519a468048b8.
+    // These twelve literal inventories are not emitted by the classifier or
+    // derived from font/shaping/grapheme behavior. Keep original UTF-16 units.
+    for (const auto level : {std::int8_t{0}, std::int8_t{1}}) {
+        check(u"\uFB1D\u05D1y ", {0, 4}, 0, level);
+        check(u"x\uFB1D\u05D1y ", {0, 5}, 0, level);
+        check(u"\U0001EE00\U0001EE01y ", {0, 6}, 0, level);
+        check(u"x\U0001EE00\U0001EE01y ", {0, 1, 7}, 0, level);
+        check(u"\u0966\u0967\u0915y ", {0, 5}, 0, level);
+        check(u"x\u0966\u0967\u0915y ", {0, 6}, 0, level);
+    }
+}
+
 void missing_contracts_are_atomic()
 {
     const auto check_failure = [](std::u16string_view text, edit_word_boundary_error expected,
@@ -132,19 +149,16 @@ void missing_contracts_are_atomic()
         edit_word_boundary_error::unqualified_script_item_transition_policy);
     check_failure(u"\u0628 \u200D\u064By ",
         edit_word_boundary_error::unqualified_script_item_transition_policy);
-    for (const auto source : {u"x\u0967y ", u"x\u0E51y ", u"x\u0ED1y ", u"x\u17E1y ",
-            u"x\uFB1Dy ", u"x\U0001EE00y ", u"x\u0640y "})
+    for (const auto source : {u"x\u0E51y ", u"x\u0ED1y ", u"x\u17E1y ", u"x\u0640y "})
         check_failure(source, edit_word_boundary_error::unqualified_script_item_transition_policy);
     const std::array<char16_t, 1> isolated_surrogate{0xD800U};
     check_failure({isolated_surrogate.data(), isolated_surrogate.size()},
         edit_word_boundary_error::invalid_encoding);
-    check_failure(u"\u1000\u1001", edit_word_boundary_error::unqualified_complex_script_policy);
-    // All six held-out Myanmar composed contexts remain honestly unsupported,
-    // never promoted from two observed letters to a syllable/whole-script rule.
-    for (const auto level : {std::int8_t{0}, std::int8_t{1}})
-        for (const auto prefix : {u"x", u"\u4E00", u"x "})
-            check_failure(std::u16string(prefix) + u"\u1000\u1001y ",
-                edit_word_boundary_error::unqualified_complex_script_policy, level);
+    // Myanmar's independently measured whole-item machine is covered by its
+    // own positive controls. Unimplemented Tai Tham syllables remain rejected.
+    check_failure(u"\u1A20\u1A21", edit_word_boundary_error::unqualified_complex_script_policy);
+    check_failure(u"\u1000\u0301", edit_word_boundary_error::unqualified_script_item_transition_policy);
+    check_failure(u"\u1000\u104A", edit_word_boundary_error::unqualified_script_item_transition_policy);
 #if !defined(PROGPU_NATIVE_EDIT_WORD_ICU)
     check_failure(u"\u0E20\u0E32\u0E29\u0E32\u0E44\u0E17\u0E22\u0E20\u0E32\u0E29\u0E32\u0E44\u0E17\u0E22 ",
         edit_word_boundary_error::dependency_unavailable);
@@ -199,6 +213,14 @@ void reusable_property_profiles_are_not_observed_scalar_admission()
     assert_profile(0x0031U, profile::numeric_bridge, role::ordinary);
     assert_profile(0xFE8FU, profile::paragraph_bridge, role::ordinary);
     assert_profile(0xFE91U, profile::paragraph_bridge, role::ordinary);
+    assert_profile(0xFB1DU, profile::hebrew_nominal, role::ordinary);
+    assert_profile(0x1EE00U, profile::arabic_nominal, role::ordinary);
+    assert_profile(0x1EE01U, profile::arabic_nominal, role::ordinary);
+    for (std::uint32_t cp = 0x0966U; cp <= 0x096FU; ++cp) {
+        require(get_unicode_decimal_digit_value(cp) == static_cast<std::int8_t>(cp - 0x0966U),
+            "Devanagari numeric bridge lost the original decimal value");
+        assert_profile(cp, profile::numeric_bridge, role::ordinary);
+    }
     assert_profile(0x094DU, profile::devanagari_nominal, role::context_mark);
     assert_profile(0x0711U, profile::syriac_nominal, role::context_mark);
     assert_profile(0x0301U, profile::paragraph_bridge, role::inherited_mark);
@@ -276,7 +298,7 @@ void reusable_property_profiles_are_not_observed_scalar_admission()
         std::cout << ' ' << count;
     }
     std::cout << '\n';
-    for (const auto cp : {0x0967U, 0x0E51U, 0x0ED1U, 0x17E1U, 0xFB1DU, 0x1EE00U}) {
+    for (const auto cp : {0x0E51U, 0x0ED1U, 0x17E1U}) {
         detail::edit_item_properties actual{profile::khmer_nominal, 73U, role::hard_control};
         require(!detail::try_classify_edit_item_properties(scalar_for(cp), actual) &&
             actual.profile == profile::khmer_nominal && actual.flags == 73U && actual.role == role::hard_control,
@@ -505,13 +527,16 @@ void original_units_and_default_worker_are_independent()
 } // namespace
 
 void run_edit_word_interop_controls();
+void run_edit_myanmar_controls();
 
 int main()
 {
     try {
         run_edit_word_interop_controls();
+        run_edit_myanmar_controls();
         concurrent_snapshots_own_independent_outputs();
         original_reference_inventories();
+        original_source_role_inventories();
         missing_contracts_are_atomic();
         reusable_property_profiles_are_not_observed_scalar_admission();
         independently_observed_joiner_contexts();

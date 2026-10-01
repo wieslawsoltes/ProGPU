@@ -20,7 +20,8 @@ enum class edit_item_profile : std::uint8_t {
     devanagari_nominal,
     thai_nominal,
     lao_nominal,
-    khmer_nominal
+    khmer_nominal,
+    myanmar_syllabic
 };
 
 enum class edit_item_source_role : std::uint8_t {
@@ -51,6 +52,7 @@ constexpr edit_item_profile get_edit_nominal_profile(open_type_tag script) noexc
     if (script == open_type_tag::from_chars('l', 'a', 'o', ' ') ||
         script == open_type_tag::from_chars('l', 'a', 'o', 'o')) return edit_item_profile::lao_nominal;
     if (script == open_type_tag::from_chars('k', 'h', 'm', 'r')) return edit_item_profile::khmer_nominal;
+    if (script == open_type_tag::from_chars('m', 'y', 'm', 'r')) return edit_item_profile::myanmar_syllabic;
     return edit_item_profile::paragraph_bridge;
 }
 
@@ -61,6 +63,7 @@ constexpr std::uint32_t get_edit_profile_flags(edit_item_profile profile) noexce
     case edit_item_profile::syriac_nominal:
     case edit_item_profile::thai_nominal:
     case edit_item_profile::lao_nominal:
+    case edit_item_profile::myanmar_syllabic:
         return edit_item_soft_entry;
     case edit_item_profile::hebrew_nominal:
     case edit_item_profile::devanagari_nominal:
@@ -114,7 +117,21 @@ inline bool try_classify_edit_item_properties(
     const auto raw = get_unicode_line_break_class(scalar.code_point);
     const auto nominal = get_edit_nominal_profile(scalar.script);
     edit_item_properties candidate{};
-    if (raw == lb::zero_width_joiner ||
+    if (nominal == edit_item_profile::myanmar_syllabic) {
+        // The original Myanmar machine owns consonants, digits AND broken
+        // leading/medial mark groups. Marks must not attach to a foreign item
+        // or require an invented preceding base before that machine can run.
+        if (scalar.code_point > 0xFFFFU ||
+            (bidi != bc::left_to_right && bidi != bc::nonspacing_mark) ||
+            (!is_edit_letter(category) && !is_edit_mark(category) && category != gc::decimal_digit_number) ||
+            get_unicode_indic_shaping_properties(scalar.code_point).category == 0U) return false;
+        if (category == gc::decimal_digit_number) {
+            const auto decimal = get_unicode_decimal_digit_value(scalar.code_point);
+            if (decimal < 0 || decimal > 9) return false;
+        }
+        candidate.profile = nominal;
+        candidate.flags = get_edit_profile_flags(nominal);
+    } else if (raw == lb::zero_width_joiner ||
         (category == gc::format && bidi == bc::boundary_neutral && raw == lb::combining_mark)) {
         candidate.role = edit_item_source_role::joiner;
     } else if (category == gc::control || raw == lb::mandatory ||
@@ -126,10 +143,13 @@ inline bool try_classify_edit_item_properties(
         candidate.role = edit_item_source_role::white_space;
     } else if (category == gc::decimal_digit_number) {
         // A Script tag alone must not turn numeric source into nominal text.
-        // L-valued Indic digits are not covered by the observed EN/AN policy.
+        // Original Devanagari Nd/L observations also use the numeric bridge;
+        // other L-valued families retain their separate unresolved entry rules.
         const auto decimal = get_unicode_decimal_digit_value(scalar.code_point);
+        const bool numeric_policy = bidi == bc::european_number || bidi == bc::arabic_number ||
+            (nominal == edit_item_profile::devanagari_nominal && bidi == bc::left_to_right);
         if (decimal < 0 || decimal > 9 ||
-            (bidi != bc::european_number && bidi != bc::arabic_number)) {
+            !numeric_policy) {
             if (nominal != edit_item_profile::paragraph_bridge) return false;
         } else candidate.profile = edit_item_profile::numeric_bridge;
     } else if (is_edit_mark(category)) {
@@ -141,16 +161,18 @@ inline bool try_classify_edit_item_properties(
             candidate.role = edit_item_source_role::context_mark;
         } else candidate.role = edit_item_source_role::inherited_mark;
     } else if (is_edit_letter(category) && nominal != edit_item_profile::paragraph_bridge) {
-        if (scalar.code_point > 0xFFFFU || !has_edit_nominal_bidi(nominal, bidi)) return false;
+        // The original Arabic engine also owns supplementary AL letters.
+        // Preserve each scalar's original two-unit source range, not a BMP
+        // replacement or compatibility decomposition of mathematical letters.
+        if ((scalar.code_point > 0xFFFFU && nominal != edit_item_profile::arabic_nominal) ||
+            !has_edit_nominal_bidi(nominal, bidi)) return false;
         if (nominal == edit_item_profile::arabic_nominal && is_arabic_presentation_block(scalar.code_point)) {
             // ScriptItemize's original default fCharShape=false keeps Arabic
             // presentation forms distinct from nominal Arabic shaping items.
             // The observed U+FE8F bridge trains this property-based inference.
-        } else if (nominal == edit_item_profile::hebrew_nominal &&
-            scalar.code_point >= 0xFB00U && scalar.code_point <= 0xFB4FU) {
-            // Alphabetic Presentation Forms have no qualified EDIT policy here.
-            return false;
         } else {
+            // Hebrew presentation letters remain in the Hebrew item in the
+            // original source; Arabic's fCharShape bridge is not transferable.
             candidate.profile = nominal;
             candidate.flags = get_edit_profile_flags(nominal);
         }
@@ -186,6 +208,11 @@ inline bool try_attach_edit_item_properties(
     // owner. Leading/space-adjacent JOINERS are separately observed and keep
     // the paragraph bridge, but must not admit a later mark through that edge.
     if (!has_base) return properties.role == role::joiner;
+    // Only original Myanmar source and the independently observed joiners are
+    // admitted to its syllable machine. Generic inherited/foreign marks do not
+    // acquire a newly qualified script policy merely by following Myanmar.
+    if (previous->profile == edit_item_profile::myanmar_syllabic &&
+        properties.role != role::joiner) return false;
     if (properties.role == role::context_mark && properties.profile != previous->profile) return false;
     if (properties.role == role::shared_cursive_modifier &&
         previous->profile != edit_item_profile::arabic_nominal &&

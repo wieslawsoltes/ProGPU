@@ -34,6 +34,7 @@ constexpr auto thai = open_type_tag::from_chars('t', 'h', 'a', 'i');
 constexpr auto lao = open_type_tag::from_chars('l', 'a', 'o', 'o');
 constexpr auto lao_layout = open_type_tag::from_chars('l', 'a', 'o', ' ');
 constexpr auto khmer = open_type_tag::from_chars('k', 'h', 'm', 'r');
+constexpr auto myanmar = open_type_tag::from_chars('m', 'y', 'm', 'r');
 using lb = unicode_line_break_class;
 
 bool fail(edit_word_boundary_error value, edit_word_boundary_error& error) noexcept
@@ -111,6 +112,8 @@ bool assemble_edit_item_breaks(
     }
     std::vector<lb> item_classes(scalars.size());
     std::vector<text_line_break_kind> item_breaks(scalars.size());
+    std::vector<std::uint8_t> syllable_categories;
+    std::vector<std::uint8_t> syllables;
     for (const auto& item : items) {
         const auto start = item.scalar_start;
         const auto count = item.scalar_count;
@@ -123,6 +126,26 @@ bool assemble_edit_item_breaks(
             return fail(edit_word_boundary_error::invalid_encoding, error);
         for (std::size_t offset = 0U; offset + 1U < count; ++offset)
             breaks[start + offset] = item_breaks[start + offset];
+        if (item.properties.profile == detail::edit_item_profile::myanmar_syllabic) {
+            // Reuse the original property lookup and machine over the WHOLE
+            // unchanged item, including broken syllables and joiners. This is
+            // source metadata only: no glyph shaping/reordering or clustering.
+            syllable_categories.resize(count);
+            syllables.resize(count);
+            for (std::size_t offset = 0U; offset < count; ++offset)
+                syllable_categories[offset] = get_unicode_indic_shaping_properties(
+                    scalars[start + offset].code_point).category;
+            if (!try_assign_unicode_syllables(unicode_syllable_machine::myanmar,
+                    syllable_categories, {}, syllables))
+                return fail(edit_word_boundary_error::unqualified_complex_script_policy, error);
+            for (std::size_t offset = 1U; offset < count; ++offset) {
+                // Whitespace keeps the existing original line/whitespace
+                // policy; a non-Myanmar space token is not a syllable seam.
+                if (is_edit_white_space(scalars[start + offset].code_point)) continue;
+                breaks[start + offset - 1U] = syllables[offset] != syllables[offset - 1U]
+                    ? text_line_break_kind::opportunity : text_line_break_kind::prohibited;
+            }
+        }
         if (start != 0U && !is_edit_white_space(scalars[start].code_point) &&
             breaks[start - 1U] != text_line_break_kind::mandatory) {
             if ((item.properties.flags & detail::edit_item_soft_entry) != 0U)
@@ -245,7 +268,7 @@ bool try_create_edit_word_boundary_snapshot(
                 detail::get_edit_symbol_line_break_class(scalar.code_point) == lb::unknown)
                 return fail(edit_word_boundary_error::unqualified_bmp_symbol_policy, error);
             if (raw == lb::complex_context && scalar.script != thai &&
-                scalar.script != lao && scalar.script != lao_layout && scalar.script != khmer &&
+                scalar.script != lao && scalar.script != lao_layout && scalar.script != khmer && scalar.script != myanmar &&
                 scalar.script != open_type_tag::from_chars('D', 'F', 'L', 'T'))
                 return fail(edit_word_boundary_error::unqualified_complex_script_policy, error);
             // Typed original Unicode properties select a portable policy
