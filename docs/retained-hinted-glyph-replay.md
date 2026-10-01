@@ -140,6 +140,20 @@ device-free controls cover raw payload integrity, non-overwriting publication,
 failure preservation and native-library identity rejection. This diagnostic job
 and these controls do not replace the complete exact-head Build/package gates.
 
+Run `36882608788` at `d51e9ed6d` compiled fresh native source and the original
+consumer, passed all four original solid-paint controls, then reproduced the
+same 62-byte/max-two bounded-texture failure. Artifact `11172665868` contains
+data/logs only. All twelve receipt payload hashes match; the loaded native
+module's full path and hash and the consumer's WebGPU hash match the fresh build.
+The original failure remains the job's nonzero result, not a waived check.
+The authentic outline has bounds `(1.125, 0.171875)`–`(12.09375, 13.171875)`;
+the two source positions are `(4.0625, 13.1875)` and `(4.25, 13.25)` at DPI two,
+with identity bases, raster scale one and atlas-to-logical scale one. The
+receipt captures caller records, not the renderer's prepared atlas. These exact
+frames now permit an evidence-based coordinate comparison; the earlier synthetic
+positive-bearing frame is not the authentic frame. Native and full-package
+rendering remain unqualified until the original assertion passes unchanged.
+
 This explicit consumer API preserves one original prepared paragraph generation.
 It is implementation work, not Display selection, source-editor/input admission,
 native/package qualification or an application performance claim.
