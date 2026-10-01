@@ -78,6 +78,29 @@ public sealed class DawnSystemWarpContractTests
     }
 
     [Fact]
+    public void CancellationControlAbandonsRealRequestsBeforeWaitAndRequiresNativeRetirement()
+    {
+        string source = Read("src", "ProGPU.Backend.Dawn", "DawnGpuContext.SystemWarp.cs");
+        Assert.Contains("=> CreateSystemWarpOffscreenCore(companionDirectory, null);", source, StringComparison.Ordinal);
+        Assert.Contains("cancellationProbe?.BeforeWait(deviceRequest: false);", source, StringComparison.Ordinal);
+        Assert.Contains("cancellationProbe?.BeforeWait(deviceRequest: true);", source, StringComparison.Ordinal);
+        Assert.Contains("probe.Adapter.Verify((int)W.RequestAdapterStatus.CallbackCancelled);", source, StringComparison.Ordinal);
+        Assert.Contains("probe.Device.Verify((int)W.RequestDeviceStatus.CallbackCancelled);", source, StringComparison.Ordinal);
+        Assert.Contains("ReferenceEquals(error, probe.Failure)", source, StringComparison.Ordinal);
+        Assert.Contains("_receipt?.Complete(status, _completionFailure);", source, StringComparison.Ordinal);
+        Assert.Contains("_receipt?.Fail(error);", source, StringComparison.Ordinal);
+        Assert.Contains("_self.Free();", source, StringComparison.Ordinal);
+        Assert.Contains("_receipt?.Retire();", source, StringComparison.Ordinal);
+        Assert.Contains("Volatile.Read(ref _callbacks) != 1 || Volatile.Read(ref _retirements) != 1", source, StringComparison.Ordinal);
+        string consumer = Read("tests", "ProGPU.DawnSystemWarp.Conformance", "Program.cs");
+        Assert.Contains("VerifySystemWarpRequestCancellationForDiagnostics(deviceRequest: false);", consumer, StringComparison.Ordinal);
+        Assert.Contains("VerifySystemWarpRequestCancellationForDiagnostics(deviceRequest: true);", consumer, StringComparison.Ordinal);
+        string script = Read("eng", "test-dawn-system-warp-windows.ps1");
+        Assert.Contains("@('readback','foreign-resolver','device-loss','request-cancellation')", script, StringComparison.Ordinal);
+        Assert.Contains("$arguments += '--request-cancellation'", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AvailabilityValidatesOriginalFileAndActualBoundModuleIdentities()
     {
         string source = Read("src", "ProGPU.Backend.Dawn", "DawnSystemWarpArtifact.cs");

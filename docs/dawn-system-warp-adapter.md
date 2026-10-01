@@ -181,3 +181,16 @@ the lost context remains owned. Both contexts retire before success is printed.
 The source and NuGet JIT/NativeAOT jobs execute this same case. These authored
 loss/replacement controls await hosted evidence and do not yet qualify failed
 adapter/device-request cancellation or arbitrary callback exceptions.
+
+The isolated `--request-cancellation` control now abandons each real native
+`WaitAnyOnly` adapter/device request after it is queued but before waiting. A
+friend-only diagnostic uses the same factory and request owner; the public
+factory passes no diagnostic state. The original injected exception must survive
+cleanup, native shutdown must report `CallbackCancelled` exactly once, and the
+actual request userdata must retire exactly once. Device-request cancellation
+also requires the preceding adapter request to have succeeded and retired.
+Callback decoding or release failures reject the receipt, even when the ABI
+boundary catches them. No managed completion is synthesized and no timeout is
+extended. Source and NuGet JIT/NativeAOT consumers execute both stages under the
+existing process bound. These new controls require hosted runtime evidence;
+arbitrary external callback faults and complete application gates remain separate.

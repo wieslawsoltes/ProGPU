@@ -32,6 +32,10 @@ public sealed unsafe partial class DawnGpuContext
     /// Startup performs one adapter request and one device request. No hardware retry.
     /// </remarks>
     public static DawnGpuContext CreateSystemWarpOffscreen(string? companionDirectory = null)
+        => CreateSystemWarpOffscreenCore(companionDirectory, null);
+
+    private static DawnGpuContext CreateSystemWarpOffscreenCore(
+        string? companionDirectory, SystemWarpCancellationProbe? cancellationProbe)
     {
         DawnSystemWarpArtifact.EnsureAvailable(companionDirectory);
         W.InstanceFeatureName timedWaitAny = W.InstanceFeatureName.TimedWaitAny;
@@ -50,7 +54,7 @@ public sealed unsafe partial class DawnGpuContext
         NativeLifetime? transferredLifetime = null;
         try
         {
-            adapter = RequestSystemWarpAdapter(instance, out DawnSystemWarpAdapterLuid luid);
+            adapter = RequestSystemWarpAdapter(instance, out DawnSystemWarpAdapterLuid luid, cancellationProbe);
             Span<byte> error = stackalloc byte[256];
             fixed (byte* message = error)
             {
@@ -78,7 +82,7 @@ public sealed unsafe partial class DawnGpuContext
             int featureCount = 0;
             if (formatsTier1) features[featureCount++] = W.FeatureName.TextureFormatsTier1;
             device = RequestSystemWarpDevice(instance, adapter, features[..featureCount],
-                out DeviceLossCallbackState lossState, out lossHandle);
+                out DeviceLossCallbackState lossState, out lossHandle, cancellationProbe);
             queue = device.GetQueue();
             if (queue == QueueHandle.Null)
                 throw new InvalidOperationException("The original Dawn device returned no queue.");
@@ -145,9 +149,10 @@ public sealed unsafe partial class DawnGpuContext
     }
 
     private static AdapterHandle RequestSystemWarpAdapter(
-        InstanceHandle instance, out DawnSystemWarpAdapterLuid luid)
+        InstanceHandle instance, out DawnSystemWarpAdapterLuid luid,
+        SystemWarpCancellationProbe? cancellationProbe)
     {
-        var state = new SystemWarpRequest<AdapterHandle>(static owned => owned.Release());
+        var state = new SystemWarpRequest<AdapterHandle>(static owned => owned.Release(), cancellationProbe?.Adapter);
         Exception? failure = null;
         try
         {
@@ -172,6 +177,7 @@ public sealed unsafe partial class DawnGpuContext
             // Once queued, only completion/cancellation releases native userdata.
             if (status < 0) state.CancelUnqueuedNativeUse();
             ThrowSystemWarpFailure(status, error, "request the original system WARP LUID");
+            cancellationProbe?.BeforeWait(deviceRequest: false);
             Wait(instance, new W.Future { Id = futureId }, "request the original system WARP LUID");
             AdapterHandle selected = state.TakeHandle((int)W.RequestAdapterStatus.Success,
                 "request system WARP");
@@ -183,14 +189,15 @@ public sealed unsafe partial class DawnGpuContext
     }
 
     private static DeviceHandle RequestSystemWarpDevice(InstanceHandle instance, AdapterHandle adapter,
-        ReadOnlySpan<W.FeatureName> features, out DeviceLossCallbackState lossState, out GCHandle lossHandle)
+        ReadOnlySpan<W.FeatureName> features, out DeviceLossCallbackState lossState, out GCHandle lossHandle,
+        SystemWarpCancellationProbe? cancellationProbe)
     {
         lossState = new DeviceLossCallbackState();
         lossHandle = GCHandle.Alloc(lossState);
         var state = new SystemWarpRequest<DeviceHandle>(static owned =>
         {
             try { owned.Destroy(); } finally { owned.Release(); }
-        });
+        }, cancellationProbe?.Device);
         Exception? failure = null;
         try
         {
@@ -219,6 +226,7 @@ public sealed unsafe partial class DawnGpuContext
                 W.Future future;
                 try { future = adapter.RequestDevice(&descriptor, callback); }
                 catch { state.CancelUnqueuedNativeUse(); throw; }
+                cancellationProbe?.BeforeWait(deviceRequest: true);
                 Wait(instance, future, "request a Dawn device");
             }
             return state.TakeHandle((int)W.RequestDeviceStatus.Success, "request a Dawn device");
@@ -241,10 +249,12 @@ public sealed unsafe partial class DawnGpuContext
         private T _handle;
         private string _message = string.Empty;
         private Exception? _completionFailure;
+        private readonly SystemWarpRequestReceipt? _receipt;
 
-        internal SystemWarpRequest(Action<T> release)
+        internal SystemWarpRequest(Action<T> release, SystemWarpRequestReceipt? receipt)
         {
             _release = release;
+            _receipt = receipt;
             _self = GCHandle.Alloc(this);
         }
         internal nint BeginNativeUse()
@@ -268,6 +278,7 @@ public sealed unsafe partial class DawnGpuContext
                     try { _message = Message(message); }
                     catch (Exception error) { _completionFailure = error; }
                     _completed = true;
+                    _receipt?.Complete(status, _completionFailure);
                 }
             }
             finally { EndNativeUse(); }
@@ -318,7 +329,71 @@ public sealed unsafe partial class DawnGpuContext
             {
                 if (!EqualityComparer<T>.Default.Equals(_handle, default)) _release(_handle);
             }
-            finally { _self.Free(); }
+            catch (Exception error)
+            {
+                _receipt?.Fail(error);
+                throw;
+            }
+            finally
+            {
+                _self.Free();
+                _receipt?.Retire();
+            }
+        }
+    }
+
+    // Friend-only conformance entry point. Inject failure only after a real
+    // WaitAnyOnly request is queued; the normal factory never supplies a probe.
+    // Native shutdown must cancel the request and retire the actual GCHandle.
+    internal static void VerifySystemWarpRequestCancellationForDiagnostics(bool deviceRequest)
+    {
+        var probe = new SystemWarpCancellationProbe(deviceRequest);
+        try
+        {
+            using DawnGpuContext unexpected = CreateSystemWarpOffscreenCore(null, probe);
+            throw new InvalidOperationException("The request cancellation injection was not reached.");
+        }
+        catch (Exception error) when (ReferenceEquals(error, probe.Failure))
+        {
+            if (error.Data.Count != 0)
+                throw new InvalidOperationException("Native request shutdown reported a cleanup failure.", error);
+        }
+        if (deviceRequest)
+        {
+            probe.Adapter.Verify((int)W.RequestAdapterStatus.Success);
+            probe.Device.Verify((int)W.RequestDeviceStatus.CallbackCancelled);
+        }
+        else probe.Adapter.Verify((int)W.RequestAdapterStatus.CallbackCancelled);
+    }
+
+    private sealed class SystemWarpCancellationProbe(bool cancelDeviceRequest)
+    {
+        internal readonly Exception Failure = new InvalidOperationException("Abandon queued system WARP request before its wait.");
+        internal readonly SystemWarpRequestReceipt Adapter = new();
+        internal readonly SystemWarpRequestReceipt Device = new();
+        internal void BeforeWait(bool deviceRequest)
+        {
+            if (deviceRequest == cancelDeviceRequest) throw Failure;
+        }
+    }
+
+    private sealed class SystemWarpRequestReceipt
+    {
+        private int _callbacks, _retirements, _status;
+        private Exception? _failure;
+        internal void Complete(int status, Exception? failure)
+        {
+            if (failure != null) Fail(failure);
+            Volatile.Write(ref _status, status);
+            Interlocked.Increment(ref _callbacks);
+        }
+        internal void Fail(Exception error) => Interlocked.CompareExchange(ref _failure, error, null);
+        internal void Retire() => Interlocked.Increment(ref _retirements);
+        internal void Verify(int expectedStatus)
+        {
+            if (Volatile.Read(ref _callbacks) != 1 || Volatile.Read(ref _retirements) != 1 ||
+                Volatile.Read(ref _status) != expectedStatus || Volatile.Read(ref _failure) != null)
+                throw new InvalidOperationException("The original request did not complete and retire exactly once with the expected native status.", _failure);
         }
     }
 

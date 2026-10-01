@@ -7,6 +7,14 @@ if (!OperatingSystem.IsWindows() || args.Length is < 1 or > 2 ||
     !string.Equals(RuntimeInformation.ProcessArchitecture.ToString(), args[0], StringComparison.OrdinalIgnoreCase))
     throw new InvalidOperationException("Run on the requested native Windows architecture.");
 
+if (args.Length == 2 && args[1] == "--request-cancellation")
+{
+    DawnGpuContext.VerifySystemWarpRequestCancellationForDiagnostics(deviceRequest: false);
+    DawnGpuContext.VerifySystemWarpRequestCancellationForDiagnostics(deviceRequest: true);
+    Console.WriteLine("Dawn system WARP native adapter and device request cancellation retired exactly once.");
+    return;
+}
+
 if (args.Length == 2 && args[1] == "--device-loss")
 {
     ExerciseDeviceLoss();
