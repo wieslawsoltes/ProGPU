@@ -458,6 +458,40 @@ jobs:
           path: ${{ env.PROGPU_FREETYPE_WORKSPACE }}/install
           if-no-files-found: error
 
+      - name: Fetch exact owned EDIT dictionary source
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, tempfile, urllib.request
+          pin = json.loads(pathlib.Path('eng/native-edit-word-icu.json').read_text())
+          workspace = pathlib.Path(tempfile.mkdtemp(prefix='progpu-edit-icu.', dir=os.environ['RUNNER_TEMP'])).resolve()
+          archive = workspace / 'icu-sources.tgz'
+          with urllib.request.urlopen(pin['sourceUrl']) as source, archive.open('xb') as output:
+              while chunk := source.read(1024 * 1024):
+                  output.write(chunk)
+          with archive.open('rb') as source:
+              actual = hashlib.file_digest(source, 'sha256').hexdigest()
+          if actual != pin['sourceSha256']:
+              raise SystemExit('Owned EDIT dictionary source differs from the reviewed pin')
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write(f'PROGPU_EDIT_WORD_ICU_ARCHIVE={archive}\n')
+          PY
+
+      - name: Fetch exact owned EDIT dictionary source on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pin = Get-Content -Raw eng/native-edit-word-icu.json | ConvertFrom-Json
+          $workspace = Join-Path $env:RUNNER_TEMP ('progpu-edit-icu.' + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $workspace | Out-Null
+          $archive = Join-Path $workspace 'icu-sources.tgz'
+          Invoke-WebRequest -Uri $pin.sourceUrl -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pin.sourceSha256) {
+            throw 'Owned EDIT dictionary source differs from the reviewed pin.'
+          }
+          "PROGPU_EDIT_WORD_ICU_ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build and integration-test native renderer
         if: runner.os != 'Windows'
         shell: bash
@@ -466,8 +500,8 @@ jobs:
           PROGPU_NATIVE_RUN_DAWN_HEADER_CONTRACT: 1
           PROGPU_NATIVE_ENABLE_CPP_MODULES: ${{ matrix.rid == 'linux-x64' && 'ON' || '' }}
         run: |
-          ./eng/build-progpu-native.sh --font-manifest "$PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json"
-          ./eng/progpu-stage-native-runtime.sh --font-manifest "$PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json"
+          ./eng/build-progpu-native.sh --font-manifest "$PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json" --edit-word-icu-archive "$PROGPU_EDIT_WORD_ICU_ARCHIVE"
+          ./eng/progpu-stage-native-runtime.sh --font-manifest "$PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json" --edit-word-icu-archive "$PROGPU_EDIT_WORD_ICU_ARCHIVE"
 
       - name: Build and integration-test native renderer on Windows
         if: runner.os == 'Windows'
@@ -477,6 +511,7 @@ jobs:
           -Rid "${{ matrix.rid }}"
           -BenchmarkProfile Smoke
           -FontManifest "${{ env.PROGPU_FREETYPE_WORKSPACE }}/install/progpu-freetype.json"
+          -EditWordIcuArchive "${{ env.PROGPU_EDIT_WORD_ICU_ARCHIVE }}"
 
       - name: Upload failed managed-picture allocation diagnostics
         if: failure() && runner.os == 'macOS'
@@ -844,7 +879,8 @@ jobs:
             -p:ProGpuDawnSystemWarpPayloadRoot="${GITHUB_WORKSPACE}/artifacts/dawn-system-warp/payload"
           dotnet pack src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj \
             --configuration Release --output "${output}" \
-            -p:Version="${version}" -p:PackageVersion="${version}" -p:ProGpuNativeRequireFontHinting=true
+            -p:Version="${version}" -p:PackageVersion="${version}" -p:ProGpuNativeRequireFontHinting=true \
+            -p:ProGpuNativeRequireEditWordIcu=true
           dotnet pack src/ProGPU.Backend.Dx12/ProGPU.Backend.Dx12.csproj \
             --configuration Release --output "${output}" \
             -p:Version="${version}" -p:PackageVersion="${version}"
@@ -1036,6 +1072,14 @@ jobs:
             rid: win-arm64
             suite: text-dawn
             name: Native package Dawn text (win-arm64)
+          - os: windows-latest
+            rid: win-x64
+            suite: edit-word
+            name: Native package EDIT word boundaries (win-x64)
+          - os: windows-11-arm
+            rid: win-arm64
+            suite: edit-word
+            name: Native package EDIT word boundaries (win-arm64)
 
     steps:
       - name: Checkout
@@ -1535,6 +1579,10 @@ jobs:
       - name: Verify isolated font-hinting dependency admission controls
         if: runner.os == 'Linux'
         run: python3 -m unittest discover -s eng/tests -p '*freetype.py' -v
+
+      - name: Verify private EDIT dictionary dependency admission controls
+        if: runner.os == 'Linux'
+        run: python3 eng/test-edit-word-icu-dependency.py
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5

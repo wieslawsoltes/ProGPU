@@ -55,6 +55,8 @@ required_entries=(
   build/native/cmake/ProGPUNativeConfig.cmake
   build/native/cmake/ProGPUNativeFontDependency.cmake
   build/native/cmake/ProGPUNativeFontPin.json
+  build/native/cmake/ProGPUNativeEditWordDependency.cmake
+  build/native/cmake/ProGPUNativeEditWordPin.json
 )
 for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
   for library in compression hit_testing image mil direct2d_core text scene_builder; do
@@ -69,6 +71,15 @@ for rid in win-x64 win-arm64; do
     required_entries+=(
       "runtimes/${rid}/native/sdk/progpu_native_${library}.lib")
   done
+done
+for rid in linux-x64 linux-arm64 osx-x64 osx-arm64 win-x64 win-arm64; do
+  required_entries+=(
+    "runtimes/${rid}/native/sdk/progpu-native-edit-word-dependency.json"
+    "runtimes/${rid}/native/licenses/edit-word-icu/LICENSE")
+  case "${rid}" in
+    win-*) required_entries+=("runtimes/${rid}/native/sdk/progpu_native_edit_icu.lib") ;;
+    *) required_entries+=("runtimes/${rid}/native/sdk/libprogpu_native_edit_icu.a") ;;
+  esac
 done
 for entry in "${required_entries[@]}"; do
   if ! unzip -Z1 "${package}" | grep -Fx "${entry}" >/dev/null; then
@@ -136,6 +147,12 @@ NUGET_PACKAGES="${consumer_packages}" dotnet run \
   -p:ProGpuNativePackageSource="${package_output}" \
   -p:ProGpuNativePackageVersion="${package_version}" -- \
   --mil-guideline-only
+for scenario in --text-edit-word-boundaries-only --text-edit-word-boundaries-dawn-only; do
+  NUGET_PACKAGES="${consumer_packages}" dotnet run \
+    --project "${consumer}" --configuration Release --no-restore --no-build \
+    -p:ProGpuNativePackageSource="${package_output}" \
+    -p:ProGpuNativePackageVersion="${package_version}" -- "${scenario}"
+done
 
 native_consumer_root="$(mktemp -d /tmp/progpu-native-cpp-consumer.XXXXXX)"
 cleanup_native_consumer() {
@@ -143,6 +160,8 @@ cleanup_native_consumer() {
 }
 trap 'cleanup_consumer_packages; cleanup_native_consumer' EXIT
 unzip -q "${package}" -d "${native_consumer_root}/package"
+python3 "${repo_root}/eng/progpu-edit-word-icu-dependency.py" verify-package \
+  --package-root "${native_consumer_root}/package" --require
 cmake -S "${repo_root}/tests/ProGPU.Native.CppPackageConsumer" \
   -B "${native_consumer_root}/build" \
   -G Ninja \
