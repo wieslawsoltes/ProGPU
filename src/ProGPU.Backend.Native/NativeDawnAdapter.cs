@@ -10,16 +10,11 @@ namespace ProGPU.Backend.Native;
 /// </summary>
 /// <remarks>
 /// The caller retains device/canvas ownership in <see cref="DawnGpuContext"/>.
-/// This adapter retains only the process module that supplies WebGPU procedures
-/// and never imports or owns an OS surface handle.
+/// This adapter borrows the process-pinned module selected by that same typed
+/// Dawn context and never independently loads a provider or owns an OS surface.
 /// </remarks>
 public static unsafe class NativeDawnAdapter
 {
-    private const string IosDawnFramework =
-        "@rpath/webgpu_dawn.framework/webgpu_dawn";
-    private static readonly object NativeLibrarySync = new();
-    private static nint s_dawnLibrary;
-
     public const uint AdapterAbiVersion = 1;
     public const uint RequiredProviderAbiVersion = 2;
     public const uint BackendAbi = 2;
@@ -44,7 +39,7 @@ public static unsafe class NativeDawnAdapter
     {
         ArgumentNullException.ThrowIfNull(context);
         GetInfo();
-        nint module = GetDawnLibrary();
+        nint module = context.GetNativeProviderModule();
         DawnNativeDeviceHandles handles = context.GetNativeDeviceHandles();
         return NativeCompositor.CreateDawn(
             context.Context,
@@ -66,7 +61,7 @@ public static unsafe class NativeDawnAdapter
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(replacementContext);
-        nint module = GetDawnLibrary();
+        nint module = replacementContext.GetNativeProviderModule();
         DawnNativeDeviceHandles handles =
             replacementContext.GetNativeDeviceHandles();
         return source.RecreateDawn(
@@ -120,50 +115,6 @@ public static unsafe class NativeDawnAdapter
         NativeCompositor.ValidateScene(
             stream,
             NativeRendererInteropKind.Dawn);
-
-    private static nint GetDawnLibrary()
-    {
-        lock (NativeLibrarySync)
-        {
-            if (s_dawnLibrary != 0)
-            {
-                return s_dawnLibrary;
-            }
-            string library;
-            if (OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst())
-            {
-                library = IosDawnFramework;
-            }
-            else if (OperatingSystem.IsWindows())
-            {
-                library = "webgpu_dawn.dll";
-            }
-            else if (OperatingSystem.IsMacOS())
-            {
-                library = "webgpu_dawn.dylib";
-            }
-            else if (OperatingSystem.IsLinux())
-            {
-                library = "webgpu_dawn.so";
-            }
-            else
-            {
-                library = "libwebgpu_dawn.so";
-            }
-            // Use the pinned FFI assembly's runtime/assembly native search
-            // paths and exact packaged basename, never an alternate provider
-            // name or a test-harness lib-prefix alias.
-            if (!NativeLibrary.TryLoad(library,
-                    typeof(WebGpuSharp.FFI.WebGPU_FFI).Assembly,
-                    searchPath: null, out nint module))
-            {
-                throw new DllNotFoundException(
-                    $"The exact Dawn procedure provider '{library}' could not be loaded.");
-            }
-            s_dawnLibrary = module;
-            return s_dawnLibrary;
-        }
-    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static nint ResolveDawnProc(nint context, byte* name)
