@@ -1,6 +1,6 @@
 // Algorithm: Paint each original hinted glyph occurrence directly with the shared registered material or original image sampler, then apply canonical Text coverage. Bounded image paint retains its original triangle pair for each canonical affine glyph triangle; exact positive-axis frames use one pair. Extended paint retains its original axis mapping. No coverage union or R8 intermediate is used.
 // Time complexity: O(1) vertex work plus the original bounded material/sampling work per fragment; bounded paint deliberately preserves original image geometry rather than approximating its edges.
-// Space complexity: One immutable 96-byte paint record per command and one original 96-byte glyph instance per occurrence; O(1) fragment storage including a flat four-float physical coverage frame plus admission bit, no new coverage texture.
+// Space complexity: One immutable 96-byte paint record per command and one original 96-byte glyph instance per occurrence; O(1) fragment storage including six flat physical-frame floats and one mapping tag (16 user locations, 41 components total), no new coverage texture.
 struct Uniforms {
     projection: mat4x4<f32>,
     mvp: mat4x4<f32>,
@@ -64,6 +64,7 @@ struct VertexOutput {
     @location(12) @interpolate(flat) glyphOtherCorners: vec4<f32>,
     @location(13) @interpolate(flat) physicalGlyphFrame: vec4<f32>,
     @location(14) @interpolate(flat) canonicalPhysicalFrame: u32,
+    @location(15) @interpolate(flat) physicalGlyphInverseRow: vec2<f32>,
 };
 
 struct HintedGlyphTriangle {
@@ -128,6 +129,10 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let secondTriangle = input.vertexIndex >= 6u;
     let boundedTexture = paint.kind == 1u && (paint.flags & 2u) != 0u;
     let frame = text_glyph_vertex(glyph_instance(input, vertexIndex), vec4<f32>(1.0), 0u, false);
+    // One bounded image copy belongs to one original glyph triangle. Its own
+    // vertices 0..5 must not switch coverage maps at the IMAGE diagonal.
+    let coverageVertex = select(vertexIndex, select(0u, 3u, secondTriangle), boundedTexture);
+    let coverageFrame = text_glyph_vertex(glyph_instance(input, coverageVertex), vec4<f32>(1.0), 0u, false);
     let minimum = text_glyph_vertex(glyph_instance(input, 0u), vec4<f32>(1.0), 0u, false).logicalPosition;
     let corner1 = text_glyph_vertex(glyph_instance(input, 1u), vec4<f32>(1.0), 0u, false).logicalPosition;
     let maximum = text_glyph_vertex(glyph_instance(input, 2u), vec4<f32>(1.0), 0u, false).logicalPosition;
@@ -190,8 +195,9 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.paintIndex = input.paintIndex;
     output.glyphLogicalFrame = vec4<f32>(minimum, safeExtent);
     output.liveGlyphFrame = select(0u, 1u, liveFrame);
-    output.physicalGlyphFrame = frame.physicalGlyphFrame;
-    output.canonicalPhysicalFrame = frame.canonicalPhysicalFrame;
+    output.physicalGlyphFrame = coverageFrame.physicalGlyphFrame;
+    output.physicalGlyphInverseRow = coverageFrame.physicalGlyphInverseRow;
+    output.canonicalPhysicalFrame = coverageFrame.canonicalPhysicalFrame;
     output.glyphTriangle012 = triangle012.inverse;
     output.glyphTriangle023 = triangle023.inverse;
     output.glyphMappingFlags = mappingFlags;
@@ -243,7 +249,7 @@ fn hinted_glyph_paint_color(input: VertexOutput, maskAlpha: f32, premultipliedOu
         }
     }
     texCoord = text_glyph_coverage_tex_coord(texCoord, input.position.xy,
-        input.texelBounds, input.physicalGlyphFrame, input.canonicalPhysicalFrame);
+        input.texelBounds, input.physicalGlyphFrame, input.physicalGlyphInverseRow, input.canonicalPhysicalFrame);
     // Evaluate derivatives before material policy, tile guards or masks can
     // discard. The white input is only a float coverage calculation, never a
     // published draw, style stream or intermediate quantized texture.
