@@ -18,9 +18,11 @@
     <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
   </ItemGroup>
   <ItemGroup>
+    <!-- NuGet already appends the relative glob path. A filename-shaped
+         PackagePath misclassifies extensionless notices as directories. -->
     <None Include="$(ProGpuNativeRuntimeRoot)\**\*"
           Pack="true"
-          PackagePath="%(RecursiveDir)%(Filename)%(Extension)"
+          PackagePath=""
           Visible="false" />
     <None Include="..\ProGPU.Native\include\*"
           Pack="true"
@@ -44,7 +46,7 @@
           PackagePath="build\native\cmake\ProGPUNativeEditWordPin.json" Visible="false" />
   </ItemGroup>
   <Target Name="ValidateProGpuNativePackageRuntimes"
-          BeforeTargets="Pack"
+          BeforeTargets="GenerateNuspec"
           Condition="'$(ProGpuNativeSkipRuntimeValidation)' != 'true'">
     <PropertyGroup>
       <_ProGpuFontRequiredArg Condition="'$(ProGpuNativeRequireFontHinting)' == 'true'">--require</_ProGpuFontRequiredArg>

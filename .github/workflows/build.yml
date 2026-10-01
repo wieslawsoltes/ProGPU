@@ -1589,6 +1589,10 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Verify native NuGet runtime paths and pre-package rejection
+        if: runner.os == 'Linux'
+        run: python3 eng/test-native-runtime-package.py
+
       # Catch consumer source errors before native packaging; the independent
       # package-consumer jobs still build and execute against actual packages.
       - name: Compile native package consumer sources
