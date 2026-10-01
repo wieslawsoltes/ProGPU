@@ -115,7 +115,16 @@ SINCOS coefficients, clobbered-lane read/rewrite behavior, cross-version lengths
 read-port/count rules, reserved bits and unresolved opcode rejection. These are
 not a second pixel evaluator or a substitute for original shader reference pixels.
 
-The implementation is committed before focused CPU-only translator checks.
+Implementation commit `16e9304dd95890e9b075461c6c92c73f7e238495` preceded
+the focused checks. Apple Clang 21.0.0 on macOS arm64 passed C++20 syntax checks
+with `-Wall -Wextra -Wpedantic -Werror`. A CPU-only executable containing exactly
+two translation units (the production translator and a fixture TU including the
+original and arithmetic control files with a minimal entry point) passed all
+**110 existing and 367 new controls**, exit code zero, under an explicit ten-second
+`subprocess.run` timeout. No extra link dependencies or assertion changes were
+required. The executable SHA-256 is
+`9202bc4e9594b7762a4e8874e8edf157d06ccef5708557321071f7062022e76f`.
+
 The integration owner wires the independent fixture into the existing native
 target. Native renderer/dependency builds, GPU execution, both-provider/package
 gates and original WPF application qualification have not been run by this batch.
