@@ -14,6 +14,7 @@ internal static class Program
             "contexts" => WordSelectionReference.RunPolicyContexts(args[1]),
             "item-contexts" => WordSelectionReference.RunItemPolicyContexts(args[1]),
             "source-roles" => WordSelectionReference.RunSourceRoleContexts(args[1]),
+            "selection-geometry" => WordSelectionReference.RunSelectionGeometry(args[1]),
             "symbol-attributes" => WordSelectionReference.RunSymbolAttributes(args[1]),
             _ => throw new ArgumentOutOfRangeException(nameof(args))
         };
