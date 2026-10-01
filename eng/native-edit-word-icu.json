@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "version": "78.3",
+  "unicodeVersion": "17.0",
+  "repository": "https://github.com/unicode-org/icu",
+  "tag": "release-78.3",
+  "commit": "21d1eb0f306e1141c10931e914dfc038c06121da",
+  "sourceUrl": "https://github.com/unicode-org/icu/releases/download/release-78.3/icu4c-78.3-sources.tgz",
+  "sourceSha256": "3a2e7a47604ba702f345878308e6fefeca612ee895cf4a5f222e7955fabfe0c0",
+  "license": "Unicode-3.0 AND original bundled notices",
+  "licenseSha256": "e55522d81edc687a341a4411e0776e54ca654e90147f354a90458aaced4116af",
+  "dataPath": "icu/source/data/in/icudt78l.dat",
+  "dataSha256": "d5cf2a40dccbe471781ec7af85693bff542ff12f0b670c9630c4e72d60714b8b",
+  "libraryKind": "private static",
+  "symbolSuffix": "_progpu_edit",
+  "dictionaryAdmission": "Thai only; original complete-source line iterator"
+}

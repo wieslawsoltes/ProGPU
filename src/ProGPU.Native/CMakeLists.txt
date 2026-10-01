@@ -1556,6 +1556,26 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME progpu_native_glyph_coverage_frame_tests COMMAND progpu_native_glyph_coverage_frame_tests)
     set_tests_properties(progpu_native_glyph_coverage_frame_tests PROPERTIES TIMEOUT 15)
 
+    # Explicit source-only classifier controls. No native export, ordinary EDIT
+    # capability or SDK dependency is admitted by this optional private target.
+    include(cmake/ProGPUEditWordIcu.cmake)
+    add_executable(progpu_native_edit_word_boundary_tests
+        tests/progpu_native_edit_word_boundary_tests.cpp
+        src/Text/progpu_native_edit_word_boundaries.cpp)
+    target_compile_features(progpu_native_edit_word_boundary_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_edit_word_boundary_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text")
+    find_package(Threads REQUIRED)
+    target_link_libraries(progpu_native_edit_word_boundary_tests PRIVATE progpu_native_text Threads::Threads)
+    if(TARGET progpu_native_edit_icu)
+        target_compile_definitions(progpu_native_edit_word_boundary_tests PRIVATE PROGPU_NATIVE_EDIT_WORD_ICU=1)
+        target_link_libraries(progpu_native_edit_word_boundary_tests PRIVATE progpu_native_edit_icu ${CMAKE_DL_LIBS})
+    endif()
+    progpu_native_enable_warnings(progpu_native_edit_word_boundary_tests)
+    progpu_native_enable_sanitizers(progpu_native_edit_word_boundary_tests)
+    add_test(NAME progpu_native_edit_word_boundary_tests COMMAND progpu_native_edit_word_boundary_tests)
+    set_tests_properties(progpu_native_edit_word_boundary_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_browser_scene_tests
         browser/npm/scene_packet.cpp
         browser/npm/tests/scene_packet_tests.cpp)

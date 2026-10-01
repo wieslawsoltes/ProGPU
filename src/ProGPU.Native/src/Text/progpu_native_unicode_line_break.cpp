@@ -1,6 +1,7 @@
 #include "progpu_native_text.hpp"
 
 #include "progpu_native_unicode_data.generated.hpp"
+#include "progpu_native_unicode_line_break_internal.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -15,6 +16,11 @@ namespace progpu::native::text {
 namespace {
 
 using value = unicode_line_break_class;
+
+enum class line_break_profile {
+    unicode17,
+    edit_selection
+};
 
 void set_error(unicode_error* error, unicode_error result) noexcept {
     if (error != nullptr) {
@@ -94,8 +100,11 @@ bool is_unassigned(std::uint32_t code_point) noexcept {
         0U) != 0U;
 }
 
-value resolve_class(std::uint32_t code_point) noexcept {
-    const value raw = get_unicode_line_break_class(code_point);
+value resolve_class(std::uint32_t code_point, line_break_profile profile) noexcept {
+    const value edit_symbol = profile == line_break_profile::edit_selection
+        ? detail::get_edit_symbol_line_break_class(code_point) : value::unknown;
+    const value raw = edit_symbol == value::unknown
+        ? get_unicode_line_break_class(code_point) : edit_symbol;
     switch (raw) {
         case value::ambiguous:
         case value::surrogate:
@@ -190,7 +199,8 @@ bool numeric_right_context(
 text_line_break_kind boundary(
     std::span<const unicode_scalar> input,
     std::span<const value> classes,
-    std::size_t right) noexcept {
+    std::size_t right,
+    line_break_profile profile) noexcept {
     const std::size_t left_index = right - 1U;
     const value left = classes[left_index];
     const value next = classes[right];
@@ -226,7 +236,8 @@ text_line_break_kind boundary(
             value::zero_width_space) {
         return text_line_break_kind::opportunity;
     }
-    if (raw_left == value::zero_width_joiner ||
+    if ((raw_left == value::zero_width_joiner &&
+            profile == line_break_profile::unicode17) ||
         left == value::word_joiner || next == value::word_joiner ||
         left == value::glue) {
         return text_line_break_kind::prohibited;
@@ -482,11 +493,13 @@ unicode_line_break_class get_unicode_line_break_class(
         static_cast<std::uint32_t>(value::unknown)));
 }
 
-bool try_resolve_unicode_line_breaks(
+namespace {
+bool try_resolve_line_breaks(
     std::span<const unicode_scalar> input,
     std::span<unicode_line_break_class> class_scratch,
     std::span<text_line_break_kind> breaks_after,
-    unicode_error* error) noexcept {
+    unicode_error* error,
+    line_break_profile profile) noexcept {
     if (class_scratch.size() < input.size() ||
         breaks_after.size() < input.size()) {
         set_error(error, unicode_error::insufficient_buffer);
@@ -499,7 +512,7 @@ bool try_resolve_unicode_line_breaks(
             set_error(error, unicode_error::invalid_argument);
             return false;
         }
-        value resolved = resolve_class(input[index].code_point);
+        value resolved = resolve_class(input[index].code_point, profile);
         if (resolved == value::combining_mark ||
             resolved == value::zero_width_joiner) {
             if (index != 0U && !is_hard(class_scratch[index - 1U]) &&
@@ -520,11 +533,31 @@ bool try_resolve_unicode_line_breaks(
         breaks_after[right - 1U] = boundary(
             input,
             class_scratch.first(input.size()),
-            right);
+            right,
+            profile);
     }
     breaks_after[input.size() - 1U] = text_line_break_kind::mandatory;
     set_error(error, unicode_error::none);
     return true;
+}
+} // namespace
+
+bool try_resolve_unicode_line_breaks(
+    std::span<const unicode_scalar> input,
+    std::span<unicode_line_break_class> class_scratch,
+    std::span<text_line_break_kind> breaks_after,
+    unicode_error* error) noexcept {
+    return try_resolve_line_breaks(input, class_scratch, breaks_after, error,
+        line_break_profile::unicode17);
+}
+
+bool detail::try_resolve_edit_selection_line_breaks(
+    std::span<const unicode_scalar> input,
+    std::span<unicode_line_break_class> class_scratch,
+    std::span<text_line_break_kind> breaks_after,
+    unicode_error* error) noexcept {
+    return try_resolve_line_breaks(input, class_scratch, breaks_after, error,
+        line_break_profile::edit_selection);
 }
 
 } // namespace progpu::native::text
