@@ -9,10 +9,14 @@ retry. `SystemWarpAdapterLuid` exposes the verified typed identity, not a native
 handle. Generic `ForceFallbackAdapter`, compiler defaults and existing factories
 remain unchanged.
 
-The companion/header preparation, package controls and source controls are
-authored but have not been executed. Neither original-header compilation,
-NativeAOT, actual WARP device creation, GPU readback/completion, package consumers
-nor application behavior is qualified by this source checkpoint.
+The original-header companion and independent JIT/NativeAOT WARP readback controls
+passed on Windows x64 and ARM64 at commit
+`1c9a2fe7e09ddba511fb1d2b2b6cd34e73556f99` in
+[run 36836844316](https://github.com/wieslawsoltes/ProGPU/actions/runs/36836844316).
+Each of four executables completed two device lifetimes and four full RGBA
+readbacks with untouched caller tails (eight lifetimes and sixteen readbacks in
+total). The retained receipts identify Microsoft Basic Render Driver with stable
+per-run LUIDs. This proves that narrow workload, not package or application parity.
 
 ## Original public contract and provenance
 
@@ -97,6 +101,10 @@ notices before NuGet packing. The published target defaults
 `ProGpuEnableDawnSystemWarp=false`. When explicitly enabled with `win-x64` or
 `win-arm64`, it copies only those three selected files for build/publish, keeps
 native files outside single-file bundles and rejects caller-owned same-name items.
+Collision checks include caller Link, TargetPath and native destination metadata,
+plus the final resolved publish paths before copying; renaming a caller asset
+cannot silently replace it. Hosted metadata controls cover each collision route
+and preserve unrelated content when the capability is disabled.
 It never replaces WebGPUSharp's native asset or chooses an adapter. No WARP DLL,
 DXC runtime, original provider DLL, import library or generated header is packaged.
 
@@ -122,9 +130,8 @@ native work still retains it. The creating factory keeps device-loss userdata
 until complete instance shutdown, drains all acquired owners and preserves the
 first setup error. Existing waits and deadlines are not lengthened or bypassed.
 
-Actual original-header compilation/linking on both Windows architectures and the
-actual managed FFI/provider binding, failed-request cancellation, device-loss and
-NativeAOT paths still require runtime evidence. Existing independent package/RID,
+Custom managed FFI/provider binding, failed-request cancellation and device-loss
+paths still require runtime evidence. Existing independent package/RID,
 ordered-query, DX12, full-capacity/raw-result, deadline and application assertions
 remain mandatory. A selected system WARP adapter or a successful companion Build
 would not prove GPU readback completion or permit default-policy changes.
@@ -136,7 +143,7 @@ disposes two devices, verifies retained D3D12/CPU/LUID identity, and clears a 7x
 RGBA target to two independently specified colors. All pixels and 17 untouched
 caller-tail bytes must match after actual mapped readback. A 120-second child
 process bound cannot turn an incomplete callback into success. These authored
-controls have not yet produced a passing receipt. They use project references
+controls produced the receipt linked above. They use project references
 and explicitly copied companion files, not the optional NuGet asset-selection
 path, and do not replace the complete package or application gates.
 

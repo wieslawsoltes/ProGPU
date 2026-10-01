@@ -40,6 +40,20 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - name: Preserve caller-owned build and publish destinations
+        shell: pwsh
+        run: |
+          foreach ($collision in @('none','filename','link','target','destination','publish')) {
+            foreach ($enabled in @('true','false')) {
+              $output = & dotnet msbuild eng/test-dawn-system-warp-package-targets.proj -nologo '-p:RuntimeIdentifier=${{ matrix.rid }}' "-p:Collision=$collision" "-p:ProGpuEnableDawnSystemWarp=$enabled" 2>&1
+              $result = $LASTEXITCODE
+              $output | Write-Output
+              $reject = $enabled -eq 'true' -and $collision -ne 'none'
+              if ($reject) {
+                if ($result -eq 0 -or -not ($output -match 'Dawn system WARP will not replace caller-owned')) { throw "Expected explicit collision rejection: $collision" }
+              } elseif ($result -ne 0) { throw "Unrelated or disabled companion content was rejected: $collision" }
+            }
+          }
       - name: Build original-header companion and run independent JIT and NativeAOT readbacks
         shell: pwsh
         run: ./eng/test-dawn-system-warp-windows.ps1 -Rid '${{ matrix.rid }}'
