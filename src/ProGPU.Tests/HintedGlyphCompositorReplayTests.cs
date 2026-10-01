@@ -385,7 +385,9 @@ public sealed class HintedGlyphCompositorReplayTests
                 new SolidColorBrush(new Vector4(1, 0, 0, 1)));
             Assert.Throws<NotSupportedException>(() => window.Compositor.CompileStaticDxf(context));
             Assert.Equal(0, window.Compositor.Atlas.CachedGlyphCount);
-            Assert.Throws<NotSupportedException>(() => window.Compositor.CompileStaticDxf(context.Commands));
+            // Exercise the separate legacy List overload as well as DrawingContext.
+            var commands = new List<RenderCommand>(context.Commands);
+            Assert.Throws<NotSupportedException>(() => window.Compositor.CompileStaticDxf(commands));
             Assert.Equal(0, window.Compositor.Atlas.CachedGlyphCount);
         }
         finally { context.Clear(); }
