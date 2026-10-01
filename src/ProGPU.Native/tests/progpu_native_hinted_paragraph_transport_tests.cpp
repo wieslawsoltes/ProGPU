@@ -581,13 +581,35 @@ void actual_transport_controls() {
     // Transport the actual writer's L1-used trailing whitespace levels, not a
     // reconstruction from pre-L1 logical levels or positioned ink offsets.
     fixture trailing(font_hint_policy::truetype_40, true);
-    for (std::size_t i = 6U; i < trailing.input.size(); ++i) trailing.input[i].code_point = ' ';
+    // Original paragraph CPU L1 fixture: the space before the final Alef is
+    // internal paragraph text with odd logical level, then ends a wrapped row.
+    const std::array<std::uint32_t, 6U> l1_values{'A', 0x0627U, ' ', '1', ' ', 0x0627U};
+    trailing.input.clear();
+    std::uint32_t l1_source = 9U;
+    for (const auto value : l1_values) {
+        const auto length = value == 'A' ? std::uint16_t{2U} : std::uint16_t{1U};
+        trailing.input.push_back({value, l1_source, length, 0U, 0U, 0U}); l1_source += length;
+    }
+    trailing.styles[0].scalar_count = 1U;
+    trailing.styles[1].scalar_start = 1U; trailing.styles[1].scalar_count = 5U;
+    trailing.shaping.input = trailing.input.data(); trailing.shaping.input_count = static_cast<std::uint32_t>(trailing.input.size());
+    const auto unwrapped = trailing.reference();
+    require(unwrapped->logical_glyphs.size() == l1_values.size());
+    float prefix = 0.0F;
+    for (std::size_t i = 0U; i < 5U; ++i)
+        prefix += static_cast<float>(unwrapped->logical_glyphs[i].advance_x) * unwrapped->glyph_scales[i];
+    const float last = static_cast<float>(unwrapped->logical_glyphs.back().advance_x) * unwrapped->glyph_scales.back();
+    require(last > 0.0F && unwrapped->logical_glyphs[4].code_point == ' ' && unwrapped->logical_bidi_levels[4] == 1);
+    trailing.layout.maximum_width = prefix + last * 0.5F;
     const auto l1 = trailing.reference(); const auto l1_interaction = create_hinted_paragraph_interaction(l1);
-    require(l1_interaction.status == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(l1_interaction.status == PROGPU_NATIVE_STATUS_SUCCESS && l1->lines.size() == 2U && l1->lines[0].glyph_count == 5U);
     require(std::any_of(l1->glyphs.begin(), l1->glyphs.end(), [&](const auto& glyph) {
         const auto index = static_cast<std::size_t>(&glyph - l1->glyphs.data());
         return l1->bidi_levels[index] != l1->logical_bidi_levels[glyph.glyph_index];
     }));
+    const auto wrapped_space = std::find_if(l1->glyphs.begin(), l1->glyphs.end(), [](const auto& glyph) { return glyph.glyph_index == 4U; });
+    require(wrapped_space != l1->glyphs.end() && l1->logical_bidi_levels[4] == 1 &&
+        l1->bidi_levels[static_cast<std::size_t>(wrapped_space - l1->glyphs.begin())] == 0);
     paragraph_owner l1_handle; produce(trailing, l1_handle);
     format_storage l1_wire(expected_counts(*l1, *l1_interaction.generation)); const auto l1_buffers = l1_wire.buffers();
     require(progpu_native_hinted_paragraph_copy_format(l1_handle.value, &l1_buffers) == PROGPU_NATIVE_STATUS_SUCCESS);
