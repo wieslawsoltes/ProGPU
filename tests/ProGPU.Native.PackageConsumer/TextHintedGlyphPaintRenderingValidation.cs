@@ -154,7 +154,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
                     VerifyTextureReplacement(context, createCompositor, original.Outlines, original.Segments,
                         glyphs, dpi, solidColor.W, fontSha256, writerBytes);
                     VerifyAffinePaints(context, createCompositor, original.Outlines, original.Segments,
-                        glyphs, dpi, solidColor.W);
+                        glyphs, dpi, solidColor.W, fontSha256, writerBytes);
                 }
             }
         }
@@ -248,7 +248,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
 
     private static void VerifyAffinePaints(WgpuContext context, Func<NativeCompositor> createCompositor,
         NativeGlyphOutline[] outlines, NativePathSegment[] segments, NativePositionedGlyph[] original,
-        float dpi, float opacity)
+        float dpi, float opacity, string fontSha256, byte[] writerBytes)
     {
         // Reuse two actual engines across all new cases. Authored presentation
         // transforms never change the independently unpacked hinted contours.
@@ -293,8 +293,9 @@ internal static class TextHintedGlyphPaintRenderingValidation
             foreach (bool boundedTexture in new[] { false, true })
             {
                 ulong sceneId = 0x7720UL + (ulong)cases;
+                NativeSceneGlyphPaint paint = default;
                 byte[] scene = boundedTexture
-                    ? CreateTextureScene(sceneId, dpi, outlines, segments, glyphs, opacity, out _)
+                    ? CreateTextureScene(sceneId, dpi, outlines, segments, glyphs, opacity, out paint)
                     : CreateScene(sceneId, dpi, outlines, segments, glyphs, Vector2.Zero, color, 1f);
                 byte[] sceneBytes = scene.ToArray();
                 var beforeUpdate = subject.GetLastSubmissionToken();
@@ -317,7 +318,20 @@ internal static class TextHintedGlyphPaintRenderingValidation
                     var expected = reference.RenderGlyphs(referenceTarget, dpi, outlines, segments, glyphs, Vector4.Zero);
                     byte[] expectedPixels = CompleteAndRead(reference, referenceTarget, referenceBefore);
                     referenceSubmissions++;
-                    CheckPixels(pixels, expectedPixels, name + ": complete original Text RGBA differential");
+                    try
+                    {
+                        CheckPixels(pixels, expectedPixels, name + ": complete original Text RGBA differential");
+                    }
+                    catch (InvalidOperationException failure) when (boundedTexture)
+                    {
+                        // Preserve the exact authored affine inputs and both
+                        // completed readbacks only for the existing opt-in
+                        // diagnostic. Receipt faults never replace this failure.
+                        NativeHintedPaintFailureReceipt.TryCapture(context, failure, fontSha256,
+                            dpi, frame, outlines, segments, glyphs, glyphs, writerBytes,
+                            scene, paint, texel, pixels, expectedPixels);
+                        throw;
+                    }
                     Check(actual.CommandCount == 1 && actual.DrawCallCount == 1 && actual.SubmissionCount == 1 &&
                         expected.DrawCallCount == 1 && expected.GlyphCount == glyphs.Length &&
                         expected.SubmissionCount == referenceSubmissions && expected.RasterizedGlyphCount != 0 &&
