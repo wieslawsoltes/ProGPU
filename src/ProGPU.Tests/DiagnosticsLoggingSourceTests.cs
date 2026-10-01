@@ -280,8 +280,8 @@ public class DiagnosticsLoggingSourceTests
     public void VectorPerlinShaderAvoidsRuntimeIndexedVectorWritesForD3D()
     {
         string shaders = ReadSource("src", "ProGPU.Backend", "Shaders", "RegisteredMaterialCommon.wgsl");
-        Assert.Contains(shaders, ProGPU.Backend.Shaders.VectorShader, StringComparison.Ordinal);
-        Assert.Contains(shaders, ProGPU.Backend.Shaders.HintedGlyphPaintShader, StringComparison.Ordinal);
+        Assert.Contains(shaders, ProGPU.Backend.Shaders.VectorShader.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.Contains(shaders, ProGPU.Backend.Shaders.HintedGlyphPaintShader.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
 
         Assert.Contains("fn perlin_table_noise_channel(", shaders, StringComparison.Ordinal);
         Assert.Contains("brush, 0u, index00, index10, index01, index11, fraction, smoothValue", shaders, StringComparison.Ordinal);
@@ -388,7 +388,8 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void GlyphAtlasUsesIndexedBatchAndOutlineTraversal()
     {
-        string source = ReadSource("src", "ProGPU.Text", "GlyphAtlas.cs");
+        string source = ReadSource("src", "ProGPU.Text", "GlyphAtlas.cs") +
+            ReadSource("src", "ProGPU.Text", "GlyphAtlas.GpuRasterizer.cs");
 
         Assert.Contains("int batchBufferCount = _batchBuffers.Count;", source, StringComparison.Ordinal);
         Assert.Contains("for (int bufferIndex = 0; bufferIndex < batchBufferCount; bufferIndex++)", source, StringComparison.Ordinal);
@@ -540,7 +541,8 @@ public class DiagnosticsLoggingSourceTests
     [Fact]
     public void GlyphRasterizerCommandLabelsAvoidPerBatchStringMarshalling()
     {
-        string source = ReadSource("src", "ProGPU.Text", "GlyphAtlas.cs");
+        string source = ReadSource("src", "ProGPU.Text", "GlyphAtlas.cs") +
+            ReadSource("src", "ProGPU.Text", "GlyphAtlas.GpuRasterizer.cs");
 
         Assert.Contains("CreateCommandEncoder(\"Glyph Rasterizer Batch Encoder\\0\"u8)", source, StringComparison.Ordinal);
         Assert.Contains("\"Glyph Rasterizer Batch Command Buffer\\0\"u8", source, StringComparison.Ordinal);
@@ -631,8 +633,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("private static T[] CopyList<T>(List<T> values)", source, StringComparison.Ordinal);
         Assert.Contains("for (int i = 0; i < result.Length; i++)", source, StringComparison.Ordinal);
         Assert.Contains("result[i] = values[i];", source, StringComparison.Ordinal);
-        Assert.Contains("for (int i = 0; i < resources.Length; i++)", source, StringComparison.Ordinal);
-        Assert.Contains("resources[i].Dispose();", source, StringComparison.Ordinal);
+        Assert.Contains("RetainedResourceLease.DisposeAll(resources);", source, StringComparison.Ordinal);
+        Assert.Contains("for (int index = 0; index < resources.Count; index++)", source, StringComparison.Ordinal);
+        Assert.Contains("resources[index].Dispose();", source, StringComparison.Ordinal);
         Assert.Contains("var otherCommands = other.Commands;", source, StringComparison.Ordinal);
         Assert.Contains("int otherCommandCount = otherCommands.Count;", source, StringComparison.Ordinal);
         Assert.Contains("for (int commandIndex = 0; commandIndex < otherCommandCount; commandIndex++)", source, StringComparison.Ordinal);
