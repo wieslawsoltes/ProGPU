@@ -110,11 +110,15 @@ internal static class TextHintedGlyphPaintRenderingValidation
                     byte[] expectedPixels = CompleteAndRead(reference, referenceTarget, referenceBefore);
                     Check(pixels.Length == 96 * 96 * 4 && pixels.AsSpan().SequenceEqual(expectedPixels),
                         $"full RGBA differential dpi={dpi}, overlap={overlap}, frame={frame}");
+                    // Scene metrics describe this RenderScene call; the original
+                    // RenderGlyphs metric is the engine's cumulative count.
                     Check(actual.CommandCount == 1 && actual.DrawCallCount == 1 &&
                         expected.DrawCallCount == 1 && expected.GlyphCount == glyphs.Length &&
-                        actual.SubmissionCount == (ulong)frame + 1 && expected.SubmissionCount == (ulong)frame + 1 &&
+                        actual.SubmissionCount == 1 && expected.SubmissionCount == (ulong)frame + 1 &&
                         expected.RasterizedGlyphCount != 0 && expected.PayloadHash == 0,
-                        "one real render submission on each independent engine and uncached original solid control");
+                        $"one real render submission on each independent engine and uncached original solid control: " +
+                        $"frame={frame}, scene commands/draws/submissions={actual.CommandCount}/{actual.DrawCallCount}/{actual.SubmissionCount}, " +
+                        $"glyph draws/count/submissions/rasterized/hash={expected.DrawCallCount}/{expected.GlyphCount}/{expected.SubmissionCount}/{expected.RasterizedGlyphCount}/{expected.PayloadHash}");
                     Check(target.Generation == generation + 1 && target.ViewGeneration == view,
                         "actual completed paint publishes contents without exchanging the target view");
                     if (frame == 0)
@@ -226,9 +230,11 @@ internal static class TextHintedGlyphPaintRenderingValidation
             Check(pixels.Length == 96 * 96 * 4 && pixels.AsSpan().SequenceEqual(expectedPixels),
                 $"same-count actual texture replacement full RGBA frame={frame}");
             Check(actual.CommandCount == 1 && actual.DrawCallCount == 1 && expected.DrawCallCount == 1 &&
-                expected.GlyphCount == glyphs.Length && actual.SubmissionCount == (ulong)frame + 1 &&
+                expected.GlyphCount == glyphs.Length && actual.SubmissionCount == 1 &&
                 expected.SubmissionCount == (ulong)frame + 1 && expected.RasterizedGlyphCount != 0,
-                "same-count texture replay and independent original solid reference each really submit once");
+                $"same-count texture replay and independent original solid reference each really submit once: " +
+                $"frame={frame}, scene commands/draws/submissions={actual.CommandCount}/{actual.DrawCallCount}/{actual.SubmissionCount}, " +
+                $"glyph draws/count/submissions/rasterized={expected.DrawCallCount}/{expected.GlyphCount}/{expected.SubmissionCount}/{expected.RasterizedGlyphCount}");
             VerifyInk(pixels, opacity);
             if ((frame & 1) != 0)
                 Check(previous!.AsSpan().SequenceEqual(pixels) && actual.CoverageStagingBytes == 0,
