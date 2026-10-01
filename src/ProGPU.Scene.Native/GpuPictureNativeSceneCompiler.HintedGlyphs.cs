@@ -258,7 +258,6 @@ public static partial class GpuPictureNativeSceneCompiler
         GpuTexture texture = image.Texture;
         uint flags = (uint)textureCommand.TextureSamplingMode << NativeSceneGlyphPaint.SamplingModeShift;
         if (texture.AlphaMode == GpuTextureAlphaMode.Premultiplied) flags |= NativeSceneGlyphPaint.PremultipliedTexture;
-        if (texture.AlphaMode == GpuTextureAlphaMode.Opaque) flags |= NativeSceneGlyphPaint.OpaqueTexture;
         if (!brush.ExtendToFillBounds) flags |= NativeSceneGlyphPaint.BoundedTexture;
         if (textureCommand.TextureSamplingMode == TextureSamplingMode.Cubic) flags |= NativeSceneGlyphPaint.CubicTexture;
         Rect sourceRect = textureCommand.SrcRect;

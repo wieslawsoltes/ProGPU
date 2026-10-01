@@ -18,6 +18,7 @@
 #include "progpu_native_semantic_image_tests.hpp"
 #include "progpu_native_semantic_layer_mask_tests.hpp"
 #include "progpu_native_semantic_draw_merge.hpp"
+#include "progpu_native_scene.hpp"
 #include "progpu_native_scene_builder_tests.hpp"
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_identity.hpp"
@@ -1284,11 +1285,23 @@ void semantic_original_glyph_paint_wire_is_exact_and_independent() {
     require(page.brushes.size() == 2U && page.remapped_indices.size() == 1U);
     require(page.brushes[page.remapped_indices[0]].opacity == 0.75F);
     const auto original = compute_content_hashes(storage.data(), header);
+    const auto original_storage = storage;
+    const auto original_brush = brush;
     brush.colors[0].r += 0.125F;
     std::memcpy(storage.data() + brush_resource.payload_offset, &brush, sizeof(brush));
+    // Resource payloads are immutable within one generation. Exercise the
+    // actual rejection before publishing the valid replacement generation.
+    require(!progpu::native::scene::generations_do_not_regress(
+        original_storage.data(), header, storage.data(), header, error));
+    ++brush_resource.generation;
+    std::memcpy(storage.data() + 128U, &brush_resource, sizeof(brush_resource));
+    require(progpu::native::scene::generations_do_not_regress(
+        original_storage.data(), header, storage.data(), header, error));
     const auto material_changed = compute_content_hashes(storage.data(), header);
     require(material_changed.brush != original.brush && material_changed.glyph != original.glyph);
-    brush.colors[0].r -= 0.125F;
+    brush = original_brush;
+    --brush_resource.generation;
+    std::memcpy(storage.data() + 128U, &brush_resource, sizeof(brush_resource));
     std::memcpy(storage.data() + brush_resource.payload_offset, &brush, sizeof(brush));
     paint.source_offset_opacity[0] += 0.125F; write();
     const auto moved = compute_content_hashes(storage.data(), header);
@@ -1314,10 +1327,10 @@ void semantic_original_glyph_paint_wire_is_exact_and_independent() {
     draw.paint_resource_index = 2U;
     for (std::uint32_t mode = 0U; mode <= 9U; ++mode) {
         paint.flags = PROGPU_NATIVE_SCENE_GLYPH_PAINT_BOUNDED | (mode << 8U) |
-            (mode == 2U ? PROGPU_NATIVE_SCENE_GLYPH_PAINT_CUBIC : 0U);
+            (mode == 2U ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_GLYPH_PAINT_CUBIC) : 0U);
         write(); require(validate_painted_glyph_draw(storage.data(), header, command, error));
     }
-    paint.flags = PROGPU_NATIVE_SCENE_GLYPH_PAINT_OPAQUE;
+    paint.flags = 0U;
     paint.sampling[0] = -64.0F; write();
     require(validate_painted_glyph_draw(storage.data(), header, command, error));
     paint.flags = 1U << 8U; paint.sampling[0] = -128.0F; write();
@@ -1330,7 +1343,7 @@ void semantic_original_glyph_paint_wire_is_exact_and_independent() {
     const auto valid_texture = paint;
     for (const auto flags : std::array<std::uint32_t, 4U>{{0x10U, 10U << 8U,
             PROGPU_NATIVE_SCENE_GLYPH_PAINT_CUBIC,
-            PROGPU_NATIVE_SCENE_GLYPH_PAINT_OPAQUE | PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED}}) {
+            8U | PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED}}) {
         paint.flags = flags; write();
         require(!validate_painted_glyph_draw(storage.data(), header, command, error));
     }

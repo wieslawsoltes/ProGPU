@@ -58,7 +58,7 @@ public class NativeHintedGlyphPaintWireTests
         NativePositionedGlyph[] glyphs = Glyphs();
         byte[] original = (byte[])destination.Clone();
         foreach (uint flags in new[] { 0x10U, 10U << 8, NativeSceneGlyphPaint.CubicTexture,
-            NativeSceneGlyphPaint.OpaqueTexture | NativeSceneGlyphPaint.PremultipliedTexture })
+            8U | NativeSceneGlyphPaint.PremultipliedTexture })
         {
             var invalid = new NativeSceneGlyphPaint(NativeSceneGlyphPaint.Texture, 0, flags,
                 new(0, 0, .5f, 0), new(0, 0, 1, 1), sampling: new(0, .5f, 0, 0));
@@ -94,7 +94,7 @@ public class NativeHintedGlyphPaintWireTests
     }
 
     private static NativeSceneGlyphPaint TexturePaint(uint mode) => new(NativeSceneGlyphPaint.Texture, 0,
-        NativeSceneGlyphPaint.BoundedTexture | NativeSceneGlyphPaint.OpaqueTexture | (mode << 8) |
+        NativeSceneGlyphPaint.BoundedTexture | (mode << 8) |
             (mode == 2 ? NativeSceneGlyphPaint.CubicTexture : 0),
         new(3.25f, -2.5f, .625f, 0), new(-.25f, .125f, 1.25f, .875f),
         new(1.25f, 2.5f, 9.75f, 3.5f), new(8.25f, 12.5f, .5f, 11.25f), new(0, .5f, 1, 2));

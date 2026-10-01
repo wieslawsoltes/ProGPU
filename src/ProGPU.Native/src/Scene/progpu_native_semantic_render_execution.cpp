@@ -2703,8 +2703,8 @@ progpu_native_status render_scene(
                     } else {
                         paint.source_offset_opacity[2] *= state.opacity;
                         const auto mode = (paint.flags & PROGPU_NATIVE_SCENE_GLYPH_PAINT_SAMPLING_MASK) >> 8U;
-                        const auto sampling = mode == 0U ? PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR :
-                            mode == 1U ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST : mode;
+                        const auto sampling = mode == 0U ? static_cast<std::uint32_t>(PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR) :
+                            mode == 1U ? static_cast<std::uint32_t>(PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) : mode;
                         if (mode != 2U && paint.sampling[0] == 0.0F)
                             paint.sampling[0] = base_image_sampling_coefficient(engine->engine_flags, sampling);
                         for (auto* quad : {paint.texture_quad01, paint.texture_quad23}) {

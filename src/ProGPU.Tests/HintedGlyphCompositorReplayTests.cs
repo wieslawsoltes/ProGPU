@@ -263,8 +263,8 @@ public sealed class HintedGlyphCompositorReplayTests
     [Theory]
     [InlineData(TextureSamplingMode.Nearest, GpuTextureAlphaMode.Straight, true, false)]
     [InlineData(TextureSamplingMode.Linear, GpuTextureAlphaMode.Premultiplied, true, true)]
-    [InlineData(TextureSamplingMode.Cubic, GpuTextureAlphaMode.Opaque, true, true)]
-    [InlineData(TextureSamplingMode.Nearest, GpuTextureAlphaMode.Opaque, false, true)]
+    [InlineData(TextureSamplingMode.Cubic, GpuTextureAlphaMode.Straight, true, true)]
+    [InlineData(TextureSamplingMode.Nearest, GpuTextureAlphaMode.Straight, false, true)]
     [InlineData(TextureSamplingMode.Linear, GpuTextureAlphaMode.Straight, false, true)]
     [InlineData(TextureSamplingMode.Cubic, GpuTextureAlphaMode.Premultiplied, false, true)]
     public void DirectTexturePaintRetainsOriginalCornersSamplesAndRepresentation(
@@ -305,8 +305,7 @@ public sealed class HintedGlyphCompositorReplayTests
         Assert.Equal((uint)sampling, record.Flags >> GpuHintedGlyphPaint.SamplingModeShift);
         Assert.Equal(alphaMode == GpuTextureAlphaMode.Premultiplied,
             (record.Flags & GpuHintedGlyphPaint.PremultipliedTexture) != 0);
-        Assert.Equal(alphaMode == GpuTextureAlphaMode.Opaque,
-            (record.Flags & GpuHintedGlyphPaint.OpaqueTexture) != 0);
+        Assert.Equal(0u, record.Flags & 8u);
         Assert.Equal(!extend, (record.Flags & GpuHintedGlyphPaint.BoundedTexture) != 0);
         Assert.Equal(sampling == TextureSamplingMode.Cubic, (record.Flags & GpuHintedGlyphPaint.CubicTexture) != 0);
         Assert.Equal((float)TextureAddressMode.Repeat, record.Sampling.Z);

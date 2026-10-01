@@ -161,10 +161,10 @@ internal static class TextHintedGlyphPaintRenderingValidation
         using var referenceTarget = CreateTarget(context, "Original solid texture-color text reference");
         using var first = new GpuTexture(context, 1, 1, TextureFormat.Rgba8Unorm,
             TextureUsage.TextureBinding | TextureUsage.CopyDst, "Original first opaque image",
-            alphaMode: GpuTextureAlphaMode.Opaque);
+            alphaMode: GpuTextureAlphaMode.Straight);
         using var second = new GpuTexture(context, 1, 1, TextureFormat.Rgba8Unorm,
             TextureUsage.TextureBinding | TextureUsage.CopyDst, "Original replacement opaque image",
-            alphaMode: GpuTextureAlphaMode.Opaque);
+            alphaMode: GpuTextureAlphaMode.Straight);
         byte[][] sourcePixels = [[64, 192, 128, 255], [192, 64, 32, 255]];
         first.WritePixels<byte>(sourcePixels[0]); second.WritePixels<byte>(sourcePixels[1]);
         var sceneOutlines = new NativeSceneGlyphOutline[outlines.Length];
@@ -184,7 +184,7 @@ internal static class TextHintedGlyphPaintRenderingValidation
         Check(builder.TryAddExternalImageResource(2, 1, out uint imageResource), "original external IMAGE resource");
         float extent = 96 / dpi;
         var paint = new NativeSceneGlyphPaint(NativeSceneGlyphPaint.Texture, 0,
-            NativeSceneGlyphPaint.OpaqueTexture | NativeSceneGlyphPaint.BoundedTexture,
+            NativeSceneGlyphPaint.BoundedTexture,
             new(0, 0, opacity, 0), new(0, 0, 1, 1), new(0, 0, extent, 0),
             new(extent, extent, 0, extent), new(0, 0.5f, 0, 0));
         Check(builder.TryDrawPaintedGlyphRun(1, glyphResource, new(0, 0, extent, extent), glyphs,

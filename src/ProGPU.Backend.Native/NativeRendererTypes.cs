@@ -1501,7 +1501,6 @@ public readonly struct NativeSceneGlyphPaint
     public const uint PremultipliedTexture = 1U;
     public const uint BoundedTexture = 2U;
     public const uint CubicTexture = 4U;
-    public const uint OpaqueTexture = 8U;
     public const int SamplingModeShift = 8;
 
     public NativeSceneGlyphPaint(uint kind, uint brushIndex, uint flags,
@@ -1534,14 +1533,13 @@ public readonly struct NativeSceneGlyphPaint
             if (Kind == Material)
                 return Flags == 0U && SourceOffsetOpacity.Z == 0f && UVBounds == default &&
                     TextureQuad01 == default && TextureQuad23 == default && Sampling == default;
-            const uint known = PremultipliedTexture | BoundedTexture | CubicTexture | OpaqueTexture | 0xFF00U;
+            const uint known = PremultipliedTexture | BoundedTexture | CubicTexture | 0xFF00U;
             uint mode = (Flags >> SamplingModeShift) & 0xFFU;
             bool coefficients = mode == 2U
                 ? MathF.Abs(Sampling.X) <= 16f && MathF.Abs(Sampling.Y) <= 16f
                 : Sampling.Y == 0.5f && (Sampling.X == 0f ||
                     (mode == 0U && Sampling.X == -64f) || (mode == 1U && Sampling.X == -128f));
             return BrushIndex == 0U && (Flags & ~known) == 0U && mode <= 9U &&
-                (Flags & (PremultipliedTexture | OpaqueTexture)) != (PremultipliedTexture | OpaqueTexture) &&
                 ((Flags & CubicTexture) != 0U) == (mode == 2U) &&
                 SourceOffsetOpacity.Z is >= 0f and <= 1f && UVBounds.Z >= UVBounds.X && UVBounds.W >= UVBounds.Y &&
                 coefficients &&

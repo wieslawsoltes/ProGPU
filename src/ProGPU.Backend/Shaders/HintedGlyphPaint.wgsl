@@ -150,7 +150,6 @@ fn hinted_glyph_paint_color(input: VertexOutput, maskAlpha: f32, premultipliedOu
 
     let opacity = paint.sourceOffsetOpacity.z;
     let sourcePremultiplied = (paint.flags & 1u) != 0u;
-    let sourceOpaque = (paint.flags & 8u) != 0u;
     let cubic = (paint.flags & 4u) != 0u;
     let sampleInput = TextureImageSampleInput(
         vec4<f32>(1.0, select(0.0, 1.0, sourcePremultiplied), 0.0,
@@ -159,7 +158,6 @@ fn hinted_glyph_paint_color(input: VertexOutput, maskAlpha: f32, premultipliedOu
     let modes = paint.sampling.zw;
     let addressedUV = address_texture_coordinates(input.paintUV, modes);
     var color = sample_image(sampleInput, addressedUV, modes, paintDx, paintDy);
-    if (sourceOpaque) { color.a = 1.0; }
     let alpha = color.a * opacity * coverage * maskAlpha;
     if (sourcePremultiplied) {
         if (premultipliedOutput) {

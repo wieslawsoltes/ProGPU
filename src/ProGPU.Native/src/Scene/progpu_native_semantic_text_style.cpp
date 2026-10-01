@@ -92,7 +92,6 @@ bool is_valid_glyph_paint(const progpu_native_scene_glyph_paint& paint) noexcept
     }
     constexpr std::uint32_t known = PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED |
         PROGPU_NATIVE_SCENE_GLYPH_PAINT_BOUNDED | PROGPU_NATIVE_SCENE_GLYPH_PAINT_CUBIC |
-        PROGPU_NATIVE_SCENE_GLYPH_PAINT_OPAQUE |
         PROGPU_NATIVE_SCENE_GLYPH_PAINT_SAMPLING_MASK;
     const auto mode = (paint.flags & PROGPU_NATIVE_SCENE_GLYPH_PAINT_SAMPLING_MASK) >>
         PROGPU_NATIVE_SCENE_GLYPH_PAINT_SAMPLING_SHIFT;
@@ -105,8 +104,6 @@ bool is_valid_glyph_paint(const progpu_native_scene_glyph_paint& paint) noexcept
             (mode == 0U && paint.sampling[0] == -64.0F) ||
             (mode == 1U && paint.sampling[0] == -128.0F));
     return paint.brush_index == 0U && (paint.flags & ~known) == 0U && mode <= 9U &&
-        (paint.flags & (PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED | PROGPU_NATIVE_SCENE_GLYPH_PAINT_OPAQUE)) !=
-            (PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED | PROGPU_NATIVE_SCENE_GLYPH_PAINT_OPAQUE) &&
         ((paint.flags & PROGPU_NATIVE_SCENE_GLYPH_PAINT_CUBIC) != 0U) == (mode == 2U) &&
         paint.source_offset_opacity[2] >= 0.0F && paint.source_offset_opacity[2] <= 1.0F &&
         paint.uv_bounds[2] >= paint.uv_bounds[0] && paint.uv_bounds[3] >= paint.uv_bounds[1] &&

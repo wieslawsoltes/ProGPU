@@ -188,8 +188,8 @@ bool prepare_glyph_paints(progpu_native_engine& engine,
                 return false;
             view = binding->view;
             const auto mode = (paint.flags & PROGPU_NATIVE_SCENE_GLYPH_PAINT_SAMPLING_MASK) >> 8U;
-            const auto sampling = mode == 0U ? PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR :
-                mode == 1U ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST : mode;
+            const auto sampling = mode == 0U ? static_cast<std::uint32_t>(PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR) :
+                mode == 1U ? static_cast<std::uint32_t>(PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) : mode;
             const auto address_flags = static_cast<std::uint32_t>(paint.sampling[2]) <<
                 PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT |
                 static_cast<std::uint32_t>(paint.sampling[3]) << PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT;

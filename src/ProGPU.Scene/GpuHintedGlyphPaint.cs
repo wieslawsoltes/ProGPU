@@ -13,7 +13,6 @@ internal struct GpuHintedGlyphPaint
     internal const uint PremultipliedTexture = 1u;
     internal const uint BoundedTexture = 2u;
     internal const uint CubicTexture = 4u;
-    internal const uint OpaqueTexture = 8u;
     internal const int SamplingModeShift = 8;
 
     [FieldOffset(0)] public uint Kind;

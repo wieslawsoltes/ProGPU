@@ -184,7 +184,6 @@ public unsafe partial class Compositor
             throw new InvalidOperationException("Original hinted texture placement overflows its admitted frame.");
         uint flags = (uint)sourcePaint.TextureSamplingMode << GpuHintedGlyphPaint.SamplingModeShift;
         if (texture.AlphaMode == GpuTextureAlphaMode.Premultiplied) flags |= GpuHintedGlyphPaint.PremultipliedTexture;
-        if (texture.AlphaMode == GpuTextureAlphaMode.Opaque) flags |= GpuHintedGlyphPaint.OpaqueTexture;
         if (!brush.ExtendToFillBounds) flags |= GpuHintedGlyphPaint.BoundedTexture;
         if (sourcePaint.TextureSamplingMode == TextureSamplingMode.Cubic) flags |= GpuHintedGlyphPaint.CubicTexture;
         Vector2 coefficients = ResolveImageSamplingCoefficients(_imageSamplingPath,
