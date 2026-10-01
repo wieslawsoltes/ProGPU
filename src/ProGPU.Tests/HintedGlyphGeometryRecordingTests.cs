@@ -212,9 +212,12 @@ public sealed class HintedGlyphGeometryRecordingTests
         };
         Assert.True(HintedGlyphCommandGeometry.TryGetRasterBounds(command, out Rect bounds, out bool hasInk));
         Assert.True(hasInk);
-        Assert.Equal(sourceX, bounds.X);
-        Assert.Equal(sourceX + (-4f + 4.5f), bounds.Right);
-        Assert.NotEqual((sourceX + -4f) + 4.5f, bounds.Right);
+        // Read the writer position at runtime, rather than allowing compile-time
+        // constant folding to substitute a different intermediate precision.
+        float writerX = geometry.RenderOccurrences[0].Position.X;
+        Assert.Equal(writerX, bounds.X);
+        Assert.Equal(writerX + (-4f + 4.5f), bounds.Right);
+        Assert.NotEqual((writerX + -4f) + 4.5f, bounds.Right);
     }
 
     [Fact]
