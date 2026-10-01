@@ -96,8 +96,10 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
         }
     }
 
-    [Fact]
-    public void SpatialPaintKeepsEachDestinationCompositeAndOriginalCallerDomainWithOuterState()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SpatialPaintKeepsEachDestinationCompositeAndOriginalCallerDomainWithOuterState(bool rotatedMask)
     {
         using var geometry = Geometry(new Owner());
         var gradient = new LinearGradientBrush(new Vector2(0, 0), new Vector2(1, 0),
@@ -107,7 +109,12 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
         using var picture = Picture(
             new RenderCommand { Type = RenderCommandType.PushOpacity, FontSize = .5f },
             new RenderCommand { Type = RenderCommandType.PushClip, Rect = new Rect(0, 0, 70, 70) },
-            new RenderCommand { Type = RenderCommandType.PushOpacityMask, Rect = SourceDomain, Brush = new SolidColorBrush(Vector4.One) },
+            new RenderCommand
+            {
+                Type = RenderCommandType.PushOpacityMask, Rect = SourceDomain,
+                Brush = new SolidColorBrush(Vector4.One),
+                Transform = rotatedMask ? Matrix4x4.CreateRotationZ(.125f) : Matrix4x4.Identity
+            },
             new RenderCommand { Type = RenderCommandType.PushBlendMode, IntParam = (int)GpuBlendMode.Multiply },
             command,
             new RenderCommand { Type = RenderCommandType.PopBlendMode },
@@ -140,13 +147,22 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
             Assert.Equal(new Vector2(24 + index * 10, 36), glyph.Position);
         }
         Assert.DoesNotContain(resources, x => x.Kind is NativeSceneResourceKind.AnalyticBatch or NativeSceneResourceKind.TextStyleTable);
-        var maskResource = resources.Single(x => x.Kind == NativeSceneResourceKind.LayerMask);
-        Assert.Equal((uint)Unsafe.SizeOf<NativeSceneLayerBrushMask>(), maskResource.PayloadSize);
+        if (rotatedMask)
+        {
+            var maskResource = resources.Single(x => x.Kind == NativeSceneResourceKind.LayerMask);
+            Assert.Equal((uint)Unsafe.SizeOf<NativeSceneLayerBrushMask>(), maskResource.PayloadSize);
+        }
+        else
+        {
+            // The original axis-aligned solid mask folds into opacity + clip.
+            Assert.DoesNotContain(resources, x => x.Kind == NativeSceneResourceKind.LayerMask);
+        }
         var paintState = resources.Where(x => x.Kind == NativeSceneResourceKind.State)
             .Select(x => MemoryMarshal.Read<NativeSceneState>(compiled.Stream.Slice((int)x.PayloadOffset))).Last();
         Assert.Equal(.5f, paintState.Opacity);
         Assert.True((paintState.Flags & NativeSceneStateFlags.ClipRect) != 0);
-        Assert.True((paintState.Flags & NativeSceneStateFlags.Mask) != 0);
+        Assert.Equal(rotatedMask, (paintState.Flags & NativeSceneStateFlags.Mask) != 0);
+        Assert.Equal(rotatedMask ? new NativeImageRect(0, 0, 70, 70) : new NativeImageRect(10, 15, 30, 20), paintState.ClipRect);
         Assert.Equal(2, Commands(compiled.Stream).Count(x => x.Kind == NativeSceneCommandKind.PushLayer));
     }
 
@@ -224,7 +240,7 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
             Assert.Equal(new Vector4(x / 16f, y / 16f, (x + width) / 16f, (y + height) / 16f), paint.UVBounds);
             Assert.Equal(new Vector4(source.Rect.X + .125f, source.Rect.Y + .375f,
                 source.Rect.Right + .125f, source.Rect.Y + .375f), paint.TextureQuad01);
-            Assert.Equal(0U, paint.Flags);
+            Assert.Equal((uint)TextureSamplingMode.Nearest << NativeSceneGlyphPaint.SamplingModeShift, paint.Flags);
             Assert.Equal(new Vector4(0, .5f, 1, 2), paint.Sampling);
         }
         else
@@ -232,7 +248,8 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
             Assert.Equal(new Vector4(.125f, .1875f, .375f, .5f), paint.UVBounds);
             Assert.Equal(new Vector4(23.125f, 17.375f, 39.125f, 17.375f), paint.TextureQuad01);
             Assert.Equal(new Vector4(39.125f, 22.375f, 23.125f, 22.375f), paint.TextureQuad23);
-            Assert.Equal(NativeSceneGlyphPaint.BoundedTexture, paint.Flags);
+            Assert.Equal(NativeSceneGlyphPaint.BoundedTexture |
+                (uint)TextureSamplingMode.Nearest << NativeSceneGlyphPaint.SamplingModeShift, paint.Flags);
             Assert.Equal(new Vector4(0, .5f, 0, 0), paint.Sampling);
         }
         Assert.DoesNotContain(Resources(compiled.Stream), x => x.Kind == NativeSceneResourceKind.LayerMask);
@@ -271,7 +288,8 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
         Assert.Equal(new Vector4(sourceX / 16f, sourceY / 16f, (sourceX + 4) / 16f, (sourceY + 5) / 16f), paint.UVBounds);
         Assert.Equal(new Vector4(23.125f, 17.375f, 39.125f, 17.375f), paint.TextureQuad01);
         Assert.Equal(new Vector4(39.125f, 22.375f, 23.125f, 22.375f), paint.TextureQuad23);
-        Assert.Equal(NativeSceneGlyphPaint.BoundedTexture, paint.Flags);
+        Assert.Equal(NativeSceneGlyphPaint.BoundedTexture |
+            (uint)TextureSamplingMode.Nearest << NativeSceneGlyphPaint.SamplingModeShift, paint.Flags);
         Assert.Equal(new Vector4(0, .5f, (float)u, (float)v), paint.Sampling);
         Assert.Equal(.625f, paint.SourceOffsetOpacity.Z);
         Assert.Equal(source.Rect, picture.RetainedCommands[0].Rect);
