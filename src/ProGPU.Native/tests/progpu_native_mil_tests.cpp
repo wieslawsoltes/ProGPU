@@ -21744,10 +21744,10 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
     append_create(batch, 10U, 61U);
     append_transform_group(batch, 10U, {});
     const auto image_brush = [&](std::vector<std::byte>& target, double opacity = 0.5,
-        std::uint32_t transform = 0U) {
+        std::uint32_t transform = 0U, std::uint32_t opacity_animation = 0U) {
         append_command(target, command::image_brush, 8U, opacity,
             std::array{0.0, 0.0, 0.5, 1.0}, std::array{0.0, 0.0, 1.0, 1.0},
-            0.707, 1.414, 0U, transform, 0U, 1U, 1U, 0U, 0U, 1U, 4U, 1U, 1U, 0U, 9U);
+            0.707, 1.414, opacity_animation, transform, 0U, 1U, 1U, 0U, 0U, 1U, 4U, 1U, 1U, 0U, 9U);
     };
     image_brush(batch); append_effect(batch, 1.0F, 1U, 0.0, 8U);
     PROGPU_REQUIRE(state.apply(batch) == status::success);
@@ -21834,6 +21834,11 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
     PROGPU_REQUIRE(state.set_bitmap_source_external_image(9U, 2U, 1U, 96.0, 96.0) == status::success);
     PROGPU_REQUIRE(state.build_scene(request, rejected) != status::success && rejected.empty());
     PROGPU_REQUIRE(state.set_bitmap_source_rgba8(9U, 2U, 1U, 8U, pixels, 144.0, 192.0) == status::success);
+    batch.clear(); append_create(batch, 11U, 49U); image_brush(batch, 0.5, 0U, 11U);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(state.build_scene(request, rejected) == status::unsupported_command && rejected.empty());
+    batch.clear(); image_brush(batch);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
     const auto before_cycle = compile();
     batch.clear();
     const std::array self{10U}; append_transform_group(batch, 10U, self);

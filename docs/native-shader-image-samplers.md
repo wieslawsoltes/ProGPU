@@ -66,8 +66,18 @@ cold/warm/independent-engine replay, with two cold submissions (sampler capture
 plus parent) and one warm submission. BGRA surface readback is reordered to RGBA
 only; no value conversion or tolerance is applied.
 
-These fixtures and the implementation precede bounded contract checks.
-No native renderer build, GPU execution, runtime staging, VM, source application
-or package qualification has been performed for this extension. Fractional or
+Post-commit bounded checks pass: the complete native contract verifier
+(143 commands/141 packet layouts; MIL ledger 109 top-level/25 render-data/7
+undispatched; all generated C# and Unicode contracts; three inline-array
+controls), the 93-field ownership inventory with seven excluded non-owning
+identities and its new retained-sampler lease check, and strict AppleClang C++20
+`-Wall -Wextra -Wpedantic -Werror -fsyntax-only` for the actual MIL producer,
+scene validator, layer builder, MIL test translation unit and instantiated shared
+sampler fixture. The syntax check caught and corrected a kind/flag distinction:
+pictures are IMAGE resources carrying IMAGE_PICTURE, not a separate resource kind.
+
+No native renderer build, execution of the new MIL fixture, GPU execution, runtime
+staging, VM, source application or package qualification has been performed for
+this extension. Fractional or
 cropped input captures, extra sampler registers and unsupported original shader
 instructions retain their existing fail-closed gates.

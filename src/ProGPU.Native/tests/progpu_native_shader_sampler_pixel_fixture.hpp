@@ -32,7 +32,7 @@ inline bool build_original_shader_sampler_scene(std::uint32_t variant, std::vect
         0x02000001U, 0x800F0800U, 0x80E40000U, 0xFFFFU};
     packet(batch, command::pixel_shader, 6U, 0U, static_cast<std::uint32_t>(sizeof(program)), 0U, program);
     packet(batch, command::shader_effect, 7U, 0.0, 0.0, 0.0, 0.0, 6U, 0xFFFFFFFFU,
-        std::array<std::uint32_t, 8U>{0U, 0U, 0U, 0U, 0U, 0U, 8U, 4U}, 0U, 1U, 5U);
+        std::array<std::uint32_t, 8U>{0U, 0U, 0U, 0U, 0U, 0U, 8U, 4U}, 0U, (variant & 1U) == 0U ? 1U : 2U, 5U);
     packet(batch, command::visual_set_effect, 1U, 7U);
     packet(batch, command::rectangle_geometry, 10U, 0.0, 0.0, 16.0, 12.0, 16.0, 16.0, 0U, 0U, 0U, 0U);
     packet(batch, command::visual_set_clip, 1U, 10U);
