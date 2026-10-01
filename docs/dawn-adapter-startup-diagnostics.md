@@ -35,11 +35,12 @@ compiler architecture admission.
 
 The public [adapter request contract](https://webgpu-native.github.io/webgpu-headers/structWGPURequestAdapterOptions.html)
 requires the requested backend and fallback and permits no adapter when those
-constraints cannot be satisfied. The pinned Dawn [support document](https://raw.githubusercontent.com/google/dawn/710c33013c53ab2700d332c25ff51430251a8cc4/docs/support.md)
+constraints cannot be satisfied. The separately pinned Dawn [support document](https://raw.githubusercontent.com/google/dawn/710c33013c53ab2700d332c25ff51430251a8cc4/docs/support.md)
 does not establish the cause of these specific requests. WebGPUSharp 0.5.5's
 published generated declarations lack an instance logging-callback layout;
-the separate pinned Dawn public C++ header is not proof of the packaged binary's
-native revision/layout. No guessed logging extension, foreign implementation or
+the separate repository-build pin must not stand in for the packaged binary's
+verified original release/header receipt below. No guessed logging extension,
+foreign implementation or
 vendored/system/package-cache mutation is introduced. Actual backend rejection
 diagnostics and fresh unchanged full JIT/NativeAOT gates remain required.
 
@@ -81,27 +82,76 @@ whose message records an update to Dawn Chrome 150. The already cached
 WebGPUSharp 0.5.5 package has the same Windows hashes, and its nuspec records
 source commit `9a750346ff77a25eb671f630797b62100a9de926`. No package or CI artifact
 was downloaded for this comparison. Original package-byte identity is not mapped
-image identity, nor a receipt for the precise native Dawn source revision,
-compiler feature flags or dependency search configuration. That build-provenance
-gap remains; the repository's separate Dawn pin must not silently stand in for
-the packaged binary's provenance.
+image identity.
+
+## Verified original release and header provenance
+
+A subsequent explicitly authorized inspection downloaded only the two public
+Windows release assets from
+[Dawn release dawn-m150-01249a9](https://github.com/EmilSV/webgpu-dawn-build/releases/tag/dawn-m150-01249a9).
+The [release API receipt](https://api.github.com/repos/EmilSV/webgpu-dawn-build/releases/tags/dawn-m150-01249a9)
+names the full original Dawn revision
+`01249a97332468dbdd6cf5edb8dd7bae77875de5`. Its original
+[producer run 28411907227](https://github.com/EmilSV/webgpu-dawn-build/actions/runs/28411907227)
+and all eight jobs, including both Windows builds and release publication,
+completed successfully at builder revision
+`a63b42357c8c081cf6a1ace312670b2bb61680c6`. No artifact from a failed or canceled
+ProGPU Build was used.
+
+Each downloaded ZIP matched its published API SHA-256 and length before any
+extraction:
+
+| Original release asset / API ID | ZIP bytes | Verified ZIP SHA-256 |
+| --- | --- | --- |
+| [dawn-Windows-x64.zip / 461683538](https://api.github.com/repos/EmilSV/webgpu-dawn-build/releases/assets/461683538) | 4,278,383 | `87e72f02718d0282c53f7be878ecec99b47293f3f6363ce766553eb0350d8500` |
+| [dawn-Windows-arm64.zip / 461683541](https://api.github.com/repos/EmilSV/webgpu-dawn-build/releases/assets/461683541) | 4,224,471 | `9f6fc12853dc2694c14a89b6875c2eedc035b1affc191f72216db96aa3cead32` |
+
+Both extracted `webgpu_dawn.dll` files exactly matched the respective package
+and observed failure-file SHA-256 and lengths in the preceding table. Static
+inspection also identified actual x64 PE machine `0x8664` and ARM64 `0xAA64`;
+these architectures were not inferred from ZIP names. Each ZIP contains exactly
+the DLL, `webgpu_dawn.lib` and generated `webgpu.h`. Both original C headers are
+260,571 bytes with SHA-256
+`32f8063fa2aa5977da27d8a39479581ac834e6cb0cf39f2f9bd6de928a998e5d`.
+The original import libraries are each 129,614 bytes; their SHA-256 values are
+`791c493f118cdc0f0a81603d8407f2eff8302e721ec6f5354743070bc1df8463`
+(x64) and
+`bc0a81478c5568614e9bcaff88f8520a2402831fdfaa1304ad84968531867a73`
+(ARM64).
+
+The original [release workflow](https://github.com/EmilSV/webgpu-dawn-build/blob/a63b42357c8c081cf6a1ace312670b2bb61680c6/.github/workflows/build-release.yml)
+passes its resolved full Dawn SHA to the original
+[build script](https://github.com/EmilSV/webgpu-dawn-build/blob/a63b42357c8c081cf6a1ace312670b2bb61680c6/build_dawn.ps1).
+That script checks out the SHA, requests Windows D3D12/D3D11, a shared monolithic
+library and system-component loading, and copies the generated C header and
+actual build DLL/import library into the published output. This closes the
+package-DLL-to-original-release/source/header provenance gap; it does not prove
+the exact mapped image, resolved runtime compiler or successful adapter/device
+creation. The repository's separate `710c33013c53ab2700d332c25ff51430251a8cc4`
+pin remains a distinct repository-build input, not this package's native revision.
+
+The two verified ZIPs and six extracted files remain only in
+`/tmp/progpu-original-dawn-release.0OikroAI` (31,520,408 total file bytes).
+No package-cache, system or product binary was overwritten, and no downloaded
+code or binary was executed.
 
 ## Pinned-source admission and next capability
 
-At the separately recorded Dawn revision
-`710c33013c53ab2700d332c25ff51430251a8cc4`,
-[D3D physical-device discovery](https://github.com/google/dawn/blob/710c33013c53ab2700d332c25ff51430251a8cc4/src/dawn/native/d3d/BackendD3D.cpp#L126-L139)
+At the now-verified packaged Dawn revision
+`01249a97332468dbdd6cf5edb8dd7bae77875de5`,
+[D3D physical-device discovery](https://dawn.googlesource.com/dawn/+/01249a97332468dbdd6cf5edb8dd7bae77875de5/src/dawn/native/d3d/BackendD3D.cpp)
 returns an empty list immediately when `forceFallbackAdapter` is true, before
 LUID selection, adapter enumeration or feature-level filtering. Its
-[D3D12 feature-level predicate](https://github.com/google/dawn/blob/710c33013c53ab2700d332c25ff51430251a8cc4/src/dawn/native/d3d12/PhysicalDeviceD3D12.cpp#L69-L71)
+[D3D12 feature-level predicate](https://dawn.googlesource.com/dawn/+/01249a97332468dbdd6cf5edb8dd7bae77875de5/src/dawn/native/d3d12/PhysicalDeviceD3D12.cpp)
 returns true. The empty adapter list produces the observed
-[Unavailable callback and message](https://github.com/google/dawn/blob/710c33013c53ab2700d332c25ff51430251a8cc4/src/dawn/native/Instance.cpp#L341-L354).
-This is a concrete explanation at that source pin, consistent with the captured
-requests; without the native build receipt it is not proof of the packaged
-implementation's exact rejection path.
+[Unavailable callback and message](https://dawn.googlesource.com/dawn/+/01249a97332468dbdd6cf5edb8dd7bae77875de5/src/dawn/native/Instance.cpp).
+The original source contract and captured request now align through exact
+package/release-byte provenance. This remains source-level diagnosis, not a
+runtime trace of the internal rejection path or qualification of an explicit
+software adapter.
 
 Compiler initialization belongs to
-[D3D12 device compiler setup](https://github.com/google/dawn/blob/710c33013c53ab2700d332c25ff51430251a8cc4/src/dawn/native/d3d12/DeviceD3D12.cpp#L273-L279):
+[D3D12 device compiler setup](https://dawn.googlesource.com/dawn/+/01249a97332468dbdd6cf5edb8dd7bae77875de5/src/dawn/native/d3d12/DeviceD3D12.cpp):
 the resolved `UseDXC` toggle selects `EnsureDXC`, otherwise `EnsureFXC`. Adapter
 failure before device creation is therefore not evidence that a compiler DLL
 must be added. No new DLL payload, system/package-cache change, compiler toggle,
@@ -109,14 +159,27 @@ hardware retry or changed automatic default is justified by these observations.
 
 The original explicit adapter contract provides a narrower next implementation
 path. Dawn documents
-[exact D3D11/D3D12 LUID selection](https://github.com/google/dawn/blob/710c33013c53ab2700d332c25ff51430251a8cc4/docs/dawn/features/adapter_options.md#L27-L29),
+[exact D3D11/D3D12 LUID selection](https://dawn.googlesource.com/dawn/+/01249a97332468dbdd6cf5edb8dd7bae77875de5/docs/dawn/features/adapter_options.md),
 and its public native header declares
-[RequestAdapterOptionsLUID](https://github.com/google/dawn/blob/710c33013c53ab2700d332c25ff51430251a8cc4/include/dawn/native/D3DBackend.h#L41-L45).
+[RequestAdapterOptionsLUID](https://dawn.googlesource.com/dawn/+/01249a97332468dbdd6cf5edb8dd7bae77875de5/include/dawn/native/D3DBackend.h).
 Microsoft's
 [IDXGIFactory4::EnumWarpAdapter](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_4/nf-dxgi1_4-idxgifactory4-enumwarpadapter)
 obtains the actual WARP adapter. Dawn derives CPU identity from the actual
-[DXGI software flag](https://github.com/google/dawn/blob/710c33013c53ab2700d332c25ff51430251a8cc4/src/dawn/native/d3d/PhysicalDeviceD3D.cpp#L81-L92),
+[DXGI software flag](https://dawn.googlesource.com/dawn/+/01249a97332468dbdd6cf5edb8dd7bae77875de5/src/dawn/native/d3d/PhysicalDeviceD3D.cpp),
 not an adapter name.
+
+The exact original native type extends `wgpu::ChainedStruct` and carries Windows
+`::LUID`. Its [original implementation](https://dawn.googlesource.com/dawn/+/01249a97332468dbdd6cf5edb8dd7bae77875de5/src/dawn/native/d3d/D3DBackend.cpp)
+initializes the LUID extension's SType and exposes `GetDXGIAdapter` for the actual
+selected adapter. Both verified original import libraries contain imports for
+that constructor, `GetDXGIAdapter` and `wgpuInstanceRequestAdapter`. The original
+generated C header supplies `WGPUChainedStruct`, `WGPURequestAdapterOptions` and
+the LUID SType, but no typed LUID extension declaration. The native header uses
+the distinct [original C++ chained-structure generation](https://dawn.googlesource.com/dawn/+/01249a97332468dbdd6cf5edb8dd7bae77875de5/generator/templates/api_cpp_chained_struct.h).
+The release ZIPs do not include the native/C++ header closure. A companion must
+obtain those exact original headers and their generated dependencies from the
+proven revision and compile against the original architecture-specific import
+library; a hand-authored layout or replacement constructor is not that contract.
 
 The locked WebGPUSharp source exposes
 [RequestAdapterOptionsFFI and its extension-chain pointer](https://github.com/EmilSV/WebGPUSharp/blob/9a750346ff77a25eb671f630797b62100a9de926/gen/RequestAdapterOptionsFFI.cs),
