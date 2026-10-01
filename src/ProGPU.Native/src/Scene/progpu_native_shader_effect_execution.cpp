@@ -102,13 +102,18 @@ std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engin
 std::shared_ptr<semantic_shader_binding> create_semantic_shader_binding(
     progpu_native_engine& engine, const progpu_native_scene_shader_effect& descriptor,
     std::span<const std::byte> bytecode, const semantic_layer_slot& slot,
-    std::uint32_t width, std::uint32_t height) {
+    std::uint32_t width, std::uint32_t height,
+    std::shared_ptr<semantic_picture_backing> sampler_picture) {
     if (!shader_effect::validate(descriptor, bytecode) || width == 0U || height == 0U ||
         width > slot.width || height > slot.height || slot.view == nullptr) return {};
+    if (sampler_picture && (sampler_picture->owner != &engine ||
+        sampler_picture->view == nullptr || sampler_picture->descriptor.width != width ||
+        sampler_picture->descriptor.height != height)) return {};
     auto program = program_for(engine, descriptor, bytecode);
     if (!program) return {};
     auto binding = std::make_shared<semantic_shader_binding>();
     binding->program = std::move(program);
+    binding->sampler_picture = std::move(sampler_picture);
     binding->width = width; binding->height = height;
     WGPUBufferDescriptor buffer{};
     buffer.label = webgpu::string_view("ProGPU retained WPF bytecode constants and capture frame");
@@ -119,13 +124,15 @@ std::shared_ptr<semantic_shader_binding> create_semantic_shader_binding(
     effect_uniforms uniforms{};
     std::memcpy(uniforms.constants, descriptor.constants, sizeof(uniforms.constants));
     uniforms.extent[0] = static_cast<float>(width); uniforms.extent[1] = static_cast<float>(height);
-    uniforms.extent[2] = static_cast<float>(slot.width); uniforms.extent[3] = static_cast<float>(slot.height);
+    uniforms.extent[2] = static_cast<float>(binding->sampler_picture ? width : slot.width);
+    uniforms.extent[3] = static_cast<float>(binding->sampler_picture ? height : slot.height);
     wgpuQueueWriteBuffer(engine.queue, binding->uniforms, 0U, &uniforms, sizeof(uniforms));
     std::array<WGPUBindGroupEntry, 3U> entries{};
     entries[0].binding = 0U; entries[0].buffer = binding->uniforms; entries[0].size = sizeof(uniforms);
     entries[1].binding = 1U; entries[1].sampler = descriptor.sampling_mode == 0U
         ? engine.image_nearest_sampler : engine.image_linear_sampler;
-    entries[2].binding = 2U; entries[2].textureView = slot.view;
+    entries[2].binding = 2U;
+    entries[2].textureView = binding->sampler_picture ? binding->sampler_picture->view : slot.view;
     WGPUBindGroupDescriptor group{};
     group.layout = binding->program->layout; group.entryCount = entries.size(); group.entries = entries.data();
     binding->bind_group = wgpuDeviceCreateBindGroup(engine.device, &group);

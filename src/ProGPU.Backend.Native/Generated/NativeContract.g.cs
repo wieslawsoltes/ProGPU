@@ -1027,4 +1027,15 @@ internal static unsafe partial class NativeMethods
         internal float Constants126;
         internal float Constants127;
     }
+
+    // Native source: progpu_native_scene_shader_effect_picture.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct SceneShaderEffectPicture
+    {
+        internal uint StructSize;
+        internal uint Version;
+        internal uint SamplerResourceIndex;
+        internal uint Reserved;
+        internal SceneShaderEffect Program;
+    }
 }

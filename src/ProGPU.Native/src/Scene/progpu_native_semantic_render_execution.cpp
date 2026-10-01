@@ -2,6 +2,7 @@
 #include "progpu_native_semantic_draw_execution.hpp"
 #include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_semantic_glyph_identity.hpp"
+#include "progpu_native_shader_effect_resource.hpp"
 #include "progpu_native_glyph_coverage_frame.hpp"
 #include "progpu_native_3d_execution.hpp"
 #include <unordered_map>
@@ -369,6 +370,7 @@ progpu_native_status render_scene(
     std::uint32_t semantic_effect_node_count = 0U;
     std::uint32_t semantic_effect_pass_count = 0U;
     std::uint32_t semantic_shader_effect_count = 0U;
+    std::uint64_t semantic_shader_sampler_bytes = 0U;
     std::uint32_t semantic_effect_chain_revision = 0U;
     std::uint64_t semantic_layer_coverage_texture_bytes = 0U;
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
@@ -485,7 +487,7 @@ progpu_native_status render_scene(
                 const auto effect_resource = read_resource(
                     layer.effect_resource_index);
                 if (effect_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
-                    // Version 1 retains an exact, completely captured input.
+                    // Both versions retain an exact, completely captured input.
                     // Fractional/cropped source frames and backdrop/custom
                     // mappings need a separate sampling contract, not UV repair.
                     const auto source_presentation = layer_budget_cursor.current_presentation();
@@ -506,7 +508,29 @@ progpu_native_status render_scene(
                     ++semantic_effect_pass_count;
                     ++semantic_shader_effect_count;
                     progpu_native_scene_shader_effect shader{};
-                    std::memcpy(&shader, bytes + effect_resource.payload_offset, sizeof(shader));
+                    std::uint32_t sampler_picture = PROGPU_NATIVE_SCENE_NO_INDEX;
+                    if (!shader_effect::read_resource(
+                            std::span(bytes + effect_resource.payload_offset, effect_resource.payload_size),
+                            std::span(bytes + effect_resource.auxiliary_offset, effect_resource.auxiliary_size),
+                            shader, sampler_picture)) return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                                "A retained WPF shader descriptor is invalid.");
+                    if (sampler_picture != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                        const auto sampler = read_resource(sampler_picture);
+                        progpu_native_scene_picture_image picture{};
+                        progpu_native_scene_presentation presentation{};
+                        if (!semantic::read_semantic_picture_image(bytes + sampler.payload_offset,
+                                sampler.payload_size, picture, presentation) ||
+                            picture.width != target_extent.width || picture.height != target_extent.height ||
+                            presentation.dpi_scale_x != 1.0F || presentation.dpi_scale_y != 1.0F)
+                            return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                                "A WPF shader sampler must own the complete normalized physical source extent.");
+                        const std::uint64_t cost = static_cast<std::uint64_t>(picture.width) * picture.height * 4U;
+                        if (cost > semantic_max_total_compiled_bytes ||
+                            semantic_shader_sampler_bytes > semantic_max_total_compiled_bytes - cost)
+                            return engine->fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                                "WPF shader sampler captures exceed the scene budget.");
+                        semantic_shader_sampler_bytes += cost;
+                    }
                     semantic_effect_chain_revision = shader.revision;
                 } else {
                 semantic_has_builtin_effects = true;
@@ -1644,7 +1668,7 @@ progpu_native_status render_scene(
         static_cast<std::uint64_t>(semantic_effect_pass_count - semantic_shader_effect_count) *
             semantic_effect_uniform_alignment;
     const std::uint64_t semantic_all_effect_uniform_bytes = semantic_effect_uniform_bytes +
-        static_cast<std::uint64_t>(semantic_shader_effect_count) * 528U;
+        static_cast<std::uint64_t>(semantic_shader_effect_count) * 528U + semantic_shader_sampler_bytes;
     const std::uint64_t pooled_layer_bytes = layer_budget.pooled_bytes();
     const std::uint64_t pooled_effect_bytes =
         layer_budget.pooled_effect_bytes();
@@ -4341,10 +4365,37 @@ progpu_native_status render_scene(
             if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
                 if (operation.source_layer >= engine->semantic_layer_slots.size()) return false;
                 progpu_native_scene_shader_effect shader{};
-                std::memcpy(&shader, bytes + resource.payload_offset, sizeof(shader));
+                std::uint32_t sampler_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!shader_effect::read_resource(
+                        std::span(bytes + resource.payload_offset, resource.payload_size),
+                        std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
+                        shader, sampler_index)) return false;
+                std::shared_ptr<semantic_picture_backing> sampler_picture;
+                if (sampler_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                    const auto sampler = read_resource(sampler_index);
+                    progpu_native_scene_picture_image picture{};
+                    progpu_native_scene_presentation presentation{};
+                    progpu_native_scene_frame_metrics child_metrics{};
+                    semantic_image_draw capture{};
+                    const bool captured = semantic::read_semantic_picture_image(bytes + sampler.payload_offset,
+                        sampler.payload_size, picture, presentation) && create_semantic_picture_image(
+                            *engine, picture, presentation, bytes + sampler.auxiliary_offset,
+                            sampler.auxiliary_size, capture, child_metrics);
+                    sampler_picture = std::move(capture.picture_backing);
+                    if (capture.view != nullptr) wgpuTextureViewRelease(capture.view);
+                    if (capture.texture != nullptr) {
+                        wgpuTextureDestroy(capture.texture); wgpuTextureRelease(capture.texture);
+                    }
+                    if (!captured || !sampler_picture) return false;
+                    texture_upload_bytes += child_metrics.texture_upload_bytes;
+                    semantic_layer_uniform_upload_bytes += child_metrics.uniform_upload_bytes;
+                    picture_vertex_upload_bytes += child_metrics.vertex_upload_bytes;
+                    picture_index_upload_bytes += child_metrics.index_upload_bytes;
+                }
                 operation.shader_effect = create_semantic_shader_binding(*engine, shader,
                     std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
-                    engine->semantic_layer_slots[operation.source_layer], source_extent.width, source_extent.height);
+                    engine->semantic_layer_slots[operation.source_layer], source_extent.width, source_extent.height,
+                    std::move(sampler_picture));
                 if (!operation.shader_effect) return false;
                 operation.effect_count = 1U;
                 operation.final_effect_texture = 0U;

@@ -1,5 +1,15 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Original MIL ImageBrush shader samplers retain an earlier same-scene full-RGBA
+picture through explicit version-2 metadata; version 1 stays unchanged. Capture
+over the complete physical implicit-input extent at zero origin, preserving the
+actual brush opacity, tile addressing, transform and source sampling. Never use
+alpha-mask semantics, intrinsic image extent, managed textures or device handles
+as a substitute. Keep same-channel bitmap ownership, graph/deletion/revision
+checks, exact engine leases and submission retirement. Unsupported animated or
+external sources and fractional captures stay closed; see
+docs/native-shader-image-samplers.md. Source/ABI checks are not GPU or UI parity.
+
 Native WPF shader effects retain original validated bytecode and constant values,
 not WGSL registry substitutions. Bounded ps_2_0/ps_3_0 families use an owned fragment
 pipeline in both native providers; reject unsupported tokens, resources and

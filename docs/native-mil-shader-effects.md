@@ -30,7 +30,9 @@ resource and instruction contract, with one actual declared `TEXCOORD0 v#.xy`
 input instead of the shader-model-2 texture register. It does not admit the full
 shader-model-3 register file, instruction set or additional source semantics.
 
-Only one untransformed implicit-input brush at opacity one is admitted. Integer
+Version 1 admits one untransformed implicit-input brush at opacity one. An
+explicit [version-2 owned ImageBrush sampler](native-shader-image-samplers.md)
+adds static, same-channel owned-bitmap capture without changing version 1. Integer
 and Boolean registers, derivative registers, additional/external samplers,
 nonzero padding, software-only mode, brush animation and transformed input remain
 unsupported. The effect requires explicit positive source bounds, a positive

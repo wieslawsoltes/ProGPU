@@ -5,7 +5,7 @@
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_native_semantic_validation.hpp"
-#include "progpu_native_shader_effect.hpp"
+#include "progpu_native_shader_effect_resource.hpp"
 
 #include <algorithm>
 #include <array>
@@ -751,11 +751,21 @@ validation_result validate(
             }
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
-            if (resource.payload_size != sizeof(progpu_native_scene_shader_effect) ||
-                !shader_effect::validate(read_record<progpu_native_scene_shader_effect>(
-                    bytes, resource.payload_offset),
-                    std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size)))
+            progpu_native_scene_shader_effect program{};
+            std::uint32_t sampler{};
+            if (!shader_effect::read_resource(
+                    std::span(bytes + resource.payload_offset, resource.payload_size),
+                    std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size), program, sampler))
                 return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
+            if (sampler != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                // Earlier resources only: a finite owned dependency DAG, never
+                // self/forward cycles or an index in another scene's table.
+                if (sampler >= index) return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+                const auto source = read_record<progpu_native_scene_resource>(bytes,
+                    header.resource_offset + static_cast<std::size_t>(sampler) * header.resource_stride);
+                if (source.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE_PICTURE)
+                    return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+            }
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) {
             if (resource.payload_size !=

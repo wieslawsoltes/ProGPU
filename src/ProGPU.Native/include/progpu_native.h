@@ -2799,6 +2799,20 @@ typedef struct progpu_native_scene_shader_effect {
     float constants[128];
 } progpu_native_scene_shader_effect;
 
+/* Version 2 binds an owned picture in this same immutable scene to the
+ * program's original sampler register. The nested program retains the exact
+ * version-1 layout and validation. No external GPU address is admitted.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderEffectPicture */
+typedef struct progpu_native_scene_shader_effect_picture {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t sampler_resource_index;
+    uint32_t reserved;
+    /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
+    progpu_native_scene_shader_effect program;
+} progpu_native_scene_shader_effect_picture;
+
 /*
  * A bounded linear retained effect chain. Effects are evaluated in array
  * order, so effects[1] consumes effects[0]'s output. The engine copies all

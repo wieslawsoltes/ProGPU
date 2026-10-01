@@ -97,6 +97,7 @@ struct semantic_glyph_paint_texture_binding {
 };
 
 struct semantic_picture_backing {
+    const progpu_native_engine* owner = nullptr;
     struct external_image_identity {
         std::uint64_t resource_id = 0U;
         std::uint64_t generation = 0U;
