@@ -26,6 +26,8 @@ public sealed class TextLayoutFormattingOptions
 
     public bool EnableFontFallback { get; init; } = true;
     public bool MeasureTrailingWhitespace { get; init; } = true;
+    /// <summary>Retains the original managed writer's graphemes before fallback partitioning.</summary>
+    public bool RetainOriginalGraphemeOwnership { get; init; }
     public float FirstTabOffset { get; init; }
     public IReadOnlyList<float> TabStops { get; init; } = Array.Empty<float>();
 }
@@ -303,6 +305,7 @@ public class TextLayout
     public TextLayoutFormattingOptions FormattingOptions { get; private set; } = TextLayoutFormattingOptions.Default;
 
     private float[] _tabStops = Array.Empty<float>();
+    private int[]? _originalGraphemeBoundaries;
 
     public List<TextRunGlyph> Glyphs { get; } = new();
     public Vector2 ContentSize { get; private set; }
@@ -356,6 +359,7 @@ public class TextLayout
         ShapingOptions = TextShapingOptions.Default;
         FormattingOptions = TextLayoutFormattingOptions.Default;
         _tabStops = Array.Empty<float>();
+        _originalGraphemeBoundaries = null;
         Glyphs.Clear();
         _horizontalLines.Clear();
         ContentSize = Vector2.Zero;
@@ -388,6 +392,8 @@ public class TextLayout
         HasTextures = true;
         Glyphs.Clear();
         _horizontalLines.Clear();
+        _originalGraphemeBoundaries = FormattingOptions.RetainOriginalGraphemeOwnership
+            ? OriginalGraphemePolicy.Capture(Text) : null;
         if (string.IsNullOrEmpty(Text))
         {
             ContentSize = Vector2.Zero;
@@ -1057,7 +1063,7 @@ public class TextLayout
         return new(Text.Length, FontSize, geometry.Boxes.ToArray(), geometry.EmptyLines.ToArray(),
             ShapingOptions.Direction is not (ShapingDirection.TopToBottom or ShapingDirection.BottomToTop),
             _horizontalLines.Count != 0 ? _horizontalLines.Select(static line => line.SourceStart).ToArray()
-                : Text.Length == 0 ? [0] : []);
+                : Text.Length == 0 ? [0] : [], _originalGraphemeBoundaries);
     }
 
     public IReadOnlyList<TextCaretStop> GetVisualCaretStops()
