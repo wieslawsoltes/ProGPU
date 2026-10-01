@@ -87,6 +87,25 @@ of original hardware interpolation or package pixels. Same-head affine gate-zero
 and certified observations, followed by the unchanged authentic full-RGBA fixture,
 remain required; matching two changed shader paths alone is not qualification.
 
+The bounded sampling probe keeps every historical source profile and adds an
+exact separately pinned physical-triangle profile. Its `--native-frame
+--affine-frame` control reuses the original derived padded tile and synthetic
+nonuniform coverage, applying the unchanged package fixture's italic/shear basis,
+skew and relative-position arithmetic. An independently packed 192-byte control
+binds those input bytes. Run once without `--canonical-frame` and once with it in
+fresh output directories; the original `--fallback` remains an explicit Windows
+diagnostic choice. The old axis-only receipt is not affine gate-zero evidence.
+
+This affine control saves the existing raw texel/sample/gamma/alpha and cold/warm
+RGBA comparisons without inventing a CPU gamma or hardware-sampler tolerance.
+`--binary-oracle` remains the unchanged axis-only independent dyadic control and
+rejects combination with `--affine-frame`. Production shader source is never
+rewritten for these input variants. At this checkpoint, 23 math/source controls,
+193 device-free probe controls and both shared modules/all 16 Metal pipeline
+validations pass. No draw/dispatch/font or ProGPU-native renderer ran locally;
+the shader check used the existing four-byte WebGPU initialization queue probe.
+Actual affine pixels and authentic package qualification remain pending.
+
 ## Design references and preserved contracts
 
 This is original ProGPU code, informed by public architectural contracts, not
