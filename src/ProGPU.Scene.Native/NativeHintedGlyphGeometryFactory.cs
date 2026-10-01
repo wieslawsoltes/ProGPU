@@ -62,7 +62,11 @@ public static class NativeHintedGlyphGeometryFactory
         catch (Exception failure)
         {
             try { lease.Dispose(); }
-            catch (Exception cleanup) { failure.Data["NativeHintedGlyphReadLeaseCleanupFailure"] = cleanup; }
+            catch (Exception cleanup)
+            {
+                try { failure.Data["NativeHintedGlyphReadLeaseCleanupFailure"] = cleanup; }
+                catch { /* Diagnostic metadata must not replace the original failure. */ }
+            }
             throw;
         }
     }
@@ -140,7 +144,7 @@ public static class NativeHintedGlyphGeometryFactory
             c.PositionedGlyphCount <= maximumSlots && c.LineCount <= maximumSlots &&
             c.ClusterBoxCount <= maximumSlots && c.CaretStopCount <= maximumSlots &&
             v.Outlines.Length <= maximumOutlines && v.Segments.Length <= maximumSlots &&
-            v.FontBytes.Length <= 256 * 1024 * 1024 && v.FontSources.Length <= maximumSlots &&
+            v.FontBytes.Length <= 256 * 1024 * 1024 && v.FontSources.Length <= maximumOutlines &&
             v.SourceOutlineIndices.Length <= maximumSlots && v.RunOutlineIndices.Length == v.LogicalGlyphs.Length &&
             v.VariationCoordinates1616.Length <= maximumSlots && v.NormalizedCoordinates.Length <= maximumSlots &&
             v.Features.Length <= maximumSlots &&

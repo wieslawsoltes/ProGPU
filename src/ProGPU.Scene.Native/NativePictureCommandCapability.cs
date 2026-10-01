@@ -43,6 +43,7 @@ public static partial class GpuPictureNativeSceneCompiler
         RenderCommandType.DrawGpuLineSeries or
         RenderCommandType.DrawGpuScatterSeries or
         RenderCommandType.DrawGlyphRun or
+        RenderCommandType.DrawHintedGlyphs or
         RenderCommandType.DrawVertexMesh or
         RenderCommandType.DrawPointBatch or
         RenderCommandType.DrawDotGrid or

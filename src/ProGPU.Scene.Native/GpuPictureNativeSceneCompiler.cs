@@ -927,6 +927,50 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativeCompiledPicture? compiled,
         out NativePictureCompileFailure failure)
     {
+        compiled = null;
+        failure = NativePictureCompileFailure.None;
+        var sourceTransaction = new NativeCompiledPicture.SourceTransaction();
+        Exception? originalFailure = null;
+        try
+        {
+            return TryCompileOwnedCore(picture, sceneId, generation, options,
+                hitTestIndex, rootTransform, initialClip, resourceIdBase,
+                pictureMaskContext, sourceTransaction, out compiled, out failure);
+        }
+        catch (Exception exception)
+        {
+            originalFailure = exception;
+            throw;
+        }
+        finally
+        {
+            try { sourceTransaction.Dispose(); }
+            catch (Exception cleanup)
+            {
+                if (originalFailure is not null)
+                {
+                    try { originalFailure.Data["HintedNativeCompileCleanupFailure"] = cleanup; }
+                    catch { /* Diagnostics must not replace the original failure. */ }
+                }
+                else
+                {
+                    try { cleanup.Data["NativePictureCompileFailure"] = failure; }
+                    catch { /* Preserve the original cleanup failure. */ }
+                    throw;
+                }
+            }
+        }
+    }
+
+    private static bool TryCompileOwnedCore(
+        GpuPicture picture, ulong sceneId, ulong generation,
+        NativePictureCompileOptions options, GpuHitTestIndex? hitTestIndex,
+        Matrix3x2 rootTransform, NativeImageRect? initialClip, ulong resourceIdBase,
+        PictureMaskCompileContext pictureMaskContext,
+        NativeCompiledPicture.SourceTransaction sourceTransaction,
+        out NativeCompiledPicture? compiled,
+        out NativePictureCompileFailure failure)
+    {
         ArgumentNullException.ThrowIfNull(picture);
         compiled = null;
         failure = NativePictureCompileFailure.None;
@@ -1094,6 +1138,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     sceneId,
                     generation,
                     pictureMaskContext,
+                    sourceTransaction,
                     out bool handled,
                     out NativePictureCompileError stateError))
             {
@@ -1148,6 +1193,13 @@ public static partial class GpuPictureNativeSceneCompiler
                     operations,
                     materials,
                     commandOptions,
+                    currentState,
+                    states,
+                    stateMasks,
+                    sceneId,
+                    generation,
+                    pictureMaskContext,
+                    sourceTransaction,
                     out NativePictureCompileError error))
             {
                 failure = new(
@@ -1713,7 +1765,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     default);
                 return false;
             }
-            compiled = new NativeCompiledPicture(
+            var candidate = new NativeCompiledPicture(
                 storage,
                 stream.Length,
                 sceneId,
@@ -1748,7 +1800,11 @@ public static partial class GpuPictureNativeSceneCompiler
                     externalImageSpan,
                     generation,
                     resourceIdBase,
-                    stateMasks));
+                    stateMasks),
+                sourceTransaction.Ownership);
+            sourceTransaction.RetireChildren();
+            sourceTransaction.CommitTransfer();
+            compiled = candidate;
             return true;
         }
         catch (Exception exception) when (
@@ -1775,6 +1831,7 @@ public static partial class GpuPictureNativeSceneCompiler
         ulong sceneId,
         ulong generation,
         PictureMaskCompileContext pictureMaskContext,
+        NativeCompiledPicture.SourceTransaction sourceTransaction,
         out bool handled,
         out NativePictureCompileError error)
     {
@@ -1833,6 +1890,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         sceneId,
                         generation,
                         pictureMaskContext,
+                        sourceTransaction,
                         out StateSnapshot maskState,
                         out error))
                 {
@@ -2047,11 +2105,25 @@ public static partial class GpuPictureNativeSceneCompiler
         List<Operation> operations,
         NativeBrushTableBuilder materials,
         NativePictureCompileOptions options,
+        StateSnapshot currentState,
+        List<StateSnapshot> states,
+        List<StateMaskProgram> stateMasks,
+        ulong sceneId,
+        ulong generation,
+        PictureMaskCompileContext pictureMaskContext,
+        NativeCompiledPicture.SourceTransaction sourceTransaction,
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
         switch (command.Type)
         {
+            case RenderCommandType.DrawHintedGlyphs:
+                return TryAppendHintedGlyphs(
+                    picture, command, transform, options, currentState,
+                    states, stateMasks, sceneId, generation, pictureMaskContext, sourceTransaction,
+                    analytics, analyticBrushIndices, geometry, geometryBrushIndices,
+                    glyphOutlines, glyphSegments, positionedGlyphs, textStyles,
+                    externalImages, batches, operations, materials, out error);
             case RenderCommandType.DrawRect
                 when command.Brush is GpuTextureBrush textureBrush:
                 return TryAppendTextureBrushRectangle(
