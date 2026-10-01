@@ -649,8 +649,11 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("owner.AddRef();", source, StringComparison.Ordinal);
         Assert.Contains("Interlocked.Exchange(ref _owner, null)?.Release();", source, StringComparison.Ordinal);
         Assert.Contains("leases[i] = _retainedResources[i].AddRef();", source, StringComparison.Ordinal);
-        Assert.Contains("var retainedResources = other.CloneRetainedResources();", source, StringComparison.Ordinal);
-        Assert.Contains("AppendRetainedResources(retainedResources);", source, StringComparison.Ordinal);
+        Assert.Contains("AppendRetainedResources(other.CloneRetainedResources());", source, StringComparison.Ordinal);
+        Assert.True(
+            source.IndexOf("AppendRetainedResources(other.CloneRetainedResources());", StringComparison.Ordinal) <
+            source.IndexOf("var otherCommands = other.Commands;", StringComparison.Ordinal),
+            "Append must retain source resources before publishing commands to callbacks.");
         Assert.Contains("private static void AppendList<T>(List<T> destination, List<T> source)", source, StringComparison.Ordinal);
         Assert.Contains("private void AppendRetainedResources(RetainedResourceLease[] resources)", source, StringComparison.Ordinal);
         Assert.Contains("destination.EnsureCapacity(checked(destination.Count + sourceCount));", source, StringComparison.Ordinal);
