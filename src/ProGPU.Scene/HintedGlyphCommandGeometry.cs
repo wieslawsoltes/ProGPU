@@ -61,7 +61,6 @@ internal static class HintedGlyphCommandGeometry
         HintedGlyphGeometry geometry = command.HintedGlyphGeometry!;
         ReadOnlySpan<HintedGlyphOccurrence> occurrences = geometry.RenderOccurrences;
         ReadOnlySpan<GpuGlyphRecord> outlines = geometry.RenderOutlines;
-        float inverseDpi = 1f / geometry.DpiScale;
         Vector2 minimum = new(float.MaxValue), maximum = new(float.MinValue);
         int end = start + count; // Range admission proves this sum fits.
         for (int index = start; index < end; index++)
@@ -77,8 +76,10 @@ internal static class HintedGlyphCommandGeometry
                 !float.IsFinite(outline.MinY) || !float.IsFinite(outline.MaxY) ||
                 outline.MinX > outline.MaxX || outline.MinY > outline.MaxY)
                 return false;
-            Vector2 low = origin + new Vector2(outline.MinX, -outline.MaxY) * inverseDpi;
-            Vector2 high = origin + new Vector2(outline.MaxX, -outline.MinY) * inverseDpi;
+            // Match the native source binding and canonical Text vertex units.
+            // Reciprocal multiplication differs at representable fractional DPI.
+            Vector2 low = origin + new Vector2(outline.MinX / geometry.DpiScale, -outline.MaxY / geometry.DpiScale);
+            Vector2 high = origin + new Vector2(outline.MaxX / geometry.DpiScale, -outline.MinY / geometry.DpiScale);
             if (!float.IsFinite(low.X) || !float.IsFinite(low.Y) ||
                 !float.IsFinite(high.X) || !float.IsFinite(high.Y)) return false;
             minimum = Vector2.Min(minimum, low);
@@ -105,7 +106,6 @@ internal static class HintedGlyphCommandGeometry
         HintedGlyphGeometry geometry = command.HintedGlyphGeometry!;
         ReadOnlySpan<HintedGlyphOccurrence> occurrences = geometry.RenderOccurrences;
         ReadOnlySpan<GpuGlyphRecord> outlines = geometry.RenderOutlines;
-        float inverseDpi = 1f / geometry.DpiScale;
         Vector2 minimum = new(float.MaxValue), maximum = new(float.MinValue);
         try
         {
@@ -117,8 +117,8 @@ internal static class HintedGlyphCommandGeometry
                 GpuGlyphRecord outline = outlines[(int)occurrence.OutlineIndex];
                 var raster = GlyphAtlas.GetHintedRasterBounds(in outline);
                 Vector2 origin = occurrence.Position + command.Position;
-                Vector2 offset = new Vector2(raster.XStart, raster.YStart) * inverseDpi;
-                Vector2 extent = new Vector2(raster.Width, raster.Height) * inverseDpi;
+                Vector2 offset = new(raster.XStart / geometry.DpiScale, raster.YStart / geometry.DpiScale);
+                Vector2 extent = new(raster.Width / geometry.DpiScale, raster.Height / geometry.DpiScale);
                 Vector2 low = origin + offset;
                 // Match Text.wgsl: form the physical offset plus extent before
                 // adding the original logical position. Reassociation changes

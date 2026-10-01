@@ -212,4 +212,26 @@ public sealed class HintedGlyphSelectionTests
         Assert.All(context.Commands, command => Assert.Equal(0, command.HitTestId));
         context.Clear();
     }
+
+    [Theory]
+    [InlineData(1.25f, 9f / 64f)]
+    [InlineData(1.5f, 5f / 64f)]
+    [InlineData(1.75f, 3f / 64f)]
+    [InlineData(3f, 5f / 64f)]
+    public void PhysicalInkUsesTheOriginalDivisionAtFractionalDpi(float dpi, float physical)
+    {
+        using var geometry = new HintedGlyphGeometry(dpi,
+            [new GpuGlyphRecord { SegmentCount = 1, MinX = 0, MinY = -physical, MaxX = physical, MaxY = 0 }],
+            [new GpuSegment { P0 = new(0, -physical), P1 = new(physical, 0), SegmentType = 0 }],
+            [new(0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, Vector2.Zero, Vector2.One)], new Owner());
+        // Use captured runtime fields: do not let constant folding substitute
+        // double arithmetic for either independently evaluated float route.
+        float value = geometry.Outlines[0].MaxX;
+        float original = value / geometry.DpiScale;
+        float reciprocalProduct = value * (1f / geometry.DpiScale);
+        Assert.NotEqual(original, reciprocalProduct);
+        Assert.True(DrawingContext.TryGetHintedGlyphInkBounds(geometry, Vector2.Zero, out Rect bounds, out bool ink));
+        Assert.True(ink);
+        Assert.Equal(new Rect(0, 0, original, original), bounds);
+    }
 }
