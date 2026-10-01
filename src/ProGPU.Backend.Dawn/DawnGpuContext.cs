@@ -22,134 +22,40 @@ public sealed unsafe partial class DawnGpuContext :
     IDisposable,
     IProGpuExternalTextureImporter
 {
-    private const string NativeLibraryName = "webgpu_dawn";
-    private const string LinuxNativeLibraryName = "webgpu_dawn.so";
-    private const string IosFrameworkLibrary =
-        "@rpath/webgpu_dawn.framework/webgpu_dawn";
-    private static readonly object NativeLibrarySync = new();
-    private static nint s_iosNativeLibrary;
-    private static bool s_iosResolversInstalled;
     private readonly object _lifetimeGate = new();
     private int _lifetimeReferenceCount = 1;
     private bool _ownerLifetimeReleased;
     private bool _contextLifetimeDisposed;
 
-    static DawnGpuContext()
-    {
-        if (OperatingSystem.IsLinux())
-        {
-            InstallLinuxNativeLibraryResolver(
-                typeof(WebGPU_FFI).Assembly);
-            InstallLinuxNativeLibraryResolver(
-                typeof(DawnGpuContext).Assembly);
-        }
-    }
+    static DawnGpuContext() => DawnNativeProvider.EnsureResolvers();
+
+    /// <summary>
+    /// Selects one exact-ABI native Dawn provider by its absolute library path,
+    /// before any WebGPUSharp or Dawn native import is used.
+    /// </summary>
+    /// <remarks>
+    /// Selection is process-wide and immutable. Repeating the same path only
+    /// verifies the existing selection; changing it or selecting after default
+    /// native use is rejected. Configure before all direct FFI calls as well as
+    /// context factories. Arbitrary prior FFI calls/cache bindings cannot be
+    /// detected or retroactively rebound. A foreign import resolver is rejected,
+    /// not replaced or assumed to select this provider. The supplied artifact
+    /// must match the packaged WebGPUSharp ABI; this method does not infer ABI
+    /// compatibility or create/reconfigure a GPU device.
+    /// </remarks>
+    public static void ConfigureNativeProviderLibrary(string absolutePath) =>
+        DawnNativeProvider.ConfigureLibrary(absolutePath);
 
     /// <summary>
     /// Reports whether the exact WebGPUSharp/Dawn native ABI can be resolved
     /// for the current process without creating a GPU instance.
     /// </summary>
-    public static bool IsNativeLibraryAvailable()
-    {
-        if (OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst())
-        {
-            return EnsureIosNativeLibrary();
-        }
-
-        string libraryName = OperatingSystem.IsLinux()
-            ? LinuxNativeLibraryName
-            : NativeLibraryName;
-        if (!NativeLibrary.TryLoad(
-                libraryName,
-                typeof(DawnGpuContext).Assembly,
-                searchPath: null,
-                out nint library))
-        {
-            return false;
-        }
-        NativeLibrary.Free(library);
-        return true;
-    }
-
-    private static void InstallLinuxNativeLibraryResolver(
-        System.Reflection.Assembly assembly)
-    {
-        try
-        {
-            NativeLibrary.SetDllImportResolver(
-                assembly,
-                ResolveLinuxDawnImport);
-        }
-        catch (InvalidOperationException)
-        {
-            // The host already owns this assembly's resolver. Its resolver is
-            // given the first opportunity to satisfy the Dawn import.
-        }
-    }
-
-    private static nint ResolveLinuxDawnImport(
-        string libraryName,
-        System.Reflection.Assembly assembly,
-        DllImportSearchPath? searchPath)
-    {
-        if (!string.Equals(
-                libraryName,
-                NativeLibraryName,
-                StringComparison.Ordinal))
-        {
-            return 0;
-        }
-
-        return NativeLibrary.TryLoad(
-                LinuxNativeLibraryName,
-                assembly,
-                searchPath,
-                out nint library)
-            ? library
-            : 0;
-    }
-
-    private static bool EnsureIosNativeLibrary()
-    {
-        lock (NativeLibrarySync)
-        {
-            if (s_iosNativeLibrary != 0)
-            {
-                return true;
-            }
-
-            if (!NativeLibrary.TryLoad(
-                    IosFrameworkLibrary,
-                    out s_iosNativeLibrary))
-            {
-                return false;
-            }
-
-            if (!s_iosResolversInstalled)
-            {
-                NativeLibrary.SetDllImportResolver(
-                    typeof(WebGPU_FFI).Assembly,
-                    ResolveIosDawnImport);
-                NativeLibrary.SetDllImportResolver(
-                    typeof(DawnGpuContext).Assembly,
-                    ResolveIosDawnImport);
-                s_iosResolversInstalled = true;
-            }
-
-            return true;
-        }
-    }
-
-    private static nint ResolveIosDawnImport(
-        string libraryName,
-        System.Reflection.Assembly assembly,
-        DllImportSearchPath? searchPath) =>
-        string.Equals(
-            libraryName,
-            NativeLibraryName,
-            StringComparison.Ordinal)
-            ? s_iosNativeLibrary
-            : 0;
+    /// <remarks>
+    /// An unbound probe does not select or pin the default provider and leaves
+    /// explicit configuration available. A configured provider probes only its
+    /// selected file; availability is not runtime/ABI qualification.
+    /// </remarks>
+    public static bool IsNativeLibraryAvailable() => DawnNativeProvider.IsAvailable();
 
     private sealed class AdapterRequest
     {
@@ -325,6 +231,19 @@ public sealed unsafe partial class DawnGpuContext :
             (nuint)Instance.GetAddress(),
             (nuint)Device.GetAddress(),
             (nuint)Queue.GetAddress());
+    }
+
+    // Borrow the process-pinned module that served this exact context's FFI
+    // imports. No independently selected renderer module or native ownership
+    // crosses this signed internal seam.
+    internal nint GetNativeProviderModule()
+    {
+        lock (_lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(_ownerLifetimeReleased || _contextLifetimeDisposed ||
+                Context.IsDisposed || Context.IsDeviceLost, this);
+            return DawnNativeProvider.GetModule();
+        }
     }
 
     /// <summary>

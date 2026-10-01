@@ -16,6 +16,7 @@
     <None Update="buildTransitive/ProGPU.Backend.Dawn.targets" Pack="true" PackagePath="buildTransitive/ProGPU.Backend.Dawn.targets" />
     <InternalsVisibleTo Include="Avalonia.ProGpu, PublicKey=$(ProGPUPublicKey)" />
     <InternalsVisibleTo Include="Avalonia.ProGpu.UnitTests, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.Backend.Native, PublicKey=$(ProGPUPublicKey)" />
   </ItemGroup>
   <Import Project="../../eng/dawn-system-warp/packaging.targets" />
 </Project>
