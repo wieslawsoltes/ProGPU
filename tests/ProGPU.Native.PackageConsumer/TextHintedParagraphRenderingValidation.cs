@@ -190,6 +190,13 @@ internal static class TextHintedParagraphRenderingValidation
         Check(strictRejected && nonzeroRejected, "actual original raw metadata exercises both unchanged legacy Unsupported contracts");
         Console.WriteLine($"package-consumer: loaded prepared hinted paragraph rendering passed ({cases} layouts, actual {context.BackendKind}); " +
             "independent raw source outlines with retained actual writer positions, not a public full-writer differential");
+        TextHintedGlyphPaintRenderingValidation.Run(context, fontPath, createCompositor,
+            static (producer, paragraph, source, features, devices, origin, colors) =>
+            {
+                var original = Unpack(producer, paragraph, source, features, devices, origin, colors,
+                    NativeHintedCoverage.AntialiasedVector);
+                return (original.Outlines, original.Segments, original.Glyphs);
+            });
     }
 
     private static GpuTexture CreateTarget(WgpuContext context, string label) => new(context, 96, 96,
