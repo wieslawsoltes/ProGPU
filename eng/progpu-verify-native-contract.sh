@@ -13,6 +13,8 @@ dotnet run --project \
   "${repo_root}/src/ProGPU.Native/include/progpu_native.h" \
   "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeContract.g.cs"
 
+python3 "${repo_root}/eng/tests/test_native_contract_inline_arrays.py"
+
 dotnet run --project \
   "${repo_root}/eng/ProGPU.NativeContractGenerator/ProGPU.NativeContractGenerator.csproj" \
   --configuration Release -- \
