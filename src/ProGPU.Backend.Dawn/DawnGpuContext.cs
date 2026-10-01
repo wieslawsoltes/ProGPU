@@ -57,12 +57,6 @@ public sealed unsafe partial class DawnGpuContext :
     /// </remarks>
     public static bool IsNativeLibraryAvailable() => DawnNativeProvider.IsAvailable();
 
-    private sealed class QueueWait
-    {
-        internal W.QueueWorkDoneStatus Status;
-        internal string Message = string.Empty;
-    }
-
     private sealed class DeviceLossCallbackState
     {
         private readonly object _sync = new();
@@ -685,33 +679,30 @@ public sealed unsafe partial class DawnGpuContext :
 
     private static void WaitForQueue(
         InstanceHandle instance,
-        QueueHandle queue)
+        QueueHandle queue,
+        DawnQueueWaitAbandonmentProbe? abandonmentProbe = null)
     {
-        var state = new QueueWait();
-        GCHandle stateHandle = GCHandle.Alloc(state);
+        var state = new DawnQueueCompletion();
+        if (abandonmentProbe != null) abandonmentProbe.Completion = state;
         try
         {
             var callback = new QueueWorkDoneCallbackInfoFFI
             {
-                Mode = W.CallbackMode.WaitAnyOnly,
+                // Completion only publishes private status. Permit native
+                // progress/shutdown to retire an abandoned wait without another
+                // WaitAny call on its future. No source handler is invoked here.
+                Mode = W.CallbackMode.AllowSpontaneous,
                 Callback = &CompleteQueueWait,
-                Userdata1 =
-                    (void*)GCHandle.ToIntPtr(stateHandle)
+                Userdata1 = (void*)state.BeginNativeUse()
             };
-            W.Future future =
-                queue.OnSubmittedWorkDone(callback);
+            W.Future future;
+            try { future = queue.OnSubmittedWorkDone(callback); }
+            catch { state.CancelUnqueuedNativeUse(); throw; }
+            if (abandonmentProbe != null) throw abandonmentProbe.Failure;
             Wait(instance, future, "wait for submitted Dawn work");
+            state.RequireSuccess();
         }
-        finally
-        {
-            stateHandle.Free();
-        }
-
-        if (state.Status != W.QueueWorkDoneStatus.Success)
-        {
-            throw new InvalidOperationException(
-                $"Dawn queue wait failed: {state.Status}. {state.Message}");
-        }
+        finally { state.EndManagedUse(); }
     }
 
     private static void Wait(
@@ -739,11 +730,16 @@ public sealed unsafe partial class DawnGpuContext :
         void* userData1,
         void* userData2)
     {
-        var state =
-            (QueueWait)
-            GCHandle.FromIntPtr((nint)userData1).Target!;
-        state.Status = status;
-        state.Message = Message(message);
+        try
+        {
+            var state = (DawnQueueCompletion)GCHandle.FromIntPtr((nint)userData1).Target!;
+            string text = string.Empty;
+            Exception? decodeFailure = null;
+            try { text = Message(message); }
+            catch (Exception error) { decodeFailure = error; }
+            state.Complete(status, text, decodeFailure);
+        }
+        catch { } // No managed fault may cross the native callback ABI.
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
