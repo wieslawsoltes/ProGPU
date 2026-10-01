@@ -35,15 +35,17 @@ jobs:
       - name: Preserve caller-owned build and publish destinations
         shell: pwsh
         run: |
-          foreach ($collision in @('none','filename','link','target','destination','publish')) {
-            foreach ($enabled in @('true','false')) {
-              $output = & dotnet msbuild eng/test-dawn-system-warp-package-targets.proj -nologo '-p:RuntimeIdentifier=${{ matrix.rid }}' "-p:Collision=$collision" "-p:ProGpuEnableDawnSystemWarp=$enabled" 2>&1
-              $result = $LASTEXITCODE
-              $output | Write-Output
-              $reject = $enabled -eq 'true' -and $collision -ne 'none'
-              if ($reject) {
-                if ($result -eq 0 -or -not ($output -match 'Dawn system WARP will not replace caller-owned')) { throw "Expected explicit collision rejection: $collision" }
-              } elseif ($result -ne 0) { throw "Unrelated or disabled companion content was rejected: $collision" }
+          foreach ($sdk in @('false','true')) {
+            foreach ($collision in @('none','filename','link','target','destination','publish','forged-owned','forged-publish','owned-retargeted','owned-publish-retargeted')) {
+              foreach ($enabled in @('true','false')) {
+                $output = & dotnet msbuild eng/test-dawn-system-warp-package-targets.proj -nologo '-p:RuntimeIdentifier=${{ matrix.rid }}' "-p:Collision=$collision" "-p:ProGpuEnableDawnSystemWarp=$enabled" "-p:TestSdkPropagation=$sdk" 2>&1
+                $result = $LASTEXITCODE
+                $output | Write-Output
+                $reject = $enabled -eq 'true' -and $collision -ne 'none'
+                if ($reject) {
+                  if ($result -eq 0 -or -not ($output -match 'Dawn system WARP will not replace caller-owned')) { throw "Expected explicit collision rejection: $collision (SDK=$sdk)" }
+                } elseif ($result -ne 0) { throw "Unrelated or disabled companion content was rejected: $collision (SDK=$sdk)" }
+              }
             }
           }
       - name: Build original-header companion and run independent JIT and NativeAOT readbacks
