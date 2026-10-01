@@ -136,6 +136,9 @@ struct progpu_native_engine {
     WGPURenderPipeline glyph_paint_pipeline = nullptr;
     WGPURenderPipeline glyph_paint_masked_pipeline = nullptr;
     WGPURenderPipeline glyph_paint_chain_pipeline = nullptr;
+    WGPURenderPipeline glyph_paint_straight_pipeline = nullptr;
+    WGPURenderPipeline glyph_paint_straight_masked_pipeline = nullptr;
+    WGPURenderPipeline glyph_paint_straight_chain_pipeline = nullptr;
     WGPUBindGroupLayout glyph_paint_uniform_layout = nullptr;
     WGPUBindGroupLayout glyph_paint_texture_layout = nullptr;
     WGPUBindGroupLayout glyph_paint_empty_mask_layout = nullptr;
@@ -1694,6 +1697,9 @@ struct progpu_native_engine {
         if (glyph_paint_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_pipeline);
         if (glyph_paint_masked_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_masked_pipeline);
         if (glyph_paint_chain_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_chain_pipeline);
+        if (glyph_paint_straight_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_straight_pipeline);
+        if (glyph_paint_straight_masked_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_straight_masked_pipeline);
+        if (glyph_paint_straight_chain_pipeline != nullptr) wgpuRenderPipelineRelease(glyph_paint_straight_chain_pipeline);
         if (glyph_paint_empty_mask_bind_group != nullptr) wgpuBindGroupRelease(glyph_paint_empty_mask_bind_group);
         if (glyph_paint_empty_mask_layout != nullptr) wgpuBindGroupLayoutRelease(glyph_paint_empty_mask_layout);
         if (glyph_paint_uniform_layout != nullptr) wgpuBindGroupLayoutRelease(glyph_paint_uniform_layout);

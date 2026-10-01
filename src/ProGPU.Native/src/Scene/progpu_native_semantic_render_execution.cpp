@@ -3807,8 +3807,8 @@ progpu_native_status render_scene(
     std::uint64_t glyph_paint_upload_bytes = 0U;
     if (semantic_glyph_paint_count != 0U &&
         (!semantic::prepare_glyph_paints(*engine, glyph_replay_hash, glyph_paint_upload_bytes) ||
-            (semantic_has_masked_glyphs && !semantic::ensure_glyph_paint_pipeline(*engine, true, false)) ||
-            (semantic_has_text_mask_chains && !semantic::ensure_glyph_paint_pipeline(*engine, true, true)))) {
+            (semantic_has_masked_glyphs && !semantic::prepare_glyph_paint_pipelines(*engine, true, false)) ||
+            (semantic_has_text_mask_chains && !semantic::prepare_glyph_paint_pipelines(*engine, true, true)))) {
         discard_encoder();
         return engine->fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
             "The original hinted glyph paint GPU resources could not be prepared.");

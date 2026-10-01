@@ -26,6 +26,7 @@
 #include "progpu_native_semantic_validation.hpp"
 #include "progpu_native_webgpu_synchronization.hpp"
 #include "progpu_native_submission_resources.hpp"
+#include "progpu_native_glyph_paint_alpha.hpp"
 
 #include <array>
 #include <bit>
@@ -1227,6 +1228,35 @@ void semantic_text_style_page_is_validated_deduplicated_and_retained() {
         storage.data(), style_resource, error_offset));
 }
 
+void semantic_original_glyph_paint_blending_preserves_alpha_representation() {
+    using namespace progpu::native::semantic;
+    progpu_native_scene_glyph_paint material{};
+    material.kind = PROGPU_NATIVE_SCENE_GLYPH_PAINT_MATERIAL;
+    progpu_native_scene_glyph_paint straight_texture{};
+    straight_texture.kind = PROGPU_NATIVE_SCENE_GLYPH_PAINT_TEXTURE;
+    auto premultiplied_texture = straight_texture;
+    premultiplied_texture.flags = PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED;
+    // Mixed command order is source-owned. A later PMA texture never changes
+    // the blend arithmetic selected for an earlier/later material command.
+    const std::array<progpu_native_scene_glyph_paint, 5U> paints{{material, premultiplied_texture, straight_texture,
+        premultiplied_texture, material}};
+    constexpr std::array<bool, 5U> expected{{false, true, false, true, false}};
+    for (std::size_t index = 0U; index < paints.size(); ++index) {
+        require(glyph_paint_premultiplied_output(paints[index], false) == expected[index]);
+        require(glyph_paint_premultiplied_output(paints[index], true));
+    }
+    // Sampling and bounded geometry do not change alpha representation.
+    for (std::uint32_t sampling = 0U; sampling <= 9U; ++sampling) {
+        straight_texture.flags = PROGPU_NATIVE_SCENE_GLYPH_PAINT_BOUNDED |
+            PROGPU_NATIVE_SCENE_GLYPH_PAINT_CUBIC | (sampling << 8U);
+        premultiplied_texture.flags = straight_texture.flags |
+            PROGPU_NATIVE_SCENE_GLYPH_PAINT_PREMULTIPLIED;
+        require(!glyph_paint_premultiplied_output(straight_texture, false));
+        require(glyph_paint_premultiplied_output(premultiplied_texture, false));
+        require(glyph_paint_premultiplied_output(straight_texture, true));
+    }
+}
+
 void semantic_original_glyph_paint_wire_is_exact_and_independent() {
     using namespace progpu::native::semantic;
     static_assert(sizeof(progpu_native_scene_glyph_paint) == 96U);
@@ -2227,6 +2257,7 @@ int main() {
         semantic_scene_content_hashes_isolate_image_updates());
     semantic_text_style_page_is_validated_deduplicated_and_retained();
     semantic_original_glyph_paint_wire_is_exact_and_independent();
+    semantic_original_glyph_paint_blending_preserves_alpha_representation();
     compute_trace_is_opt_in_bounded_and_encoding_only();
     semantic_glyph_resource_identity_requires_exact_raster_bytes();
     glyph_raster_identity_uses_exact_selected_bytes_not_arena_offsets();
