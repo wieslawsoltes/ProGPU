@@ -18,12 +18,15 @@ public sealed class DrawingTextLayout
     private readonly string _source;
     private readonly int _paragraphLevel;
     private Lazy<DrawingEditWordBoundaryCapture>? _editWordBoundaries;
+    private readonly Lazy<TextEditInteractionSnapshot> _editInteraction;
 
     internal DrawingTextLayout(TextLayout layout, SizeF layoutSize, Vector2 offset,
         float emptyLineHeight, float dpiX, float dpiY, FontStyle style, bool clip,
         PreparedDrawingGlyphRun[] runs, PreparedDrawingTextDecoration[] decorations)
     {
         _interaction = layout.CreateInteractionSnapshot();
+        _editInteraction = new(_interaction.CreateEditInteractionSnapshot,
+            LazyThreadSafetyMode.ExecutionAndPublication);
         _source = layout.Text;
         _paragraphLevel = layout.ShapingOptions.Direction switch
         {
@@ -116,6 +119,10 @@ public sealed class DrawingTextLayout
     public TextCaretStop GetCaretStop(int textPosition, bool trailingAffinity = false)
         => Translate(_interaction.GetCaretStop(textPosition, trailingAffinity));
 
+    /// <summary>EDIT endpoint geometry; the exact source index is retained inside an original grapheme.</summary>
+    public TextCaretStop GetEditCaretStop(int textPosition, bool trailingAffinity = false)
+        => Translate(_editInteraction.Value.GetCaretStop(textPosition, trailingAffinity));
+
     public TextCaretStop MoveCaretVisually(int textPosition, bool trailingAffinity, int direction)
         => Translate(_interaction.MoveCaretVisually(textPosition, trailingAffinity, direction));
 
@@ -128,14 +135,29 @@ public sealed class DrawingTextLayout
     public TextHitTestResult HitTestPoint(PointF point)
     {
         TextHitTestResult hit = _interaction.HitTestPoint(new Vector2(point.X, point.Y) - Offset);
+        return Translate(hit);
+    }
+
+    /// <summary>EDIT pointer geometry over original whole-grapheme owners, not word-boundary endpoints.</summary>
+    public TextHitTestResult HitTestEditPoint(PointF point)
+        => Translate(_editInteraction.Value.HitTestPoint(new Vector2(point.X, point.Y) - Offset));
+
+    private TextHitTestResult Translate(TextHitTestResult hit)
+    {
         TextBounds bounds = hit.Bounds;
         return hit with { Bounds = new TextBounds(bounds.X + Offset.X, bounds.Y + Offset.Y,
             bounds.Width, TextLength == 0 ? _emptyLineHeight : bounds.Height) };
     }
 
     public IReadOnlyList<TextBounds> GetSelectionRectangles(int textStart, int textLength)
+        => Translate(_interaction.GetSelectionRectangles(textStart, textLength));
+
+    /// <summary>EDIT selection covers every original grapheme intersected by the unchanged source range.</summary>
+    public IReadOnlyList<TextBounds> GetEditSelectionRectangles(int textStart, int textLength)
+        => Translate(_editInteraction.Value.GetSelectionRectangles(textStart, textLength));
+
+    private IReadOnlyList<TextBounds> Translate(IReadOnlyList<TextBounds> boxes)
     {
-        IReadOnlyList<TextBounds> boxes = _interaction.GetSelectionRectangles(textStart, textLength);
         if (boxes.Count == 0 || Offset == Vector2.Zero) return boxes;
         var translated = new TextBounds[boxes.Count];
         for (int i = 0; i < translated.Length; i++)

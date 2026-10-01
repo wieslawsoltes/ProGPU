@@ -3,7 +3,7 @@ using System.Numerics;
 namespace ProGPU.Text;
 
 /// <summary>Owned interaction geometry from one completed text-layout generation.</summary>
-public sealed class TextInteractionSnapshot
+public sealed partial class TextInteractionSnapshot
 {
     private readonly TextLayout.ClusterBox[] _boxes;
     private readonly TextCaretStop[] _carets;
@@ -12,9 +12,11 @@ public sealed class TextInteractionSnapshot
     private readonly int[] _caretRows;
     private readonly bool _horizontal;
     private readonly int[] _sourceRowStarts;
+    private readonly int[]? _originalGraphemeBoundaries;
 
     internal TextInteractionSnapshot(int textLength, float emptyHeight, TextLayout.ClusterBox[] boxes,
-        TextLayout.EmptyLineCaret[] emptyLines, bool horizontal, int[] sourceRowStarts)
+        TextLayout.EmptyLineCaret[] emptyLines, bool horizontal, int[] sourceRowStarts,
+        int[]? originalGraphemeBoundaries = null)
     {
         TextLength = textLength;
         _emptyHeight = emptyHeight;
@@ -22,6 +24,7 @@ public sealed class TextInteractionSnapshot
         _emptyLines = emptyLines;
         _horizontal = horizontal;
         _sourceRowStarts = sourceRowStarts;
+        _originalGraphemeBoundaries = originalGraphemeBoundaries;
         var rows = new List<int>();
         _carets = BuildCaretStops(boxes, emptyHeight, emptyLines, rows).ToArray();
         _caretRows = rows.ToArray();

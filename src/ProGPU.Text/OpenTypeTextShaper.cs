@@ -7680,7 +7680,7 @@ public static class OpenTypeTextShaper
             bool hasUseCluster = false;
             for (var graphemeStart = 0; graphemeStart < text.Length;)
             {
-                int graphemeLength = StringInfo.GetNextTextElementLength(text.AsSpan(graphemeStart));
+                int graphemeLength = OriginalGraphemePolicy.GetLength(text.AsSpan(graphemeStart));
                 int graphemeEnd = checked(graphemeStart + graphemeLength);
                 ReadOnlySpan<char> originalGrapheme = text.AsSpan(graphemeStart, graphemeLength);
                 string? normalizedGrapheme = !wellFormedUtf16 || textIsNormalized || preserveUseMarkOrder || script == "hang" ||
