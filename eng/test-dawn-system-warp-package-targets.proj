@@ -1,0 +1,45 @@
+<Project DefaultTargets="Test">
+  <!-- SDK item computation only: no restore, compilation, file copies, native
+       payload generation or device initialization is needed by this fixture. -->
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" Condition="'$(TestSdkPropagation)' == 'true'" />
+  <PropertyGroup>
+    <ProGpuEnableDawnSystemWarp Condition="'$(ProGpuEnableDawnSystemWarp)' == ''">true</ProGpuEnableDawnSystemWarp>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <UseAppHost>false</UseAppHost>
+    <SelfContained>false</SelfContained>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="caller/ordinary.txt" />
+    <Content Include="caller/progpu_dawn_system_warp.dll" Condition="'$(Collision)' == 'filename'" />
+    <Content Include="caller/linked.bin" Link="progpu_dawn_system_warp.dll" Condition="'$(Collision)' == 'link'" />
+    <None Include="caller/receipt.bin" TargetPath="progpu-dawn-system-warp.json" Condition="'$(Collision)' == 'target'" />
+    <NativeCopyLocalItems Include="caller/native.bin" DestinationSubPath="Dawn-LICENSE.txt" Condition="'$(Collision)' == 'destination'" />
+    <ResolvedFileToPublish Include="caller/published.bin" RelativePath="progpu_dawn_system_warp.dll" Condition="'$(Collision)' == 'publish'" />
+    <Content Include="caller/progpu_dawn_system_warp.dll" ProGpuDawnSystemWarpOwned="true" Condition="'$(Collision)' == 'forged-owned'" />
+    <ResolvedFileToPublish Include="caller/published.bin" RelativePath="progpu_dawn_system_warp.dll" ProGpuDawnSystemWarpOwned="true" Condition="'$(Collision)' == 'forged-publish'" />
+  </ItemGroup>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" Condition="'$(TestSdkPropagation)' == 'true'" />
+  <Import Project="../src/ProGPU.Backend.Dawn/buildTransitive/ProGPU.Backend.Dawn.targets" />
+  <ItemGroup>
+    <Content Include="$(_DawnSystemWarpReceiptPath)" Link="progpu_dawn_system_warp.dll" ProGpuDawnSystemWarpOwned="true" Condition="'$(Collision)' == 'owned-retargeted'" />
+    <ResolvedFileToPublish Include="$(_DawnSystemWarpReceiptPath)" RelativePath="progpu_dawn_system_warp.dll" ProGpuDawnSystemWarpOwned="true" Condition="'$(Collision)' == 'owned-publish-retargeted'" />
+  </ItemGroup>
+  <Target Name="ComputeDawnSystemWarpSdkPublishItems" Condition="'$(TestSdkPropagation)' == 'true'"
+          DependsOnTargets="_ComputeCopyToPublishDirectoryItems">
+    <ItemGroup>
+      <_ExpectedSdkPublish Include="@(ResolvedFileToPublish)"
+          Condition="('%(FullPath)' == '$(_DawnSystemWarpLibraryPath)' Or '%(FullPath)' == '$(_DawnSystemWarpReceiptPath)' Or '%(FullPath)' == '$(_DawnSystemWarpLicensePath)') And '%(CopyToPublishDirectory)' == 'PreserveNewest'" />
+    </ItemGroup>
+    <Error Condition="'$(ProGpuEnableDawnSystemWarp)' == 'true' And '@(_ExpectedSdkPublish->Count())' != '3'"
+           Text="The actual SDK must propagate all three optional package content items." />
+    <Error Condition="'$(ProGpuEnableDawnSystemWarp)' == 'false' And '@(_ExpectedSdkPublish)' != ''"
+           Text="The disabled companion must not enter SDK publish items." />
+    <Error Condition="'$(ProGpuEnableDawnSystemWarp)' == 'true' And ('%(_ExpectedSdkPublish.ProGpuDawnSystemWarpOwned)' != '' Or '%(_ExpectedSdkPublish.ExcludeFromSingleFile)' != 'true' Or '%(_ExpectedSdkPublish.RelativePath)' != '%(_ExpectedSdkPublish.Filename)%(_ExpectedSdkPublish.Extension)')"
+           Text="The fixture must exercise SDK ownership-metadata removal while preserving the original destination and single-file policy." />
+  </Target>
+  <Target Name="Test" DependsOnTargets="RejectDawnSystemWarpCallerAssetReplacement;ComputeDawnSystemWarpSdkPublishItems;RejectDawnSystemWarpPublishAssetReplacement">
+    <Message Importance="high" Text="Dawn WARP caller-content check passed." />
+  </Target>
+</Project>

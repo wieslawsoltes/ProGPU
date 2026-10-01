@@ -1,0 +1,72 @@
+<Project>
+  <!-- Opt-in file delivery only, NEVER automatic adapter/fallback selection. -->
+  <PropertyGroup>
+    <ProGpuEnableDawnSystemWarp Condition="'$(ProGpuEnableDawnSystemWarp)' == ''">false</ProGpuEnableDawnSystemWarp>
+    <_DawnSystemWarpSelected Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == 'win-arm64'">true</_DawnSystemWarpSelected>
+    <_DawnSystemWarpPayload>$(MSBuildThisFileDirectory)runtimes/$(RuntimeIdentifier)/native/</_DawnSystemWarpPayload>
+    <_DawnSystemWarpLibraryPath>$([System.IO.Path]::GetFullPath('$(_DawnSystemWarpPayload)progpu_dawn_system_warp.dll'))</_DawnSystemWarpLibraryPath>
+    <_DawnSystemWarpReceiptPath>$([System.IO.Path]::GetFullPath('$(_DawnSystemWarpPayload)progpu-dawn-system-warp.json'))</_DawnSystemWarpReceiptPath>
+    <_DawnSystemWarpLicensePath>$([System.IO.Path]::GetFullPath('$(_DawnSystemWarpPayload)Dawn-LICENSE.txt'))</_DawnSystemWarpLicensePath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <_DawnSystemWarpInput>
+      <Link />
+      <TargetPath />
+      <DestinationSubPath />
+      <ProGpuDawnSystemWarpOwned />
+    </_DawnSystemWarpInput>
+    <_DawnSystemWarpPublishInput>
+      <RelativePath />
+      <ProGpuDawnSystemWarpOwned />
+    </_DawnSystemWarpPublishInput>
+  </ItemDefinitionGroup>
+  <ItemGroup Condition="'$(ProGpuEnableDawnSystemWarp)' == 'true' And '$(_DawnSystemWarpSelected)' == 'true'">
+    <Content Include="$(_DawnSystemWarpPayload)progpu_dawn_system_warp.dll;$(_DawnSystemWarpPayload)progpu-dawn-system-warp.json;$(_DawnSystemWarpPayload)Dawn-LICENSE.txt"
+             Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true"
+             ProGpuDawnSystemWarpOwned="true" />
+  </ItemGroup>
+  <Target Name="ValidateDawnSystemWarpConsumer" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(ProGpuEnableDawnSystemWarp)' != 'true' And '$(ProGpuEnableDawnSystemWarp)' != 'false'"
+           Text="ProGpuEnableDawnSystemWarp must be explicitly true or false." />
+    <Error Condition="'$(ProGpuEnableDawnSystemWarp)' == 'true' And '$(_DawnSystemWarpSelected)' != 'true'"
+           Text="The optional Dawn system WARP companion requires an explicit win-x64 or win-arm64 RuntimeIdentifier." />
+    <Error Condition="'$(ProGpuEnableDawnSystemWarp)' == 'true' And (!Exists('$(_DawnSystemWarpPayload)progpu_dawn_system_warp.dll') Or !Exists('$(_DawnSystemWarpPayload)progpu-dawn-system-warp.json') Or !Exists('$(_DawnSystemWarpPayload)Dawn-LICENSE.txt'))"
+           Text="The selected original-header Dawn system WARP companion payload is absent. No renderer fallback is permitted." />
+  </Target>
+  <Target Name="RejectDawnSystemWarpCallerAssetReplacement" BeforeTargets="GetCopyToOutputDirectoryItems;ComputeFilesToPublish"
+          Condition="'$(ProGpuEnableDawnSystemWarp)' == 'true'">
+    <ItemGroup>
+      <_DawnSystemWarpInput Include="@(Content);@(None);@(NativeCopyLocalItems);@(ReferenceCopyLocalPaths)" />
+      <_DawnSystemWarpCallerContent Include="@(_DawnSystemWarpInput)"
+          Condition="('%(Filename)%(Extension)' == 'progpu_dawn_system_warp.dll' Or '%(Filename)%(Extension)' == 'progpu-dawn-system-warp.json' Or '%(Filename)%(Extension)' == 'Dawn-LICENSE.txt'
+            Or '%(Link)' == 'progpu_dawn_system_warp.dll' Or '%(Link)' == 'progpu-dawn-system-warp.json' Or '%(Link)' == 'Dawn-LICENSE.txt'
+            Or '%(TargetPath)' == 'progpu_dawn_system_warp.dll' Or '%(TargetPath)' == 'progpu-dawn-system-warp.json' Or '%(TargetPath)' == 'Dawn-LICENSE.txt'
+            Or '%(DestinationSubPath)' == 'progpu_dawn_system_warp.dll' Or '%(DestinationSubPath)' == 'progpu-dawn-system-warp.json' Or '%(DestinationSubPath)' == 'Dawn-LICENSE.txt')
+            And !(('%(FullPath)' == '$(_DawnSystemWarpLibraryPath)' Or '%(FullPath)' == '$(_DawnSystemWarpReceiptPath)' Or '%(FullPath)' == '$(_DawnSystemWarpLicensePath)')
+              And ('%(Link)' == '' Or '%(Link)' == '%(Filename)%(Extension)')
+              And ('%(TargetPath)' == '' Or '%(TargetPath)' == '%(Filename)%(Extension)')
+              And ('%(DestinationSubPath)' == '' Or '%(DestinationSubPath)' == '%(Filename)%(Extension)'))" />
+    </ItemGroup>
+    <Error Condition="'@(_DawnSystemWarpCallerContent)' != ''"
+           Text="Dawn system WARP will not replace caller-owned same-name content: @(_DawnSystemWarpCallerContent)." />
+  </Target>
+  <!-- The SDK deliberately retains only a small metadata set while collecting
+       publish content, so ProGpuDawnSystemWarpOwned need not survive. Recognize
+       only the exact selected package source paired with its own destination;
+       neither the filename nor a caller-provided ownership marker is authority.
+       Check final relative paths before any file is copied. -->
+  <Target Name="RejectDawnSystemWarpPublishAssetReplacement" AfterTargets="ComputeFilesToPublish"
+          Condition="'$(ProGpuEnableDawnSystemWarp)' == 'true'">
+    <ItemGroup>
+      <_DawnSystemWarpPublishInput Include="@(ResolvedFileToPublish)" />
+      <_DawnSystemWarpCallerPublish Include="@(_DawnSystemWarpPublishInput)"
+          Condition="('%(RelativePath)' == 'progpu_dawn_system_warp.dll' Or '%(RelativePath)' == 'progpu-dawn-system-warp.json' Or '%(RelativePath)' == 'Dawn-LICENSE.txt')
+            And !(('%(FullPath)' == '$(_DawnSystemWarpLibraryPath)' And '%(RelativePath)' == 'progpu_dawn_system_warp.dll')
+              Or ('%(FullPath)' == '$(_DawnSystemWarpReceiptPath)' And '%(RelativePath)' == 'progpu-dawn-system-warp.json')
+              Or ('%(FullPath)' == '$(_DawnSystemWarpLicensePath)' And '%(RelativePath)' == 'Dawn-LICENSE.txt'))" />
+    </ItemGroup>
+    <Error Condition="'@(_DawnSystemWarpCallerPublish)' != ''"
+           Text="Dawn system WARP will not replace caller-owned publish content: @(_DawnSystemWarpCallerPublish)." />
+  </Target>
+</Project>
