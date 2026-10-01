@@ -19,6 +19,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
@@ -31,6 +32,19 @@ using Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess;
 namespace {
 
 namespace compat = progpu::native::direct2d::compat;
+
+// IsSupported crosses the real Windows vtable using the portable declaration.
+// Keep every newly concrete property at its SDK ABI offset on both architectures.
+static_assert(sizeof(compat::render_target_properties) == sizeof(D2D1_RENDER_TARGET_PROPERTIES));
+static_assert(alignof(compat::render_target_properties) == alignof(D2D1_RENDER_TARGET_PROPERTIES));
+static_assert(offsetof(compat::render_target_properties, type) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, type));
+static_assert(offsetof(compat::render_target_properties, pixel_format_value) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, pixelFormat));
+static_assert(offsetof(compat::render_target_properties, dpi_x) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, dpiX));
+static_assert(offsetof(compat::render_target_properties, dpi_y) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, dpiY));
+static_assert(offsetof(compat::render_target_properties, usage) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, usage));
+static_assert(offsetof(compat::render_target_properties, minimum_level) == offsetof(D2D1_RENDER_TARGET_PROPERTIES, minLevel));
+static_assert(static_cast<unsigned>(compat::feature_level::level_9) == D2D1_FEATURE_LEVEL_9);
+static_assert(static_cast<unsigned>(compat::feature_level::level_10) == D2D1_FEATURE_LEVEL_10);
 
 constexpr GUID gaussian_blur_effect_id = {
     0x1feb6d69,
