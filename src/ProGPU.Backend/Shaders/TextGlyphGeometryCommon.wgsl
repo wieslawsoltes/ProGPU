@@ -1,6 +1,6 @@
 // Algorithm: Expand each original glyph instance with the canonical Text vertex arithmetic and decode its unchanged legacy/shared rendering policy.
 // Time complexity: O(1) per vertex.
-// Space complexity: O(1), including one flat four-float physical coverage frame and its admission bit; this helper does not allocate, rasterize or combine occurrences.
+// Space complexity: O(1), including six flat physical-frame floats and one mapping tag; this helper does not allocate, rasterize or combine occurrences.
 struct TextGlyphInstance {
     vertexIndex: u32,
     snappedLogicalPos: vec2<f32>,
@@ -23,6 +23,7 @@ struct TextGlyphVertexFrame {
     textMode: f32,
     texelBounds: vec4<f32>,
     physicalGlyphFrame: vec4<f32>,
+    physicalGlyphInverseRow: vec2<f32>,
     canonicalPhysicalFrame: u32,
 };
 
@@ -126,9 +127,9 @@ fn text_glyph_vertex(input: TextGlyphInstance, sharedColor: vec4<f32>, sharedRen
     // canvas size. Positive pad0 values belong to original bounded Texture
     // source/ROP passes and must never certify glyphs. Only an unshifted,
     // full-target native/managed owner may set this distinct negative tag.
-    // Preserve the original interpolation for all unproven passes, late MVP,
-    // ClearType/color and non-axis glyphs. Prove ALL original quad corners;
-    // a diagonal alone cannot prove an italic/sheared rectangle.
+    // Preserve original interpolation for unproven passes, late MVP and
+    // ClearType/color. Prove ALL original quad corners before selecting the
+    // original axis formula; other frames retain their two actual triangles.
     let q0 = input.snappedLogicalPos + (lsx0 * input.basisX + ly0 * input.basisY);
     let q1 = input.snappedLogicalPos + (lsx1 * input.basisX + ly0 * input.basisY);
     let q2 = input.snappedLogicalPos + (lsx2 * input.basisX + ly1 * input.basisY);
@@ -145,7 +146,33 @@ fn text_glyph_vertex(input: TextGlyphInstance, sharedColor: vec4<f32>, sharedRen
         output.textMode < 1.5 && exactPositiveAxes && finiteFrame &&
         all(physicalFrame.zw > vec2<f32>(0.0));
     output.physicalGlyphFrame = select(vec4<f32>(0.0, 0.0, 1.0, 1.0), physicalFrame, admitted);
+    output.physicalGlyphInverseRow = vec2<f32>(0.0);
     output.canonicalPhysicalFrame = select(0u, 1u, admitted);
+    if (!exactPositiveAxes && uniforms.pad0 == -1.0 && useMvp == 0.0 && output.textMode < 1.5) {
+        // Use each original triangle, never a reconstructed parallelogram.
+        // The ordinary glyph's vertices 0..2 own 012, and 3..5 own 023.
+        // Bounded paint supplies that same triangle index for its WHOLE image
+        // copy, independently of the image quad's own triangle/paint UVs.
+        let secondTriangle = input.vertexIndex >= 3u;
+        let p0 = q0 * uniforms.dpiScale;
+        let p1 = select(q1, q2, secondTriangle) * uniforms.dpiScale;
+        let p2 = select(q2, q3, secondTriangle) * uniforms.dpiScale;
+        let edge1 = p1 - p0;
+        let edge2 = p2 - p0;
+        let determinant = edge1.x * edge2.y - edge1.y * edge2.x;
+        let finiteLimit = 0x1.fffffep+127f;
+        let live = determinant != 0.0 && abs(determinant) <= finiteLimit &&
+            all(abs(p0) <= vec2<f32>(finiteLimit)) &&
+            all(abs(p1) <= vec2<f32>(finiteLimit)) &&
+            all(abs(p2) <= vec2<f32>(finiteLimit));
+        let inverse = vec4<f32>(edge2.y, -edge2.x, -edge1.y, edge1.x) /
+            select(1.0, determinant, live);
+        if (live && all(abs(inverse) <= vec4<f32>(finiteLimit))) {
+            output.physicalGlyphFrame = vec4<f32>(p0, inverse.xy);
+            output.physicalGlyphInverseRow = inverse.zw;
+            output.canonicalPhysicalFrame = select(2u, 3u, secondTriangle);
+        }
+    }
     return output;
 }
 
@@ -154,11 +181,19 @@ fn text_glyph_vertex(input: TextGlyphInstance, sharedColor: vec4<f32>, sharedRen
 // @builtin(position).xy is the actual framebuffer fragment center; no pixel
 // snapping, bias, integer load or interpolation-dependent UV correction occurs.
 fn text_glyph_coverage_tex_coord(interpolated: vec2<f32>, fragmentPosition: vec2<f32>,
-    texelBounds: vec4<f32>, physicalFrame: vec4<f32>, canonical: u32) -> vec2<f32> {
+    texelBounds: vec4<f32>, physicalFrame: vec4<f32>, inverseRow: vec2<f32>, canonical: u32) -> vec2<f32> {
     if (canonical == 0u) {
         return interpolated;
     }
     let atlasMinimum = texelBounds.xy - vec2<f32>(0.5);
     let atlasSpan = texelBounds.zw + vec2<f32>(0.5) - atlasMinimum;
-    return atlasMinimum + (fragmentPosition - physicalFrame.xy) * (atlasSpan / physicalFrame.zw);
+    if (canonical == 1u) {
+        // Keep the qualified positive-axis arithmetic bit-for-bit.
+        return atlasMinimum + (fragmentPosition - physicalFrame.xy) * (atlasSpan / physicalFrame.zw);
+    }
+    let local = fragmentPosition - physicalFrame.xy;
+    let weights = vec2<f32>(dot(physicalFrame.zw, local), dot(inverseRow, local));
+    let uv = select(vec2<f32>(weights.x + weights.y, weights.y),
+        vec2<f32>(weights.x, weights.x + weights.y), canonical == 3u);
+    return atlasMinimum + uv * atlasSpan;
 }

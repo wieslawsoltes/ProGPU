@@ -45,7 +45,57 @@ def exact_positive_axes(corners):
             and q3[0] == q0[0] and q2[0] > q0[0] and q2[1] > q0[1])
 
 
+def triangle_address(corners, triangle, point, atlas_min=(2, 2), atlas_span=(20, 22)):
+    # Independent exact-rational area coordinates of the ORIGINAL triangle.
+    # Not GPU interpolation emulation or an expected final-color tolerance.
+    a, b, c = (corners[i] for i in ((0, 1, 2) if triangle == 0 else (0, 2, 3)))
+    def area(a, b, c):
+        return (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0])
+    denominator = area(a, b, c)
+    if denominator == 0:
+        return None
+    weights = (area(a, point, c)/denominator, area(a, b, point)/denominator)
+    uv = (sum(weights), weights[1]) if triangle == 0 else (weights[0], sum(weights))
+    return tuple(F(origin) + coordinate * span for origin, coordinate, span in zip(atlas_min, uv, atlas_span))
+
+
 class GlyphCoverageFrameMathTests(unittest.TestCase):
+    def test_original_nonparallelogram_uses_each_triangle_independently(self):
+        corners = tuple(tuple(map(F, point)) for point in ((0, 0), (4, 1), (5, 5), (0, 3)))
+        self.assertEqual((F(17), F(13)), triangle_address(corners, 0, (F(7, 2), F(11, 4))))
+        self.assertEqual((F(7), F(37, 2)), triangle_address(corners, 1, (F(5, 4), F(11, 4))))
+        invented = corners[:3] + ((F(1), F(4)),)
+        self.assertNotEqual(triangle_address(corners, 1, (F(5, 4), F(11, 4))),
+                            triangle_address(invented, 1, (F(5, 4), F(11, 4))))
+
+    def test_reflected_and_rotated_original_triangles_keep_signed_coordinates(self):
+        corners = tuple(tuple(map(F, point)) for point in ((0, 0), (4, 1), (5, 5), (0, 3)))
+        for transform in (lambda p: (-p[0], p[1]), lambda p: (-p[1], p[0])):
+            changed = tuple(transform(p) for p in corners)
+            for triangle, point in ((0, (F(7, 2), F(11, 4))), (1, (F(5, 4), F(11, 4)))):
+                self.assertEqual(triangle_address(corners, triangle, point),
+                                 triangle_address(changed, triangle, transform(point)))
+
+    def test_folded_original_triangles_retain_two_distinct_contributions(self):
+        corners = tuple(tuple(map(F, point)) for point in ((0, 0), (4, 0), (4, 4), (3, 1)))
+        point = (F(2), F(1))
+        self.assertEqual((F(12), F(15, 2)), triangle_address(corners, 0, point))
+        self.assertEqual((F(9, 2), F(63, 4)), triangle_address(corners, 1, point))
+
+    def test_affine_physical_frame_preserves_original_dpi_and_origin(self):
+        corners = tuple(tuple(map(F, point)) for point in ((0, 0), (4, 1), (5, 5), (0, 3)))
+        point = (F(5, 4), F(11, 4))
+        for dpi in (F(1), F(5, 4), F(3, 2), F(2)):
+            for origin in ((F(0), F(0)), (F(65, 16), F(211, 16)), (F(-51, 8), F(7, 4))):
+                def physical(p): return tuple((v+o)*dpi for v, o in zip(p, origin))
+                self.assertEqual(triangle_address(corners, 1, point),
+                                 triangle_address(tuple(physical(p) for p in corners), 1, physical(point)))
+
+    def test_singular_triangle_does_not_get_an_invented_inverse(self):
+        corners = tuple(tuple(map(F, point)) for point in ((0, 0), (2, 0), (4, 0), (8, 0)))
+        self.assertIsNone(triangle_address(corners, 0, (F(1), F(0))))
+        self.assertIsNone(triangle_address(corners, 1, (F(1), F(0))))
+
     def test_captured_original_occurrence_frames(self):
         positions = ((F(65, 16), F(211, 16)), (F(17, 4), F(53, 4)))
         expected = ((F(41, 8), F(67, 8), F(20), F(22)),
@@ -211,11 +261,15 @@ class GlyphCoverageFrameSourceTests(unittest.TestCase):
         paint = (SHADERS / "HintedGlyphPaint.wgsl").read_text()
         outputs = paint.split("struct VertexOutput {", 1)[1].split("};", 1)[0]
         locations = [int(x) for x in re.findall(r"@location\((\d+)\)", outputs)]
-        self.assertEqual(list(range(15)), locations)
-        self.assertLess(len(locations), 16)
+        self.assertEqual(list(range(16)), locations)
+        self.assertLessEqual(len(locations), 16)
+        types = re.findall(r"@location\(\d+\).*?:\s*(\w+)(?:<(?:f32|u32)>)?", outputs)
+        components = sum(int(kind[3:]) if kind.startswith("vec") else 1 for kind in types)
+        self.assertEqual(41, components)
+        self.assertLessEqual(components, 60)
         for field in ("glyphTriangle012", "glyphTriangle023", "glyphMappingFlags",
                       "glyphDiagonal", "glyphOtherCorners",
-                      "physicalGlyphFrame", "canonicalPhysicalFrame"):
+                      "physicalGlyphFrame", "canonicalPhysicalFrame", "physicalGlyphInverseRow"):
             self.assertIn(field, outputs)
             self.assertIn("output." + field + " =", paint)
         function = paint.split("fn hinted_glyph_paint_color(", 1)[1]
@@ -225,6 +279,26 @@ class GlyphCoverageFrameSourceTests(unittest.TestCase):
         self.assertLess(function.index("let paintDy = dpdy"), function.index("discard;"))
         self.assertIn("input.vertexIndex % 6u", paint)
         self.assertIn("secondTriangle && (!boundedTexture || axisFrame)", paint)
+
+    def test_affine_shared_address_uses_actual_triangle_not_image_triangle(self):
+        geometry = (SHADERS / "TextGlyphGeometryCommon.wgsl").read_text()
+        paint = (SHADERS / "HintedGlyphPaint.wgsl").read_text()
+        text = (SHADERS / "Text.wgsl").read_text()
+        self.assertIn("let secondTriangle = input.vertexIndex >= 3u;", geometry)
+        self.assertIn("let p1 = select(q1, q2, secondTriangle) * uniforms.dpiScale;", geometry)
+        self.assertIn("let p2 = select(q2, q3, secondTriangle) * uniforms.dpiScale;", geometry)
+        self.assertIn("!exactPositiveAxes && uniforms.pad0 == -1.0 && useMvp == 0.0 && output.textMode < 1.5", geometry)
+        self.assertIn("determinant != 0.0 && abs(determinant) <= finiteLimit", geometry)
+        self.assertIn("live && all(abs(inverse) <= vec4<f32>(finiteLimit))", geometry)
+        self.assertIn("select(2u, 3u, secondTriangle)", geometry)
+        self.assertIn("select(vertexIndex, select(0u, 3u, secondTriangle), boundedTexture)", paint)
+        self.assertIn("glyph_instance(input, coverageVertex)", paint)
+        for source in (text, paint):
+            self.assertIn("input.physicalGlyphFrame, input.physicalGlyphInverseRow, input.canonicalPhysicalFrame", source)
+        # Mapping0 is still the original interpolation; mapping1 retains the
+        # qualified axis arithmetic, not an inverse-triangle approximation.
+        self.assertRegex(geometry, r"if \(canonical == 0u\) \{\s*return interpolated;\s*\}")
+        self.assertRegex(geometry, r"if \(canonical == 1u\) \{\s*//[^\n]+\n\s*return atlasMinimum \+ \(fragmentPosition - physicalFrame.xy\) \* \(atlasSpan / physicalFrame.zw\);")
 
     def test_integrated_package_preserves_authentic_receipt_and_all_affine_cases(self):
         fixture = (ROOT / "tests/ProGPU.Native.PackageConsumer/TextHintedGlyphPaintRenderingValidation.cs").read_text()

@@ -47,12 +47,45 @@ projection, logical/physical dimensions and the normalized viewport actually
 encoded by the pass. Multisampling and frames with GPU transforms remain on the
 original managed path. Offscreen and mask uniforms default to zero; bounded source
 scratch keeps its existing positive texture tag and is not glyph-certified.
-The shader additionally rejects late-MVP, ClearType/color and non-axis geometry.
-Those paths remain separate qualification work, not newly admitted by a padding
-field or successful source test. Scene-cache reuse retains existing viewport/DPI
+The shader additionally rejects late-MVP and ClearType/color geometry. Certified
+non-axis triangles use the separately described affine address below; their GPU
+qualification is not inherited from the original axis-only evidence. Scene-cache reuse retains existing viewport/DPI
 ownership and additionally keys the actual physical framebuffer dimensions, so a
 window-only framebuffer change cannot retain a stale certificate. Stable replay
 does not add a per-frame uniform write.
+
+## Affine physical coverage
+
+Exact parent `e4ab2a7b9` package checks reached the italic/shear bounded-texture
+case after passing the original canonical controls. Windows stock/Dawn x64/ARM64
+reported 11 differing bytes (maximum one), first pixel `(48,38)` green 79 versus
+78; native Metal ARM64 reported 24 bytes (maximum one). No failed Build runtime
+was staged to investigate this result.
+
+The axis-only helper left this occurrence on two different address calculations:
+ordinary Text interpolated atlas UVs over its glyph triangles, while bounded
+texture paint inverted separately interpolated image coordinates. The candidate
+correction extends the *existing actual-pass certificate* to each finite,
+nonsingular original physical triangle. It retains independently rounded corners
+012 and 023, computes each signed inverse in physical coordinates, and evaluates
+the same barycentric-to-atlas expression from the actual fragment center in Text,
+material and texture paint. It never reconstructs corner 3 as a parallelogram.
+
+Each bounded image copy carries one constant original glyph-triangle mapping;
+its own image diagonal does not switch that mapping. Separate copies, original
+paint UVs, logical half-open edge tests, contribution order, derivatives and
+filter/gamma/alpha policy remain unchanged. The qualified positive-axis expression
+is unchanged. Gate zero, late-MVP, unsupported text modes and non-finite/singular
+physical inverses retain the original path. Six flat frame floats and one mapping
+tag fit the existing paint pipeline's limit: 16 user locations, 41 components.
+No public/native record layout, target certificate, fixture or tolerance changes.
+
+Independent rational controls exercise the actual four corners, reflected and
+rotated signs, folded triangles with distinct contributions, origin/DPI placement
+and singular rejection. These controls and host shader compilation are not proof
+of original hardware interpolation or package pixels. Same-head affine gate-zero
+and certified observations, followed by the unchanged authentic full-RGBA fixture,
+remain required; matching two changed shader paths alone is not qualification.
 
 ## Design references and preserved contracts
 
