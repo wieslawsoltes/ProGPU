@@ -12,8 +12,8 @@ actual="${temporary}/actual.txt"
 case "$(uname -s)" in
   Darwin)
     library="${build_dir}/lib${library_basename}.dylib"
-    if nm -gU "${library}" | awk '{ sub(/^_/, "", $3); print $3 }' | awk '/^(FT_|ft_)/ { found = 1 } END { exit !found }'; then
-      echo "The native renderer leaked private font dependency symbols." >&2
+    if nm -gU "${library}" | awk '{ sub(/^_/, "", $3); print $3 }' | awk '/^(FT_|ft_)/ || /_progpu_edit/ || /^progpu_edit_icu_data$/ { found = 1 } END { exit !found }'; then
+      echo "The native renderer leaked private text dependency symbols." >&2
       exit 1
     fi
     nm -gU "${library}" |
@@ -22,8 +22,8 @@ case "$(uname -s)" in
     ;;
   Linux)
     library="${build_dir}/lib${library_basename}.so"
-    if nm -D --defined-only "${library}" | awk '{ print $3 }' | awk '/^(FT_|ft_)/ { found = 1 } END { exit !found }'; then
-      echo "The native renderer leaked private font dependency symbols." >&2
+    if nm -D --defined-only "${library}" | awk '{ print $3 }' | awk '/^(FT_|ft_)/ || /_progpu_edit/ || /^progpu_edit_icu_data$/ { found = 1 } END { exit !found }'; then
+      echo "The native renderer leaked private text dependency symbols." >&2
       exit 1
     fi
     nm -D --defined-only "${library}" |

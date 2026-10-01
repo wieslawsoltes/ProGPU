@@ -1,5 +1,10 @@
 # Original-source EDIT word boundaries
 
+The additive product transport described at the end now exposes this existing
+explicit classifier through one C/managed UTF-16 batch. It does not widen its
+domain or connect/advertise the Forms provider; earlier source-only checkpoints
+below remain historical evidence, not product/package qualification.
+
 The internal native profile resolves a complete original UTF-16 input once into
 an owned boundary snapshot. The focused controls retain all 24 independent
 Microsoft EDIT inventories; the two formerly unadmitted BMP-symbol/emoji
@@ -450,3 +455,94 @@ open. Other existing generic paragraph-bridge paths are not thereby qualified.
 Complete native transport, owned dependency packaging, same-generation Forms
 integration and source mouse/editor checks still precede ordinary provider
 admission. Password source continues to bypass any boundary service entirely.
+
+## Product UTF-16 boundary transport
+
+`progpu_native_text_resolve_edit_word_boundaries_utf16` now calls the existing
+classifier once for a complete unchanged UTF-16 source and exact paragraph level
+zero/one. `NativeEditWordBoundaryInterop.Resolve` borrows typed spans for that
+single synchronous crossing. No source, font, glyph, context, device or buffer
+pointer survives it. Callers own the resulting positions; the later retained
+layout connection must freeze them with the corresponding original generation.
+
+The generated 16-byte result returns status, precise classifier error, boundary
+count and leading-content start **by value**, so metadata cannot alias outputs.
+`source.Length + 1` positions suffice, including one zero for an empty source.
+Encoding, direction, address overflow, alignment, complete-capacity input/output
+overlap and result capacity all validate before output publication. Failures
+leave every caller element untouched and return zero output counts; success
+writes only the used prefix. Unknown policy remains Unsupported and unavailable
+owned dictionary data remains DependencyUnavailable, never an empty success or
+ordinary wrapping/grapheme fallback. The original classifier body is unchanged.
+
+Both native renderer libraries include the same C transport and private text
+worker. The managed wrapper is independent of renderer selection: this is a
+CPU original-source classification operation, not a second managed algorithm.
+The C header owns all new numeric errors and fields; checked-in C# values and
+layout are generated from it. The path performs one crossing, no managed
+allocation and bounded original-worker temporary storage per source generation;
+no performance improvement or zero-native-allocation claim is made.
+
+Focused local checks use the actual transport body plus the original classifier
+in the existing CPU-only harness, with strict AppleClang21 C++20 warnings. CTest
+passed 1/1, including all prior trained/held-out/domain controls and
+new C inventory, direction, undersized/null/misaligned/overflowed/overlapping
+buffer, unchanged-tail and exact unsupported/dependency-error controls. The
+legacy emoji interior seam is preserved. The shared C header also passes strict
+C11 syntax. The actual Backend.Native Release build passed with zero warnings
+or errors; six device-free managed ABI/invalid-direction cases passed, zero
+skipped, and generated contract freshness passed. No native renderer, font,
+GPU, complete product build/package, owned-ICU build or source UI was executed
+by these transport checks. The 605 inferred property controls remain algorithm
+tests, not independent Microsoft oracle parity.
+
+The next source connection remains `DrawingTextLayout` retaining this inventory
+beside its own original source, paragraph direction, glyph runs and interaction
+snapshot, followed by the existing Forms boundary adapter. Original EDIT permits
+selection endpoints inside modern emoji graphemes; public source endpoints must
+not be snapped or removed to satisfy caret/scroll geometry. No speculative
+interior-grapheme repair or ordinary Forms capability marker is added here.
+
+## Private ICU product dependency
+
+The product text library compiles the original classifier once, outside
+`BUILD_TESTING`. Both stock and Dawn transports link that worker. The owned ICU
+dependency remains explicit: supply `PROGPU_NATIVE_EDIT_WORD_ICU_SOURCE_ARCHIVE`
+to CMake, `--edit-word-icu-archive` to the POSIX build and staging scripts, or
+`-EditWordIcuArchive` to the Windows producer. `PROGPU_NATIVE_EDIT_WORD_ICU=ON`
+without an archive fails configuration; ordinary builds without either input
+retain the existing precise dependency-unavailable result for dictionary input.
+There is no ambient ICU lookup, automatic download or runtime data-file access.
+
+The existing reviewed ICU 78.3 source, complete original `LICENSE`, and full
+original data hashes remain authoritative. The private static target retains
+the `_progpu_edit` symbol suffix and hidden-link policy; it is built for one
+little-endian x64/ARM64 Linux, macOS or Windows target. After a successful archive
+build, `eng/progpu-edit-word-icu-dependency.py record` checks the exact original
+common/header/stub/data inputs and every real object architecture before
+publishing `progpu-native-edit-word-dependency.json`. The receipt records the
+pin, actual archive hash, verified object count, target RID, compiler identity,
+configuration and original-notice hash. The generated embedded-data C++ is also
+compared byte-for-byte by hash with the exact original-data mechanical spelling,
+and its hash is retained and checked again before staging. This is producer
+identity, not successful renderer, package-consumer or source UI qualification.
+
+Staging revalidates the actual selected archive and producer output, refuses to
+overwrite existing dependency payloads, and publishes its receipt only after
+the SDK static archive and original notice copy. The C++ SDK imports that exact
+private archive with the same hidden-link/thread/dynamic-loader dependencies;
+no ICU DLL or ambient import library is shipped. NuGet validation requires all
+six RID payloads whenever any ICU dependency is present, and release packaging
+can require them explicitly with `ProGpuNativeRequireEditWordIcu=true`. Both
+producer workflow opt-in and the existing full six-RID stock/Dawn package gates
+remain necessary; these hooks do not themselves qualify or stage a release.
+
+The dependency helper's 19 CPU-only tests pass using synthetic archives, not a
+real ICU build. They cover all six actual object-format/RID identities, modified
+source/header/data/notices, added include inputs, changed configured source paths,
+wrong architectures, typed receipt controls, Release-only packaging, partial
+six-RID packages, generated-data tampering and overwrite rejection. A static
+control retains the exact selected ICU archive in sanitizer builds. Bash syntax,
+package-project XML and diff whitespace checks pass. No ICU source download, native dependency build,
+renderer execution, package production or CI dispatch was performed for this
+dependency-wiring checkpoint.

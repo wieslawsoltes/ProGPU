@@ -113,6 +113,7 @@ set_property(TARGET ProGPU::native_image PROPERTY
 set_property(TARGET ProGPU::native_text PROPERTY
     INTERFACE_LINK_LIBRARIES ProGPU::native_compression)
 include("${CMAKE_CURRENT_LIST_DIR}/ProGPUNativeFontDependency.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ProGPUNativeEditWordDependency.cmake")
 set_property(TARGET ProGPU::native_scene_builder PROPERTY
     INTERFACE_LINK_LIBRARIES "ProGPU::native_text;ProGPU::native_hit_testing")
 set_property(TARGET ProGPU::native_direct2d_core PROPERTY

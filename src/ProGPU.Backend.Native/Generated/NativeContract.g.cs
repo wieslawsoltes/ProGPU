@@ -9,6 +9,32 @@ namespace ProGPU.Backend.Native;
 
 internal static unsafe partial class NativeMethods
 {
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_NONE.
+    internal const ulong EditWordBoundaryNone = 0UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_INVALID_ENCODING.
+    internal const ulong EditWordBoundaryInvalidEncoding = 1UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_INPUT_TOO_LARGE.
+    internal const ulong EditWordBoundaryInputTooLarge = 2UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_ALLOCATION_FAILURE.
+    internal const ulong EditWordBoundaryAllocationFailure = 3UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_DEPENDENCY_UNAVAILABLE.
+    internal const ulong EditWordBoundaryDependencyUnavailable = 4UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_DEPENDENCY_FAILURE.
+    internal const ulong EditWordBoundaryDependencyFailure = 5UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_BMP_SYMBOL_POLICY.
+    internal const ulong EditWordBoundaryUnqualifiedBmpSymbolPolicy = 6UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_JOINER_POLICY.
+    internal const ulong EditWordBoundaryUnqualifiedJoinerPolicy = 7UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_COMPLEX_SCRIPT_POLICY.
+    internal const ulong EditWordBoundaryUnqualifiedComplexScriptPolicy = 8UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_SCRIPT_ITEM_TRANSITION_POLICY.
+    internal const ulong EditWordBoundaryUnqualifiedScriptItemTransitionPolicy = 9UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_INVALID_PARAGRAPH_LEVEL.
+    internal const ulong EditWordBoundaryInvalidParagraphLevel = 10UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_INVALID_BUFFER.
+    internal const ulong EditWordBoundaryInvalidBuffer = 11UL;
+    // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_OUTPUT_TOO_SMALL.
+    internal const ulong EditWordBoundaryOutputTooSmall = 12UL;
     // Native source: PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK.
     internal const ulong EngineGlyphIntrinsicSimdCpuFallback = 1UL;
     // Native source: PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK.
@@ -273,6 +299,16 @@ public partial struct NativeTextLineBreakResult
     public uint ErrorCode;
     public uint Reserved;
     public ulong ScratchBytesUsed;
+}
+
+// Native source: progpu_native_edit_word_boundary_result.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeEditWordBoundaryResult
+{
+    public NativeRendererStatus Status;
+    public NativeEditWordBoundaryError ErrorCode;
+    public uint BoundaryCount;
+    public uint LeadingContentStart;
 }
 
 // Native source: progpu_native_text_bidi_level.

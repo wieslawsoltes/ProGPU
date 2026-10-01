@@ -5,10 +5,16 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_dir="${PROGPU_NATIVE_BUILD_DIR:-${repo_root}/artifacts/progpu-native/build}"
 package_root="${PROGPU_NATIVE_PACKAGE_ROOT:-${repo_root}/artifacts/progpu-native/package}"
 font_manifest=
-if [[ "$#" == 2 && "$1" == --font-manifest ]]; then
-  font_manifest="$2"
-elif [[ "$#" != 0 ]]; then
-  echo "Usage: $0 [--font-manifest absolute-producer-receipt]" >&2
+edit_word_icu_archive=
+while [[ "$#" -ge 2 ]]; do
+  case "$1" in
+    --font-manifest) font_manifest="$2"; shift 2 ;;
+    --edit-word-icu-archive) edit_word_icu_archive="$2"; shift 2 ;;
+    *) break ;;
+  esac
+done
+if [[ "$#" != 0 ]]; then
+  echo "Usage: $0 [--font-manifest absolute-producer-receipt] [--edit-word-icu-archive absolute-pinned-archive]" >&2
   exit 2
 fi
 
@@ -65,6 +71,10 @@ if [[ -n "${font_manifest}" ]]; then
   python3 "${repo_root}/eng/progpu-verify-freetype.py" --manifest "${font_manifest}" --rid "${rid}" \
     --build-directory "${build_dir}" > /dev/null
 fi
+if [[ -n "${edit_word_icu_archive}" || -f "${build_dir}/progpu-native-edit-word-dependency.json" ]]; then
+  python3 "${repo_root}/eng/progpu-edit-word-icu-dependency.py" stage \
+    --source-archive "${edit_word_icu_archive}" --rid "${rid}" --build-directory "${build_dir}"
+fi
 
 destination="${package_root}/runtimes/${rid}/native"
 sdk_destination="${destination}/sdk"
@@ -77,6 +87,11 @@ for sdk_library in "${sdk_libraries[@]}"; do
 done
 if [[ -n "${font_manifest}" ]]; then
   python3 "${repo_root}/eng/progpu-verify-freetype.py" --manifest "${font_manifest}" --rid "${rid}" \
+    --native-destination "${destination}" --build-directory "${build_dir}"
+fi
+if [[ -n "${edit_word_icu_archive}" || -f "${build_dir}/progpu-native-edit-word-dependency.json" ]]; then
+  python3 "${repo_root}/eng/progpu-edit-word-icu-dependency.py" stage \
+    --source-archive "${edit_word_icu_archive}" --rid "${rid}" \
     --native-destination "${destination}" --build-directory "${build_dir}"
 fi
 

@@ -732,6 +732,47 @@ typedef struct progpu_native_text_line_break_result {
     uint64_t scratch_bytes_used;
 } progpu_native_text_line_break_result;
 
+/* Explicit original-source EDIT profile errors, not generic Unicode word stops.
+ * Unsupported contexts remain errors; no partial or fallback inventory exists. */
+enum {
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryNone */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_NONE = 0ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryInvalidEncoding */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_INVALID_ENCODING = 1ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryInputTooLarge */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_INPUT_TOO_LARGE = 2ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryAllocationFailure */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_ALLOCATION_FAILURE = 3ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryDependencyUnavailable */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_DEPENDENCY_UNAVAILABLE = 4ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryDependencyFailure */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_DEPENDENCY_FAILURE = 5ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryUnqualifiedBmpSymbolPolicy */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_BMP_SYMBOL_POLICY = 6ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryUnqualifiedJoinerPolicy */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_JOINER_POLICY = 7ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryUnqualifiedComplexScriptPolicy */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_COMPLEX_SCRIPT_POLICY = 8ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryUnqualifiedScriptItemTransitionPolicy */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_UNQUALIFIED_SCRIPT_ITEM_TRANSITION_POLICY = 9ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryInvalidParagraphLevel */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_INVALID_PARAGRAPH_LEVEL = 10ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryInvalidBuffer */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_INVALID_BUFFER = 11ULL,
+    /* PROGPU_CSHARP_ULONG: EditWordBoundaryOutputTooSmall */
+    PROGPU_NATIVE_EDIT_WORD_BOUNDARY_OUTPUT_TOO_SMALL = 12ULL
+};
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeEditWordBoundaryResult */
+typedef struct progpu_native_edit_word_boundary_result {
+    /* PROGPU_CSHARP_TYPE: NativeRendererStatus */
+    uint32_t status;
+    /* PROGPU_CSHARP_TYPE: NativeEditWordBoundaryError */
+    uint32_t error_code;
+    uint32_t boundary_count;
+    uint32_t leading_content_start;
+} progpu_native_edit_word_boundary_result;
+
 /* PROGPU_CSHARP_STRUCT: Public.NativeTextBidiLevel */
 typedef struct progpu_native_text_bidi_level {
     uint32_t input_index;
@@ -3379,6 +3420,20 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_resolve_line_breaks(
     void* scratch,
     size_t scratch_size,
     progpu_native_text_line_break_result* result);
+
+/* Resolve ONE complete original UTF-16 source with exact paragraph level 0/1.
+ * No font, device, layout, normalization or grapheme snapping is performed.
+ * source_length + 1 positions suffice (one zero for empty source). Classifier
+ * policy/dependency failures and all invalid buffers leave the ENTIRE output
+ * capacity untouched. Successful calls write only boundary_count positions.
+ * Return-by-value metadata cannot alias caller buffers; failure counts are zero.
+ * Input/output pointers are borrowed only during this call; overlapping input
+ * and output capacities, misalignment and address overflow are invalid.
+ * This explicit profile does not declare ordinary Forms provider capability. */
+PROGPU_NATIVE_API progpu_native_edit_word_boundary_result
+progpu_native_text_resolve_edit_word_boundaries_utf16(
+    const uint16_t* source, uint32_t source_length, int32_t paragraph_level,
+    uint32_t* positions, uint32_t position_capacity);
 
 /* Unicode 17 UAX #9 paragraph resolution. requested_paragraph_level accepts
  * -1 for first-strong auto resolution, 0 for LTR, or 1 for RTL. */

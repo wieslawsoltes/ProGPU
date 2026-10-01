@@ -504,9 +504,12 @@ void original_units_and_default_worker_are_independent()
 }
 } // namespace
 
+void run_edit_word_interop_controls();
+
 int main()
 {
     try {
+        run_edit_word_interop_controls();
         concurrent_snapshots_own_independent_outputs();
         original_reference_inventories();
         missing_contracts_are_atomic();

@@ -7,6 +7,8 @@ set(_native "${_repository}/src/ProGPU.Native")
 include("${_native}/cmake/ProGPUEditWordIcu.cmake")
 add_executable(progpu_native_edit_word_boundary_tests
     "${_native}/tests/progpu_native_edit_word_boundary_tests.cpp"
+    "${_native}/tests/progpu_native_edit_word_interop_tests.cpp"
+    "${_native}/src/Text/Interop/progpu_native_edit_word_interop.cpp"
     "${_native}/src/Text/progpu_native_edit_word_boundaries.cpp"
     "${_native}/src/Text/progpu_native_unicode.cpp"
     "${_native}/src/Text/Unicode/progpu_native_unicode_category.cpp"
@@ -15,6 +17,8 @@ add_executable(progpu_native_edit_word_boundary_tests
     "${_native}/src/Text/progpu_native_unicode_grapheme.cpp"
     "${_native}/src/Text/progpu_native_unicode_line_break.cpp")
 target_compile_features(progpu_native_edit_word_boundary_tests PRIVATE cxx_std_20)
+set_target_properties(progpu_native_edit_word_boundary_tests PROPERTIES CXX_EXTENSIONS OFF)
+target_compile_definitions(progpu_native_edit_word_boundary_tests PRIVATE PROGPU_NATIVE_BUILD=1)
 target_include_directories(progpu_native_edit_word_boundary_tests PRIVATE
     "${_native}/include" "${_native}/src/Text")
 target_link_libraries(progpu_native_edit_word_boundary_tests PRIVATE Threads::Threads)

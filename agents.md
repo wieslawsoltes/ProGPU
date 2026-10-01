@@ -1,5 +1,16 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+EDIT boundary transport classifies the complete original UTF-16 source with its
+explicit paragraph direction once. Preserve the existing policy/dependency errors,
+original endpoints and interior-grapheme seams; never substitute UAX word stops,
+trim an unsupported inventory or classify a source-local suffix. Return metadata
+by value and publish caller spans only after full validation/classification,
+including unused-capacity alias guards. Optional ICU uses only the pinned private
+static source/data/notices and target-verified package receipt, never ambient ICU.
+Transport is not a Forms capability marker: the immutable DrawingTextLayout
+generation and actual editor interaction still need to consume the same snapshot.
+See docs/native-edit-word-boundaries.md.
+
 Bounded hinted texture paint retains the original image triangles and paint UVs,
 but evaluates filtered glyph coverage from flat original glyph-frame metadata at
 each fragment. Never extrapolate atlas coordinates to distant image corners,

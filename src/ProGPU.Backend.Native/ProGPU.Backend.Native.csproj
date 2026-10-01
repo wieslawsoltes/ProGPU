@@ -34,12 +34,14 @@
           Pack="true"
           PackagePath="build\native\modules\%(Filename)%(Extension)"
           Visible="false" />
-    <None Include="..\ProGPU.Native\cmake\ProGPUNativeConfig.cmake;..\ProGPU.Native\cmake\ProGPUNativeFontDependency.cmake"
+    <None Include="..\ProGPU.Native\cmake\ProGPUNativeConfig.cmake;..\ProGPU.Native\cmake\ProGPUNativeFontDependency.cmake;..\ProGPU.Native\cmake\ProGPUNativeEditWordDependency.cmake"
           Pack="true"
           PackagePath="build\native\cmake\%(Filename)%(Extension)"
           Visible="false" />
     <None Include="..\..\eng\native-freetype.json" Pack="true"
           PackagePath="build\native\cmake\ProGPUNativeFontPin.json" Visible="false" />
+    <None Include="..\..\eng\native-edit-word-icu.json" Pack="true"
+          PackagePath="build\native\cmake\ProGPUNativeEditWordPin.json" Visible="false" />
   </ItemGroup>
   <Target Name="ValidateProGpuNativePackageRuntimes"
           BeforeTargets="Pack"
@@ -50,14 +52,21 @@
       <ProGpuNativePython Condition="'$(ProGpuNativePython)' == ''">python3</ProGpuNativePython>
       <_ProGpuFontVerifier>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '../../eng/progpu-verify-freetype.py'))</_ProGpuFontVerifier>
       <_ProGpuFontRuntimeRoot>$([MSBuild]::NormalizePath('$(ProGpuNativeRuntimeRoot)'))</_ProGpuFontRuntimeRoot>
+      <_ProGpuEditWordRequiredArg Condition="'$(ProGpuNativeRequireEditWordIcu)' == 'true'">--require</_ProGpuEditWordRequiredArg>
+      <_ProGpuEditWordVerifier>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '../../eng/progpu-edit-word-icu-dependency.py'))</_ProGpuEditWordVerifier>
     </PropertyGroup>
     <ItemGroup>
       <_ProGpuFontAssets Include="$(ProGpuNativeRuntimeRoot)/runtimes/*/native/sdk/progpu-native-font-dependency.json;
                                  $(ProGpuNativeRuntimeRoot)/runtimes/*/native/sdk/*progpu_native_freetype*;
                                  $(ProGpuNativeRuntimeRoot)/runtimes/*/native/licenses/freetype/**/*" />
+      <_ProGpuEditWordAssets Include="$(ProGpuNativeRuntimeRoot)/runtimes/*/native/sdk/progpu-native-edit-word-dependency.json;
+                                     $(ProGpuNativeRuntimeRoot)/runtimes/*/native/sdk/*progpu_native_edit_icu*;
+                                     $(ProGpuNativeRuntimeRoot)/runtimes/*/native/licenses/edit-word-icu/**/*" />
     </ItemGroup>
     <Exec Condition="'$(ProGpuNativeRequireFontHinting)' == 'true' or '@(_ProGpuFontAssets)' != ''"
           Command="&quot;$(ProGpuNativePython)&quot; &quot;$(_ProGpuFontVerifier)&quot; --package-root &quot;$(_ProGpuFontRuntimeRoot)&quot; $(_ProGpuFontRequiredArg)" />
+    <Exec Condition="'$(ProGpuNativeRequireEditWordIcu)' == 'true' or '@(_ProGpuEditWordAssets)' != ''"
+          Command="&quot;$(ProGpuNativePython)&quot; &quot;$(_ProGpuEditWordVerifier)&quot; verify-package --package-root &quot;$(_ProGpuFontRuntimeRoot)&quot; $(_ProGpuEditWordRequiredArg)" />
     <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\linux-x64\native\libprogpu_native.so')"
            Text="The linux-x64 ProGPU native runtime has not been staged." />
     <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\linux-arm64\native\libprogpu_native.so')"
