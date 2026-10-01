@@ -130,10 +130,12 @@ the exact mapped image, resolved runtime compiler or successful adapter/device
 creation. The repository's separate `710c33013c53ab2700d332c25ff51430251a8cc4`
 pin remains a distinct repository-build input, not this package's native revision.
 
-The two verified ZIPs and six extracted files remain only in
-`/tmp/progpu-original-dawn-release.0OikroAI` (31,520,408 total file bytes).
-No package-cache, system or product binary was overwritten, and no downloaded
-code or binary was executed.
+Temporary ZIP and duplicate DLL copies were removed after the static receipt
+capture, recovering 30,740,038 file bytes. The original generated headers and
+architecture-specific import libraries remain for the exact-header companion;
+the verified original release remains their recoverable source. No package-cache,
+system or product binary was overwritten, and no downloaded code or binary was
+executed.
 
 ## Pinned-source admission and next capability
 
