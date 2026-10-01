@@ -14,6 +14,7 @@ typedef struct progpu_native_hinted_batch progpu_native_hinted_batch;
 typedef struct progpu_native_hinted_run progpu_native_hinted_run;
 typedef struct progpu_native_hinted_paragraph progpu_native_hinted_paragraph;
 typedef struct progpu_native_hinted_paragraph_frame progpu_native_hinted_paragraph_frame;
+typedef struct progpu_native_hinted_glyph_resource progpu_native_hinted_glyph_resource;
 
 /* PROGPU_CSHARP_STRUCT: NativeMethods.HintedFontRequest */
 typedef struct progpu_native_hinted_font_request {
@@ -257,7 +258,10 @@ typedef enum progpu_native_hinted_projection_policy {
 } progpu_native_hinted_projection_policy;
 typedef enum progpu_native_hinted_outline_coverage {
     PROGPU_NATIVE_HINTED_COVERAGE_STRICT = 0,
-    PROGPU_NATIVE_HINTED_COVERAGE_NONZERO_VECTOR = 1
+    PROGPU_NATIVE_HINTED_COVERAGE_NONZERO_VECTOR = 1,
+    /* Nonzero antialiased vector coverage retains B/W dropout metadata without
+     * executing FreeType scan conversion. Existing coverage policies stay exact. */
+    PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR = 2
 } progpu_native_hinted_outline_coverage;
 
 /* The view remains borrowed under the ORIGINAL selected renderer contract.
@@ -277,6 +281,188 @@ typedef struct progpu_native_hinted_paragraph_frame_request {
     uint32_t coverage;
     uint32_t reserved;
 } progpu_native_hinted_paragraph_frame_request;
+
+/* Target-independent preparation over the original formatted generation.
+ * No view, clear color, paint or source origin is fabricated for this resource. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.HintedGlyphResourceRequest */
+typedef struct progpu_native_hinted_glyph_resource_request {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    float dpi_scale;
+    uint32_t projection_policy;
+    uint32_t coverage;
+    uint32_t reserved;
+} progpu_native_hinted_glyph_resource_request;
+
+/* Offsets address the one original-byte arena, never a parsed table or name. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedGlyphFontSource */
+typedef struct progpu_native_hinted_glyph_font_source {
+    uint32_t byte_offset;
+    uint32_t byte_count;
+    uint32_t face_index;
+    uint32_t units_per_em;
+} progpu_native_hinted_glyph_font_source;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedGlyphRunSlice */
+typedef struct progpu_native_hinted_glyph_run_slice {
+    uint32_t source_start;
+    uint32_t source_count;
+    uint32_t run_start;
+    uint32_t run_count;
+    uint32_t outline_start;
+    uint32_t outline_count;
+    uint32_t segment_start;
+    uint32_t segment_count;
+} progpu_native_hinted_glyph_run_slice;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedGlyphOutlineOwner */
+typedef struct progpu_native_hinted_glyph_outline_owner {
+    uint32_t run_index;
+    uint32_t descriptor_index;
+} progpu_native_hinted_glyph_outline_owner;
+
+/* A read-only flat borrow held by an ORIGINAL producer-library lifetime lease
+ * excluding destruction. Immutable cached records admit concurrent readers.
+ * A renderer receives only these records, never the producer's opaque handle.
+ * Counts declare readable spans; paragraph counts size the original-format
+ * arrays below. Every positioned occurrence, including UINT32_MAX no-ink,
+ * survives. All pointers retire with the resource, not its source context.
+ * This is a synchronous CPU import contract, not source Display admission. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.HintedGlyphResourceView */
+typedef struct progpu_native_hinted_glyph_resource_view {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    float dpi_scale;
+    uint32_t projection_policy;
+    uint32_t coverage;
+    uint32_t source_digit_bidi;
+    int32_t paragraph_level;
+    uint32_t shaping_direction;
+    uint32_t shaping_flags;
+    /* PROGPU_CSHARP_TYPE: NativeHintedParagraphCounts */
+    progpu_native_hinted_paragraph_counts counts;
+    /* PROGPU_CSHARP_TYPE: NativeTextParagraphResult */
+    progpu_native_text_paragraph_result result;
+    /* PROGPU_CSHARP_TYPE: NativeTextLayoutOptions */
+    progpu_native_text_layout_options layout;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_hinted_glyph_font_source* font_sources;
+    uint32_t font_source_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const uint8_t* font_bytes;
+    uint32_t font_byte_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_hinted_paragraph_device_style* device_styles;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const int32_t* variation_coordinates_16_16;
+    uint32_t variation_coordinate_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const int16_t* normalized_coordinates;
+    uint32_t normalized_coordinate_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_glyph_outline* outlines;
+    uint32_t outline_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_path_segment* segments;
+    uint32_t segment_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_hinted_glyph_run_slice* run_slices;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const uint32_t* source_outline_indices;
+    uint32_t source_outline_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const uint32_t* run_outline_indices;
+    uint32_t run_outline_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_hinted_glyph_outline_owner* outline_owners;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const uint32_t* positioned_outline_indices;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_scalar* source_scalars;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_scalar* admitted_scalars;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_bidi_level* scalar_levels;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_style_run* styles;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_style_metrics* source_metrics;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_hinted_paragraph_run* runs;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_shaping_glyph* logical_glyphs;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_hinted_paragraph_glyph_owner* logical_owners;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const int32_t* logical_cluster_ends;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const int8_t* logical_bidi_levels;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const float* glyph_scales;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_positioned_text_glyph* positioned_glyphs;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_hinted_paragraph_glyph_owner* positioned_owners;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const int32_t* positioned_cluster_ends;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const int8_t* positioned_bidi_levels;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_positioned_text_line* lines;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const float* line_origins;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_cluster_box* boxes;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_caret_stop* carets;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_scalar* pre_context;
+    uint32_t pre_context_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_scalar* post_context;
+    uint32_t post_context_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_feature* features;
+    uint32_t feature_count;
+} progpu_native_hinted_glyph_resource_view;
+
+/* One binding selects explicit original occurrences, not glyph IDs or phases.
+ * Only the identity basis and exact source-provided ink bounds are admitted. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeMilHintedGlyphBinding */
+typedef struct progpu_native_mil_hinted_glyph_binding {
+    uint32_t glyph_run_handle;
+    uint32_t resource_index;
+    uint32_t font_index;
+    uint32_t positioned_index_start;
+    uint32_t positioned_index_count;
+    uint32_t reserved;
+    progpu_native_point logical_origin;
+    /* PROGPU_CSHARP_TYPE: Matrix3x2 */
+    progpu_native_affine_2d basis;
+} progpu_native_mil_hinted_glyph_binding;
+
+/* Preparation and borrowing touch only the producer library. The resource
+ * retains original geometry, format, interaction and bytes independently of
+ * the paragraph/context. Publication is atomic and rejects reachable aliases. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_paragraph_prepare_glyph_resource(
+    const progpu_native_hinted_paragraph* paragraph,
+    const progpu_native_hinted_glyph_resource_request* request,
+    progpu_native_hinted_glyph_resource** resource);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_glyph_resource_borrow(
+    const progpu_native_hinted_glyph_resource* resource,
+    progpu_native_hinted_glyph_resource_view* view);
+PROGPU_NATIVE_API void progpu_native_hinted_glyph_resource_destroy(progpu_native_hinted_glyph_resource* resource);
+
+/* Canonical commands, flat resource imports and all bindings form ONE staged
+ * update. Any later invalid record preserves prior graph/cache/metrics. No
+ * producer handle crosses providers, no per-glyph native calls are required,
+ * and there is no external output buffer to alias immutable input storage. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_mil_channel_apply_with_hinted_glyph_resources(
+    progpu_native_mil_channel* channel,
+    const uint8_t* batch_bytes, size_t batch_size,
+    const progpu_native_hinted_glyph_resource_view* resources, uint32_t resource_count,
+    const progpu_native_mil_hinted_glyph_binding* bindings, uint32_t binding_count,
+    const uint32_t* positioned_indices, uint32_t positioned_index_count);
 
 /* Borrow one exclusive live context lease. Source metrics/device styles have
  * exactly style_count entries; device_style_count must equal style_count.
