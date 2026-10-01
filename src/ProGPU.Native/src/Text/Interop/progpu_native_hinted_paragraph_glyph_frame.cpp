@@ -40,7 +40,7 @@ bool same_logical_glyph(const shaping_glyph& logical, const shaping_glyph& origi
 }
 
 bool valid_paragraph(const hinted_paragraph_generation& paragraph,
-    const hinted_paragraph_glyph_target& target) noexcept {
+    progpu_native_point logical_origin) noexcept {
     const auto logical_count = paragraph.logical_glyphs.size();
     const auto positioned_count = paragraph.glyphs.size();
     const auto scalar_count = paragraph.source_input.size();
@@ -169,7 +169,7 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
             paragraph.cluster_ends[i] != paragraph.logical_cluster_ends[logical] || paragraph.bidi_levels[i] < 0 || paragraph.bidi_levels[i] > 125 ||
             !std::isfinite(glyph.x) || !std::isfinite(glyph.y) || !std::isfinite(glyph.advance_x) || !std::isfinite(glyph.advance_y) ||
             !finite(progpu_native_point{glyph.x + glyph.advance_x, glyph.y + glyph.advance_y}) ||
-            !finite(progpu_native_point{glyph.x + target.logical_origin.x, glyph.y + target.logical_origin.y})) return false;
+            !finite(progpu_native_point{glyph.x + logical_origin.x, glyph.y + logical_origin.y})) return false;
     }
     std::size_t covered = 0U;
     for (std::size_t i = 0U; i < paragraph.lines.size(); ++i) {
@@ -195,52 +195,53 @@ progpu_native_status outline_status(hinted_outline_error error) noexcept {
 }
 } // namespace
 
+bool hinted_paragraph_glyph_resource::allocation_aliases(const void* output, std::size_t bytes) const noexcept {
+    const owned_output_range range{output, bytes};
+    return range.overlaps(this, sizeof(*this)) || range.overlaps(outlines_) || range.overlaps(segments_) ||
+        range.overlaps(run_slices_) || range.overlaps(source_outline_indices_) ||
+        range.overlaps(run_outline_indices_) || range.overlaps(outline_owners_) ||
+        range.overlaps(positioned_outline_indices_) || range.overlaps(positioned_owners_);
+}
+
 bool hinted_paragraph_glyph_frame::allocation_aliases(const void* output, std::size_t bytes) const noexcept {
     const owned_output_range range{output, bytes};
     return range.overlaps(this, sizeof(*this)) || range.overlaps(style_colors_) ||
-        range.overlaps(outlines_) || range.overlaps(segments_) || range.overlaps(glyphs_) ||
-        range.overlaps(run_slices_) || range.overlaps(source_outline_indices_) ||
-        range.overlaps(run_outline_indices_) || range.overlaps(outline_owners_) || range.overlaps(draw_owners_);
+        range.overlaps(glyphs_) || range.overlaps(draw_owners_) || resource_->allocation_aliases(output, bytes);
 }
 
 progpu_native_glyph_frame hinted_paragraph_glyph_frame::frame() const noexcept {
     progpu_native_glyph_frame result{};
     result.struct_size = sizeof(result); result.width = target_.width; result.height = target_.height;
     result.dpi_scale = target_.dpi_scale; result.target_view = target_.target_view; result.clear_color = target_.clear_color;
-    result.outlines = outlines_.data(); result.outline_count = outlines_.size();
-    result.segments = segments_.data(); result.segment_count = segments_.size();
+    result.outlines = outlines().data(); result.outline_count = outlines().size();
+    result.segments = segments().data(); result.segment_count = segments().size();
     result.glyphs = glyphs_.data(); result.glyph_count = glyphs_.size();
     return result; // No synthetic draw state, revision, transforms or policy bits.
 }
 
-hinted_paragraph_glyph_frame_result create_hinted_paragraph_glyph_frame(
-    std::shared_ptr<const hinted_paragraph_generation> paragraph,
-    hinted_paragraph_glyph_target target, std::span<const progpu_native_color> style_colors,
+hinted_paragraph_glyph_resource_result create_hinted_paragraph_glyph_resource(
+    std::shared_ptr<const hinted_paragraph_generation> paragraph, float dpi_scale,
     hinted_projection_policy policy, hinted_outline_coverage coverage) noexcept {
-    hinted_paragraph_glyph_frame_result result{};
+    hinted_paragraph_glyph_resource_result result{};
     const auto fail = [&](hinted_glyph_frame_error_code code, progpu_native_status status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
         hinted_outline_error outline = hinted_outline_error::none) noexcept {
         result.status = status; result.error = {code, outline}; return result;
     };
     try {
-        if (paragraph == nullptr || style_colors.size() != paragraph->styles.size() || !valid_colors(style_colors) ||
-            target.width == 0U || target.height == 0U || target.target_view == 0U ||
-            !std::isfinite(target.dpi_scale) || target.dpi_scale <= 0.0F || !finite(target.logical_origin) || !finite(target.clear_color))
+        if (paragraph == nullptr || !std::isfinite(dpi_scale) || dpi_scale <= 0.0F)
             return fail(hinted_glyph_frame_error_code::invalid_argument);
         if ((coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector) ||
             (policy != hinted_projection_policy::automatic && policy != hinted_projection_policy::intrinsic_simd &&
                 policy != hinted_projection_policy::scalar_reference))
             return fail(hinted_glyph_frame_error_code::outline_conversion_failed, PROGPU_NATIVE_STATUS_UNSUPPORTED,
                 hinted_outline_error::unsupported_policy);
-        const float units = 1.0F / target.dpi_scale;
-        const float width = static_cast<float>(target.width) / target.dpi_scale, height = static_cast<float>(target.height) / target.dpi_scale;
-        if (!std::isfinite(units) || units <= 0.0F || !std::isfinite(width) || width <= 0.0F ||
-            !std::isfinite(height) || height <= 0.0F || !std::isfinite(2.0F / width) || !std::isfinite(2.0F / height))
+        const float units = 1.0F / dpi_scale;
+        if (!std::isfinite(units) || units <= 0.0F)
             return fail(hinted_glyph_frame_error_code::unsupported_mapping, PROGPU_NATIVE_STATUS_UNSUPPORTED);
         if (paragraph->runs.size() > maximum_slots || paragraph->logical_glyphs.size() > maximum_slots ||
             paragraph->glyphs.size() > maximum_slots || paragraph->source_input.size() > maximum_slots)
             return fail(hinted_glyph_frame_error_code::insufficient_capacity);
-        if (!valid_paragraph(*paragraph, target)) return fail(hinted_glyph_frame_error_code::invalid_layout);
+        if (!valid_paragraph(*paragraph, {})) return fail(hinted_glyph_frame_error_code::invalid_layout);
         std::vector<hinted_outline_requirements> requirements(paragraph->runs.size());
         std::size_t source_count = 0U, run_count = 0U, outline_count = 0U, segment_count = 0U, scratch_count = 0U;
         for (std::size_t i = 0U; i < paragraph->runs.size(); ++i) {
@@ -252,10 +253,9 @@ hinted_paragraph_glyph_frame_result create_hinted_paragraph_glyph_frame(
                 return fail(hinted_glyph_frame_error_code::insufficient_capacity);
             scratch_count = std::max(scratch_count, needed.scratch_points);
         }
-        auto candidate = std::shared_ptr<hinted_paragraph_glyph_frame>(new hinted_paragraph_glyph_frame{});
-        candidate->paragraph_ = std::move(paragraph); candidate->target_ = target;
+        auto candidate = std::shared_ptr<hinted_paragraph_glyph_resource>(new hinted_paragraph_glyph_resource{});
+        candidate->paragraph_ = std::move(paragraph); candidate->dpi_scale_ = dpi_scale;
         candidate->coverage_ = coverage; candidate->projection_policy_ = policy;
-        candidate->style_colors_.assign(style_colors.begin(), style_colors.end());
         candidate->outlines_.resize(outline_count); candidate->segments_.resize(segment_count);
         candidate->source_outline_indices_.resize(source_count); candidate->run_outline_indices_.resize(run_count);
         candidate->outline_owners_.resize(outline_count); candidate->run_slices_.reserve(requirements.size());
@@ -295,22 +295,83 @@ hinted_paragraph_glyph_frame_result create_hinted_paragraph_glyph_frame(
             source_start += needed.source_slots; run_start += needed.positioned_slots;
             outline_start += needed.outlines; segment_start += needed.segments;
         }
-        candidate->glyphs_.reserve(candidate->paragraph_->glyphs.size()); candidate->draw_owners_.reserve(candidate->paragraph_->glyphs.size());
+        candidate->positioned_outline_indices_.reserve(candidate->paragraph_->glyphs.size());
+        candidate->positioned_owners_.reserve(candidate->paragraph_->glyphs.size());
         for (std::size_t i = 0U; i < candidate->paragraph_->glyphs.size(); ++i) {
             const auto& glyph = candidate->paragraph_->glyphs[i];
             const auto owner = candidate->paragraph_->positioned_owners[i];
             const auto& run = candidate->paragraph_->runs[owner.run_index];
             const auto& slice = candidate->run_slices_[owner.run_index];
             const auto outline = candidate->source_outline_indices_[slice.source_start + owner.descriptor_index];
-            if (run.logical_units_per_physical_pixel != units || run.logical_units_per_physical_pixel * target.dpi_scale != 1.0F)
+            if (run.logical_units_per_physical_pixel != units || run.logical_units_per_physical_pixel * dpi_scale != 1.0F)
                 return fail(hinted_glyph_frame_error_code::unsupported_mapping, PROGPU_NATIVE_STATUS_UNSUPPORTED);
-            if (outline == hinted_no_outline) continue;
             if (candidate->run_outline_indices_[slice.run_start + owner.run_glyph_index] != outline)
                 return fail(hinted_glyph_frame_error_code::invalid_layout);
-            candidate->glyphs_.push_back({outline, 0U, {glyph.x + target.logical_origin.x, glyph.y + target.logical_origin.y},
-                {1.0F, 0.0F}, {0.0F, 1.0F}, candidate->style_colors_[run.style_index], 1.0F, 0.0F, 0.0F, 0.0F});
-            candidate->draw_owners_.push_back({static_cast<std::uint32_t>(i), glyph.glyph_index,
+            candidate->positioned_outline_indices_.push_back(outline);
+            candidate->positioned_owners_.push_back({static_cast<std::uint32_t>(i), glyph.glyph_index,
                 owner.run_index, owner.run_glyph_index, owner.descriptor_index, run.font_index, run.style_index});
+        }
+        result.status = PROGPU_NATIVE_STATUS_SUCCESS; result.error = {}; result.generation = std::move(candidate);
+    } catch (const std::bad_alloc&) {
+        return fail(hinted_glyph_frame_error_code::resource_exhausted, PROGPU_NATIVE_STATUS_OUT_OF_MEMORY);
+    } catch (...) {
+        return fail(hinted_glyph_frame_error_code::invalid_argument, PROGPU_NATIVE_STATUS_INTERNAL_ERROR);
+    }
+    return result;
+}
+
+hinted_paragraph_glyph_frame_result create_hinted_paragraph_glyph_frame(
+    std::shared_ptr<const hinted_paragraph_generation> paragraph,
+    hinted_paragraph_glyph_target target, std::span<const progpu_native_color> style_colors,
+    hinted_projection_policy policy, hinted_outline_coverage coverage) noexcept {
+    hinted_paragraph_glyph_frame_result result{};
+    const auto fail = [&](hinted_glyph_frame_error_code code, progpu_native_status status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        hinted_outline_error outline = hinted_outline_error::none) noexcept {
+        result.status = status; result.error = {code, outline}; return result;
+    };
+    try {
+        // Preserve the original frame's target/color, policy, projection and
+        // layout validation order before acquiring the reusable geometry owner.
+        if (paragraph == nullptr || style_colors.size() != paragraph->styles.size() || !valid_colors(style_colors) ||
+            target.width == 0U || target.height == 0U || target.target_view == 0U ||
+            !std::isfinite(target.dpi_scale) || target.dpi_scale <= 0.0F || !finite(target.logical_origin) || !finite(target.clear_color))
+            return fail(hinted_glyph_frame_error_code::invalid_argument);
+        if ((coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector) ||
+            (policy != hinted_projection_policy::automatic && policy != hinted_projection_policy::intrinsic_simd &&
+                policy != hinted_projection_policy::scalar_reference))
+            return fail(hinted_glyph_frame_error_code::outline_conversion_failed, PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                hinted_outline_error::unsupported_policy);
+        const float units = 1.0F / target.dpi_scale;
+        const float width = static_cast<float>(target.width) / target.dpi_scale, height = static_cast<float>(target.height) / target.dpi_scale;
+        if (!std::isfinite(units) || units <= 0.0F || !std::isfinite(width) || width <= 0.0F ||
+            !std::isfinite(height) || height <= 0.0F || !std::isfinite(2.0F / width) || !std::isfinite(2.0F / height))
+            return fail(hinted_glyph_frame_error_code::unsupported_mapping, PROGPU_NATIVE_STATUS_UNSUPPORTED);
+        if (paragraph->runs.size() > maximum_slots || paragraph->logical_glyphs.size() > maximum_slots ||
+            paragraph->glyphs.size() > maximum_slots || paragraph->source_input.size() > maximum_slots)
+            return fail(hinted_glyph_frame_error_code::insufficient_capacity);
+        // The resource validates the full original generation once. Check only
+        // the frame-dependent additions here, before any outline conversion,
+        // retaining the original invalid-layout failure for origin overflow.
+        for (const auto& glyph : paragraph->glyphs)
+            if (!finite(progpu_native_point{glyph.x + target.logical_origin.x, glyph.y + target.logical_origin.y}))
+                return fail(hinted_glyph_frame_error_code::invalid_layout);
+        const auto geometry = create_hinted_paragraph_glyph_resource(std::move(paragraph), target.dpi_scale, policy, coverage);
+        if (geometry.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            result.status = geometry.status; result.error = geometry.error; return result;
+        }
+        auto candidate = std::shared_ptr<hinted_paragraph_glyph_frame>(new hinted_paragraph_glyph_frame{});
+        candidate->resource_ = geometry.generation; candidate->target_ = target;
+        candidate->style_colors_.assign(style_colors.begin(), style_colors.end());
+        const auto& original = *candidate->paragraph();
+        candidate->glyphs_.reserve(original.glyphs.size()); candidate->draw_owners_.reserve(original.glyphs.size());
+        for (std::size_t i = 0U; i < original.glyphs.size(); ++i) {
+            const auto outline = candidate->resource_->positioned_outline_indices()[i];
+            if (outline == hinted_no_outline) continue;
+            const auto& glyph = original.glyphs[i];
+            const auto owner = candidate->resource_->positioned_owners()[i];
+            candidate->glyphs_.push_back({outline, 0U, {glyph.x + target.logical_origin.x, glyph.y + target.logical_origin.y},
+                {1.0F, 0.0F}, {0.0F, 1.0F}, candidate->style_colors_[owner.style_index], 1.0F, 0.0F, 0.0F, 0.0F});
+            candidate->draw_owners_.push_back(owner);
         }
         result.status = PROGPU_NATIVE_STATUS_SUCCESS; result.error = {}; result.generation = std::move(candidate);
     } catch (const std::bad_alloc&) {

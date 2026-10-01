@@ -33,26 +33,79 @@ struct hinted_paragraph_run_outline_slice final {
     bool operator==(const hinted_paragraph_run_outline_slice&) const = default;
 };
 
+struct hinted_paragraph_glyph_resource_result;
+
+// Target-independent geometry from one original formatted generation. Every
+// positioned occurrence keeps its own owner and explicit no-ink mapping; colors,
+// render targets and source scopes belong to consumers, not this resource.
+class hinted_paragraph_glyph_resource final {
+public:
+    hinted_paragraph_glyph_resource(const hinted_paragraph_glyph_resource&) = delete;
+    hinted_paragraph_glyph_resource& operator=(const hinted_paragraph_glyph_resource&) = delete;
+    const std::shared_ptr<const hinted_paragraph_generation>& paragraph() const noexcept { return paragraph_; }
+    float dpi_scale() const noexcept { return dpi_scale_; }
+    hinted_outline_coverage coverage() const noexcept { return coverage_; }
+    hinted_projection_policy projection_policy() const noexcept { return projection_policy_; }
+    std::span<const progpu_native_glyph_outline> outlines() const noexcept { return outlines_; }
+    std::span<const progpu_native_path_segment> segments() const noexcept { return segments_; }
+    std::span<const hinted_paragraph_run_outline_slice> run_slices() const noexcept { return run_slices_; }
+    std::span<const std::uint32_t> source_outline_indices() const noexcept { return source_outline_indices_; }
+    std::span<const std::uint32_t> run_outline_indices() const noexcept { return run_outline_indices_; }
+    std::span<const hinted_paragraph_outline_owner> outline_owners() const noexcept { return outline_owners_; }
+    std::span<const std::uint32_t> positioned_outline_indices() const noexcept { return positioned_outline_indices_; }
+    std::span<const hinted_paragraph_draw_owner> positioned_owners() const noexcept { return positioned_owners_; }
+    // Local object/vector capacities. The original paragraph's complete reachable
+    // allocations remain covered by the existing paragraph ownership walk.
+    bool allocation_aliases(const void* output, std::size_t bytes) const noexcept;
+private:
+    hinted_paragraph_glyph_resource() = default;
+    std::shared_ptr<const hinted_paragraph_generation> paragraph_{};
+    float dpi_scale_ = 0.0F;
+    hinted_outline_coverage coverage_ = hinted_outline_coverage::strict;
+    hinted_projection_policy projection_policy_ = hinted_projection_policy::automatic;
+    std::vector<progpu_native_glyph_outline> outlines_{};
+    std::vector<progpu_native_path_segment> segments_{};
+    std::vector<hinted_paragraph_run_outline_slice> run_slices_{};
+    std::vector<std::uint32_t> source_outline_indices_{}, run_outline_indices_{}, positioned_outline_indices_{};
+    std::vector<hinted_paragraph_outline_owner> outline_owners_{};
+    std::vector<hinted_paragraph_draw_owner> positioned_owners_{};
+    friend hinted_paragraph_glyph_resource_result create_hinted_paragraph_glyph_resource(
+        std::shared_ptr<const hinted_paragraph_generation>, float,
+        hinted_projection_policy, hinted_outline_coverage) noexcept;
+};
+
+struct hinted_paragraph_glyph_resource_result final {
+    progpu_native_status status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    hinted_glyph_frame_error error{hinted_glyph_frame_error_code::invalid_argument, hinted_outline_error::none};
+    std::shared_ptr<const hinted_paragraph_glyph_resource> generation{};
+};
+
+hinted_paragraph_glyph_resource_result create_hinted_paragraph_glyph_resource(
+    std::shared_ptr<const hinted_paragraph_generation> paragraph, float dpi_scale,
+    hinted_projection_policy policy = hinted_projection_policy::automatic,
+    hinted_outline_coverage coverage = hinted_outline_coverage::strict) noexcept;
+
 struct hinted_paragraph_glyph_frame_result;
 
 class hinted_paragraph_glyph_frame final {
 public:
     hinted_paragraph_glyph_frame(const hinted_paragraph_glyph_frame&) = delete;
     hinted_paragraph_glyph_frame& operator=(const hinted_paragraph_glyph_frame&) = delete;
-    const std::shared_ptr<const hinted_paragraph_generation>& paragraph() const noexcept { return paragraph_; }
+    const std::shared_ptr<const hinted_paragraph_generation>& paragraph() const noexcept { return resource_->paragraph(); }
+    const std::shared_ptr<const hinted_paragraph_glyph_resource>& resource() const noexcept { return resource_; }
     const hinted_paragraph_glyph_target& target() const noexcept { return target_; }
-    hinted_outline_coverage coverage() const noexcept { return coverage_; }
-    hinted_projection_policy projection_policy() const noexcept { return projection_policy_; }
+    hinted_outline_coverage coverage() const noexcept { return resource_->coverage(); }
+    hinted_projection_policy projection_policy() const noexcept { return resource_->projection_policy(); }
     std::span<const progpu_native_color> style_colors() const noexcept { return style_colors_; }
-    std::span<const progpu_native_glyph_outline> outlines() const noexcept { return outlines_; }
-    std::span<const progpu_native_path_segment> segments() const noexcept { return segments_; }
+    std::span<const progpu_native_glyph_outline> outlines() const noexcept { return resource_->outlines(); }
+    std::span<const progpu_native_path_segment> segments() const noexcept { return resource_->segments(); }
     std::span<const progpu_native_positioned_glyph> glyphs() const noexcept { return glyphs_; }
-    std::span<const hinted_paragraph_run_outline_slice> run_slices() const noexcept { return run_slices_; }
+    std::span<const hinted_paragraph_run_outline_slice> run_slices() const noexcept { return resource_->run_slices(); }
     // Global outline slots; no-ink remains hinted_no_outline. Source slices
     // include every source descriptor, but never auxiliary capture descriptors.
-    std::span<const std::uint32_t> source_outline_indices() const noexcept { return source_outline_indices_; }
-    std::span<const std::uint32_t> run_outline_indices() const noexcept { return run_outline_indices_; }
-    std::span<const hinted_paragraph_outline_owner> outline_owners() const noexcept { return outline_owners_; }
+    std::span<const std::uint32_t> source_outline_indices() const noexcept { return resource_->source_outline_indices(); }
+    std::span<const std::uint32_t> run_outline_indices() const noexcept { return resource_->run_outline_indices(); }
+    std::span<const hinted_paragraph_outline_owner> outline_owners() const noexcept { return resource_->outline_owners(); }
     std::span<const hinted_paragraph_draw_owner> draw_owners() const noexcept { return draw_owners_; }
     // Complete local allocation capacities, not merely public used spans.
     // Caller separately checks the reachable paragraph/run/source owners.
@@ -63,17 +116,10 @@ public:
 
 private:
     hinted_paragraph_glyph_frame() = default;
-    std::shared_ptr<const hinted_paragraph_generation> paragraph_{};
+    std::shared_ptr<const hinted_paragraph_glyph_resource> resource_{};
     hinted_paragraph_glyph_target target_{};
-    hinted_outline_coverage coverage_ = hinted_outline_coverage::strict;
-    hinted_projection_policy projection_policy_ = hinted_projection_policy::automatic;
     std::vector<progpu_native_color> style_colors_{};
-    std::vector<progpu_native_glyph_outline> outlines_{};
-    std::vector<progpu_native_path_segment> segments_{};
     std::vector<progpu_native_positioned_glyph> glyphs_{};
-    std::vector<hinted_paragraph_run_outline_slice> run_slices_{};
-    std::vector<std::uint32_t> source_outline_indices_{}, run_outline_indices_{};
-    std::vector<hinted_paragraph_outline_owner> outline_owners_{};
     std::vector<hinted_paragraph_draw_owner> draw_owners_{};
     friend hinted_paragraph_glyph_frame_result create_hinted_paragraph_glyph_frame(
         std::shared_ptr<const hinted_paragraph_generation>, hinted_paragraph_glyph_target,

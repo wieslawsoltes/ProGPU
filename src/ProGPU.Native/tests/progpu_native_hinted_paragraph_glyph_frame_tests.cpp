@@ -19,6 +19,7 @@
 namespace {
 using namespace progpu::native::text;
 static_assert(!std::is_copy_constructible_v<hinted_paragraph_generation> &&
+    !std::is_copy_constructible_v<hinted_paragraph_glyph_resource> &&
     !std::is_copy_constructible_v<hinted_paragraph_glyph_frame>);
 
 void require(bool value, std::source_location at = std::source_location::current()) {
@@ -126,6 +127,16 @@ std::shared_ptr<const hinted_paragraph_glyph_frame> pack(std::shared_ptr<const h
     return result.generation;
 }
 
+std::shared_ptr<const hinted_paragraph_glyph_resource> geometry(
+    std::shared_ptr<const hinted_paragraph_generation> paragraph, float dpi,
+    hinted_projection_policy policy = hinted_projection_policy::scalar_reference) {
+    const auto result = create_hinted_paragraph_glyph_resource(std::move(paragraph), dpi,
+        policy, hinted_outline_coverage::nonzero_vector);
+    require(result.status == PROGPU_NATIVE_STATUS_SUCCESS && result.error == hinted_glyph_frame_error{} && result.generation != nullptr);
+    require(result.generation->dpi_scale() == dpi && result.generation->projection_policy() == policy);
+    return result.generation;
+}
+
 progpu_native_point physical(hinted_outline_point point) {
     return {static_cast<float>(point.x_26_6) / 64.0F, static_cast<float>(point.y_26_6) / 64.0F};
 }
@@ -140,12 +151,35 @@ template<class T> bool bytes_equal(std::span<const T> a, std::span<const T> b) {
     return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size_bytes()) == 0);
 }
 
+template<class T> bool values_equal(std::span<const T> a, std::span<const T> b) {
+    return std::equal(a.begin(), a.end(), b.begin(), b.end());
+}
+
+void verify_same_geometry(const hinted_paragraph_glyph_resource& reference,
+    const hinted_paragraph_glyph_resource& other) {
+    require(reference.paragraph() == other.paragraph() && reference.dpi_scale() == other.dpi_scale());
+    require(reference.coverage() == other.coverage());
+    require(bytes_equal(reference.outlines(), other.outlines()) && bytes_equal(reference.segments(), other.segments()));
+    require(values_equal(reference.run_slices(), other.run_slices()));
+    require(values_equal(reference.source_outline_indices(), other.source_outline_indices()));
+    require(values_equal(reference.run_outline_indices(), other.run_outline_indices()));
+    require(values_equal(reference.outline_owners(), other.outline_owners()));
+    require(values_equal(reference.positioned_outline_indices(), other.positioned_outline_indices()));
+    require(values_equal(reference.positioned_owners(), other.positioned_owners()));
+}
+
 // Independent authored-font reference: four ON points, exactly four straight
 // edges including explicit closure. No product converter/counting helper is
 // used to construct this expected topology, bounds, source maps or draw records.
 void verify_unpacked(const hinted_paragraph_glyph_frame& packed) {
     const auto& paragraph = *packed.paragraph();
     const auto request = packed.target();
+    const auto& resource = *packed.resource();
+    require(resource.paragraph() == packed.paragraph() && resource.dpi_scale() == request.dpi_scale);
+    require(resource.coverage() == packed.coverage() && resource.projection_policy() == packed.projection_policy());
+    require(resource.outlines().data() == packed.outlines().data() && resource.segments().data() == packed.segments().data());
+    require(resource.positioned_outline_indices().size() == paragraph.glyphs.size());
+    require(resource.positioned_owners().size() == paragraph.glyphs.size());
     require(packed.coverage() == hinted_outline_coverage::nonzero_vector);
     require(packed.style_colors().size() == paragraph.styles.size());
     require(packed.run_slices().size() == paragraph.runs.size());
@@ -185,6 +219,11 @@ void verify_unpacked(const hinted_paragraph_glyph_frame& packed) {
             require(packed.source_outline_indices()[source_start + d] == global);
             require(packed.outline_owners()[global] == hinted_paragraph_outline_owner{
                 static_cast<std::uint32_t>(r), static_cast<std::uint32_t>(d)});
+            for (std::size_t old = 0U; old < d; ++old) {
+                const auto& previous = run.batch->glyphs[old];
+                if (previous.glyph_index == raw.glyph_index && !previous.points.empty())
+                    require(packed.source_outline_indices()[source_start + old] != global);
+            }
             const auto& outline = packed.outlines()[global];
             auto lo = physical(raw.points[0]), hi = lo;
             for (const auto point : raw.points) {
@@ -226,7 +265,7 @@ void verify_unpacked(const hinted_paragraph_glyph_frame& packed) {
     require(no_ink != 0U);
     require(auxiliary != 0U);
     require(repeated_ids != 0U);
-    std::size_t draw = 0U;
+    std::size_t draw = 0U, positioned_no_ink = 0U;
     for (std::size_t positioned = 0U; positioned < paragraph.glyphs.size(); ++positioned) {
         const auto& original = paragraph.glyphs[positioned];
         const auto owner = paragraph.positioned_owners[positioned];
@@ -235,7 +274,11 @@ void verify_unpacked(const hinted_paragraph_glyph_frame& packed) {
         const auto& slice = packed.run_slices()[owner.run_index];
         require(run.generation->descriptor_indices[owner.run_glyph_index] == owner.descriptor_index);
         const auto outline = packed.source_outline_indices()[slice.source_start + owner.descriptor_index];
-        if (outline == hinted_no_outline) continue;
+        const hinted_paragraph_draw_owner expected_owner{static_cast<std::uint32_t>(positioned),
+            original.glyph_index, owner.run_index, owner.run_glyph_index, owner.descriptor_index, run.font_index, run.style_index};
+        require(resource.positioned_outline_indices()[positioned] == outline);
+        require(resource.positioned_owners()[positioned] == expected_owner);
+        if (outline == hinted_no_outline) { ++positioned_no_ink; continue; }
         const auto& glyph = packed.glyphs()[draw];
         require(glyph.outline_index == outline && glyph.reserved == 0U && glyph.reserved2 == 0.0F);
         require(equal(glyph.position, {original.x + request.logical_origin.x, original.y + request.logical_origin.y}));
@@ -247,6 +290,7 @@ void verify_unpacked(const hinted_paragraph_glyph_frame& packed) {
         ++draw;
     }
     require(draw == packed.glyphs().size() && draw == packed.draw_owners().size());
+    require(positioned_no_ink != 0U && draw + positioned_no_ink == resource.positioned_owners().size());
     const auto wire = packed.frame();
     require(wire.struct_size == sizeof(wire) && wire.width == request.width && wire.height == request.height);
     require(wire.dpi_scale == request.dpi_scale && wire.target_view == request.target_view && equal(wire.clear_color, request.clear_color));
@@ -264,6 +308,10 @@ void actual_paragraph_controls() {
         const auto raw = snapshot_raw(*paragraph);
         const auto reference = pack(paragraph, target(), std::span(colors).first(2U));
         verify_unpacked(*reference);
+        // No target, native view, paint or source origin is needed to retain
+        // the original geometry and every positioned source occurrence.
+        const auto independent = geometry(paragraph, 1.25F);
+        verify_same_geometry(*reference->resource(), *independent);
         require(paragraph->font_sources.size() == 2U && paragraph->font_sources[0] != paragraph->font_sources[1]);
         require(paragraph->styles[0].scale != paragraph->styles[1].scale);
         require(std::any_of(reference->draw_owners().begin(), reference->draw_owners().end(), [](const auto owner) { return owner.style_index == 0U; }));
@@ -277,6 +325,10 @@ void actual_paragraph_controls() {
             require(bytes_equal(reference->outlines(), other->outlines()) && bytes_equal(reference->segments(), other->segments()));
             require(bytes_equal(reference->glyphs(), other->glyphs()));
             require(std::equal(reference->draw_owners().begin(), reference->draw_owners().end(), other->draw_owners().begin(), other->draw_owners().end()));
+            require(bytes_equal(reference->style_colors(), other->style_colors()));
+            const auto other_geometry = geometry(paragraph, 1.25F, path);
+            verify_same_geometry(*independent, *other_geometry);
+            verify_same_geometry(*other_geometry, *other->resource());
         }
         const auto strict = create_hinted_paragraph_glyph_frame(paragraph, target(), std::span(colors).first(2U));
         require(strict.status == PROGPU_NATIVE_STATUS_UNSUPPORTED && strict.generation == nullptr);
@@ -398,6 +450,88 @@ void mapping_and_failure_controls() {
     verify_unpacked(*old); verify_raw_unchanged(*paragraph, raw);
 }
 
+void target_independent_resource_controls() {
+    fixture source;
+    const auto paragraph = source.paragraph(); const auto raw = snapshot_raw(*paragraph);
+    const auto retained = geometry(paragraph, 1.25F);
+    const auto colors = paints();
+    const auto frame = pack(paragraph, target(), std::span(colors).first(2U));
+    verify_unpacked(*frame); verify_same_geometry(*retained, *frame->resource());
+    const auto reject = [&](float dpi, hinted_glyph_frame_error_code code,
+        progpu_native_status status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        hinted_projection_policy policy = hinted_projection_policy::automatic,
+        hinted_outline_coverage coverage = hinted_outline_coverage::nonzero_vector,
+        hinted_outline_error outline = hinted_outline_error::none) {
+        const auto result = create_hinted_paragraph_glyph_resource(paragraph, dpi, policy, coverage);
+        require(result.status == status && result.error == hinted_glyph_frame_error{code, outline} && result.generation == nullptr);
+        verify_same_geometry(*retained, *frame->resource()); verify_unpacked(*frame);
+        verify_raw_unchanged(*paragraph, raw);
+    };
+    for (const auto dpi : {0.0F, -1.25F, std::numeric_limits<float>::infinity(),
+            -std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()})
+        reject(dpi, hinted_glyph_frame_error_code::invalid_argument);
+    reject(std::numeric_limits<float>::denorm_min(), hinted_glyph_frame_error_code::unsupported_mapping, PROGPU_NATIVE_STATUS_UNSUPPORTED);
+    reject(2.0F, hinted_glyph_frame_error_code::unsupported_mapping, PROGPU_NATIVE_STATUS_UNSUPPORTED);
+    for (const auto policy : {hinted_projection_policy::gpu_shader, static_cast<hinted_projection_policy>(UINT32_MAX)})
+        reject(1.25F, hinted_glyph_frame_error_code::outline_conversion_failed, PROGPU_NATIVE_STATUS_UNSUPPORTED,
+            policy, hinted_outline_coverage::nonzero_vector, hinted_outline_error::unsupported_policy);
+    reject(1.25F, hinted_glyph_frame_error_code::outline_conversion_failed, PROGPU_NATIVE_STATUS_UNSUPPORTED,
+        hinted_projection_policy::automatic, static_cast<hinted_outline_coverage>(UINT32_MAX), hinted_outline_error::unsupported_policy);
+    reject(1.25F, hinted_glyph_frame_error_code::outline_conversion_failed, PROGPU_NATIVE_STATUS_UNSUPPORTED,
+        hinted_projection_policy::automatic, hinted_outline_coverage::strict, hinted_outline_error::unsupported_flags);
+
+    const auto verify_aliases = [](const hinted_paragraph_glyph_resource& resource,
+        const hinted_paragraph_glyph_frame* owning_frame) {
+        require(resource.allocation_aliases(&resource, sizeof(resource)));
+        if (owning_frame != nullptr) require(owning_frame->allocation_aliases(&resource, sizeof(resource)));
+        const auto verify_span = [&]<class T>(std::span<const T> values) {
+            require(!values.empty() && resource.allocation_aliases(values.data(), values.size_bytes()));
+            require(resource.allocation_aliases(&values.back(), 1U));
+            if (owning_frame != nullptr) {
+                require(owning_frame->allocation_aliases(values.data(), values.size_bytes()));
+                require(owning_frame->allocation_aliases(&values.back(), 1U));
+            }
+        };
+        verify_span(resource.outlines()); verify_span(resource.segments()); verify_span(resource.run_slices());
+        verify_span(resource.source_outline_indices()); verify_span(resource.run_outline_indices());
+        verify_span(resource.outline_owners()); verify_span(resource.positioned_outline_indices());
+        verify_span(resource.positioned_owners());
+        const std::uint32_t unrelated = 0x71727374U;
+        require(!resource.allocation_aliases(&unrelated, sizeof(unrelated)));
+        if (owning_frame != nullptr) require(!owning_frame->allocation_aliases(&unrelated, sizeof(unrelated)));
+    };
+    verify_aliases(*retained, nullptr); verify_aliases(*frame->resource(), frame.get());
+    require(!retained->allocation_aliases(frame->glyphs().data(), frame->glyphs().size_bytes()));
+    require(frame->allocation_aliases(frame->glyphs().data(), frame->glyphs().size_bytes()));
+
+    // Retire the actual context and mutate only caller buffers. The standalone
+    // resource must keep original raw glyph slots, not a copied fake paragraph.
+    std::shared_ptr<const hinted_paragraph_glyph_resource> survivor;
+    std::weak_ptr<const hinted_paragraph_generation> paragraph_weak;
+    std::weak_ptr<const hinted_shaped_run> run_weak;
+    std::weak_ptr<const hinted_glyph_batch> batch_weak;
+    std::weak_ptr<const owned_font_source> font_weak;
+    raw_geometry retired_raw;
+    {
+        fixture transient;
+        auto original = transient.paragraph(); retired_raw = snapshot_raw(*original);
+        paragraph_weak = original; run_weak = original->runs.front().generation;
+        batch_weak = original->runs.front().generation->batch; font_weak = original->font_sources[0];
+        survivor = geometry(original, 1.25F); original.reset();
+        std::fill(transient.bytes.begin(), transient.bytes.end(), std::byte{0});
+        for (auto& scalar : transient.input) scalar.code_point = 0U;
+        transient.styles.fill({}); transient.metrics.fill({}); transient.device_styles.fill({});
+    }
+    require(!paragraph_weak.expired() && !run_weak.expired() && !batch_weak.expired() && !font_weak.expired());
+    verify_raw_unchanged(*survivor->paragraph(), retired_raw);
+    {
+        const auto retired_frame = pack(survivor->paragraph(), target(), std::span(colors).first(2U));
+        verify_unpacked(*retired_frame); verify_same_geometry(*survivor, *retired_frame->resource());
+    }
+    survivor.reset();
+    require(paragraph_weak.expired() && run_weak.expired() && batch_weak.expired() && font_weak.expired());
+}
+
 void maximum_lines_and_retirement_controls() {
     auto colors = paints(); const auto before = colors;
     fixture source;
@@ -456,9 +590,12 @@ int main() {
     try {
         const auto empty = create_hinted_paragraph_glyph_frame(nullptr, {}, {});
         require(empty.status == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && empty.generation == nullptr);
+        const auto empty_resource = create_hinted_paragraph_glyph_resource(nullptr, 1.25F);
+        require(empty_resource.status == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && empty_resource.generation == nullptr);
 #if defined(PROGPU_NATIVE_FONT_HINTING)
         actual_paragraph_controls();
         mapping_and_failure_controls();
+        target_independent_resource_controls();
         maximum_lines_and_retirement_controls();
 #endif
         return 0;
