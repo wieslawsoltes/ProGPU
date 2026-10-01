@@ -28,6 +28,8 @@
   <ItemGroup>
     <Compile Include="..\..\tools\ProGPU.SampleMemoryProfiler\DrawingTraceMethodRequirement.cs"
              Link="Diagnostics\DrawingTraceMethodRequirement.cs" />
+    <Compile Include="..\..\tests\ProGPU.Native.PackageConsumer\NativeHintedPaintFailureReceipt.cs"
+             Link="Diagnostics\NativeHintedPaintFailureReceipt.cs" />
     <Compile Include="..\ProGPU.Android\AndroidStorageNamePolicy.cs"
              Link="Android\AndroidStorageNamePolicy.cs" />
     <Compile Include="..\ProGPU.Android\AndroidScrollDeltaPolicy.cs"

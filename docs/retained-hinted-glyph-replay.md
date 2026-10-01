@@ -125,6 +125,21 @@ synthetic variations are not justified in place of capturing the authentic
 native glyph inputs and bounds. Neither successful diagnostic run qualifies
 the original package or justifies changing its exact pixel assertion.
 
+The `hinted-native-input` workflow selection (`package_run_id=0`) instead builds
+fresh native source with the original signed font dependency in one Windows x64
+job, then runs the original project-reference hinted consumer. No previous Build
+payload is downloaded, and no native binaries are uploaded or admitted to a feed.
+The opt-in failure receipt runs only after both original readbacks complete; it
+retains the original exception and records exact caller outlines, segments,
+positions, writer/scene/paint bytes, texture, shaders and both RGBA outputs with
+per-file hashes. It does not claim to capture prepared atlas or GPU-instance data.
+The live capture verifies the loaded stock native DLL's fresh path and hash and
+the loaded WebGPU DLL's pinned bytes before publishing a final manifest. Offline
+CPU receipts explicitly report that runtime identity was not verified. Nineteen
+device-free controls cover raw payload integrity, non-overwriting publication,
+failure preservation and native-library identity rejection. This diagnostic job
+and these controls do not replace the complete exact-head Build/package gates.
+
 This explicit consumer API preserves one original prepared paragraph generation.
 It is implementation work, not Display selection, source-editor/input admission,
 native/package qualification or an application performance claim.
