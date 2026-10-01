@@ -67,34 +67,31 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
         uint bytesPerRow = AlignBytesPerRow(width, bytesPerPixel);
         uint bufferSize = checked(bytesPerRow * height * depthOrArrayLayers);
 
+        if (_buffer == null || BufferSize < bufferSize)
+        {
+            QueueBufferDisposal();
+
+            var bufferDesc = new BufferDescriptor
+            {
+                Usage = BufferUsage.MapRead | BufferUsage.CopyDst,
+                Size = bufferSize,
+                MappedAtCreation = false
+            };
+
+            _buffer = _context.CreateBuffer(&bufferDesc);
+            if (_buffer == null)
+            {
+                throw new InvalidOperationException("Failed to create a WebGPU staging buffer for texture readback.");
+            }
+        }
+
+        // Retirement clears the previous layout. Publish the complete new layout
+        // only after allocation or reuse succeeds, including pixel-format growth.
         Width = width;
         Height = height;
         DepthOrArrayLayers = depthOrArrayLayers;
         BytesPerPixel = bytesPerPixel;
         BytesPerRow = bytesPerRow;
-
-        if (_buffer != null && BufferSize >= bufferSize)
-        {
-            BufferSize = bufferSize;
-            return;
-        }
-
-        QueueBufferDisposal();
-
-        var bufferDesc = new BufferDescriptor
-        {
-            Usage = BufferUsage.MapRead | BufferUsage.CopyDst,
-            Size = bufferSize,
-            MappedAtCreation = false
-        };
-
-        _buffer = _context.CreateBuffer(&bufferDesc);
-        if (_buffer == null)
-        {
-            BufferSize = 0;
-            throw new InvalidOperationException("Failed to create a WebGPU staging buffer for texture readback.");
-        }
-
         BufferSize = bufferSize;
     }
 
