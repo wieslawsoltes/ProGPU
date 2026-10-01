@@ -798,6 +798,10 @@ both interpreters and LTR/RTL, including supplementary UTF-16 source, mixed
 styles/fonts, hard breaks, both digit-bidi policies and maximum-line retention.
 Independent source/bidi records, context-complete original hinted runs and the
 public measured interaction builder check cached outputs and caller tails.
+Raw source records remain byte-exact. Admitted records contain canonical
+Unicode script/combining metadata, including after digit substitution; their
+complete fixture records use independent literal Unicode expectations rather
+than copying the raw input's optional zeroed metadata or the native output.
 Later invalid requests and actual context/caller/paragraph retirement preserve
 all managed snapshots. These controls run through the original JIT/NativeAOT
 selector without replacing any case or deadline. They do not expose an

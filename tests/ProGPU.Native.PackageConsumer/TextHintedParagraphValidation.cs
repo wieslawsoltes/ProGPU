@@ -117,7 +117,24 @@ internal static unsafe class TextHintedParagraphValidation
         if (digits)
             for (int i = 0; i < admitted.Length; i++)
                 if (admitted[i].CodePoint is >= '0' and <= '9') admitted[i].CodePoint += 0x0660U - '0';
-        Check(Same<NativeTextScalar>(admitted, paragraph.AdmittedScalars), "admitted digits preserve original UTF-16 positions/lengths");
+        for (int i = 0; i < admitted.Length; i++)
+        {
+            // Independent literal Unicode metadata for these exact fixtures,
+            // not fields copied from the admitted/native paragraph. The raw
+            // source remains untouched; admitted scalars are canonical records.
+            admitted[i].CanonicalCombiningClass = 0;
+            admitted[i].Reserved = 0;
+            admitted[i].Script = admitted[i].CodePoint switch
+            {
+                'A' or 'B' or 'V' => 0x6C61746E, // Latin -> latn
+                0x05D0 or 0x05D1 => 0x68656272, // Hebrew -> hebr
+                >= 0x0660 and <= 0x0669 => 0x61726162, // Arabic -> arab
+                >= '0' and <= '9' or ' ' or '\n' or '\r' or 0x1F642 => 0x44464C54, // Common -> DFLT
+                _ => throw new InvalidOperationException("Add independent literal Unicode metadata for this fixture scalar.")
+            };
+        }
+        Check(Same<NativeTextScalar>(admitted, paragraph.AdmittedScalars),
+            "admitted code points and canonical Unicode metadata preserve original UTF-16 positions/lengths");
         Check(Same<NativeTextStyleRun>(styles, paragraph.Styles) && Same<NativeTextStyleMetrics>(metrics, paragraph.SourceMetrics),
             "original style/font/metric identities retained");
         var bidiSource = sourceBidi ? source : admitted;
