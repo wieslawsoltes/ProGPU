@@ -120,6 +120,33 @@ public sealed class HintedGlyphGeometryRecordingTests
         Assert.Equal(1, owner.Calls);
     }
 
+    [Fact]
+    public void MixedCommandSnapshotPreservesEachPayloadAndOriginalGeometryOwner()
+    {
+        var owner = new Owner();
+        using HintedGlyphGeometry geometry = Create(owner);
+        object before = new(), after = new();
+        var context = new DrawingContext();
+        context.DrawExtension(101, dataParam: before);
+        context.DrawHintedGlyphs(geometry, Vector2.Zero, new(9, 16, 10, 6), White);
+        context.DrawExtension(102, dataParam: after);
+        using GpuPicture picture = context.CreatePictureSnapshot();
+        geometry.Dispose();
+        context.Clear();
+        context.DrawExtension(103, dataParam: new object());
+
+        Assert.Equal(0, owner.Calls);
+        Assert.Same(before, picture.GetCommand(0).DataParam);
+        Assert.Null(picture.GetCommand(0).HintedGlyphGeometry);
+        Assert.Same(geometry, picture.GetCommand(1).HintedGlyphGeometry);
+        Assert.Same(after, picture.GetCommand(2).DataParam);
+        Assert.Null(picture.GetCommand(2).HintedGlyphGeometry);
+        picture.Dispose();
+        Assert.Equal(1, owner.Calls);
+        context.Clear();
+        Assert.Equal(1, owner.Calls);
+    }
+
     [Theory]
     [InlineData(-1, 1)]
     [InlineData(0, -1)]

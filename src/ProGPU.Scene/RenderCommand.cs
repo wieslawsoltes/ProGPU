@@ -1327,8 +1327,16 @@ public struct RenderCommand
     public int GlyphRangeStart;
     public int GlyphRangeCount;
 
-    // Original physical geometry; retained explicitly by DrawingContext/GpuPicture.
-    public HintedGlyphGeometry? HintedGlyphGeometry;
+    // DrawHintedGlyphs uses the existing reference payload slot, just as texture
+    // raster operations and custom extensions do for their own command kinds.
+    // A separate field would grow every hot retained command by one reference.
+    // DrawingContext/GpuPicture retain the original physical geometry explicitly;
+    // copying this value does not acquire or retire its owner.
+    public HintedGlyphGeometry? HintedGlyphGeometry
+    {
+        readonly get => DataParam as HintedGlyphGeometry;
+        set => DataParam = value;
+    }
 
     // Batched two-dimensional vertex mesh properties
     public VertexMesh2D? VertexMesh;

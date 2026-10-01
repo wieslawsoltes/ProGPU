@@ -66,6 +66,12 @@ snapshots without hinted sources preserve their existing copied-byte behavior.
 
 ## Source domain and private coverage storage
 
+The typed hinted-geometry accessor shares the existing command reference payload
+slot with other mutually exclusive command kinds. It adds no per-command storage
+or wrapper allocation. Command copies preserve the original geometry identity;
+recording, picture and compiled-scene leases still own its lifetime explicitly.
+The existing 576-byte command-size gate remains unchanged.
+
 The recorded `Rect` remains the caller's original ink/paint domain. Private
 culling and atlas storage cover the selected floor/ceil raster bounds, including
 the canonical four-physical-pixel padding, so a fractional source edge cannot
