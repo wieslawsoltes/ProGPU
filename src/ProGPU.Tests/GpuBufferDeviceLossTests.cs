@@ -91,6 +91,95 @@ public unsafe sealed class GpuBufferDeviceLossTests
         Assert.Equal(0u, readback.BufferSize);
     }
 
+    [Theory]
+    [InlineData(129u, 96u, 1u, 4u, 768u)]
+    [InlineData(96u, 97u, 1u, 4u, 512u)]
+    [InlineData(96u, 96u, 2u, 4u, 512u)]
+    [InlineData(96u, 96u, 1u, 16u, 1536u)]
+    public void TextureReadbackGrowthRetainsTheNewRowLayout(
+        uint width, uint height, uint layers, uint bytesPerPixel, uint bytesPerRow)
+    {
+        var api = new RecordingApi();
+        using var context = CreateContext(api);
+        using var readback = new GpuTextureReadbackBuffer(context);
+        readback.EnsureCapacity(96, 96, 1, 4);
+        AssertReadbackLayout(readback, 96, 96, 1, 4, 512);
+
+        readback.EnsureCapacity(width, height, layers, bytesPerPixel);
+
+        AssertReadbackLayout(readback, width, height, layers, bytesPerPixel, bytesPerRow);
+        Assert.Equal(new ulong[] { 512 * 96, (ulong)bytesPerRow * height * layers }, api.CreatedSizes);
+        Assert.Empty(api.Released); // The previous buffer still follows queued retirement.
+        Assert.Empty(api.Unmapped);
+        Assert.Equal(0, api.MapRangeCount);
+        context.CleanupPendingResources();
+        Assert.Equal(new nuint[] { 101 }, api.Released);
+
+        readback.Dispose();
+        readback.Dispose();
+        context.CleanupPendingResources();
+        Assert.Equal(new nuint[] { 101, 102 }, api.Released);
+        Assert.Equal(0u, readback.Width);
+        Assert.Equal(0u, readback.BytesPerRow);
+        Assert.Equal(0u, readback.BufferSize);
+    }
+
+    [Fact]
+    public void TextureReadbackReuseUpdatesDimensionsAndPixelWidthWithoutAllocating()
+    {
+        var api = new RecordingApi();
+        using var context = CreateContext(api);
+        using var readback = new GpuTextureReadbackBuffer(context);
+        readback.EnsureCapacity(96, 96, 1, 16);
+        AssertReadbackLayout(readback, 96, 96, 1, 16, 1536);
+
+        readback.EnsureCapacity(96, 96, 1, 16);
+        AssertReadbackLayout(readback, 96, 96, 1, 16, 1536);
+        readback.EnsureCapacity(96, 64, 2, 4);
+        AssertReadbackLayout(readback, 96, 64, 2, 4, 512);
+        readback.EnsureCapacity(0, 0, 0, 4);
+        AssertReadbackLayout(readback, 1, 1, 1, 4, 256);
+
+        Assert.Equal(new ulong[] { 1536 * 96 }, api.CreatedSizes);
+        Assert.Empty(api.Released);
+        Assert.Empty(api.Unmapped);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TextureReadbackFailedAllocationDoesNotPublishAUsableLayout(bool replacing)
+    {
+        var api = new RecordingApi();
+        using var context = CreateContext(api);
+        using var readback = new GpuTextureReadbackBuffer(context);
+        if (replacing) readback.EnsureCapacity(96, 96, 1, 4);
+        api.ReturnNull = true;
+
+        Assert.Throws<InvalidOperationException>(() => readback.EnsureCapacity(96, 96, 1, 16));
+
+        Assert.Equal(0u, readback.Width);
+        Assert.Equal(0u, readback.Height);
+        Assert.Equal(0u, readback.DepthOrArrayLayers);
+        Assert.Equal(0u, readback.BytesPerPixel);
+        Assert.Equal(0u, readback.BytesPerRow);
+        Assert.Equal(0u, readback.BufferSize);
+        Assert.Empty(api.Released);
+        context.CleanupPendingResources();
+        Assert.Equal(replacing ? new nuint[] { 101 } : Array.Empty<nuint>(), api.Released);
+    }
+
+    private static void AssertReadbackLayout(GpuTextureReadbackBuffer readback,
+        uint width, uint height, uint layers, uint bytesPerPixel, uint bytesPerRow)
+    {
+        Assert.Equal(width, readback.Width);
+        Assert.Equal(height, readback.Height);
+        Assert.Equal(layers, readback.DepthOrArrayLayers);
+        Assert.Equal(bytesPerPixel, readback.BytesPerPixel);
+        Assert.Equal(bytesPerRow, readback.BytesPerRow);
+        Assert.Equal(checked(bytesPerRow * height * layers), readback.BufferSize);
+    }
+
     [Fact]
     public void OrdinaryReadbackRejectsErrorBufferBeforeEncodingCopy()
     {
@@ -152,6 +241,7 @@ public unsafe sealed class GpuBufferDeviceLossTests
         public int MapRangeCount;
         public bool ReturnNull;
         public Action<int>? OnCreate;
+        public readonly List<ulong> CreatedSizes = new();
         public readonly List<nuint> Released = new();
         public readonly List<nuint> Destroyed = new();
         public readonly List<nuint> Unmapped = new();
@@ -159,6 +249,7 @@ public unsafe sealed class GpuBufferDeviceLossTests
         public BindGroupLayout* DeviceCreateBindGroupLayout(Device* device, BindGroupLayoutDescriptor* descriptor) => throw new NotSupportedException("Unexpected WebGPU operation in buffer admission test.");
         public WgpuBuffer* DeviceCreateBuffer(Device* device, BufferDescriptor* descriptor) {
             CreateCount++;
+            CreatedSizes.Add(descriptor->Size);
             OnCreate?.Invoke(CreateCount);
             return ReturnNull ? null : (WgpuBuffer*)(nuint)(100 + CreateCount);
         }
