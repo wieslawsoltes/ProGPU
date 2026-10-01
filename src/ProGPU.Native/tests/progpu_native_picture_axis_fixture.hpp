@@ -3,6 +3,7 @@
 #include "progpu_native_scene_builder.hpp"
 
 #include <array>
+#include <cstring>
 #include <vector>
 
 namespace progpu::native::tests {
@@ -54,6 +55,38 @@ void verify_picture_axis_presentation(Render render, Require require) {
         require(parent.draw_image(resource, draw, draw.destination_rect), "axis picture cropped draw");
         std::vector<std::byte> stream;
         require(parent.build(stream), "axis picture parent capture");
+        // Ordinary adjacent draws of the same image are canonically one patch
+        // batch. Prove both draws survive in that batch before checking pixels.
+        progpu_native_scene_header header{};
+        require(stream.size() >= sizeof(header), "axis picture header size");
+        std::memcpy(&header, stream.data(), sizeof(header));
+        require(header.command_count == 1U && header.resource_count == 1U &&
+            header.command_offset <= stream.size() && sizeof(progpu_native_scene_command) <= stream.size() - header.command_offset,
+            "axis picture canonical single image batch");
+        progpu_native_scene_command command{};
+        std::memcpy(&command, stream.data() + header.command_offset, sizeof(command));
+        require(command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE && command.resource_index == resource &&
+            command.payload_size == sizeof(draw) + sizeof(progpu_native_scene_image_patch_batch) +
+                2U * sizeof(progpu_native_scene_image_patch) &&
+            command.payload_offset <= stream.size() && command.payload_size <= stream.size() - command.payload_offset,
+            "axis picture complete two-patch payload");
+        progpu_native_scene_image_draw batched{};
+        progpu_native_scene_image_patch_batch batch{};
+        std::array<progpu_native_scene_image_patch, 2U> patches{};
+        const auto* payload = stream.data() + command.payload_offset;
+        std::memcpy(&batched, payload, sizeof(batched));
+        std::memcpy(&batch, payload + sizeof(batched), sizeof(batch));
+        std::memcpy(patches.data(), payload + sizeof(batched) + sizeof(batch), sizeof(patches));
+        require(batched.flags == (PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED | PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH) &&
+            batch.struct_size == sizeof(batch) && batch.patch_count == 2U,
+            "axis picture batch retains both draws");
+        const std::array<progpu_native_image_rect, 2U> sources{{{0, 0, 8, 8}, {1, 1, 6, 6}}};
+        const std::array<progpu_native_image_rect, 2U> destinations{{{4, 4, 8, 8}, {24, 4, 6, 6}}};
+        for (std::size_t i = 0U; i < patches.size(); ++i)
+            require(patches[i].struct_size == sizeof(patches[i]) && patches[i].kind == PROGPU_NATIVE_SCENE_IMAGE_PATCH_TEXTURE &&
+                std::memcmp(&patches[i].source_rect, &sources[i], sizeof(sources[i])) == 0 &&
+                std::memcmp(&patches[i].destination_rect, &destinations[i], sizeof(destinations[i])) == 0,
+                "axis picture batch changed original full/cropped placement");
         const auto cold = render(false, stream, generation, 2U);
         const auto warm = render(false, stream, generation, 1U);
         const auto independent = render(true, stream, generation, 2U);
