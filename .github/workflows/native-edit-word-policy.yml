@@ -1,0 +1,46 @@
+name: Native EDIT word policy reference
+
+on:
+  pull_request:
+    branches: [main, text/hinted-source-contract]
+    paths:
+      - eng/NativeEditWordPolicyReference/**
+      - eng/progpu-observe-edit-word-policy.py
+      - eng/tests/test_edit_word_policy_reference.py
+      - src/ProGPU.Native/src/Text/progpu_native_edit_word_boundaries.*
+      - .github/workflows/native-edit-word-policy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-reference:
+    name: Original Windows EDIT policy (X64)
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 11.0.100-preview.5.26302.115
+      - name: Validate observation-schema rejection controls
+        shell: pwsh
+        run: |
+          python -m unittest discover -s eng/tests -p test_edit_word_policy_reference.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Observe independent original controls and unknown contexts
+        shell: pwsh
+        env:
+          REFERENCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python eng/progpu-observe-edit-word-policy.py $env:REFERENCE_HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: native-edit-word-policy-X64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/native-edit-word-policy/
+          if-no-files-found: error

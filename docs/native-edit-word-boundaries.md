@@ -121,3 +121,32 @@ adapter must own one snapshot alongside the exact original retained layout,
 text and interaction generation. Password source still bypasses the provider
 before any source text reaches this worker. Every original source-handler,
 selection-generation, signed-anchor and drag-reversal guard remains required.
+
+## Bounded hosted Windows policy reference
+
+The purpose-named `Native EDIT word policy reference` workflow runs only an
+isolated original Microsoft WindowsDesktop oracle on
+[Windows Server 2025 X64](https://github.com/actions/runner-images/blob/main/README.md#available-images),
+using the exact source reference SDK `11.0.100-preview.5.26302.115`. It never
+builds ProGPU products, packages or renderers and does not use a VM. The original
+24 inputs, indices and policy flags are retained byte-for-byte from the pinned
+LibreWinForms reference; their source inventory hash is checked before building.
+Its original 30-second internal and 60-second outer process limits are unchanged.
+
+Separate fresh processes record the original24 controls, 72 unknown contextual
+EDIT observations, and a bounded BMP symbol-property attribute sweep. Contexts
+distinguish BMP/supplementary symbols, variation selectors, emoji/nonemoji joiners,
+Latin, Arabic, Indic and CJK surrounding source. There are no guessed expected
+word endpoints. The sweep alone records no EDIT gestures and cannot qualify a
+mouse-selection rule. Each original script item also records direct `ScriptBreak`
+input units/raw bytes independently of the complete-source `ScriptStringAnalyse`
+result; disagreement is evidence, not permission to substitute either API.
+
+CreateNew artifacts preserve partial failures. Receipts and execution metadata
+retain the exact checked-out head, source/binary hashes, PIDs, SDK information,
+OS build, actual runtime/architecture, current/UI locale and loaded native-library
+paths, versions and hashes. Every raw UTF-16 unit, script/property bit and
+unavailable native coordinate is preserved. Server2025 outputs must be compared
+with the earlier Windows11 receipt using this provenance; they are not silently
+the same source platform. Neither these observations nor schema rejection controls
+admit the still-unresolved classifier policies or ordinary Forms capability.
