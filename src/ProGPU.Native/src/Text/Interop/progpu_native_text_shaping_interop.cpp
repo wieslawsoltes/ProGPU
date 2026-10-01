@@ -4881,6 +4881,7 @@ progpu_native_status progpu_native_hinted_paragraph_prepare_frame(const progpu_n
     progpu_native_hinted_paragraph_frame** frame) {
     static_assert(static_cast<std::uint32_t>(hinted_projection_policy::scalar_reference) == PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE);
     static_assert(static_cast<std::uint32_t>(hinted_outline_coverage::nonzero_vector) == PROGPU_NATIVE_HINTED_COVERAGE_NONZERO_VECTOR);
+    static_assert(static_cast<std::uint32_t>(hinted_outline_coverage::antialiased_vector) == PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR);
     if (!valid_hinted_paragraph(paragraph) || !valid_hinted_buffer(request, 1U) || !valid_hinted_buffer(frame, 1U) ||
         hinted_paragraph_handle_aliases(*paragraph, request, sizeof(*request)) ||
         !valid_hinted_buffer(style_colors, style_color_count) || style_color_count != paragraph->generation->styles.size() ||
@@ -4888,7 +4889,7 @@ progpu_native_status progpu_native_hinted_paragraph_prepare_frame(const progpu_n
         byte_ranges_overlap(frame, sizeof(*frame), style_colors, static_cast<std::uint64_t>(style_color_count) * sizeof(*style_colors)) ||
         hinted_paragraph_handle_aliases(*paragraph, frame, sizeof(*frame))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     if (request->abi_version != PROGPU_NATIVE_ABI_VERSION || request->struct_size != sizeof(*request) || request->reserved != 0U ||
-        request->projection_policy > PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE || request->coverage > PROGPU_NATIVE_HINTED_COVERAGE_NONZERO_VECTOR)
+        request->projection_policy > PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE || request->coverage > PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR)
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     try {
         auto candidate = std::make_unique<progpu_native_hinted_paragraph_frame>();

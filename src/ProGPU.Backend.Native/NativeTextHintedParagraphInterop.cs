@@ -14,7 +14,13 @@ public enum NativeHintedProjectionPolicy : uint
 }
 
 /// <summary>Explicit vector coverage is not FreeType grayscale/B/W raster parity.</summary>
-public enum NativeHintedCoverage : uint { Strict = 0, NonzeroVector = 1 }
+public enum NativeHintedCoverage : uint
+{
+    Strict = 0,
+    NonzeroVector = 1,
+    /// <summary>Nonzero antialiased coverage retains B/W dropout metadata without executing B/W scan conversion.</summary>
+    AntialiasedVector = 2,
+}
 
 // The authoritative public C header supplies these fields through the hosted
 // contract generator. No native record layout is duplicated in this bridge.
