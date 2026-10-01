@@ -8,21 +8,35 @@ internal static class ShaderDiagnostics
 {
     internal static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes));
     internal static string Hash(string text) => Hash(Encoding.UTF8.GetBytes(text));
+    internal static string CanonicalHash(string text) => Hash(text.Replace("\r\n", "\n", StringComparison.Ordinal));
 
     internal static string VerifySource(bool paint)
+    {
+        string original = paint ? Shaders.HintedGlyphPaintShader : Shaders.TextShader;
+        return VerifySource(original, ReadComponents(paint), paint);
+    }
+
+    internal static string[] ReadComponents(bool paint)
     {
         string[] names = paint
             ? ["RegisteredMaterialCommon", "TextGlyphGeometryCommon", "TextMaskCommon", "TextGlyphCoverageCommon", "TextureImageSamplingCommon", "HintedGlyphPaint"]
             : ["TextGlyphGeometryCommon", "TextMaskCommon", "TextGlyphCoverageCommon", "Text"];
-        string original = paint ? Shaders.HintedGlyphPaintShader : Shaders.TextShader;
-        string files = string.Join("\n", names.Select(name => File.ReadAllText(
-            Path.Combine(AppContext.BaseDirectory, "shader-sources", name + ".wgsl"))));
+        return names.Select(name => File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "shader-sources", name + ".wgsl"))).ToArray();
+    }
+
+    internal static string VerifySource(string original, string[] components, bool paint)
+    {
+        // First compare the exact embedded/checked-out bytes after their original
+        // UTF-8 decoding. Only the separate parent-content check permits CRLF.
+        string files = string.Join("\n", components);
         if (original != files) throw new InvalidOperationException("Embedded shader differs from the recorded source components.");
         string expectedHash = paint
             ? "2EE776CD0912D979E24F65B201C2AAEA11AFFEFCA454A00418F80AB4C5BAADEC"
             : "008A9A9E0B8CDC4FAEFF422BA799E45896F18FBA2E5AB646DCAE6EC498BB25D1";
-        if (Hash(original) != expectedHash)
+        if (CanonicalHash(original) != expectedHash)
             throw new InvalidOperationException("Production shader differs from the reviewed 8adb sampling diagnostic parent.");
+        // Never normalize the shader returned to compilation or exact hashing.
         return original;
     }
 
@@ -67,8 +81,17 @@ internal static class ShaderDiagnostics
 
     private static string ReplaceOnce(string source, string anchor, string replacement)
     {
-        if (Count(source, anchor) != 1) throw new InvalidOperationException("Diagnostic shader anchor changed: " + anchor);
-        return source.Replace(anchor, replacement, StringComparison.Ordinal);
+        string windowsAnchor = anchor.Replace("\n", "\r\n", StringComparison.Ordinal);
+        int ordinaryCount = Count(source, anchor);
+        int windowsCount = windowsAnchor == anchor ? 0 : Count(source, windowsAnchor);
+        if (ordinaryCount + windowsCount != 1)
+            throw new InvalidOperationException("Diagnostic shader anchor changed: " + anchor);
+        string selectedAnchor = windowsCount == 1 ? windowsAnchor : anchor;
+        bool windowsLines = windowsCount == 1 ||
+            (windowsAnchor == anchor && source.Contains("\r\n", StringComparison.Ordinal));
+        string selectedReplacement = windowsLines
+            ? replacement.Replace("\n", "\r\n", StringComparison.Ordinal) : replacement;
+        return source.Replace(selectedAnchor, selectedReplacement, StringComparison.Ordinal);
     }
 
     private static int Count(string source, string anchor)

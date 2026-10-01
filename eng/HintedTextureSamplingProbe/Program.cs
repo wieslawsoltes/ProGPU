@@ -28,6 +28,11 @@ internal static unsafe class Program
             null, TimeSpan.FromSeconds(180), Timeout.InfiniteTimeSpan);
         try
         {
+            if (args.Length == 1 && args[0] == "--verify-source-only")
+            {
+                Console.WriteLine($"PASS {ShaderSourceControls.Run()} deterministic LF/CRLF source and instrumentation controls; no GPU initialization.");
+                return 0;
+            }
             string? output = null;
             bool fallback = false;
             for (int i = 0; i < args.Length; i++)
@@ -220,6 +225,7 @@ internal static unsafe class Program
                     LoadedLibraries = libraries,
                     NativeProviderSymbol = "wgpuDevicePoll", NativeProviderSymbolOwner = providerPath,
                     ShaderSha256 = sources.ToDictionary(x => x.Key, x => ShaderDiagnostics.Hash(x.Value)),
+                    CanonicalLfShaderSha256 = sources.ToDictionary(x => x.Key, x => ShaderDiagnostics.CanonicalHash(x.Value)),
                     Size = size, Dpi, Opacity, AtlasWidth = AtlasSize, AtlasHeight = AtlasSize, InstanceStride = 96,
                     AtlasSha256 = ShaderDiagnostics.Hash(atlasBytes), InstanceSha256 = ShaderDiagnostics.Hash(instanceBytes),
                     AtlasSampler = "linear min/mag, nearest mip, clamp-to-edge, LOD 0, anisotropy 1; shared by all paths",
