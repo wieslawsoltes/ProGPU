@@ -12,6 +12,15 @@ public interface IPortableHintedGlyphRunSource
 public interface IPortableHintedGlyphRunBindingFactory
 {
     IPortableHintedGlyphRunBinding BindGlyphRun(float sourceEmSize, Vector2 logicalOrigin);
+
+    /// <summary>
+    /// Admits the source's exact original face bytes/index/UPM and per-occurrence
+    /// measured advances before publication. Inputs are borrowed synchronously;
+    /// this does not validate WPF-specific offsets or admit caret/source frames.
+    /// </summary>
+    IPortableHintedGlyphRunBinding BindGlyphRun(PortableTextFont sourceFont, float sourceEmSize,
+        Vector2 logicalOrigin, ReadOnlySpan<double> sourceAdvances)
+        => throw new NotSupportedException("The hinted provider does not validate original source font and advance identity.");
 }
 
 /// <summary>

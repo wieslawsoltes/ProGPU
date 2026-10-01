@@ -8,6 +8,18 @@ namespace ProGPU.Tests;
 public sealed class PortableHintedTextContractTests
 {
     [Fact]
+    public void OriginalFactoryDoesNotSilentlyAcceptNewSourceIdentityAdmission()
+    {
+        var provider = new OriginalBindingFactory();
+        IPortableHintedGlyphRunBindingFactory factory = provider;
+        Assert.Throws<NotSupportedException>(() => factory.BindGlyphRun(
+            new PortableTextFont(new byte[] { 1 }, 0, 1000), 12, default, new double[] { 4 }));
+        Assert.Equal(0, provider.OriginalCalls);
+        Assert.Throws<InvalidOperationException>(() => factory.BindGlyphRun(12, default));
+        Assert.Equal(1, provider.OriginalCalls);
+    }
+
+    [Fact]
     public void SourceGlyphTransportIsTypedOwnedAndSeparateFromDesignFontExports()
     {
         Assert.False(typeof(IPortableNativeGlyphRunSource).IsAssignableFrom(typeof(IPortableHintedGlyphRunSource)));
@@ -86,5 +98,15 @@ public sealed class PortableHintedTextContractTests
     {
         public IPortableTextParagraph Format(in PortableTextParagraphRequest request)
             => throw new NotSupportedException();
+    }
+
+    private sealed class OriginalBindingFactory : IPortableHintedGlyphRunBindingFactory
+    {
+        internal int OriginalCalls;
+        public IPortableHintedGlyphRunBinding BindGlyphRun(float sourceEmSize, System.Numerics.Vector2 logicalOrigin)
+        {
+            OriginalCalls++;
+            throw new InvalidOperationException("Original explicit-import overload.");
+        }
     }
 }
