@@ -154,6 +154,16 @@ frames now permit an evidence-based coordinate comparison; the earlier synthetic
 positive-bearing frame is not the authentic frame. Native and full-package
 rendering remain unqualified until the original assertion passes unchanged.
 
+The package-free `hinted-native-frame` workflow selection passes `--native-frame`
+to the same original shader probe. It derives the native `(-3,-18)` bearing and
+`20x22` allocation from those captured bounds, keeps both exact source positions
+and uses the original reference colors/paint bytes. Its nonuniform atlas interior
+is still **synthetic**, with four clear padding texels; no authentic atlas capture
+is claimed. The default earlier control remains byte-identical. All 108 CPU
+controls pass, including an independently packed 192-byte instance digest and the
+original captured paint digest. The mode isolates arithmetic at an evidence-based
+frame without rebuilding or downloading a native renderer.
+
 This explicit consumer API preserves one original prepared paragraph generation.
 It is implementation work, not Display selection, source-editor/input admission,
 native/package qualification or an application performance claim.

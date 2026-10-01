@@ -11,7 +11,7 @@ on:
         description: Independent owner/path diagnosis or package-free allocation/shader probes
         type: choice
         default: all
-        options: [all, lifetime, atlas, raster, encoder, retirement, fence, owner, allocation-counter, hinted-texture, hinted-native-input]
+        options: [all, lifetime, atlas, raster, encoder, retirement, fence, owner, allocation-counter, hinted-texture, hinted-native-frame, hinted-native-input]
 
 permissions:
   contents: read
@@ -27,7 +27,7 @@ jobs:
     uses: ./.github/workflows/runtime-allocation-diagnostics.yml
 
   hinted-texture:
-    if: inputs.probe_set == 'hinted-texture'
+    if: inputs.probe_set == 'hinted-texture' || inputs.probe_set == 'hinted-native-frame'
     name: Windows hinted texture sampling
     runs-on: windows-latest
     timeout-minutes: 10
@@ -40,14 +40,18 @@ jobs:
           global-json-file: global.json
       - name: Compare the original shared shaders on one explicit software device
         shell: pwsh
+        env:
+          USE_NATIVE_FRAME: ${{ inputs.probe_set == 'hinted-native-frame' }}
         run: |
           $outputDirectory = Join-Path $env:GITHUB_WORKSPACE 'artifacts/hinted-texture-sampling'
           $dataDirectory = Join-Path $outputDirectory 'data'
           New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
           git rev-parse HEAD
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $probeArguments = @()
+          if ($env:USE_NATIVE_FRAME -eq 'true') { $probeArguments += '--native-frame' }
           dotnet run --project eng/HintedTextureSamplingProbe/HintedTextureSamplingProbe.csproj `
-            --configuration Release -- --output $dataDirectory --fallback 2>&1 |
+            --configuration Release -- --output $dataDirectory --fallback @probeArguments 2>&1 |
             Tee-Object -FilePath (Join-Path $outputDirectory 'probe.log')
           $probeExitCode = $LASTEXITCODE
           if ($probeExitCode -ne 0) { exit $probeExitCode }
@@ -152,7 +156,7 @@ jobs:
           retention-days: 14
 
   windows-path-stage:
-    if: inputs.probe_set != 'allocation-counter' && inputs.probe_set != 'hinted-texture' && inputs.probe_set != 'hinted-native-input'
+    if: inputs.probe_set != 'allocation-counter' && inputs.probe_set != 'hinted-texture' && inputs.probe_set != 'hinted-native-frame' && inputs.probe_set != 'hinted-native-input'
     name: Windows path-stage diagnosis (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
