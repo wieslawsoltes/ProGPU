@@ -141,6 +141,7 @@ if [[ ! -f "${dawn_include}/webgpu.h" ||
   echo "WebScene did not produce the required provider inputs." >&2
   exit 1
 fi
+provider_library="$(cd "$(dirname "${provider_library}")" && pwd -P)/$(basename "${provider_library}")"
 
 cmake -S "${repo_root}/src/ProGPU.Native" -B "${build_dir}" \
   -DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR="${dawn_include}" \
@@ -175,8 +176,6 @@ cleanup_managed_runtime() {
   rm -rf "${managed_package_cache}"
 }
 trap cleanup_managed_runtime EXIT
-ln -s "${provider_library}" \
-  "${managed_runtime}/libwebgpu_dawn.dylib"
 ln -s "${build_dir}/libprogpu_native_dawn.dylib" \
   "${managed_runtime}/libprogpu_native_dawn.dylib"
 managed_capture="${sample_dir}/progpu-native-managed-dawn.ppm"
@@ -220,7 +219,8 @@ DYLD_LIBRARY_PATH="${managed_runtime}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}
     -p:ProGpuNativeUseProjectReference=false \
     -p:ProGpuNativePackageSource="${managed_packages}" \
     -p:ProGpuNativePackageVersion="${managed_package_version}" -- \
-    --dawn --device-loss "${managed_capture}" | tee -a "${evidence}"
+    --dawn --device-loss "--dawn-provider-library=${provider_library}" \
+    "${managed_capture}" | tee -a "${evidence}"
 if [[ ! -s "${managed_capture}" ]]; then
   echo "The managed Dawn/C++ integration did not produce its capture." >&2
   exit 1

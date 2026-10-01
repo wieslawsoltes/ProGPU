@@ -10,6 +10,19 @@ using ProGPU.Vector;
 using Silk.NET.WebGPU;
 
 bool useDawn = args.Contains("--dawn", StringComparer.Ordinal);
+const string providerOption = "--dawn-provider-library=";
+string[] providerOptions = args.Where(argument =>
+    argument.StartsWith(providerOption, StringComparison.Ordinal)).ToArray();
+if (providerOptions.Length > 1 || providerOptions.Length != 0 && !useDawn)
+{
+    throw new ArgumentException("One --dawn-provider-library=<absolute path> requires --dawn.");
+}
+if (providerOptions.Length == 1)
+{
+    // Select before any Dawn native call. Device-loss replacement uses the
+    // same process-pinned provider; neither FFI nor the renderer reloads it.
+    DawnGpuContext.ConfigureNativeProviderLibrary(providerOptions[0][providerOption.Length..]);
+}
 bool recreateAfterDeviceLoss = args.Contains(
     "--device-loss",
     StringComparer.Ordinal);
@@ -25,6 +38,7 @@ uint height = softwareAdapterQualification ? fullHeight / 2U : fullHeight;
 string? requestedOutput = args.FirstOrDefault(
     argument =>
         !string.Equals(argument, "--dawn", StringComparison.Ordinal) &&
+        !argument.StartsWith(providerOption, StringComparison.Ordinal) &&
         !string.Equals(argument, "--device-loss", StringComparison.Ordinal) &&
         !string.Equals(
             argument,

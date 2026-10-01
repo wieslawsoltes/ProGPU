@@ -833,14 +833,32 @@ opaque text handles or foreign engines. Original MIL, ordered/default core and
 DX12 package processes remain required, with unchanged deadlines. Actual
 successful exact-head hosted package execution remains open.
 
-The managed Dawn adapter uses the actual packaged macOS/Linux basenames and
-native search paths anchored to the pinned FFI assembly, rather than test-only
-`lib` aliases or alternate provider names. This resolves the packaged lookup
-mismatch; it does not prove identity for an arbitrary host-installed
-`DllImportResolver`. The pinned FFI exposes no procedure-address query, and
+The managed Dawn adapter now borrows the one process-pinned provider selected
+by `DawnGpuContext`, rather than independently loading another library. Owned
+resolvers route both the pinned WebGPUSharp FFI and ProGPU Dawn imports to that
+same module. The adapter's device/procedure pairing therefore follows the typed
+context's original provider; its ABI-only `GetInfo`/`ValidateScene` calls do not
+select a default device library. Conflicting foreign resolvers fail closed, and
+an exact matching import never falls through to another provider after failure.
+
+Default selection retains the actual packaged names and native search paths
+anchored to the FFI assembly. `ConfigureNativeProviderLibrary` adds an explicit
+absolute-file selection before any direct FFI or context use. The choice is
+immutable; repeated same-path verification does not replace it. Availability
+probes do not publish a default module and cannot prevent subsequent explicit
+selection. Live modules are never unloaded while cached P/Invokes or renderer
+procedure pointers can borrow them. The pinned WebScene managed hardware gate
+passes its actual produced library explicitly, including device-loss replacement,
+instead of depending on a `lib` alias to compete with packaged runtime assets.
+
+This contract requires early typed provider configuration. Arbitrary prior FFI
+calls/cache bindings cannot be detected or retroactively rebound: the pinned FFI
+has no procedure-address query, and
 [assembly-aware native loading](https://learn.microsoft.com/en-us/dotnet/api/system.runtime.interopservices.nativelibrary.load?view=net-10.0#remarks)
-does not call that resolver. Custom redirect/module ownership qualification
-therefore remains separate and open.
+does not invoke a foreign resolver. Explicit selection is not artifact ABI/hash
+qualification, compiler selection or a claim to support an unknown prior host
+binding. Pure path-guard unit cases do not load a provider or prove live identity.
+Actual loaded JIT/NativeAOT and WebScene device-loss gates remain required.
 
 The original normalized instance check uses public
 [fvar](https://learn.microsoft.com/en-us/typography/opentype/spec/fvar) and
