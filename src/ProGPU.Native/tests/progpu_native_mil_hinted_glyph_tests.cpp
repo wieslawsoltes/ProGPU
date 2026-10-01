@@ -485,6 +485,53 @@ void flat_controls(font_hint_policy policy, bool rtl, std::uint32_t coverage = P
     auto slots = e.selected; slots.back() = UINT32_MAX;
     require(state.apply_with_hinted_glyph_resources(update,{&view,1U},{&binding,1U},slots) == status::invalid_argument); preserved();
 
+    // Reset ends the old font association even when a later source graph reuses
+    // the glyph handle. Ordinary recreation must retain the original safeguard.
+    // Both byte-distinct fonts are original, valid ProGPU fixture fonts.
+    {
+        channel reset_state;
+        const auto old_font = progpu::native::tests::make_hinted_mapping_font();
+        require(old_font != source.font);
+        source_scene(reset_state, e, old_font);
+        std::span<const std::byte> old_view;
+        require(reset_state.build_scene(request, old_view) == status::success);
+        const bytes old_stream(old_view.begin(), old_view.end());
+        const auto* old_cache = old_view.data();
+        const auto old_generation = reset_state.resource_generation(5U);
+        const auto old_count = reset_state.resource_count();
+        const auto reset_preserved = [&] {
+            require(reset_state.resource_generation(5U) == old_generation &&
+                reset_state.resource_count() == old_count);
+            require(equal(reset_state.last_hinted_batch_metrics(), batch_metrics{}));
+            require(reset_state.build_scene(request, old_view) == status::success && old_view.data() == old_cache);
+            equal_bytes(old_view, 0U, old_view.size(), old_stream.data(), old_stream.size());
+        };
+        bytes recreate;
+        content(recreate, {}); // Remove the real dependency before individual deletion.
+        cmd(recreate, command::channel_delete_resource, 5U);
+        glyph_packet(recreate, 5U, e);
+        require(reset_state.apply_with_hinted_glyph_resources(recreate, {&view,1U}, {&binding,1U}, e.selected)
+            == status::invalid_argument);
+        reset_preserved();
+
+        bytes reset_batch; cmd(reset_batch, command::transport_destroy_resources_on_channel);
+        reset_batch.insert(reset_batch.end(), canonical.begin(), canonical.end());
+        require(reset_state.apply_with_hinted_glyph_resources(reset_batch, {&view,1U}, {&binding,1U}, slots)
+            == status::invalid_argument);
+        reset_preserved(); // A later binding failure cannot publish the reset.
+
+        require(reset_state.apply_with_hinted_glyph_resources(reset_batch, {&view,1U}, {&binding,1U}, e.selected)
+            == status::success);
+        const auto reset_metrics = reset_state.last_hinted_batch_metrics();
+        require(reset_metrics.deleted_resource_count == old_count &&
+            reset_metrics.created_resource_count == expected_metrics.created_resource_count &&
+            reset_metrics.command_count == expected_metrics.command_count + 1U &&
+            reset_metrics.supported_command_count == expected_metrics.supported_command_count + 1U &&
+            reset_metrics.total_bytes == reset_batch.size());
+        require(reset_state.build_scene(request, old_view) == status::success);
+        verify_scene(old_view, e);
+    }
+
     // The exported view goes only to a local consumer. Its opaque owner never
     // crosses the ABI; the public update stages the same complete transaction.
     progpu_native_mil_channel* c_channel = nullptr;

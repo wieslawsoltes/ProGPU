@@ -21952,6 +21952,7 @@ status channel::apply_with_hinted_glyph_resources(
         batch_metrics local_metrics{};
         local_metrics.total_bytes = static_cast<std::uint32_t>(bytes.size());
         batch_reader reader(bytes); command_view command{};
+        bool reset_resources = false;
         for (;;) {
             const auto read_status = reader.next(command);
             if (read_status == status::end_of_batch) break;
@@ -21959,6 +21960,7 @@ status channel::apply_with_hinted_glyph_resources(
             ++local_metrics.command_count;
             const auto applied = candidate.implementation_->apply_command(command, local_metrics);
             if (applied != status::success) return applied;
+            reset_resources |= command.kind == command::transport_destroy_resources_on_channel;
             ++local_metrics.supported_command_count;
         }
         for (const auto& binding : bindings) {
@@ -21971,10 +21973,13 @@ status channel::apply_with_hinted_glyph_resources(
                 return glyph.style_simulations == 0U && glyph.face_index == font.face_index && glyph.font_data != nullptr &&
                     glyph.font_data->size() == font_bytes.size() && std::memcmp(glyph.font_data->data(), font_bytes.data(), font_bytes.size()) == 0;
             };
-            // Canonical recreation may clear the candidate sideband. It is not
-            // authority to silently replace an already associated source font.
+            // Ordinary canonical recreation is not authority to replace an
+            // associated source font. An explicit successful channel reset in
+            // this candidate retires that association with the complete graph;
+            // a later failure still leaves the published association untouched.
             const auto previous = implementation_->glyph_runs.find(binding.glyph_run_handle);
-            if (previous != implementation_->glyph_runs.end() && previous->second.font_data != nullptr && !matches(previous->second))
+            if (!reset_resources && previous != implementation_->glyph_runs.end() &&
+                previous->second.font_data != nullptr && !matches(previous->second))
                 return status::invalid_argument;
             const auto found = candidate.implementation_->glyph_runs.find(binding.glyph_run_handle);
             if (found == candidate.implementation_->glyph_runs.end()) return status::invalid_handle;

@@ -11,6 +11,20 @@ invalid packet preserves the published graph and its scene cache. Only successfu
 batch publication invalidates the borrowed compiled-scene view. Previously copied
 pointer-free scene streams and other channels remain independent.
 
+The atomic hinted-glyph update follows that same reset boundary: a successful
+reset packet in its unpublished candidate ends prior font associations before
+same-handle recreation/binding. Ordinary glyph recreation still cannot silently
+replace an already associated source font. A failed later binding preserves the
+published graph, original font association, borrowed scene cache and last successful
+hinted metrics. Matched controls use the original byte-distinct ProGPU shape/mapping
+font fixtures, retain the ordinary rejection, verify late-failure rollback and
+compile the accepted replacement from its new retained hinted resource.
+The decoder and hinted regression translation unit pass strict C++20 Clang
+syntax checks with hinting enabled, and the regenerated coverage ledger plus the
+complete native-contract verifier pass. The verifier initially required adding
+its missing managed Unicode source directory to this sparse worktree. These are
+bounded source/contract checks, not native regression execution or GPU qualification.
+
 The existing stroke-preparation accounting owner survives the reset: outstanding
 immutable preparation leases remain charged until their original final release.
 No renderer engine, queue, GPU submission, external texture owner or native window
