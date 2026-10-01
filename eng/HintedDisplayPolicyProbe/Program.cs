@@ -106,6 +106,7 @@ internal static class Program
                 // run suffixes. Paragraph direction and original UTF-16 remain input.
                 using var paragraph = context.LayoutHintedParagraph(text, direction, options, styles, metrics, devices);
                 var logical = paragraph.LogicalGlyphs.ToArray();
+                var sourceComparison = SourceComparison.Compare(item, CopySourceParagraph(paragraph, logical, font));
                 cases.Add(new
                 {
                     OriginalCase = item.Clone(), Interpreter = (uint)interpreter, DeviceEm26_6 = ppem26_6,
@@ -116,6 +117,7 @@ internal static class Program
                     NormalizedCoordinates = Array.Empty<short>(),
                     SourceMetricsOrigin = "Original default head/hhea design metrics; not a WPF baseline/line-height equivalence claim.",
                     SourceMetrics = metrics, SourceOptions = options, RawRuns = rawRuns,
+                    SourceContextComparison = sourceComparison,
                     SourceScalars = paragraph.SourceScalars.ToArray(), AdmittedScalars = paragraph.AdmittedScalars.ToArray(),
                     ScalarLevels = paragraph.ScalarLevels.ToArray(), Runs = paragraph.Runs.ToArray(),
                     LogicalGlyphs26_6 = logical, LogicalOwners = paragraph.LogicalOwners.ToArray(),
@@ -152,5 +154,30 @@ internal static class Program
     }
 
     private static FileIdentity Identity(string path) => new(Path.GetFullPath(path), Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)))) ;
+
+    private static NativeSourceParagraph CopySourceParagraph(NativeHintedParagraph paragraph, NativeTextShapingGlyph[] logical, byte[] font)
+    {
+        var glyphs = new NativeSourceGlyph[paragraph.Glyphs.Length];
+        for (int i = 0; i < glyphs.Length; ++i)
+        {
+            var positioned = paragraph.Glyphs[i];
+            int index = checked((int)positioned.GlyphIndex);
+            if ((uint)index >= (uint)logical.Length || positioned.GlyphId != logical[index].GlyphId || positioned.Cluster != logical[index].Cluster ||
+                paragraph.ClusterEnds[i] != paragraph.LogicalClusterEnds[index])
+                throw new InvalidDataException("The original native logical/positioned identity changed.");
+            var owner = paragraph.PositionedOwners[i]; var logicalOwner = paragraph.LogicalOwners[index];
+            if (owner.RunIndex != logicalOwner.RunIndex || owner.RunGlyphIndex != logicalOwner.RunGlyphIndex || owner.DescriptorIndex != logicalOwner.DescriptorIndex ||
+                owner.RunIndex >= paragraph.Runs.Length || paragraph.Runs[checked((int)owner.RunIndex)].FontIndex != positioned.FontIndex)
+                throw new InvalidDataException("The original native occurrence owner changed.");
+            var shaped = logical[index];
+            glyphs[i] = new(i, index, positioned.GlyphId, positioned.FontIndex, positioned.Cluster, paragraph.ClusterEnds[i],
+                paragraph.BidiLevels[i], shaped.AdvanceX, shaped.OffsetX, shaped.OffsetY, positioned.AdvanceX, positioned.X, positioned.Y);
+        }
+        return new(Convert.ToHexString(SHA256.HashData(font)), 0,
+            paragraph.SourceScalars.ToArray().Select(value => new NativeSourceScalar(value.CodePoint, checked((int)value.InputIndex), checked((int)value.InputLength))).ToArray(),
+            glyphs, paragraph.Lines.ToArray().Select(value => new NativeSourceLine(value.InputStart, value.InputEnd,
+                checked((int)value.GlyphStart), checked((int)value.GlyphCount), value.Width, value.Height, value.BaselineY)).ToArray());
+    }
+
     private sealed record FileIdentity(string Path, string Sha256);
 }

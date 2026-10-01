@@ -42,6 +42,49 @@ they do not reuse the production float reciprocal. This exposes precision loss
 separately from interpreter, shaping/GPOS, run/context and line-policy differences.
 The probe does not repair product outputs or compare ink pixels.
 
+## Complete-source fitting and advance comparison
+
+`SourceContextComparison` now connects each of the existing 192 explicit-policy
+observations to its original Microsoft Display case. It retains every source
+line/run, original occurrence count and unmatched native positioned index.
+Different fitting ranges, glyph counts/sequences, physical font owners,
+per-run bidi levels or original UTF-16 cluster coverage produce named unmatched
+results, never a skipped or passing case. Native original logical indices own
+the comparison order; glyph-ID search cannot make a different sequence match.
+The original full Microsoft receipt still retains all 192 Ideal/Display inputs.
+
+The Microsoft final line may include exactly one virtual `TextEndOfParagraph`
+unit beyond the original UTF-16 text. Raw length and virtual length are recorded
+separately; only the final row's one extra unit is qualified. Other overshoot
+rejects. This does not manufacture a source scalar, glyph or native line. The
+existing wrapped/unwrapped source ranges are compared to the actual native
+writer's ranges. Both source widths (with/without trailing whitespace) remain
+separate from its retained native width, without selecting a width policy.
+
+Only an exact occurrence alignment permits advance comparisons. Original signed
+logical 26.6 values divide by 64 and the source's original double DPI, separately
+from actual float-positioned advances. Both exact equality and signed deltas are
+recorded without epsilon, rounding or substitution. Thus a matching logical
+9.6-DIP advance and a different promoted float projection remain distinguishable.
+Original `GlyphRun` offsets and native logical offsets/positions are retained,
+but their different coordinate frames are explicitly **not** equated. Baseline,
+height, source offset, caret, pixel and full Display policy qualification remain
+open; the diagnostic head/hhea inputs are unchanged and are not Microsoft's
+output line metrics.
+
+Device-free comparison controls cover source/glyph/font/bidi/cluster rejection,
+original logical/positioned ownership, signed and float-projection differences,
+fitting mismatch and strict final-EOP handling. Existing immutable x64/ARM64
+receipts exercise all 96 original Display cases and every original run as explicit
+unmatched results when no native data is supplied. These are comparison/input
+controls, **not** native Display observations or 96 passing parity cases. Actual
+native source-context fitting/advance findings require the qualified runtime
+gate below; no failed/incomplete native Build is staged for these tests.
+
+Applicability: this diagnostic consumes the same retained native text generation
+used by both native providers and managed native-text consumers. It changes no
+renderer, formatter, interpreter, source metrics, native ABI or default policy.
+
 ## Bounded invocation
 
 First verify a **whole successful exact-head Build**, then stage its exact package

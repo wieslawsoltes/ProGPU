@@ -11,5 +11,6 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <Compile Include="../HintedDisplayPolicyProbe/ReferenceInput.cs" Link="ReferenceInput.cs" />
+    <Compile Include="../HintedDisplayPolicyProbe/SourceComparison.cs" Link="SourceComparison.cs" />
   </ItemGroup>
 </Project>
