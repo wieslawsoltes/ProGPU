@@ -12,6 +12,12 @@ ligature and combining opportunities), and wrapped/unwrapped widths. Each line
 records original source ranges, glyph IDs, advances, offsets, cluster/caret
 metadata, baseline, selection and ink bounds. Continuations use independently
 cloned original TextLineBreak objects after the preceding line is disposed.
+Source font-family baseline/line-spacing, rendering/hinting em and culture are
+recorded separately from output line metrics. Each original physical face also
+reports normalized font metrics and its public nominal design advances; these
+are distinct from positioned Display advances. Paired consumers must never feed
+the expected output line baseline/height back as native request metrics and
+then count that circular agreement as a formatting result.
 No expected metrics are inferred from glyph ink, a font's nominal advances, or
 the portable implementation. Null source offset/caret collections remain null.
 

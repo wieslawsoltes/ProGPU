@@ -90,9 +90,13 @@ internal static class Program
                         run.BidiLevel, run.IsSideways, run.FontRenderingEmSize, run.PixelsPerDip,
                         Baseline = Point(run.BaselineOrigin), GlyphIds = run.GlyphIndices.ToArray(),
                         Advances = run.AdvanceWidths.ToArray(), Offsets = run.GlyphOffsets?.Select(Point).ToArray(),
+                        NominalDesignAdvances = run.GlyphIndices.Select(index => run.GlyphTypeface.AdvanceWidths[index]).ToArray(),
                         Utf16 = run.Characters?.Select(character => (int)character).ToArray(),
                         Clusters = run.ClusterMap?.ToArray(), CaretStops = run.CaretStops?.ToArray(),
                         FontUri = run.GlyphTypeface.FontUri.AbsoluteUri, StyleSimulations = run.GlyphTypeface.StyleSimulations.ToString(),
+                        FontMetrics = new { run.GlyphTypeface.Baseline, run.GlyphTypeface.Height,
+                            run.GlyphTypeface.CapsHeight, run.GlyphTypeface.XHeight,
+                            run.GlyphTypeface.UnderlinePosition, run.GlyphTypeface.UnderlineThickness },
                         Ink = Rectangle(run.ComputeInkBoundingBox()),
                     };
                 }).ToArray();
@@ -131,7 +135,9 @@ internal static class Program
             }
         }
         finally { previous?.Dispose(); }
-        return new { Text = text, Mode = mode.ToString(), Direction = direction.ToString(), Dpi = dpi, Em = em, Width = width, Lines = lines };
+        return new { Text = text, Mode = mode.ToString(), Direction = direction.ToString(), Dpi = dpi, Em = em, Width = width,
+            SourceFont = new { family.Baseline, family.LineSpacing,
+                properties.FontRenderingEmSize, properties.FontHintingEmSize, Culture = properties.CultureInfo.Name }, Lines = lines };
     }
 
     private static double[] Point(Point value) { Finite(value.X); Finite(value.Y); return [value.X, value.Y]; }
