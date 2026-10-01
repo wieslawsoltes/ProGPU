@@ -1304,7 +1304,8 @@ public unsafe partial class Compositor : IDisposable
         StaticDxf,
         ChartLine,
         ChartScatter,
-        Extension
+        Extension,
+        HintedGlyphPaint
     }
 
     public struct CompositorDrawCall
@@ -1425,6 +1426,7 @@ public unsafe partial class Compositor : IDisposable
     {
         public required GpuBuffer UniformBuffer { get; init; }
         public nint TextureUniformBindGroupPtr { get; init; }
+        public nint HintedGlyphPaintUniformBindGroupPtr { get; set; }
         public GpuTexture? RasterPatternTexture { get; set; }
     }
 
@@ -1832,6 +1834,8 @@ public unsafe partial class Compositor : IDisposable
         _uniformBuffer.AllocatedSize +
         _brushesStorageBuffer.AllocatedSize +
         _textStylesStorageBuffer.AllocatedSize +
+        (_hintedGlyphPaintBuffer?.AllocatedSize ?? 0UL) +
+        (_hintedGlyphPaintRetiringBuffer?.AllocatedSize ?? 0UL) +
         _gradientStopsStorageBuffer.AllocatedSize +
         _vectorVertexBuffer.AllocatedSize +
         _vectorIndexBuffer.AllocatedSize +
@@ -3156,6 +3160,7 @@ public unsafe partial class Compositor : IDisposable
             _currentSolidRoundedPrimitiveCount = 0;
             _activeBrushes.Clear();
             _activeTextStyles.Clear();
+            _hintedGlyphPaints?.Clear();
             _legacyTextVertexCount = 0;
             _activeGradientStops.Clear();
             _vectorVerticesList.Clear();
@@ -3609,6 +3614,7 @@ DynamicBufferUploadComplete:
                 CollectionsMarshal.AsSpan(_activeGradientStops),
                 ref _gradientStopUploadShadow);
         }
+        UploadHintedGlyphPaints();
 
         // Rasterize all pending paths before starting the render pass.
         _pathAtlas.RasterizePendingPaths();
@@ -3818,6 +3824,14 @@ SceneStateUploadComplete:
                 var textVertexSize = (ulong)dc.IndexCount * GlyphInstanceStride;
                 _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, textVertexOffset, textVertexSize);
                 _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, 0);
+            }
+            else if (dc.Type == DrawCallType.HintedGlyphPaint)
+            {
+                EncodeHintedGlyphPaint(pass, dc, isOffscreen: false, _hintedGlyphPaintUniformBindGroup,
+                    GetDrawCallMaskBindGroup(dc, isOffscreen: false));
+                currentType = DrawCallType.HintedGlyphPaint;
+                currentMaskBindGroup = null;
+                currentPipelineHasMask = null;
             }
             else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
             {
@@ -4799,6 +4813,7 @@ SceneStateUploadComplete:
             QueueBindGroupRelease(resource.VectorUniformBindGroupPtr);
             QueueBindGroupRelease(resource.TextUniformBindGroupPtr);
             QueueBindGroupRelease(resource.TextureUniformBindGroupPtr);
+            QueueBindGroupRelease(resource.HintedGlyphPaintUniformBindGroupPtr);
         }
         resource.UniformBuffer.Dispose();
     }
@@ -12320,8 +12335,7 @@ CompilePathStroke:
         }
     }
 
-    private void CompileFillQuadCommand(RenderCommand cmd, Matrix4x4 transform,
-        bool clampVerticesToClip = true)
+    private void CompileFillQuadCommand(RenderCommand cmd, Matrix4x4 transform)
     {
         SwitchBatch(BatchType.Vector);
         if (cmd.Brush == null) return;
@@ -12357,7 +12371,7 @@ CompilePathStroke:
         indexSpan[4] = idxStart + 2;
         indexSpan[5] = idxStart + 3;
 
-        if (clampVerticesToClip && _activeClipRect.HasValue)
+        if (_activeClipRect.HasValue)
         {
             var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
             for (int i = startIndex; i < vertices.Length; i++)
@@ -15459,6 +15473,7 @@ CompilePathStroke:
             _uniformBuffer.Dispose();
             _brushesStorageBuffer.Dispose();
             _textStylesStorageBuffer.Dispose();
+            DisposeHintedGlyphPaintResources();
             _gradientStopsStorageBuffer.Dispose();
             _vectorVertexBuffer.Dispose();
             _vectorIndexBuffer.Dispose();
@@ -15579,6 +15594,7 @@ CompilePathStroke:
                     {
                         _context.QueueBindGroupDisposal((IntPtr)resource.TextureUniformBindGroupPtr);
                     }
+                    QueueBindGroupRelease(resource.HintedGlyphPaintUniformBindGroupPtr);
                 }
 
                 if (_atlasBindGroup != null) _context.QueueBindGroupDisposal((IntPtr)_atlasBindGroup);
@@ -15783,7 +15799,7 @@ CompilePathStroke:
     private bool CanEncodeAdvancedBlend(in CompositorDrawCall drawCall, GpuTexture targetTexture)
     {
         GpuTexture? patternTexture = drawCall.RasterOperation.TexturePattern?.Texture;
-        return drawCall.Type == DrawCallType.Texture &&
+        return (drawCall.Type is DrawCallType.Texture or DrawCallType.HintedGlyphPaint) &&
             IsTextureBindable(drawCall.Texture) &&
             (patternTexture is null || IsTextureBindable(patternTexture)) &&
             (RequiresDestinationSampling(drawCall.BlendMode) ||
@@ -15828,6 +15844,8 @@ CompilePathStroke:
         uint targetHeight,
         out MaskPixelBounds bounds)
     {
+        if (drawCall.Type == DrawCallType.HintedGlyphPaint)
+            return TryGetHintedGlyphPaintSourceBounds(drawCall, targetWidth, targetHeight, out bounds);
         bounds = default;
         if (drawCall.IndexCount == 0 ||
             drawCall.IndexStart >= (uint)_textureIndicesList.Count ||
@@ -15862,6 +15880,15 @@ CompilePathStroke:
             maxY = MathF.Max(maxY, position.Y);
         }
 
+        return TryGetAdvancedBlendBoundsFromExtents(drawCall, targetWidth, targetHeight,
+            minX, minY, maxX, maxY, out bounds);
+    }
+
+    private bool TryGetAdvancedBlendBoundsFromExtents(in CompositorDrawCall drawCall,
+        uint targetWidth, uint targetHeight, float minX, float minY, float maxX, float maxY,
+        out MaskPixelBounds bounds)
+    {
+        bounds = default;
         float dpiScale = _currentDpiScale;
         if (!float.IsFinite(dpiScale) || dpiScale <= 0f)
         {
@@ -16264,6 +16291,18 @@ CompilePathStroke:
                 0,
                 bounds.Width,
                 bounds.Height);
+
+            if (drawCall.Type == DrawCallType.HintedGlyphPaint)
+            {
+                if (passResource.HintedGlyphPaintUniformBindGroupPtr == 0)
+                    passResource.HintedGlyphPaintUniformBindGroupPtr =
+                        CreateHintedGlyphPaintUniformBindGroup(passResource.UniformBuffer);
+                EncodeHintedGlyphPaint(pass, drawCall, isOffscreen: true,
+                    (BindGroup*)passResource.HintedGlyphPaintUniformBindGroupPtr,
+                    GetDrawCallMaskBindGroup(drawCall, isOffscreen: true),
+                    blendOverride: GpuBlendMode.SrcOver);
+                return;
+            }
 
             var texture = drawCall.Texture!;
             var pipeline = GetPipeline(
@@ -17967,6 +18006,9 @@ CompilePathStroke:
         var savedDrawCalls = RentListSnapshot(_drawCalls, out var savedDrawCallsCount);
         var savedActiveBrushes = RentListSnapshot(_activeBrushes, out var savedActiveBrushesCount);
         var savedActiveTextStyles = RentListSnapshot(_activeTextStyles, out var savedActiveTextStylesCount);
+        var savedHintedPaints = _hintedGlyphPaints != null
+            ? RentListSnapshot(_hintedGlyphPaints, out _) : null;
+        int savedHintedPaintCount = _hintedGlyphPaints?.Count ?? 0;
         var savedLegacyTextVertexCount = _legacyTextVertexCount;
         var savedActiveGradientStops = RentListSnapshot(_activeGradientStops, out var savedActiveGradientStopsCount);
         var savedClipStack = RentStackSnapshot(_clipStack, out var savedClipStackCount);
@@ -18004,6 +18046,7 @@ CompilePathStroke:
         _drawCalls.Clear();
         _activeBrushes.Clear();
         _activeTextStyles.Clear();
+        _hintedGlyphPaints?.Clear();
         _legacyTextVertexCount = 0;
         _activeGradientStops.Clear();
         _clipStack.Clear();
@@ -18148,6 +18191,7 @@ CompilePathStroke:
                 CollectionsMarshal.AsSpan(_activeGradientStops),
                 ref _gradientStopUploadShadow);
         }
+        UploadHintedGlyphPaints();
         _pathAtlas.RasterizePendingPaths();
         RefreshAtlasBindGroupsIfNeeded();
         long uploadEndTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -18416,6 +18460,14 @@ CompilePathStroke:
                 var textVertexSize = (ulong)dc.IndexCount * GlyphInstanceStride;
                 _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, textVertexOffset, textVertexSize);
                 _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, 0);
+            }
+            else if (dc.Type == DrawCallType.HintedGlyphPaint)
+            {
+                EncodeHintedGlyphPaint(pass, dc, isOffscreen: true, _hintedGlyphPaintUniformBindGroup,
+                    GetDrawCallMaskBindGroup(dc, isOffscreen: true));
+                currentType = DrawCallType.HintedGlyphPaint;
+                currentMaskBindGroup = null;
+                currentPipelineHasMask = null;
             }
             else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
             {
@@ -18781,6 +18833,9 @@ CompilePathStroke:
             RestoreList(_drawCalls, savedDrawCalls, savedDrawCallsCount);
             RestoreList(_activeBrushes, savedActiveBrushes, savedActiveBrushesCount);
             RestoreList(_activeTextStyles, savedActiveTextStyles, savedActiveTextStylesCount);
+            if (savedHintedPaints != null)
+                RestoreList(_hintedGlyphPaints!, savedHintedPaints, savedHintedPaintCount);
+            else _hintedGlyphPaints?.Clear();
             _legacyTextVertexCount = savedLegacyTextVertexCount;
             RestoreList(_activeGradientStops, savedActiveGradientStops, savedActiveGradientStopsCount);
             RestoreStack(ref _clipStack, savedClipStack, savedClipStackCount);
@@ -18832,6 +18887,7 @@ CompilePathStroke:
             ReturnListSnapshot(savedDrawCalls, savedDrawCallsCount);
             ReturnListSnapshot(savedActiveBrushes, savedActiveBrushesCount);
             ReturnListSnapshot(savedActiveTextStyles, savedActiveTextStylesCount);
+            if (savedHintedPaints != null) ReturnListSnapshot(savedHintedPaints, savedHintedPaintCount);
             ReturnListSnapshot(savedActiveGradientStops, savedActiveGradientStopsCount);
             ReturnListSnapshot(savedMaskRenderPasses, savedMaskRenderPassesCount);
             ReturnListSnapshot(savedMasksToReturnToPool, savedMasksToReturnToPoolCount);
@@ -20707,6 +20763,7 @@ CompilePathStroke:
         public nint VectorUniformBindGroupPtr { get; set; }
         public nint TextUniformBindGroupPtr { get; set; }
         public nint TextureUniformBindGroupPtr { get; set; }
+        public nint HintedGlyphPaintUniformBindGroupPtr { get; set; }
         public nint BrushBufferPtr { get; set; }
         public uint BrushBufferSize { get; set; }
         public nint GradientStopBufferPtr { get; set; }
@@ -21062,7 +21119,7 @@ CompilePathStroke:
         }
         else
         {
-            entryPoint = type == DrawCallType.Texture && textureAlphaMode == GpuTextureAlphaMode.Premultiplied
+            entryPoint = (type is DrawCallType.Texture or DrawCallType.HintedGlyphPaint) && textureAlphaMode == GpuTextureAlphaMode.Premultiplied
                 ? "fs_main"
                 : "fs_main_premultiplied";
         }
@@ -21083,7 +21140,7 @@ CompilePathStroke:
             return GpuTextureAlphaMode.Premultiplied;
         }
 
-        return type == DrawCallType.Texture
+        return type is DrawCallType.Texture or DrawCallType.HintedGlyphPaint
             ? textureAlphaMode
             : GpuTextureAlphaMode.Straight;
     }
@@ -21354,6 +21411,7 @@ CompilePathStroke:
             DrawCallType.Vector => _vectorPipelineLayoutOffscreen != _vectorPipelineLayout,
             DrawCallType.Text => _textPipelineLayoutOffscreen != _textPipelineLayout,
             DrawCallType.Texture => _texturePipelineLayoutOffscreen != _texturePipelineLayout,
+            DrawCallType.HintedGlyphPaint => false,
             _ => true
         };
     }
@@ -21400,6 +21458,9 @@ CompilePathStroke:
         bool hasMask)
     {
         uint sampleCount = isOffscreen ? 1u : Options.PrimarySampleCount;
+
+        if (type == DrawCallType.HintedGlyphPaint)
+            return CreateHintedGlyphPaintPipeline(blendMode, isOffscreen, overrideFormat, textureAlphaMode, hasMask);
 
         if (!overrideFormat.HasValue && blendMode == GpuBlendMode.SrcOver)
         {
@@ -22646,6 +22707,14 @@ CompilePathStroke:
                     _context.Api.RenderPassEncoderSetVertexBuffer(pass, 0, buffer, textVertexOffset, textVertexSize);
                     _context.Api.RenderPassEncoderDraw(pass, 6, dc.IndexCount, 0, 0);
                 }
+                else if (dc.Type == DrawCallType.HintedGlyphPaint)
+                {
+                    EncodeHintedGlyphPaint(pass, dc, isOffscreen: true,
+                        (BindGroup*)renderResource.HintedGlyphPaintUniformBindGroupPtr,
+                        maskBindGroup, overrideFormat: TextureFormat.R8Unorm);
+                    currentType = DrawCallType.HintedGlyphPaint;
+                    currentVectorPipelineKind = null;
+                }
                 else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
                 {
                     var texture = dc.Texture!;
@@ -22740,6 +22809,7 @@ CompilePathStroke:
         bool needsVector = false;
         bool needsText = false;
         bool needsTexture = false;
+        bool needsHintedPaint = false;
         for (int index = 0; index < drawCalls.Count; index++)
         {
             switch (drawCalls[index].Type)
@@ -22752,6 +22822,9 @@ CompilePathStroke:
                     break;
                 case DrawCallType.Texture:
                     needsTexture = true;
+                    break;
+                case DrawCallType.HintedGlyphPaint:
+                    needsHintedPaint = true;
                     break;
             }
         }
@@ -22772,6 +22845,8 @@ CompilePathStroke:
                     _textureUniformBindGroupLayoutOffscreen,
                     resource.UniformBuffer);
         }
+        if (needsHintedPaint && resource.HintedGlyphPaintUniformBindGroupPtr == 0)
+            resource.HintedGlyphPaintUniformBindGroupPtr = CreateHintedGlyphPaintUniformBindGroup(resource.UniformBuffer);
     }
 
     private int CountMaskRenderBindGroups()
@@ -22784,6 +22859,8 @@ CompilePathStroke:
             if (resource.TextUniformBindGroupPtr != 0)
                 count++;
             if (resource.TextureUniformBindGroupPtr != 0)
+                count++;
+            if (resource.HintedGlyphPaintUniformBindGroupPtr != 0)
                 count++;
         }
 

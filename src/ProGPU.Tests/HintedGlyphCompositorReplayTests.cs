@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using ProGPU.Backend;
 using ProGPU.Scene;
@@ -92,7 +93,8 @@ public sealed class HintedGlyphCompositorReplayTests
             gradientWindow.RenderAtDpi(64, 64, dpi);
             byte[] original = solidWindow.ReadPixels();
             Assert.Contains(original, value => value is > 0 and < 255);
-            Assert.True(gradientWindow.Compositor.Metrics.MaskRenderPassCount > 0);
+            Assert.Equal(0, gradientWindow.Compositor.Metrics.MaskRenderPassCount);
+            Assert.Contains(gradientWindow.Compositor.DrawCalls, draw => draw.Type == Compositor.DrawCallType.HintedGlyphPaint);
             Assert.Equal(original, gradientWindow.ReadPixels());
         }
     }
@@ -117,7 +119,9 @@ public sealed class HintedGlyphCompositorReplayTests
         {
             solidWindow.Render();
             gradientWindow.Render();
-            Assert.True(gradientWindow.Compositor.Metrics.MaskRenderPassCount > 0);
+            Assert.Equal(0, gradientWindow.Compositor.Metrics.MaskRenderPassCount);
+            Assert.Equal(2u, Assert.Single(gradientWindow.Compositor.DrawCalls,
+                draw => draw.Type == Compositor.DrawCallType.HintedGlyphPaint).IndexCount);
             Assert.Equal(solidWindow.ReadPixels(), gradientWindow.ReadPixels());
         }
     }
@@ -256,6 +260,105 @@ public sealed class HintedGlyphCompositorReplayTests
         Assert.True(original.SnapTextureToPixels);
     }
 
+    [Theory]
+    [InlineData(TextureSamplingMode.Nearest, GpuTextureAlphaMode.Straight, true, false)]
+    [InlineData(TextureSamplingMode.Linear, GpuTextureAlphaMode.Premultiplied, true, true)]
+    [InlineData(TextureSamplingMode.Cubic, GpuTextureAlphaMode.Opaque, true, true)]
+    [InlineData(TextureSamplingMode.Nearest, GpuTextureAlphaMode.Opaque, false, true)]
+    [InlineData(TextureSamplingMode.Linear, GpuTextureAlphaMode.Straight, false, true)]
+    [InlineData(TextureSamplingMode.Cubic, GpuTextureAlphaMode.Premultiplied, false, true)]
+    public void DirectTexturePaintRetainsOriginalCornersSamplesAndRepresentation(
+        TextureSamplingMode sampling, GpuTextureAlphaMode alphaMode, bool extend, bool snap)
+    {
+        using var geometry = CreateFractionalBox(2f);
+        using var window = CreateWindow(128);
+        using var texture = new GpuTexture(window.Context, 16, 16, TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst, "Original hinted paint representation", alphaMode: alphaMode);
+        byte[] pixels = new byte[16 * 16 * 4];
+        for (int index = 0; index < pixels.Length; index += 4)
+        {
+            pixels[index] = 64; pixels[index + 1] = 128; pixels[index + 2] = 192; pixels[index + 3] = 255;
+        }
+        texture.WritePixels(pixels);
+        Matrix4x4 brushTransform = extend
+            ? Matrix4x4.CreateScale(0.75f, 0.5f, 1f) * Matrix4x4.CreateTranslation(1.125f, 2.375f, 0)
+            : new Matrix4x4(1f, 0.25f, 0f, 0f, -0.125f, 1f, 0f, 0f,
+                0f, 0f, 1f, 0f, 1.125f, 2.375f, 0f, 1f);
+        var brush = new GpuTextureBrush
+        {
+            Texture = texture, SourceRect = new Rect(2, 4, 8, 8), DestinationRect = new Rect(4, 8, 16, 16),
+            Transform = brushTransform, SamplingMode = sampling, AddressModeU = TextureAddressMode.Repeat,
+            AddressModeV = TextureAddressMode.MirrorRepeat, ExtendToFillBounds = extend,
+            SnapToPixels = snap, Opacity = 0.625f
+        };
+        var sourceDomain = new Rect(0, 0, 64, 64);
+        var effective = Matrix4x4.CreateTranslation(0.25f, 0.125f, 0);
+        window.Content = new DirectPaintVisual(geometry, sourceDomain, brush, effective);
+        window.RenderAtDpi(64, 64, 2f);
+        Assert.Equal(0, window.Compositor.Metrics.MaskRenderPassCount);
+        Assert.Contains(window.Compositor.DrawCalls, draw => draw.Type == Compositor.DrawCallType.HintedGlyphPaint);
+        GpuHintedGlyphPaint record = Assert.Single(window.Compositor.HintedGlyphPaintRecords.ToArray());
+        Assert.Equal(GpuHintedGlyphPaint.TextureMaterial, record.Kind);
+        Assert.Equal(0u, record.BrushIndex);
+        Assert.Equal(0u, record.Reserved);
+        Assert.Equal(new Vector4(0.25f, 0.125f, 0.625f * 0.75f, 0f), record.SourceOffsetOpacity);
+        Assert.Equal((uint)sampling, record.Flags >> GpuHintedGlyphPaint.SamplingModeShift);
+        Assert.Equal(alphaMode == GpuTextureAlphaMode.Premultiplied,
+            (record.Flags & GpuHintedGlyphPaint.PremultipliedTexture) != 0);
+        Assert.Equal(alphaMode == GpuTextureAlphaMode.Opaque,
+            (record.Flags & GpuHintedGlyphPaint.OpaqueTexture) != 0);
+        Assert.Equal(!extend, (record.Flags & GpuHintedGlyphPaint.BoundedTexture) != 0);
+        Assert.Equal(sampling == TextureSamplingMode.Cubic, (record.Flags & GpuHintedGlyphPaint.CubicTexture) != 0);
+        Assert.Equal((float)TextureAddressMode.Repeat, record.Sampling.Z);
+        Assert.Equal((float)TextureAddressMode.MirrorRepeat, record.Sampling.W);
+        Assert.True(brush.TryCreateTextureCommand(sourceDomain, out RenderCommand original));
+        Assert.Equal(new Vector4(original.SrcRect.X / 16f, original.SrcRect.Y / 16f,
+            original.SrcRect.Right / 16f, original.SrcRect.Bottom / 16f), record.UVBounds);
+        Matrix4x4 originalTransform = extend ? effective : original.Transform * effective;
+        Vector2[] originalCorners =
+        [new(original.Rect.X, original.Rect.Y), new(original.Rect.Right, original.Rect.Y),
+         new(original.Rect.Right, original.Rect.Bottom), new(original.Rect.X, original.Rect.Bottom)];
+        for (int index = 0; index < originalCorners.Length; index++)
+        {
+            originalCorners[index] = Vector2.Transform(originalCorners[index], originalTransform);
+            if (snap) originalCorners[index] = new Vector2(MathF.Round(originalCorners[index].X * 2f) / 2f,
+                MathF.Round(originalCorners[index].Y * 2f) / 2f);
+        }
+        Assert.Equal(new Vector4(originalCorners[0], originalCorners[1].X, originalCorners[1].Y), record.TextureQuad01);
+        Assert.Equal(new Vector4(originalCorners[2], originalCorners[3].X, originalCorners[3].Y), record.TextureQuad23);
+        byte[] cold = window.ReadPixels();
+        ulong rasterSubmissions = window.Compositor.Atlas.RasterBatchSubmissionCount;
+        window.RenderAtDpi(64, 64, 2f);
+        Assert.Equal(cold, window.ReadPixels());
+        Assert.Equal(rasterSubmissions, window.Compositor.Atlas.RasterBatchSubmissionCount);
+        Assert.Equal(brushTransform, brush.Transform);
+    }
+
+    [Fact]
+    public void DirectPaintWireKeepsOriginalInstanceAndLazyFailureOwnership()
+    {
+        Assert.Equal(96, Marshal.SizeOf<GpuHintedGlyphPaint>());
+        Assert.Equal(16, Marshal.OffsetOf<GpuHintedGlyphPaint>(nameof(GpuHintedGlyphPaint.SourceOffsetOpacity)).ToInt32());
+        Assert.Equal(32, Marshal.OffsetOf<GpuHintedGlyphPaint>(nameof(GpuHintedGlyphPaint.UVBounds)).ToInt32());
+        Assert.Equal(48, Marshal.OffsetOf<GpuHintedGlyphPaint>(nameof(GpuHintedGlyphPaint.TextureQuad01)).ToInt32());
+        Assert.Equal(64, Marshal.OffsetOf<GpuHintedGlyphPaint>(nameof(GpuHintedGlyphPaint.TextureQuad23)).ToInt32());
+        Assert.Equal(80, Marshal.OffsetOf<GpuHintedGlyphPaint>(nameof(GpuHintedGlyphPaint.Sampling)).ToInt32());
+        Assert.Equal(96, Marshal.SizeOf<GlyphInstance>());
+        Assert.Equal(92, Marshal.OffsetOf<GlyphInstance>(nameof(GlyphInstance.Padding)).ToInt32());
+        uint exactIndex = 0x01000001;
+        Assert.Equal(exactIndex, BitConverter.SingleToUInt32Bits(BitConverter.UInt32BitsToSingle(exactIndex)));
+        string direct = ReadSource("ProGPU.Scene", "Compositor.HintedGlyphPaint.cs");
+        Assert.Contains("Offset = 92, ShaderLocation = 8", direct);
+        Assert.Contains("Format = VertexFormat.Uint32", direct);
+        Assert.Contains("if (_hintedGlyphPaints is not { Count: > 0 }) return", direct);
+        Assert.Contains("_hintedGlyphPaintRetiringBuffer = _hintedGlyphPaintBuffer", direct);
+        Assert.Contains("_hintedGlyphPaintBuffer = replacement", direct);
+        Assert.Contains("try { _context.Api.BindGroupRelease(replacement); }", direct);
+        Assert.Contains("HintedGlyphPaintSetupCleanupFailure", direct);
+        Assert.Contains("alphaMode == GpuTextureAlphaMode.Premultiplied || BlendModeRequiresPremultipliedSource", direct);
+        Assert.DoesNotContain("RentMaskTexture", direct);
+    }
+
     [Fact]
     public void AllOriginalNoInkOccurrencesDoNotAllocateCoverageOrSpatialMask()
     {
@@ -290,7 +393,7 @@ public sealed class HintedGlyphCompositorReplayTests
     }
 
     [Fact]
-    public void ManagedAdmissionAndMaskFailureOwnershipRemainBeforePublication()
+    public void ManagedAdmissionAndDirectPaintFailureOwnershipRemainBeforePublication()
     {
         string replay = ReadSource("ProGPU.Scene", "Compositor.HintedGlyphs.cs");
         int validation = replay.IndexOf("HintedGlyphCommandGeometry.TryValidate(", StringComparison.Ordinal);
@@ -302,36 +405,23 @@ public sealed class HintedGlyphCompositorReplayTests
         Assert.Contains("ReferenceEquals(retained.Identity, geometry)", replay);
         Assert.Contains("ActiveCompilationContext?.RetainedGlyphBuilder != null", replay);
         Assert.Contains("command.Brush is not SolidColorBrush", replay);
-        Assert.Contains("Rect = command.Rect", replay);
-        Assert.Contains("IsEdgeAliased = true", replay);
-        Assert.Contains("GetHintedPaintStorageBounds(command, geometry, start, count)", replay);
-        Assert.Contains("GetBoundedMaskPixelBounds(storageBounds, transform)", replay);
-        Assert.Contains("Type = RenderCommandType.FillQuad", replay);
-        Assert.Contains("clampVerticesToClip: false", replay);
-        Assert.Contains("textureBrush.TryCreateTextureCommand(command.Rect", replay);
-        Assert.Contains("TexturePaintMapping.TryExtendSnappedTextureCommand(sourcePaint, storageBounds", replay);
-        string texturePaint = ReadSource("ProGPU.Scene", "TexturePaintMapping.cs");
-        Assert.Contains("storagePaint.SnapTextureToPixels = false", texturePaint);
-        Assert.DoesNotContain("GetBoundedMaskPixelBounds(command.Rect", replay);
+        Assert.Contains("CreateHintedTexturePaint(textureBrush, command.Rect, transform)", replay);
+        Assert.Contains("brush.TryCreateTextureCommand(originalSourceDomain", replay);
+        Assert.Contains("Type = DrawCallType.HintedGlyphPaint", replay);
+        Assert.Contains("BitConverter.UInt32BitsToSingle(paintIndex.Value)", replay);
+        Assert.DoesNotContain("PushHintedGlyphCoverageMask", replay);
+        Assert.DoesNotContain("RentMaskTexture", replay);
         Assert.DoesNotContain("CompileRectCommand(", replay);
         Assert.Contains("new Vector4(1f, 0f, 0f", replay);
         Assert.Contains("BearSize = new Vector4(info.BearX, info.BearY, info.Width, info.Height)", replay);
         Assert.Contains("_textVerticesList.RemoveRange(textStart", replay);
-        Assert.Contains("_legacyTextVertexCount = legacyStart", replay);
-        Assert.Contains("_activeTextStyles.RemoveRange(styleStart", replay);
-        Assert.Contains("_pendingTextStart = pendingTextStart", replay);
-        int textureReturn = replay.IndexOf("if (maskTexture != null) _maskTexturePool.Add(maskTexture)", StringComparison.Ordinal);
-        int listReturn = replay.IndexOf("try { ReturnMaskDrawCallList(maskDraws); }", StringComparison.Ordinal);
-        Assert.True(textureReturn >= 0 && textureReturn < listReturn);
-        Assert.Contains("HintedGlyphMaskListCleanupFailure", replay);
+        Assert.Contains("_hintedGlyphPaints.RemoveAt(checked((int)paintIndex))", replay);
+        Assert.Contains("_pendingTextStart = checked((uint)_textVerticesList.Count)", replay);
+        Assert.Contains("separateDestinationComposites", replay);
         Assert.DoesNotContain("TtfFont", replay);
         Assert.DoesNotContain("GetGlyphIndex", replay);
         int instanceStart = replay.IndexOf("private void CompileHintedGlyphAtlasInstances", StringComparison.Ordinal);
-        int instanceEnd = replay.IndexOf("private void PushHintedGlyphCoverageMask", instanceStart, StringComparison.Ordinal);
-        Assert.DoesNotContain("Snap", replay[instanceStart..instanceEnd].Replace("SnappedLogicalPos", "", StringComparison.Ordinal));
-        string compositor = ReadSource("ProGPU.Scene", "Compositor.cs");
-        Assert.Contains("bool clampVerticesToClip = true", compositor);
-        Assert.Contains("if (clampVerticesToClip && _activeClipRect.HasValue)", compositor);
+        Assert.DoesNotContain("Snap", replay[instanceStart..].Replace("SnappedLogicalPos", "", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -425,6 +515,18 @@ public sealed class HintedGlyphCompositorReplayTests
             context.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(0, 0, 64, 64));
             context.PushOpacity(0.75f);
             context.DrawHintedGlyphs(geometry, Vector2.Zero, inkBounds, brush);
+            context.PopOpacity();
+        }
+    }
+
+    private sealed class DirectPaintVisual(HintedGlyphGeometry geometry, Rect inkBounds,
+        Brush brush, Matrix4x4 transform) : FrameworkElement
+    {
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(0, 0, 64, 64));
+            context.PushOpacity(0.75f);
+            context.DrawHintedGlyphs(geometry, Vector2.Zero, inkBounds, brush, transform);
             context.PopOpacity();
         }
     }

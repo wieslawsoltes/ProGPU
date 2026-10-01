@@ -30,11 +30,6 @@ public unsafe partial class Compositor
         if (ActiveCompilationContext != null && command.Brush is not SolidColorBrush)
             throw new NotSupportedException("Static text-buffer recompilation cannot retain spatial hinted paint and mask storage.");
 
-        // This extent owns storage only. The original source ink/brush domain
-        // remains command.Rect; neither the producer records nor paint mapping
-        // is normalized to the padded raster allocation.
-        Rect paintStorage = command.Brush is SolidColorBrush ? default :
-            GetHintedPaintStorageBounds(command, geometry, start, count);
         RetainHintedGeometryForCompiledReplay(geometry);
         command.TextRenderingMode = ResolveCachedTextRenderingMode(command.TextRenderingMode, _suppressCachedClearType);
         if (ActiveCompilationContext != null && !ActiveCompilationContext.IsRecompiling &&
@@ -47,29 +42,7 @@ public unsafe partial class Compositor
             return;
         }
 
-        // Spatial paint samples the unchanged original brush mapping over all
-        // padded glyph coverage. A source-ink rectangle must not crop filtered
-        // fringe or contribute a second shape-coverage/AA term.
-        PushHintedGlyphCoverageMask(command, transform, geometry, start, count, paintStorage);
-        Exception? paintFailure = null;
-        try
-        {
-            CompileHintedGlyphSpatialPaint(command, paintStorage, transform);
-        }
-        catch (Exception failure) { paintFailure = failure; throw; }
-        finally
-        {
-            if (paintFailure is null) PopOpacityMaskValue();
-            else
-            {
-                try { PopOpacityMaskValue(); }
-                catch (Exception cleanup)
-                {
-                    try { paintFailure.Data["HintedGlyphPaintMaskCleanupFailure"] = cleanup; }
-                    catch { }
-                }
-            }
-        }
+        CompileHintedGlyphDirectPaint(command, transform, geometry, start, count);
     }
 
     internal static Rect GetHintedPaintStorageBounds(RenderCommand command,
@@ -104,39 +77,128 @@ public unsafe partial class Compositor
         return new Rect(minimum, size);
     }
 
-    private void CompileHintedGlyphSpatialPaint(RenderCommand command, Rect storageBounds,
-        Matrix4x4 transform)
+    private void CompileHintedGlyphDirectPaint(RenderCommand command, Matrix4x4 transform,
+        HintedGlyphGeometry geometry, int start, int count)
     {
+        // One original positioned occurrence owns one original paint, including
+        // overlaps. No white-coverage union or R8 intermediate changes gamma,
+        // fractional filtering, opacity order or the final target rounding.
+        CommitPendingDrawCalls();
+        GpuHintedGlyphPaint paint;
+        GpuTexture? texture = null;
+        var sampling = TextureSamplingMode.Linear;
+        var addressU = TextureAddressMode.Clamp;
+        var addressV = TextureAddressMode.Clamp;
+        var alphaMode = GpuTextureAlphaMode.Straight;
         if (command.Brush is GpuTextureBrush textureBrush)
         {
-            // The canonical texture brush extrapolates SourceRect from its
-            // original DestinationRect/Transform, never stretches it to storage.
-            if (textureBrush.ExtendToFillBounds && textureBrush.SnapToPixels)
+            paint = CreateHintedTexturePaint(textureBrush, command.Rect, transform);
+            texture = textureBrush.Texture!;
+            sampling = textureBrush.SamplingMode;
+            addressU = textureBrush.AddressModeU;
+            addressV = textureBrush.AddressModeV;
+            alphaMode = texture.AlphaMode;
+        }
+        else
+        {
+            paint = new GpuHintedGlyphPaint
             {
-                if (!textureBrush.TryCreateTextureCommand(command.Rect, out RenderCommand sourcePaint))
-                    throw new NotSupportedException("The retained texture brush requires its original live texture and admitted mapping.");
-                if (TexturePaintMapping.TryExtendSnappedTextureCommand(sourcePaint, storageBounds, transform,
-                    _currentDpiScale, out RenderCommand storagePaint))
-                    CompileTextureCommand(storagePaint, transform);
-                return;
-            }
-            CompileTextureBrushRectangle(textureBrush, storageBounds, transform);
-            return;
+                Kind = GpuHintedGlyphPaint.RegisteredMaterial,
+                BrushIndex = checked((uint)RegisterBrush(command.Brush)),
+                SourceOffsetOpacity = new Vector4(transform.M41, transform.M42, 0f, 0f)
+                // RegisterBrush already owns original state/brush opacity.
+            };
         }
 
-        CompileFillQuadCommand(new RenderCommand
+        _hintedGlyphPaints ??= new List<GpuHintedGlyphPaint>();
+        _hintedGlyphPaints.EnsureCapacity(checked(_hintedGlyphPaints.Count + 1));
+        bool separateDestinationComposites = texture != null && RequiresDestinationSampling(_activeBlendMode);
+        _drawCalls.EnsureCapacity(checked(_drawCalls.Count + (separateDestinationComposites ? count : 1)));
+        uint paintIndex = checked((uint)_hintedGlyphPaints.Count);
+        int textStart = _textVerticesList.Count;
+        _hintedGlyphPaints.Add(paint);
+        try
         {
-            Type = RenderCommandType.FillQuad,
-            Rect = command.Rect, // Preserve the authoritative source metadata.
-            Position = new Vector2(storageBounds.X, storageBounds.Y),
-            Position2 = new Vector2(storageBounds.Right, storageBounds.Y),
-            Position3 = new Vector2(storageBounds.Right, storageBounds.Bottom),
-            Position4 = new Vector2(storageBounds.X, storageBounds.Bottom),
-            Brush = command.Brush,
-            IsEdgeAliased = true // The glyph mask alone owns shape coverage/AA.
-        }, transform, clampVerticesToClip: false);
-        // Draw-call scissoring still owns the original clip. Moving only quad
-        // vertices to a clip edge would distort their absolute brush coordinates.
+            CompileHintedGlyphAtlasInstances(command, transform, geometry, start, count, paintIndex);
+            int instanceCount = _textVerticesList.Count - textStart;
+            if (instanceCount == 0)
+            {
+                _hintedGlyphPaints.RemoveAt(checked((int)paintIndex));
+                return;
+            }
+            var drawCall = new CompositorDrawCall
+            {
+                Type = DrawCallType.HintedGlyphPaint,
+                IndexStart = checked((uint)textStart), IndexCount = checked((uint)instanceCount),
+                Texture = texture, TextureSamplingMode = sampling,
+                TextureAddressModeU = addressU, TextureAddressModeV = addressV,
+                TextureAlphaMode = alphaMode, BlendMode = _activeBlendMode,
+                ClipRect = _activeClipRect,
+                MaskTexture = _maskStack.Count > 0 ? _maskStack.Peek().Texture : null,
+                MaskBindGroupOverride = GetActiveMaskBindGroupOverride()
+            };
+            if (separateDestinationComposites)
+            {
+                drawCall.IndexCount = 1;
+                for (int index = 0; index < instanceCount; index++)
+                {
+                    drawCall.IndexStart = checked((uint)(textStart + index));
+                    _drawCalls.Add(drawCall);
+                }
+            }
+            else _drawCalls.Add(drawCall);
+        }
+        catch
+        {
+            _textVerticesList.RemoveRange(textStart, _textVerticesList.Count - textStart);
+            _hintedGlyphPaints.RemoveAt(checked((int)paintIndex));
+            throw;
+        }
+        finally
+        {
+            _pendingTextStart = checked((uint)_textVerticesList.Count);
+            _currentBatchType = BatchType.None;
+        }
+    }
+
+    private GpuHintedGlyphPaint CreateHintedTexturePaint(GpuTextureBrush brush,
+        Rect originalSourceDomain, Matrix4x4 transform)
+    {
+        if (!brush.TryCreateTextureCommand(originalSourceDomain, out RenderCommand sourcePaint))
+            throw new NotSupportedException("The retained texture brush requires its original live texture and admitted mapping.");
+        GpuTexture texture = sourcePaint.Texture!;
+        Matrix4x4 paintTransform = brush.ExtendToFillBounds ? transform : sourcePaint.Transform * transform;
+        Vector2 p0 = Vector2.Transform(new Vector2(sourcePaint.Rect.X, sourcePaint.Rect.Y), paintTransform);
+        Vector2 p1 = Vector2.Transform(new Vector2(sourcePaint.Rect.Right, sourcePaint.Rect.Y), paintTransform);
+        Vector2 p2 = Vector2.Transform(new Vector2(sourcePaint.Rect.Right, sourcePaint.Rect.Bottom), paintTransform);
+        Vector2 p3 = Vector2.Transform(new Vector2(sourcePaint.Rect.X, sourcePaint.Rect.Bottom), paintTransform);
+        if (sourcePaint.SnapTextureToPixels)
+        {
+            p0 = TexturePaintMapping.SnapPoint(p0, _currentDpiScale);
+            p1 = TexturePaintMapping.SnapPoint(p1, _currentDpiScale);
+            p2 = TexturePaintMapping.SnapPoint(p2, _currentDpiScale);
+            p3 = TexturePaintMapping.SnapPoint(p3, _currentDpiScale);
+        }
+        if (!float.IsFinite(p0.X) || !float.IsFinite(p0.Y) || !float.IsFinite(p1.X) || !float.IsFinite(p1.Y) ||
+            !float.IsFinite(p2.X) || !float.IsFinite(p2.Y) || !float.IsFinite(p3.X) || !float.IsFinite(p3.Y))
+            throw new InvalidOperationException("Original hinted texture placement overflows its admitted frame.");
+        uint flags = (uint)sourcePaint.TextureSamplingMode << GpuHintedGlyphPaint.SamplingModeShift;
+        if (texture.AlphaMode == GpuTextureAlphaMode.Premultiplied) flags |= GpuHintedGlyphPaint.PremultipliedTexture;
+        if (texture.AlphaMode == GpuTextureAlphaMode.Opaque) flags |= GpuHintedGlyphPaint.OpaqueTexture;
+        if (!brush.ExtendToFillBounds) flags |= GpuHintedGlyphPaint.BoundedTexture;
+        if (sourcePaint.TextureSamplingMode == TextureSamplingMode.Cubic) flags |= GpuHintedGlyphPaint.CubicTexture;
+        Vector2 coefficients = ResolveImageSamplingCoefficients(_imageSamplingPath,
+            sourcePaint.TextureSamplingMode, new Vector2(0f, 0.5f));
+        return new GpuHintedGlyphPaint
+        {
+            Kind = GpuHintedGlyphPaint.TextureMaterial, Flags = flags,
+            SourceOffsetOpacity = new Vector4(transform.M41, transform.M42,
+                sourcePaint.TextureOpacity * _activeOpacity, 0f),
+            UVBounds = new Vector4(sourcePaint.SrcRect.X / texture.Width, sourcePaint.SrcRect.Y / texture.Height,
+                sourcePaint.SrcRect.Right / texture.Width, sourcePaint.SrcRect.Bottom / texture.Height),
+            TextureQuad01 = new Vector4(p0, p1.X, p1.Y), TextureQuad23 = new Vector4(p2, p3.X, p3.Y),
+            Sampling = new Vector4(coefficients, (float)sourcePaint.TextureAddressModeU, (float)sourcePaint.TextureAddressModeV)
+        };
     }
 
     private void RetainHintedGeometryForCompiledReplay(HintedGlyphGeometry geometry)
@@ -181,12 +243,12 @@ public unsafe partial class Compositor
     }
 
     private void CompileHintedGlyphAtlasInstances(RenderCommand command, Matrix4x4 transform,
-        HintedGlyphGeometry geometry, int start, int count)
+        HintedGlyphGeometry geometry, int start, int count, uint? paintIndex = null)
     {
-        bool sharedStyle = ActiveCompilationContext is null;
+        bool sharedStyle = paintIndex is null && ActiveCompilationContext is null;
         float style = sharedStyle ? RegisterTextStyle(command.Brush, command.TextRenderingMode) : -1f;
         Vector4 color = (command.Brush as SolidColorBrush)?.Color ?? Vector4.One;
-        if (!sharedStyle) color.W *= (command.Brush?.Opacity ?? 1f) * _activeOpacity;
+        if (!sharedStyle && paintIndex is null) color.W *= (command.Brush?.Opacity ?? 1f) * _activeOpacity;
         EnsureTextVertexCapacity(count);
         ReadOnlySpan<HintedGlyphOccurrence> occurrences = geometry.RenderOccurrences;
         ReadOnlySpan<GpuGlyphRecord> outlines = geometry.RenderOutlines;
@@ -211,7 +273,7 @@ public unsafe partial class Compositor
                     continue;
             }
 
-            SwitchBatch(BatchType.Text);
+            if (paintIndex is null) SwitchBatch(BatchType.Text);
             GlyphInfo info = _atlas.GetOrCreateHintedGlyph(geometry, occurrence.OutlineIndex);
             _textVerticesList.Add(new GlyphInstance
             {
@@ -224,85 +286,10 @@ public unsafe partial class Compositor
                 ScaleBoldItalicUseMvp = new Vector4(1f, 0f, 0f,
                     EncodeTextFlags(ActiveCompilationContext != null,
                         sharedStyle ? TextRenderingMode.Grayscale : command.TextRenderingMode, false)),
-                BrushIndex = style, Padding = 0f
+                BrushIndex = style, Padding = paintIndex.HasValue ? BitConverter.UInt32BitsToSingle(paintIndex.Value) : 0f
             });
-            if (!sharedStyle) _legacyTextVertexCount++;
+            if (!sharedStyle && paintIndex is null) _legacyTextVertexCount++;
         }
     }
 
-    private void PushHintedGlyphCoverageMask(RenderCommand command, Matrix4x4 transform,
-        HintedGlyphGeometry geometry, int start, int count, Rect storageBounds)
-    {
-        _currentFrameOpacityMaskDemand++;
-        _peakOpacityMaskDemand = Math.Max(_peakOpacityMaskDemand, _currentFrameOpacityMaskDemand);
-        CommitPendingDrawCalls();
-        int drawStart = _drawCalls.Count;
-        int textStart = _textVerticesList.Count;
-        int legacyStart = _legacyTextVertexCount;
-        uint pendingTextStart = _pendingTextStart;
-        int styleStart = _activeTextStyles.Count;
-        _maskTexturePool.EnsureCapacity(checked(_maskTexturePool.Count + 1));
-        var savedState = ResetStateForMaskCompilation();
-        List<CompositorDrawCall>? maskDraws = null;
-        GpuTexture? maskTexture = null;
-        bool published = false;
-        Exception? setupFailure = null;
-        try
-        {
-            try
-            {
-                RenderCommand coverage = command;
-                coverage.Brush = GeometryMaskCoverageBrush;
-                CompileHintedGlyphAtlasInstances(coverage, transform, geometry, start, count);
-                CommitPendingDrawCalls();
-            }
-            finally { RestoreStateAfterMaskCompilation(savedState); }
-            int drawCount = _drawCalls.Count - drawStart;
-            maskDraws = RentMaskDrawCallList(drawCount);
-            for (int index = drawStart; index < _drawCalls.Count; index++) maskDraws.Add(_drawCalls[index]);
-            _drawCalls.RemoveRange(drawStart, drawCount);
-            MaskPixelBounds bounds = QuantizeMaskStorageBounds(
-                IntersectWithActiveMask(GetBoundedMaskPixelBounds(storageBounds, transform)));
-            maskTexture = RentMaskTexture(bounds);
-            MaskTextureState? previous = _maskStack.Count > 0 ? _maskStack.Peek() : null;
-            _maskRenderPasses.EnsureCapacity(checked(_maskRenderPasses.Count + 1));
-            _maskStack.EnsureCapacity(checked(_maskStack.Count + 1));
-            _maskRenderPasses.Add(new MaskRenderPassInfo
-            {
-                MaskTexture = maskTexture, PreviousMaskTexture = previous?.Texture,
-                PreviousMaskBindGroupOverride = previous?.AnalyticResource?.BindGroupPtr ?? 0,
-                Bounds = bounds, TargetWidth = CurrentMaskTargetPixelWidthUInt,
-                TargetHeight = CurrentMaskTargetPixelHeightUInt, DrawCalls = maskDraws
-            });
-            _maskStack.Push(new MaskTextureState(maskTexture, bounds, null));
-            published = true;
-        }
-        catch (Exception failure) { setupFailure = failure; throw; }
-        finally
-        {
-            if (!published)
-            {
-                // Unpublished white coverage must never become ordinary paint
-                // if a caller handles the setup error and continues compiling.
-                _drawCalls.RemoveRange(drawStart, _drawCalls.Count - drawStart);
-                _textVerticesList.RemoveRange(textStart, _textVerticesList.Count - textStart);
-                _legacyTextVertexCount = legacyStart;
-                _pendingTextStart = pendingTextStart;
-                _currentBatchType = BatchType.None;
-                _activeTextStyles.RemoveRange(styleStart, _activeTextStyles.Count - styleStart);
-                // Texture capacity was reserved before any setup. Return that
-                // native owner before a managed list-pool growth can fault.
-                if (maskTexture != null) _maskTexturePool.Add(maskTexture);
-                if (maskDraws != null)
-                {
-                    try { ReturnMaskDrawCallList(maskDraws); }
-                    catch (Exception cleanup)
-                    {
-                        try { if (setupFailure != null) setupFailure.Data["HintedGlyphMaskListCleanupFailure"] = cleanup; }
-                        catch { }
-                    }
-                }
-            }
-        }
-    }
 }
