@@ -5099,3 +5099,14 @@ every exact internal field in order. The memory-inventory source guard passed
 (92 owned fields, seven non-owning identities excluded). Provider GPU translation
 units, Windows SDK/module builds, native behavioral tests and managed scene tests
 remain unexecuted here; these source checks do not substitute for their gates.
+
+The first hosted Build `36936696701` compiled the native implementation but
+exposed two new fixture errors. The full-copy fixture inherited default-zero
+anisotropy instead of the exact-copy path's required explicit one; it now
+records the canonical sampler. The two adjacent picture draws correctly merge
+into one two-patch command, so provider expectations now require one wire draw
+and command. A separate structural check requires both exact source/destination
+patches; cold two-submit, warm one-submit and every-pixel checks are unchanged.
+These corrections do not change product admission or qualify the failed Build.
+Bounded inline-array generator controls now run in the existing required
+contract-verification and generation CI jobs as well as locally.
