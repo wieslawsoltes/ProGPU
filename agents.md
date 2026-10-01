@@ -164,6 +164,14 @@ counts/copy borrow a separate handle lease excluding destroy. Reject input/outpu
 and retained-handle aliases before publication, preserve exact signed fixed-point
 records and every caller tail, and never execute fonts while copying. Absent
 dependencies remain explicit Unsupported; additive C exports do not admit Display.
+Retained hinted paragraph glyph resources are independent of target views and
+paint. Keep exact source/run/descriptor maps, including every no-ink occurrence,
+and complete reachable allocation-capacity guards when frames share that owner.
+Private MIL bindings verify original positioned indices, exact font bytes/face/em
+and DPI before atomic publication. Consume hinted outlines inside existing semantic
+brush/clip scopes without design-outline decoding, ID/phase lookup or second snap.
+Identity basis and no added guidelines remain explicit gates; private C++ binding
+does not admit public transport, managed/source replay or Display selection.
 
 Retained DrawingTextLayout painting and interaction must share one original
 formatted generation. Own exact glyph/font runs and interaction geometry; do not

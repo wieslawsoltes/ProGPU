@@ -747,6 +747,49 @@ can leave an earlier prefix written, not a public atomic-generation guarantee.
 Independent header-only controls retain that exact legacy behavior. This seam
 does not infer bidi, cluster ends or source metrics for a hinted paragraph.
 
+### Retained hinted glyph resources in MIL scenes
+
+`create_hinted_paragraph_glyph_resource` now retains the original paragraph and
+its converted outlines independently of any target, view, clear color or paint.
+Its explicit DPI, projection and coverage retain the original strict defaults
+and bounds. Source/run/descriptor slices remain exact, and every positioned
+occurrence has an owner and outline index, including explicit no-ink occurrences.
+The existing frame factory consumes this same geometry owner and retains its
+original target/color/origin validation, fields, limits and draw ordering.
+Complete local capacity alias walks now include the resource and its added maps;
+the existing transport walk still includes its original paragraph/font storage.
+
+The private C++ `hinted_glyph_binding_access::bind` attaches that resource and
+explicit original positioned indices to an existing MIL glyph-run resource.
+One candidate copy precedes publication. Count, later index/ID/position, exact
+source bytes/collection face/font index/em ratio, DPI and basis failures preserve
+the prior binding, graph generation and compiled view. Every selected hinted
+ink box must fit the source-provided bounds after the exact DPI/Y projection;
+insufficient bounds reject rather than widening the rectangle that also owns
+spatial-brush mapping. Synthetic simulations
+remain rejected. Successful SFNT rebinding or canonical glyph-run recreation
+retires the previous hinted binding; context/caller retirement does not retire
+an independently retained resource.
+
+The existing `append_glyph_run` semantic consumer emits these exact physical
+outlines and occurrence maps through `add_glyph_outlines`, under the existing
+source brush/opacity/clip scopes. It adds neither a whole-target clear nor a
+standalone render call. Solid paint and the existing gradient/tile coverage
+composition use the same consumer. Captured phase is included once, raster and
+font scales remain one, and source draw state applies the logical translation
+once. The original design-font decoder and its phase policy remain separate.
+Changed DPI, a nonidentity linear basis or added guideline snapping reject before
+glyph resource emission; this explicit identity-basis contract does not qualify
+arbitrary transformed source Display rendering.
+
+Authored CPU controls retain all original frame assertions and add standalone
+resource ownership/maps/aliases/retirement plus private MIL binding and raw
+semantic records. They have not been executed locally. No public C transport,
+managed recorded-command binding or source factory is connected by this private
+layer. Those paired consumers, both renderer/package image gates, continuations
+and independent Windows source text/UI evidence remain required. Display and
+editor selection remain unchanged; scene compilation is not GPU qualification.
+
 ### Explicit owned paragraph and frame transport
 
 `progpu_native_text_context_layout_hinted_paragraph` publishes one immutable

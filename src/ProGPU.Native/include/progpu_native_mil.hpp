@@ -115,6 +115,8 @@ private:
     std::uint32_t offset_{};
 };
 
+struct hinted_glyph_binding_access; // Private source bridge; no public C export.
+
 class channel final {
 public:
     channel();
@@ -305,6 +307,7 @@ public:
         scene_build_result* result = nullptr) noexcept;
 
 private:
+    friend struct hinted_glyph_binding_access;
     struct implementation;
     struct build_cache;
     status build_scene_core(
