@@ -1,6 +1,8 @@
 using System.Drawing;
 using System.Numerics;
+using ProGPU.Backend.Native;
 using ProGPU.Text;
+using ProGPU.Text.Shaping;
 
 namespace ProGPU.SystemDrawing;
 
@@ -13,12 +15,22 @@ public sealed class DrawingTextLayout
 {
     private readonly TextInteractionSnapshot _interaction;
     private readonly float _emptyLineHeight;
+    private readonly string _source;
+    private readonly int _paragraphLevel;
+    private Lazy<DrawingEditWordBoundaryCapture>? _editWordBoundaries;
 
     internal DrawingTextLayout(TextLayout layout, SizeF layoutSize, Vector2 offset,
         float emptyLineHeight, float dpiX, float dpiY, FontStyle style, bool clip,
         PreparedDrawingGlyphRun[] runs, PreparedDrawingTextDecoration[] decorations)
     {
         _interaction = layout.CreateInteractionSnapshot();
+        _source = layout.Text;
+        _paragraphLevel = layout.ShapingOptions.Direction switch
+        {
+            ShapingDirection.LeftToRight => 0,
+            ShapingDirection.RightToLeft => 1,
+            _ => throw new NotSupportedException("Retained source interaction requires an explicit horizontal paragraph direction.")
+        };
         _emptyLineHeight = emptyLineHeight;
         LayoutSize = layoutSize;
         ContentSize = new SizeF(layout.ContentSize.X, layout.ContentSize.Y);
@@ -45,6 +57,40 @@ public sealed class DrawingTextLayout
     public float DpiX { get; }
     public float DpiY { get; }
     public int RowCount => _interaction.RowCount;
+
+    /// <summary>
+    /// Captures the original EDIT word-selection inventory for this exact source
+    /// generation. Unsupported source policies and missing owned dependencies
+    /// return their exact native status/error with a null snapshot, never a
+    /// substitute grapheme or wrapping inventory. The completed result is cached.
+    /// </summary>
+    /// <remarks>
+    /// This explicit query makes at most one native batch call. Ordinary layout
+    /// construction/painting does not load the native classifier. Legacy EDIT
+    /// endpoints can lie inside modern graphemes; this does not admit an interior
+    /// caret geometry contract or ordinary editor UI by itself.
+    /// </remarks>
+    public NativeEditWordBoundaryResult GetEditWordBoundaries(out DrawingEditWordBoundarySnapshot? snapshot)
+        => GetEditWordBoundaries(NativeEditWordBoundaryInterop.Resolve, out snapshot);
+
+    // The typed managed seam exercises the actual retained-source ownership and
+    // publication path in device-free tests; the public path always uses native.
+    internal NativeEditWordBoundaryResult GetEditWordBoundaries(EditWordBoundaryResolver resolver,
+        out DrawingEditWordBoundarySnapshot? snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(resolver);
+        Lazy<DrawingEditWordBoundaryCapture>? capture = Volatile.Read(ref _editWordBoundaries);
+        if (capture is null)
+        {
+            var candidate = new Lazy<DrawingEditWordBoundaryCapture>(
+                () => DrawingEditWordBoundarySnapshot.Capture(_source, _paragraphLevel, resolver),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            capture = Interlocked.CompareExchange(ref _editWordBoundaries, candidate, null) ?? candidate;
+        }
+        DrawingEditWordBoundaryCapture result = capture.Value;
+        snapshot = result.Snapshot;
+        return result.Result;
+    }
 
     public int GetRowSourceStart(int rowIndex) => _interaction.GetRowSourceStart(rowIndex);
 

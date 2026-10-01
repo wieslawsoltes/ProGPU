@@ -496,9 +496,9 @@ GPU, complete product build/package, owned-ICU build or source UI was executed
 by these transport checks. The 605 inferred property controls remain algorithm
 tests, not independent Microsoft oracle parity.
 
-The next source connection remains `DrawingTextLayout` retaining this inventory
-beside its own original source, paragraph direction, glyph runs and interaction
-snapshot, followed by the existing Forms boundary adapter. Original EDIT permits
+The retained source connection below binds this inventory to `DrawingTextLayout`'s
+own original source, paragraph direction, glyph runs and interaction snapshot;
+the existing Forms boundary adapter follows separately. Original EDIT permits
 selection endpoints inside modern emoji graphemes; public source endpoints must
 not be snapped or removed to satisfy caret/scroll geometry. No speculative
 interior-grapheme repair or ordinary Forms capability marker is added here.
@@ -546,3 +546,55 @@ control retains the exact selected ICU archive in sanitizer builds. Bash syntax,
 package-project XML and diff whitespace checks pass. No ICU source download, native dependency build,
 renderer execution, package production or CI dispatch was performed for this
 dependency-wiring checkpoint.
+
+## Retained drawing-generation capture
+
+`DrawingTextLayout.GetEditWordBoundaries(out snapshot)` now consumes the actual
+`NativeEditWordBoundaryInterop.Resolve` batch using the whole original text and
+explicit horizontal shaping direction captured from its private formatted
+`TextLayout`. It accepts no replacement text, suffix, mutable `StringFormat`,
+font or direction at query time. Existing creation/painting/interaction APIs
+remain unchanged and do not load or invoke the classifier. The new direct
+managed Backend.Native project dependency supplies this explicit CPU operation;
+it does not select a renderer, create a font/device or stage a runtime.
+
+The first explicit query owns one execution-and-publication lazy capture. It
+returns the exact generated status/error/count record by value and, on success,
+one immutable `DrawingEditWordBoundarySnapshot` containing read-only positions,
+leading-content start, source length and original paragraph level. Concurrent
+first readers share one native crossing; subsequent readers reuse its snapshot
+or exact rejected result. Binding and malformed-output exceptions remain explicit
+and cached, never cause a hidden provider retry. Recreate the layout to request a
+fresh generation. Neither mutable scratch arrays nor native pointers escape.
+
+The temporary batch capacity is `source.Length + 1` pooled uint elements. The
+snapshot owns only the validated used int prefix. Validation proves complete
+zero-to-source-length coverage, strictly ascending positions and an included
+leading-content seam; it does not classify, reshape, trim or snap any endpoint.
+Work/storage are O(source length + published boundaries) on first capture,
+O(1) per subsequent query, with no performance claim. Both managed and native
+rendering consume the same retained drawing source and this one CPU classifier;
+there is no renderer-specific boundary algorithm.
+
+Focused managed controls use the actual production DrawingTextLayout, Graphics
+retained factory and immutable snapshot implementation with an internal typed
+resolver seam. They test original LTR/RTL source after caller mutation/disposal,
+whole clipped/wrapped paragraphs, per-generation ownership, empty/CRLF/legacy
+emoji inventories, concurrency, immutable publication, precise failure caching
+and malformed-result rejection. The actual System.Drawing.Common Release project
+build passed with zero warnings/errors (4.48 seconds); the 24 new capture cases
+and 27 existing retained-layout cases passed together, 51/51 with zero skipped
+(399 ms). The focused test project links the tracked tests and references the
+actual production project, not shim DrawingTextLayout/Graphics implementations.
+These are ownership/transport controls, not a
+new Microsoft oracle or execution of the native classifier/ICU dependency.
+
+The remaining editor geometry boundary is concrete: the current retained
+`TextInteractionSnapshot.GetCaretStop` selects the nearest existing shaped stop;
+`GetSourcePositionPoint` returns the owning cluster's leading logical edge, and
+selection rectangles retain whole intersected cluster boxes. None publishes an
+independent original EDIT interior-cluster caret/partial-selection frame. The
+new boundary snapshot deliberately preserves such UTF-16 endpoints without
+pretending those existing geometry methods are that missing contract. Ordinary
+Forms capability/UI admission and complete native package qualification remain
+closed; no source-local caret interpolation or prefix shaping is introduced.
