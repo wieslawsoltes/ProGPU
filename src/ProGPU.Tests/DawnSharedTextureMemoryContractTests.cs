@@ -447,6 +447,56 @@ public sealed class DawnSharedTextureMemoryContractTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void DawnProviderReportsLoaderFailureWithoutChangingSelection()
+    {
+        string source = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnNativeProvider.cs");
+        int resolverStart = source.IndexOf("private static nint ResolveImport(", StringComparison.Ordinal);
+        int tryLoadStart = source.IndexOf("private static bool TryLoadSelected(", StringComparison.Ordinal);
+        int diagnosticStart = source.IndexOf("private static Exception CaptureSelectedLoadFailure(", StringComparison.Ordinal);
+        int defaultNameStart = source.IndexOf("private static string DefaultLibraryName(", StringComparison.Ordinal);
+        Assert.True(resolverStart >= 0 && resolverStart < tryLoadStart);
+        Assert.True(tryLoadStart < diagnosticStart && diagnosticStart < defaultNameStart);
+
+        string resolver = source[resolverStart..tryLoadStart];
+        Assert.Contains(
+            "if (!TryLoadSelected(searchPath, out nint module))\n            {\n                throw new DllNotFoundException(",
+            resolver,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "could not be loaded.\",\n                    CaptureSelectedLoadFailure(searchPath));",
+            resolver,
+            StringComparison.Ordinal);
+        Assert.True(
+            resolver.IndexOf("CaptureSelectedLoadFailure(searchPath)", StringComparison.Ordinal) <
+            resolver.IndexOf("s_module = module;", StringComparison.Ordinal));
+
+        string originalLoad = source[tryLoadStart..diagnosticStart];
+        Assert.Contains("NativeLibrary.TryLoad(s_configuredPath, out module)", originalLoad, StringComparison.Ordinal);
+        Assert.Contains(
+            "NativeLibrary.TryLoad(DefaultLibraryName(), typeof(WebGPU_FFI).Assembly, searchPath, out module)",
+            originalLoad,
+            StringComparison.Ordinal);
+
+        string diagnostic = source[diagnosticStart..defaultNameStart];
+        Assert.Contains("NativeLibrary.Load(s_configuredPath)", diagnostic, StringComparison.Ordinal);
+        Assert.Contains(
+            "NativeLibrary.Load(DefaultLibraryName(), typeof(WebGPU_FFI).Assembly, searchPath)",
+            diagnostic,
+            StringComparison.Ordinal);
+        Assert.Contains("NativeLibrary.Free(probe);", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("return new InvalidOperationException(", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("catch (Exception failure)", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("return failure;", diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("s_module =", diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("s_configuredPath =", diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("return probe", diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("NativeLibrary.TryLoad(", diagnostic, StringComparison.Ordinal);
+    }
+
     private static string ReadRepoFile(params string[] pathParts)
     {
         for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
