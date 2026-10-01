@@ -32,7 +32,12 @@ constexpr std::uint8_t supported_tag_bits = 0x03U | 0x18U;
 // winding rule. Explicit vector coverage keeps the original metadata but uses
 // only our existing nonzero geometry/coverage contract, never B/W scan behavior.
 constexpr unsigned vector_outline_flags = 0x08U | 0x100U;
-constexpr std::uint8_t contour_scan_mode_zero = 0x04U;
+constexpr std::uint8_t contour_scan_marker = 0x04U;
+// SMART_DROPOUTS/INCLUDE_STUBS and contour SCANTYPE belong to B/W scan
+// conversion. The explicit antialiased contract retains those original bits
+// while using the shared nonzero vector coverage, not a FreeType rasterizer.
+constexpr unsigned antialiased_dropout_flags = 0x10U | 0x20U;
+constexpr std::uint8_t contour_scan_mode_bits = 0xE0U;
 
 struct memory_range final { std::uintptr_t start = 0U, end = 0U; };
 
@@ -143,10 +148,12 @@ struct glyph_info final {
 
 hinted_outline_error inspect_glyph(const hinted_glyph& glyph, glyph_info& info,
     hinted_outline_coverage coverage) noexcept {
-    const bool vector = coverage == hinted_outline_coverage::nonzero_vector;
-    const auto outline_flags = supported_outline_flags | (vector ? vector_outline_flags : 0U);
+    const bool antialiased = coverage == hinted_outline_coverage::antialiased_vector;
+    const bool vector = coverage == hinted_outline_coverage::nonzero_vector || antialiased;
+    const auto outline_flags = supported_outline_flags | (vector ? vector_outline_flags : 0U) |
+        (antialiased ? antialiased_dropout_flags : 0U);
     const auto tag_bits = static_cast<std::uint8_t>(supported_tag_bits |
-        (vector ? contour_scan_mode_zero : 0U));
+        (vector ? contour_scan_marker : 0U) | (antialiased ? contour_scan_mode_bits : 0U));
     if (glyph.outline_flags < 0 ||
         (static_cast<unsigned>(glyph.outline_flags) & ~outline_flags) != 0U)
         return hinted_outline_error::unsupported_flags;
@@ -155,6 +162,9 @@ hinted_outline_error inspect_glyph(const hinted_glyph& glyph, glyph_info& info,
         return hinted_outline_error::invalid_topology;
     for (std::size_t index = 0U; index < glyph.points.size(); ++index) {
         if ((glyph.tags[index] & static_cast<std::uint8_t>(~tag_bits)) != 0U)
+            return hinted_outline_error::unsupported_flags;
+        if (antialiased && (glyph.tags[index] & contour_scan_mode_bits) != 0U &&
+            (glyph.tags[index] & contour_scan_marker) == 0U)
             return hinted_outline_error::unsupported_flags;
         if (kind(glyph.tags[index]) == 3U) return hinted_outline_error::invalid_topology;
         if (!exact_point(glyph.points[index])) return hinted_outline_error::unsupported_coordinates;
@@ -177,9 +187,11 @@ hinted_outline_error inspect_glyph(const hinted_glyph& glyph, glyph_info& info,
         const auto tags = std::span{glyph.tags}.subspan(start, count);
         start += count;
         // Bit 2 is a per-contour-start marker, never another curve/touch bit.
-        // Upper SCANTYPE bits remain outside tag_bits, admitting mode zero only.
+        // NonzeroVector keeps upper SCANTYPE bits outside tag_bits. The explicit
+        // antialiased policy admits the whole documented 3-bit field, including
+        // mode aliases 3/6/7, but only with a contour-start marker.
         if (vector && std::any_of(tags.begin() + 1U, tags.end(), [](std::uint8_t tag) {
-            return (tag & contour_scan_mode_zero) != 0U;
+            return (tag & contour_scan_marker) != 0U;
         })) return hinted_outline_error::unsupported_flags;
         if (kind(tags.front()) == cubic ||
             (kind(tags.front()) == conic && kind(tags.back()) == cubic))
@@ -357,7 +369,8 @@ hinted_outline_error get_hinted_outline_requirements(const hinted_shaped_run& ru
     hinted_projection_path path{};
     auto error = select_path(policy, path);
     if (error != hinted_outline_error::none) return error;
-    if (coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector)
+    if (coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector &&
+        coverage != hinted_outline_coverage::antialiased_vector)
         return hinted_outline_error::unsupported_policy;
     std::array<memory_range, 1> output{};
     if (!range(std::span{&requirements, 1U}, output[0]) || aliases_run(output, run))
@@ -378,7 +391,8 @@ hinted_outline_error write_hinted_run_outlines(const hinted_shaped_run& run,
     hinted_projection_path path{};
     auto error = select_path(policy, path);
     if (error != hinted_outline_error::none) return error;
-    if (coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector)
+    if (coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector &&
+        coverage != hinted_outline_coverage::antialiased_vector)
         return hinted_outline_error::unsupported_policy;
     std::array<memory_range, 7> outputs{};
     if (!range(scratch.topology, outputs[0]) || !range(scratch.physical_points, outputs[1]) ||

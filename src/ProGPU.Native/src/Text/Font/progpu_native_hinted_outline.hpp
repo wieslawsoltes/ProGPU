@@ -20,7 +20,11 @@ inline constexpr std::uint32_t hinted_no_outline = UINT32_MAX;
 // vector contract consumes original nonzero geometry with ProGPU coverage, not
 // FreeType grayscale/B/W raster parity. It retains raw metadata while admitting
 // only IGNORE_DROPOUTS/HIGH_PRECISION and contour-start SCANTYPE mode zero.
-enum class hinted_outline_coverage : std::uint32_t { strict, nonzero_vector };
+// Antialiased vector coverage additionally retains documented B/W dropout
+// metadata without executing B/W scan conversion. Neither existing policy changes.
+enum class hinted_outline_coverage : std::uint32_t {
+    strict = 0, nonzero_vector = 1, antialiased_vector = 2,
+};
 
 struct hinted_outline_requirements final {
     std::size_t source_slots = 0U;
@@ -55,7 +59,10 @@ hinted_outline_error get_hinted_outline_requirements(const hinted_shaped_run& ru
 // batch retains exact raw tags/outline flags. Strict rejects even-odd, scan/dropout
 // flags and SCANTYPE overrides. Explicit nonzero_vector admits only the observed
 // raster-only bits documented above; other policies and misplaced/nonzero-mode
-// markers still reject. Neither contract admits grayscale/B/W raster parity.
+// markers still reject. Antialiased vector admits all documented contour-start
+// SCANTYPE values, preserving their original tags; orphan/nonstart metadata and
+// unknown/even-odd/overlap/single-pass flags reject. No contract admits
+// FreeType grayscale/B/W raster parity.
 hinted_outline_error write_hinted_run_outlines(const hinted_shaped_run& run,
     hinted_outline_scratch scratch,
     std::span<progpu_native_glyph_outline> outlines,

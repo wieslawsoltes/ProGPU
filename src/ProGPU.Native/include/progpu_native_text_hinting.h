@@ -257,7 +257,10 @@ typedef enum progpu_native_hinted_projection_policy {
 } progpu_native_hinted_projection_policy;
 typedef enum progpu_native_hinted_outline_coverage {
     PROGPU_NATIVE_HINTED_COVERAGE_STRICT = 0,
-    PROGPU_NATIVE_HINTED_COVERAGE_NONZERO_VECTOR = 1
+    PROGPU_NATIVE_HINTED_COVERAGE_NONZERO_VECTOR = 1,
+    /* Nonzero antialiased vector coverage retains B/W dropout metadata without
+     * executing FreeType scan conversion. Existing coverage policies stay exact. */
+    PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR = 2
 } progpu_native_hinted_outline_coverage;
 
 /* The view remains borrowed under the ORIGINAL selected renderer contract.

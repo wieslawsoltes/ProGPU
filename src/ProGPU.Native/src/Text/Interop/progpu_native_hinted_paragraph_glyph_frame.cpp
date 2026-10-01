@@ -227,7 +227,8 @@ hinted_paragraph_glyph_frame_result create_hinted_paragraph_glyph_frame(
             target.width == 0U || target.height == 0U || target.target_view == 0U ||
             !std::isfinite(target.dpi_scale) || target.dpi_scale <= 0.0F || !finite(target.logical_origin) || !finite(target.clear_color))
             return fail(hinted_glyph_frame_error_code::invalid_argument);
-        if ((coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector) ||
+        if ((coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector &&
+                coverage != hinted_outline_coverage::antialiased_vector) ||
             (policy != hinted_projection_policy::automatic && policy != hinted_projection_policy::intrinsic_simd &&
                 policy != hinted_projection_policy::scalar_reference))
             return fail(hinted_glyph_frame_error_code::outline_conversion_failed, PROGPU_NATIVE_STATUS_UNSUPPORTED,

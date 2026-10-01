@@ -442,6 +442,25 @@ void prepare_and_borrow(const progpu_native_hinted_paragraph* handle,
     require(actual != nullptr && actual->paragraph() == select_hinted_paragraph_generation(handle));
     require(wire.value.glyphs == actual->glyphs().data() && wire.value.outlines == actual->outlines().data());
     require(same_bytes(request, request_before) && same_bytes(paints, before_paints));
+    auto antialiased_request = request;
+    antialiased_request.coverage = PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR;
+    const auto antialiased_request_before = antialiased_request;
+    frame_owner antialiased;
+    auto antialiased_publication = sentinel_output<progpu_native_hinted_paragraph_frame*>();
+    const auto antialiased_tail = antialiased_publication.tail;
+    require(progpu_native_hinted_paragraph_prepare_frame(handle, &antialiased_request, paints.data(), 2U,
+        &antialiased_publication.value) == PROGPU_NATIVE_STATUS_SUCCESS && antialiased_publication.tail == antialiased_tail);
+    antialiased.value = antialiased_publication.value;
+    auto antialiased_wire = sentinel_output<progpu_native_glyph_frame>();
+    const auto antialiased_wire_tail = antialiased_wire.tail;
+    require(progpu_native_hinted_paragraph_frame_borrow(antialiased.value, &antialiased_wire.value) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        antialiased_wire.tail == antialiased_wire_tail);
+    compare_frame(antialiased_wire.value, *original.generation);
+    const auto antialiased_generation = select_hinted_paragraph_frame_generation(antialiased.value);
+    require(antialiased_generation != nullptr && antialiased_generation->coverage() == hinted_outline_coverage::antialiased_vector &&
+        antialiased_generation->paragraph() == actual->paragraph());
+    require(same_bytes(antialiased_request, antialiased_request_before) && same_bytes(request, request_before) &&
+        same_bytes(paints, before_paints));
     const auto reject = [&](progpu_native_status expected) {
         auto old_frame = sentinel_output<progpu_native_hinted_paragraph_frame*>(); old_frame.value = frame.value; const auto before = old_frame;
         require(progpu_native_hinted_paragraph_prepare_frame(handle, &request, paints.data(), 2U, &old_frame.value) == expected && same_bytes(old_frame, before));
