@@ -139,9 +139,7 @@ public sealed unsafe partial class DawnGpuContext
 
             context = new WgpuContext
             {
-                ComputeLimits = new(limits.MaxStorageBufferBindingSize,
-                    limits.MaxStorageBuffersPerShaderStage, limits.MaxComputeInvocationsPerWorkgroup,
-                    limits.MaxComputeWorkgroupSizeX, limits.MaxComputeWorkgroupsPerDimension)
+                ComputeLimits = DawnDeviceLimits.ToComputeLimits(limits)
             };
             var api = new DawnWebGpuApi();
             // Allocate the public owner/importer before initialization publishes

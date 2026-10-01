@@ -197,7 +197,10 @@ public sealed unsafe partial class DawnGpuContext
             device = DeviceHandle.Null;
             queue = QueueHandle.Null;
             deviceLossStateHandle = default;
-            context = new WgpuContext();
+            context = new WgpuContext
+            {
+                ComputeLimits = DawnDeviceLimits.ToComputeLimits(limits)
+            };
             var api = new DawnWebGpuApi();
             var result = new DawnGpuContext(context, ownedInstance, ownedAdapter, ownedDevice, ownedQueue);
             deviceLossState.Bind(context);
