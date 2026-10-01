@@ -19,6 +19,14 @@ public sealed class IosMediaProviderContractTests
             "src",
             "ProGPU.Backend.Dawn",
             "DawnNativePresentation.cs");
+        string context = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnGpuContext.cs");
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnNativeProvider.cs");
 
         Assert.Contains(
             "DawnNativeWindowSource.CreateMetalLayer(",
@@ -45,18 +53,24 @@ public sealed class IosMediaProviderContractTests
             presentation,
             StringComparison.Ordinal);
         Assert.Contains(
+            "static DawnGpuContext() => DawnNativeProvider.EnsureResolvers();",
+            context,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "@rpath/webgpu_dawn.framework/webgpu_dawn",
-            ReadRepoFile(
-                "src",
-                "ProGPU.Backend.Dawn",
-                "DawnGpuContext.cs"),
+            provider,
             StringComparison.Ordinal);
         Assert.Contains(
             "NativeLibrary.SetDllImportResolver(",
-            ReadRepoFile(
-                "src",
-                "ProGPU.Backend.Dawn",
-                "DawnGpuContext.cs"),
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NativeLibrary.SetDllImportResolver(typeof(WebGPU_FFI).Assembly, ResolveImport);",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NativeLibrary.SetDllImportResolver(typeof(DawnNativeProvider).Assembly, ResolveImport);",
+            provider,
             StringComparison.Ordinal);
     }
 

@@ -7174,7 +7174,8 @@ public class NativeRendererInteropTests
             releaseWorkflow,
             StringComparison.Ordinal);
         Assert.Contains(
-            "--dawn --device-loss \"${managed_capture}\"",
+            "--dawn --device-loss \"--dawn-provider-library=${provider_library}\" \\\n" +
+            "    \"${managed_capture}\"",
             providerVerifier,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -7186,6 +7187,10 @@ public class NativeRendererInteropTests
             "ProGPU.Native.ManagedSample.csproj"));
         string managedSample = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native.ManagedSample", "Program.cs"));
+        Assert.Contains(
+            "DawnGpuContext.ConfigureNativeProviderLibrary(providerOptions[0][providerOption.Length..]);",
+            managedSample,
+            StringComparison.Ordinal);
         Assert.Contains(
             "PackageReference Include=\"ProGPU.Scene.Native\"",
             managedSampleProject,
