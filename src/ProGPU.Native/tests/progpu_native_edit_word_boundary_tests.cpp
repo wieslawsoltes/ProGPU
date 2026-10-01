@@ -154,13 +154,11 @@ void missing_contracts_are_atomic()
     const std::array<char16_t, 1> isolated_surrogate{0xD800U};
     check_failure({isolated_surrogate.data(), isolated_surrogate.size()},
         edit_word_boundary_error::invalid_encoding);
-    check_failure(u"\u1000\u1001", edit_word_boundary_error::unqualified_complex_script_policy);
-    // All six held-out Myanmar composed contexts remain honestly unsupported,
-    // never promoted from two observed letters to a syllable/whole-script rule.
-    for (const auto level : {std::int8_t{0}, std::int8_t{1}})
-        for (const auto prefix : {u"x", u"\u4E00", u"x "})
-            check_failure(std::u16string(prefix) + u"\u1000\u1001y ",
-                edit_word_boundary_error::unqualified_complex_script_policy, level);
+    // Myanmar's independently measured whole-item machine is covered by its
+    // own positive controls. Unimplemented Tai Tham syllables remain rejected.
+    check_failure(u"\u1A20\u1A21", edit_word_boundary_error::unqualified_complex_script_policy);
+    check_failure(u"\u1000\u0301", edit_word_boundary_error::unqualified_script_item_transition_policy);
+    check_failure(u"\u1000\u104A", edit_word_boundary_error::unqualified_script_item_transition_policy);
 #if !defined(PROGPU_NATIVE_EDIT_WORD_ICU)
     check_failure(u"\u0E20\u0E32\u0E29\u0E32\u0E44\u0E17\u0E22\u0E20\u0E32\u0E29\u0E32\u0E44\u0E17\u0E22 ",
         edit_word_boundary_error::dependency_unavailable);
@@ -529,11 +527,13 @@ void original_units_and_default_worker_are_independent()
 } // namespace
 
 void run_edit_word_interop_controls();
+void run_edit_myanmar_controls();
 
 int main()
 {
     try {
         run_edit_word_interop_controls();
+        run_edit_myanmar_controls();
         concurrent_snapshots_own_independent_outputs();
         original_reference_inventories();
         original_source_role_inventories();

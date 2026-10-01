@@ -8,9 +8,12 @@ include("${_native}/cmake/ProGPUEditWordIcu.cmake")
 add_executable(progpu_native_edit_word_boundary_tests
     "${_native}/tests/progpu_native_edit_word_boundary_tests.cpp"
     "${_native}/tests/progpu_native_edit_word_interop_tests.cpp"
+    "${_native}/tests/progpu_native_edit_myanmar_tests.cpp"
     "${_native}/src/Text/Interop/progpu_native_edit_word_interop.cpp"
     "${_native}/src/Text/progpu_native_edit_word_boundaries.cpp"
     "${_native}/src/Text/progpu_native_unicode.cpp"
+    "${_native}/src/Text/Shaping/progpu_native_unicode_shaping.cpp"
+    "${_native}/src/Text/Shaping/progpu_native_unicode_syllables.cpp"
     "${_native}/src/Text/Unicode/progpu_native_unicode_category.cpp"
     "${_native}/src/Text/Unicode/progpu_native_unicode_directional.cpp"
     "${_native}/src/Text/Bidi/progpu_native_unicode_bidi.cpp"
