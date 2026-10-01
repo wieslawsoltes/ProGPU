@@ -7,6 +7,33 @@ namespace ProGPU.Scene;
 public partial class DrawingContext
 {
     /// <summary>
+    /// Measures the selected original physical outlines in their retained writer
+    /// positions plus origin. This is ink, not advance/input or raster-padding
+    /// bounds. No-ink selections succeed with hasInk false and default bounds;
+    /// invalid/nonfinite mappings return false without publishing partial bounds.
+    /// </summary>
+    public static bool TryGetHintedGlyphInkBounds(HintedGlyphGeometry geometry,
+        Vector2 origin, out Rect bounds, out bool hasInk)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        bounds = default;
+        hasInk = false;
+        using IDisposable use = geometry.RetainForRecording();
+        var command = new RenderCommand
+        {
+            Type = RenderCommandType.DrawHintedGlyphs,
+            HintedGlyphGeometry = geometry,
+            GlyphRangeCount = geometry.OccurrenceCount,
+            Position = origin
+        };
+        if (!HintedGlyphCommandGeometry.TryGetInkBounds(command, out Rect measured, out bool ink))
+            return false;
+        bounds = measured;
+        hasInk = ink;
+        return true;
+    }
+
+    /// <summary>
     /// Records every original positioned occurrence, without shaping, font
     /// decoding or pixel snapping. inkBounds is the source's unchanged logical
     /// brush/ink domain including origin, before the optional finite translation.
@@ -15,16 +42,29 @@ public partial class DrawingContext
     public void DrawHintedGlyphs(HintedGlyphGeometry geometry, Vector2 origin,
         Rect inkBounds, Brush brush, Matrix4x4 transform = default,
         TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale)
+        => DrawHintedGlyphs(geometry, origin, inkBounds, brush, transform, textRenderingMode, 0);
+
+    /// <summary>Records original glyphs with the source's unchanged hit owner.</summary>
+    public void DrawHintedGlyphs(HintedGlyphGeometry geometry, Vector2 origin,
+        Rect inkBounds, Brush brush, Matrix4x4 transform,
+        TextRenderingMode textRenderingMode, int hitTestId)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         DrawHintedGlyphsRange(geometry, 0, geometry.OccurrenceCount, origin,
-            inkBounds, brush, transform, textRenderingMode);
+            inkBounds, brush, transform, textRenderingMode, hitTestId);
     }
 
     /// <summary>Records an explicit occurrence range; a zero count is empty.</summary>
     public void DrawHintedGlyphsRange(HintedGlyphGeometry geometry, int start, int count,
         Vector2 origin, Rect inkBounds, Brush brush, Matrix4x4 transform = default,
         TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale)
+        => DrawHintedGlyphsRange(geometry, start, count, origin, inkBounds, brush,
+            transform, textRenderingMode, 0);
+
+    /// <summary>Records an explicit range with the source's unchanged hit owner.</summary>
+    public void DrawHintedGlyphsRange(HintedGlyphGeometry geometry, int start, int count,
+        Vector2 origin, Rect inkBounds, Brush brush, Matrix4x4 transform,
+        TextRenderingMode textRenderingMode, int hitTestId)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(brush);
@@ -35,7 +75,7 @@ public partial class DrawingContext
             Type = RenderCommandType.DrawHintedGlyphs,
             HintedGlyphGeometry = geometry, GlyphRangeStart = start, GlyphRangeCount = count,
             Position = origin, Rect = inkBounds, Brush = brush,
-            Transform = transform, TextRenderingMode = textRenderingMode
+            Transform = transform, TextRenderingMode = textRenderingMode, HitTestId = hitTestId
         };
         if (!HintedGlyphCommandGeometry.IsIdentityBasis(actualTransform) ||
             !HintedGlyphCommandGeometry.TryValidate(command, geometry.DpiScale,

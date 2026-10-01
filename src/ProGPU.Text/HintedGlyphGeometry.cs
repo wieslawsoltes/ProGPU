@@ -62,6 +62,42 @@ public sealed class HintedGlyphGeometry : IDisposable
     /// <summary>Every original positioned occurrence, including no-ink slots.</summary>
     public ReadOnlySpan<HintedGlyphOccurrence> Occurrences { get { EnsureRecordingAdmission(); return _occurrences; } }
 
+    /// <summary>
+    /// Owns the selected occurrence slots in caller order, including duplicates
+    /// and no-ink slots. Indices address this view; PositionedIndex and all other
+    /// original identities remain unchanged. Physical outlines/segments are
+    /// shared, never copied, decoded, reshaped or renumbered. The selected view
+    /// can outlive this wrapper and owns the same original producer generation.
+    /// </summary>
+    public HintedGlyphGeometry SelectOccurrences(ReadOnlySpan<int> occurrenceIndices)
+    {
+        lock (_gate)
+        {
+            EnsureRecordingAdmission();
+            // Own the indices before validation so later caller mutation cannot
+            // change a validated slot. Publish neither a view nor an owner on a
+            // late invalid index.
+            int[] indices = occurrenceIndices.ToArray();
+            foreach (int index in indices)
+                if ((uint)index >= (uint)_occurrences.Length)
+                    throw new ArgumentOutOfRangeException(nameof(occurrenceIndices));
+            var selected = new HintedGlyphOccurrence[indices.Length];
+            for (int i = 0; i < selected.Length; i++) selected[i] = _occurrences[indices[i]];
+            IDisposable owner = RetainForRecording();
+            try { return new(DpiScale, _outlines, _segments, selected, owner); }
+            catch (Exception failure)
+            {
+                try { owner.Dispose(); }
+                catch (Exception cleanup)
+                {
+                    try { failure.Data["HintedGlyphSelectionCleanupFailure"] = cleanup; }
+                    catch { /* Preserve the original publication failure. */ }
+                }
+                throw;
+            }
+        }
+    }
+
     // Renderers borrow a drawing/picture's retained lifetime, not the disposed
     // caller wrapper. Data is never cleared/redecoded/repositioned at retirement.
     internal ReadOnlySpan<GpuGlyphRecord> RenderOutlines { get { EnsureRenderStorage(); return _outlines; } }
