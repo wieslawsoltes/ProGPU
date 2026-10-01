@@ -8,6 +8,14 @@ Keep transparent-visible and empty-own-point-region semantics, shared source
 records, sorted atomic replacement and existing visible-mask restrictions intact.
 See docs/source-visual-visibility.md; source coverage is not desktop qualification.
 
+Direct2D full-target Clear resets shared recorded commands/resources while retaining
+subsequent drawing state and independent exported snapshots. Preserve cumulative
+Windows translated-draw/callback/failure accounting; retained scene counts describe
+only surviving content. Keep public clear RGBA straight, honor actual IGNORE alpha,
+and premultiply once at ordinary scene submission. Compatible picture conversion
+remains independent. Scoped Clear and failed recordings remain explicit rejection.
+See docs/direct2d-full-target-clear.md; metadata fixtures are not pixel qualification.
+
 Owned Cocoa popup surfaces allocate real nonactivating NSPanels, never reclassify
 GLFW objects or exchange their content views/delegates. Keep hidden creation,
 primary-screen point mapping and explicit render-view leases; close may hide but

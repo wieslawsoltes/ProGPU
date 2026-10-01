@@ -109,6 +109,37 @@ inline progpu_native_status build_and_update_scene(
     return status;
 }
 
+inline progpu_native_scene_frame make_scene_frame(
+    const scene_render_target_summary& summary,
+    size_u pixel_size,
+    float dpi_x,
+    const scene_render_options& options) noexcept
+{
+    progpu_native_scene_frame frame{};
+    frame.struct_size = sizeof(frame);
+    frame.width = pixel_size.width;
+    frame.height = pixel_size.height;
+    frame.dpi_scale = dpi_x / 96.0F;
+    frame.target_view = options.target_view;
+    // Direct2D Clear metadata is straight RGBA; the semantic attachment stores
+    // premultiplied color. Convert once here, as the separate picture path does
+    // at its own submission boundary. IGNORE targets already publish alpha one.
+    frame.clear_color = {
+        summary.clear_color.red * summary.clear_color.alpha,
+        summary.clear_color.green * summary.clear_color.alpha,
+        summary.clear_color.blue * summary.clear_color.alpha,
+        summary.clear_color.alpha};
+    frame.scene_id = summary.scene_id;
+    frame.generation = summary.generation;
+    frame.flags = options.flags;
+    if (summary.has_clear == 0) {
+        frame.flags |= PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET;
+    } else {
+        frame.flags &= ~PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET;
+    }
+    return frame;
+}
+
 } // namespace detail
 
 /* Serializes into caller-owned scratch and updates the engine's retained
@@ -183,25 +214,8 @@ inline progpu_native_status render_scene_target(
 
     scene_render_target_summary summary{};
     target->GetSummary(&summary);
-    progpu_native_scene_frame frame{};
-    frame.struct_size = sizeof(frame);
-    frame.width = pixel_size.width;
-    frame.height = pixel_size.height;
-    frame.dpi_scale = dpi_x / 96.0F;
-    frame.target_view = options.target_view;
-    frame.clear_color = {
-        summary.clear_color.red,
-        summary.clear_color.green,
-        summary.clear_color.blue,
-        summary.clear_color.alpha};
-    frame.scene_id = summary.scene_id;
-    frame.generation = summary.generation;
-    frame.flags = options.flags;
-    if (summary.has_clear == 0) {
-        frame.flags |= PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET;
-    } else {
-        frame.flags &= ~PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET;
-    }
+    const progpu_native_scene_frame frame = detail::make_scene_frame(
+        summary, pixel_size, dpi_x, options);
     const progpu_native_status render_status = progpu_native_engine_render_scene(
         engine, &frame, frame_metrics);
     if (diagnostics != nullptr) {

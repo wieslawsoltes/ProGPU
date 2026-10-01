@@ -2,6 +2,7 @@
 #include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native_direct2d_clip_fixture.hpp"
 #include "progpu_native_direct2d_brush_fixture.hpp"
+#include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -1315,6 +1316,131 @@ private:
 
 static_assert(
     offsetof(fake_text_layout_vtable, draw) == 58U * sizeof(void*));
+
+bool full_target_clear_regressions(compat::scene_factory_native* scene_factory)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    const compat::scene_render_target_properties properties{64, 48, 96, 96, 7101, 1};
+    compat::render_target* raw = nullptr;
+    if (scene_factory->CreateSceneRenderTarget(&properties, &raw) != com::ok) return false;
+    com::pointer<compat::render_target> target;
+    target.attach(raw);
+    com::pointer<compat::scene_render_target_native> scene;
+    if (target.as(compat::scene_render_target_native_interface_id, scene) != com::ok) return false;
+    const compat::color_f color{0.25F, 0.5F, 0.75F, 0.875F};
+    compat::solid_color_brush* raw_brush = nullptr;
+    if (target->CreateSolidColorBrush(&color, nullptr, &raw_brush) != com::ok) return false;
+    com::pointer<compat::solid_color_brush> brush;
+    brush.attach(raw_brush);
+    brush->SetOpacity(0.75F);
+    const compat::rectangle_f rectangle{1, 2, 9, 10};
+    const compat::matrix_3x2_f transform{2, 0, 0, 3, 5, 7};
+    const compat::color_f clear{0.75F, 0.5F, 0.25F, 0.5F};
+    const auto build = [&](std::vector<std::byte>& bytes) {
+        bytes.resize(static_cast<std::size_t>(scene->GetRequiredSceneSize()));
+        std::uint64_t written = 0U;
+        return scene->BuildScene(bytes.data(), bytes.size(), &written) == com::ok && written == bytes.size();
+    };
+    std::vector<std::byte> earlier;
+    for (unsigned variant = 0U; variant < 3U; ++variant) {
+        target->BeginDraw();
+        target->SetTransform(&transform);
+        target->SetAntialiasMode(compat::antialias_mode::aliased);
+        target->SetTextAntialiasMode(compat::text_antialias_mode::aliased);
+        target->SetTags(123U, 456U);
+        target->PushAxisAlignedClip(&rectangle, compat::antialias_mode::aliased);
+        target->FillRectangle(&rectangle, brush.get());
+        target->PopAxisAlignedClip();
+        target->FillRectangle(&rectangle, brush.get());
+        target->Clear(&clear);
+        if (variant == 1U) target->Clear(nullptr);
+        if (variant != 2U) target->FillRectangle(&rectangle, brush.get());
+        compat::matrix_3x2_f retained{};
+        target->GetTransform(&retained);
+        std::uint64_t tag1 = 0U, tag2 = 0U;
+        target->GetTags(&tag1, &tag2);
+        if (std::memcmp(&retained, &transform, sizeof(transform)) != 0 || tag1 != 123U || tag2 != 456U ||
+            target->GetAntialiasMode() != compat::antialias_mode::aliased ||
+            target->GetTextAntialiasMode() != compat::text_antialias_mode::aliased ||
+            target->EndDraw(nullptr, nullptr) != com::ok) return false;
+        compat::scene_render_target_summary summary{};
+        scene->GetSummary(&summary);
+        const compat::color_f expected = variant == 1U ? compat::color_f{} : clear;
+        if (summary.draw_count != (variant == 2U ? 0U : 1U) || summary.has_clear != 1 ||
+            std::memcmp(&summary.clear_color, &expected, sizeof(expected)) != 0) return false;
+        const auto submitted = compat::detail::make_scene_frame(summary, {64, 48}, 192.0F,
+            {1234U, PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET});
+        if (submitted.width != 64U || submitted.height != 48U || submitted.dpi_scale != 2.0F ||
+            submitted.target_view != 1234U || submitted.scene_id != summary.scene_id ||
+            submitted.generation != summary.generation || submitted.flags != PROGPU_NATIVE_SCENE_FRAME_NONE ||
+            submitted.clear_color.r != expected.red * expected.alpha ||
+            submitted.clear_color.g != expected.green * expected.alpha ||
+            submitted.clear_color.b != expected.blue * expected.alpha || submitted.clear_color.a != expected.alpha ||
+            std::memcmp(&summary.clear_color, &expected, sizeof(expected)) != 0) return false;
+        std::vector<std::byte> bytes;
+        if (!build(bytes) || !(variant == 2U ? fixture::full_clear_empty_contract(bytes)
+                                             : fixture::full_clear_suffix_contract(bytes))) return false;
+        if (variant == 0U) earlier = bytes;
+        else if (!fixture::full_clear_suffix_contract(earlier)) return false;
+    }
+    // First scoped Clear must not be accepted as a full-target clear. Also
+    // preserve the first error if an invalid Clear precedes an otherwise valid one.
+    for (unsigned variant = 0U; variant < 4U; ++variant) {
+        target->BeginDraw();
+        target->SetTags(123U, 456U);
+        if (variant < 2U) {
+            target->PushAxisAlignedClip(&rectangle, variant == 0U
+                ? compat::antialias_mode::aliased : compat::antialias_mode::per_primitive);
+        } else if (variant == 2U) {
+            const compat::layer_parameters layer{rectangle, nullptr, compat::antialias_mode::per_primitive,
+                {1, 0, 0, 1, 0, 0}, 0.5F, nullptr, compat::layer_options::none};
+            target->PushLayer(&layer, nullptr);
+        } else {
+            const compat::color_f invalid{std::numeric_limits<float>::quiet_NaN(), 0, 0, 1};
+            target->Clear(&invalid);
+        }
+        target->Clear(&clear);
+        std::uint64_t tag1 = 0U, tag2 = 0U;
+        if (target->EndDraw(&tag1, &tag2) != (variant < 3U ? compat::not_implemented : com::invalid_argument) ||
+            tag1 != 123U || tag2 != 456U || scene->GetRequiredSceneSize() != 0U) return false;
+        std::array<std::byte, 64U> sentinel;
+        sentinel.fill(std::byte{0x5a});
+        const auto before = sentinel;
+        std::uint64_t written = 42U;
+        if (scene->BuildScene(sentinel.data(), sentinel.size(), &written) != compat::wrong_state ||
+            written != 0U || sentinel != before) return false;
+    }
+    // Ordinary targets expose premultiplied alpha; do not force their clear
+    // alpha to one. An explicitly IGNORE compatible target must do exactly that.
+    const compat::pixel_format ignore_format{0U, compat::alpha_mode::ignore};
+    compat::bitmap_render_target* raw_opaque = nullptr;
+    if (target->CreateCompatibleRenderTarget(nullptr, nullptr, &ignore_format,
+            compat::compatible_render_target_options::none, &raw_opaque) != com::ok) return false;
+    com::pointer<compat::bitmap_render_target> opaque;
+    opaque.attach(raw_opaque);
+    com::pointer<compat::scene_render_target_native> opaque_scene;
+    if (opaque.as(compat::scene_render_target_native_interface_id, opaque_scene) != com::ok) return false;
+    for (const bool null_clear : {false, true}) {
+        opaque->BeginDraw();
+        opaque->Clear(null_clear ? nullptr : &clear);
+        if (opaque->EndDraw(nullptr, nullptr) != com::ok) return false;
+        compat::scene_render_target_summary summary{};
+        opaque_scene->GetSummary(&summary);
+        if (summary.clear_color.alpha != 1.0F || summary.clear_color.red != (null_clear ? 0.0F : clear.red) ||
+            summary.clear_color.green != (null_clear ? 0.0F : clear.green) ||
+            summary.clear_color.blue != (null_clear ? 0.0F : clear.blue)) return false;
+        const auto submitted = compat::detail::make_scene_frame(summary, {64, 48}, 96.0F, {1234U, 0U});
+        if (submitted.clear_color.r != summary.clear_color.red || submitted.clear_color.a != 1.0F) return false;
+    }
+    target->BeginDraw();
+    target->FillRectangle(&rectangle, brush.get());
+    if (target->EndDraw(nullptr, nullptr) != com::ok) return false;
+    compat::scene_render_target_summary no_clear{};
+    scene->GetSummary(&no_clear);
+    if (no_clear.has_clear != 0 || compat::detail::make_scene_frame(no_clear, {64, 48}, 96.0F, {1234U, 0U}).flags !=
+            PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET) return false;
+    return fixture::full_clear_suffix_contract(earlier);
+}
 
 bool mutable_brush_regressions(compat::scene_factory_native* scene_factory)
 {
@@ -6220,6 +6346,7 @@ int run_tests()
         return 118;
     }
     if (!mutable_brush_regressions(scene_factory.get())) return 401;
+    if (!full_target_clear_regressions(scene_factory.get())) return 402;
     const compat::scene_render_target_properties target_properties{
         640U, 480U, 96.0F, 96.0F, 7001U, 11U};
     compat::render_target* raw_target = nullptr;

@@ -1,0 +1,17 @@
+<Project DefaultTargets="Test">
+  <PropertyGroup>
+    <ProGpuEnableDawnSystemWarp Condition="'$(ProGpuEnableDawnSystemWarp)' == ''">true</ProGpuEnableDawnSystemWarp>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="caller/ordinary.txt" />
+    <Content Include="caller/progpu_dawn_system_warp.dll" Condition="'$(Collision)' == 'filename'" />
+    <Content Include="caller/linked.bin" Link="progpu_dawn_system_warp.dll" Condition="'$(Collision)' == 'link'" />
+    <None Include="caller/receipt.bin" TargetPath="progpu-dawn-system-warp.json" Condition="'$(Collision)' == 'target'" />
+    <NativeCopyLocalItems Include="caller/native.bin" DestinationSubPath="Dawn-LICENSE.txt" Condition="'$(Collision)' == 'destination'" />
+    <ResolvedFileToPublish Include="caller/published.bin" RelativePath="progpu_dawn_system_warp.dll" Condition="'$(Collision)' == 'publish'" />
+  </ItemGroup>
+  <Import Project="../src/ProGPU.Backend.Dawn/buildTransitive/ProGPU.Backend.Dawn.targets" />
+  <Target Name="Test" DependsOnTargets="RejectDawnSystemWarpCallerAssetReplacement;RejectDawnSystemWarpPublishAssetReplacement">
+    <Message Importance="high" Text="Dawn WARP caller-content check passed." />
+  </Target>
+</Project>

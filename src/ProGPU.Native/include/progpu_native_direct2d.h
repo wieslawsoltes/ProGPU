@@ -652,9 +652,12 @@ typedef struct progpu_native_direct2d_command_stream_summary {
  * pointer-free semantic scene stream. A null destination with zero capacity
  * performs the required-size pass. COM resources are inspected synchronously
  * by the native command sink and are never retained in the result or stream.
- * The leading clear is returned as frame metadata because it is not a retained
- * scene draw. failure_callback_index is one-based and zero when no callback
- * failed. */
+ * The last full-target clear is leading frame metadata for the surviving scene,
+ * not a retained draw. Flags and command/resource/brush counts describe that
+ * surviving scene. translated_draw_count still counts all successfully
+ * translated draw callbacks, including draws discarded by a later clear.
+ * failure_callback_index is one-based in the original callback stream and zero
+ * when no callback failed. */
 typedef struct progpu_native_direct2d_scene_stream_result {
     uint32_t struct_size;
     uint32_t flags;

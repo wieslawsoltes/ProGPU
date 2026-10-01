@@ -5671,25 +5671,28 @@ public:
             latch(com::invalid_argument);
             return;
         }
-        if ((compatible_ ? scope_depth_ != 0U
-                         : has_clear_ || draw_count_ != 0U)) {
+        if (scope_depth_ != 0U) {
             latch(not_implemented);
             return;
         }
-        if (compatible_) {
-            // A full-target clear discards retained history, not just this
-            // recording session. Commands still reference immutable resources
-            // until this explicit replacement boundary.
-            if (!builder_.reset(scene_id_, generation_)) {
-                latch(builder_failure());
-                return;
-            }
-            bitmap_resources_.clear();
-            picture_bitmap_sources_.clear();
-            draw_count_ = 0U;
-            compatible_history_dpi_valid_ = true;
+        // Full-target Clear replaces the recorded scene for ordinary targets
+        // and the complete retained history for compatible targets alike.
+        // Reuse the shared reset, then retire only this recorder's resource
+        // indices/leases. Exported/captured scenes own independent bytes.
+        // O(C + R) retirement; retained vector capacity is reusable. Drawing
+        // state (transform, AA, text and tags) is intentionally not reset.
+        if (!builder_.reset(scene_id_, generation_)) {
+            latch(builder_failure());
+            return;
         }
+        bitmap_resources_.clear();
+        picture_bitmap_sources_.clear();
+        draw_count_ = 0U;
+        compatible_history_dpi_valid_ = true;
         clear_color_ = value;
+        // Clear accepts straight RGBA, including on premultiplied targets.
+        // Only an actual IGNORE target discards the caller's alpha.
+        if (pixel_format_.alpha == alpha_mode::ignore) clear_color_.alpha = 1.0F;
         has_clear_ = true;
     }
 

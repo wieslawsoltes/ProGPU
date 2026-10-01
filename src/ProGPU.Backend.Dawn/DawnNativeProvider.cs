@@ -96,6 +96,12 @@ internal static class DawnNativeProvider
         }
     }
 
+    // Explicit startup selection through the SAME routing domain as managed
+    // imports. Companion admission needs its actual provider before any instance
+    // handles can cross the original native ABI.
+    internal static nint SelectModule() =>
+        ResolveImport(ImportName, typeof(WebGPU_FFI).Assembly, searchPath: null);
+
     // Borrow only an ALREADY selected module. The exact context's creation must
     // have gone through our resolver; borrowing must not load a second provider.
     internal static nint GetModule()
