@@ -36,7 +36,10 @@ Keep exact source DPI and original 26.6 values beside float render projections;
 diagnostic conversion is not source output repair. Independent head/hhea inputs
 are not Microsoft output baselines or Display line policy. Require whole-successful
 exact native Build staging before execution; neither receipt-parser tests nor
-one interpreter's matching raw advance admits Display. See
+one interpreter's matching raw advance admits Display. Original shaped WPF
+GlyphRuns publish direction 0/1; compare that projection only after proving one
+uniform full native embedding level within each original source run. Preserve
+raw native levels and reject same-parity mixed-level runs. See
 eng/HintedDisplayPolicyProbe/README.md.
 
 Hinted source lines retain the measured writer's actual double tops and ascents
@@ -109,6 +112,14 @@ Show retains dispatch ownership around the source callback and rejects rebinding
 recursive admission, changed identity or disposed/hidden success. Shared visibility
 uses only Native.Glfw for GLFW, never an opaque Handle. Preserve original errors
 through restoration/retirement and keep source factory/input qualification separate.
+Owned Cocoa popup options mutate only their retained panel. Apply requested normal/
+floating level before Load, preserve nonactivation, and verify exact level/alpha/
+content-point constraints with unchanged identity and visibility. Hidden z-order
+must never show; visible ordering requires the same live attached owner and does
+not claim global stack-rank readback. Reentrant close cancels input and cannot
+publish option success; keep view leases and original errors through retirement.
+Compatible explicit source options and actual application qualification remain
+required before factory selection or automatic modality.
 
 Native compute traces report owned pipeline selection and encoding/submission
 boundaries, never completion. Preserve the immutable opt-in, per-engine bound,

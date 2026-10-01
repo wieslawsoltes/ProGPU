@@ -321,17 +321,15 @@ public sealed class CocoaPopupWindowTests
         Assert.Throws<NotSupportedException>(() => window.ShouldSwapAutomatically = true);
         Assert.Throws<NotSupportedException>(() => window.WindowBorder = WindowBorder.Resizable);
         Assert.Throws<NotSupportedException>(() => window.WindowState = WindowState.Fullscreen);
-        Assert.Throws<NotSupportedException>(() => window.TopMost = true);
         Assert.Throws<NotSupportedException>(() => window.Run(() => { }));
         using var platform = NativeWindowPlatformFactory.Create(window);
         Assert.False(platform.SetParent(new(NativeWindowKind.Cocoa, 123, 0, "NSWindow")));
-        Assert.False(platform.SetOpacity(0.5));
         Assert.False(platform.SetBackdrop(NativeWindowBackdrop.Mica));
         Assert.False(platform.SupportsManagedResize);
     }
 
     internal static CocoaPopupWindow Create(Operations operations, Action? wakeOwner = null, Action? onCreate = null,
-        bool sourceScheduled = false)
+        bool sourceScheduled = false, WindowOptions? options = null)
     {
         CocoaOwnedPopupSurface CreateSurface(NativeWindowBounds bounds, bool transparent)
         {
@@ -340,8 +338,8 @@ public sealed class CocoaPopupWindowTests
             return new(operations);
         }
         return sourceScheduled
-            ? new(Options(), wakeOwner ?? (() => { }), CreateSurface)
-            : new(new Parent(), new(NativeWindowKind.Cocoa, 1, 0, "NSWindow"), Options(),
+            ? new(options ?? Options(), wakeOwner ?? (() => { }), CreateSurface)
+            : new(new Parent(), new(NativeWindowKind.Cocoa, 1, 0, "NSWindow"), options ?? Options(),
                 wakeOwner ?? (() => { }), CreateSurface);
     }
 
@@ -370,7 +368,21 @@ public sealed class CocoaPopupWindowTests
         public NativeWindowHandle Window { get; } = new(NativeWindowKind.Cocoa, 2, 0, "NSPanel");
         public nint ContentView => 3;
         public CocoaPopupInputQueue Input { get; } = new();
-        public bool IsCurrent => true;
+        public bool Current = true;
+        public bool IsCurrent { get { OnIdentity?.Invoke(); return Current; } }
+        public Action? OnIdentity, OnOption, OnHide;
+        public bool OptionsAccepted = true;
+        public List<(string Name, object Value)> OptionRequests { get; } = [];
+        public bool SetTopMost(bool value) => SetOption("topmost", value);
+        public bool SetOpacity(double value) => SetOption("opacity", value);
+        public bool SetZOrder(NativeWindowZOrder value) => SetOption("zorder", value);
+        public bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum) => SetOption("constraints", (minimum, maximum));
+        private bool SetOption(string name, object value)
+        {
+            OptionRequests.Add((name, value));
+            OnOption?.Invoke();
+            return OptionsAccepted;
+        }
         public bool OwnerAccepted = true;
         public Action? OnBindOwner;
         public List<NativeWindowHandle> OwnerRequests { get; } = [];
@@ -404,7 +416,7 @@ public sealed class CocoaPopupWindowTests
             return CursorAccepted;
         }
         public bool Show() { Calls.Add("show"); Input.SetVisible(true); return true; }
-        public bool Hide() { Calls.Add("hide"); Input.SetVisible(false); return HideAccepted; }
+        public bool Hide() { Calls.Add("hide"); Input.SetVisible(false); OnHide?.Invoke(); return HideAccepted; }
         public bool SetBounds(NativeWindowBounds bounds)
         {
             if (!BoundsAccepted) return false;
