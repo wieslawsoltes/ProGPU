@@ -188,6 +188,15 @@ not decrement that use again. Preserve every original format/interaction/font,
 axis, source-owner and physical-geometry record without new shaping or copies.
 This consumer ownership seam does not qualify either renderer or select Display.
 
+Recorded hinted replay retains original producer uses through pictures, compiled
+scenes and frame resources, not merely managed geometry references. Keep explicit
+occurrence ranges, source brush bounds, physical Y-up records, exact target DPI
+and unsnapped positions; raster padding is not source input or a paint domain.
+Spatial paint uses original glyph coverage and one canonical brush draw. Drain
+all owners on failure and retry exact failed retirements without a second use end.
+Static buffers, incremental pages and source Display/input remain separate gates.
+See docs/retained-hinted-glyph-replay.md; authored controls are not GPU qualification.
+
 Retained DrawingTextLayout painting and interaction must share one original
 formatted generation. Own exact glyph/font runs and interaction geometry; do not
 reshape prefixes for carets or borrow mutable Font/StringFormat state. Keep
