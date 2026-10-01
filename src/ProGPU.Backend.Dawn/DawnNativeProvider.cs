@@ -121,7 +121,8 @@ internal static class DawnNativeProvider
             if (!TryLoadSelected(searchPath, out nint module))
             {
                 throw new DllNotFoundException(
-                    $"The selected exact-ABI Dawn provider '{s_configuredPath ?? DefaultLibraryName()}' could not be loaded.");
+                    $"The selected exact-ABI Dawn provider '{s_configuredPath ?? DefaultLibraryName()}' could not be loaded.",
+                    CaptureSelectedLoadFailure(searchPath));
             }
             // No live-module NativeLibrary.Free: both import domains and every
             // native compositor borrow this ONE process-pinned provider.
@@ -136,6 +137,27 @@ internal static class DawnNativeProvider
             // resolver capable of substituting a different provider module.
             ? NativeLibrary.TryLoad(s_configuredPath, out module)
             : NativeLibrary.TryLoad(DefaultLibraryName(), typeof(WebGPU_FFI).Assembly, searchPath, out module);
+
+    private static Exception CaptureSelectedLoadFailure(DllImportSearchPath? searchPath)
+    {
+        // TryLoad suppresses the platform loader's missing-file/dependency
+        // details. Only after its original failure, use the throwing overload
+        // with the SAME file/assembly/search policy to retain that diagnostic.
+        // This may not publish a module or turn the failed selection into success.
+        try
+        {
+            nint probe = s_configuredPath is not null
+                ? NativeLibrary.Load(s_configuredPath)
+                : NativeLibrary.Load(DefaultLibraryName(), typeof(WebGPU_FFI).Assembly, searchPath);
+            NativeLibrary.Free(probe); // Diagnostic probe only; never s_module.
+            return new InvalidOperationException(
+                "The selected Dawn provider loaded during failure diagnostics; the original failed load remains authoritative and no module was published.");
+        }
+        catch (Exception failure)
+        {
+            return failure;
+        }
+    }
 
     private static string DefaultLibraryName()
     {
