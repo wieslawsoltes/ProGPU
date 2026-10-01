@@ -171,3 +171,13 @@ must pass before the complete Build is successful. This package path is newly
 authored and still awaiting its first receipt; the earlier project-reference
 receipt does not qualify it. Pull requests use only the complete Build's producer
 invocation, avoiding duplicate companion jobs on each push.
+
+An additional isolated device-loss process uses the existing
+`ForceDeviceLossForDiagnostics` native entry point and the original bounded
+nonblocking drain from `tools/ProGPU.DawnSharedMemoryProbe/Program.cs`. It requires
+one real native loss callback, rejection of lost-device handle publication and
+an independently created same-WARP device completing an exact blue readback while
+the lost context remains owned. Both contexts retire before success is printed.
+The source and NuGet JIT/NativeAOT jobs execute this same case. These authored
+loss/replacement controls await hosted evidence and do not yet qualify failed
+adapter/device-request cancellation or arbitrary callback exceptions.

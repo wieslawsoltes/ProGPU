@@ -7,6 +7,13 @@ if (!OperatingSystem.IsWindows() || args.Length is < 1 or > 2 ||
     !string.Equals(RuntimeInformation.ProcessArchitecture.ToString(), args[0], StringComparison.OrdinalIgnoreCase))
     throw new InvalidOperationException("Run on the requested native Windows architecture.");
 
+if (args.Length == 2 && args[1] == "--device-loss")
+{
+    ExerciseDeviceLoss();
+    Console.WriteLine("Dawn system WARP native device loss and independent replacement readback passed.");
+    return;
+}
+
 if (args.Length == 2)
 {
     if (args[1] != "--foreign-resolver") throw new ArgumentException("Unknown isolated control.");
@@ -69,6 +76,50 @@ for (int lifetime = 0; lifetime < 2; lifetime++)
     Console.WriteLine($"Verified WARP lifetime {lifetime}: {luid.LowPart:X8}:{luid.HighPart:X8}; {dawn.Context.AdapterName}");
 }
 Console.WriteLine("Dawn system WARP conformance passed: 2 device lifetimes, 4 full RGBA readbacks, 0 skipped.");
+
+static void ExerciseDeviceLoss()
+{
+    // Reuse the original shared-memory probe's real Dawn loss diagnostic and
+    // bounded nonblocking event drain; no managed synthetic loss notification.
+    using DawnGpuContext lost = DawnGpuContext.CreateSystemWarpOffscreen();
+    int nativeLoss = 0;
+    void OnLoss(DeviceLostReason reason, string message)
+    {
+        if (reason == DeviceLostReason.Unknown &&
+            message.Contains("ProGPU forced native device-loss qualification", StringComparison.Ordinal))
+            Interlocked.Increment(ref nativeLoss);
+    }
+    WgpuContext.OnWebGpuDeviceLost += OnLoss;
+    try
+    {
+        lost.ForceDeviceLossForDiagnostics();
+        for (int attempt = 0; attempt < 100 &&
+            (Volatile.Read(ref nativeLoss) == 0 || !lost.Context.IsDeviceLost); attempt++)
+        {
+            lost.Context.PollDevice(wait: false);
+            Thread.Sleep(1);
+        }
+        if (Volatile.Read(ref nativeLoss) != 1 || !lost.Context.IsDeviceLost)
+            throw new InvalidOperationException("The real native loss callback was not published exactly once.");
+    }
+    finally { WgpuContext.OnWebGpuDeviceLost -= OnLoss; }
+
+    bool rejected = false;
+    try { _ = lost.GetNativeDeviceHandles(); }
+    catch (ObjectDisposedException) { rejected = true; }
+    if (!rejected) throw new InvalidOperationException("Lost-device handles were published to a new consumer.");
+
+    // The lost context remains live here: its loss cannot poison an independent
+    // replacement's state, and both original owners must still retire safely.
+    using DawnGpuContext replacement = DawnGpuContext.CreateSystemWarpOffscreen();
+    if (replacement.Context.IsDeviceLost || replacement.SystemWarpAdapterLuid != lost.SystemWarpAdapterLuid)
+        throw new InvalidOperationException("The independent replacement did not retain a healthy system WARP device.");
+    using var target = new GpuTexture(replacement.Context, 1, 1, TextureFormat.Rgba8Unorm,
+        TextureUsage.RenderAttachment | TextureUsage.CopySrc);
+    Clear(replacement.Context, target, new Color { R = 0, G = 0, B = 1, A = 1 });
+    if (!target.ReadPixels().AsSpan().SequenceEqual(new byte[] { 0, 0, 255, 255 }))
+        throw new InvalidOperationException("The replacement device did not complete its independent blue readback.");
+}
 
 static unsafe void Clear(WgpuContext context, GpuTexture target, Color color)
 {

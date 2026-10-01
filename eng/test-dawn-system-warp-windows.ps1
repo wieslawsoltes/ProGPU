@@ -52,7 +52,7 @@ foreach ($kind in @('jit','aot')) {
             Copy-Item -LiteralPath (Join-Path $payload $name) -Destination $destination
         }
     }
-    foreach ($control in @('readback','foreign-resolver')) {
+    foreach ($control in @('readback','foreign-resolver','device-loss')) {
         $stdout = Join-Path $evidence "$kind-$control-stdout.log"
         $stderr = Join-Path $evidence "$kind-$control-stderr.log"
         $arguments = @($architecture)
@@ -60,6 +60,9 @@ foreach ($kind in @('jit','aot')) {
         if ($control -eq 'foreign-resolver') {
             $arguments += '--foreign-resolver'
             $expected = 'Dawn system WARP foreign resolver rejected before native imports.'
+        } elseif ($control -eq 'device-loss') {
+            $arguments += '--device-loss'
+            $expected = 'Dawn system WARP native device loss and independent replacement readback passed.'
         }
         $process = Start-Process -FilePath (Join-Path $publish 'ProGPU.DawnSystemWarp.Conformance.exe') -ArgumentList $arguments -WorkingDirectory $publish -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         try {
