@@ -1190,6 +1190,24 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     const auto incremental = render_scene(gpu, engine, nullptr, 1U, 1U, 3U, appended_parent, 0x91F1U, 2U);
     auto* reference_engine = create_engine(gpu);
     const auto full = render_scene(gpu, reference_engine, nullptr, 1U, 1U, 2U, appended_parent, 0x91F1U, 2U);
+    if (incremental != full || incremental == first_pixels) {
+        const auto mismatch = std::mismatch(incremental.begin(), incremental.end(), full.begin(), full.end());
+        std::fprintf(stderr,
+            "incremental picture: format=RGBA8 dpi=(1,1) source=0x91f0/2 parent=0x91f1/2 "
+            "sizes=(%zu,%zu,%zu) equalsFull=%u equalsFirst=%u\n",
+            incremental.size(), full.size(), first_pixels.size(),
+            incremental == full ? 1U : 0U, incremental == first_pixels ? 1U : 0U);
+        if (mismatch.first != incremental.end() && mismatch.second != full.end()) {
+            const auto offset = static_cast<std::size_t>(mismatch.first - incremental.begin());
+            const auto pixel_offset = offset - offset % 4U;
+            std::fprintf(stderr, "incremental picture first mismatch: pixel=(%zu,%zu) channel=%zu "
+                "incremental=(%u,%u,%u,%u) full=(%u,%u,%u,%u) first=(%u,%u,%u,%u)\n",
+                pixel_offset / 4U % width, pixel_offset / row_bytes, offset % 4U,
+                incremental[pixel_offset], incremental[pixel_offset + 1U], incremental[pixel_offset + 2U], incremental[pixel_offset + 3U],
+                full[pixel_offset], full[pixel_offset + 1U], full[pixel_offset + 2U], full[pixel_offset + 3U],
+                first_pixels[pixel_offset], first_pixels[pixel_offset + 1U], first_pixels[pixel_offset + 2U], first_pixels[pixel_offset + 3U]);
+        }
+    }
     require(incremental == full && incremental != first_pixels, "incremental picture differs from full replay");
     const auto warm = render_scene(gpu, engine, nullptr, 1U, 1U, 1U, appended_parent, 0x91F1U, 2U);
     require(warm == full, "warm picture backing changed pixels");
