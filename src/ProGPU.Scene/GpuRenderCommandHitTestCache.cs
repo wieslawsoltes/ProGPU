@@ -99,6 +99,11 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
         IRenderDataProvider? provider,
         int? id = null)
     {
+        if (command.Type == RenderCommandType.DrawHintedGlyphs)
+        {
+            _sourceCaptureFailed = true;
+            throw new NotSupportedException("Original hinted rendering does not admit source input geometry; use the originating retained text interaction generation.");
+        }
         activeTransform = NormalizeTransform(activeTransform);
 
         if (command.SourceHitGeometry.Kind is SourceHitTestGeometryKind.PointRectangleBegin or SourceHitTestGeometryKind.PointEmptyBegin or SourceHitTestGeometryKind.PointRectangleEnd)

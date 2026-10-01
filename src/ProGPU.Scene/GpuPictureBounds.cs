@@ -106,6 +106,29 @@ public static class GpuPictureBounds
                     continue;
                 }
 
+                if (command.Type == RenderCommandType.DrawHintedGlyphs)
+                {
+                    if (command.HintedGlyphGeometry is null ||
+                        !HintedGlyphCommandGeometry.IsIdentityBasis(commandTransform) ||
+                        !HintedGlyphCommandGeometry.TryValidate(command,
+                            command.HintedGlyphGeometry!.DpiScale,
+                            new Matrix3x2(1f, 0f, 0f, 1f, commandTransform.M41, commandTransform.M42),
+                            out _, out _) ||
+                        !HintedGlyphCommandGeometry.TryGetRasterBounds(command, out Rect rasterBounds, out bool hasInk))
+                        return false;
+                    if (hasInk)
+                    {
+                        // Private raster-bounds accumulator ONLY: source input
+                        // never sees this temporary padded rectangle command.
+                        builder.AddCommand(new RenderCommand
+                        {
+                            Type = RenderCommandType.DrawRect,
+                            Rect = rasterBounds, Brush = command.Brush
+                        }, commandTransform, picture);
+                    }
+                    continue;
+                }
+
                 if (!TryUpdateStateDepth(
                         command.Type,
                         ref clipDepth,
@@ -166,6 +189,7 @@ public static class GpuPictureBounds
         RenderCommandType.PushBlendMode or
         RenderCommandType.PopBlendMode or
         RenderCommandType.DrawGlyphRun or
+        RenderCommandType.DrawHintedGlyphs or
         RenderCommandType.DrawVertexMesh or
         RenderCommandType.DrawPointBatch or
         RenderCommandType.DrawDotGrid;
