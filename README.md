@@ -97,6 +97,20 @@ control lifetime/editing, inline objects, anchored blocks and tables remain sepa
 | `ProGPU.WinUI.Charts` | Chart controls and chart rendering primitives for the WinUI-shaped layer. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.Charts.svg)](https://www.nuget.org/packages/ProGPU.WinUI.Charts/) |
 | `ProGPU.WinUI.Designer` | Designer/editor controls and diagnostics for ProGPU WinUI surfaces. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.Designer.svg)](https://www.nuget.org/packages/ProGPU.WinUI.Designer/) |
 
+### HMI and DCS workplaces
+
+See the [standalone DCS workplace and embedding guide](docs/hmi-dcs-workplace.md).
+
+| Package | Purpose | NuGet |
+| --- | --- | --- |
+| `ProGPU.Hmi` | Typed HMI documents, equipment templates, alarms and guarded acquisition contracts. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Hmi.svg)](https://www.nuget.org/packages/ProGPU.Hmi/) |
+| `ProGPU.WinUI.Hmi` | Reusable retained-vector HMI equipment controls and runtime screen views. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.Hmi.svg)](https://www.nuget.org/packages/ProGPU.WinUI.Hmi/) |
+| `ProGPU.WinUI.Hmi.Workplace` | Embeddable operator workplace with linked process, faceplate, alarm and trend views. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.Hmi.Workplace.svg)](https://www.nuget.org/packages/ProGPU.WinUI.Hmi.Workplace/) |
+| `ProGPU.WinUI.Hmi.Designer` | Shared-canvas HMI authoring, state rules, equipment templates and commissioning UI. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinUI.Hmi.Designer.svg)](https://www.nuget.org/packages/ProGPU.WinUI.Hmi.Designer/) |
+| `ProGPU.Hmi.Modbus` | Strict Modbus TCP acquisition and single-attempt absolute commands. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Hmi.Modbus.svg)](https://www.nuget.org/packages/ProGPU.Hmi.Modbus/) |
+| `ProGPU.Hmi.Mqtt` | MQTT 5 typed telemetry and non-retained absolute commands with strict TLS. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Hmi.Mqtt.svg)](https://www.nuget.org/packages/ProGPU.Hmi.Mqtt/) |
+| `ProGPU.Hmi.OpcUa` | Certificate-validated OPC UA scalar acquisition, bounded node browsing and session-bound absolute writes. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Hmi.OpcUa.svg)](https://www.nuget.org/packages/ProGPU.Hmi.OpcUa/) |
+
 ### XAML compiler and tooling
 
 | Package | Purpose | NuGet |

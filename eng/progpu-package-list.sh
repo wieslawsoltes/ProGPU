@@ -151,6 +151,7 @@ progpu_portable_package_purposes=(
   "Designer/editor controls and diagnostics for ProGPU WinUI surfaces."
   "Typed HMI documents, equipment templates, alarms and guarded acquisition contracts."
   "Reusable retained-vector HMI equipment controls and runtime screen views."
+  "Embeddable operator workplace with linked process, faceplate, alarm and trend views."
   "Shared-canvas HMI authoring, state rules, equipment templates and commissioning UI."
   "Strict Modbus TCP acquisition and single-attempt absolute commands."
   "MQTT 5 typed telemetry and non-retained absolute commands with strict TLS."
