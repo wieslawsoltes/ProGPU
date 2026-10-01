@@ -42,6 +42,19 @@ public sealed class TextEditInteractionSnapshot
 
     public TextHitTestResult HitTestPoint(Vector2 point) => _geometry.HitTestPoint(point);
 
+    /// <summary>Retained source point; only an original grapheme interior uses its exact trailing edge.</summary>
+    public Vector2 GetSourcePositionPoint(int textPosition)
+    {
+        if ((uint)textPosition > (uint)TextLength) throw new ArgumentOutOfRangeException(nameof(textPosition));
+        for (int index = 0; index < _boxes.Length; index++)
+        {
+            TextLayout.ClusterBox box = _boxes[index];
+            if (textPosition > box.Start && textPosition < box.End)
+                return new Vector2(_trailingCarets[index].Position.X, box.Top);
+        }
+        return _original.GetSourcePositionPoint(textPosition);
+    }
+
     public IReadOnlyList<TextBounds> GetSelectionRectangles(int textStart, int textLength)
         => _geometry.GetSelectionRectangles(textStart, textLength);
 }

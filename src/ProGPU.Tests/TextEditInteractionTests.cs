@@ -30,6 +30,9 @@ public sealed class TextEditInteractionTests
             Assert.Equal(13, caret.Height);
             Assert.Equal(level, caret.BidiLevel);
         }
+        Assert.Equal(original.GetCaretStop(6, true).Position, edit.GetSourcePositionPoint(4));
+        Assert.Equal(original.GetSourcePositionPoint(1), edit.GetSourcePositionPoint(1));
+        Assert.Equal(original.GetSourcePositionPoint(6), edit.GetSourcePositionPoint(6));
         Assert.Equal(originalCarets, original.CaretStops.ToArray());
         Assert.NotEqual(original.GetCaretStop(4).Position, edit.GetCaretStop(4).Position);
         for (float x = 3; x < 25; x += .5f)
@@ -129,6 +132,9 @@ public sealed class TextEditInteractionTests
         Assert.Equal(0, edit.GetCaretStop(0).TextPosition);
         Assert.Throws<ArgumentOutOfRangeException>(() => edit.GetCaretStop(-1));
         Assert.Throws<ArgumentOutOfRangeException>(() => edit.GetCaretStop(1));
+        Assert.Equal(empty.GetSourcePositionPoint(0), edit.GetSourcePositionPoint(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => edit.GetSourcePositionPoint(-1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => edit.GetSourcePositionPoint(1));
     }
 
     [Fact]
