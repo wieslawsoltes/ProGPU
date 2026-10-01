@@ -81,33 +81,30 @@ bool assemble_edit_item_breaks(
             {units, indices, runs, brackets}, levels, resolved_level, written) ||
         written != scalars.size() || resolved_level != requested_level)
         return fail(edit_word_boundary_error::invalid_encoding, error);
-    for (std::size_t index = 1U; index < scalars.size(); ++index) {
-        const auto raw = get_unicode_line_break_class(scalars[index].code_point);
-        const auto previous_raw = get_unicode_line_break_class(scalars[index - 1U].code_point);
-        // Typed marks/joiners attach to the preceding item, never their raw
-        // UnicodeScript. Preserve the original source unit and its bidi frame.
-        if ((raw == lb::combining_mark || raw == lb::zero_width_joiner) &&
-            previous_raw != lb::mandatory && previous_raw != lb::carriage_return &&
-            previous_raw != lb::line_feed && previous_raw != lb::space &&
-            previous_raw != lb::zero_width_space) {
-            properties[index] = properties[index - 1U];
-        } else if (is_edit_white_space(scalars[index].code_point)) {
+    for (std::size_t index = 0U; index < scalars.size(); ++index) {
+        const auto* previous_scalar = index == 0U ? nullptr : &scalars[index - 1U];
+        const auto* previous_properties = index == 0U ? nullptr : &properties[index - 1U];
+        if (!detail::try_attach_edit_item_properties(scalars[index], previous_scalar,
+                previous_properties, properties[index]))
+            return fail(edit_word_boundary_error::unqualified_script_item_transition_policy, error);
+        if (index != 0U && is_edit_white_space(scalars[index].code_point)) {
             // Paragraph direction can attach a space to the following RTL
             // item. Match its real resolved level, not array order alone.
             if (levels[index].level == levels[index - 1U].level)
-                properties[index] = properties[index - 1U];
+                properties[index].profile = properties[index - 1U].profile;
             else {
                 auto following = index + 1U;
                 while (following < scalars.size() &&
                     is_edit_white_space(scalars[following].code_point)) ++following;
                 if (following < scalars.size() && levels[following].level == levels[index].level)
-                    properties[index] = properties[following];
+                    properties[index].profile = properties[following].profile;
             }
+            properties[index].flags = detail::get_edit_profile_flags(properties[index].profile);
         }
     }
     std::vector<edit_item> items;
     for (std::size_t index = 0U; index < scalars.size(); ++index) {
-        if (items.empty() || items.back().properties.policy_identity != properties[index].policy_identity ||
+        if (items.empty() || items.back().properties.profile != properties[index].profile ||
             items.back().level != levels[index].level)
             items.push_back({index, 1U, properties[index], levels[index].level});
         else ++items.back().scalar_count;
@@ -251,11 +248,10 @@ bool try_create_edit_word_boundary_snapshot(
                 scalar.script != lao && scalar.script != lao_layout && scalar.script != khmer &&
                 scalar.script != open_type_tag::from_chars('D', 'F', 'L', 'T'))
                 return fail(edit_word_boundary_error::unqualified_complex_script_policy, error);
-            // UnicodeScript identifies only a domain requiring measured
-            // properties, NEVER the original Windows engine or entry policy.
-            const bool observed = detail::try_get_observed_edit_item_properties(
-                scalar.code_point, item_properties[index]);
-            if (!observed && detail::requires_observed_edit_item_properties(scalar.script.value))
+            // Typed original Unicode properties select a portable policy
+            // family, NEVER an inferred Windows eScript identity. The observed
+            // scalar table is regression evidence only, not a runtime allowlist.
+            if (!detail::try_classify_edit_item_properties(scalar, item_properties[index]))
                 return fail(edit_word_boundary_error::unqualified_script_item_transition_policy, error);
             needs_thai_dictionary |= scalar.script == thai;
         }

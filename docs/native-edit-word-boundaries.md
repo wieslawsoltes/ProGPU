@@ -6,7 +6,7 @@ Microsoft EDIT inventories; the two formerly unadmitted BMP-symbol/emoji
 inventories now pass with a pinned measured property profile. The two Thai
 inventories require the exact owned ICU dependency. This is **not** a complete
 portable word classifier, ordinary Forms provider admission or application
-qualification: unmeasured/nonmatching symbols, unobserved engine properties and
+qualification: unmeasured/nonmatching symbols, unqualified source roles and
 unimplemented complex syllable policies remain explicitly unsupported.
 
 The independent receipt is from LibreWinForms Build 36802156343,
@@ -216,7 +216,7 @@ The bounded item implementation below now resolves that observed entry domain;
 unmeasured BMP and mixed-script contracts still block a complete classifier
 or provider. No reference-generated word/index lookup is used in production.
 
-The next observer revision retains the original24 and contextual72 inventories
+The next observer revision retained the original24 and contextual72 inventories
 and adds a **separate** 128-input item-context phase: repeated symbols/VS16 within
 actual native items, varied Arabic entries, and several distinct script entries
 in both paragraph directions. Direct ScriptBreak still receives only the whole
@@ -333,9 +333,14 @@ observed generic/numeric properties rather than becoming Arabic26 by script.
 Typed marks and joiners attach to their preceding original item; they do not
 create a new item based on their raw script property.
 
+That checkpoint's 41-scalar runtime property source is now replaced by the
+reusable typed Unicode-property classifier described below. The generated
+observed table remains unchanged as regression evidence and is included only
+by the tests, never the runtime classifier.
+
 The assembler reuses the complete-source native bidi worker with explicit
 paragraph level 0/1, retaining every original UTF-16 position and resolved level.
-Changes of observed policy identity or resolved level delimit its typed items.
+Changes of portable policy family or resolved level delimit its typed items.
 Complex item interiors use the shared line worker on the **whole original item**;
 its artificial terminal sentinel is never copied to the following item.
 Generic paragraph bridges retain the complete-source opportunities. Entry
@@ -370,3 +375,78 @@ requires whole original items rather than combined items or formatting fragments
 These contracts guide the reusable assembly, but the portable property source,
 unobserved engines/syllables and complete-source generality remain required
 before publishing Forms capability markers or connecting ordinary TextBox input.
+
+## Reusable original-property item classification
+
+The runtime classifier no longer looks up observed scalar identities. It uses
+the existing owned Unicode17 general category, exact decimal value, Script tag,
+line class and original bidi class to select purpose-based portable policy
+families. These enum values are **not** Windows `eScript` IDs. Measured entry
+policies and inference beyond measured members are kept distinct:
+
+| Inferred nominal BMP family | Required original bidi class | Letter members checked |
+| --- | --- | ---: |
+| Arabic | AL | 272 |
+| Syriac | AL | 45 |
+| Hebrew | R | 31 |
+| Devanagari | L | 90 |
+| Thai | L | 57 |
+| Lao | L | 56 |
+| Khmer | L | 54 |
+
+Every member also requires the matching original Script and a Unicode letter
+category. The table counts exclude presentation forms. The owned Script accessor
+normalizes Lao's tag to `lao ` and maps Common/Inherited/Unknown to `DFLT`; the
+classifier does not pretend that this accessor exposes raw Script_Extensions.
+Arabic's nominal nonjoining letters remain nominal: joining behavior alone is
+not an item classifier. A script tag never promotes a digit, mark, punctuation,
+presentation form or supplementary complex letter into one of these families.
+
+Decimal source with an actual value zero through nine and EN/AN bidi uses a
+distinct numeric bridge family. The currently unqualified L-valued digits in
+selected families fail before publication rather than becoming nominal text.
+Arabic presentation letters in the exact named Unicode17
+[Arabic Presentation Forms-A/B blocks](https://www.unicode.org/Public/17.0.0/ucd/Blocks.txt),
+with matching Script/category/bidi, use the generic paragraph bridge.
+[ScriptItemize](https://learn.microsoft.com/en-us/windows/win32/api/usp10/nf-usp10-scriptitemize)
+documents that its original default `fCharShape=false` inhibits Arabic
+presentation-form shaping while leaving nominal Arabic unaffected; the observed
+U+FE8F bridge trains this property-based generalization. This is an **inference**,
+not an exhaustive Windows presentation-form or Unicode-version equivalence claim.
+Hebrew presentation forms and supplementary members of selected complex families
+remain explicitly unsupported. Numeric item properties are separate because
+[SCRIPT_PROPERTIES](https://learn.microsoft.com/en-us/windows/win32/api/usp10/ns-usp10-script_properties)
+describes their bidi-dependent classification, not a Script-only classification.
+
+Selected-script marks require a preceding compatible classified family and
+NSM or that family's required strong bidi class. Default-script marks attach
+only to an existing original item; explicit unrelated-script marks cannot borrow
+a complex family. Common modifier letters with AL bidi may carry an existing
+Arabic/Syriac family, never select it at a standalone edge. This follows the
+context requirement for shared/Inherited source in
+[UAX24](https://www.unicode.org/reports/tr24/), and is likewise an inferred portable
+policy rather than a newly observed EDIT result. Source roles and attachment
+ownership remain distinct: whitespace, hard/format controls and leading joiners
+cannot fabricate a mark owner. The observed leading/space-adjacent joiners retain
+their paragraph-bridge behavior. The classifier and attachment helper preserve
+every original code point, input range and resolved bidi level; no normalization,
+compatibility decomposition, font or glyph route is used.
+
+The strict no-ICU CPU harness passes all previous available original/trained and
+held-out inventories unchanged. New checks exhaust the 605 nominal BMP property
+members, compare all 41 original measured scalar roles, distinguish numeric and
+presentation source, exercise unseen nominal letters and compatible marks in
+both paragraph directions, retain shared-cursive source without splitting its
+owner, and reject unmatched/standalone roles atomically. The new unseen-member
+and assembly checks are **algorithm controls, not Microsoft oracle observations**.
+No owned-ICU rerun, new Windows reference, product build, package or renderer
+qualification is implied by this checkpoint.
+
+This removes per-observed-scalar admission for the seven exact nominal property
+families, but does **not** finish general TextBox support. The 82 nonmatching BMP
+symbols, Myanmar syllable policy, selected-family digits/presentation/supplementary
+roles noted above, broader engine/item behavior and version/locale parity remain
+open. Other existing generic paragraph-bridge paths are not thereby qualified.
+Complete native transport, owned dependency packaging, same-generation Forms
+integration and source mouse/editor checks still precede ordinary provider
+admission. Password source continues to bypass any boundary service entirely.

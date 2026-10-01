@@ -1,5 +1,7 @@
 #include "progpu_native_edit_word_boundaries.hpp"
 #include "progpu_native_text.hpp"
+#include "progpu_native_edit_item_policy.hpp"
+#include "progpu_native_edit_item_data.generated.hpp"
 
 #include <algorithm>
 #include <array>
@@ -95,8 +97,12 @@ void missing_contracts_are_atomic()
         edit_word_boundary_snapshot snapshot{{17U, 23U, 29U}, 23U};
         const auto original_positions = snapshot.positions;
         edit_word_boundary_error error{};
-        require(!try_create_edit_word_boundary_snapshot(units(text), snapshot, error, level),
-            "Unknown EDIT policy was silently admitted");
+        if (try_create_edit_word_boundary_snapshot(units(text), snapshot, error, level)) {
+            std::cerr << "Unexpected admission; source UTF16:";
+            for (const auto unit : units(text)) std::cerr << ' ' << unit;
+            std::cerr << '\n';
+            throw std::runtime_error("Unknown EDIT policy was silently admitted");
+        }
         require(error == expected, "Unknown policy did not preserve its precise diagnostic");
         require(snapshot.positions == original_positions && snapshot.leading_content_start == 23U,
             "Failed classifier published a partial generation");
@@ -107,16 +113,28 @@ void missing_contracts_are_atomic()
         edit_word_boundary_error::unqualified_bmp_symbol_policy);
     check_failure(u"a\u1B61b ",
         edit_word_boundary_error::unqualified_bmp_symbol_policy);
-    // Unobserved native-engine members stay closed. This is a bounded measured
-    // source, not an all-Arabic/Hebrew/Indic/Syriac capability declaration.
-    check_failure(u"x\u062Cy ",
-        edit_word_boundary_error::unqualified_script_item_transition_policy);
-    check_failure(u"x\u05D3y ",
-        edit_word_boundary_error::unqualified_script_item_transition_policy);
-    check_failure(u"x\u0939y ",
-        edit_word_boundary_error::unqualified_script_item_transition_policy);
+    // An explicit Syriac mark cannot select a nominal item after unrelated
+    // Latin or at a standalone edge. Numeric/presentation/supplementary source
+    // must not be promoted solely because it has one selected Script value.
     check_failure(u"x\u0711y ",
         edit_word_boundary_error::unqualified_script_item_transition_policy);
+    check_failure(u"\u0711y ",
+        edit_word_boundary_error::unqualified_script_item_transition_policy);
+    check_failure(u"x\u094Dy ",
+        edit_word_boundary_error::unqualified_script_item_transition_policy);
+    check_failure(u"\u0628\u094Dy ",
+        edit_word_boundary_error::unqualified_script_item_transition_policy);
+    check_failure(u"\u0628 \u064By ",
+        edit_word_boundary_error::unqualified_script_item_transition_policy);
+    check_failure(u"\u0301y ",
+        edit_word_boundary_error::unqualified_script_item_transition_policy);
+    check_failure(u"\u200D\u0301y ",
+        edit_word_boundary_error::unqualified_script_item_transition_policy);
+    check_failure(u"\u0628 \u200D\u064By ",
+        edit_word_boundary_error::unqualified_script_item_transition_policy);
+    for (const auto source : {u"x\u0967y ", u"x\u0E51y ", u"x\u0ED1y ", u"x\u17E1y ",
+            u"x\uFB1Dy ", u"x\U0001EE00y ", u"x\u0640y "})
+        check_failure(source, edit_word_boundary_error::unqualified_script_item_transition_policy);
     const std::array<char16_t, 1> isolated_surrogate{0xD800U};
     check_failure({isolated_surrogate.data(), isolated_surrogate.size()},
         edit_word_boundary_error::invalid_encoding);
@@ -138,6 +156,141 @@ void missing_contracts_are_atomic()
             check_failure(std::u16string(prefix) + u"\u0E01\u0E02y ",
                 edit_word_boundary_error::dependency_unavailable, level);
 #endif
+}
+
+void reusable_property_profiles_are_not_observed_scalar_admission()
+{
+    using profile = detail::edit_item_profile;
+    using role = detail::edit_item_source_role;
+    const auto scalar_for = [](std::uint32_t cp) {
+        return unicode_scalar{cp, 47U, static_cast<std::uint16_t>(cp > 0xFFFFU ? 2U : 1U),
+            0U, 0U, get_unicode_script(cp)};
+    };
+    const auto assert_profile = [&](std::uint32_t cp, profile expected, role expected_role) {
+        const auto scalar = scalar_for(cp);
+        detail::edit_item_properties actual{};
+        const auto admitted = detail::try_classify_edit_item_properties(scalar, actual);
+        if (!admitted || actual.profile != expected || actual.role != expected_role ||
+            actual.flags != detail::get_edit_profile_flags(expected)) {
+            std::cerr << "Property role cp " << cp << "; admitted " << admitted <<
+                "; profile " << static_cast<std::uint32_t>(actual.profile) <<
+                "; role " << static_cast<std::uint32_t>(actual.role) <<
+                "; category " << static_cast<std::uint32_t>(get_unicode_general_category(cp)) <<
+                "; bidi " << static_cast<std::uint32_t>(get_unicode_bidi_class(cp)) << '\n';
+            throw std::runtime_error("Original Unicode-property role selected the wrong portable policy");
+        }
+        require(scalar.code_point == cp && scalar.input_index == 47U &&
+            scalar.input_length == (cp > 0xFFFFU ? 2U : 1U) && scalar.script == get_unicode_script(cp),
+            "Typed policy classification rewrote original source metadata");
+    };
+    // These are NEW algorithm/domain controls, not unobserved Microsoft EDIT
+    // oracle claims. Nominal source extends through original properties rather
+    // than a 41-scalar lookup, without making presentation/numeric/mark source
+    // nominal or inventing a native Windows engine ID.
+    assert_profile(0x062CU, profile::arabic_nominal, role::ordinary);
+    assert_profile(0x0621U, profile::arabic_nominal, role::ordinary); // nonjoining nominal letter
+    assert_profile(0x05D3U, profile::hebrew_nominal, role::ordinary);
+    assert_profile(0x0939U, profile::devanagari_nominal, role::ordinary);
+    assert_profile(0x0713U, profile::syriac_nominal, role::ordinary);
+    assert_profile(0x0E03U, profile::thai_nominal, role::ordinary);
+    assert_profile(0x0E84U, profile::lao_nominal, role::ordinary);
+    assert_profile(0x1782U, profile::khmer_nominal, role::ordinary);
+    assert_profile(0x0661U, profile::numeric_bridge, role::ordinary);
+    assert_profile(0x0031U, profile::numeric_bridge, role::ordinary);
+    assert_profile(0xFE8FU, profile::paragraph_bridge, role::ordinary);
+    assert_profile(0xFE91U, profile::paragraph_bridge, role::ordinary);
+    assert_profile(0x094DU, profile::devanagari_nominal, role::context_mark);
+    assert_profile(0x0711U, profile::syriac_nominal, role::context_mark);
+    assert_profile(0x0301U, profile::paragraph_bridge, role::inherited_mark);
+    assert_profile(0x200DU, profile::paragraph_bridge, role::joiner);
+    assert_profile(0x0640U, profile::paragraph_bridge, role::shared_cursive_modifier);
+    assert_profile(0x202BU, profile::paragraph_bridge, role::format_control);
+    for (const auto cp : {0x200DU, 0x202BU, 0x0301U, 0x0020U}) {
+        detail::edit_item_properties actual{};
+        require(detail::try_classify_edit_item_properties(scalar_for(cp), actual) &&
+            !actual.has_attachment_owner, "Unattached source invented a mark/item owner");
+    }
+
+    // Original actual-engine observations are evidence-only regression data.
+    // The product header does not include this table or call a scalar lookup.
+    const auto observed_profile = [](std::uint32_t engine) {
+        switch (engine) {
+        case 5U: return profile::paragraph_bridge;
+        case 24U: return profile::hebrew_nominal;
+        case 26U: return profile::arabic_nominal;
+        case 27U: return profile::numeric_bridge;
+        case 30U: return profile::syriac_nominal;
+        case 31U: return profile::thai_nominal;
+        case 34U: return profile::devanagari_nominal;
+        case 56U: return profile::lao_nominal;
+        case 58U: return profile::khmer_nominal;
+        default: throw std::runtime_error("Unknown observed native engine in evidence");
+        }
+    };
+    std::size_t observed_count = 0U;
+    for (std::size_t offset = 0U; offset < detail::edit_item_property_ranges.size(); offset += 4U) {
+        for (auto cp = detail::edit_item_property_ranges[offset];
+             cp <= detail::edit_item_property_ranges[offset + 1U]; ++cp) {
+            detail::edit_item_properties actual{};
+            require(detail::try_classify_edit_item_properties(scalar_for(cp), actual) &&
+                actual.profile == observed_profile(detail::edit_item_property_ranges[offset + 2U]) &&
+                actual.flags == detail::edit_item_property_ranges[offset + 3U],
+                "Property classifier contradicts an original measured scalar role");
+            ++observed_count;
+        }
+    }
+    require(observed_count == 41U, "Original observed role inventory changed");
+
+    // Exhaust every BMP nominal-letter member of the seven exact property
+    // domains. This checks the reusable rule, not Windows parity for new points.
+    struct domain { open_type_tag script; profile family; unicode_bidi_class bidi; };
+    constexpr std::array<domain, 7> domains{{
+        {open_type_tag::from_chars('a', 'r', 'a', 'b'), profile::arabic_nominal, unicode_bidi_class::arabic_letter},
+        {open_type_tag::from_chars('s', 'y', 'r', 'c'), profile::syriac_nominal, unicode_bidi_class::arabic_letter},
+        {open_type_tag::from_chars('h', 'e', 'b', 'r'), profile::hebrew_nominal, unicode_bidi_class::right_to_left},
+        {open_type_tag::from_chars('d', 'e', 'v', 'a'), profile::devanagari_nominal, unicode_bidi_class::left_to_right},
+        {open_type_tag::from_chars('t', 'h', 'a', 'i'), profile::thai_nominal, unicode_bidi_class::left_to_right},
+        {open_type_tag::from_chars('l', 'a', 'o', ' '), profile::lao_nominal, unicode_bidi_class::left_to_right},
+        {open_type_tag::from_chars('k', 'h', 'm', 'r'), profile::khmer_nominal, unicode_bidi_class::left_to_right}
+    }};
+    std::array<std::uint32_t, domains.size()> counts{};
+    for (std::uint32_t cp = 0U; cp <= 0xFFFFU; ++cp) {
+        const auto category = get_unicode_general_category(cp);
+        if (category < unicode_general_category::uppercase_letter ||
+            category > unicode_general_category::other_letter) continue;
+        const auto scalar = scalar_for(cp);
+        for (std::size_t index = 0U; index < domains.size(); ++index) {
+            if (scalar.script != domains[index].script || get_unicode_bidi_class(cp) != domains[index].bidi) continue;
+            if ((cp >= 0xFB00U && cp <= 0xFB4FU) || detail::is_arabic_presentation_block(cp)) continue;
+            detail::edit_item_properties actual{};
+            require(detail::try_classify_edit_item_properties(scalar, actual) &&
+                actual.profile == domains[index].family && actual.role == role::ordinary &&
+                actual.flags == detail::get_edit_profile_flags(domains[index].family),
+                "An unobserved nominal BMP property member still requires a scalar allowlist");
+            ++counts[index];
+        }
+    }
+    std::cout << "Nominal BMP property-domain counts:";
+    for (const auto count : counts) {
+        require(count > 20U, "Nominal property family did not extend beyond its observed scalars");
+        std::cout << ' ' << count;
+    }
+    std::cout << '\n';
+    for (const auto cp : {0x0967U, 0x0E51U, 0x0ED1U, 0x17E1U, 0xFB1DU, 0x1EE00U}) {
+        detail::edit_item_properties actual{profile::khmer_nominal, 73U, role::hard_control};
+        require(!detail::try_classify_edit_item_properties(scalar_for(cp), actual) &&
+            actual.profile == profile::khmer_nominal && actual.flags == 73U && actual.role == role::hard_control,
+            "Unqualified property classification partially published or promoted source");
+    }
+    for (const auto level : {std::int8_t{0}, std::int8_t{1}}) {
+        check(u"x\u062C\u0621y ", {0, 1, 5}, 0, level);
+        check(u"\u4E00\u05D3\u05D4y ", {0, 5}, 0, level);
+        check(u"\u4E00\u0939\u093Ey ", {0, 5}, 0, level);
+        check(u"x\u0713\u0711y ", {0, 1, 5}, 0, level);
+        check(u"x\u0E84\u0E87y ", {0, 1, 5}, 0, level);
+        check(u"x\u1782\u1783 ", {0, 3, 4}, 0, level);
+        check(u"x\u062C\u0640\u0621y ", {0, 1, 6}, 0, level);
+    }
 }
 
 void independently_observed_joiner_contexts()
@@ -357,6 +510,7 @@ int main()
         concurrent_snapshots_own_independent_outputs();
         original_reference_inventories();
         missing_contracts_are_atomic();
+        reusable_property_profiles_are_not_observed_scalar_admission();
         independently_observed_joiner_contexts();
         independent_heldout_symbol_items();
         independently_heldout_composed_item_seams();
