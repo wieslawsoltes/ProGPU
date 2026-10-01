@@ -222,8 +222,11 @@ public sealed unsafe partial class DawnGpuContext
             Wait(instance, future, $"request an offscreen {backendType} adapter");
             if (state.Status != W.RequestAdapterStatus.Success || state.Adapter == AdapterHandle.Null)
             {
-                throw new InvalidOperationException(
+                var failure = new InvalidOperationException(
                     $"Dawn failed to request an offscreen adapter: {state.Status}. {state.Message}");
+                DawnAdapterRequestFailureDiagnostics.Attach(failure, options.BackendType,
+                    forceFallbackAdapter, options.FeatureLevel, options.PowerPreference);
+                throw failure;
             }
             AdapterHandle result = state.Adapter;
             state.Adapter = AdapterHandle.Null;
