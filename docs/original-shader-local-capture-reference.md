@@ -9,7 +9,8 @@ on PR277. Fractional final placement remains deferred.
 
 ## Immutable original contract
 
-The source inspected is LibreWPF `381194e1` (original WPF implementation):
+The source inspected is LibreWPF
+`381194e1ffe4d64fb747556fcaf76e1c34fe9df8` (original WPF implementation):
 
 - `PresentationCore/System/Windows/Media/Renderer.cs:55–64` builds the RTB DPI
   root using original double DPI times `1.0 / 96.0` before sending MatrixTransform.
@@ -60,6 +61,9 @@ Twenty-one cases execute cold/warm/independently rebuilt captures, totaling63
 shader replays and23 separate original ordinary-drawing baselines. Input cases
 must equal a separately rendered no-effect original drawing byte-for-byte;
 constant output must fill the authored complete allocation, including its border.
+Every ordinary-input baseline must independently contain visible white pixels,
+only binary black/white RGB and opaque alpha; two empty results cannot qualify
+input preservation.
 Derivative output uses the full18×9 or36×18 frame after overriding original user
 c0. Two-texel ImageBrush output retains actual144/192 bitmap DPI and fills the
 entire capture. A separate final clip changes only output. Consecutive zero →

@@ -79,6 +79,7 @@ internal static partial class Program
             var plain = new LocalCaptureVisualState();
             plain.Prepare(input,withEffect:false);
             byte[] inputBaseline = CaptureLocalBitmap(plain.Root,input,directory,input.Name + ".plain",timer);
+            AssertOriginalPlainCapture(inputBaseline);
             ++baselineCount;
             byte[]? frameBaseline = null;
             if (!input.IntegralPlacement)
@@ -175,6 +176,20 @@ internal static partial class Program
             if (pixels[offset] != expected)
                 throw new InvalidOperationException($"{input.Name}: ({x},{y}) BGRA[{channel}]={pixels[offset]}, expected {expected}.");
         }
+    }
+
+    private static void AssertOriginalPlainCapture(byte[] pixels)
+    {
+        bool hasWhite = false;
+        for (int offset = 0; offset < pixels.Length; offset += 4)
+        {
+            byte value = pixels[offset];
+            if ((value != 0 && value != 255) || pixels[offset + 1] != value ||
+                pixels[offset + 2] != value || pixels[offset + 3] != 255)
+                throw new InvalidOperationException("Original plain input was not the requested binary aliased opaque drawing.");
+            hasWhite |= value == 255;
+        }
+        if (!hasWhite) throw new InvalidOperationException("Original positive-size plain input rendered no white pixels.");
     }
 
     private static byte ExpectedDeferredLocalCapture(LocalCaptureCase input,int x,int y,int channel,byte[]? frame)
