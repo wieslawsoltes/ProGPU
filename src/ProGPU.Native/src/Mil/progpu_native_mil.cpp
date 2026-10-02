@@ -20124,6 +20124,19 @@ struct channel::implementation {
                     static_cast<double>(output_clip.y + output_clip.height) * capture_frame.source_dpi_y != coverage.bottom)
                     return status::unsupported_command;
                 intersect_scope_clip(final_scope, output_clip);
+                // A prior source clip can reintroduce a fractional physical
+                // boundary after intersection. Generic scissor floor/ceil is
+                // not the original aliased conversion; keep that separate
+                // source clip contract closed in this first family.
+                const auto integral_clip_edge = [](float edge, double dpi) {
+                    const double physical = static_cast<double>(edge) * dpi;
+                    return std::isfinite(physical) && physical == std::floor(physical);
+                };
+                if (!integral_clip_edge(final_scope.clip_rect.x, capture_frame.source_dpi_x) ||
+                    !integral_clip_edge(final_scope.clip_rect.y, capture_frame.source_dpi_y) ||
+                    !integral_clip_edge(final_scope.clip_rect.x + final_scope.clip_rect.width, capture_frame.source_dpi_x) ||
+                    !integral_clip_edge(final_scope.clip_rect.y + final_scope.clip_rect.height, capture_frame.source_dpi_y))
+                    return status::unsupported_command;
                 const auto clip_status = attach_visual_output_clip(layer, final_scope, builder);
                 if (clip_status != status::success) return clip_status;
             } else {

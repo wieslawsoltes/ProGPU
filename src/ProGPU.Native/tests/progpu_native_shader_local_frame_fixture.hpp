@@ -43,7 +43,8 @@ inline constexpr std::array shader_local_cases{
 inline progpu_native_mil_status build_shader_local_scene(progpu_native_mil_channel* channel,
     std::uint32_t variant, const shader_local_case& test, std::vector<std::byte>& scene,
     bool baseline = false, double device_x = 2.0, double device_y = 3.0,
-    double extra_scale = 1.0, double extra_scale_y = 1.0) {
+    double extra_scale = 1.0, double extra_scale_y = 1.0,
+    double clip_shift_x = 0.0, bool ancestor_clip = false) {
     using mil::command;
     using mil_clip_fixture_detail::append;
     using mil_clip_fixture_detail::packet;
@@ -73,9 +74,10 @@ inline progpu_native_mil_status build_shader_local_scene(progpu_native_mil_chann
     packet(batch, command::visual_set_transform, 12U, 13U);
     packet(batch, command::visual_set_transform, 1U, 14U);
     packet(batch, command::visual_set_render_options, 1U, 3U,1U,0U,3U,0U,0U,0U);
-    packet(batch, command::rectangle_geometry, 8U, 0.0,0.0, 36.0/dpi,34.0/dpi,
+    packet(batch, command::rectangle_geometry, 8U, 0.0,0.0, (36.0+clip_shift_x)/dpi,34.0/dpi,
         20.0/dpi,10.0/dpi,0U,0U,0U,0U);
-    packet(batch, command::visual_set_clip, 1U, test.clipped ? 8U : 0U);
+    packet(batch, command::visual_set_clip, 1U, test.clipped && !ancestor_clip ? 8U : 0U);
+    packet(batch, command::visual_set_clip, 11U, test.clipped && ancestor_clip ? 8U : 0U);
     packet(batch, command::image_brush, 9U, 1.0, std::array{0.0,0.0,1.0,1.0},
         std::array{0.0,0.0,1.0,1.0}, .707,1.414,0U,0U,0U,1U,1U,0U,0U,1U,0U,1U,1U,0U,10U);
     const auto program = shader_padding_program(test.output);

@@ -540,6 +540,10 @@ progpu_native_status render_scene(
                             const auto& m = final_state.transform;
                             const auto coverage = shader_effect::output_coverage(f);
                             const auto& clip = final_state.clip_rect;
+                            const auto integral_edge = [](float edge, double dpi) {
+                                const double physical = static_cast<double>(edge) * dpi;
+                                return std::isfinite(physical) && physical == std::floor(physical);
+                            };
                             complete_frame = complete_frame &&
                                 final_state.flags == PROGPU_NATIVE_SCENE_STATE_CLIP_RECT &&
                                 m.m11 == 1.0F && m.m12 == 0.0F && m.m21 == 0.0F && m.m22 == 1.0F &&
@@ -547,7 +551,10 @@ progpu_native_status render_scene(
                                 static_cast<double>(clip.x) * f.source_dpi_x >= coverage.left &&
                                 static_cast<double>(clip.y) * f.source_dpi_y >= coverage.top &&
                                 static_cast<double>(clip.x + clip.width) * f.source_dpi_x <= coverage.right &&
-                                static_cast<double>(clip.y + clip.height) * f.source_dpi_y <= coverage.bottom;
+                                static_cast<double>(clip.y + clip.height) * f.source_dpi_y <= coverage.bottom &&
+                                integral_edge(clip.x, f.source_dpi_x) && integral_edge(clip.y, f.source_dpi_y) &&
+                                integral_edge(clip.x + clip.width, f.source_dpi_x) &&
+                                integral_edge(clip.y + clip.height, f.source_dpi_y);
                         }
                     }
                     if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U ||

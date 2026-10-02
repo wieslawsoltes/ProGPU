@@ -22147,6 +22147,11 @@ bool original_shader_local_frame_owns_proven_history_and_rejects_invalid_wire() 
     PROGPU_REQUIRE(build_shader_local_scene(raw, 35U, control, scene, false, 2.0, 3.0, .8, .8) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
     PROGPU_REQUIRE(scene == before);
     control.dpi = 1.0F;
+    for (const bool ancestor : {false, true}) {
+        PROGPU_REQUIRE(build_shader_local_scene(raw, 36U, shader_local_cases[12U], scene,
+            false, 2.0, 3.0, 1.0, 1.0, .75, ancestor) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
+        PROGPU_REQUIRE(scene == before);
+    }
     // Rejection cannot poison the next proven generation or earlier immutable ownership.
     PROGPU_REQUIRE(build_shader_local_scene(raw, 33U, control, scene) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
     owner.reset();
