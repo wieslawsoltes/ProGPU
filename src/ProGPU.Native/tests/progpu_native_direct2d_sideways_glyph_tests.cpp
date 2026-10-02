@@ -22,19 +22,21 @@ struct original_vertical_source final {
     font_loader loader;
     font_file file;
     font_face face;
-    explicit original_vertical_source(bool compact)
+    explicit original_vertical_source(bool compact, bool cff = false)
     {
         vertical_font_options options{}; options.compact_metrics = compact;
+        options.kind = cff ? vertical_font_kind::cff : vertical_font_kind::truetype; options.vorg = cff;
         stream.bytes = make_vertical_font(options); stream.declared_size = stream.bytes.size();
         loader.stream = &stream; file.loader = &loader; face.files = {&file}; face.declared_count = 1U;
-        face.type = 1U; face.index = 0U; face.simulations = 0U; face.glyph_count = 3U;
+        face.type = cff ? 0U : 1U; face.index = 0U; face.simulations = 0U; face.glyph_count = 3U;
     }
 };
 
 bool explicit_sideways_placement()
 {
+    for (const bool cff : {false, true}) {
     for (const bool compact : {false, true}) {
-        original_vertical_source original(compact);
+        original_vertical_source original(compact, cff);
         std::shared_ptr<const d2d::original_font_capture> source;
         std::shared_ptr<d2d::prepared_original_font> font;
         if (d2d::capture_original_font(&original.face, source) != com::ok ||
@@ -73,11 +75,15 @@ bool explicit_sideways_placement()
                             prepared->request().target.dpi_x == 144 && prepared->request().target.dpi_y == 120,
                             "raw BOOL, logical run, actual source frame and horizontal cache survive sideways placement")) return false;
                     // Literal oracle for original asymmetric glyphs, independently
-                    // authored before decoder/metric output: g1 origin(308,500),
-                    // g2 origin(364,600). The empty middle glyph consumes -7 or900/8.
+                    // authored before decoder/metric output: TT origins(308,500),
+                    // (364,600), CFF origins(300,700),(350,600). The empty middle
+                    // glyph consumes -7 or900/8; CFF uses real VORG, not glyf bounds.
                     const float second_left = nominal ? (compact ? 241.0F : 253.5F) : 49.0F;
-                    const std::array<compat::rectangle_f, 2U> boxes{{
-                        {26, 50.75F, 76, 85.75F}, {second_left, 71.25F, second_left + 62.5F, 96.25F}}};
+                    const std::array<compat::rectangle_f, 2U> boxes = cff
+                        ? std::array<compat::rectangle_f, 2U>{{{51, 49.75F, 101, 84.75F},
+                            {second_left, 69.5F, second_left + 62.5F, 94.5F}}}
+                        : std::array<compat::rectangle_f, 2U>{{{26, 50.75F, 76, 85.75F},
+                            {second_left, 71.25F, second_left + 62.5F, 96.25F}}};
                     for (std::size_t glyph = 0U; glyph < boxes.size(); ++glyph) {
                         const auto& box = boxes[glyph]; float twice_area = 0;
                         for (std::size_t edge = 0U; edge < 4U; ++edge) {
@@ -116,6 +122,7 @@ bool explicit_sideways_placement()
                 "unproven combined sideways/RTL contract stays atomic")) return false;
         if (!check(original.stream.reads == reads && original.face.outline_calls == 0U && original.face.table_calls == 0U,
                 "sideways never reacquires source outlines, tables or font files")) return false;
+    }
     }
     return true;
 }
