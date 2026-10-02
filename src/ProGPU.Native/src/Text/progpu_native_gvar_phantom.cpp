@@ -1,6 +1,7 @@
 #include "progpu_native_text.hpp"
 
 #include "progpu_native_gvar_payload_internal.hpp"
+#include "progpu_native_font_bytes.hpp"
 
 #include <cstddef>
 
@@ -60,14 +61,18 @@ bool sfnt_font_view::try_get_glyph_phantom_advance_delta(
     return true;
 }
 
-bool sfnt_font_view::try_get_glyph_horizontal_phantom_deltas(
+namespace {
+
+bool try_get_phantom_pair(
+    const sfnt_font_view& font,
+    bool vertical,
     std::uint16_t glyph_index,
     std::span<const std::int16_t> normalized_coordinates,
     std::uint32_t item_count,
     float& left_result,
     float& right_result,
     sfnt_glyph_phantom_variation_scratch scratch,
-    font_error* error) const noexcept {
+    font_error* error) noexcept {
     set_error(error, font_error::none);
     if (item_count < 4U) {
         left_result = 0.0F;
@@ -75,7 +80,7 @@ bool sfnt_font_view::try_get_glyph_horizontal_phantom_deltas(
         return true;
     }
     sfnt_gvar_header gvar{};
-    if (!try_get_gvar_header(gvar, error)) {
+    if (!font.try_get_gvar_header(gvar, error)) {
         return false;
     }
     if (normalized_coordinates.size() < gvar.axis_count) {
@@ -83,7 +88,7 @@ bool sfnt_font_view::try_get_glyph_horizontal_phantom_deltas(
         return false;
     }
     sfnt_glyph_phantom_variation_requirements requirements{};
-    if (!try_get_glyph_phantom_variation_requirements(
+    if (!font.try_get_glyph_phantom_variation_requirements(
             glyph_index, item_count, requirements, error)) {
         return false;
     }
@@ -101,12 +106,12 @@ bool sfnt_font_view::try_get_glyph_horizontal_phantom_deltas(
     }
 
     sfnt_glyph_variation_data_view view{};
-    if (!try_get_glyph_variation_data(glyph_index, view, error)) {
+    if (!font.try_get_glyph_variation_data(glyph_index, view, error)) {
         return false;
     }
     std::uint16_t headers_written = 0U;
     std::uint32_t coordinates_written = 0U;
-    if (!try_decode_glyph_variation_tuple_headers(
+    if (!font.try_decode_glyph_variation_tuple_headers(
             glyph_index,
             scratch.tuple_headers,
             scratch.region_coordinates,
@@ -127,7 +132,7 @@ bool sfnt_font_view::try_get_glyph_horizontal_phantom_deltas(
         return false;
     }
 
-    const auto left_phantom = item_count - 4U;
+    const auto left_phantom = item_count - (vertical ? 2U : 4U);
     const auto right_phantom = left_phantom + 1U;
     float left_delta = 0.0F;
     float right_delta = 0.0F;
@@ -159,10 +164,11 @@ bool sfnt_font_view::try_get_glyph_horizontal_phantom_deltas(
         if (scalar == 0.0F) {
             continue;
         }
+        const auto deltas = vertical ? scratch.y_deltas : scratch.x_deltas;
         if (payload.all_points) {
             if (right_phantom < payload.delta_count) {
-                left_delta += scratch.x_deltas[left_phantom] * scalar;
-                right_delta += scratch.x_deltas[right_phantom] * scalar;
+                left_delta += deltas[left_phantom] * scalar;
+                right_delta += deltas[right_phantom] * scalar;
             }
             continue;
         }
@@ -171,15 +177,93 @@ bool sfnt_font_view::try_get_glyph_horizontal_phantom_deltas(
             ++delta) {
             const auto point = payload.point_numbers[delta];
             if (point == left_phantom) {
-                left_delta += scratch.x_deltas[delta] * scalar;
+                left_delta += deltas[delta] * scalar;
             } else if (point == right_phantom) {
-                right_delta += scratch.x_deltas[delta] * scalar;
+                right_delta += deltas[delta] * scalar;
             }
         }
     }
     left_result = left_delta;
     right_result = right_delta;
     return true;
+}
+
+} // namespace
+
+bool sfnt_font_view::try_get_glyph_horizontal_phantom_deltas(
+    std::uint16_t glyph_index,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::uint32_t item_count,
+    float& left_result,
+    float& right_result,
+    sfnt_glyph_phantom_variation_scratch scratch,
+    font_error* error) const noexcept {
+    return try_get_phantom_pair(*this, false, glyph_index, normalized_coordinates,
+        item_count, left_result, right_result, scratch, error);
+}
+
+bool sfnt_font_view::try_get_glyph_vertical_phantom_deltas(
+    std::uint16_t glyph_index,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::uint32_t item_count,
+    float& top_result,
+    float& bottom_result,
+    sfnt_glyph_phantom_variation_scratch scratch,
+    font_error* error) const noexcept {
+    // The additive source query cannot interpret a malformed directory entry
+    // as an absent variation table. Keep the legacy reader policy unchanged.
+    constexpr auto glyf_tag = open_type_tag::from_chars('g', 'l', 'y', 'f');
+    constexpr auto loca_tag = open_type_tag::from_chars('l', 'o', 'c', 'a');
+    constexpr auto gvar_tag = open_type_tag::from_chars('g', 'v', 'a', 'r');
+    unsigned glyf_count = 0U, loca_count = 0U, gvar_count = 0U;
+    for (std::uint16_t index = 0U; index < table_count_; ++index) {
+        const auto record = static_cast<std::size_t>(directory_offset_) + static_cast<std::size_t>(index) * 16U;
+        const auto tag = detail::read_u32(data_, record);
+        unsigned* count = tag == glyf_tag.value ? &glyf_count : tag == loca_tag.value ? &loca_count
+            : tag == gvar_tag.value ? &gvar_count : nullptr;
+        if (count == nullptr) continue;
+        ++*count;
+        if (*count != 1U || !detail::can_read(data_, detail::read_u32(data_, record + 8U),
+                detail::read_u32(data_, record + 12U))) {
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+    }
+    sfnt_table_view glyf{}, loca{}, gvar{};
+    std::uint32_t actual_items = 0U;
+    if (!try_get_table(glyf_tag, glyf) || !try_get_table(loca_tag, loca)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    std::uint16_t axis_count = 0U, glyph_count = 0U;
+    if (!try_get_glyph_count(glyph_count) || glyph_index >= glyph_count ||
+        !try_get_variation_axis_count(axis_count, error)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    if (normalized_coordinates.size() != axis_count) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    for (const auto coordinate : normalized_coordinates) {
+        if (coordinate < -16384 || coordinate > 16384) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+    }
+    if (!try_get_glyph_variation_item_count(glyph_index, actual_items, error)) return false;
+    if (actual_items != item_count) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    if (try_get_table(gvar_tag, gvar) &&
+        (gvar.bytes.size() < 20U || detail::read_u32(gvar.bytes, 0U) != 0x00010000U ||
+         (detail::read_u16(gvar.bytes, 14U) & ~1U) != 0U)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    return try_get_phantom_pair(*this, true, glyph_index, normalized_coordinates,
+        item_count, top_result, bottom_result, scratch, error);
 }
 
 } // namespace progpu::native::text
