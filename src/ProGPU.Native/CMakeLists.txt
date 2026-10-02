@@ -2222,7 +2222,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME progpu_native_hinted_source_frame_tests COMMAND progpu_native_hinted_source_frame_tests)
     set_tests_properties(progpu_native_hinted_source_frame_tests PROPERTIES TIMEOUT 60)
 
-    foreach(source_test IN ITEMS run transport)
+    foreach(source_test IN ITEMS run transport import)
         add_executable(progpu_native_hinted_source_${source_test}_tests tests/progpu_native_hinted_source_${source_test}_tests.cpp)
         target_compile_features(progpu_native_hinted_source_${source_test}_tests PRIVATE cxx_std_20)
         target_link_libraries(progpu_native_hinted_source_${source_test}_tests PRIVATE progpu_native_text)
