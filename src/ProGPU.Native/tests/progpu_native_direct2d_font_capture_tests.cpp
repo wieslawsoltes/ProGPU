@@ -357,18 +357,64 @@ using namespace progpu::native::direct2d::tests;
         if (!check(segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE && corner(segment.p0) && corner(segment.p1),
             "independent original design/offset/advance coordinates")) return false;
     }
+    // Horizontal RTL keeps logical order, the original contour orientation and
+    // an advance consumed by the empty middle glyph. These literal design
+    // rectangles are independent of the placement helper under test.
+    for (const auto level : {1U, 3U, std::numeric_limits<std::uint32_t>::max()}) {
+        for (const bool nominal : {false, true}) {
+            auto rtl_run = run;
+            rtl_run.bidi_level = level;
+            if (nominal) rtl_run.glyph_advances = nullptr;
+            std::shared_ptr<const capture::prepared_original_glyph_run> rtl_prepared;
+            if (!check(capture::capture_original_glyph_request(font, rtl_run, compat::measuring_mode::natural,
+                &parameters, frame, request) == com::ok && prepared_font->prepare(request, rtl_prepared) == com::ok &&
+                rtl_prepared->request().bidi_level == level &&
+                (rtl_prepared->request().glyphs.advances() == nullptr) == nominal &&
+                rtl_prepared->segments().size() == 8U && prepared_font->cached_glyph_count() == 3U,
+                "horizontal RTL retains logical run and nominal/explicit advance identity")) return false;
+            for (std::size_t glyph = 0U; glyph < 2U; ++glyph) {
+                const float left = nominal ? (glyph == 0U ? -53.375F : -175.875F)
+                    : (glyph == 0U ? -30.875F : -33.375F);
+                const float right = left + 37.5F;
+                const float top = glyph == 0U ? -1.875F : -4.625F;
+                const float bottom = glyph == 0U ? 48.125F : 45.375F;
+                float twice_area = 0.0F;
+                for (std::size_t edge = 0U; edge < 4U; ++edge) {
+                    const auto& segment = rtl_prepared->segments()[glyph * 4U + edge];
+                    const auto corner = [&](progpu_native_point point) {
+                        return (point.x == left || point.x == right) && (point.y == top || point.y == bottom);
+                    };
+                    if (!check(segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE && corner(segment.p0) && corner(segment.p1),
+                        "independent RTL signed advance/offset placement")) return false;
+                    twice_area += segment.p0.x * segment.p1.y - segment.p1.x * segment.p0.y;
+                }
+                if (!check(twice_area == -3750.0F, "RTL translates rather than reflects original contours")) return false;
+            }
+        }
+    }
     const auto retained = prepared;
-    for (unsigned unsupported = 0U; unsupported < 9U; ++unsupported) {
+    for (unsigned unsupported = 0U; unsupported < 8U; ++unsupported) {
         auto candidate_run = run;
         if (unsupported < 6U) parameters.mode = static_cast<compat::rendering_mode>(unsupported);
         if (unsupported == 6U) candidate_run.is_sideways = 1;
-        if (unsupported == 7U) candidate_run.bidi_level = 1U;
-        const auto measuring = unsupported == 8U ? compat::measuring_mode::gdi_natural : compat::measuring_mode::natural;
+        const auto measuring = unsupported == 7U ? compat::measuring_mode::gdi_natural : compat::measuring_mode::natural;
         if (capture::capture_original_glyph_request(font, candidate_run, measuring,
             &parameters, frame, request) != com::ok) return false;
         if (!check(prepared_font->prepare(request, prepared) == compat::not_implemented && prepared == retained &&
             prepared_font->cached_glyph_count() == 3U, "unimplemented original mode/placement remains atomic")) return false;
         parameters.mode = compat::rendering_mode::outline;
+    }
+    {
+        auto overflow_run = run;
+        overflow_run.bidi_level = 1U;
+        const float overflow_advances[]{-std::numeric_limits<float>::max(), 0, 0};
+        overflow_run.glyph_advances = overflow_advances;
+        auto overflow_frame = frame;
+        overflow_frame.baseline.x = std::numeric_limits<float>::max();
+        if (!check(capture::capture_original_glyph_request(font, overflow_run, compat::measuring_mode::natural,
+            &parameters, overflow_frame, request) == com::ok &&
+            prepared_font->prepare(request, prepared) == com::invalid_argument && prepared == retained &&
+            prepared_font->cached_glyph_count() == 3U, "RTL origin overflow retains original output/cache")) return false;
     }
     auto nominal_run = run;
     nominal_run.glyph_advances = nullptr;
