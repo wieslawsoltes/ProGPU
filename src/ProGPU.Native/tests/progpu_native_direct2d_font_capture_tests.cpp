@@ -294,6 +294,83 @@ using namespace progpu::native::direct2d::tests;
     return true;
 }
 
+[[nodiscard]] bool prepared_origin_contracts()
+{
+    com::pointer<compat::factory> factory;
+    com::pointer<compat::scene_factory_native> scene_factory;
+    com::pointer<compat::render_target> target;
+    constexpr compat::scene_render_target_properties properties{64U, 64U, 96, 96, 8442U, 1U};
+    if (compat::create_factory(factory.put()) != com::ok ||
+        factory.as(compat::scene_factory_native_interface_id, scene_factory) != com::ok ||
+        scene_factory->CreateSceneRenderTarget(&properties, target.put()) != com::ok) return false;
+    rendering_parameters parameters; parameters.mode = compat::rendering_mode::outline;
+    capture::original_glyph_target frame{com::pointer<com::unknown>(target.get()), 1U,
+        {1, 0, 0, 1, 0, 0}, {3.1875F, 30.8125F}, {64U, 64U}, 96, 96, {}, compat::text_antialias_mode::grayscale};
+    const std::uint16_t indices[]{1U, 0U, 2U};
+    const float advances[]{24, -3, 9};
+    const compat::glyph_offset offsets[]{{0, 0}, {0, 0}, {-0.75F, 2.5F}};
+    for (const bool compact : {false, true}) {
+        font_stream stream;
+        stream.bytes = progpu::native::tests::make_hint_fault_font(29, -19, compact);
+        stream.declared_size = stream.bytes.size();
+        font_loader loader; loader.stream = &stream;
+        font_file file; file.loader = &loader;
+        font_face face; face.files[0] = &file; face.declared_count = 1U;
+        face.type = 1U; face.index = 0U; face.simulations = 0U; face.glyph_count = 3U;
+        std::shared_ptr<const capture::original_font_capture> source;
+        std::shared_ptr<capture::prepared_original_font> font;
+        if (capture::capture_original_font(&face, source) != com::ok ||
+            capture::prepared_original_font::create(source, font) != com::ok) return false;
+        const compat::glyph_run run{&face, 62.5F, 3U, indices, advances, offsets, 0, 2U};
+        std::shared_ptr<const capture::original_glyph_request> request;
+        std::shared_ptr<const capture::prepared_original_glyph_run> prepared;
+        if (capture::capture_original_glyph_request(source, run, compat::measuring_mode::natural,
+            &parameters, frame, request) != com::ok || font->prepare(request, prepared) != com::ok) return false;
+        if (!check(prepared->segments().size() == 8U && font->cached_glyph_count() == 3U,
+            "original horizontal bearing complete/compact metrics")) return false;
+        for (std::size_t index = 0U; index < 8U; ++index) {
+            const auto& segment = prepared->segments()[index];
+            const float left = index < 4U ? 5.0F : 22.25F, right = index < 4U ? 23.75F : 41.0F;
+            const float top = index < 4U ? 5.0F : 2.5F, bottom = index < 4U ? 30.0F : 27.5F;
+            const auto corner = [&](progpu_native_point point) {
+                return (point.x == left || point.x == right) && (point.y == top || point.y == bottom);
+            };
+            if (!check(corner(segment.p0) && corner(segment.p1),
+                "positive/negative hmtx bearing differs from glyf xMin without replacing advances")) return false;
+        }
+        const auto read16 = [](const auto& bytes, std::size_t offset) {
+            return (std::to_integer<std::uint32_t>(bytes[offset]) << 8U) |
+                std::to_integer<std::uint32_t>(bytes[offset + 1U]);
+        };
+        const auto read32 = [&](const auto& bytes, std::size_t offset) {
+            return (read16(bytes, offset) << 16U) | read16(bytes, offset + 2U);
+        };
+        const auto put16 = [](auto& bytes, std::size_t offset, std::uint16_t value) {
+            bytes[offset] = static_cast<std::byte>(value >> 8U); bytes[offset + 1U] = static_cast<std::byte>(value & 255U);
+        };
+        for (unsigned malformed = 0U; malformed < 4U; ++malformed) {
+            auto bad = std::make_shared<capture::original_font_capture>(*source);
+            auto& bytes = bad->files[0];
+            bool changed = false;
+            for (std::size_t record = 12U; record < 12U + read16(bytes, 4U) * 16U; record += 16U) {
+                const auto tag = read32(bytes, record), offset = read32(bytes, record + 8U);
+                if (malformed < 2U && tag == 0x68686561U) { // hhea declared metric count
+                    put16(bytes, offset + 34U, malformed == 0U ? 0U : 4U); changed = true;
+                }
+                if (malformed >= 2U && tag == 0x686D7478U) { // hmtx lacks one/both bytes of final bearing
+                    put16(bytes, record + 12U, 0U);
+                    put16(bytes, record + 14U, static_cast<std::uint16_t>((compact ? 8U : 12U) - (malformed - 1U)));
+                    changed = true;
+                }
+            }
+            auto prior = font;
+            if (!check(changed && capture::prepared_original_font::create(bad, prior) == com::invalid_argument && prior == font &&
+                font->cached_glyph_count() == 3U, "malformed original bearing cannot become implicit zero or replace context")) return false;
+        }
+    }
+    return true;
+}
+
 #if defined(_WIN32)
 [[nodiscard]] bool original_windows_contract()
 {
@@ -351,6 +428,7 @@ bool progpu_native_direct2d_font_capture_tests()
 {
     if (!source_contracts()) return false;
     if (!prepared_source_contracts()) return false;
+    if (!prepared_origin_contracts()) return false;
 #if defined(_WIN32)
     if (!original_windows_contract()) return false;
 #endif

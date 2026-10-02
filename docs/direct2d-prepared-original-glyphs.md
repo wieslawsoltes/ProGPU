@@ -34,6 +34,21 @@ design contours; each changed run still gets its own positioned path and source
 identity. Native renderer replay uses the ordinary retained path pipeline in both
 providers, not the internal historical RGB coverage model.
 
+Horizontal design coordinates use the original glyph's unhinted phantom origin,
+`xMin - leftSideBearing`, from its owned `glyf`/`hmtx` records. That subtraction
+occurs in design units before em scaling, for both point pairs and quadratic
+tails. It neither substitutes nominal advances for caller advances nor changes
+ascender offsets. The context retains the origin alongside the decoded outline;
+repeated draws make no source font callbacks or metric crossings. Empty glyphs
+have no fabricated bounds and still consume their exact supplied advance.
+
+The capability preflights the complete original horizontal metric inventory,
+including every bearing in the compact repeated-advance tail, before publishing
+a context. A missing bearing must not become zero through the shared raw reader's
+legacy permissive behavior; that reader and its other callers are unchanged.
+The source is the primary [OpenType hmtx contract](https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx),
+which explicitly distinguishes the stored outline bounds from the left bearing.
+
 ## Exact current source family
 
 The connected family is one original non-variable TrueType file/collection face,
@@ -78,7 +93,7 @@ that OUTLINE must never execute. They exercise the actual target under captured
 clip/layer/transform/DPI state, confirm zero additional source-font reads or
 outline callbacks, inspect exact independently calculated source coordinates,
 and retain explicit unsupported-family and reentrant invalidation controls.
-Four authored pixel cases cover aliased/grayscale coverage, fractional placement,
+The original four authored pixel cases cover aliased/grayscale coverage, fractional placement,
 affine transforms, capture-time clips and half-opacity layers. Both native
 providers compare every cold/warm output byte against independently specified
 rectangle geometry; absolute ink, no-ink-advance gap and background pixels remain
@@ -94,6 +109,16 @@ it is not a replacement for the separate native-provider full-byte gate. The
 original loader registration outlives all file/face/context owners. The earlier
 54-case modern RGB corpus is unchanged. All these controls are authored only;
 no original or native pixel result is claimed at this checkpoint.
+
+Two additional original-font variants retain identical contours but use positive
+and negative bearings unequal to `xMin`; one uses the compact `hmtx` tail. Each
+runs all four original Windows and paired-provider pixel cases, bringing this
+family to twelve without removing the original four. Independent expected
+coordinates shift each glyph differently, so decoder self-equivalence cannot
+hide ignored bearing metadata. Source controls additionally reject zero/excess
+metric counts and one-/two-byte truncated final bearings atomically while
+preserving an already-owned context/cache. The authored font builder's default
+arguments preserve all earlier fault-font bytes and hint programs.
 
 No validation is executed at this checkpoint: all compile, source, original
 Windows, GPU, package and platform gates remain deferred to the final integrated
