@@ -30,10 +30,12 @@ struct SampleVertex {
 @vertex fn vs_main(@builtin(vertex_index) index: u32) -> SampleVertex {
     // Six literal triangle corners avoid dynamic value-array indexing in the
     // pinned compiler. Both triangles share exactly the same edge/corner math.
+    // Preserve the original unit-quad strip diagonal when expressing it as
+    // independent triangles: BL,TL,BR then BR,TL,TR.
     var uv = vec2<f32>(0.0, 0.0);
-    if (index == 1u || index == 4u) { uv = vec2<f32>(1.0, 0.0); }
-    if (index == 2u || index == 3u) { uv = vec2<f32>(0.0, 1.0); }
-    if (index == 5u) { uv = vec2<f32>(1.0, 1.0); }
+    if (index == 0u) { uv = vec2<f32>(0.0, 1.0); }
+    if (index == 2u || index == 3u) { uv = vec2<f32>(1.0, 1.0); }
+    if (index == 5u) { uv = vec2<f32>(1.0, 0.0); }
     let w = effect.homogeneous.x;
     let projected = uv * effect.quad_scale_offset.xy + effect.quad_scale_offset.zw;
     var result: SampleVertex;

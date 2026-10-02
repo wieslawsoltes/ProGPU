@@ -82,6 +82,18 @@ before intersecting the current clip (`dirtyregion.cpp` 96–109,
 surface conversion. There is no extra analytic AA factor. Source AA mode is
 retained as provenance, not used to invent fractional clip coverage.
 
-Remaining implementation in this branch: nonrectangular source-mask contracts, both-provider
-full-pixel controls, and final source/SDK/package qualification. No missing
-contract is redefined as a dyadic-only final feature.
+Both provider fixtures now author eleven actual C-source cases with three
+replays each: non-dyadic DPI/scale, fractional final placement, a nonlinear
+UV-squared shader, original source/ancestor rectangle clips, AA output-bound
+inflation with ordinary quad coverage, and genuine nested visual-opacity
+targets. The nested cases retain nonzero target origins and non-power-of-two
+viewport extents, draw the shader inside that parent, then apply parent opacity.
+They check every pixel, independent-engine replay, original channel retirement,
+input ownership, exact submissions and effect uploads/passes. These controls
+are authored only; no execution or result is claimed.
+
+Remaining implementation in this branch: nonrectangular source-mask contracts
+and final source/SDK/package qualification. No missing contract is redefined
+as a dyadic-only final feature. Original-reference authoring is separately owned
+on `test/original-shader-axis-evidence`; this product branch does not alter its
+unexecuted observation-only UV/input/derivative claims.

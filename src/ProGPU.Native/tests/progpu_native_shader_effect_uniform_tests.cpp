@@ -78,6 +78,10 @@ bool run_shader_effect_uniform_tests() {
     static_assert(sizeof(progpu_native_scene_shader_effect) == 544U);
     static_assert(sizeof(progpu_native_scene_shader_effect_picture) == 560U);
     static_assert(sizeof(progpu_native_scene_shader_effect_derivatives) == 576U);
+    static_assert(sizeof(progpu_native_scene_shader_sample_frame) == 128U);
+    static_assert(sizeof(progpu_native_scene_shader_effect_samples) == 704U);
+    static_assert(offsetof(progpu_native_scene_shader_effect_samples, frame) == 32U);
+    static_assert(offsetof(progpu_native_scene_shader_effect_samples, program) == 160U);
     constexpr std::array<std::uint32_t, 15U> tokens{
         0xFFFF0200U, 0x0200001FU, 0x80000000U, 0xB0030000U,
         0x0200001FU, 0x90000000U, 0xA00F0800U,

@@ -12,6 +12,7 @@
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_shader_local_frame_fixture.hpp"
+#include "progpu_native_shader_final_sample_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
@@ -2355,6 +2356,18 @@ int main(int argc, char** argv)
             if (expected_status == PROGPU_NATIVE_STATUS_SUCCESS)
                 require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
                     "local-frame effect layer metrics unavailable");
+            return pixels;
+        }, require);
+    progpu::native::tests::verify_original_shader_final_samples(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            const progpu::native::tests::shader_local_case& test, std::uint32_t submissions,
+            progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            auto* selected = reference ? padding_reference_engine : engine;
+            auto pixels = render_scene(gpu, selected, nullptr, 0U, header.command_count, submissions,
+                stream, header.scene_id, header.generation, &metrics, test.dpi, nullptr,
+                PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, 64U);
+            require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "final-sample effect metrics unavailable");
             return pixels;
         }, require);
     progpu_native_engine_destroy(padding_reference_engine);

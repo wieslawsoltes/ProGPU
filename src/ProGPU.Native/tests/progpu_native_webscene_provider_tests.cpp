@@ -16,6 +16,7 @@
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_shader_local_frame_fixture.hpp"
+#include "progpu_native_shader_final_sample_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
@@ -3726,6 +3727,14 @@ int main(int argc, char** argv) {
             return render_retained_scene(reference, stream, header.generation, submissions, header.scene_id,
                 1U, header.command_count, &layers, &metrics, test.dpi, nullptr, expected_status,
                 false, 96U, nullptr, nullptr, 64U);
+        }, require);
+    progpu::native::tests::verify_original_shader_final_samples(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            const progpu::native::tests::shader_local_case& test, std::uint32_t submissions,
+            progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            return render_retained_scene(reference, stream, header.generation, submissions, header.scene_id,
+                0U, header.command_count, &layers, &metrics, test.dpi, nullptr, PROGPU_NATIVE_STATUS_SUCCESS,
+                false, 128U, nullptr, nullptr, 64U);
         }, require);
     progpu::native::direct2d::tests::verify_scoped_memory_copy_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
