@@ -33,6 +33,8 @@ struct semantic_shader_binding {
     // The bind group and its full-RGBA sampler retain one engine-owned picture
     // through the same retained-span/submission lifetime as the effect itself.
     std::shared_ptr<semantic_picture_backing> sampler_picture;
+    // V5 retains captured source even when an independent ImageBrush is sampled.
+    std::shared_ptr<semantic_picture_backing> input_picture;
     WGPUBuffer uniforms = nullptr;
     WGPUBindGroup bind_group = nullptr;
     std::uint32_t width = 0U;
@@ -58,6 +60,8 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     std::span<const std::byte> bytecode,
     const shader_effect::sample_frame& frame,
     std::shared_ptr<semantic_picture_backing> source_picture,
+    const progpu_native_scene_shader_sample_frame& source_frame,
+    std::shared_ptr<semantic_picture_backing> input_picture,
     std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX);
 
 bool encode_semantic_shader_effect(progpu_native_engine& engine,

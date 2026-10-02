@@ -8,6 +8,26 @@
 
 namespace progpu::native::shader_effect {
 
+// Only used by traversals after complete scene validation. The target cursor
+// consumes the signed physical output directly, not a logical-DPI reconstruction.
+inline bool layer_sample_frame(const std::byte* bytes, const progpu_native_scene_layer& layer,
+    progpu_native_scene_shader_sample_frame& output) noexcept {
+    if (layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) return false;
+    progpu_native_scene_header header{};
+    std::memcpy(&header, bytes, sizeof(header));
+    if (layer.effect_resource_index >= header.resource_count) return false;
+    progpu_native_scene_resource resource{};
+    std::memcpy(&resource, bytes + header.resource_offset +
+        static_cast<std::size_t>(layer.effect_resource_index) * header.resource_stride, sizeof(resource));
+    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT ||
+        resource.payload_size != sizeof(progpu_native_scene_shader_effect_samples)) return false;
+    progpu_native_scene_shader_effect_samples source{};
+    std::memcpy(&source, bytes + resource.payload_offset, sizeof(source));
+    if (source.struct_size != sizeof(source) || source.version != 5U) return false;
+    output = source.frame;
+    return true;
+}
+
 // Wire versions normalize to one immutable program plus explicit optional
 // source metadata. Caller outputs change only after complete validation.
 inline bool read_resource(std::span<const std::byte> payload,

@@ -370,6 +370,7 @@ progpu_native_status render_scene(
     std::uint32_t semantic_effect_node_count = 0U;
     std::uint32_t semantic_effect_pass_count = 0U;
     std::uint32_t semantic_shader_effect_count = 0U;
+    std::uint32_t semantic_shader_sample_count = 0U;
     std::uint64_t semantic_shader_sampler_bytes = 0U;
     std::uint32_t semantic_effect_chain_revision = 0U;
     std::uint64_t semantic_layer_coverage_texture_bytes = 0U;
@@ -494,12 +495,14 @@ progpu_native_status render_scene(
                 if (effect_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
                     progpu_native_scene_shader_effect shader{};
                     progpu_native_scene_shader_capture_frame capture_frame{};
+                    progpu_native_scene_shader_sample_frame sample_frame{};
+                    std::uint32_t input_picture = PROGPU_NATIVE_SCENE_NO_INDEX;
                     std::uint32_t sampler_picture = PROGPU_NATIVE_SCENE_NO_INDEX;
                     std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX;
                     if (!shader_effect::read_resource(
                             std::span(bytes + effect_resource.payload_offset, effect_resource.payload_size),
                             std::span(bytes + effect_resource.auxiliary_offset, effect_resource.auxiliary_size),
-                            shader, sampler_picture, derivative_register, capture_frame))
+                            shader, sampler_picture, derivative_register, capture_frame, input_picture, sample_frame))
                         return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                             "A retained WPF shader descriptor is invalid.");
                     // Old versions keep their exact integral-domain gate. V4
@@ -557,6 +560,18 @@ progpu_native_status render_scene(
                                 integral_edge(clip.y + clip.height, f.source_dpi_y);
                         }
                     }
+                    if (input_picture != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                        // V5 has an independent complete input picture. Its
+                        // output may intersect the target without changing UVs.
+                        // Physical clip transport avoids logical-DPI round trips.
+                        complete_frame = sample_frame.source_dpi_x == source_presentation.dpi_scale_x &&
+                            sample_frame.source_dpi_y == source_presentation.dpi_scale_y &&
+                            sample_frame.clip_antialias == 0U &&
+                            layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+                            (layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) == 0U &&
+                            std::none_of(active_cache_owners.begin(), active_cache_owners.begin() + cache_scope_depth,
+                                [](std::uint64_t owner) { return owner != 0U; });
+                    }
                     if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U ||
                         (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP | PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U ||
                         !complete_frame ||
@@ -568,13 +583,19 @@ progpu_native_status render_scene(
                     ++semantic_effect_node_count;
                     ++semantic_effect_pass_count;
                     ++semantic_shader_effect_count;
-                    if (sampler_picture != PROGPU_NATIVE_SCENE_NO_INDEX) {
-                        const auto sampler = read_resource(sampler_picture);
+                    semantic_shader_sample_count += input_picture != PROGPU_NATIVE_SCENE_NO_INDEX ? 1U : 0U;
+                    const std::array dependencies{input_picture, sampler_picture};
+                    for (std::size_t dependency_index = 0U; dependency_index < dependencies.size(); ++dependency_index) {
+                        const auto dependency = dependencies[dependency_index];
+                        if (dependency == PROGPU_NATIVE_SCENE_NO_INDEX ||
+                            (dependency_index == 1U && dependency == input_picture)) continue;
+                        const auto sampler = read_resource(dependency);
                         progpu_native_scene_picture_image picture{};
                         progpu_native_scene_presentation sampler_presentation{};
                         if (!semantic::read_semantic_picture_image(bytes + sampler.payload_offset,
                                 sampler.payload_size, picture, sampler_presentation) ||
-                            picture.width != target_extent.width || picture.height != target_extent.height ||
+                            picture.width != (input_picture == PROGPU_NATIVE_SCENE_NO_INDEX ? target_extent.width : sample_frame.capture_width) ||
+                            picture.height != (input_picture == PROGPU_NATIVE_SCENE_NO_INDEX ? target_extent.height : sample_frame.capture_height) ||
                             sampler_presentation.dpi_scale_x != 1.0F || sampler_presentation.dpi_scale_y != 1.0F)
                             return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
                                 "A WPF shader sampler must own the complete normalized physical source extent.");
@@ -1722,7 +1743,8 @@ progpu_native_status render_scene(
         static_cast<std::uint64_t>(semantic_effect_pass_count - semantic_shader_effect_count) *
             semantic_effect_uniform_alignment;
     const std::uint64_t semantic_all_effect_uniform_bytes = semantic_effect_uniform_bytes +
-        static_cast<std::uint64_t>(semantic_shader_effect_count) * 528U + semantic_shader_sampler_bytes;
+        static_cast<std::uint64_t>(semantic_shader_effect_count) * 528U +
+        static_cast<std::uint64_t>(semantic_shader_sample_count) * 64U + semantic_shader_sampler_bytes;
     const std::uint64_t pooled_layer_bytes = layer_budget.pooled_bytes();
     const std::uint64_t pooled_effect_bytes =
         layer_budget.pooled_effect_bytes();
@@ -4420,18 +4442,23 @@ progpu_native_status render_scene(
                 if (operation.source_layer >= engine->semantic_layer_slots.size()) return false;
                 progpu_native_scene_shader_effect shader{};
                 progpu_native_scene_shader_capture_frame capture_frame{};
+                progpu_native_scene_shader_sample_frame sample_frame{};
+                std::uint32_t input_index = PROGPU_NATIVE_SCENE_NO_INDEX;
                 std::uint32_t sampler_index = PROGPU_NATIVE_SCENE_NO_INDEX;
                 std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX;
                 if (!shader_effect::read_resource(
                         std::span(bytes + resource.payload_offset, resource.payload_size),
                         std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
-                        shader, sampler_index, derivative_register, capture_frame)) return false;
+                        shader, sampler_index, derivative_register, capture_frame, input_index, sample_frame)) return false;
                 if (capture_frame.capture_width != 0U &&
                     (capture_frame.capture_width != source_extent.width ||
                      capture_frame.capture_height != source_extent.height)) return false;
                 std::shared_ptr<semantic_picture_backing> sampler_picture;
-                if (sampler_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
-                    const auto sampler = read_resource(sampler_index);
+                std::shared_ptr<semantic_picture_backing> input_picture;
+                const auto capture_picture = [&](std::uint32_t index,
+                    std::shared_ptr<semantic_picture_backing>& result) {
+                    if (index == PROGPU_NATIVE_SCENE_NO_INDEX) return true;
+                    const auto sampler = read_resource(index);
                     progpu_native_scene_picture_image picture{};
                     progpu_native_scene_presentation sampler_presentation{};
                     progpu_native_scene_frame_metrics child_metrics{};
@@ -4440,26 +4467,47 @@ progpu_native_status render_scene(
                         sampler.payload_size, picture, sampler_presentation) && create_semantic_picture_image(
                             *engine, picture, sampler_presentation, bytes + sampler.auxiliary_offset,
                             sampler.auxiliary_size, capture, child_metrics);
-                    sampler_picture = std::move(capture.picture_backing);
+                    result = std::move(capture.picture_backing);
                     if (capture.view != nullptr) wgpuTextureViewRelease(capture.view);
                     if (capture.texture != nullptr) {
                         wgpuTextureDestroy(capture.texture); wgpuTextureRelease(capture.texture);
                     }
-                    if (!captured || !sampler_picture) return false;
+                    if (!captured || !result) return false;
                     texture_upload_bytes += child_metrics.texture_upload_bytes;
                     semantic_layer_uniform_upload_bytes += child_metrics.uniform_upload_bytes;
                     picture_vertex_upload_bytes += child_metrics.vertex_upload_bytes;
                     picture_index_upload_bytes += child_metrics.index_upload_bytes;
+                    return true;
+                };
+                if (!capture_picture(input_index, input_picture)) return false;
+                if (sampler_index == input_index) sampler_picture = input_picture;
+                else if (!capture_picture(sampler_index, sampler_picture)) return false;
+                if (input_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                    shader_effect::sample_frame actual_frame{};
+                    if (!shader_effect::create_sample_frame(shader_effect::sample_request(sample_frame), actual_frame))
+                        return false;
+                    // Output is rendered directly at these actual destination
+                    // samples, even when the target clips a negative origin.
+                    actual_frame.output = {
+                        static_cast<std::int32_t>(source_extent.x) - static_cast<std::int32_t>(presentation.viewport_x),
+                        static_cast<std::int32_t>(source_extent.y) - static_cast<std::int32_t>(presentation.viewport_y),
+                        source_extent.width, source_extent.height};
+                    if (!sampler_picture) sampler_picture = input_picture;
+                    operation.shader_effect = create_semantic_sample_shader_binding(*engine, shader,
+                        std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size), actual_frame,
+                        std::move(sampler_picture), sample_frame, std::move(input_picture), derivative_register);
+                } else {
+                    operation.shader_effect = create_semantic_shader_binding(*engine, shader,
+                        std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
+                        engine->semantic_layer_slots[operation.source_layer], source_extent.width, source_extent.height,
+                        std::move(sampler_picture), derivative_register);
                 }
-                operation.shader_effect = create_semantic_shader_binding(*engine, shader,
-                    std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
-                    engine->semantic_layer_slots[operation.source_layer], source_extent.width, source_extent.height,
-                    std::move(sampler_picture), derivative_register);
                 if (!operation.shader_effect) return false;
                 operation.effect_count = 1U;
                 operation.final_effect_texture = 0U;
-                semantic_layer_uniform_upload_bytes += 528U;
-                semantic_layer_effect_uniform_upload_bytes += 528U;
+                const std::uint32_t uniform_bytes = input_index != PROGPU_NATIVE_SCENE_NO_INDEX ? 592U : 528U;
+                semantic_layer_uniform_upload_bytes += uniform_bytes;
+                semantic_layer_effect_uniform_upload_bytes += uniform_bytes;
                 return true;
             }
             progpu_native_scene_effect_chain chain{};

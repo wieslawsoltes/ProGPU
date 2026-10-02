@@ -1,3 +1,6 @@
+// Algorithm: rasterize an original homogeneous unit quad at final device samples.
+// Time complexity: O(I + S) per covered fragment for I instructions and S samples.
+// Space complexity: O(1) vertices/uniforms plus the bounded translated register file.
 // Original ProGPU final-device ShaderEffect path. The owned source capture and
 // device-lattice output have separate extents. Rasterize the original unit quad
 // at final samples; never filter an already evaluated effect as a substitute.
@@ -11,8 +14,9 @@ struct SampleEffectUniforms {
     quad_scale_offset: vec4<f32>,
     // xy: signed output device origin; zw: output texture extent.
     output_lattice: vec4<f32>,
-    // x: original homogeneous coordinate. Remaining fields reserved zero.
+    // x: original homogeneous coordinate; y: physical clip antialias mode.
     homogeneous: vec4<f32>,
+    physical_clip: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> effect: SampleEffectUniforms;
 @group(0) @binding(1) var source_sampler: sampler;
@@ -55,5 +59,10 @@ fn wpf_effect_main(uv: vec2<f32>) -> vec4<f32> {
 }
 
 @fragment fn fs_main(input: SampleVertex) -> @location(0) vec4<f32> {
-    return wpf_effect_main(input.uv);
+    // Translated derivatives execute before clip discard.
+    let value = wpf_effect_main(input.uv);
+    let physical = input.position.xy + effect.output_lattice.xy;
+    if (physical.x < effect.physical_clip.x || physical.y < effect.physical_clip.y ||
+        physical.x >= effect.physical_clip.z || physical.y >= effect.physical_clip.w) { discard; }
+    return value;
 }

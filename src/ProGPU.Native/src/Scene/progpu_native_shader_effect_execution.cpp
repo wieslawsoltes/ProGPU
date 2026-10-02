@@ -32,8 +32,9 @@ struct sample_effect_uniforms {
     float quad_scale_offset[4];
     float output_lattice[4];
     float homogeneous[4];
+    float physical_clip[4];
 };
-static_assert(sizeof(sample_effect_uniforms) == 576U);
+static_assert(sizeof(sample_effect_uniforms) == 592U);
 
 std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engine,
     const progpu_native_scene_shader_effect& descriptor, std::span<const std::byte> bytecode,
@@ -156,13 +157,17 @@ std::shared_ptr<semantic_shader_binding> create_semantic_shader_binding(
 std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     progpu_native_engine& engine, const progpu_native_scene_shader_effect& descriptor,
     std::span<const std::byte> bytecode, const shader_effect::sample_frame& frame,
-    std::shared_ptr<semantic_picture_backing> source_picture, std::uint32_t derivative_register) {
+    std::shared_ptr<semantic_picture_backing> source_picture,
+    const progpu_native_scene_shader_sample_frame& source_frame,
+    std::shared_ptr<semantic_picture_backing> input_picture, std::uint32_t derivative_register) {
     if (!shader_effect::validate(descriptor, bytecode) || !source_picture || source_picture->owner != &engine ||
         source_picture->view == nullptr || source_picture->descriptor.width != frame.capture.width ||
         source_picture->descriptor.height != frame.capture.height || frame.capture.width == 0U || frame.capture.height == 0U ||
         frame.output.width == 0U || frame.output.height == 0U || frame.output.width > 16'384U || frame.output.height > 16'384U ||
         !shader_effect::finite_axis_matrix(frame.unit_to_device) || !shader_effect::finite_axis_matrix(frame.device_to_unit) ||
-        frame.unit_to_device.w <= 0.0F ||
+        frame.unit_to_device.w <= 0.0F || !shader_effect::validate_sample_frame(source_frame) ||
+        !input_picture || input_picture->owner != &engine || input_picture->view == nullptr ||
+        input_picture->descriptor.width != frame.capture.width || input_picture->descriptor.height != frame.capture.height ||
         (derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX && derivative_register >= 32U)) return {};
     auto program = program_for(engine, descriptor, bytecode, true);
     if (!program) return {};
@@ -188,8 +193,12 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     uniforms.output_lattice[2] = static_cast<float>(frame.output.width);
     uniforms.output_lattice[3] = static_cast<float>(frame.output.height);
     uniforms.homogeneous[0] = frame.unit_to_device.w;
+    uniforms.homogeneous[1] = static_cast<float>(source_frame.clip_antialias);
+    uniforms.physical_clip[0] = source_frame.clip_left; uniforms.physical_clip[1] = source_frame.clip_top;
+    uniforms.physical_clip[2] = source_frame.clip_right; uniforms.physical_clip[3] = source_frame.clip_bottom;
     auto binding = std::make_shared<semantic_shader_binding>();
     binding->program = std::move(program); binding->sampler_picture = std::move(source_picture);
+    binding->input_picture = std::move(input_picture);
     binding->width = frame.output.width; binding->height = frame.output.height;
     binding->final_sample_program = true;
     WGPUBufferDescriptor buffer{};

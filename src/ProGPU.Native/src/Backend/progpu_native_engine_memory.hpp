@@ -6,6 +6,7 @@ namespace progpu::native {
 
 inline void collect_memory(gpu_memory_inventory& inventory, const semantic_shader_binding& value) {
     if (value.sampler_picture) inventory.texture(value.sampler_picture->texture);
+    if (value.input_picture) inventory.texture(value.input_picture->texture);
     inventory.buffer(value.uniforms);
 }
 

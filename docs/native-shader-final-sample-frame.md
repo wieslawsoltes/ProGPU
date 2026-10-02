@@ -18,7 +18,8 @@ stage and interpolates original UVs at final samples. There is no intermediate
 evaluation followed by texture resampling. The original bytecode translator,
 sampler policy, premultiplied values, texture leases and submission retirement
 are reused. Legacy programs retain their original 528-byte uniforms and three
-vertices; the new primitive uses its own 576-byte block and six vertices.
+vertices; the new primitive uses its own 592-byte block and six vertices,
+including physical output clipping after translated derivative evaluation.
 
 Arithmetic is an independently derived diagonal cofactor reduction, not copied
 DirectXMath source. The actual original-SDK reference draft is committed at
@@ -41,8 +42,16 @@ and zero-origin unit-DPI presentation. All old readers reject the new payload
 rather than discard either picture or frame. Generated managed layouts are
 synchronized from the C authority; malformed/atomicity controls are authored.
 
+The shared layer cursor now consumes the physical output lattice directly.
+Target clipping changes only the actual output viewport, while both source
+pictures preserve the complete capture. The shared renderer prepares both
+retained pictures through the existing engine path, accounts for both in its
+bounded memory budget, and holds their leases in the submitted shader binding.
+Memory diagnostics enumerate both, deduplicating aliases. Legacy uniform
+budgets and byte counts stay unchanged. AA resource metadata is retained but
+render admission remains closed until the original coverage rule is connected.
+
 Remaining implementation in this branch: actual source subtree capture,
-shared layer/output allocation and retained cache
-integration, original output/source clip and anti-alias coverage, both-provider
+original output/source clip and anti-alias coverage, both-provider
 full-pixel controls, and final source/SDK/package qualification. No missing
 contract is redefined as a dyadic-only final feature.
