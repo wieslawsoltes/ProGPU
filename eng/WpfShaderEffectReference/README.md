@@ -88,3 +88,11 @@ native shader, CPU fallback or source admission. ARM64 executes all inputs as
 the existing explicit unavailable-software control, reporting zero qualified
 sampler shader cases. All previous deadlines, color assertions and native/package
 gates remain; a reference mismatch fails rather than removing its case.
+
+After the implementation commit, the small original-only Windows-targeted project
+compiled against cached reference assemblies in 1.51 seconds with zero warnings
+or errors. This host used installed SDK 11 preview with target `net10.0-windows`;
+it installed no SDK and loaded no WPF renderer or ProGPU native runtime. Actual
+Windows source capture remains the hosted workflow's responsibility. The new
+sampler phase shares the original process-wide 60-second stopwatch rather than
+resetting the capture deadline.

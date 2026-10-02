@@ -13,9 +13,9 @@ using System.Windows.Threading;
 
 internal static partial class Program
 {
-    private static void CaptureImageSamplers(string directory, string commit, bool unavailable)
+    private static void CaptureImageSamplers(string directory, string commit, bool unavailable, Stopwatch timer)
     {
-        var timer = Stopwatch.StartNew();
+        double startedMilliseconds = timer.Elapsed.TotalMilliseconds;
         var observations = new List<object>();
         var originals = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         int independentColors = 0, equivalentPairs = 0;
@@ -91,7 +91,7 @@ internal static partial class Program
             CaptureMode = unavailable ? "unsupported-software-control" : "shader-pixels",
             QualifiedShaderCases = unavailable ? 0 : observations.Count,
             IndependentColorCases = independentColors, EquivalentViewboxPairs = equivalentPairs,
-            ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds,
+            ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds - startedMilliseconds,
             Qualification = unavailable
                 ? "Original ARM64 unavailable-software control; no sampler shader pixels qualified."
                 : "Original Microsoft WPF ImageBrush pixels. Eight independent color cases and five complete-pixel equivalence pairs; not native/source-host/package parity."
