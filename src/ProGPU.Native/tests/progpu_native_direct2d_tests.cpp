@@ -7,6 +7,7 @@
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_direct2d_layer_clear_fixture.hpp"
+#include "progpu_native_direct2d_aa_clear_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
 #include "progpu_native.h"
@@ -319,12 +320,118 @@ void transparent_layer_clear_regressions(
     }
 }
 
+void antialiased_clear_regressions(
+    progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    require(fixture::antialiased_clear_area_contract(), "AA Clear independent pixel-area arithmetic changed");
+    ComPtr<ID2D1Device> device;
+    source_context->GetDevice(device.GetAddressOf());
+    ComPtr<ID2D1DeviceContext> context;
+    require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
+        "AA Clear original context failed");
+    for (const bool legacy : {true, false}) for (unsigned index = 0; index < fixture::aa_clear_cases.size(); ++index) {
+        const auto& value = fixture::aa_clear_cases[index];
+        if (legacy && value.ignore_alpha) continue;
+        const auto check = [legacy, index](bool condition, const char* message) {
+            if (!condition) {
+                std::cerr << "AA Clear original api=" << (legacy ? "legacy" : "OPTIONS1") << " case=" << index << '\n';
+                fail(message);
+            }
+        };
+        context->SetDpi(96 * value.dpi_x, 96 * value.dpi_y);
+        const auto properties = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+            96 * value.dpi_x, 96 * value.dpi_y);
+        const auto read_properties = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+            properties.pixelFormat, 96 * value.dpi_x, 96 * value.dpi_y);
+        ComPtr<ID2D1Bitmap1> target, readback;
+        check(context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0, &properties, target.GetAddressOf()) == S_OK &&
+            context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0, &read_properties, readback.GetAddressOf()) == S_OK,
+            "AA Clear original bitmap creation failed");
+        ComPtr<ID2D1Layer> layer;
+        if (legacy) check(context->CreateLayer(nullptr, layer.GetAddressOf()) == S_OK,
+            "AA Clear original legacy layer creation failed");
+        const auto record = [&] {
+            return fixture::record_antialiased_clear(reinterpret_cast<compat::render_target*>(context.Get()), value,
+                [&](const compat::layer_parameters& parameters, bool opaque) {
+                    const D2D1_RECT_F bounds{parameters.content_bounds.left, parameters.content_bounds.top,
+                        parameters.content_bounds.right, parameters.content_bounds.bottom};
+                    if (legacy) {
+                        check(!opaque, "AA Clear attempted unavailable legacy IGNORE_ALPHA");
+                        const D2D1_LAYER_PARAMETERS original{bounds, nullptr, D2D1_ANTIALIAS_MODE_ALIASED,
+                            D2D1::Matrix3x2F::Identity(), parameters.opacity, nullptr, D2D1_LAYER_OPTIONS_NONE};
+                        static_cast<ID2D1RenderTarget*>(context.Get())->PushLayer(&original, layer.Get());
+                    } else {
+                        const D2D1_LAYER_PARAMETERS1 original{bounds, nullptr, D2D1_ANTIALIAS_MODE_ALIASED,
+                            D2D1::Matrix3x2F::Identity(), parameters.opacity, nullptr,
+                            opaque ? D2D1_LAYER_OPTIONS1_IGNORE_ALPHA : D2D1_LAYER_OPTIONS1_NONE};
+                        context->PushLayer(&original, nullptr);
+                    }
+                });
+        };
+        std::vector<std::uint8_t> cold;
+        for (unsigned replay = 0; replay < 2U; ++replay) {
+            context->SetTarget(target.Get());
+            check(record() == S_OK, "AA Clear original Windows draw failed");
+            context->SetTarget(nullptr);
+            check(readback->CopyFromBitmap(nullptr, target.Get(), nullptr) == S_OK, "AA Clear original copy failed");
+            D2D1_MAPPED_RECT mapped{};
+            check(readback->Map(D2D1_MAP_OPTIONS_READ, &mapped) == S_OK, "AA Clear original map failed");
+            std::vector<std::uint8_t> pixels(64U * 256U);
+            for (std::size_t row = 0; row < 64U; ++row)
+                std::memcpy(pixels.data() + row * 256U, mapped.bits + row * mapped.pitch, 256U);
+            check(readback->Unmap() == S_OK, "AA Clear original unmap failed");
+            check(fixture::antialiased_clear_pixels(pixels, value, true),
+                "AA Clear original Windows differs from independent full-byte area/composition expectation");
+            if (replay == 0U) cold = std::move(pixels);
+            else check(pixels == cold, "AA Clear original reused target changed full bytes");
+        }
+        // The original command list owns the callback inventory: it may omit a
+        // fully overwritten draw. Never manufacture the source-call count.
+        ComPtr<ID2D1CommandList> list;
+        check(context->CreateCommandList(list.GetAddressOf()) == S_OK, "AA Clear original list creation failed");
+        context->SetTarget(list.Get());
+        check(record() == S_OK && list->Close() == S_OK, "AA Clear original list recording failed");
+        context->SetTarget(nullptr);
+        std::int32_t hr = E_FAIL;
+        progpu_native_direct2d_command_stream_summary summary{};
+        summary.struct_size = sizeof(summary);
+        check(progpu_native_direct2d_command_list_get_stream_summary(surface, list.Get(),
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS, &summary, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK, "AA Clear original callback inventory failed");
+        const auto source_fills = summary.draw_count + summary.fill_count;
+        progpu_native_direct2d_scene_recorder* recorder = nullptr;
+        check(progpu_native_direct2d_scene_recorder_create(0xAC80U + index + (legacy ? 0U : 32U), 1U, nullptr,
+            &recorder, &hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK, "AA Clear recorder failed");
+        void* raw_sink = nullptr;
+        check(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK, "AA Clear sink failed");
+        ComPtr<ID2D1CommandSink1> sink;
+        sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+        check(list->Stream(sink.Get()) == S_OK, "AA Clear original stream translation failed");
+        progpu_native_direct2d_scene_stream_result result{};
+        result.struct_size = sizeof(result);
+        check(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "AA Clear stream measurement failed");
+        std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
+        check(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK && result.written_bytes == bytes.size() &&
+                result.failure_callback_index == 0U && result.translated_draw_count == source_fills &&
+                fixture::antialiased_clear_contract(bytes, value, source_fills),
+            "AA Clear original stream lost captured scopes, target replacement or callback counts");
+        sink.Reset();
+        progpu_native_direct2d_scene_recorder_destroy(recorder);
+    }
+}
+
 void full_target_clear_regressions(
     progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
 {
     namespace fixture = progpu::native::direct2d::tests;
     layer_background_regressions(surface, source_context);
     transparent_layer_clear_regressions(surface, source_context);
+    antialiased_clear_regressions(surface, source_context);
     ComPtr<ID2D1Device> device;
     source_context->GetDevice(device.GetAddressOf());
     ComPtr<ID2D1DeviceContext> context;
@@ -471,7 +578,7 @@ void full_target_clear_regressions(
             progpu_native_direct2d_scene_recorder_destroy(recorder);
         }
     }
-    for (unsigned variant = 0U; variant < 4U; ++variant) {
+    for (unsigned variant = 0U; variant < 5U; ++variant) {
         progpu_native_direct2d_scene_recorder* recorder = nullptr;
         int32_t hr = E_FAIL;
         require(progpu_native_direct2d_scene_recorder_create(7102U, 1U, nullptr, &recorder, &hr) ==
@@ -488,7 +595,7 @@ void full_target_clear_regressions(
             if (variant == 0U) require(sink->PushAxisAlignedClip(&rectangle, D2D1_ANTIALIAS_MODE_ALIASED) == S_OK,
                 "negative clear nested aliased clip setup failed");
         }
-        else if (variant == 2U) {
+        else if (variant == 2U || variant == 4U) {
             // Finite transparent layers now admit Clear. An unbounded layer
             // still cannot establish replacement coverage in this recorder,
             // which was created without target dimensions/DPI metadata.
@@ -497,11 +604,42 @@ void full_target_clear_regressions(
             const D2D1_LAYER_PARAMETERS1 layer{unbounded, nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
                 D2D1::Matrix3x2F::Identity(), 0.5F, nullptr, D2D1_LAYER_OPTIONS1_NONE};
             require(sink->PushLayer(&layer, nullptr) == S_OK, "negative clear layer setup failed");
+            if (variant == 4U) require(sink->PushAxisAlignedClip(&rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) == S_OK,
+                "bounded AA child of unknown owner setup failed");
         } else {
             const D2D1_COLOR_F invalid{std::numeric_limits<float>::quiet_NaN(), 0, 0, 1};
             require(sink->Clear(&invalid) == E_INVALIDARG, "invalid clear color was accepted");
         }
-        require(FAILED(sink->Clear(&clear)) && FAILED(sink->EndDraw()), "scoped/failed Clear was revived");
+        if (variant < 2U || variant == 4U) {
+            require(sink->Clear(&clear) == S_OK && sink->PopAxisAlignedClip() == S_OK,
+                "bounded AA Clear did not replace the actual current target");
+            if (variant == 0U) require(sink->PopAxisAlignedClip() == S_OK, "AA Clear outer clip pop failed");
+            if (variant == 4U) require(sink->PopLayer() == S_OK, "AA Clear unknown owner pop failed");
+            require(sink->EndDraw() == S_OK, "AA Clear source transaction failed");
+            progpu_native_direct2d_scene_stream_result accepted{};
+            accepted.struct_size = sizeof(accepted);
+            require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &accepted, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "AA Clear source size failed");
+            std::vector<std::byte> retained(static_cast<std::size_t>(accepted.required_bytes));
+            require(progpu_native_direct2d_scene_recorder_build_stream(recorder, retained.data(), retained.size(), &accepted, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && accepted.failure_callback_index == 0U,
+                "AA Clear source bytes failed");
+            progpu_native_scene_header header{};
+            require(fixture::read_scene_value(retained, 0U, header) && header.command_count == (variant == 1U ? 3U : 5U),
+                "AA Clear source scope inventory changed");
+            unsigned clears{};
+            for (unsigned i = 0; i < header.command_count; ++i) {
+                progpu_native_scene_command command{};
+                require(fixture::read_scene_value(retained, header.command_offset + std::uint64_t{i} * header.command_stride,
+                    command), "AA Clear source command unreadable");
+                if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET) ++clears;
+            }
+            require(clears == 1U, "AA Clear source did not retain exactly one storage replacement");
+            sink.Reset();
+            progpu_native_direct2d_scene_recorder_destroy(recorder);
+            continue;
+        }
+        require(FAILED(sink->Clear(&clear)) && FAILED(sink->EndDraw()), "unbounded/failed Clear was revived");
         std::array<std::uint8_t, 64U> bytes;
         bytes.fill(0x5a);
         const auto before = bytes;

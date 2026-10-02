@@ -3,6 +3,7 @@
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_direct2d_layer_clear_fixture.hpp"
+#include "progpu_native_direct2d_aa_clear_fixture.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
@@ -2525,6 +2526,18 @@ int main(int argc, char** argv)
     verify_formatted_scene_copies(gpu, engine);
     verify_owned_bitmap_scene_copies(gpu, engine);
     verify_full_target_clear(gpu, engine);
+    progpu::native::direct2d::tests::verify_antialiased_clear(
+        [&](d2d::scene_render_target_native* target, const auto& value) {
+            namespace fixture = progpu::native::direct2d::tests;
+            progpu_native_scene_frame_metrics metrics{};
+            metrics.struct_size = sizeof(metrics);
+            auto pixels = render_scene(gpu, engine, target, 3U + fixture::aa_clear_count(value),
+                fixture::aa_clear_wire_count(value), 1U, {}, 9011U, 1U, &metrics);
+            require(metrics.draw_call_count == fixture::aa_clear_draw_calls(value) &&
+                metrics.uniform_upload_bytes >= 16U * fixture::aa_clear_count(value),
+                "AA Clear wgpu lost ordered draws or per-replay clear uniforms");
+            return pixels;
+        }, require);
     progpu::native::direct2d::tests::verify_transparent_layer_clear(
         [&](d2d::scene_render_target_native* target, std::uint32_t variant) {
             return render_scene(gpu, engine, target, 3U, (variant & 16U) != 0U ? 9U : 7U, 1U);
