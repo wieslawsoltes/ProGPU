@@ -34,8 +34,8 @@ inline std::array<compat::rectangle_f, 2U> prepared_pixel_rectangles(std::uint32
 {
     if (right_to_left) {
         // Separate literal RTL oracle. Logical boxes consume explicit24,-3,24
-        // or nominal15.625 advances; the third advanceOffset=-.75 moves left
-        // in source-run units and therefore right in physical coordinates.
+        // or nominal15.625 advances; the third advanceOffset=-.75 moves right
+        // in physical coordinates without changing the following pen.
         // Neither font decoding nor prepared placement supplies these values.
         if (nominal) {
             if (origins == 1U) return {{{45.875F, 5, 55.25F, 17.5F}, {13.875F, 2.5F, 23.25F, 15}}};
