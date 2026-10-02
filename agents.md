@@ -12,6 +12,14 @@ between ordinary bundles and submission-owned GPU resources. Report actual cold
 and warm uploads/draws; packet retention is not coverage retention or modern
 ClearType qualification. See docs/native-rgb-glyph-coverage.md.
 
+Source shader opacity ordering is explicit immutable WpfShaderEffect metadata,
+not a generic compositor default. Capture original root opacity/mask before
+bytecode while keeping geometry clips on the output; zero root alpha cannot
+erase a constant-output shader. Preserve ordinary ancestor alpha, cached input
+placement, typed mask ownership and effect cache identity. Do not duplicate
+opacity or rewrite other effect ordering. See docs/source-shader-opacity-order.md;
+the source adapter must opt in and final qualification remains required.
+
 Native ShaderEffect spatial gradient opacity applies inside the retained input
 capture before bytecode evaluation, never as final shader coverage. Reuse the
 typed gradient mask, original unpadded brush bounds and scale-space source
