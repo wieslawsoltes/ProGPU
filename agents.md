@@ -136,8 +136,18 @@ subsequent drawing state and independent exported snapshots. Preserve cumulative
 Windows translated-draw/callback/failure accounting; retained scene counts describe
 only surviving content. Keep public clear RGBA straight, honor actual IGNORE alpha,
 and premultiply once at ordinary scene submission. Compatible picture conversion
-remains independent. Scoped Clear and failed recordings remain explicit rejection.
+remains independent. An all-aliased clip stack records bounded SRC replacement in
+its captured target frame, preserving history and ignoring the later transform.
+Keep fractional physical coverage, retained DPI-history accounting and both native
+producers paired; antialiased clips, source layers and failed recordings still reject.
 See docs/direct2d-full-target-clear.md; metadata fixtures are not pixel qualification.
+
+Aliased clipped SRC replacement carries explicit final composite bounds, distinct
+from outward-rounded layer storage. Preserve original float edges, actual per-axis
+DPI/viewport, half-open pixel-center coverage and parent-target localization.
+Never infer replacement coverage from source alpha or erase transparent allocation
+margins. Keep the flag bounded to transient SRC without masks/effects/cache/state,
+paired native/managed wire validation and unchanged strict Windows/GPU pixels.
 
 Direct2D ordinary scene copies require explicit immutable pixel-format admission
 through the separate formatted factory capability. Keep legacy UNKNOWN targets

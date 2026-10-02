@@ -1,5 +1,6 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -748,7 +749,8 @@ void record_finite_affine_layer(ID2D1RenderTarget* target, bool opacity_mask)
     require(SUCCEEDED(target->EndDraw()), "finite affine oracle recording failed");
 }
 
-std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false)
+std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false,
+    bool clipped_clear = false, bool null_clear = false, bool fractional_clear = false)
 {
     IWICImagingFactory* raw_wic_factory = nullptr;
     require(SUCCEEDED(CoCreateInstance(
@@ -946,6 +948,9 @@ std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     if (finite_layer) record_finite_affine_layer(target.get(), opacity_mask);
+    if (clipped_clear) require(progpu::native::direct2d::tests::record_clipped_clear(
+            reinterpret_cast<d2d::render_target*>(target.get()), null_clear, false, fractional_clear) == S_OK,
+        "original Windows clipped Clear oracle recording failed");
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
         static_cast<INT>(height)};
@@ -1036,6 +1041,19 @@ int wmain(int argc, wchar_t** argv)
         api, gpu, scene.scene_target.get());
     const std::vector<std::uint8_t> system = render_system_direct2d();
     compare_images(progpu, system);
+    for (const bool null_clear : {false, true}) for (const bool fractional : {false, true}) {
+        namespace fixture = progpu::native::direct2d::tests;
+        require(fixture::record_clipped_clear(scene.target.get(), null_clear, false, fractional) == S_OK,
+            "portable clipped Clear differential recording failed");
+        const auto clipped_progpu = render_progpu(api, gpu, scene.scene_target.get(), 3U, 9U);
+        const auto clipped_system = render_system_direct2d(false, false, true, null_clear, fractional);
+        require(fixture::clipped_clear_pixels(clipped_progpu, height, null_clear, false, true, fractional) &&
+            fixture::clipped_clear_pixels(clipped_system, height, null_clear, false, true, fractional) &&
+            clipped_progpu.size() == clipped_system.size(), "clipped Clear physical reference failed");
+        for (std::size_t i = 0U; i < clipped_system.size(); ++i)
+            require(std::abs(static_cast<int>(clipped_progpu[i]) - static_cast<int>(clipped_system[i])) <= 1,
+                "clipped Clear differs from original Windows at an interior/exterior pixel");
+    }
 #if defined(PROGPU_NATIVE_FONT_HINTING)
     std::array<progpu_native_engine*, 2U> hinted_engines{create_hinted_engine(api, gpu), create_hinted_engine(api, gpu)};
     progpu::native::tests::verify_hinted_glyph_rendering(

@@ -3,6 +3,7 @@
 #include "progpu_native_direct2d_clip_fixture.hpp"
 #include "progpu_native_direct2d_brush_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
+#include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
 #include "progpu_native.h"
@@ -1433,14 +1434,14 @@ bool full_target_clear_regressions(compat::scene_factory_native* scene_factory)
         if (variant == 0U) earlier = bytes;
         else if (!fixture::full_clear_suffix_contract(earlier)) return false;
     }
-    // First scoped Clear must not be accepted as a full-target clear. Also
+    // AA clips (including an aliased descendant) and layers remain gated. Also
     // preserve the first error if an invalid Clear precedes an otherwise valid one.
     for (unsigned variant = 0U; variant < 4U; ++variant) {
         target->BeginDraw();
         target->SetTags(123U, 456U);
         if (variant < 2U) {
-            target->PushAxisAlignedClip(&rectangle, variant == 0U
-                ? compat::antialias_mode::aliased : compat::antialias_mode::per_primitive);
+            target->PushAxisAlignedClip(&rectangle, compat::antialias_mode::per_primitive);
+            if (variant == 0U) target->PushAxisAlignedClip(&rectangle, compat::antialias_mode::aliased);
         } else if (variant == 2U) {
             const compat::layer_parameters layer{rectangle, nullptr, compat::antialias_mode::per_primitive,
                 {1, 0, 0, 1, 0, 0}, 0.5F, nullptr, compat::layer_options::none};
@@ -1489,6 +1490,36 @@ bool full_target_clear_regressions(compat::scene_factory_native* scene_factory)
     scene->GetSummary(&no_clear);
     if (no_clear.has_clear != 0 || compat::detail::make_scene_frame(no_clear, {64, 48}, 96.0F, {1234U, 0U}).flags !=
             PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET) return false;
+    for (const bool null_clear : {false, true}) {
+        for (const bool empty : {false, true}) {
+            if (fixture::record_clipped_clear(target.get(), null_clear, empty) != com::ok) return false;
+            compat::scene_render_target_summary summary{};
+            scene->GetSummary(&summary);
+            std::vector<std::byte> clipped;
+            if (summary.draw_count != (empty ? 2U : 3U) || summary.has_clear != 1 ||
+                summary.clear_color.alpha != 0 || !build(clipped) ||
+                !fixture::clipped_clear_contract(clipped, null_clear, false, empty)) return false;
+            target->BeginDraw();
+            target->Clear(nullptr);
+            if (target->EndDraw(nullptr, nullptr) != com::ok ||
+                !fixture::clipped_clear_contract(clipped, null_clear, false, empty)) return false;
+        }
+        if (fixture::record_clipped_clear(opaque.get(), null_clear) != com::ok) return false;
+        std::vector<std::byte> clipped(static_cast<std::size_t>(opaque_scene->GetRequiredSceneSize()));
+        std::uint64_t written{};
+        if (opaque_scene->BuildScene(clipped.data(), clipped.size(), &written) != com::ok ||
+            written != clipped.size() || !fixture::clipped_clear_contract(clipped, null_clear, true)) return false;
+    }
+    // A clipped clear is retained drawing, not a full reset of DPI history.
+    opaque->BeginDraw();
+    const compat::matrix_3x2_f identity{1, 0, 0, 1, 0, 0};
+    opaque->SetTransform(&identity);
+    opaque->Clear(nullptr);
+    opaque->PushAxisAlignedClip(&rectangle, compat::antialias_mode::aliased);
+    opaque->Clear(&clear);
+    opaque->PopAxisAlignedClip();
+    opaque->SetDpi(192, 192);
+    if (opaque->EndDraw(nullptr, nullptr) != compat::not_implemented || opaque_scene->GetRequiredSceneSize() != 0U) return false;
     return fixture::full_clear_suffix_contract(earlier);
 }
 

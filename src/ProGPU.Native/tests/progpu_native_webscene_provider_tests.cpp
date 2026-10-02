@@ -1,5 +1,6 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
@@ -3138,12 +3139,11 @@ void verify_direct2d_scene(IOSurfaceRef surface) {
 
 } // namespace
 
-#if defined(PROGPU_NATIVE_FONT_HINTING)
 namespace {
 // Same canvas presentation/GPU_COMPLETE/IOSurface storage contract as the
 // original glyph-sharing fixture. No extra queue wait, copy or global poll.
 template<class Draw>
-std::vector<std::uint8_t> render_hinted_glyphs(const provider_api& api,
+std::vector<std::uint8_t> render_retained_fixture(const provider_api& api,
     webscene_gpu_provider* provider, const webscene_gpu_canvas_configuration& configuration,
     progpu_native_engine* engine, Draw draw) {
     auto* canvas = api.create_canvas(provider, &configuration, 64U, 64U);
@@ -3180,7 +3180,6 @@ std::vector<std::uint8_t> render_hinted_glyphs(const provider_api& api,
     return pixels;
 }
 } // namespace
-#endif
 
 int main(int argc, char** argv) {
     require(argc == 2 || argc == 3,
@@ -3713,6 +3712,26 @@ int main(int argc, char** argv) {
             api.destroy_canvas(provider, pixel_canvas);
             return pixels;
         }, require);
+    progpu::native::direct2d::tests::verify_clipped_clear(
+        [&](d2d::scene_render_target_native* target) {
+            auto pixels = render_retained_fixture(api, provider, canvas_configuration, engine,
+                [&](progpu_native_engine* retained_engine, std::uintptr_t view) {
+                    std::vector<std::byte> scratch(static_cast<std::size_t>(target->GetRequiredSceneSize()));
+                    progpu_native_scene_metrics update{};
+                    update.struct_size = sizeof(update);
+                    progpu_native_scene_frame_metrics metrics{};
+                    metrics.struct_size = sizeof(metrics);
+                    d2d::scene_submission_diagnostics diagnostics{};
+                    require(d2d::render_scene_target(target, retained_engine, {view, 0U}, scratch,
+                            &update, &metrics, &diagnostics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                        diagnostics.stage == d2d::scene_submission_stage::none && update.draw_count == 3U &&
+                        metrics.command_count == 9U && metrics.submission_count == 1U,
+                        "clipped Clear Dawn submission changed structure or submission count");
+                });
+            // IOSurface is BGRA; the common physical reference is RGBA.
+            for (std::size_t i = 0U; i < pixels.size(); i += 4U) std::swap(pixels[i], pixels[i + 2U]);
+            return pixels;
+        }, require);
     std::array<progpu_native_engine*, 2U> glyph_engines{};
     for (auto& glyph_engine : glyph_engines) {
         require(progpu_native_dawn_engine_create(&engine_options, &glyph_engine) ==
@@ -3786,7 +3805,7 @@ int main(int argc, char** argv) {
     }
     progpu::native::tests::verify_hinted_glyph_rendering(
         [&](bool reference, float, auto draw) {
-            return render_hinted_glyphs(api, provider, canvas_configuration,
+            return render_retained_fixture(api, provider, canvas_configuration,
                 hinted_engines[reference ? 1U : 0U], draw);
         }, require);
     for (auto* hinted_engine : hinted_engines) progpu_native_engine_destroy(hinted_engine);
@@ -3797,7 +3816,7 @@ int main(int argc, char** argv) {
     }
     progpu::native::tests::verify_hinted_paragraph_glyph_rendering(
         [&](bool reference, float, auto draw) {
-            return render_hinted_glyphs(api, provider, canvas_configuration,
+            return render_retained_fixture(api, provider, canvas_configuration,
                 hinted_engines[reference ? 1U : 0U], draw);
         }, require);
     for (auto* hinted_engine : hinted_engines) progpu_native_engine_destroy(hinted_engine);
