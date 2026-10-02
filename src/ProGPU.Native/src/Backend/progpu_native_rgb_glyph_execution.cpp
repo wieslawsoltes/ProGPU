@@ -150,9 +150,12 @@ progpu_native_status encode_linear_rgb_glyphs(
     progpu_native_engine& engine, WGPUTextureView target,
     std::uint32_t target_width, std::uint32_t target_height,
     bool target_ignores_alpha, const rgb_glyph_policy& policy,
+    const rgb_glyph_scissor& scissor,
     std::span<const rgb_glyph_tile> glyphs,
-    std::span<const progpu_native_path_segment> segments)
+    std::span<const progpu_native_path_segment> segments,
+    rgb_glyph_metrics& metrics)
 {
+    metrics = {};
     // Admission is deliberately distinct from original DWrite rendering modes.
     // No unsupported gamma, contrast, intermediate ClearTypeLevel, sRGB target,
     // translucent background or CPU raster preference is silently normalized.
@@ -167,6 +170,10 @@ progpu_native_status encode_linear_rgb_glyphs(
         (engine.engine_flags & (PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
             PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U)
         return engine.fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT, "The explicit linear RGB glyph frame is not admitted.");
+    if (scissor.width == 0U || scissor.height == 0U ||
+        scissor.x >= target_width || scissor.y >= target_height ||
+        scissor.width > target_width - scissor.x || scissor.height > target_height - scissor.y)
+        return engine.fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT, "The RGB glyph source scissor is outside its actual target.");
     for (const auto& segment : segments)
         if (!semantic::is_valid_semantic_segment(segment, false))
             return engine.fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT, "An original RGB glyph segment is invalid.");
@@ -373,7 +380,7 @@ progpu_native_status encode_linear_rgb_glyphs(
         auto pass = wgpuCommandEncoderBeginRenderPass(engine.semantic_encoder, &descriptor);
         if (pass == nullptr) return engine.fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR, "RGB glyph composition pass failed.");
         wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F, static_cast<float>(target_width), static_cast<float>(target_height), 0.0F, 1.0F);
-        wgpuRenderPassEncoderSetScissorRect(pass, 0U, 0U, target_width, target_height);
+        wgpuRenderPassEncoderSetScissorRect(pass, scissor.x, scissor.y, scissor.width, scissor.height);
         wgpuRenderPassEncoderSetBindGroup(pass, 0U, resources.rgb_composite, 0U, nullptr);
         for (auto pipeline : engine.rgb_glyph_pipelines.composite) {
             wgpuRenderPassEncoderSetPipeline(pass, pipeline);
@@ -381,6 +388,10 @@ progpu_native_status encode_linear_rgb_glyphs(
         }
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
+        metrics.vertex_upload_bytes = records.size() * sizeof(gpu_glyph_record) +
+            segments.size_bytes() + instances.size() * sizeof(rgb_instance);
+        metrics.uniform_upload_bytes = uniform_bytes.size() + sizeof(raster_policy) + sizeof(frame);
+        metrics.draw_calls = 3U + (fragment ? static_cast<std::uint32_t>(glyphs.size()) : 0U);
         return PROGPU_NATIVE_STATUS_SUCCESS;
     } catch (const std::bad_alloc&) {
         return engine.fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY, "The bounded RGB glyph batch could not be retained.");

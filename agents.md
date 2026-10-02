@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Retained RGB glyph replay keeps the explicit box model separate from original
+DirectWrite modes. Prove opacity from the actual materialized target, never a
+root clear or ancestor. Preserve original sampling phase, exact two-axis DPI,
+integral physical translation, target-local scissor and source opacity; reject
+unproven frames/masks rather than selecting scalar coverage. Retain source order
+between ordinary bundles and submission-owned GPU resources. Report actual cold
+and warm uploads/draws; packet retention is not coverage retention or modern
+ClearType qualification. See docs/native-rgb-glyph-coverage.md.
+
 Version-4 native ShaderEffect captures retain original local float edges and a
 traversal-owned root-DPI/per-push float witness. Allocate floor(min)/ceil(max) in
 scale space, preserving complete UV/derivative extent and integral residual
