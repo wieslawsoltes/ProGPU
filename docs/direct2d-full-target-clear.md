@@ -90,3 +90,27 @@ for the portable target, complete portable COM fixture and instantiated shared
 GPU fixture. Source diff checks passed. This does not execute the authored
 controls or qualify Windows compilation, actual GPU pixels, packages, application
 routing or performance; those remain exact-head hosted gates before merge.
+
+## Retained scene-owner dependency
+
+This feature depends on [PR #257](https://github.com/wieslawsoltes/ProGPU/pull/257),
+merged here at exact `1bcd53735e0ea31f9aa5f293e8566295ac793674` with its history
+preserved. The dependency is its original scene-owner-qualified retained family
+identity, not a new clipped-Clear or nonzero-origin SRC algorithm.
+
+The independent base initially reached the shared GPU fixture but failed.
+[Build 37005919682, Linux ARM64 job 110834045185](https://github.com/wieslawsoltes/ProGPU/actions/runs/37005919682/job/110834045185)
+at exact `dde31d312e64ed337685a792f4a8e0a77cfef745` reported integral null-clear
+variant 1 at `(12,14)`: red was `96`, expected `0`; cold and warm agreed. `96`
+is the preceding distinct scene's translucent-clear red. The old family hash
+omitted scene ownership, so equal resource ordinals/generations could reuse that
+paint. PR #257's `11e119995cddd9da42b42a21737cd90a969e0476` includes the original
+scene owner in the shared family identity and retains independent ownership
+controls for both providers. Fixture isolation or changed resource ordinals would
+hide this product failure and are not used.
+
+All eight original Clear variants, strict exterior/binary pixels, one-byte
+nonbinary conversion allowance, cold/warm equality, structural counters and
+deadlines remain unchanged. Hosted execution of this merged head must still
+establish fractional clipping, both native providers and the original Windows
+differential; the diagnosed first failure does not prove later variants pass.
