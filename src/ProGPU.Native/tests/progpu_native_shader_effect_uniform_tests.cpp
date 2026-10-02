@@ -17,6 +17,7 @@ bool check(bool value, int line) {
 #define UV_REQUIRE(value) do { if (!check((value), __LINE__)) return false; } while (false)
 
 #include "progpu_native_shader_affine_frame_controls.hpp"
+#include "progpu_native_source_transform_primitive_controls.hpp"
 
 bool source_sample_frame_arithmetic() {
     using namespace progpu::native::shader_effect;
@@ -78,6 +79,7 @@ bool run_shader_effect_uniform_tests() {
     using namespace progpu::native;
     UV_REQUIRE(source_sample_frame_arithmetic());
     UV_REQUIRE(source_affine_frame_arithmetic());
+    UV_REQUIRE(source_transform_primitive_arithmetic());
     static_assert(sizeof(progpu_native_scene_shader_effect) == 544U);
     static_assert(sizeof(progpu_native_scene_shader_effect_picture) == 560U);
     static_assert(sizeof(progpu_native_scene_shader_effect_derivatives) == 576U);
