@@ -1,5 +1,32 @@
 # Original WPF shader reference
 
+## Original SDK tool and header identity
+
+The SDK companion launcher selects the actual native `Hostx64/x64` or
+`Hostarm64/arm64` compiler and linker from the selected DevShell's
+`VCToolsInstallDir`, which must belong to that selected Visual Studio installation.
+It never selects an ambient `cl.exe`/`link.exe` or falls back when a required tool
+is absent. Compilation and DLL linking are separate recorded commands; `/MD`,
+`/EHsc`, `/fp:strict`, the original exports and import library remain intact.
+The final launcher still requires a matching native PowerShell host and inspects
+the produced DLL's real PE machine before publication.
+
+MSVC dependency reports can lowercase consumed Windows header paths. Required
+DirectXMath basenames therefore use ordinal, case-insensitive Windows matching,
+while still requiring exactly one actual path per required header. Two SDK roots
+remain ambiguous. All consumed header paths and hashes, compiler backends,
+source/commit identity and fresh non-overwriting outputs remain mandatory; the
+receipt additionally records the exact linker hash and command.
+
+`eng/test-original-sdk-launcher-inputs.ps1` authors 23 offline selector controls
+using the repository's existing AST-extracted helper pattern. They cover both
+architectures and PATH orders, absent tools without fallback, wrong installation,
+missing/relative tool roots, unsupported architecture, normalized header casing,
+missing/ambiguous required headers and preserved additional header paths. Its
+temporary executable filenames contain non-executable selector text, never SDK
+payloads, and are never invoked. These controls are authored but unrun at this
+intermediate checkpoint; they do not qualify the original numeric/reference run.
+
 The additive [fractional local-capture companion](../../docs/original-shader-local-capture-reference.md)
 preserves every existing case below. It records a separate original-only receipt
 for local fractional bounds, integral final placement, exact float transform
