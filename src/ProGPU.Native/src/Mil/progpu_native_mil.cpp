@@ -669,6 +669,26 @@ bool try_transform_bounds(
     return true;
 }
 
+bool try_shader_capture_bounds(
+    double x, double y, double width, double height,
+    const std::array<double, 4U>& padding,
+    const affine_2d_double& transform,
+    progpu_native_image_rect& bounds) noexcept {
+    // The old zero-padding path remains bit-for-bit unchanged, including its
+    // original double transform. Nonzero padding follows WPF's float LOCAL
+    // edge inflation, before the already admitted positive-axis mapping.
+    if (std::ranges::all_of(padding, [](double value) { return value == 0.0; }))
+        return try_transform_bounds(x, y, width, height, transform, bounds);
+    const float left = static_cast<float>(x) - static_cast<float>(padding[2]);
+    const float top = static_cast<float>(y) - static_cast<float>(padding[0]);
+    const float right = static_cast<float>(x + width) + static_cast<float>(padding[3]);
+    const float bottom = static_cast<float>(y + height) + static_cast<float>(padding[1]);
+    if (!std::isfinite(left) || !std::isfinite(top) || !std::isfinite(right) || !std::isfinite(bottom) ||
+        right <= left || bottom <= top) return false;
+    return try_transform_bounds(left, top, static_cast<double>(right) - left,
+        static_cast<double>(bottom) - top, transform, bounds);
+}
+
 bool try_fixed_shape_stroke_bounds(
     double x,
     double y,
@@ -2440,6 +2460,9 @@ struct channel::implementation {
         std::uint32_t pixel_shader_handle{};
         std::uint32_t input_brush_handle{};
         std::uint32_t derivative_register{PROGPU_NATIVE_SCENE_NO_INDEX};
+        // Original packet order and precision: top, bottom, left, right. Do not
+        // replace these retained source values with their float capture projection.
+        std::array<double, 4U> shader_padding{};
         progpu_native_scene_shader_effect shader{};
     };
 
@@ -9263,10 +9286,9 @@ struct channel::implementation {
             using layout = command_layouts::shader_effect;
             effect_state effect{};
             effect.type = effect_state::kind::shader;
-            std::array<double, 4U> padding{};
             std::array<std::uint32_t, 8U> sizes{};
             if (!read_at(view.packet, layout::handle_offset, handle) ||
-                !read_at(view.packet, layout::top_padding_offset, padding) ||
+                !read_at(view.packet, layout::top_padding_offset, effect.shader_padding) ||
                 !read_at(view.packet, layout::h_pixel_shader_offset, effect.pixel_shader_handle) ||
                 !read_at(view.packet, layout::ddx_uv_ddy_uv_register_index_offset, effect.derivative_register) ||
                 !read_at(view.packet, layout::shader_constant_float_registers_size_offset, sizes))
@@ -9289,7 +9311,9 @@ struct channel::implementation {
             if ((effect.derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX && effect.derivative_register >= 32U) ||
                 sizes[2] != 0U || sizes[3] != 0U ||
                 sizes[4] != 0U || sizes[5] != 0U || sizes[6] != 8U || sizes[7] != 4U ||
-                std::ranges::any_of(padding, [](double value) { return value != 0.0; })) return status::unsupported_command;
+                std::ranges::any_of(effect.shader_padding, [](double value) {
+                    return value < 0.0 || !finite_double_as_float(value);
+                })) return status::unsupported_command;
             auto& descriptor = effect.shader;
             descriptor.struct_size = sizeof(descriptor); descriptor.version = 1U; descriptor.revision = 1U;
             const auto& pixel_shader = pixel_shaders.at(effect.pixel_shader_handle);
@@ -19962,9 +19986,10 @@ struct channel::implementation {
             layer.content_revision = effect_revision; layer.composite_revision = effect_revision;
             const auto clip_status = attach_final_clip(layer);
             if (clip_status != status::success) return clip_status;
-            if (!try_transform_bounds(visual->second.cache_bounds_x, visual->second.cache_bounds_y,
+            if (!try_shader_capture_bounds(visual->second.cache_bounds_x, visual->second.cache_bounds_y,
                     visual->second.cache_bounds_width, visual->second.cache_bounds_height,
-                    state.transform, layer.bounds) || layer.bounds.width <= 0.0F || layer.bounds.height <= 0.0F)
+                    resolved_effect.shader_padding, state.transform, layer.bounds) ||
+                layer.bounds.width <= 0.0F || layer.bounds.height <= 0.0F)
                 return status::unsupported_command;
             std::uint32_t effect_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             std::uint32_t picture_index = PROGPU_NATIVE_SCENE_NO_INDEX;

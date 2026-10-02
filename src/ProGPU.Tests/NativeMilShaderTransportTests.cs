@@ -184,6 +184,44 @@ public sealed class NativeMilShaderTransportTests
         Assert.Throws<ArgumentOutOfRangeException>(() => writer.SetImplicitInputBrush(0)); Assert.Equal(before, writer.ToArray());
     }
 
+    [Fact]
+    public void PaddingOverloadPreservesAllOriginalDoubleBitsAndLegacyZeroBytes()
+    {
+        var padding = new NativeMilShaderPadding(-0.0, Math.BitIncrement(2.0), 0.5, Math.BitDecrement(12.0));
+        var writer = new NativeMilBatchBuilder();
+        writer.SetShaderEffect(2, 3, [0], [new(0.25f)], 0, NativeMilShaderSamplingMode.Bilinear, 4, padding, 31);
+        byte[] packet = writer.ToArray();
+        double[] values = [padding.Top, padding.Bottom, padding.Left, padding.Right];
+        for (int i = 0; i < values.Length; ++i)
+            Assert.Equal(BitConverter.DoubleToInt64Bits(values[i]), BitConverter.DoubleToInt64Bits(F64(packet, 12 + i * 8)));
+        Assert.Equal(31U, U32(packet, 48));
+        var legacy = new NativeMilBatchBuilder();
+        legacy.SetShaderEffect(2, 3, [0], [new(0.25f)], 0, NativeMilShaderSamplingMode.Bilinear, 4, 31);
+        var explicitZero = new NativeMilBatchBuilder();
+        explicitZero.SetShaderEffect(2, 3, [0], [new(0.25f)], 0, NativeMilShaderSamplingMode.Bilinear, 4,
+            default(NativeMilShaderPadding), 31);
+        Assert.Equal(legacy.ToArray(), explicitZero.ToArray());
+    }
+
+    [Theory]
+    [InlineData(0)] [InlineData(1)] [InlineData(2)] [InlineData(3)]
+    public void InvalidPaddingAxisOrLateConstantLeavesEarlierPacketsUntouched(int axis)
+    {
+        foreach (double invalid in new[] { -1.0, double.NaN, double.PositiveInfinity, double.NegativeInfinity, double.MaxValue })
+        {
+            double[] values = [2, 6, 4, 12]; values[axis] = invalid;
+            var padding = new NativeMilShaderPadding(values[0], values[1], values[2], values[3]);
+            var writer = Seed(); byte[] before = writer.ToArray();
+            Assert.Throws<ArgumentOutOfRangeException>(() => writer.SetShaderEffect(2, 3, [0], [new(1)],
+                0, NativeMilShaderSamplingMode.Auto, 4, padding));
+            Assert.Equal(before, writer.ToArray());
+        }
+        var late = Seed(); byte[] original = late.ToArray();
+        Assert.Throws<ArgumentOutOfRangeException>(() => late.SetShaderEffect(2, 3, [0], [new(float.NaN)],
+            0, NativeMilShaderSamplingMode.Auto, 4, new NativeMilShaderPadding(2, 6, 4, 12)));
+        Assert.Equal(original, late.ToArray());
+    }
+
     private static void CheckVector(byte[] bytes, int offset, Vector4 value)
     {
         Assert.Equal(BitConverter.SingleToInt32Bits(value.X), BitConverter.SingleToInt32Bits(F32(bytes, offset)));

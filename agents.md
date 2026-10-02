@@ -1,5 +1,12 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Native ShaderEffect padding retains original packet doubles, inflates local float
+edges before the admitted positive-axis transform, and leaves zero-padding
+arithmetic unchanged. Preserve complete capture/UV/derivative and final-clip
+ownership; do not turn outward allocation rounding into fractional admission.
+See docs/native-shader-capture-padding.md; source and pixel qualification remain
+separate from packet acceptance.
+
 Flagged native visual BitmapScalingMode Unspecified preserves inherited sampling;
 only a genuinely unspecified ancestry uses the Linear default. Preserve actual
 visual-field propagation and same-owner reset semantics: an attached property on

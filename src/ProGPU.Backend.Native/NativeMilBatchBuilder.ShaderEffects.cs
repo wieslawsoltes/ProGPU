@@ -18,6 +18,12 @@ public enum NativeMilShaderSamplingMode : uint
     Bilinear = 2
 }
 
+/// <summary>
+/// Original local-space source padding, before float inflation and native capture
+/// validation. A valid packet does not admit fractional or cropped GPU captures.
+/// </summary>
+public readonly record struct NativeMilShaderPadding(double Top, double Bottom, double Left, double Right);
+
 public sealed partial class NativeMilBatchBuilder
 {
     /// <summary>
@@ -70,10 +76,30 @@ public sealed partial class NativeMilBatchBuilder
         NativeMilShaderSamplingMode samplingMode,
         uint brushHandle,
         int ddxUvDdyUvRegisterIndex = -1)
+        => SetShaderEffect(handle, pixelShaderHandle, floatRegisters, floatValues,
+            samplerRegister, samplingMode, brushHandle, default(NativeMilShaderPadding), ddxUvDdyUvRegisterIndex);
+
+    /// <summary>
+    /// Records the four original padding doubles without rounding or normalization.
+    /// Native scene/capture validation remains authoritative for actual admission.
+    /// </summary>
+    public void SetShaderEffect(
+        uint handle,
+        uint pixelShaderHandle,
+        ReadOnlySpan<short> floatRegisters,
+        ReadOnlySpan<Vector4> floatValues,
+        uint samplerRegister,
+        NativeMilShaderSamplingMode samplingMode,
+        uint brushHandle,
+        NativeMilShaderPadding padding,
+        int ddxUvDdyUvRegisterIndex = -1)
     {
         ValidateHandle(handle);
         ValidateHandle(pixelShaderHandle);
         ValidateHandle(brushHandle);
+        if (!ValidPadding(padding.Top) || !ValidPadding(padding.Bottom) ||
+            !ValidPadding(padding.Left) || !ValidPadding(padding.Right))
+            throw new ArgumentOutOfRangeException(nameof(padding));
         if (floatRegisters.Length > 32 || floatRegisters.Length != floatValues.Length)
             throw new ArgumentOutOfRangeException(nameof(floatRegisters));
         if (samplerRegister >= 16)
@@ -99,6 +125,10 @@ public sealed partial class NativeMilBatchBuilder
         Span<byte> packet = NativeMilBatchEncoding.Allocate(
             _writer, NativeMilCommand.ShaderEffect, 80 + registerBytes + valueBytes + 12);
         WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, padding.Top);
+        WriteDouble(packet, 16, padding.Bottom);
+        WriteDouble(packet, 24, padding.Left);
+        WriteDouble(packet, 32, padding.Right);
         WriteUInt32(packet, 40, pixelShaderHandle);
         WriteUInt32(packet, 44, unchecked((uint)ddxUvDdyUvRegisterIndex));
         WriteUInt32(packet, 48, (uint)registerBytes);
@@ -120,4 +150,6 @@ public sealed partial class NativeMilBatchBuilder
         WriteUInt32(packet, samplerOffset + 4, (uint)samplingMode);
         WriteUInt32(packet, samplerOffset + 8, brushHandle);
     }
+
+    private static bool ValidPadding(double value) => value >= 0 && double.IsFinite(value) && float.IsFinite((float)value);
 }

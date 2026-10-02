@@ -33,7 +33,10 @@ brush mapping separate from texel crop/capture dimensions, and retain existing
 source revision/invalidation tracking. The existing pixel-export and native-image
 contracts remain unchanged; this interface does not itself admit image rendering.
 
-The admitted native family keeps one sampler, zero padding, float constants and
+The original overload keeps zero padding; an additive
+[`NativeMilShaderPadding` overload](native-shader-capture-padding.md) retains
+the four original padding doubles for bounded integral expanded captures.
+The admitted native family keeps one sampler, float constants and
 optional original derivative-register selection. Software-only rendering,
 integer/Boolean constants and broader bytecode/capture semantics remain explicit
 native gaps, never ignored source state. Original sampler enum values are mapped
