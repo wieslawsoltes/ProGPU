@@ -78,3 +78,15 @@ fields and excludes seven non-owning identities. No object/library was produced.
 The named-module consumer, Windows-only translation unit, native behavior and
 GPU pixel/submission assertions still require hosted execution; source syntax
 checks do not establish their result.
+
+Hosted Build `37030458232` exposed one module-only declaration visibility gap:
+the new import consumer uses `PROGPU_NATIVE_SCENE_STATE_CLIP_RECT`, whose existing
+C enumerator had not been re-exported. The module now exports that exact constant
+through its existing `using` pattern; the import-only consumer remains unchanged.
+After committing the fix, LLVM Clang 22.1.8 precompiled the real module interface
+and passed the complete consumer with `-fsyntax-only`, C++20 and
+`-Wall -Wextra -Wpedantic -Wshadow -Werror` (45-second process bounds, actual Xcode
+SDK). Apple Clang does not support this configured module path; an initial LLVM
+attempt also rejected its stale default SDK path before using the actual SDK.
+No object, library, executable or GPU work was produced. Hosted module execution
+and whole-Build qualification remain required.
