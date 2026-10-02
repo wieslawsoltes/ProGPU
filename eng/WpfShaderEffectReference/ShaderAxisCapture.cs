@@ -18,7 +18,7 @@ internal static partial class Program
     {
         int pureControls=ShaderAxisOracle.VerifyArithmeticControls();
         if (pureControls!=29) throw new InvalidOperationException("Wrong independent axis control inventory.");
-        using var sdk = new OriginalAxisSdk();
+        using var sdk = new OriginalAxisSdk(commit);
         int atomicControls=sdk.VerifyAtomicControls();
         var math = new List<object>();
         var observations = new List<object>();
@@ -143,15 +143,34 @@ internal static partial class Program
         private readonly IntPtr library;
         private readonly Probe probe;
         internal object Identity {get;}
-        internal OriginalAxisSdk()
+        internal OriginalAxisSdk(string commit)
         {
             string path=Path.Combine(AppContext.BaseDirectory,"OriginalShaderAxisMath.dll");
+            Machine expected=RuntimeInformation.ProcessArchitecture switch
+            {
+                Architecture.Arm64 => Machine.Arm64,
+                Architecture.X64 => Machine.Amd64,
+                _ => throw new InvalidOperationException("Unsupported original SDK process architecture.")
+            };
             using(var stream=File.OpenRead(path)) using(var pe=new PEReader(stream))
             {
-                Machine expected=RuntimeInformation.ProcessArchitecture==Architecture.Arm64 ? Machine.Arm64 : Machine.Amd64;
                 if(pe.PEHeaders.CoffHeader.Machine!=expected) throw new InvalidOperationException("Wrong SDK companion architecture.");
             }
-            using var provenance=JsonDocument.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory,"OriginalShaderAxisMath.provenance.json")));
+            string provenancePath=Path.Combine(AppContext.BaseDirectory,"OriginalShaderAxisMath.provenance.json");
+            if(new FileInfo(provenancePath).Length>1024*1024) throw new InvalidOperationException("SDK provenance exceeds its bound.");
+            using var provenance=JsonDocument.Parse(File.ReadAllBytes(provenancePath));
+            var build=provenance.RootElement;
+            using(var binary=File.OpenRead(path))
+            {
+                if(build.GetProperty("Schema").GetInt32()!=1 || build.GetProperty("SourceCommit").GetString()!=commit ||
+                    build.GetProperty("Architecture").GetString()!=RuntimeInformation.ProcessArchitecture.ToString() ||
+                    build.GetProperty("PeMachine").GetUInt16()!=(ushort)expected ||
+                    build.GetProperty("Binary").GetProperty("Sha256").GetString()!=Convert.ToHexString(SHA256.HashData(binary)) ||
+                    build.GetProperty("Binary").GetProperty("Bytes").GetInt64()!=binary.Length ||
+                    build.GetProperty("CompilerBackends").GetArrayLength()!=2 ||
+                    build.GetProperty("DirectXHeaders").GetArrayLength()<3)
+                    throw new InvalidOperationException("Original SDK provenance does not identify this binary/source/toolchain.");
+            }
             Identity=new {Binary=FileIdentity(path),Build=provenance.RootElement.Clone()};
             library=NativeLibrary.Load(path);
             try { probe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderAxisMath")); }
