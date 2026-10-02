@@ -20,6 +20,7 @@ constexpr std::size_t maximum_points = 1U << 20U;
 struct decoded_original_glyph final {
     std::vector<progpu_native_path_segment> segments;
     float horizontal_origin = 0.0F;
+    std::uint16_t horizontal_advance = 0U;
 };
 
 [[nodiscard]] com::result decode_glyph(const text::sfnt_font_view& font, std::uint16_t glyph,
@@ -34,9 +35,10 @@ struct decoded_original_glyph final {
     text::sfnt_glyph_data_view original{};
     if (!font.try_get_horizontal_glyph_metrics(glyph, metrics) || !font.try_get_glyph_data(glyph, original))
         return com::invalid_argument;
+    candidate->horizontal_advance = metrics.advance_width;
     // OpenType hmtx defines the unhinted left phantom point as xMin - lsb.
     // Stored contour coordinates are not necessarily relative to that origin.
-    // Empty glyphs have no xMin/ink, but their supplied advance still participates.
+    // Empty glyphs have no xMin/ink; supplied or nominal advances still participate.
     if (!original.empty()) candidate->horizontal_origin = static_cast<float>(
         static_cast<std::int32_t>(original.x_min) - static_cast<std::int32_t>(metrics.left_side_bearing));
     candidate->segments.resize(requirements.path_segment_count);
@@ -161,12 +163,12 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
 {
     if (!request || request->font != state_->source) return com::invalid_argument;
     // Genuine source OUTLINE selects design contours, not any modern raster
-    // profile or the internal historical RGB box model. Missing advances,
-    // sideways/RTL and GDI metrics remain separate original placement contracts.
+    // profile or the internal historical RGB box model. Sideways/RTL and GDI
+    // metrics remain separate original placement contracts. Absent advances
+    // use the owned unhinted horizontal metrics, never hinted device widths.
     if (!request->rendering.supplied || request->rendering.rendering_mode != 6U ||
         request->sideways != 0 || (request->bidi_level & 1U) != 0U ||
-        request->measuring != compat::measuring_mode::natural ||
-        (request->glyphs.count() != 0U && request->glyphs.advances() == nullptr))
+        request->measuring != compat::measuring_mode::natural)
         return compat::not_implemented;
     try {
         const std::lock_guard lock(state_->mutex);
@@ -208,7 +210,12 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
                     return com::invalid_argument;
                 candidate->segments_.push_back(segment);
             }
-            pen += original.glyphs.advances()[index];
+            // Keep the captured null pointer as original source identity. An
+            // explicit advance, including zero/negative values, always wins.
+            const float advance = original.glyphs.advances() != nullptr
+                ? original.glyphs.advances()[index]
+                : static_cast<float>(occurrences[index]->horizontal_advance) * scale;
+            pen += advance;
             if (!std::isfinite(pen)) return com::invalid_argument;
         }
         // Complete run preflight precedes both cache and output publication.

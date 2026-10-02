@@ -7,7 +7,7 @@
 
 namespace progpu::native::direct2d::tests {
 
-enum class prepared_pixel_path { original, prepared, independent_geometry, prepared_geometry };
+enum class prepared_pixel_path { original, prepared, independent_geometry, prepared_geometry, original_design_advances };
 
 // These coordinates follow the authored font's two [13,13]..[313,413]
 // rectangles at em 62.5 / UPM 1000, not a product decoder/placement query.
@@ -22,8 +22,15 @@ inline std::vector<std::byte> prepared_pixel_font(std::uint32_t origins)
         : progpu::native::tests::make_hint_fault_font(-19, 29, true);
 }
 
-inline std::array<compat::rectangle_f, 2U> prepared_pixel_rectangles(std::uint32_t origins)
+inline std::array<compat::rectangle_f, 2U> prepared_pixel_rectangles(std::uint32_t origins, bool nominal = false)
 {
+    if (nominal) {
+        // Original authored hmtx widths are 500 at em 31.25 / UPM 1000.
+        // The no-ink middle glyph consumes 15.625, independently of offsets.
+        if (origins == 1U) return {{{4.5F, 5, 13.875F, 17.5F}, {33.5F, 2.5F, 42.875F, 15}}};
+        if (origins == 2U) return {{{3, 5, 12.375F, 17.5F}, {35, 2.5F, 44.375F, 15}}};
+        return {{{4, 5, 13.375F, 17.5F}, {34.5F, 2.5F, 43.875F, 15}}};
+    }
     // Independent exact design-unit bearing deltas at 1/16 scale. No product
     // bounds, metrics, decoded points or phantom values enter this oracle.
     if (origins == 1U) return {{{5, 5, 23.75F, 30}, {22.25F, 2.5F, 41, 27.5F}}};
@@ -42,7 +49,7 @@ template<class Require>
 void record_prepared_pixel_case(compat::factory* factory, compat::render_target* target,
     const std::shared_ptr<prepared_original_font>& font, compat::rendering_parameters* parameters,
     std::uint32_t variant, prepared_pixel_path path, Require require, compat::geometry* prepared_geometry = nullptr,
-    std::uint32_t origins = 0U)
+    std::uint32_t origins = 0U, bool nominal = false, const float* original_design_advances = nullptr)
 {
     require(variant < 4U, "prepared glyph pixel inventory");
     const bool grayscale = (variant & 1U) != 0U;
@@ -71,7 +78,7 @@ void record_prepared_pixel_case(compat::factory* factory, compat::render_target*
         require(factory->CreatePathGeometry(geometry.put()) == com::ok && geometry->Open(sink.put()) == com::ok,
             "independent prepared glyph geometry");
         sink->SetFillMode(compat::fill_mode::winding);
-        for (const auto& rectangle : prepared_pixel_rectangles(origins)) {
+        for (const auto& rectangle : prepared_pixel_rectangles(origins, nominal)) {
             sink->BeginFigure({rectangle.left, rectangle.bottom}, compat::figure_begin::filled);
             sink->AddLine({rectangle.right, rectangle.bottom});
             sink->AddLine({rectangle.right, rectangle.top});
@@ -84,9 +91,15 @@ void record_prepared_pixel_case(compat::factory* factory, compat::render_target*
         const std::uint16_t indices[]{1U, 0U, 2U};
         const float advances[]{24, -3, 9};
         const compat::glyph_offset offsets[]{{0, 0}, {0, 0}, {-0.75F, 2.5F}};
-        const compat::glyph_run run{font->source()->face.get(), 62.5F, 3U, indices, advances, offsets, 0, 2U};
-        constexpr compat::point_2f baseline{3.1875F, 30.8125F};
-        if (path == prepared_pixel_path::original) {
+        const bool design_reference = path == prepared_pixel_path::original_design_advances;
+        require(!design_reference || (nominal && original_design_advances != nullptr),
+            "original nominal comparison requires actual design-metric query");
+        const auto* selected_advances = design_reference ? original_design_advances : nominal ? nullptr : advances;
+        const compat::glyph_run run{font->source()->face.get(), nominal ? 31.25F : 62.5F,
+            3U, indices, selected_advances, offsets, 0, 2U};
+        const compat::point_2f baseline = nominal ? compat::point_2f{3.59375F, 17.90625F}
+            : compat::point_2f{3.1875F, 30.8125F};
+        if (path == prepared_pixel_path::original || design_reference) {
             target->DrawGlyphRun(baseline, &run, brush.get(), compat::measuring_mode::natural);
         } else {
             com::pointer<prepared_glyph_target> prepared;
@@ -121,18 +134,20 @@ void verify_prepared_glyph_pixels(Render render, Require require)
     com::pointer<compat::scene_factory_native> scene_factory;
     require(compat::create_factory(factory.put()) == com::ok &&
         factory.as(compat::scene_factory_native_interface_id, scene_factory) == com::ok, "prepared pixel factory");
+    for (const bool nominal : {false, true}) {
     for (std::uint32_t variant = 0U; variant < 4U; ++variant) {
         std::array<std::vector<std::byte>, 2U> scenes;
         std::array<progpu_native_scene_header, 2U> headers{};
         for (std::uint32_t reference = 0U; reference < 2U; ++reference) {
             const compat::scene_render_target_properties properties{64U, 64U, 96, 96, 0x95D1U,
-                1U + origins * 8U + variant * 2U + reference};
+                1U + (nominal ? 24U : 0U) + origins * 8U + variant * 2U + reference};
             com::pointer<compat::render_target> target;
             com::pointer<compat::scene_render_target_native> scene;
             require(scene_factory->CreateSceneRenderTarget(&properties, target.put()) == com::ok &&
                 target.as(compat::scene_render_target_native_interface_id, scene) == com::ok, "prepared pixel target");
             record_prepared_pixel_case(factory.get(), target.get(), font, &parameters, variant,
-                reference == 0U ? prepared_pixel_path::prepared : prepared_pixel_path::independent_geometry, require, nullptr, origins);
+                reference == 0U ? prepared_pixel_path::prepared : prepared_pixel_path::independent_geometry,
+                require, nullptr, origins, nominal);
             require(export_copy_scene(scene.get(), scenes[reference]) && read_scene_value(scenes[reference], 0U, headers[reference]),
                 "prepared glyph immutable scene export");
         } // Source targets and brushes end before native replay.
@@ -141,13 +156,21 @@ void verify_prepared_glyph_pixels(Render render, Require require)
         const auto independent = render(true, scenes[1], headers[1]);
         require(cold.size() == 64U * 64U * 4U && cold == warm && cold == independent,
             "prepared glyph full-byte original-coordinate/cold/warm/independent comparison");
-        if (variant == 0U && origins == 0U) {
+        if (variant == 0U && origins == 0U && !nominal) {
             constexpr std::array<std::uint8_t, 4U> black{0, 0, 0, 255}, red{255, 0, 0, 255};
             require(std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + 10U) * 4U) &&
                 std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + 30U) * 4U) &&
                 std::equal(black.begin(), black.end(), cold.data() + (10U * 64U + 23U) * 4U) &&
                 std::equal(black.begin(), black.end(), cold.data()), "prepared absolute ink/no-ink-advance/background pixels");
         }
+        if (variant == 0U && origins == 0U && nominal) {
+            constexpr std::array<std::uint8_t, 4U> black{0, 0, 0, 255}, red{255, 0, 0, 255};
+            require(std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + 10U) * 4U) &&
+                std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + 40U) * 4U) &&
+                std::equal(black.begin(), black.end(), cold.data() + (10U * 64U + 25U) * 4U) &&
+                std::equal(black.begin(), black.end(), cold.data()), "nominal absolute ink/no-ink-advance/background pixels");
+        }
+    }
     }
     require(stream.reads == reads && face.outline_calls == 0U && face.table_calls == 0U && font->cached_glyph_count() == 3U,
         "prepared repeated draw must reuse original context without source callbacks");
