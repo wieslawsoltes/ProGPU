@@ -334,6 +334,7 @@ using ::progpu::native::text::sfnt_cff_index_view;
 using ::progpu::native::text::sfnt_cff1_font_view;
 using ::progpu::native::text::sfnt_cff1_outline_requirements;
 using ::progpu::native::text::sfnt_cff1_top_dictionary;
+using ::progpu::native::text::sfnt_cff_outline_transform;
 using ::progpu::native::text::sfnt_cff2_font_view;
 using ::progpu::native::text::sfnt_cff2_outline_requirements;
 using ::progpu::native::text::sfnt_cff2_top_dictionary;

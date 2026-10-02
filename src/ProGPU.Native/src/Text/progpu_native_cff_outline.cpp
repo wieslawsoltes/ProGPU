@@ -29,20 +29,32 @@ bool finite_coordinate(double value) noexcept {
         value <= static_cast<double>(std::numeric_limits<float>::max());
 }
 
-progpu_native_point point(double x, double y) noexcept {
-    return {static_cast<float>(x), static_cast<float>(y)};
-}
-
 } // namespace
 
 cff_path_writer::cff_path_writer(
     std::span<progpu_native_path_segment> segments,
-    bool count_only) noexcept
-    : segments_(segments), count_only_(count_only) {
+    bool count_only,
+    const sfnt_cff_outline_transform* transform) noexcept
+    : segments_(segments), transform_(transform), count_only_(count_only) {
+}
+
+bool cff_path_writer::valid_point(double x, double y) const noexcept {
+    if (transform_ == nullptr) return finite_coordinate(x) && finite_coordinate(y);
+    const auto& m = *transform_;
+    return std::isfinite(x) && std::isfinite(y) &&
+        finite_coordinate((x * m.m11 + y * m.m21) + m.dx) &&
+        finite_coordinate((x * m.m12 + y * m.m22) + m.dy);
+}
+
+progpu_native_point cff_path_writer::point(double x, double y) const noexcept {
+    if (transform_ == nullptr) return {static_cast<float>(x), static_cast<float>(y)};
+    const auto& m = *transform_;
+    return {static_cast<float>((x * m.m11 + y * m.m21) + m.dx),
+        static_cast<float>((x * m.m12 + y * m.m22) + m.dy)};
 }
 
 bool cff_path_writer::move_to(double x, double y) noexcept {
-    if (!finite_coordinate(x) || !finite_coordinate(y) ||
+    if (!valid_point(x, y) ||
         !close_figure()) {
         valid_ = false;
         return false;
@@ -58,8 +70,7 @@ bool cff_path_writer::line_to(
     double y0,
     double x1,
     double y1) noexcept {
-    if (!finite_coordinate(x0) || !finite_coordinate(y0) ||
-        !finite_coordinate(x1) || !finite_coordinate(y1) ||
+    if (!valid_point(x0, y0) || !valid_point(x1, y1) ||
         !begin_if_needed(x0, y0) ||
         !emit(progpu_native_path_segment{
             point(x0, y0),
@@ -87,10 +98,8 @@ bool cff_path_writer::curve_to(
     double y2,
     double x3,
     double y3) noexcept {
-    if (!finite_coordinate(x0) || !finite_coordinate(y0) ||
-        !finite_coordinate(x1) || !finite_coordinate(y1) ||
-        !finite_coordinate(x2) || !finite_coordinate(y2) ||
-        !finite_coordinate(x3) || !finite_coordinate(y3) ||
+    if (!valid_point(x0, y0) || !valid_point(x1, y1) ||
+        !valid_point(x2, y2) || !valid_point(x3, y3) ||
         !begin_if_needed(x0, y0) ||
         !emit(progpu_native_path_segment{
             point(x0, y0),
@@ -174,8 +183,16 @@ bool try_evaluate_cff1_outline(
     std::span<progpu_native_path_segment> segments,
     bool count_only,
     std::uint32_t& written,
-    font_error* error) noexcept {
+    font_error* error,
+    const sfnt_cff_outline_transform* transform) noexcept {
     written = 0U;
+    if (transform != nullptr &&
+        (!std::isfinite(transform->m11) || !std::isfinite(transform->m12) ||
+         !std::isfinite(transform->m21) || !std::isfinite(transform->m22) ||
+         !std::isfinite(transform->dx) || !std::isfinite(transform->dy))) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
     if (glyph_index >= font.char_strings.count) {
         set_error(error, font_error::invalid_argument);
         return false;
@@ -190,7 +207,7 @@ bool try_evaluate_cff1_outline(
     }
     std::array<double, 513U> operands{};
     std::array<double, 32U> transient{};
-    cff_path_writer writer{segments, count_only};
+    cff_path_writer writer{segments, count_only, transform};
     cff_type2_evaluator evaluator{
         writer,
         font.global_subroutines,
@@ -300,6 +317,35 @@ bool sfnt_cff_data::try_decode_outline(
         false,
         written,
         error);
+}
+
+bool sfnt_cff_data::try_get_outline_requirements(
+    sfnt_cff1_font_view font,
+    std::uint32_t glyph_index,
+    const sfnt_cff_outline_transform& transform,
+    sfnt_cff1_outline_requirements& result,
+    font_error* error) noexcept {
+    result = {};
+    return detail::try_evaluate_cff1_outline(font, glyph_index, {}, true,
+        result.path_segment_count, error, &transform);
+}
+
+bool sfnt_cff_data::try_decode_outline(
+    sfnt_cff1_font_view font,
+    std::uint32_t glyph_index,
+    const sfnt_cff_outline_transform& transform,
+    std::span<progpu_native_path_segment> segments,
+    std::uint32_t& written,
+    font_error* error) noexcept {
+    written = 0U;
+    sfnt_cff1_outline_requirements requirements{};
+    if (!try_get_outline_requirements(font, glyph_index, transform, requirements, error)) return false;
+    if (segments.size() < requirements.path_segment_count) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    return detail::try_evaluate_cff1_outline(font, glyph_index, segments, false,
+        written, error, &transform);
 }
 
 bool sfnt_cff_data::try_get_outline_requirements(

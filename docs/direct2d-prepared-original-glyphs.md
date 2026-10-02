@@ -60,13 +60,15 @@ which explicitly distinguishes the stored outline bounds from the left bearing.
 
 ## Exact current source family
 
-The connected family is one original non-variable TrueType file/collection face,
+The connected family is one original TrueType file/collection face,
 no simulations, caller-supplied rendering mode **OUTLINE**, natural measurement,
-horizontal left-to-right placement and explicit or absent original advances. Null offsets
-mean the documented absence of a position adjustment. Original even bidi levels
-are retained, not normalized to zero. Unknown/default and modern raster modes,
-RTL, sideways/vertical metrics, CFF/type1/multi-file faces,
-simulations and variable coordinates remain explicit unimplemented contracts.
+horizontal placement and explicit or absent original advances. Null offsets
+mean the documented absence of a position adjustment. Original bidi levels
+are retained, not normalized to zero; see [horizontal direction](direct2d-horizontal-glyph-direction.md).
+[Owned variable coordinates](direct2d-variable-prepared-glyphs.md) use the paired
+native contour/origin/advance implementation. Unknown/default and modern raster
+modes, sideways/vertical metrics, CFF/type1/multi-file faces and simulations
+remain explicit unimplemented contracts.
 These are real remaining tasks, not a claim of full DirectWrite or ClearType
 support. In particular no TT35/40 interpreter is selected to impersonate a modern
 DirectWrite mode, and OUTLINE is not relabeled as RGB coverage.
@@ -78,7 +80,7 @@ and [DWRITE_GLYPH_OFFSET](https://learn.microsoft.com/en-us/windows/win32/api/dw
 They separate DIP em/advances, logical glyph order, advance-direction offsets,
 ascender-direction offsets and sideways vertical metrics. This implementation
 uses original ProGPU decoder/geometry code and those public contracts only.
-RTL origin/vertical-metric implementation still requires its own original
+Horizontal direction and future vertical-metric implementation require their own original
 placement controls; no cursor-sign heuristic is accepted as coverage.
 
 ## Ownership, bounds and authored controls

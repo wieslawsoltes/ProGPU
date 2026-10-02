@@ -37,7 +37,8 @@ class cff_path_writer final {
 public:
     cff_path_writer(
         std::span<progpu_native_path_segment> segments,
-        bool count_only) noexcept;
+        bool count_only,
+        const sfnt_cff_outline_transform* transform = nullptr) noexcept;
 
     bool move_to(double x, double y) noexcept;
     bool line_to(double x0, double y0, double x1, double y1) noexcept;
@@ -55,11 +56,14 @@ public:
     bool valid() const noexcept;
 
 private:
+    bool valid_point(double x, double y) const noexcept;
+    progpu_native_point point(double x, double y) const noexcept;
     bool close_figure() noexcept;
     bool emit(progpu_native_path_segment segment) noexcept;
     bool begin_if_needed(double x, double y) noexcept;
 
     std::span<progpu_native_path_segment> segments_{};
+    const sfnt_cff_outline_transform* transform_ = nullptr;
     std::uint32_t count_ = 0U;
     double start_x_ = 0.0;
     double start_y_ = 0.0;
@@ -158,7 +162,8 @@ bool try_evaluate_cff1_outline(
     std::span<progpu_native_path_segment> segments,
     bool count_only,
     std::uint32_t& written,
-    font_error* error) noexcept;
+    font_error* error,
+    const sfnt_cff_outline_transform* transform = nullptr) noexcept;
 
 bool try_get_cff2_glyph_private(
     sfnt_cff2_font_view font,
