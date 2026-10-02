@@ -3196,6 +3196,13 @@ struct sfnt_cff1_outline_requirements final {
     std::uint32_t path_segment_count = 0U;
 };
 
+/* Optional source-owned charstring-to-design mapping. The original raw CFF
+ * entrypoints remain untransformed. Apply before narrowing evaluator doubles
+ * into the renderer's float path ABI, including implicit closing edges. */
+struct sfnt_cff_outline_transform final {
+    double m11 = 1.0, m12 = 0.0, m21 = 0.0, m22 = 1.0, dx = 0.0, dy = 0.0;
+};
+
 struct sfnt_cff2_top_dictionary final {
     std::uint32_t char_strings_offset = 0U;
     std::uint32_t font_dictionary_offset = 0U;
@@ -3411,6 +3418,19 @@ public:
     static bool try_decode_outline(
         sfnt_cff1_font_view font,
         std::uint32_t glyph_index,
+        std::span<progpu_native_path_segment> segments,
+        std::uint32_t& written,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_outline_requirements(
+        sfnt_cff1_font_view font,
+        std::uint32_t glyph_index,
+        const sfnt_cff_outline_transform& transform,
+        sfnt_cff1_outline_requirements& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_decode_outline(
+        sfnt_cff1_font_view font,
+        std::uint32_t glyph_index,
+        const sfnt_cff_outline_transform& transform,
         std::span<progpu_native_path_segment> segments,
         std::uint32_t& written,
         font_error* error = nullptr) noexcept;
