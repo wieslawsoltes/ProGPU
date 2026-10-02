@@ -1980,6 +1980,34 @@ public ref struct NativeSceneStreamBuilder
     public bool TryPopLayer(ulong commandId) =>
         TryPopControl(NativeSceneCommandKind.PopLayer, commandId, isLayer: true);
 
+    /// <summary>
+    /// Replaces the active target with the original straight color. Source
+    /// transforms, opacity and guidelines are ignored; binary clips remain.
+    /// Per-draw masks require an enclosing layer and reject at native preflight.
+    /// </summary>
+    public bool TryClearTarget(ulong commandId, Vector4 color,
+        uint stateIndex = NativeMethods.SceneNoIndex)
+    {
+        if (_built || _commandCount == _commandCapacity ||
+            commandId == 0U || commandId <= _lastCommandId ||
+            !IsFinite(color) || color.W < 0f || color.W > 1f ||
+            !HasUsableCommandState(stateIndex, allowPerPoint: true))
+            return false;
+        // All publication checks precede the arena write; rejected arguments
+        // cannot consume a command ID, stack entry or caller-owned bytes.
+        int originalArenaSize = _arenaSize;
+        if (!TryWriteArena(MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref color, 1)),
+                out uint offset))
+            return false;
+        if (!TryWriteControl(NativeSceneCommandKind.ClearTarget, commandId,
+                stateIndex, offset, checked((uint)Unsafe.SizeOf<Vector4>())))
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        return true;
+    }
+
     public bool TryDrawAnalytic(
         ulong commandId,
         uint resourceIndex,
@@ -3594,6 +3622,10 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool IsValidLayerMask(in NativeSceneLayerMask mask)
     {
+        const uint axisClipFlag = (uint)NativeSceneLayerMaskFlags.AxisClipArea;
+        bool exactClip = (mask.Flags & axisClipFlag) == 0U ||
+            (mask.Transform == Matrix3x2.Identity && mask.Opacity == 1f &&
+             mask.CornerRadiiX == Vector4.Zero && mask.CornerRadiiY == Vector4.Zero);
         bool finiteRadii =
             IsFiniteNonnegative(mask.CornerRadiiX) &&
             IsFiniteNonnegative(mask.CornerRadiiY);
@@ -3603,7 +3635,7 @@ public ref struct NativeSceneStreamBuilder
             out Matrix3x2 inverse) && IsFinite(inverse);
         return mask.StructSize == Unsafe.SizeOf<NativeSceneLayerMask>() &&
             mask.Kind == NativeSceneLayerMaskKind.RoundedRectangle &&
-            mask.Flags == 0U && mask.HasCanonicalReservedFields &&
+            (mask.Flags & ~axisClipFlag) == 0U && exactClip && mask.HasCanonicalReservedFields &&
             IsFinitePositive(mask.Bounds) &&
             IsFinite(mask.Transform) && float.IsFinite(determinant) &&
             MathF.Abs(determinant) > 0.000001f && inverseIsRepresentable &&

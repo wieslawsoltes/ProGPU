@@ -6287,8 +6287,47 @@ public:
         }
         if (scope_depth_ != 0U) {
             if (!std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
-                    [](uint8_t scope) { return scope == scope_axis_aligned_clip || scope == scope_opacity_layer; }))
+                    [](uint8_t scope) { return scope == scope_axis_aligned_clip ||
+                        scope == scope_antialiased_axis_clip || scope == scope_opacity_layer; }))
                 return fail_unsupported_operation();
+            const bool has_antialiased_clip = std::any_of(scope_stack_.begin(),
+                scope_stack_.begin() + scope_depth_, [](uint8_t scope) {
+                    return scope == scope_antialiased_axis_clip;
+                });
+            if (has_antialiased_clip) {
+                std::uint32_t antialiased_layers = 0U;
+                bool ordinary_owner = false;
+                bool opaque = false;
+                auto visible_bounds = clip_stack_[clip_depth_ - 1U];
+                for (std::uint32_t index = scope_depth_; index != 0U; --index) {
+                    const auto scope = scope_stack_[index - 1U];
+                    if (scope == scope_opacity_layer) {
+                        ordinary_owner = true;
+                        opaque = (layer_initialization_[index - 1U] &
+                            PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
+                        // A bounded AA child identifies the actual clear
+                        // attachment even when its outer source owner is
+                        // target-independent. Without that child the owner's
+                        // existing explicit target-metrics gate still applies.
+                        if (!layer_clear_bounds_known_[index - 1U]) {
+                            if (antialiased_layers == 0U) return fail_unsupported_operation();
+                        } else {
+                            visible_bounds = intersect_rectangles(visible_bounds,
+                                layer_clear_bounds_[index - 1U]);
+                        }
+                        break;
+                    }
+                    antialiased_layers += scope == scope_antialiased_axis_clip ? 1U : 0U;
+                }
+                if (visible_bounds.width == 0.0F || visible_bounds.height == 0.0F) return S_OK;
+                if (!builder_.prepare_antialiased_clear_layers(antialiased_layers, ordinary_owner) ||
+                    !builder_.clear_target({value.r, value.g, value.b, opaque ? 1.0F : value.a}))
+                    return fail_builder();
+                has_opacity_layers_ = true;
+                // Clear is not an original Draw callback. Keep translated
+                // draw accounting independent of the retained storage draw.
+                return S_OK;
+            }
             progpu_native_image_rect clear_bounds = clip_depth_ == 0U
                 ? progpu_native_image_rect{} : clip_stack_[clip_depth_ - 1U];
             bool opaque = false;
@@ -6634,12 +6673,8 @@ public:
             // Original portable Direct2D lowering: clip the transformed AABB,
             // then apply edge coverage once to the group at PopAxisAlignedClip.
             // Do not apply the fractional mask independently to each draw.
-            progpu_native_scene_layer_mask mask{};
-            mask.bounds = clip;
-            mask.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
-            mask.opacity = 1.0F;
             uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder_.add_rounded_rectangle_mask(mask, mask_resource_index)) {
+            if (!builder_.add_axis_aligned_clip_mask(clip, mask_resource_index)) {
                 return fail_builder();
             }
             const progpu_native_scene_layer layer{

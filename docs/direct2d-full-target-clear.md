@@ -37,8 +37,11 @@ layer execution. Ordinary uniform-DPI picture capture uses that same execution;
 the final bound uses that capture's actual per-axis presentation when mapped.
 Other mapped layer/cache/effect/mask restrictions remain unchanged.
 
-Antialiased clips (including an aliased child beneath one) remain explicitly
-unsupported for Clear. Source layers now use the independently documented
+Antialiased axis clips (including aliased children beneath them) use the
+[retained target-storage Clear contract](native-target-storage-clear.md):
+background-preserving clip groups, exact binary SAVE clips and replacement of
+the actual current attachment before AA coverage resolves once at pop. Source
+layers use the independently documented
 [captured extent and demand-isolation contract](direct2d-layer-initialization.md),
 including legacy and OPTIONS1_NONE layers. Targetless unbounded layers still
 require actual target metrics. Invalid colors and earlier recording failures

@@ -271,6 +271,8 @@ public:
         std::span<const progpu_native_scene_color_glyph_bitmap> bitmaps,
         std::span<const std::byte> rgba_pixels,
         std::uint32_t& resource_index) noexcept;
+    bool add_axis_aligned_clip_mask(progpu_native_image_rect bounds,
+        std::uint32_t& resource_index) noexcept;
     bool add_rounded_rectangle_mask(
         const progpu_native_scene_layer_mask& mask,
         std::uint32_t& resource_index) noexcept;
@@ -348,6 +350,15 @@ public:
         const progpu_native_scene_shader_effect_capture& effect,
         std::span<const std::byte> bytecode,
         std::uint32_t& resource_index) noexcept;
+    bool add_shader_effect(
+        const progpu_native_scene_shader_effect_samples& effect,
+        std::span<const std::byte> bytecode,
+        std::uint32_t& resource_index) noexcept;
+
+    bool add_shader_effect(
+        const progpu_native_scene_shader_effect_affine& effect,
+        std::span<const std::byte> bytecode,
+        std::uint32_t& resource_index) noexcept;
 
     // Optional source-owned local rectangle replaces input coverage for this
     // complete save/restore scope, including nested render-only content. The
@@ -371,6 +382,10 @@ public:
         bool empty_point_region = false,
         bool render_only = false) noexcept;
     bool restore() noexcept;
+
+    // Replace the actual current target through its binary clip. Source
+    // transform/opacity/guidelines do not affect this storage operation.
+    bool clear_target(const progpu_native_color& color) noexcept;
     bool add_tile_composite(const progpu_native_scene_tile_composite& tile,
         std::uint32_t& resource_index) noexcept;
     bool push_layer(const progpu_native_scene_layer& layer,
@@ -382,6 +397,13 @@ public:
     // closed child scopes participate in the capacity preflight; no command is
     // changed on failure. Ordinary layers remain eligible for elision until used.
     bool isolate_current_layer() noexcept;
+    // Source-proven AA clip scopes, counted inward of the nearest ordinary
+    // source layer, need their original parent pixels before storage Clear.
+    // SAVE scopes do not own storage. Atomically initialize these clips from
+    // background and isolate the ordinary owner, when present; never promote
+    // older AA scopes across that owner. Closed and open child peaks count.
+    bool prepare_antialiased_clear_layers(std::uint32_t antialiased_layer_count,
+        bool has_ordinary_owner) noexcept;
 
     bool draw_analytic(
         std::span<const progpu_native_analytic_primitive> primitives,

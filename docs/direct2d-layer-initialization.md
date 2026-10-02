@@ -45,7 +45,10 @@ redirect replacement into an outer layer. The first promotion costs O(C) over
 the layer's recorded commands with O(S) bounded stack scratch; repeated clears
 reuse the materialized identity without another command scan.
 
-Antialiased clip stacks remain explicit unsupported cases.
+Antialiased axis-clip stacks now use the separately documented
+[target-storage Clear operation](native-target-storage-clear.md). Preparation
+promotes all AA groups inward of the nearest ordinary source layer to background
+initialization, while that ordinary owner receives only demand isolation.
 A target-independent command recorder also rejects Clear in
 an unbounded layer unless real target metrics are supplied; it never invents an
 allocation extent. Source setup must keep this boundary explicit.
@@ -96,6 +99,22 @@ or invents advances. Original face, brush and rendering-parameter COM identities
 remain retained through capture. The shared value snapshot keeps caller gamma,
 contrast, ClearType level, pixel geometry and rendering mode separate from an
 absent parameter object. It does not manufacture OS or monitor defaults.
+
+The portable target itself now holds an exact in-flight capture lease across
+those external callbacks. Drawing, Clear, scope changes, Begin/End, transform,
+DPI, tag/state restoration and compatible storage replacement cannot invalidate
+that generation while its source run is being captured. Illegal target mutation
+fails before changing state; callback errors retain original first-error order.
+Replacing text parameters/AA remains allowed because this draw already owns
+their captured values. The final geometry writer consumes the exact capture
+identity under the same target lock, without a callback-time lock or a gap before
+publication. A stale cleanup cannot clear a newer capture lease. Retaining the
+actual target also makes caller-reference release during a callback safe.
+Twenty-four authored parameter/font callback mutation controls preserve prior
+draw/clear/generation/transform/DPI/tag state, followed by a fresh successful
+generation and an unchanged original font error. Two further controls release
+the caller's last target reference from each callback boundary. These controls,
+like the earlier source and GPU controls, are not yet executed.
 
 The Windows command-list reader now translates genuine `DrawGlyphRun` callbacks
 when the caller explicitly selected `DWRITE_RENDERING_MODE_OUTLINE`. That original

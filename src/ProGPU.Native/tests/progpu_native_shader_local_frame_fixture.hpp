@@ -44,7 +44,11 @@ inline progpu_native_mil_status build_shader_local_scene(progpu_native_mil_chann
     std::uint32_t variant, const shader_local_case& test, std::vector<std::byte>& scene,
     bool baseline = false, double device_x = 2.0, double device_y = 3.0,
     double extra_scale = 1.0, double extra_scale_y = 1.0,
-    double clip_shift_x = 0.0, bool ancestor_clip = false) {
+    double clip_shift_x = 0.0, bool ancestor_clip = false,
+    bool aliased = true, std::uint32_t target_width = 96U,
+    double parent_opacity = 1.0,
+    const std::array<double,6U>* local_affine = nullptr,
+    const std::array<double,6U>* parent_affine = nullptr) {
     using mil::command;
     using mil_clip_fixture_detail::append;
     using mil_clip_fixture_detail::packet;
@@ -57,23 +61,28 @@ inline progpu_native_mil_status build_shader_local_scene(progpu_native_mil_chann
         for (const auto visual : {1U,11U,12U}) packet(batch, command::visual_create, visual);
         packet(batch, command::visual_insert_child_at, 11U, 12U, 0U);
         packet(batch, command::visual_insert_child_at, 12U, 1U, 0U);
-        packet(batch, command::generic_target_create, 3U, std::uint64_t{}, std::uint64_t{}, 96U,64U,0U);
+        packet(batch, command::generic_target_create, 3U, std::uint64_t{}, std::uint64_t{}, target_width,64U,0U);
         packet(batch, command::target_set_root, 3U, 11U);
         packet(batch, command::solid_color_brush, 4U, 1.0, progpu_native_color{1,1,1,1}, 0U,0U,0U,0U);
         packet(batch, command::implicit_input_brush, 7U, 1.0, 0U,0U,0U);
     }
     const double bounds_translation = test.history == shader_local_history::intermediate_bounds_rounding ? 0x1p24 : 0.0;
     packet(batch, command::visual_set_offset, 11U, device_x / dpi - bounds_translation, device_y / dpi);
+    // Only new nested-target controls opt in. Preserve every old source packet
+    // sequence and use the actual visual-opacity isolation path, not raw layers.
+    if (parent_opacity != 1.0) packet(batch, command::visual_set_alpha, 11U, parent_opacity);
     constexpr double separate = 1.0 + 0x1p-24;
     const double parent_scale = test.history == shader_local_history::nested ? 2.0 :
         test.history == shader_local_history::separately_narrowed ? separate : 1.0;
     const double child_scale = test.history == shader_local_history::nested ? .5 :
         test.history == shader_local_history::separately_narrowed ? separate : 1.0;
-    packet(batch, command::matrix_transform, 13U, parent_scale,0.0,0.0,parent_scale,0.0,0.0,0U);
-    packet(batch, command::matrix_transform, 14U, child_scale * extra_scale,0.0,0.0,child_scale * extra_scale_y,bounds_translation,0.0,0U);
+    if (parent_affine) packet(batch, command::matrix_transform,13U,*parent_affine,0U);
+    else packet(batch, command::matrix_transform, 13U, parent_scale,0.0,0.0,parent_scale,0.0,0.0,0U);
+    if (local_affine) packet(batch, command::matrix_transform,14U,*local_affine,0U);
+    else packet(batch, command::matrix_transform, 14U, child_scale * extra_scale,0.0,0.0,child_scale * extra_scale_y,bounds_translation,0.0,0U);
     packet(batch, command::visual_set_transform, 12U, 13U);
     packet(batch, command::visual_set_transform, 1U, 14U);
-    packet(batch, command::visual_set_render_options, 1U, 3U,1U,0U,3U,0U,0U,0U);
+    packet(batch, command::visual_set_render_options, 1U, 3U,aliased ? 1U : 0U,0U,3U,0U,0U,0U);
     packet(batch, command::rectangle_geometry, 8U, 0.0,0.0, (36.0+clip_shift_x)/dpi,34.0/dpi,
         20.0/dpi,10.0/dpi,0U,0U,0U,0U);
     packet(batch, command::visual_set_clip, 1U, test.clipped && !ancestor_clip ? 8U : 0U);
@@ -99,6 +108,9 @@ inline progpu_native_mil_status build_shader_local_scene(progpu_native_mil_chann
         progpu_native_mil_channel_set_visual_cache_bounds(channel, 1U,16.75,16.25,15.5,7.5) != PROGPU_NATIVE_MIL_STATUS_SUCCESS ||
         progpu_native_mil_channel_set_bitmap_source_rgba8_with_dpi(channel,10U,2U,1U,8U,pixels.data(),pixels.size(),
             144.0,192.0) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH;
+    if (parent_opacity != 1.0 && progpu_native_mil_channel_set_visual_cache_bounds(
+            channel,11U,8.0,8.0,64.0,32.0) != PROGPU_NATIVE_MIL_STATUS_SUCCESS)
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH;
     const progpu_native_mil_scene_build_request request{
         sizeof(request),0U,3U,0U,baseline ? 0x9498U : 0x9497U,variant + 1U,dpi,dpi,0U,variant + 1U};
     std::size_t written{};

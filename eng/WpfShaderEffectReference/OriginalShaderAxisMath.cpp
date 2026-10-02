@@ -82,3 +82,70 @@ extern "C" __declspec(dllexport) int __cdecl OriginalShaderAxisMath(
     std::memcpy(traits,identity.data(),sizeof(identity));
     return 1;
 }
+
+// Independent additive original-SDK probe. Inputs are source local/parent
+// MatrixTransform packets, visual offset, root DPI, inflated local LTRB and
+// actual parent target XYWH. No ProGPU types, helpers or library are consumed.
+extern "C" __declspec(dllexport) int __cdecl OriginalShaderAffineMath(
+    const double* input, std::uint32_t inputs, float* output, std::uint32_t outputs,
+    std::uint32_t* traits, std::uint32_t traits_size) noexcept {
+    constexpr std::uint32_t affine_inputs=24U,affine_outputs=156U;
+    if(!input || !output || !traits || inputs!=affine_inputs || outputs!=affine_outputs || traits_size!=trait_count) return 0;
+    for(std::uint32_t i=0;i<inputs;++i) if(!std::isfinite(input[i])) return 0;
+    if(input[14]<=0 || input[15]<=0 || input[18]<=input[16] || input[19]<=input[17] || input[22]<=0 || input[23]<=0) return 0;
+    using namespace DirectX;
+    const auto matrix=[&](std::size_t offset) {
+        return XMMatrixSet(static_cast<float>(input[offset]),static_cast<float>(input[offset+1]),0,0,
+            static_cast<float>(input[offset+2]),static_cast<float>(input[offset+3]),0,0,0,0,1,0,
+            static_cast<float>(input[offset+4]),static_cast<float>(input[offset+5]),0,1);
+    };
+    const float dx=static_cast<float>((96*input[14])*(1.0/96)),dy=static_cast<float>((96*input[15])*(1.0/96));
+    const auto root=XMMatrixScaling(dx,dy,1);
+    const auto parent=XMMatrixMultiply(matrix(6),root);
+    const auto placed=XMMatrixMultiply(XMMatrixTranslation(static_cast<float>(input[12]),static_cast<float>(input[13]),0),parent);
+    const auto world=XMMatrixMultiply(matrix(0),placed);
+    XMFLOAT4X4 w{}; XMStoreFloat4x4(&w,world);
+    const float sx=std::sqrt(sum(product(w._11,w._11),product(w._12,w._12)));
+    const float sy=std::sqrt(sum(product(w._21,w._21),product(w._22,w._22)));
+    if(!(sx>0 && sy>0)) return 0;
+    const auto scale=XMMatrixScaling(sx,sy,1);
+    const auto inverse=XMMatrixInverse(nullptr,scale);
+    const auto rest=XMMatrixMultiply(inverse,world);
+    const float ax=std::floor(product(static_cast<float>(input[16]),sx));
+    const float ay=std::floor(product(static_cast<float>(input[17]),sy));
+    const float ex=std::ceil(product(static_cast<float>(input[18]),sx))-ax;
+    const float ey=std::ceil(product(static_cast<float>(input[19]),sy))-ay;
+    if(!(ex>0 && ey>0 && ex<=16384 && ey<=16384)) return 0;
+    const auto final=XMMatrixMultiply(XMMatrixTranslation(ax,ay,0),rest);
+    const auto unit=XMMatrixMultiply(XMMatrixScaling(ex,ey,1),final);
+    const auto inverse_unit=XMMatrixInverse(nullptr,unit);
+    const float rx=1.0F/static_cast<float>(input[22]),ry=1.0F/static_cast<float>(input[23]);
+    const auto projection=XMMatrixSet(product(2,rx),0,0,0,0,product(-2,ry),0,0,0,0,1,0,-sum(1,rx),sum(1,ry),0,1);
+    const auto localized=XMMatrixMultiply(unit,XMMatrixTranslation(-static_cast<float>(input[20]),-static_cast<float>(input[21]),0));
+    const auto projected=XMMatrixMultiply(localized,projection);
+    std::array<float,affine_outputs> candidate{};
+    const auto retain=[&](std::size_t offset,FXMMATRIX value) {
+        XMFLOAT4X4 stored{}; XMStoreFloat4x4(&stored,value);
+        std::memcpy(candidate.data()+offset,&stored,sizeof(stored));
+    };
+    retain(0,world); retain(16,scale); retain(32,inverse); retain(48,rest);
+    retain(64,final); retain(80,unit); retain(96,inverse_unit); retain(112,projection); retain(128,projected);
+    candidate[144]=ax;candidate[145]=ay;candidate[146]=ex;candidate[147]=ey;
+    for(std::size_t i=0;i<4;++i) candidate[148+i]=static_cast<float>(input[16+i]);
+    candidate[152]=dx;candidate[153]=dy;candidate[154]=sx;candidate[155]=sy;
+    for(const float value:candidate) if(!std::isfinite(value)) return 0;
+    const std::array<std::uint32_t,trait_count> identity{_MSC_FULL_VER,DIRECTX_MATH_VERSION,
+#if defined(_M_ARM64)
+        0xAA64U,2U,
+#else
+        0x8664U,1U,
+#endif
+#if defined(_XM_FMA3_INTRINSICS_)
+        1U
+#else
+        0U
+#endif
+    };
+    std::memcpy(output,candidate.data(),sizeof(candidate)); std::memcpy(traits,identity.data(),sizeof(identity));
+    return 1;
+}

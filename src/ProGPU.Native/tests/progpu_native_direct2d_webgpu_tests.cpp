@@ -3,6 +3,7 @@
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_direct2d_layer_clear_fixture.hpp"
+#include "progpu_native_direct2d_aa_clear_fixture.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
@@ -13,13 +14,22 @@
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
+#include "progpu_native_rgb_glyph_scene_fixture.hpp"
+#include "progpu_native_rgb_glyph_mask_fixture.hpp"
 #include "progpu_native_shader_local_frame_fixture.hpp"
+#include "progpu_native_shader_final_sample_fixture.hpp"
+#include "progpu_native_shader_affine_fixture.hpp"
+#include "progpu_native_shader_source_mask_fixture.hpp"
+#include "progpu_native_shader_input_opacity_fixture.hpp"
+#include "progpu_native_shader_sampled_opacity_fixture.hpp"
+#include "progpu_native_target_clear_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
 #include "progpu_native_direct2d_scoped_copy_fixture.hpp"
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
+#include "progpu_native_direct2d_prepared_glyph_fixture.hpp"
 #include "progpu_native_direct2d_gradient_stop_fixture.hpp"
 #include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
@@ -751,7 +761,7 @@ enum class sampler_engine_policy { original, native, four_load };
     std::uint32_t rectangular_height = 0U)
 {
     require((rectangular_height == 0U && (target_extent == 64U || target_extent == 128U)) ||
-        (capture_frame == nullptr && target_extent == 96U && rectangular_height == 64U),
+        (capture_frame == nullptr && (target_extent == 96U || target_extent == 128U) && rectangular_height == 64U),
         "retained fixture target extent is unsupported");
     const auto target_width = capture_frame != nullptr ? capture_frame->width : target_extent;
     const auto target_height = capture_frame != nullptr ? capture_frame->height :
@@ -2226,6 +2236,13 @@ int main(int argc, char** argv)
                 nullptr, 1U, 1U, submissions, stream, 0x95CAU, generation);
         }, require);
     progpu_native_engine_destroy(picture_reference_engine);
+    auto* prepared_reference_engine = create_engine(gpu);
+    progpu::native::direct2d::tests::verify_prepared_glyph_pixels(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
+            return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
+                1U, header.command_count, 1U, stream, header.scene_id, header.generation);
+        }, require);
+    progpu_native_engine_destroy(prepared_reference_engine);
     phase("per-axis picture pixels passed");
     auto* shader_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_original_shader_effect_pixels(
@@ -2314,6 +2331,19 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(scoped_copy_reference_engine);
     phase("scoped bitmap memory copies passed");
+    {
+        auto* clear_engine = create_engine(gpu);
+        progpu::native::tests::verify_native_target_clear(
+            [&](const auto& stream, const progpu_native_scene_header& header,
+                std::uint32_t draws, std::uint32_t submissions,
+                const progpu_native_scene_presentation* presentation,
+                progpu_native_status expected, progpu_native_scene_frame_metrics& metrics) {
+                return render_scene(gpu, clear_engine, nullptr, draws, header.command_count, submissions,
+                    stream, header.scene_id, header.generation, &metrics, 1.0F, presentation, expected);
+            }, require);
+        progpu_native_engine_destroy(clear_engine);
+    }
+    phase("explicit target-storage Clear passed");
     auto* derivative_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_original_shader_derivative_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation,
@@ -2359,8 +2389,111 @@ int main(int argc, char** argv)
                     "local-frame effect layer metrics unavailable");
             return pixels;
         }, require);
+    progpu::native::tests::verify_original_shader_final_samples(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            const progpu::native::tests::shader_local_case& test, std::uint32_t submissions,
+            progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            auto* selected = reference ? padding_reference_engine : engine;
+            auto pixels = render_scene(gpu, selected, nullptr, 0U, header.command_count, submissions,
+                stream, header.scene_id, header.generation, &metrics, test.dpi, nullptr,
+                PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, 64U);
+            require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "final-sample effect metrics unavailable");
+            return pixels;
+        }, require);
+    progpu::native::tests::verify_shader_affine_frames(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            std::uint32_t submissions, progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            auto* selected = reference ? padding_reference_engine : engine;
+            auto pixels = render_scene(gpu, selected, nullptr, 0U, header.command_count, submissions,
+                stream, header.scene_id, header.generation, &metrics, 1.0F, nullptr,
+                PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, 64U);
+            require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "affine shader metrics unavailable");
+            return pixels;
+        }, require);
+    progpu::native::tests::verify_shader_source_masks(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            float dpi, bool baseline, std::uint32_t submissions, progpu_native_layer_metrics& layers,
+            progpu_native_scene_frame_metrics& metrics, progpu_native_status expected) {
+            auto* selected = reference ? padding_reference_engine : engine;
+            auto pixels = render_scene(gpu, selected, nullptr, baseline ? 1U : 0U, header.command_count, submissions,
+                stream, header.scene_id, header.generation, &metrics, dpi, nullptr, expected, false, 128U, nullptr, 64U);
+            if (expected == PROGPU_NATIVE_STATUS_SUCCESS)
+                require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                    "source mask layer metrics unavailable");
+            return pixels;
+        }, require);
+    progpu::native::tests::verify_shader_input_opacity(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            float dpi, bool baseline, std::uint32_t submissions, progpu_native_layer_metrics& layers,
+            progpu_native_scene_frame_metrics& metrics) {
+            auto* selected = reference ? padding_reference_engine : engine;
+            auto pixels = render_scene(gpu, selected, nullptr, baseline ? 1U : 0U, header.command_count, submissions,
+                stream, header.scene_id, header.generation, &metrics, dpi, nullptr,
+                PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, 64U);
+            require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "input opacity layer metrics unavailable");
+            return pixels;
+        }, require);
     progpu_native_engine_destroy(padding_reference_engine);
     phase("original shader padded captures passed");
+    {
+        std::array<std::array<progpu_native_engine*, 3U>, 3U> sampled_engines{};
+        progpu::native::tests::verify_shader_sampled_input_opacity(
+            [&](unsigned family, unsigned lane, const auto& stream, const progpu_native_scene_header& header,
+                float dpi, bool baseline, std::uint64_t minimum_submissions, std::uint64_t maximum_submissions,
+                progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+                auto*& selected = sampled_engines[family][lane];
+                if (selected == nullptr) selected = create_engine(gpu);
+                auto pixels = render_scene(gpu, selected, nullptr, baseline ? 1U : 0U, header.command_count,
+                    minimum_submissions == maximum_submissions ? minimum_submissions : 0U,
+                    stream, header.scene_id, header.generation, &metrics, dpi, nullptr,
+                    PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, 64U);
+                require(metrics.submission_count >= minimum_submissions && metrics.submission_count <= maximum_submissions &&
+                    progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                    "sampled input dependency counts/layer metrics differ");
+                return pixels;
+            }, require);
+        for (auto& family : sampled_engines)
+            for (auto* selected : family) progpu_native_engine_destroy(selected);
+    }
+    phase("original sampled source opacity captures passed");
+    {
+        // Explicit policies are isolated from the ordinary engine and adapter
+        // defaults. Both routes retain the real owned scene/layer/readback path.
+        std::array<progpu_native_engine*, 5U> rgb_engines{};
+        const auto rgb_engine = [&](unsigned route) {
+            auto*& selected = rgb_engines[route];
+            if (selected == nullptr) {
+                progpu_native_engine_options options{};
+                options.struct_size = sizeof(options);
+                options.abi_version = PROGPU_NATIVE_ABI_VERSION;
+                options.backend_abi = PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05;
+                options.target_format = route == 4U ? PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM_SRGB
+                    : PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM;
+                options.device = reinterpret_cast<std::uintptr_t>(gpu.device);
+                options.queue = reinterpret_cast<std::uintptr_t>(gpu.queue);
+                options.flags = progpu::native::tests::rgb_scene_engine_flags(route);
+                require(progpu_native_engine_create(&options, &selected) == PROGPU_NATIVE_STATUS_SUCCESS && selected,
+                    "RGB retained-scene wgpu engine creation failed");
+            }
+            return selected;
+        };
+        const auto render_rgb =
+            [&](unsigned route, const auto& stream, const progpu_native_scene_header& header,
+                const progpu::native::tests::rgb_scene_case& test, progpu_native_scene_frame_metrics& metrics,
+                std::uint64_t submissions = 1U) {
+                return render_scene(gpu, rgb_engine(route), nullptr, 4U, header.command_count, submissions,
+                    stream, header.scene_id, header.generation, &metrics, test.dpi,
+                    test.mapped ? &test.presentation : nullptr,
+                    test.accepted ? PROGPU_NATIVE_STATUS_SUCCESS : PROGPU_NATIVE_STATUS_UNSUPPORTED);
+            };
+        progpu::native::tests::verify_rgb_glyph_scene_pixels(render_rgb, require);
+        progpu::native::tests::verify_rgb_glyph_mask_scene_pixels(render_rgb, require);
+        for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
+    }
+    phase("explicit RGB retained scene compute/fragment pixels passed");
     auto* glyph_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_semantic_glyph_sharing(
         [&](bool reference, const auto& stream, std::uint64_t generation,
@@ -2393,6 +2526,18 @@ int main(int argc, char** argv)
     verify_formatted_scene_copies(gpu, engine);
     verify_owned_bitmap_scene_copies(gpu, engine);
     verify_full_target_clear(gpu, engine);
+    progpu::native::direct2d::tests::verify_antialiased_clear(
+        [&](d2d::scene_render_target_native* target, const auto& value) {
+            namespace fixture = progpu::native::direct2d::tests;
+            progpu_native_scene_frame_metrics metrics{};
+            metrics.struct_size = sizeof(metrics);
+            auto pixels = render_scene(gpu, engine, target, 3U + fixture::aa_clear_count(value),
+                fixture::aa_clear_wire_count(value), 1U, {}, 9011U, 1U, &metrics);
+            require(metrics.draw_call_count == fixture::aa_clear_draw_calls(value) &&
+                metrics.uniform_upload_bytes >= 16U * fixture::aa_clear_count(value),
+                "AA Clear wgpu lost ordered draws or per-replay clear uniforms");
+            return pixels;
+        }, require);
     progpu::native::direct2d::tests::verify_transparent_layer_clear(
         [&](d2d::scene_render_target_native* target, std::uint32_t variant) {
             return render_scene(gpu, engine, target, 3U, (variant & 16U) != 0U ? 9U : 7U, 1U);

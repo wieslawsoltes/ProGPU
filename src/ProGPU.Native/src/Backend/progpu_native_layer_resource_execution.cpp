@@ -946,6 +946,19 @@ bool create_semantic_layer_mask_binding(
     const auto create_uniforms_for = [&](
         const progpu_native_scene_layer_mask& source,
         gpu_mask_sampling_uniforms& uniforms) noexcept {
+        if ((source.flags & PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA) != 0U) {
+            std::array<float, 4U> bounds{};
+            if (!semantic::try_resolve_semantic_axis_clip_pixel_bounds(
+                    source.bounds, target_extent, presentation, bounds)) return false;
+            // Source identity is wire-validated. Keep exact projected physical
+            // edges and unit pixels: never divide by DPI then multiply back.
+            uniforms.coordinate0[0] = 1.0F;
+            uniforms.coordinate1[1] = 1.0F;
+            std::copy(bounds.begin(), bounds.end(), uniforms.bounds);
+            uniforms.options[0] = 5.0F;
+            uniforms.options[1] = 1.0F;
+            return true;
+        }
         progpu_native_group_mask mask{};
         mask.struct_size = sizeof(mask);
         mask.kind = PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;

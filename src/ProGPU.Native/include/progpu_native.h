@@ -219,7 +219,10 @@ typedef enum progpu_native_scene_layer_mask_kind {
 } progpu_native_scene_layer_mask_kind;
 
 enum {
-    PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS = 4U
+    PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS = 4U,
+    /* Rounded-rectangle wire with zero radii, identity source transform and
+       opacity one only. Exact target-axis rectangle/pixel overlap, not SDF AA. */
+    PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA = 1U
 };
 
 typedef enum progpu_native_scene_command_kind {
@@ -227,6 +230,9 @@ typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_RESTORE = 2,
     PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER = 3,
     PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER = 4,
+    /* Target-storage replacement: one straight progpu_native_color payload,
+       no geometry resource/bounds. Only the active binary clip is applied. */
+    PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET = 5,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC = 16,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH = 17,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN = 18,
@@ -1303,8 +1309,10 @@ typedef struct progpu_native_scene_tile_composite {
  * rounded rectangle in logical target coordinates. The transform maps mask
  * local coordinates to logical target coordinates; radii are normalized by
  * the executor using the same bounded CSS side-fit rule as common masks.
- * Resource generation is the immutable retained identity. All reserved fields
- * and flags remain zero.
+ * Resource generation is the immutable retained identity. Reserved fields stay
+ * zero. Flags zero retains the original SDF coverage. AXIS_CLIP_AREA requires
+ * identity source transform, zero radii and unit opacity; actual presentation
+ * supplies the physical pixel frame for exact rectangular pixel coverage.
  */
 typedef struct progpu_native_scene_layer_mask {
     uint32_t struct_size;
@@ -2941,6 +2949,100 @@ typedef struct progpu_native_scene_shader_effect_capture {
     /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
     progpu_native_scene_shader_effect program;
 } progpu_native_scene_shader_effect_capture;
+
+/* Version-5 source-frame metadata. Capture is scale-space storage; output is
+ * the independent final-device lattice. The original unit quad retains its
+ * homogeneous coordinate, rather than resampling already evaluated output.
+ * Physical integer clip edges are independent of both allocations.
+ * clip_antialias records 0=aliased source bounds, 1=original AA bounds inflation;
+ * both consume the original aliased integer clip, never fractional AA coverage.
+ * All source, derived and reserved fields are validated before publication.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderSampleFrame */
+typedef struct progpu_native_scene_shader_sample_frame {
+    float local_left;
+    float local_top;
+    float local_right;
+    float local_bottom;
+    float source_scale_x;
+    float source_scale_y;
+    float source_offset_x;
+    float source_offset_y;
+    double source_dpi_x;
+    double source_dpi_y;
+    int32_t capture_x;
+    int32_t capture_y;
+    uint32_t capture_width;
+    uint32_t capture_height;
+    int32_t output_x;
+    int32_t output_y;
+    uint32_t output_width;
+    uint32_t output_height;
+    float quad_x;
+    float quad_y;
+    float quad_z;
+    float quad_w;
+    float quad_offset_x;
+    float quad_offset_y;
+    float clip_left;
+    float clip_top;
+    float clip_right;
+    float clip_bottom;
+    uint32_t clip_antialias;
+    uint32_t reserved;
+} progpu_native_scene_shader_sample_frame;
+
+/* Version 5 owns an earlier complete implicit-input picture, and optionally an
+ * earlier complete ImageBrush sampler picture. Both are same-scene IMAGE_PICTURE
+ * resources, never external textures or borrowed source handles. NO_INDEX
+ * sampler means the input picture; NO_INDEX derivative leaves constants intact.
+ * Legacy descriptor versions remain byte-for-byte independent.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderEffectSamples */
+typedef struct progpu_native_scene_shader_effect_samples {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t input_resource_index;
+    uint32_t sampler_resource_index;
+    uint32_t derivative_register;
+    uint32_t flags;
+    uint32_t reserved[2];
+    /* PROGPU_CSHARP_TYPE: SceneShaderSampleFrame */
+    progpu_native_scene_shader_sample_frame frame;
+    /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
+    progpu_native_scene_shader_effect program;
+} progpu_native_scene_shader_effect_samples;
+
+/* Version 6 retains all six original float affine components. The placement
+ * prefix keeps the source diagonal/translation and lattice/clip fields; its
+ * derived quad is completed by the two cross terms below. Version-5 validation
+ * is intentionally NOT applicable to this distinct descriptor. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderAffineFrame */
+typedef struct progpu_native_scene_shader_affine_frame {
+    /* PROGPU_CSHARP_TYPE: SceneShaderSampleFrame */
+    progpu_native_scene_shader_sample_frame placement;
+    float source_m12;
+    float source_m21;
+    float quad_m12;
+    float quad_m21;
+} progpu_native_scene_shader_affine_frame;
+
+/* Same immutable earlier-picture ownership as version 5; no caller texture,
+ * opaque transform witness or evaluated-effect image is admitted. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderEffectAffine */
+typedef struct progpu_native_scene_shader_effect_affine {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t input_resource_index;
+    uint32_t sampler_resource_index;
+    uint32_t derivative_register;
+    uint32_t flags;
+    uint32_t reserved[2];
+    /* PROGPU_CSHARP_TYPE: SceneShaderAffineFrame */
+    progpu_native_scene_shader_affine_frame frame;
+    /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
+    progpu_native_scene_shader_effect program;
+} progpu_native_scene_shader_effect_affine;
 
 /*
  * A bounded linear retained effect chain. Effects are evaluated in array

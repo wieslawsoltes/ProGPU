@@ -307,6 +307,17 @@ set(generated_text_shader
     "${generated_directory}/TextWgsl.generated.hpp")
 set(generated_rgb_glyph_rasterizer_shader "${generated_directory}/GlyphRgbRasterizerWgsl.generated.hpp")
 set(generated_rgb_glyph_composite_shader "${generated_directory}/GlyphRgbCompositeWgsl.generated.hpp")
+set(generated_target_clear_shader "${generated_directory}/TargetClearWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_target_clear_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TargetClear.wgsl"
+        "-DOUTPUT=${generated_target_clear_shader}"
+        "-DSYMBOL=target_clear_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TargetClear.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    VERBATIM)
 add_custom_command(
     OUTPUT "${generated_rgb_glyph_rasterizer_shader}"
     COMMAND "${CMAKE_COMMAND}"
@@ -417,6 +428,32 @@ add_custom_command(
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeEffect.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the original WPF bytecode effect capture template"
+    VERBATIM)
+set(generated_wpf_bytecode_sample_effect_shader
+    "${generated_directory}/WpfBytecodeSampleEffectWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_wpf_bytecode_sample_effect_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeSampleEffect.wgsl"
+        "-DOUTPUT=${generated_wpf_bytecode_sample_effect_shader}"
+        "-DSYMBOL=wpf_bytecode_sample_effect_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeSampleEffect.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the retained final-device WPF bytecode effect template"
+    VERBATIM)
+set(generated_wpf_bytecode_affine_effect_shader
+    "${generated_directory}/WpfBytecodeAffineEffectWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_wpf_bytecode_affine_effect_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl"
+        "-DOUTPUT=${generated_wpf_bytecode_affine_effect_shader}"
+        "-DSYMBOL=wpf_bytecode_affine_effect_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the retained affine WPF bytecode effect template"
     VERBATIM)
 set(generated_texture_gaussian_blur_shader
     "${generated_directory}/TextureGaussianBlurWgsl.generated.hpp")
@@ -650,11 +687,14 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_glyph_rasterizer_shader}"
         "${generated_rgb_glyph_rasterizer_shader}"
         "${generated_rgb_glyph_composite_shader}"
+        "${generated_target_clear_shader}"
         "${generated_text_shader}"
         "${generated_hinted_glyph_paint_shader}"
         "${generated_texture_shader}"
         "${generated_image_effect_shader}"
         "${generated_wpf_bytecode_effect_shader}"
+        "${generated_wpf_bytecode_sample_effect_shader}"
+        "${generated_wpf_bytecode_affine_effect_shader}"
         "${generated_texture_gaussian_blur_shader}"
         "${generated_texture_gaussian_blur_unfilterable_shader}"
         "${generated_clip_compose_shader}"
@@ -669,6 +709,7 @@ add_custom_target(progpu_native_generated_shaders
 
 set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_rgb_glyph_execution.cpp
+    src/Backend/progpu_native_target_clear.cpp
     src/Backend/progpu_native_geometry_utility.cpp
     src/Backend/progpu_native_advanced_blend_execution.cpp
     src/Backend/progpu_native_backdrop_execution.cpp
@@ -742,6 +783,8 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_shader_effect_execution.hpp
     src/Scene/progpu_native_shader_effect_resource.hpp
     src/Scene/progpu_native_shader_capture_frame.hpp
+    src/Scene/progpu_native_shader_sample_frame.hpp
+    src/Scene/progpu_native_shader_affine_frame.hpp
     src/Scene/progpu_native_shader_effect_uniforms.hpp
     src/Scene/progpu_native_semantic_image_blur_resources.cpp
     src/Scene/progpu_native_semantic_image_resources.hpp
@@ -1134,6 +1177,10 @@ add_library(progpu_native_direct2d_core STATIC
     src/Direct2D/progpu_native_direct2d_core.cpp
     src/Direct2D/progpu_native_direct2d_drawing_state.cpp
     src/Direct2D/progpu_native_direct2d_drawing_state.hpp
+    src/Direct2D/progpu_native_direct2d_font_capture.cpp
+    src/Direct2D/progpu_native_direct2d_font_capture.hpp
+    src/Direct2D/progpu_native_direct2d_prepared_glyphs.cpp
+    src/Direct2D/progpu_native_direct2d_prepared_glyphs.hpp
     src/Direct2D/progpu_native_direct2d_ellipse.cpp
     src/Direct2D/progpu_native_direct2d_ellipse.hpp
     src/Direct2D/progpu_native_direct2d_geometry_group.cpp
@@ -1151,7 +1198,8 @@ target_include_directories(progpu_native_direct2d_core PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_link_libraries(progpu_native_direct2d_core PUBLIC
-    progpu_native_scene_builder)
+    progpu_native_scene_builder
+    PRIVATE progpu_native_text)
 if(WIN32)
     target_compile_definitions(progpu_native_direct2d_core PUBLIC
         NOMINMAX
@@ -1765,14 +1813,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         progpu_native_direct2d_core_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_direct2d_compat_tests
-        tests/progpu_native_direct2d_compat_tests.cpp)
+        tests/progpu_native_direct2d_compat_tests.cpp
+        tests/progpu_native_direct2d_font_capture_tests.cpp)
     target_compile_features(
         progpu_native_direct2d_compat_tests PRIVATE cxx_std_20)
     target_link_libraries(
         progpu_native_direct2d_compat_tests PRIVATE
         progpu_native_direct2d_core)
     if(WIN32)
-        target_link_libraries(progpu_native_direct2d_compat_tests PRIVATE d2d1)
+        target_link_libraries(progpu_native_direct2d_compat_tests PRIVATE d2d1 dwrite)
     endif()
     progpu_native_enable_warnings(progpu_native_direct2d_compat_tests)
     progpu_native_enable_sanitizers(progpu_native_direct2d_compat_tests)
@@ -1826,6 +1875,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             WIN32_LEAN_AND_MEAN)
         target_link_libraries(progpu_native_direct2d_tests PRIVATE
             progpu_native_direct2d
+            progpu_native_direct2d_core
+            bcrypt
             d2d1
             gdi32
             ole32

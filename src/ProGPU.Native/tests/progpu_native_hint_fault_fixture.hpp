@@ -16,7 +16,8 @@ namespace progpu::native::tests {
 // Glyphs 1/2 have identical valid contours. Only glyph 2's program is faulty.
 // Algorithm: fixed three-glyph table assembly and independent table/file checksums.
 // Time/space: O(F), F = small authored fixture bytes; not a product font builder.
-inline std::vector<std::byte> make_hint_fault_font()
+inline std::vector<std::byte> make_hint_fault_font(std::int16_t first_bearing = 13,
+    std::int16_t second_bearing = 13, bool compact_metrics = false)
 {
     using bytes = std::vector<std::byte>;
     const auto put16 = [](bytes& data, std::size_t offset, std::uint16_t value) {
@@ -80,7 +81,7 @@ inline std::vector<std::byte> make_hint_fault_font()
     put32(head, 0U, 0x00010000U);
     put32(head, 4U, 0x00010000U);
     put32(head, 12U, 0x5F0F3CF5U);
-    put16(head, 16U, 2U); // xMin equals source left side bearing
+    put16(head, 16U, first_bearing == 13 && second_bearing == 13 ? 2U : 0U);
     put16(head, 18U, 1000U);
     put16(head, 36U, 13U);
     put16(head, 38U, 13U);
@@ -102,15 +103,17 @@ inline std::vector<std::byte> make_hint_fault_font()
     put16(hhea, 4U, 800U);
     put16(hhea, 6U, static_cast<std::uint16_t>(-200));
     put16(hhea, 10U, 500U);
-    put16(hhea, 12U, 0U);
-    put16(hhea, 14U, 187U);
-    put16(hhea, 16U, 313U);
+    put16(hhea, 12U, static_cast<std::uint16_t>(std::min({0, static_cast<int>(first_bearing), static_cast<int>(second_bearing)})));
+    put16(hhea, 14U, static_cast<std::uint16_t>(std::min({500, 200 - first_bearing, 200 - second_bearing})));
+    put16(hhea, 16U, static_cast<std::uint16_t>(std::max({0, 300 + first_bearing, 300 + second_bearing})));
     put16(hhea, 18U, 1U);
-    put16(hhea, 34U, 3U);
-    bytes hmtx(12U);
+    put16(hhea, 34U, compact_metrics ? 1U : 3U);
+    bytes hmtx(compact_metrics ? 8U : 12U);
+    const std::array<std::int16_t, 3U> bearings{0, first_bearing, second_bearing};
     for (std::size_t index = 0U; index < 3U; ++index) {
-        put16(hmtx, index * 4U, 500U);
-        put16(hmtx, index * 4U + 2U, static_cast<std::uint16_t>(index == 0U ? 0U : 13U));
+        if (!compact_metrics || index == 0U) put16(hmtx, index * 4U, 500U);
+        const auto bearing_offset = compact_metrics && index != 0U ? 2U + index * 2U : index * 4U + 2U;
+        put16(hmtx, bearing_offset, static_cast<std::uint16_t>(bearings[index]));
     }
     bytes cmap(274U);
     put16(cmap, 2U, 1U);

@@ -526,6 +526,32 @@ bool semantic_scene_builder::restore() noexcept {
     }
 }
 
+bool semantic_scene_builder::clear_target(const progpu_native_color& color) noexcept {
+    if (!std::isfinite(color.r) || !std::isfinite(color.g) ||
+        !std::isfinite(color.b) || !std::isfinite(color.a) || color.a < 0.0F || color.a > 1.0F)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    if (implementation_->commands.size() >= PROGPU_NATIVE_SCENE_MAX_COMMANDS)
+        return implementation_->fail(scene_build_error::capacity_exceeded);
+    try {
+        implementation::command_entry command{};
+        command.record.struct_size = sizeof(command.record);
+        command.record.kind = PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET;
+        command.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        command.record.command_id = implementation_->commands.size() + 1U;
+        command.record.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        command.record.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        command.payload = copy_bytes(std::span<const progpu_native_color>(&color, 1U));
+        scene_builder_detail::reserve_append(implementation_->commands, 1U);
+        implementation_->commands.push_back(std::move(command));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::draw_analytic(
     std::span<const progpu_native_analytic_primitive> primitives,
     std::span<const std::uint32_t> brush_indices,

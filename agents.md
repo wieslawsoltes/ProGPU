@@ -1,5 +1,34 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit axis-clip area masks retain identity source mapping, zero radii and unit
+opacity. Project original four edges through actual per-axis DPI/viewport and
+localize physical target origin before pixel overlap; never divide by DPI and
+multiply back or replace rectangular corner area with rounded-distance AA.
+Ordinary flags-zero rounded masks stay unchanged. Preserve wire rejection,
+analytic-chain flags, all shared shader consumers and independent original
+Windows/source pixels; authored math is not qualification. See
+docs/native-axis-clip-coverage.md.
+
+Target-storage Clear is an explicit retained operator, not an analytic rectangle
+or source-over transparent draw. Preserve actual attachment identity, straight
+color, source order and exact pixel-center binary clips; source transforms and
+opacity do not move this operation. AA source clips initialize from background
+only inward of the nearest ordinary layer, whose original opacity/mask/policy
+survive. Preflight open and historical child depth atomically without counting
+live AA children twice. AA allocation stays outward-rounded and its coverage
+applies once at pop; no readback, fabricated extent or source hit primitive.
+See docs/native-target-storage-clear.md; source admission remains unqualified
+until final original Windows/full-provider/package gates pass.
+
+Affine ShaderEffect frames retain all original float XY coefficients and the
+independent scale-space input lattice. Keep full homogeneous residual/projection,
+mirrored orientation, actual parent target and all derivative components; never
+resample evaluated effects or replace a transformed clip with its envelope.
+Version 6 has a distinct wire, reader and shader layout; v1–v5 contracts remain
+independent. Actual source transform history must be witnessed per push, not
+reconstructed from a final double aggregate. Named rotation/skew constructors
+need their own original primitive proof. See docs/native-shader-affine-frame.md.
+
 Retained RGB glyph replay keeps the explicit box model separate from original
 DirectWrite modes. Prove opacity from the actual materialized target, never a
 root clear or ancestor. Preserve original sampling phase, exact two-axis DPI,
@@ -11,6 +40,37 @@ scalar coverage. Retain source order
 between ordinary bundles and submission-owned GPU resources. Report actual cold
 and warm uploads/draws; packet retention is not coverage retention or modern
 ClearType qualification. See docs/native-rgb-glyph-coverage.md.
+
+Source shader opacity ordering is explicit immutable WpfShaderEffect metadata,
+not a generic compositor default. Capture original root opacity/mask before
+bytecode while keeping geometry clips on the output; zero root alpha cannot
+erase a constant-output shader. Preserve ordinary ancestor alpha, cached input
+placement, typed mask ownership and effect cache identity. Do not duplicate
+opacity or rewrite other effect ordering. See docs/source-shader-opacity-order.md;
+the source adapter must opt in and final qualification remains required.
+
+Native ShaderEffect spatial gradient opacity applies inside the retained input
+capture before bytecode evaluation, never as final shader coverage. Reuse the
+typed gradient mask, original unpadded brush bounds and scale-space source
+transform; keep complete padding/UV extent independent. Brush opacity and
+visual opacity apply once through the existing inner layer. Sampled ImageBrush,
+DrawingBrush and VisualBrush opacity use their original owned nested capture
+in the same scale-space frame, with active-resource/depth guards and source
+sampling intact; do not import final residual/viewport placement into the mask.
+Unproven frames and unsupported original brush contracts remain gated. See
+docs/native-shader-input-opacity.md; authored controls are not qualification.
+
+Version-5 native ShaderEffect output evaluates original bytecode on the actual
+parent target's device samples, retaining the full homogeneous source residual,
+target-dependent projection and independent complete input capture. Never filter
+an evaluated effect image as a fractional-placement substitute. Exact typed
+source vector clips retain their curves, Boolean topology and inherited frame;
+the shared rasterizer's retained coverage is loaded at the same final device
+pixel and applied once after shader evaluation. Preserve span/submission-owned
+mask leases, masked program identity and the unmasked lazy path. Unproven source
+mapping or a different mask family is not an envelope/opacity fallback. Keep
+original wires and final SDK/source/provider qualification separate; see
+docs/native-shader-final-sample-frame.md.
 
 Version-4 native ShaderEffect captures retain original local float edges and a
 traversal-owned root-DPI/per-push float witness. Allocate floor(min)/ceil(max) in
@@ -202,7 +262,8 @@ and premultiply once at ordinary scene submission. Compatible picture conversion
 remains independent. An all-aliased clip stack records bounded SRC replacement in
 its captured target frame, preserving history and ignoring the later transform.
 Keep fractional physical coverage, retained DPI-history accounting and both native
-producers paired; antialiased clips and failed recordings still reject.
+producers paired; failed recordings still reject. AA axis clips use the separate
+target-storage/background-preservation contract, not this analytic SRC path.
 See docs/direct2d-full-target-clear.md; metadata fixtures are not pixel qualification.
 
 Direct2D transparent-layer Clear requires actual isolated layer storage before

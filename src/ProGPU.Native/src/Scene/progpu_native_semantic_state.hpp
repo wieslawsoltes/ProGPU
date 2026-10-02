@@ -287,6 +287,12 @@ scissor resolve_semantic_target_scissor(const progpu_native_scene_state& state,
 // Final binary replacement coverage, not storage allocation: select precisely
 // the half-open interval of physical pixel centers inside the original bounds.
 // Returns a target-local scissor after actual presentation/target intersection.
+// Exact physical edges in the current target frame, using the same four-lane
+// source projection as binary clips. No inverse-DPI or raster-DPI round trip.
+bool try_resolve_semantic_axis_clip_pixel_bounds(const progpu_native_image_rect& bounds,
+    const scissor& target, const progpu_native_scene_presentation& presentation,
+    std::array<float, 4U>& result) noexcept;
+
 scissor resolve_semantic_aliased_composite_scissor(const progpu_native_image_rect& bounds,
     const scissor& target, const progpu_native_scene_presentation& presentation) noexcept;
 

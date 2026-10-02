@@ -43,6 +43,10 @@ jobs:
         run: |
           dotnet build eng/WpfShaderEffectReference/WpfShaderEffectReference.csproj -c Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build original SDK arithmetic companion with provenance
+        shell: pwsh
+        run: |
+          ./eng/WpfShaderEffectReference/BuildOriginalAxisMath.ps1 -Architecture '${{ matrix.arch }}' -SourceCommit $env:REFERENCE_COMMIT -OutputDirectory 'eng/WpfShaderEffectReference/bin/Release/net10.0-windows'
       - name: Capture original software shader pixels
         shell: pwsh
         run: |
@@ -78,6 +82,36 @@ jobs:
             $localCapture = Get-Content -LiteralPath $localReceipt -Raw | ConvertFrom-Json
             $qualifiedLocal = if ('${{ matrix.mode }}' -eq 'shader-pixels') { 21 } else { 0 }
             if ($localCapture.SourceCommit -ne $env:REFERENCE_COMMIT -or $localCapture.Architecture -ne '${{ matrix.arch }}' -or $localCapture.CaseCount -ne 21 -or $localCapture.Cases.Count -ne 21 -or $localCapture.Replays -ne 63 -or $localCapture.OriginalDrawingBaselines -ne 23 -or $localCapture.NativeCandidateCases -ne 18 -or $localCapture.DeferredFinalPlacementControls -ne 2 -or $localCapture.DeferredFloatHistoryControls -ne 1 -or $localCapture.ArithmeticControls -ne 88 -or $localCapture.MutationChecks -ne 4 -or $localCapture.InvalidShaders -ne 0 -or $localCapture.Failures.Count -ne 0 -or $localCapture.CaptureMode -ne '${{ matrix.mode }}' -or $localCapture.QualifiedShaderCases -ne $qualifiedLocal) { throw 'Incomplete or wrong-identity original fractional local capture reference.' }
+            $axisReceipt = Join-Path $evidence 'shader-axis-decomposition.json'
+            if ((Get-Item -LiteralPath $axisReceipt).Length -gt 2MB) { throw 'Original axis receipt exceeds its bound.' }
+            $axis = Get-Content -LiteralPath $axisReceipt -Raw | ConvertFrom-Json
+            $qualifiedAxis = if ('${{ matrix.mode }}' -eq 'shader-pixels') { 10 } else { 0 }
+            if ($axis.Schema -ne 1 -or $axis.SourceCommit -ne $env:REFERENCE_COMMIT -or $axis.Architecture -ne '${{ matrix.arch }}' -or $axis.CaptureMode -ne '${{ matrix.mode }}' -or $axis.MathCaseCount -ne 10 -or $axis.MathCases.Count -ne 10 -or $axis.ArithmeticControls -ne 29 -or $axis.AtomicControls -ne 3 -or $axis.CaseCount -ne 40 -or $axis.Cases.Count -ne 40 -or $axis.Replays -ne 120 -or $axis.OriginalDrawingBaselines -ne 40 -or $axis.InvalidShaders -ne 0 -or $axis.Failures.Count -ne 0) { throw 'Incomplete or wrong-identity original axis reference.' }
+            if ($axis.QualifiedArithmeticCases -ne 10 -or $axis.QualifiedConstantCoverageCases -ne $qualifiedAxis -or $axis.ObservationOnlyCases -ne 30 -or $axis.QualifiedUvInputDerivativeCases -ne 0 -or $axis.QualifiedNativeCases -ne 0 -or $axis.QualifiedHardwareCases -ne 0) { throw 'Axis observation or SDK arithmetic was confused with pixel/hardware qualification.' }
+            $axisNames = @('axis-root-125', 'axis-root-150', 'axis-root-mixed-125-150', 'axis-source-nonuniform-125', 'axis-source-nonuniform-150', 'axis-root-125-next', 'axis-root-150-previous', 'axis-source-next', 'axis-source-previous', 'axis-source-double-midpoint')
+            foreach ($name in $axisNames) {
+              if (@($axis.MathCases | Where-Object { $_.Name -ceq $name }).Count -ne 1) { throw "Missing or duplicate SDK case: $name" }
+              foreach ($output in @('Constant', 'Input', 'Uv', 'Derivatives')) {
+                $cases = @($axis.Cases | Where-Object { $_.Input.Name -ceq $name -and $_.Input.Output -ceq $output })
+                if ($cases.Count -ne 1) { throw "Missing or duplicate axis source case: $name/$output" }
+                $case = $cases[0]
+                if ($case.Replays -ne 3 -or $case.ReplaySha256.Count -ne 3 -or @($case.ReplaySha256 | Sort-Object -Unique).Count -ne 1 -or $case.PlainSha256 -notmatch '^[0-9A-F]{64}$') { throw 'Incomplete axis replay or original-input baseline.' }
+                $pixels = [Convert]::FromBase64String($case.Pixels)
+                if ($pixels.Length -ne 24576 -or [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($pixels)) -cne $case.ReplaySha256[0]) { throw 'Axis receipt pixels/hash disagree.' }
+                $mustQualify = $output -ceq 'Constant' -and $qualifiedAxis -eq 10
+                if ($case.QualifiedConstantCoverage -ne $mustQualify -or $case.ObservedOnly -ne ($output -cne 'Constant') -or $case.Input.NativeAdmitted -ne $false -or $case.Input.HardwareQualified -ne $false) { throw 'Axis case qualification flags changed.' }
+              }
+            }
+            if ($axis.SdkCompanion.Build.SourceCommit -cne $env:REFERENCE_COMMIT -or $axis.SdkCompanion.Build.Architecture -cne '${{ matrix.arch }}' -or $axis.SdkCompanion.Binary.Sha256 -cne $axis.SdkCompanion.Build.Binary.Sha256 -or $axis.SdkCompanion.Build.DirectXHeaders.Count -lt 3 -or $axis.SdkCompanion.Build.CompilerBackends.Count -ne 2) { throw 'Original SDK companion provenance is incomplete.' }
+            $affinePath = Join-Path $evidence 'shader-affine-math.json'
+            if ((Get-Item -LiteralPath $affinePath).Length -gt 1MB) { throw 'Original affine math receipt exceeds its bound.' }
+            $affine = Get-Content -LiteralPath $affinePath -Raw | ConvertFrom-Json
+            if ($affine.Schema -ne 1 -or $affine.SourceCommit -cne $env:REFERENCE_COMMIT -or $affine.Architecture -cne '${{ matrix.arch }}' -or $affine.CaseCount -ne 8 -or $affine.Cases.Count -ne 8 -or $affine.AtomicControls -ne 4 -or $affine.Failures.Count -ne 0 -or $affine.QualifiedSdkCases -ne 8 -or $affine.QualifiedNativeCases -ne 0 -or $affine.QualifiedHardwareCases -ne 0) { throw 'Incomplete or misqualified original affine SDK inventory.' }
+            foreach ($name in @('quarter', 'mirror', 'swap', 'shear', 'oblique', 'mixed-dpi', 'noncommuting', 'canceled-history')) {
+              $cases = @($affine.Cases | Where-Object { $_.Name -ceq $name })
+              if ($cases.Count -ne 1 -or $cases[0].OriginalDoubleBits.Count -ne 24 -or $cases[0].Values.Count -ne 156 -or $cases[0].FloatBits.Count -ne 156 -or $cases[0].Traits.Count -ne 5) { throw "Missing or incomplete original affine SDK case: $name" }
+            }
+            if ($affine.SdkCompanion.Build.SourceCommit -cne $env:REFERENCE_COMMIT -or $affine.SdkCompanion.Binary.Sha256 -cne $axis.SdkCompanion.Binary.Sha256) { throw 'Affine SDK companion identity differs from the original companion.' }
             Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
           } finally {
             if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
@@ -89,5 +123,8 @@ jobs:
         if: always()
         with:
           name: wpf-shader-reference-${{ matrix.arch }}-${{ env.REFERENCE_COMMIT }}
-          path: artifacts/wpf-shader-reference/
+          path: |
+            artifacts/wpf-shader-reference/
+            artifacts/wpf-axis-sdk-*/
+            eng/WpfShaderEffectReference/bin/Release/net10.0-windows/OriginalShaderAxisMath.provenance.json
           if-no-files-found: error

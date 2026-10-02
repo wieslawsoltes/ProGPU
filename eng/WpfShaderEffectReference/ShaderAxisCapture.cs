@@ -18,7 +18,7 @@ internal static partial class Program
     {
         int pureControls=ShaderAxisOracle.VerifyArithmeticControls();
         if (pureControls!=29) throw new InvalidOperationException("Wrong independent axis control inventory.");
-        using var sdk = new OriginalAxisSdk();
+        using var sdk = new OriginalAxisSdk(commit);
         int atomicControls=sdk.VerifyAtomicControls();
         var math = new List<object>();
         var observations = new List<object>();
@@ -142,22 +142,46 @@ internal static partial class Program
         private delegate int Probe(IntPtr input,uint inputs,IntPtr output,uint outputs,IntPtr traits,uint traitCount);
         private readonly IntPtr library;
         private readonly Probe probe;
+        private readonly Probe affineProbe;
         internal object Identity {get;}
-        internal OriginalAxisSdk()
+        internal OriginalAxisSdk(string commit)
         {
             string path=Path.Combine(AppContext.BaseDirectory,"OriginalShaderAxisMath.dll");
+            Machine expected=RuntimeInformation.ProcessArchitecture switch
+            {
+                Architecture.Arm64 => Machine.Arm64,
+                Architecture.X64 => Machine.Amd64,
+                _ => throw new InvalidOperationException("Unsupported original SDK process architecture.")
+            };
             using(var stream=File.OpenRead(path)) using(var pe=new PEReader(stream))
             {
-                Machine expected=RuntimeInformation.ProcessArchitecture==Architecture.Arm64 ? Machine.Arm64 : Machine.Amd64;
                 if(pe.PEHeaders.CoffHeader.Machine!=expected) throw new InvalidOperationException("Wrong SDK companion architecture.");
             }
-            using var provenance=JsonDocument.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory,"OriginalShaderAxisMath.provenance.json")));
+            string provenancePath=Path.Combine(AppContext.BaseDirectory,"OriginalShaderAxisMath.provenance.json");
+            if(new FileInfo(provenancePath).Length>1024*1024) throw new InvalidOperationException("SDK provenance exceeds its bound.");
+            using var provenance=JsonDocument.Parse(File.ReadAllBytes(provenancePath));
+            var build=provenance.RootElement;
+            using(var binary=File.OpenRead(path))
+            {
+                if(build.GetProperty("Schema").GetInt32()!=1 || build.GetProperty("SourceCommit").GetString()!=commit ||
+                    build.GetProperty("Architecture").GetString()!=RuntimeInformation.ProcessArchitecture.ToString() ||
+                    build.GetProperty("PeMachine").GetUInt16()!=(ushort)expected ||
+                    build.GetProperty("Binary").GetProperty("Sha256").GetString()!=Convert.ToHexString(SHA256.HashData(binary)) ||
+                    build.GetProperty("Binary").GetProperty("Bytes").GetInt64()!=binary.Length ||
+                    build.GetProperty("CompilerBackends").GetArrayLength()!=2 ||
+                    build.GetProperty("DirectXHeaders").GetArrayLength()<3)
+                    throw new InvalidOperationException("Original SDK provenance does not identify this binary/source/toolchain.");
+            }
             Identity=new {Binary=FileIdentity(path),Build=provenance.RootElement.Clone()};
             library=NativeLibrary.Load(path);
-            try { probe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderAxisMath")); }
+            try
+            {
+                probe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderAxisMath"));
+                affineProbe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderAffineMath"));
+            }
             catch { NativeLibrary.Free(library); throw; }
         }
-        private int Invoke(double[] input,uint inputCount,float[] output,uint outputCount,uint[] traits)
+        private int Invoke(double[] input,uint inputCount,float[] output,uint outputCount,uint[] traits,Probe? selected=null)
         {
             var a=GCHandle.Alloc(input,GCHandleType.Pinned);
             try
@@ -166,7 +190,7 @@ internal static partial class Program
                 try
                 {
                     var c=GCHandle.Alloc(traits,GCHandleType.Pinned);
-                    try { return probe(a.AddrOfPinnedObject(),inputCount,b.AddrOfPinnedObject(),outputCount,c.AddrOfPinnedObject(),5); }
+                    try { return (selected??probe)(a.AddrOfPinnedObject(),inputCount,b.AddrOfPinnedObject(),outputCount,c.AddrOfPinnedObject(),5); }
                     finally {c.Free();}
                 }
                 finally {b.Free();}
@@ -191,6 +215,27 @@ internal static partial class Program
                     throw new InvalidOperationException("SDK companion rejection was not atomic.");
             }
             return 3;
+        }
+        internal (float[] Values,uint[] Traits) CaptureAffine(double[] input)
+        {
+            if(input.Length!=24) throw new InvalidOperationException("Wrong affine original input count.");
+            var values=new float[156]; var traits=new uint[5];
+            if(Invoke(input,24,values,156,traits,affineProbe)!=1) throw new InvalidOperationException("Original affine SDK capture failed.");
+            return(values,traits);
+        }
+        internal int VerifyAffineAtomicControls(double[] original)
+        {
+            for(int mode=0;mode<4;++mode)
+            {
+                var input=(double[])original.Clone();
+                var values=Enumerable.Repeat(3.25f,156).ToArray(); var traits=Enumerable.Repeat(777U,5).ToArray();
+                if(mode==0) input[0]=double.NaN;
+                if(mode==3) input[22]=0;
+                if(Invoke(input,mode==1?23U:24U,values,mode==2?155U:156U,traits,affineProbe)!=0 ||
+                    values.Any(x=>x!=3.25f) || traits.Any(x=>x!=777U))
+                    throw new InvalidOperationException("Affine SDK companion rejection was not atomic.");
+            }
+            return 4;
         }
         public void Dispose()=>NativeLibrary.Free(library);
     }

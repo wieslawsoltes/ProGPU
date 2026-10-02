@@ -691,12 +691,21 @@ public enum NativeSceneLayerMaskKind : uint
     Picture = 8
 }
 
+[Flags]
+public enum NativeSceneLayerMaskFlags : uint
+{
+    None = 0,
+    AxisClipArea = 1
+}
+
 public enum NativeSceneCommandKind : uint
 {
     Save = 1,
     Restore = 2,
     PushLayer = 3,
     PopLayer = 4,
+    /// <summary>Replaces active target storage through its binary clip.</summary>
+    ClearTarget = 5,
     DrawAnalytic = 16,
     DrawPath = 17,
     DrawGlyphRun = 18,
@@ -2135,6 +2144,14 @@ public readonly struct NativeSceneLayer
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneLayerMask
 {
+    /// <summary>Exact physical pixel coverage of a target-axis source clip.</summary>
+    public static NativeSceneLayerMask CreateAxisAlignedClip(NativeImageRect bounds)
+        => new(bounds, NativeSceneLayerMaskFlags.AxisClipArea);
+
+    private NativeSceneLayerMask(NativeImageRect bounds, NativeSceneLayerMaskFlags flags)
+        : this(bounds, Matrix3x2.Identity, Vector4.Zero, Vector4.Zero)
+        => Flags = (uint)flags;
+
     public NativeSceneLayerMask(
         NativeImageRect bounds,
         Matrix3x2 transform,
