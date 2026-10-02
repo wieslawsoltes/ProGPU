@@ -6,10 +6,9 @@ em/DPI, width and genuine pre-formatting Typeface baseline/spacing enter the
 original double options/styles. Only units-per-em comes from `head`; `hhea` and
 expected output line geometry cannot supply source request metrics.
 
-The new original-Windows `--source-inputs` capture is required. Its schema-2/4
-receipts must acquire exact reviewed hashes after both Windows jobs succeed.
-The source-input hash allowlist is intentionally empty until those observations
-exist: a declared source SHA or a caller-provided hash cannot authorize input.
+The new original-Windows `--source-inputs` capture is required. Only exact
+reviewed schema-2/4 hashes from the successful capture below are admitted:
+a declared source SHA or a caller-provided hash cannot authorize input.
 Existing source-input-era 192 receipts and the exact reviewed 288 v3 receipts
 are accepted for device-free validation only; they explicitly lack the required
 Display request metrics. Their original bytes, case order, counts (386/450 and
@@ -68,6 +67,7 @@ Device-free controls require one immutable original receipt:
 
 ```sh
 PROGPU_SOURCE_DISPLAY_REFERENCE=/absolute/original/reference.json \
+PROGPU_SOURCE_DISPLAY_INPUT_RECEIPT=/absolute/reviewed/source-inputs.json \
   dotnet test eng/SourceDisplayPolicyProbe.Tests -c Release -m:1
 ```
 
@@ -91,5 +91,33 @@ import. This was a source-only compile, not WPF execution on the local host.
 The new native-linked probe has not been type-built against the pending producer
 package or executed. No native graph/renderer build, GPU/VM execution or runtime
 staging occurred. Genuine independent input capture still requires the hosted
-original Windows jobs, followed by exact receipt-hash review; the new allowlist
-remains empty and ordinary Display stays unadvertised.
+original Windows jobs, followed by exact receipt-hash review. That independent
+input qualification is now recorded below; ordinary Display stays unadvertised.
+
+## Reviewed independent source input capture
+
+[Original Windows workflow 37011550318](https://github.com/wieslawsoltes/ProGPU/actions/runs/37011550318)
+succeeded on both architectures at exact source
+`92f4778b0db2d802d84b50281bc4c4e97349b4db`. Every original case payload is
+exactly equal to the prior immutable 192/v3 receipts; no drive normalization,
+glyph reorder, field removal or tolerance was needed. Each independent capture,
+after excluding only its added metric-input field, also equals its same-run
+primary case. Counts remain192/386/450 and288/426/546 cases/lines/runs.
+
+Every observed metric input has the exact original font/URI, em/DPI bits, mode,
+toReal=1, fixed method signatures and PresentationCore identity/hash. All metric
+values agree across x64/ARM64. The actual captured source inputs, not output line
+baselines, now authorize the new native factory arguments. Retained artifacts
+are under `/private/tmp/progpu-display-independent-inputs.swgc8V`.
+
+| Architecture | Independent receipt | SHA-256 |
+| --- | --- | --- |
+| ARM64 | source-inputs.json | `1542bcbf3fe0837a85565c8e716213c8d24aad2fd2cee69dae87d7888633934e` |
+| ARM64 | source-midpoint-inputs.json | `66eb33702bfa83a208b7af91e7f6a8d332f28ed9d03631b43dfb9b3b84039a56` |
+| x64 | source-inputs.json | `4f0d43ec902a767e01c46e635196a5d1f960489d93cde863a9e8010a8cec669a` |
+| x64 | source-midpoint-inputs.json | `781ceaf0e530463543fc6ab27857b8dc34d26cd7ed88b77281f7f80414395b90` |
+
+The old schemas still reject native execution for absent independent metrics.
+Receipt immutability/finite tamper/occurrence-reorder controls are additive.
+This is original Windows input evidence, not a successful native producer Build,
+native comparison, interpreter selection, complete Display or application result.

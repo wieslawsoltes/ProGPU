@@ -15,10 +15,17 @@ internal sealed class SourceReferenceInput(JsonDocument document, string path, s
         "C389F0A6ECDFC6C7E0B9799733DA945FDC8C07A360FE8DEAB19A8F4F5BA53C93",
         "E705D6469BD41568887D7E5DCAEE2833142EE36497DE6795B357895C5AEB6AB1"
     };
-    // Only exact, reviewed successful Windows receipt hashes may be added here.
-    // New source-input captures have not executed yet. No caller-supplied trust
-    // hash or self-declared source commit can bypass this deliberately empty gate.
-    private static readonly Dictionary<string, string> SourceMetricReceipts = new(StringComparer.Ordinal);
+    // Exact immutable schemas2/4 from both successful original Windows jobs in
+    // workflow37011550318. All original case payloads equal their prior192/v3
+    // receipts. No caller-supplied trust hash or self-declared commit bypasses it.
+    private const string SourceMetricCommit = "92f4778b0db2d802d84b50281bc4c4e97349b4db";
+    private static readonly Dictionary<string, string> SourceMetricReceipts = new(StringComparer.Ordinal)
+    {
+        ["1542BCBF3FE0837A85565C8E716213C8D24AAD2FD2CEE69DAE87D7888633934E"] = SourceMetricCommit,
+        ["66EB33702BFA83A208B7AF91E7F6A8D332F28ED9D03631B43DFB9B3B84039A56"] = SourceMetricCommit,
+        ["4F0D43EC902A767E01C46E635196A5D1F960489D93CDE863A9E8010A8CEC669A"] = SourceMetricCommit,
+        ["781CEAF0E530463543FC6AB27857B8DC34D26CD7ED88B77281F7F80414395B90"] = SourceMetricCommit
+    };
     internal JsonElement Root => document.RootElement;
     internal string Path { get; } = path;
     internal string Sha256 { get; } = hash;

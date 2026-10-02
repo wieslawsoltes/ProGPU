@@ -86,4 +86,47 @@ public sealed class SourceDisplayInputTests
         byte[] changed = File.ReadAllBytes(path).Concat(new byte[] { (byte)' ' }).ToArray();
         Assert.Throws<InvalidDataException>(() => SourceReferenceInput.Parse(changed, "reserialized"));
     }
+
+    private static string IndependentReceiptPath => Environment.GetEnvironmentVariable("PROGPU_SOURCE_DISPLAY_INPUT_RECEIPT")
+        ?? throw new InvalidOperationException("Set PROGPU_SOURCE_DISPLAY_INPUT_RECEIPT to one exact reviewed schema2/4 receipt.");
+
+    [Fact]
+    public void GenuinePreFormattingMetricsRetainTheCompleteOriginalInventory()
+    {
+        using var receipt = SourceReferenceInput.Read(IndependentReceiptPath);
+        Assert.True(receipt.HasIndependentMetrics);
+        Assert.Equal(receipt.IsMidpoint ? 288 : 192, receipt.Cases.Count());
+        foreach (var item in receipt.Cases)
+        {
+            var captured = item.GetProperty("IndependentSourceMetrics");
+            var metrics = SourceReferenceInput.GetMetrics(receipt.Root, item, captured.GetProperty("Font").GetProperty("Sha256").GetString()!);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(item.GetProperty("Em").GetDouble()), BitConverter.DoubleToInt64Bits(metrics.Em));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(item.GetProperty("Dpi").GetDouble()), BitConverter.DoubleToInt64Bits(metrics.Dpi));
+            Assert.True(metrics.LineSpacing >= metrics.Baseline && metrics.Baseline > 0);
+        }
+    }
+
+    [Theory]
+    [InlineData("metric")] [InlineData("glyph")] [InlineData("case-order")] [InlineData("missing-input")]
+    public void FiniteChangesAndOriginalOccurrenceReorderingCannotKeepProvenance(string mutation)
+    {
+        var root = JsonNode.Parse(File.ReadAllBytes(IndependentReceiptPath))!.AsObject();
+        var cases = root["Cases"]!.AsArray();
+        var item = root["Schema"]!.GetValue<int>() == 4 ? cases[0]!["Original"]! : cases[0]!;
+        if (mutation == "metric") item["IndependentSourceMetrics"]!["Baseline"] = Math.BitIncrement(item["IndependentSourceMetrics"]!["Baseline"]!.GetValue<double>());
+        if (mutation == "glyph") item["Lines"]![0]!["Runs"]![0]!["GlyphIds"]![0] = 17;
+        if (mutation == "missing-input") item.AsObject().Remove("IndependentSourceMetrics");
+        if (mutation == "case-order") { var first = cases[0]!.DeepClone(); cases[0] = cases[1]!.DeepClone(); cases[1] = first; }
+        Assert.Throws<InvalidDataException>(() => SourceReferenceInput.Parse(JsonSerializer.SerializeToUtf8Bytes(root), "changed-original-receipt"));
+    }
+
+    [Fact]
+    public void ReviewedInputOwnsOneImmutableSnapshotAndHash()
+    {
+        byte[] original = File.ReadAllBytes(IndependentReceiptPath);
+        using var receipt = SourceReferenceInput.Parse(original, IndependentReceiptPath);
+        string hash = receipt.Sha256, json = receipt.Root.GetRawText();
+        original.AsSpan().Clear();
+        Assert.Equal(hash, receipt.Sha256); Assert.Equal(json, receipt.Root.GetRawText());
+    }
 }
