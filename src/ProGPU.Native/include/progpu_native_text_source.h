@@ -20,6 +20,16 @@ typedef enum progpu_native_source_advance_policy {
     PROGPU_NATIVE_SOURCE_ADVANCE_PHYSICAL_TIES_TO_EVEN = 1
 } progpu_native_source_advance_policy;
 
+typedef enum progpu_native_source_options_flags {
+    PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS = 1
+} progpu_native_source_options_flags;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceIntrinsicWidths */
+typedef struct progpu_native_hinted_source_intrinsic_widths {
+    double minimum;
+    double maximum;
+} progpu_native_hinted_source_intrinsic_widths;
+
 /* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceOptions */
 typedef struct progpu_native_hinted_source_options {
     uint32_t abi_version;
@@ -190,6 +200,11 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_hinted_
 PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_borrow(
     const progpu_native_hinted_paragraph* paragraph,
     progpu_native_hinted_source_paragraph_view* view);
+/* Optional original whole-paragraph measurement, never current-line width.
+ * Requires MEASURE_INTRINSIC_WIDTHS at creation. Reflow preserves its values. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_get_intrinsic_widths(
+    const progpu_native_hinted_paragraph* paragraph,
+    progpu_native_hinted_source_intrinsic_widths* widths);
 PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_reflow(
     const progpu_native_hinted_paragraph* paragraph, int32_t input_start,
     double maximum_width, progpu_native_hinted_paragraph** reflowed);

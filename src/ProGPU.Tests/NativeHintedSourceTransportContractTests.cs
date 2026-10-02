@@ -20,6 +20,7 @@ public sealed class NativeHintedSourceTransportContractTests
         Assert.Equal(32, Marshal.SizeOf<NativeHintedSourceRectangle>());
         Assert.Equal(48, Marshal.SizeOf<NativeHintedSourceHit>());
         Assert.Equal(64, Marshal.SizeOf<NativeHintedSourceRunFrame>());
+        Assert.Equal(16, Marshal.SizeOf<NativeHintedSourceIntrinsicWidths>());
         Assert.Equal(16, Marshal.OffsetOf<NativeHintedSourceOptions>(nameof(NativeHintedSourceOptions.EmSize)).ToInt32());
         Assert.Equal(16, Marshal.OffsetOf<NativeHintedSourceRunFrame>(nameof(NativeHintedSourceRunFrame.ParagraphBaselineY)).ToInt32());
         Assert.Equal(56, Marshal.OffsetOf<NativeHintedSourceRunFrame>(nameof(NativeHintedSourceRunFrame.RasterParagraphOrigin)).ToInt32());
@@ -38,6 +39,9 @@ public sealed class NativeHintedSourceTransportContractTests
         Assert.Equal(2U, options.EmPolicy); Assert.Equal(1U, options.AdvancePolicy);
         Assert.Equal(0U, options.OffsetPolicy); Assert.Equal(0U, options.AllowEmergencyBreak);
         Assert.Equal(0U, options.Flags);
+        var measured = NativeHintedSourceOptions.Create(em, dpi, width, 12.0, 7.0,
+            NativeSourceEmPolicy.Exact26Dot6, NativeSourceAdvancePolicy.Unchanged, true, measureIntrinsicWidths: true);
+        Assert.Equal(1U, measured.Flags); Assert.Equal(em, measured.EmSize); Assert.Equal(width, measured.MaximumWidth);
     }
 
     [Fact]
@@ -47,7 +51,8 @@ public sealed class NativeHintedSourceTransportContractTests
         Assert.NotNull(typeof(NativeHintedSourceParagraph).GetMethod(nameof(NativeHintedSourceParagraph.Reflow), [typeof(int), typeof(double)]));
         Assert.NotNull(typeof(NativeHintedSourceParagraph).GetMethod(nameof(NativeHintedSourceParagraph.HitTestLine), [typeof(int), typeof(double)]));
         Assert.NotNull(typeof(NativeHintedSourceParagraph).GetMethod(nameof(NativeHintedSourceParagraph.GetLineCaret), [typeof(int), typeof(int), typeof(bool)]));
-        Assert.Null(typeof(NativeHintedSourceParagraph).GetProperty("IntrinsicWidths", BindingFlags.Instance | BindingFlags.Public));
+        Assert.Equal(typeof(NativeHintedSourceIntrinsicWidths?), typeof(NativeHintedSourceParagraph)
+            .GetProperty(nameof(NativeHintedSourceParagraph.IntrinsicWidths), BindingFlags.Instance | BindingFlags.Public)!.PropertyType);
         Assert.Equal(typeof(NativeHintedSourceRunFrame), typeof(NativeHintedGlyphResourceReadLease)
             .GetMethod(nameof(NativeHintedGlyphResourceReadLease.ValidateSourceRun))!.ReturnType);
     }

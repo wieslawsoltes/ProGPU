@@ -35,7 +35,8 @@ bool cache_hinted_source_paragraph(progpu_native_hinted_paragraph& handle,
 
 bool source_options_valid(const progpu_native_hinted_source_options& o) noexcept {
     return o.abi_version == PROGPU_NATIVE_ABI_VERSION && o.struct_size == sizeof(o) && o.version == 1U &&
-        o.flags == 0U && o.em_policy <= PROGPU_NATIVE_SOURCE_EM_NEAREST_TIES_TO_EVEN &&
+        (o.flags & ~static_cast<std::uint32_t>(PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS)) == 0U &&
+        o.em_policy <= PROGPU_NATIVE_SOURCE_EM_NEAREST_TIES_TO_EVEN &&
         o.advance_policy <= PROGPU_NATIVE_SOURCE_ADVANCE_PHYSICAL_TIES_TO_EVEN && o.offset_policy == 0U &&
         o.allow_emergency_break <= 1U && std::isfinite(o.em_size) && o.em_size > 0.0 &&
         std::isfinite(o.pixels_per_dip) && o.pixels_per_dip > 0.0 &&
@@ -98,7 +99,7 @@ progpu_native_status progpu_native_text_context_layout_hinted_source_paragraph(
             metrics.push_back({source_styles[i].ascent, source_styles[i].descent});
         }
         const hinted_source_paragraph_layout source_layout{options.maximum_width, options.line_height,
-            metrics, options.allow_emergency_break != 0U};
+            metrics, options.allow_emergency_break != 0U, (options.flags & PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS) != 0U};
         auto candidate = std::make_unique<progpu_native_hinted_paragraph>();
         progpu_native_text_paragraph_result diagnostic{};
         const auto status = try_layout_context_hinted_paragraph(context, *shaping, *layout,
@@ -153,6 +154,17 @@ progpu_native_status progpu_native_hinted_source_paragraph_reflow(
         return PROGPU_NATIVE_STATUS_SUCCESS;
     } catch (const std::bad_alloc&) { return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
     catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
+}
+
+progpu_native_status progpu_native_hinted_source_paragraph_get_intrinsic_widths(
+    const progpu_native_hinted_paragraph* paragraph, progpu_native_hinted_source_intrinsic_widths* widths) {
+    if (!valid_hinted_paragraph(paragraph) || !valid_hinted_buffer(widths, 1U) ||
+        hinted_paragraph_handle_aliases(*paragraph, widths, sizeof(*widths))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (!has_hinted_source(*paragraph) ||
+        (paragraph->source->options.flags & PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS) == 0U ||
+        !paragraph->generation->has_source_intrinsic_widths) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    *widths = {paragraph->generation->source_minimum_intrinsic_width, paragraph->generation->source_maximum_intrinsic_width};
+    return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
 progpu_native_status progpu_native_hinted_source_paragraph_hit_test(

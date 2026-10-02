@@ -11,12 +11,13 @@ public partial struct NativeHintedSourceOptions
 {
     public static unsafe NativeHintedSourceOptions Create(double emSize, double pixelsPerDip, double maximumWidth,
         double lineHeight, double tabOrigin, NativeSourceEmPolicy emPolicy, NativeSourceAdvancePolicy advancePolicy,
-        bool allowEmergencyBreak) => new()
+        bool allowEmergencyBreak, bool measureIntrinsicWidths = false) => new()
         {
             AbiVersion = NativeMethods.AbiVersion, StructSize = (uint)sizeof(NativeHintedSourceOptions), Version = 1,
             EmSize = emSize, PixelsPerDip = pixelsPerDip, MaximumWidth = maximumWidth, LineHeight = lineHeight,
             TabOrigin = tabOrigin, EmPolicy = (uint)emPolicy, AdvancePolicy = (uint)advancePolicy,
             AllowEmergencyBreak = allowEmergencyBreak ? 1U : 0U,
+            Flags = measureIntrinsicWidths ? 1U : 0U,
         };
 }
 
@@ -43,7 +44,7 @@ public sealed unsafe class NativeHintedSourceParagraph : IDisposable
         NativeTextParagraphResult diagnostic = default;
         NativeHintedParagraph.ThrowForStatus(NativeMethods.GetHintedParagraphCounts(handle, &counts, &diagnostic), "source paragraph counts");
         if (view.Options.AbiVersion != NativeMethods.AbiVersion || view.Options.StructSize != sizeof(NativeHintedSourceOptions) ||
-            view.Options.Version != 1 || view.Options.Flags != 0 || view.Options.OffsetPolicy != 0 ||
+            view.Options.Version != 1 || (view.Options.Flags & ~1U) != 0 || view.Options.OffsetPolicy != 0 ||
             view.StyleCount != counts.StyleCount || view.LogicalCount != counts.LogicalGlyphCount ||
             view.GlyphCount != counts.PositionedGlyphCount || view.LineCount != counts.LineCount ||
             counts.ClusterBoxCount != 0 || counts.CaretStopCount != 0)
@@ -55,6 +56,12 @@ public sealed unsafe class NativeHintedSourceParagraph : IDisposable
         _lines = Copy<NativeHintedSourceLineMetrics>(view.LineMetrics, view.LineCount);
         _boxes = Copy<NativeHintedSourceClusterBox>(view.Boxes, view.BoxCount);
         _carets = Copy<NativeHintedSourceCaretStop>(view.Carets, view.CaretCount);
+        if ((view.Options.Flags & 1U) != 0)
+        {
+            NativeHintedSourceIntrinsicWidths widths = default;
+            NativeHintedParagraph.ThrowForStatus(NativeMethods.GetHintedSourceIntrinsicWidths(handle, &widths), "source intrinsic widths");
+            IntrinsicWidths = widths;
+        }
         // Last throwing construction operation transfers the sole native owner.
         // The factory destroys the raw handle if any preceding snapshot fails.
         _paragraph = new NativeHintedParagraph(handle, sourceGeometry: true);
@@ -70,6 +77,7 @@ public sealed unsafe class NativeHintedSourceParagraph : IDisposable
     }
 
     public NativeHintedSourceOptions Options { get; }
+    public NativeHintedSourceIntrinsicWidths? IntrinsicWidths { get; }
     public ReadOnlySpan<NativeHintedSourceStyle> SourceStyles => _styles;
     public ReadOnlySpan<NativeHintedSourceLogicalMetrics> LogicalMetrics => _logical;
     public ReadOnlySpan<NativeHintedSourceGlyphMetrics> GlyphMetrics => _glyphs;
@@ -233,6 +241,9 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_hinted_source_paragraph_borrow")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus BorrowHintedSourceParagraph(nint paragraph, HintedSourceParagraphView* view);
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_hinted_source_paragraph_get_intrinsic_widths")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetHintedSourceIntrinsicWidths(nint paragraph, NativeHintedSourceIntrinsicWidths* widths);
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_hinted_source_paragraph_reflow")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus ReflowHintedSourceParagraph(nint paragraph, int inputStart, double maximumWidth, nint* reflowed);

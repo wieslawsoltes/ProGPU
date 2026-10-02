@@ -12,8 +12,9 @@ Source-run binding requires one original run, font, full bidi level and line,
 exact original em/DPI, captured hmtx metrics and an exactly representable raster
 translation. This does not establish the outstanding WPF offset policy. Authored
 transport/source-run controls are wired into CTest; execution and hosted package
-qualification remain pending. No provider advertises Display, and native intrinsic
-widths remain unavailable.
+qualification remain pending. No provider advertises Display. Explicit option flag
+1 requests producer-owned double intrinsic widths through an additive getter; an
+unrequested measurement stays unsupported and reflow preserves original widths.
 
 `NativeTextShapingContext.LayoutHintedSourceParagraph` now has a distinct managed
 `NativeHintedSourceParagraph` owner. UTF-16 uses the existing whole-paragraph

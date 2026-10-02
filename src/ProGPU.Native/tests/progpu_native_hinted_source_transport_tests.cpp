@@ -56,10 +56,10 @@ void controls() {
     options.offset_policy = 1U;
     require(create() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && paragraph.value == nullptr &&
         std::memcmp(&diagnostic, &saved_diagnostic, sizeof(diagnostic)) == 0);
-    options.offset_policy = 0U; options.flags = 1U;
+    options.offset_policy = 0U; options.flags = 2U;
     require(create() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && paragraph.value == nullptr &&
         std::memcmp(&diagnostic, &saved_diagnostic, sizeof(diagnostic)) == 0);
-    options.flags = 0U;
+    options.flags = PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS;
 #if defined(PROGPU_NATIVE_FONT_HINTING)
     require(create() == PROGPU_NATIVE_STATUS_SUCCESS && paragraph.value != nullptr);
     progpu_native_hinted_source_paragraph_view view{};
@@ -96,6 +96,18 @@ void controls() {
     progpu_native_hinted_source_paragraph_view continued{};
     require(progpu_native_hinted_source_paragraph_borrow(reflow.value, &continued) == PROGPU_NATIVE_STATUS_SUCCESS &&
         continued.options.maximum_width == 100.0 / 1.5 && continued.options.pixels_per_dip == 1.5 && continued.styles[0].em_size == 10.0);
+    progpu_native_hinted_source_intrinsic_widths widths{}, reflow_widths{};
+    require(progpu_native_hinted_source_paragraph_get_intrinsic_widths(paragraph.value, &widths) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        widths.minimum > 0.0 && widths.maximum >= widths.minimum);
+    require(progpu_native_hinted_source_paragraph_get_intrinsic_widths(reflow.value, &reflow_widths) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        reflow_widths.minimum == widths.minimum && reflow_widths.maximum == widths.maximum);
+    paragraph_owner unmeasured;
+    auto unmeasured_options = options; unmeasured_options.flags = 0U;
+    require(progpu_native_text_context_layout_hinted_source_paragraph(context.value, &shape, &layout, &style, 1U,
+        &metrics, &device, 1U, nullptr, 0U, &unmeasured_options, &source, 1U, &unmeasured.value, &diagnostic) == PROGPU_NATIVE_STATUS_SUCCESS);
+    const auto saved_widths = widths;
+    require(progpu_native_hinted_source_paragraph_get_intrinsic_widths(unmeasured.value, &widths) == PROGPU_NATIVE_STATUS_UNSUPPORTED &&
+        std::memcmp(&widths, &saved_widths, sizeof(widths)) == 0);
     paragraph_owner wrapped;
     require(progpu_native_hinted_source_paragraph_reflow(paragraph.value, 0, 1.0, &wrapped.value) == PROGPU_NATIVE_STATUS_SUCCESS);
     progpu_native_hinted_source_paragraph_view wrapped_view{};

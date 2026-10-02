@@ -7,6 +7,14 @@ using System.Numerics;
 
 namespace ProGPU.Backend.Native;
 
+// Native source: progpu_native_hinted_source_intrinsic_widths.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeHintedSourceIntrinsicWidths
+{
+    public double Minimum;
+    public double Maximum;
+}
+
 // Native source: progpu_native_hinted_source_options.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeHintedSourceOptions
