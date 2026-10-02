@@ -3957,6 +3957,19 @@ public:
         float& right_delta,
         sfnt_glyph_phantom_variation_scratch scratch,
         font_error* error = nullptr) const noexcept;
+    /* TrueType vertical phantom Y deltas (top pp3, bottom pp4), evaluated
+     * together from one unchanged tuple generation. The supplied item count
+     * must match this glyph's real point/component count plus four phantoms.
+     * Neither output changes on failure. No VVAR precedence or rounding is
+     * applied here; those belong to the retained source metric consumer. */
+    bool try_get_glyph_vertical_phantom_deltas(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        std::uint32_t item_count,
+        float& top_delta,
+        float& bottom_delta,
+        sfnt_glyph_phantom_variation_scratch scratch,
+        font_error* error = nullptr) const noexcept;
     bool try_get_horizontal_advance_variation(
         std::uint16_t glyph_index,
         std::span<const std::int16_t> normalized_coordinates,
