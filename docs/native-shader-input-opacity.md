@@ -30,11 +30,16 @@ immutable `381194e1ffe4d64fb747556fcaf76e1c34fe9df8`; implementation provenance 
 ProGPU's existing `add_visual_opacity_mask`, typed brush-mask builder and shared
 `create_semantic_brush_mask_binding`, not foreign implementation code.
 
-ImageBrush, DrawingBrush and VisualBrush opacity masks are still explicitly
-gated in this source family. They need their separate nested-picture mapping and
-ownership connection; this implementation does not silently treat a sampled
-brush as a gradient or a final geometry clip. Existing custom mapping, cache,
-3D and unproven source-frame gates remain unchanged.
+ImageBrush, DrawingBrush and VisualBrush opacity now connect through the existing
+`add_spatial_opacity_mask` sampled-brush path. Its original MIL rectangle compiler
+uses the unpadded visual material bounds and `S*p-A` transform in the DPI-1 capture
+frame. The resulting picture mask owns a complete nested scene, original image
+bytes/drawing/visual resources, sampling, tile address mapping and brush opacity.
+The original active-resource set and bounded recursion depth cross this capture;
+self-referential VisualBrush content cannot bypass graph rejection. No final
+residual transform or viewport offset is added to the input mask. This is not a
+gradient substitution or a final geometry clip. Existing custom mapping, cache,
+3D, unsupported brush contracts and unproven source-frame gates remain unchanged.
 
 The paired-provider authored fixture uses eight generations on one actual MIL
 channel: relative linear alpha, reversed stops on the same brush, zero alpha
@@ -51,7 +56,10 @@ ideal gradient or UNORM precision promise. The zero-alpha/constant-output case
 instead asserts every byte over the full padded output coverage; applying the
 mask after bytecode would erase that output and fail. Cold, warm and independent
 engine replays retain exact capture submissions and effect upload/pass counters.
-A real ImageBrush alpha mask remains rejected with caller scene bytes untouched.
+The original pre-connection ImageBrush rejection control is superseded by the
+stacked sampled-brush source fixture, which is being authored for all three
+source families, ownership, input ordering and rejection atomicity. Intermediate
+integration is not a validated final candidate.
 
 Applicability: both native providers execute the same compiler/resource path and
 the same authored fixture. The managed generic `Visual` compositor currently

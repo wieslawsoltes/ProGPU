@@ -24,8 +24,11 @@ Native ShaderEffect spatial gradient opacity applies inside the retained input
 capture before bytecode evaluation, never as final shader coverage. Reuse the
 typed gradient mask, original unpadded brush bounds and scale-space source
 transform; keep complete padding/UV extent independent. Brush opacity and
-visual opacity apply once through the existing inner layer. Sampled/picture
-opacity masks and unproven frames retain their separate gates. See
+visual opacity apply once through the existing inner layer. Sampled ImageBrush,
+DrawingBrush and VisualBrush opacity use their original owned nested capture
+in the same scale-space frame, with active-resource/depth guards and source
+sampling intact; do not import final residual/viewport placement into the mask.
+Unproven frames and unsupported original brush contracts remain gated. See
 docs/native-shader-input-opacity.md; authored controls are not qualification.
 
 Version-5 native ShaderEffect output evaluates original bytecode on the actual
