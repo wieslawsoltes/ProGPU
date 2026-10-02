@@ -31,6 +31,19 @@ internal static class Program
         string directory = Path.GetDirectoryName(output)!;
         if (!Directory.Exists(directory) || File.Exists(output))
             throw new InvalidOperationException("Expected an existing evidence directory and a new receipt.");
+        var capabilities = new
+        {
+            SourceCommit = args[2], Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
+            OsArchitecture = RuntimeInformation.OSArchitecture.ToString(), Runtime = RuntimeInformation.FrameworkDescription,
+            PresentationIdentity = presentation.FullName, PresentationCore = FileIdentity(presentation.Location),
+            SoftwarePixelShader20 = RenderCapability.IsPixelShaderVersionSupportedInSoftware(2, 0),
+            HardwarePixelShader20 = RenderCapability.IsPixelShaderVersionSupported(2, 0),
+            RenderTier = RenderCapability.Tier >> 16,
+            Sse2 = System.Runtime.Intrinsics.X86.Sse2.IsSupported
+        };
+        using (var capabilityOutput = new FileStream(Path.Combine(directory, "capabilities.json"), FileMode.CreateNew))
+            JsonSerializer.Serialize(capabilityOutput, capabilities, new JsonSerializerOptions { WriteIndented = true });
+        Console.WriteLine(JsonSerializer.Serialize(capabilities));
         PixelShader.InvalidPixelShaderEncountered += OnInvalidShader;
         var timer = Stopwatch.StartNew();
         var observations = new List<object>();
@@ -53,16 +66,23 @@ internal static class Program
                         throw new InvalidOperationException($"Original WPF rejected {input.Name}.");
                     var pixels = new byte[64 * 64 * 4];
                     bitmap.CopyPixels(pixels, 64 * 4, 0);
+                    if (replay == 0)
+                    {
+                        // Preserve actual source pixels even when the strict
+                        // color assertion fails. This is not a passing receipt.
+                        using var raw = new FileStream(Path.Combine(directory, input.Name + ".bgra"), FileMode.CreateNew);
+                        raw.Write(pixels);
+                        var encoder = new PngBitmapEncoder();
+                        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                        using var image = new FileStream(Path.Combine(directory, input.Name + ".png"), FileMode.CreateNew);
+                        encoder.Save(image);
+                    }
                     AssertPixels(input, pixels);
                     if (first != null && !first.AsSpan().SequenceEqual(pixels))
                         throw new InvalidOperationException($"{input.Name}: cold/warm/independent pixels changed.");
                     if (first == null)
                     {
                         first = pixels;
-                        var encoder = new PngBitmapEncoder();
-                        encoder.Frames.Add(BitmapFrame.Create(bitmap));
-                        using var image = new FileStream(Path.Combine(directory, input.Name + ".png"), FileMode.CreateNew);
-                        encoder.Save(image);
                     }
                 }
                 observations.Add(new { input.Name, input.Words, input.Constants, input.ExpectedRgb,
@@ -82,6 +102,7 @@ internal static class Program
                 PresentationIdentity = presentation.FullName, PresentationCore = FileIdentity(presentation.Location),
                 Producer = FileIdentity(Assembly.GetExecutingAssembly().Location), NativeModules = modules,
                 ShaderModel = "ps_2_0", ShaderRenderMode = "SoftwareOnly", InvalidShaders = invalidShaders,
+                Capabilities = capabilities,
                 ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds,
                 Qualification = "Original Microsoft WPF software-reference pixels only; not ps_3_0, native provider, package or application qualification."
             };
