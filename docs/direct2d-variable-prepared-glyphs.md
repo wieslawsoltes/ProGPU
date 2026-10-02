@@ -1,7 +1,8 @@
 # Prepared original variable glyphs
 
 This implementation extends the explicit original-font `OUTLINE` / natural,
-horizontal even-bidi Direct2D path. It is not a hint interpreter, a modern
+horizontal Direct2D path. Direction is retained by the shared
+[original placement](direct2d-horizontal-glyph-direction.md). It is not a hint interpreter, a modern
 DirectWrite raster implementation, automatic text admission or desktop evidence.
 All implementation and authored controls in this stack are **unexecuted** pending
 the final integrated validation requested by the user.
@@ -60,7 +61,7 @@ These inform ownership separation, not arithmetic or pixel oracles.
 
 Original Windows instance/outline/nominal-metric comparisons and paired native
 provider full-byte controls are required. No expected result is derived from the
-decoder under test. CFF/CFF2, simulations, multiple files, sideways/odd-bidi
+decoder under test. CFF/CFF2, simulations, multiple files, sideways
 placement, GDI measuring, hinting and unsupported raster policies stay closed.
 Neither a prepared object nor an authored fixture proves those contracts or
 qualifies arbitrary variable-font application rendering.
