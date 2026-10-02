@@ -21185,14 +21185,27 @@ struct channel::implementation {
         }
         std::uint32_t state_index{};
         if (!capture.add_state(state, state_index) || !capture.save(state_index)) return status::invalid_graph;
-        const bool isolated_opacity = source_state.opacity != 1.0;
+        std::uint32_t opacity_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (gradient_brushes.contains(visual->second.alpha_mask_handle)) {
+            // Original Clip > Effect > OpacityMask/Opacity ordering: realize
+            // the source brush in the scale-space input, using the original
+            // unpadded visual bounds for relative material coordinates. The
+            // final output clip and residual placement must not remap it.
+            const mask_replay_context mask_context{&frame, context.active_resources, context.metrics, context.depth};
+            const auto masked = add_visual_opacity_mask(visual->second.alpha_mask_handle,
+                visual->second, content, capture, opacity_mask, mask_context);
+            if (masked != status::success) return masked;
+        }
+        const bool isolated_opacity = source_state.opacity != 1.0 ||
+            opacity_mask != PROGPU_NATIVE_SCENE_NO_INDEX;
         if (isolated_opacity) {
             progpu_native_scene_layer layer{};
             layer.struct_size = sizeof(layer);
             layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
             layer.opacity = static_cast<float>(source_state.opacity);
             layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
-            layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            layer.mask_resource_index = opacity_mask;
+            layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             if (!capture.push_layer(layer)) return status::invalid_graph;
         }
         std::unordered_map<std::uint32_t, std::uint32_t> brushes, images;
@@ -21235,9 +21248,10 @@ struct channel::implementation {
         const auto& original = state.shader_source_transform;
         if (original.m12 != 0.0 || original.m21 != 0.0 || original.m11 <= 0.0 || original.m22 <= 0.0)
             return status::unsupported_command;
-        // Spatial visual masks keep their existing separate contract.
-        if (visual->second.alpha_mask_handle != 0U &&
-            (gradient_brushes.contains(visual->second.alpha_mask_handle) || is_sampled_brush(visual->second.alpha_mask_handle)))
+        // Gradient alpha belongs to the owned input capture. Sampled brush
+        // opacity remains a separate nested-picture contract, not admission
+        // through a gradient or an output coverage mask.
+        if (visual->second.alpha_mask_handle != 0U && is_sampled_brush(visual->second.alpha_mask_handle))
             return status::unsupported_command;
         effect_state effect{};
         const auto resolved = resolve_effect(visual->second.effect_handle, effect);
