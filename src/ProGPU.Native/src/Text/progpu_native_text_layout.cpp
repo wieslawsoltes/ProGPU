@@ -431,6 +431,7 @@ bool source_layout_requirements(std::span<const shaping_glyph> glyphs,
         !std::isfinite(source.line_height) || source.line_height < 0.0 ||
         source.logical_metrics.size() != glyphs.size() || source.item_metrics.size() != glyphs.size() ||
         !valid_retained_metadata_span(source.logical_metrics) || !valid_retained_metadata_span(source.item_metrics) ||
+        !valid_retained_metadata_span(source.fitted_lines) ||
         !valid_retained_metadata_span(source.positioned_metrics) || !valid_retained_metadata_span(source.line_metrics)) return false;
     text_source_item_metrics envelope{};
     if (!metric_envelope(source.item_metrics, envelope) ||
@@ -445,6 +446,22 @@ bool source_layout_requirements(std::span<const shaping_glyph> glyphs,
             std::abs(metric.advance_x) > std::numeric_limits<float>::max() ||
             std::abs(metric.offset_x) > std::numeric_limits<float>::max() ||
             std::abs(metric.offset_y) > std::numeric_limits<float>::max()) return false;
+    }
+    if (!source.fitted_lines.empty()) {
+        if (source.fitted_lines.size() > UINT32_MAX ||
+            (options.maximum_lines != 0U && source.fitted_lines.size() > options.maximum_lines)) return false;
+        std::size_t start = 0U;
+        for (const auto& line : source.fitted_lines) {
+            if (line.glyph_start != start || line.glyph_count == 0U || line.glyph_count > glyphs.size() - start ||
+                !std::isfinite(line.width) || line.width < 0.0 || line.width > std::numeric_limits<float>::max()) return false;
+            double width = 0.0;
+            for (std::size_t i = start; i < start + line.glyph_count; ++i) width += source.logical_metrics[i].advance_x;
+            if (width != line.width) return false;
+            start += line.glyph_count;
+        }
+        if (start != glyphs.size() && (options.maximum_lines == 0U || source.fitted_lines.size() != options.maximum_lines)) return false;
+        result = {static_cast<std::uint32_t>(glyphs.size()), static_cast<std::uint32_t>(source.fitted_lines.size())};
+        return true;
     }
     std::uint32_t line_count = 0U;
     std::size_t start = 0U;
@@ -463,6 +480,8 @@ bool source_layout_requirements(std::span<const shaping_glyph> glyphs,
 }
 
 } // namespace
+
+bool is_text_layout_trailing_space(std::uint32_t code_point) noexcept { return trailing_space(code_point); }
 
 bool try_measure_text_intrinsic_widths(std::span<const unicode_scalar> input,
     std::span<const shaping_glyph> glyphs, std::span<const text_line_break_kind> breaks_after,
@@ -1122,8 +1141,17 @@ static bool layout_measured_core(
         line_count < requirements.line_capacity) {
         const bool final_allowed = options.maximum_lines != 0U &&
             line_count + 1U >= options.maximum_lines;
-        const auto line = scan_line_metrics(logical_glyphs, breaks_after, maximum_width,
-            input_start_index, final_allowed, tabs.allow_emergency_break, source_advance);
+        const auto line = [&]() noexcept {
+            if constexpr (std::is_same_v<Number, double>) {
+                if (!source->fitted_lines.empty()) {
+                    const auto& fitted = source->fitted_lines[line_count];
+                    return measured_line_scan<Number>{static_cast<std::size_t>(fitted.glyph_start) + fitted.glyph_count,
+                        fitted.width, fitted.clipped};
+                }
+            }
+            return scan_line_metrics(logical_glyphs, breaks_after, maximum_width,
+                input_start_index, final_allowed, tabs.allow_emergency_break, source_advance);
+        }();
         const bool should_trim = options.trimming != text_trimming::none &&
             (line.clipped ||
                 (final_allowed && options.collapse_width >= 0.0F && line.width > options.collapse_width) ||

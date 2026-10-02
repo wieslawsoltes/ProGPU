@@ -7,6 +7,7 @@
 #include "../Font/progpu_native_hinted_transport.hpp"
 #include "../Font/progpu_native_hinted_shaper.hpp"
 #include "progpu_native_hinted_paragraph_internal.hpp"
+#include "progpu_native_hinted_source_fitting.hpp"
 #include "progpu_native_hinted_paragraph_transport_internal.hpp"
 #include "progpu_native_owned_allocation_internal.hpp"
 #include "../progpu_native_text_layout_retained_internal.hpp"
@@ -3567,6 +3568,14 @@ static progpu_native_status paragraph_layout_core(
                     }
                     retained.source_item_metrics[i] = retained.source_style_metrics[style_index];
                 }
+                const auto fitted = fit_hinted_source_paragraph(retained, 0U, retained.source_maximum_width);
+                if (fitted.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                    result->error_code = static_cast<std::uint32_t>(font_error::invalid_argument);
+                    result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
+                    return fitted.status;
+                }
+                retained.source_fitting = fitted.generation;
+                retained.source_logical_metrics = fitted.generation->metrics;
             }
         }
         // Shape and resolve bidi over the complete original paragraph first.
@@ -3616,7 +3625,8 @@ static progpu_native_status paragraph_layout_core(
                 {hinted->generation->bidi_levels, hinted->generation->line_origins, hinted->generation->line_frames},
                 {hinted->generation->source_maximum_width, hinted->generation->source_line_height,
                     hinted->generation->source_logical_metrics, hinted->generation->source_item_metrics,
-                    hinted->generation->source_glyphs, hinted->generation->source_lines}, &font_result)
+                    hinted->generation->source_glyphs, hinted->generation->source_lines,
+                    hinted->generation->source_fitting->lines}, &font_result)
             : hinted != nullptr
             ? try_layout_measured_logical_shaped_text_retained(logical, glyph_breaks.first(logical_count),
                 glyph_levels.first(logical_count), glyph_scales.first(logical_count), paragraph_level,
@@ -4145,6 +4155,7 @@ bool hinted_paragraph_aliases(const hinted_paragraph_generation& value,
         vector_aliases(value.source_metrics) || vector_aliases(value.device_styles) || vector_aliases(value.source_styles) ||
         vector_aliases(value.source_style_metrics) || vector_aliases(value.source_item_metrics) ||
         vector_aliases(value.source_logical_metrics) || vector_aliases(value.source_glyphs) || vector_aliases(value.source_lines) ||
+        (value.source_fitting != nullptr && value.source_fitting->allocation_aliases(output, static_cast<std::size_t>(bytes))) ||
         vector_aliases(value.runs) ||
         vector_aliases(value.logical_glyphs) || vector_aliases(value.logical_bidi_levels) ||
         vector_aliases(value.logical_font_indices) || vector_aliases(value.logical_source_scales) ||
@@ -4506,6 +4517,13 @@ static hinted_paragraph_reflow_result reflow_hinted_paragraph_core(
         candidate->item_metrics = source.item_metrics;
         candidate->logical_cluster_ends = source.logical_cluster_ends;
 
+        if (source_geometry) {
+            const auto fitted = fit_hinted_source_paragraph(*candidate, start, maximum_width);
+            if (fitted.status != PROGPU_NATIVE_STATUS_SUCCESS) { result.status = fitted.status; return result; }
+            candidate->source_fitting = fitted.generation;
+            candidate->source_logical_metrics = fitted.generation->metrics;
+        }
+
         const auto logical = std::span(candidate->logical_glyphs).subspan(start);
         const auto breaks = std::span(candidate->breaks_after).subspan(start);
         const auto scales = std::span(candidate->glyph_scales).subspan(start);
@@ -4540,7 +4558,7 @@ static hinted_paragraph_reflow_result reflow_hinted_paragraph_core(
                 {candidate->source_maximum_width, candidate->source_line_height,
                     std::span(candidate->source_logical_metrics).subspan(start),
                     std::span(candidate->source_item_metrics).subspan(start),
-                    candidate->source_glyphs, candidate->source_lines}, &error)
+                    candidate->source_glyphs, candidate->source_lines, candidate->source_fitting->lines}, &error)
             : try_layout_measured_logical_shaped_text_retained(logical, breaks,
                 std::span(candidate->logical_bidi_levels).subspan(start), scales, candidate->paragraph_level,
                 options, {}, {}, {groups, indices}, candidate->glyphs, candidate->lines, glyph_count, line_count,

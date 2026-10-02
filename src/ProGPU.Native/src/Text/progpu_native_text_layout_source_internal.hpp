@@ -25,6 +25,14 @@ struct text_source_line_metrics final {
     std::uint32_t glyph_start = 0U, glyph_count = 0U;
 };
 
+// Native fitting owns these exact logical partitions after boundary placement
+// recomposition. No source caller may synthesize a partition or clear raw flags.
+struct text_source_fitted_line final {
+    std::uint32_t glyph_start = 0U, glyph_count = 0U;
+    double width = 0.0;
+    bool clipped = false;
+};
+
 // Optional double lane of the same logical scanner/measured writer. IDs, source
 // ranges, flags and actual L1/L2 order are published through the original arrays;
 // these spans have identical occurrence/line indices. All arrays are caller-owned
@@ -36,12 +44,16 @@ struct text_source_layout final {
     std::span<const text_source_item_metrics> item_metrics{};
     std::span<text_source_glyph_position> positioned_metrics{};
     std::span<text_source_line_metrics> line_metrics{};
+    std::span<const text_source_fitted_line> fitted_lines{};
 };
+
+bool is_text_layout_trailing_space(std::uint32_t code_point) noexcept;
 
 // First admitted lane is ordinary horizontal, non-justified and untrimmed, with
 // no tabs/objects. The caller must retain all input and output from this writer
-// as one generation; this is not a Display provider or boundary-recomposition
-// capability. Original unsafe flags and shaped-cluster boundaries still apply.
+// as one generation; this is not a Display provider. Without an owned fitted
+// partition the original unsafe flags remain authoritative; native fitted
+// partitions require separately retained original-boundary placement proof.
 bool try_layout_source_measured_logical_shaped_text_retained(
     std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
     std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,

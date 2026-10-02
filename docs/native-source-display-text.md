@@ -60,9 +60,9 @@ after context retirement and width-changing continuation.
 
 This first lane deliberately admits no tabs, objects, justification or trimming.
 Raw device offsets are projected unchanged; this is not yet the original WPF
-offset-conversion contract. Original unsafe shaping flags remain authoritative,
-so the known emergency-fit blocker is still explicit. Required next work is the
-original offset policy, shaping-boundary fitting/recomposition and paired optional
+offset-conversion contract. Original unsafe shaping flags remain immutable;
+the bounded placement family below can fit proven original prepared boundaries.
+Required next work is the original offset policy and paired optional
 source binding/transport. No source-local division,
 snapping, prefix shaping, unsafe-flag stripping or Ideal fallback is permitted.
 
@@ -83,10 +83,31 @@ program. Both edges must be safe in the original **pre-positioning** dependency
 metadata. It never clears final raw unsafe flags or reruns GSUB on a source prefix.
 Each resulting occurrence retains its original raw glyph/descriptor index, and
 the complete recipe must reproduce the full original raw run exactly before
-publication. Unknown placement families remain explicitly unavailable. This
-checkpoint establishes the owned replay operation, not fitting admission: native
-candidate selection, fitted-generation provenance, bounded retries and common
-writer connection are still required before emergency wrapping is enabled.
+publication. Unknown placement families remain explicitly unavailable.
+
+The source producer and double reflow now fit native candidates using that
+retained placement operation. A candidate cuts only an original shaped-cluster
+edge proven safe before positioning; it replays placement when final raw
+dependencies cross that edge. It never treats an unsafe flag as safe without
+that proof. Actual candidate advances, including changed boundary kerning, select
+the line; copied prefix widths or independently shaped source prefixes do not.
+Legal line-break opportunities and emergency/whole-word intent remain distinct.
+An unsupported indivisible multi-cluster emergency span fails explicitly.
+
+One width-specific fitting generation retains every selected placement slice,
+original raw occurrence map, effective double metric and contiguous line
+partition. The common L1/L2 measured writer consumes those metrics/partitions,
+while the full original logical and raw run arrays remain unchanged. Frame
+validation checks raw identity and the separate effective placement provenance;
+interaction consumes the writer's same final generation. Initial formatting and
+continuation use this identical path. Candidate work, including rejected
+candidates, is limited to 2^24 glyph visits; exhaustion is an explicit failure,
+not an overflowing line or fallback. The complete-row fast path is admitted only
+when nonnegative advances prove there is no earlier prefix overflow.
+
+This connects bounded native recomposition to fitting, not ordinary WPF Display
+admission. Complex/mark/contextual placement, offset conversion, source transport
+and independent wrapping/interaction comparisons remain explicit gates.
 
 ## Revalidated diagnostic evidence
 
