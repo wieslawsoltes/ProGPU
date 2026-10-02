@@ -2221,6 +2221,18 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_append_capacity_is_amortized_and_atomic());
     require(progpu::native::tests::
+        semantic_scene_builder_isolation_rejects_missing_layer_atomically());
+    require(progpu::native::tests::
+        semantic_scene_builder_isolation_promotes_nearest_layer());
+    require(progpu::native::tests::
+        semantic_scene_builder_isolation_preserves_materialized_layers());
+    require(progpu::native::tests::
+        semantic_scene_builder_isolation_preserves_ordinary_elision());
+    require(progpu::native::tests::
+        semantic_scene_builder_isolation_tracks_depth_across_pop_and_reset());
+    require(progpu::native::tests::
+        semantic_scene_builder_isolation_rejects_historical_depth_atomically());
+    require(progpu::native::tests::
         semantic_scene_builder_copies_outside_clips_atomically());
     require(progpu::native::tests::
         semantic_scene_builder_moves_sources_outside_clips_atomically());

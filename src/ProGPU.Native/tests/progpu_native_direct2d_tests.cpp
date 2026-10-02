@@ -6,6 +6,7 @@
 #include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_layer_background_fixture.hpp"
+#include "progpu_native_direct2d_layer_clear_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
 #include "progpu_native.h"
@@ -28,6 +29,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <utility>
 #include <vector>
 #include "progpu_native_direct2d_rgb_reference.hpp"
 
@@ -187,11 +189,141 @@ void layer_background_regressions(progpu_native_direct2d_surface* surface, ID2D1
     }
 }
 
+void transparent_layer_clear_regressions(
+    progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    ComPtr<ID2D1Device> device;
+    source_context->GetDevice(device.GetAddressOf());
+    ComPtr<ID2D1DeviceContext> context;
+    require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
+        "transparent layer Clear original context failed");
+    context->SetDpi(96, 96);
+    ComPtr<ID2D1Factory> factory;
+    context->GetFactory(factory.GetAddressOf());
+    const auto target_properties = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96, 96);
+    const auto read_properties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        target_properties.pixelFormat, 96, 96);
+    ComPtr<ID2D1Bitmap1> target, readback;
+    require(context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &target_properties, target.GetAddressOf()) == S_OK &&
+        context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &read_properties, readback.GetAddressOf()) == S_OK,
+        "transparent layer Clear original target/readback failed");
+
+    // Exercise the original APIs independently. A legacy layer is a real
+    // ID2D1Layer resource, not OPTIONS1 reinterpreted as the older enum/vtable.
+    for (const bool legacy : {true, false}) for (std::uint32_t variant = 0U; variant < 32U; ++variant) {
+        const auto check = [legacy, variant](bool condition, const char* message) {
+            if (!condition) {
+                std::cerr << "transparent layer Clear api=" << (legacy ? "legacy" : "OPTIONS1_NONE")
+                    << " variant=" << variant << '\n';
+                fail(message);
+            }
+        };
+        ComPtr<ID2D1Layer> layer;
+        if (legacy) check(context->CreateLayer(nullptr, layer.GetAddressOf()) == S_OK,
+            "transparent layer Clear original legacy layer creation failed");
+        const auto record = [&] {
+            return fixture::record_transparent_layer_clear(
+                reinterpret_cast<compat::render_target*>(context.Get()),
+                reinterpret_cast<compat::factory*>(factory.Get()), variant,
+                [&](const compat::layer_parameters& parameters) {
+                    check(parameters.options == compat::layer_options::none,
+                        "transparent layer Clear source unexpectedly requested initialized content");
+                    const D2D1_RECT_F bounds{parameters.content_bounds.left, parameters.content_bounds.top,
+                        parameters.content_bounds.right, parameters.content_bounds.bottom};
+                    const auto& source_transform = parameters.mask_transform;
+                    const D2D1_MATRIX_3X2_F mask_transform = D2D1::Matrix3x2F(
+                        source_transform.m11, source_transform.m12, source_transform.m21,
+                        source_transform.m22, source_transform.m31, source_transform.m32);
+                    auto* geometry = reinterpret_cast<ID2D1Geometry*>(parameters.geometric_mask);
+                    auto* opacity_brush = reinterpret_cast<ID2D1Brush*>(parameters.opacity_brush);
+                    const auto antialias = static_cast<D2D1_ANTIALIAS_MODE>(parameters.mask_antialias_mode);
+                    if (legacy) {
+                        const D2D1_LAYER_PARAMETERS original{bounds, geometry, antialias,
+                            mask_transform, parameters.opacity, opacity_brush, D2D1_LAYER_OPTIONS_NONE};
+                        static_cast<ID2D1RenderTarget*>(context.Get())->PushLayer(&original, layer.Get());
+                    } else {
+                        const D2D1_LAYER_PARAMETERS1 original{bounds, geometry, antialias,
+                            mask_transform, parameters.opacity, opacity_brush, D2D1_LAYER_OPTIONS1_NONE};
+                        context->PushLayer(&original, nullptr);
+                    }
+                });
+        };
+
+        std::vector<std::uint8_t> first_pixels;
+        for (std::uint32_t replay = 0U; replay < 2U; ++replay) {
+            context->SetTarget(target.Get());
+            check(record() == S_OK, "transparent layer Clear original Windows draw failed");
+            context->SetTarget(nullptr);
+            check(readback->CopyFromBitmap(nullptr, target.Get(), nullptr) == S_OK,
+                "transparent layer Clear original pixel copy failed");
+            D2D1_MAPPED_RECT mapped{};
+            check(readback->Map(D2D1_MAP_OPTIONS_READ, &mapped) == S_OK,
+                "transparent layer Clear original pixel map failed");
+            std::vector<std::uint8_t> pixels(64U * 256U);
+            for (std::size_t row = 0U; row < 64U; ++row)
+                std::memcpy(pixels.data() + row * 256U, mapped.bits + row * mapped.pitch, 256U);
+            check(readback->Unmap() == S_OK, "transparent layer Clear original pixel unmap failed");
+            check(fixture::transparent_layer_clear_pixels(pixels, 64U, variant, true),
+                "transparent layer Clear original Windows full bytes differ from independent expected pixels");
+            if (replay == 0U) first_pixels = std::move(pixels);
+            else check(pixels == first_pixels,
+                "transparent layer Clear original reused target/layer changed full bytes");
+        }
+
+        ComPtr<ID2D1CommandList> list;
+        check(context->CreateCommandList(list.GetAddressOf()) == S_OK,
+            "transparent layer Clear original command list failed");
+        context->SetTarget(list.Get());
+        check(record() == S_OK && list->Close() == S_OK,
+            "transparent layer Clear original list recording failed");
+        context->SetTarget(nullptr);
+        std::int32_t hr = E_FAIL;
+        progpu_native_direct2d_command_stream_summary summary{};
+        summary.struct_size = sizeof(summary);
+        // Original command lists may discard overwritten child draws. Preserve
+        // their actual callback inventory instead of assuming source-call count.
+        check(progpu_native_direct2d_command_list_get_stream_summary(surface, list.Get(),
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS,
+                &summary, &hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
+            "transparent layer Clear original callback inventory failed");
+        const auto source_draws = summary.draw_count + summary.fill_count;
+        progpu_native_direct2d_scene_recorder* recorder = nullptr;
+        check(progpu_native_direct2d_scene_recorder_create(0xBE00U + variant + (legacy ? 0U : 32U),
+                1U, nullptr, &recorder, &hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
+            "transparent layer Clear recorder failed");
+        void* raw_sink = nullptr;
+        check(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
+            "transparent layer Clear sink failed");
+        ComPtr<ID2D1CommandSink1> sink;
+        sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+        check(list->Stream(sink.Get()) == S_OK,
+            "transparent layer Clear original stream translation failed");
+        progpu_native_direct2d_scene_stream_result result{};
+        result.struct_size = sizeof(result);
+        check(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER,
+            "transparent layer Clear stream measurement failed");
+        std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
+        check(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK && result.written_bytes == bytes.size() &&
+                result.failure_callback_index == 0U && result.translated_draw_count == source_draws &&
+                fixture::transparent_layer_clear_contract(bytes, variant, source_draws),
+            "transparent layer Clear original stream lost captured layer/clip/clear semantics");
+        sink.Reset();
+        progpu_native_direct2d_scene_recorder_destroy(recorder);
+    }
+}
+
 void full_target_clear_regressions(
     progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
 {
     namespace fixture = progpu::native::direct2d::tests;
     layer_background_regressions(surface, source_context);
+    transparent_layer_clear_regressions(surface, source_context);
     ComPtr<ID2D1Device> device;
     source_context->GetDevice(device.GetAddressOf());
     ComPtr<ID2D1DeviceContext> context;
@@ -356,7 +488,12 @@ void full_target_clear_regressions(
                 "negative clear nested aliased clip setup failed");
         }
         else if (variant == 2U) {
-            const D2D1_LAYER_PARAMETERS1 layer{rectangle, nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+            // Finite transparent layers now admit Clear. An unbounded layer
+            // still cannot establish replacement coverage in this recorder,
+            // which was created without target dimensions/DPI metadata.
+            const float maximum = (std::numeric_limits<float>::max)();
+            const D2D1_RECT_F unbounded{-maximum, -maximum, maximum, maximum};
+            const D2D1_LAYER_PARAMETERS1 layer{unbounded, nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
                 D2D1::Matrix3x2F::Identity(), 0.5F, nullptr, D2D1_LAYER_OPTIONS1_NONE};
             require(sink->PushLayer(&layer, nullptr) == S_OK, "negative clear layer setup failed");
         } else {

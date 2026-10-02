@@ -5976,12 +5976,13 @@ public:
             for (std::size_t index = scope_depth_; index != 0U; --index) {
                 if (scope_stack_[index - 1U] != scope_opacity_layer) continue;
                 const auto initialization = layer_initialization_[index - 1U];
-                if (initialization == 0U) {
-                    latch(not_implemented);
-                    return;
-                }
                 clear_bounds = layer_clear_bounds_[index - 1U];
                 if (clip_depth_ != 0U) clear_bounds = intersect_rectangles(clear_bounds, clip_stack_[clip_depth_ - 1U]);
+                if (clear_bounds.width != 0.0F && clear_bounds.height != 0.0F &&
+                    !builder_.isolate_current_layer()) {
+                    latch(builder_failure());
+                    return;
+                }
                 opaque = (initialization & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
                 break;
             }

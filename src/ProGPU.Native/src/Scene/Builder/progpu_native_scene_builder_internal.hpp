@@ -114,6 +114,8 @@ struct semantic_scene_builder::implementation final {
     std::uint32_t maximum_stack_depth = 0U;
     std::array<std::uint8_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH>
         stack_kinds{};
+    std::array<std::size_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH>
+        layer_command_indices{};
     std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH>
         stack_state_indices{};
     std::uint64_t arena_reserve = 0U;

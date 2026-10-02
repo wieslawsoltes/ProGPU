@@ -47,7 +47,206 @@ T read(const std::vector<std::byte>& bytes, std::uint32_t offset) noexcept {
     return value;
 }
 
+progpu_native_scene_layer isolation_test_layer(bool forced = false) noexcept {
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        (forced ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) : 0U);
+    layer.bounds = {0.0F, 0.0F, 64.0F, 64.0F};
+    layer.opacity = 1.0F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.content_revision = 37U;
+    layer.composite_revision = 53U;
+    return layer;
+}
+
+bool draw_isolation_test(semantic_scene_builder& builder) {
+    const progpu_native_analytic_primitive rectangle{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U, 4.0F, 6.0F, 8.0F, 10.0F,
+        0.0F, 0.0F, {1.0F, 0.0F, 0.0F, 1.0F},
+        semantic_scene_builder::identity_transform()};
+    return builder.draw_analytic({&rectangle, 1U}, {}, {4.0F, 6.0F, 8.0F, 10.0F});
+}
+
+bool equal_closed_isolation_builders(semantic_scene_builder& actual, semantic_scene_builder& expected) {
+    std::vector<std::byte> actual_bytes, expected_bytes;
+    return actual.build(actual_bytes) && expected.build(expected_bytes) && actual_bytes == expected_bytes &&
+        scene::validate(actual_bytes.data(), actual_bytes.size()).status == PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 } // namespace
+
+bool semantic_scene_builder_isolation_rejects_missing_layer_atomically() {
+    for (const std::uint32_t saves : {0U, 1U, 3U}) {
+        semantic_scene_builder actual(0x9600U, 1U), expected(0x9600U, 1U);
+        for (std::uint32_t i = 0U; i < saves; ++i)
+            if (!actual.save() || !expected.save()) return false;
+        if (actual.isolate_current_layer() || actual.last_error() != scene_build_error::unbalanced_stack)
+            return false;
+        if (!draw_isolation_test(actual) || !draw_isolation_test(expected)) return false;
+        for (std::uint32_t i = 0U; i < saves; ++i)
+            if (!actual.restore() || !expected.restore()) return false;
+        if (!equal_closed_isolation_builders(actual, expected)) return false;
+    }
+    return true;
+}
+
+bool semantic_scene_builder_isolation_promotes_nearest_layer() {
+    for (const std::uint32_t saves : {0U, 1U, 3U}) {
+        semantic_scene_builder actual(0x9601U, 2U), expected(0x9601U, 2U);
+        auto inner = isolation_test_layer();
+        inner.bounds = {2.0F, 3.0F, 32.0F, 40.0F};
+        inner.content_revision = 71U;
+        auto isolated = inner;
+        isolated.flags |= PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+        if (!actual.push_layer(isolation_test_layer()) || !expected.push_layer(isolation_test_layer()) ||
+            !actual.push_layer(inner) || !expected.push_layer(isolated) ||
+            !draw_isolation_test(actual) || !draw_isolation_test(expected)) return false;
+        for (std::uint32_t i = 0U; i < saves; ++i)
+            if (!actual.save() || !expected.save()) return false;
+        // Promotion edits the nearest layer's original command, even with SAVE
+        // frames above it. Repeated calls neither append commands nor add depth.
+        for (std::uint32_t repeat = 0U; repeat < 3U; ++repeat)
+            if (!actual.isolate_current_layer() || actual.last_error() != scene_build_error::none) return false;
+        if (!draw_isolation_test(actual) || !draw_isolation_test(expected)) return false;
+        for (std::uint32_t i = 0U; i < saves; ++i)
+            if (!actual.restore() || !expected.restore()) return false;
+        if (!actual.pop_layer() || !expected.pop_layer() ||
+            !actual.pop_layer() || !expected.pop_layer() ||
+            !equal_closed_isolation_builders(actual, expected)) return false;
+        std::vector<std::byte> bytes;
+        if (!actual.build(bytes)) return false;
+        const auto header = read<progpu_native_scene_header>(bytes, 0U);
+        const auto outer_command = read<progpu_native_scene_command>(bytes, header.command_offset);
+        const auto inner_command = read<progpu_native_scene_command>(bytes, header.command_offset + header.command_stride);
+        const auto outer_layer = read<progpu_native_scene_layer>(bytes, outer_command.payload_offset);
+        const auto inner_layer = read<progpu_native_scene_layer>(bytes, inner_command.payload_offset);
+        if (scene::layer_requires_materialization(outer_layer) ||
+            !scene::layer_requires_materialization(inner_layer) || inner_layer.flags != isolated.flags)
+            return false;
+    }
+    return true;
+}
+
+bool semantic_scene_builder_isolation_preserves_materialized_layers() {
+    for (std::uint32_t kind = 0U; kind < 3U; ++kind) {
+        semantic_scene_builder actual(0x9602U, 3U), expected(0x9602U, 3U);
+        auto layer = isolation_test_layer(kind == 0U);
+        if (kind == 1U) layer.opacity = 0.5F;
+        if (kind == 2U) layer.blend_mode = PROGPU_NATIVE_BLEND_SRC;
+        if (!scene::layer_requires_materialization(layer) ||
+            !actual.push_layer(layer) || !expected.push_layer(layer) ||
+            !actual.save() || !expected.save() ||
+            !actual.isolate_current_layer() || !actual.isolate_current_layer() ||
+            !draw_isolation_test(actual) || !draw_isolation_test(expected) ||
+            !actual.restore() || !expected.restore() ||
+            !actual.pop_layer() || !expected.pop_layer() ||
+            !equal_closed_isolation_builders(actual, expected)) return false;
+    }
+    return true;
+}
+
+bool semantic_scene_builder_isolation_preserves_ordinary_elision() {
+    semantic_scene_builder builder(0x9603U, 4U);
+    const auto ordinary = isolation_test_layer();
+    constexpr std::uint32_t ordinary_depth = PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS + 1U;
+    static_assert(ordinary_depth + PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS <= PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH);
+    // More than the materialized limit remains legal for ordinary no-Clear
+    // layers; they must not consume the depth needed by genuinely isolated ones.
+    for (std::uint32_t i = 0U; i < ordinary_depth; ++i)
+        if (!builder.push_layer(ordinary)) return false;
+    for (std::uint32_t i = 0U; i < PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS; ++i)
+        if (!builder.push_layer(isolation_test_layer(true))) return false;
+    if (!draw_isolation_test(builder)) return false;
+    for (std::uint32_t i = 0U; i < ordinary_depth + PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS; ++i)
+        if (!builder.pop_layer()) return false;
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes) || scene::validate(bytes.data(), bytes.size()).status != PROGPU_NATIVE_STATUS_SUCCESS)
+        return false;
+    const auto header = read<progpu_native_scene_header>(bytes, 0U);
+    for (std::uint32_t i = 0U; i < ordinary_depth; ++i) {
+        const auto command = read<progpu_native_scene_command>(bytes, header.command_offset + i * header.command_stride);
+        const auto layer = read<progpu_native_scene_layer>(bytes, command.payload_offset);
+        if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER || layer.flags != ordinary.flags ||
+            scene::layer_requires_materialization(layer)) return false;
+    }
+    return true;
+}
+
+bool semantic_scene_builder_isolation_tracks_depth_across_pop_and_reset() {
+    semantic_scene_builder actual(0x9604U, 5U), expected(0x9604U, 5U);
+    // Every sibling promotion must return its depth on pop, including promotion
+    // underneath a SAVE and idempotent promotion while that SAVE stays open.
+    for (std::uint32_t i = 0U; i < PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS + 2U; ++i) {
+        if (!actual.push_layer(isolation_test_layer()) || !expected.push_layer(isolation_test_layer(true)) ||
+            !actual.save() || !expected.save() ||
+            !actual.isolate_current_layer() || !actual.isolate_current_layer() ||
+            !draw_isolation_test(actual) || !draw_isolation_test(expected) ||
+            !actual.restore() || !expected.restore() ||
+            !actual.pop_layer() || !expected.pop_layer()) return false;
+    }
+    if (!equal_closed_isolation_builders(actual, expected)) return false;
+    // Reset while an isolated layer and SAVE are open, not just after a fully
+    // balanced stream; all scope indices and materialized depth must be cleared.
+    if (!actual.push_layer(isolation_test_layer()) || !actual.isolate_current_layer() ||
+        !actual.save() || !actual.reset(0x9604U, 6U) || !expected.reset(0x9604U, 6U)) return false;
+    if (actual.isolate_current_layer() || actual.last_error() != scene_build_error::unbalanced_stack) return false;
+    for (std::uint32_t i = 0U; i < PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS; ++i)
+        if (!actual.push_layer(isolation_test_layer()) || !actual.isolate_current_layer() ||
+            !actual.isolate_current_layer() || !expected.push_layer(isolation_test_layer(true))) return false;
+    if (actual.push_layer(isolation_test_layer(true)) || actual.last_error() != scene_build_error::capacity_exceeded)
+        return false;
+    if (!draw_isolation_test(actual) || !draw_isolation_test(expected)) return false;
+    for (std::uint32_t i = 0U; i < PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS; ++i)
+        if (!actual.pop_layer() || !expected.pop_layer()) return false;
+    if (!actual.push_layer(isolation_test_layer()) || !actual.isolate_current_layer() ||
+        !expected.push_layer(isolation_test_layer(true)) ||
+        !actual.pop_layer() || !expected.pop_layer()) return false;
+    return equal_closed_isolation_builders(actual, expected);
+}
+
+bool semantic_scene_builder_isolation_rejects_historical_depth_atomically() {
+    for (const std::uint32_t ancestors : {0U, 3U}) {
+        for (const bool at_limit : {false, true}) {
+            semantic_scene_builder actual(0x9605U, 7U), expected(0x9605U, 7U);
+            const auto children = PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS - ancestors - (at_limit ? 0U : 1U);
+            for (std::uint32_t i = 0U; i < ancestors; ++i)
+                if (!actual.push_layer(isolation_test_layer(true)) || !expected.push_layer(isolation_test_layer(true)))
+                    return false;
+            if (!actual.push_layer(isolation_test_layer()) ||
+                !expected.push_layer(isolation_test_layer(!at_limit))) return false;
+            // The child's peak is historical, not live when parent promotion is
+            // requested. A surrounding SAVE must not hide that earlier peak.
+            for (auto* builder : {&actual, &expected}) {
+                if (!builder->save()) return false;
+                for (std::uint32_t i = 0U; i < children; ++i)
+                    if (!builder->push_layer(isolation_test_layer(true))) return false;
+                if (!draw_isolation_test(*builder)) return false;
+                for (std::uint32_t i = 0U; i < children; ++i)
+                    if (!builder->pop_layer()) return false;
+            }
+            if (at_limit) {
+                if (actual.isolate_current_layer() || actual.last_error() != scene_build_error::capacity_exceeded)
+                    return false;
+            } else if (!actual.isolate_current_layer() || !actual.isolate_current_layer()) return false;
+            // Repeat a full allowed child peak before closing. A rejected
+            // promotion must not have consumed live depth or changed the stack.
+            for (auto* builder : {&actual, &expected}) {
+                for (std::uint32_t i = 0U; i < children; ++i)
+                    if (!builder->push_layer(isolation_test_layer(true))) return false;
+                if (!draw_isolation_test(*builder)) return false;
+                for (std::uint32_t i = 0U; i < children; ++i)
+                    if (!builder->pop_layer()) return false;
+                if (!builder->restore() || !builder->pop_layer()) return false;
+                for (std::uint32_t i = 0U; i < ancestors; ++i)
+                    if (!builder->pop_layer()) return false;
+            }
+            if (!equal_closed_isolation_builders(actual, expected)) return false;
+        }
+    }
+    return true;
+}
 
 static bool copies_outside_clips_atomically(bool retained_source) {
     const std::array pixels{std::byte{0}, std::byte{0}, std::byte{255}, std::byte{255}};

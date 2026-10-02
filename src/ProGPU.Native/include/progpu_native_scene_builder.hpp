@@ -377,6 +377,11 @@ public:
         scene_layer_hit_test_mode hit_test_mode = scene_layer_hit_test_mode::unspecified,
         const progpu_native_affine_2d* source_content_to_parent = nullptr) noexcept;
     bool pop_layer() noexcept;
+    // Give the innermost open layer its own storage before a destination-
+    // replacing operation. Already materialized layers are unchanged. Existing
+    // closed child scopes participate in the capacity preflight; no command is
+    // changed on failure. Ordinary layers remain eligible for elision until used.
+    bool isolate_current_layer() noexcept;
 
     bool draw_analytic(
         std::span<const progpu_native_analytic_primitive> primitives,

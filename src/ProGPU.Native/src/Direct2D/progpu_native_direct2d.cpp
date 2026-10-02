@@ -6295,10 +6295,12 @@ public:
             for (std::uint32_t index = scope_depth_; index != 0U; --index) {
                 if (scope_stack_[index - 1U] != scope_opacity_layer) continue;
                 const auto initialization = layer_initialization_[index - 1U];
-                if (initialization == 0U || !layer_clear_bounds_known_[index - 1U])
+                if (!layer_clear_bounds_known_[index - 1U])
                     return fail_unsupported_operation();
                 clear_bounds = layer_clear_bounds_[index - 1U];
                 if (clip_depth_ != 0U) clear_bounds = intersect_rectangles(clear_bounds, clip_stack_[clip_depth_ - 1U]);
+                if (clear_bounds.width != 0.0F && clear_bounds.height != 0.0F &&
+                    !builder_.isolate_current_layer()) return fail_builder();
                 opaque = (initialization & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
                 break;
             }

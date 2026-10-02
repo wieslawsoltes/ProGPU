@@ -928,6 +928,8 @@ bool semantic_scene_builder::push_layer(
             source_cache ? *source_content_to_parent : identity_transform(),
             source_effect ? layer.mask_resource_index : PROGPU_NATIVE_SCENE_NO_INDEX});
         implementation_->commands.push_back(std::move(command));
+        implementation_->layer_command_indices[implementation_->stack_depth] =
+            implementation_->commands.size() - 1U;
         implementation_->stack_kinds[implementation_->stack_depth] =
             materialized ? 3U : 2U;
         ++implementation_->stack_depth;
@@ -942,6 +944,59 @@ bool semantic_scene_builder::push_layer(
     } catch (...) {
         return implementation_->fail(scene_build_error::invalid_state);
     }
+}
+
+bool semantic_scene_builder::isolate_current_layer() noexcept {
+    auto& state = *implementation_;
+    std::uint32_t scope = state.stack_depth;
+    while (scope != 0U && state.stack_kinds[scope - 1U] == 1U) --scope;
+    if (scope == 0U || (state.stack_kinds[scope - 1U] != 2U &&
+        state.stack_kinds[scope - 1U] != 3U))
+        return state.fail(scene_build_error::unbalanced_stack);
+    if (state.stack_kinds[scope - 1U] == 3U) {
+        state.error = scene_build_error::none;
+        return true;
+    }
+    const auto command_index = state.layer_command_indices[scope - 1U];
+    if (command_index >= state.commands.size() ||
+        state.commands[command_index].record.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
+        state.commands[command_index].payload.size() != sizeof(progpu_native_scene_layer))
+        return state.fail(scene_build_error::invalid_state);
+
+    // One scan on first promotion. A child may already have closed after using
+    // the maximum materialized depth, so checking only the current live depth
+    // would admit an invalid historical stream. O(C) time, O(S) bounded stack;
+    // repeated Clear calls and already isolated layers take the O(S) fast path.
+    std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> children{};
+    std::uint32_t depth = 0U, live = 0U, peak = 0U;
+    for (std::size_t index = command_index + 1U; index < state.commands.size(); ++index) {
+        const auto& command = state.commands[index];
+        if (command.record.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
+            if (depth == children.size() || command.payload.size() != sizeof(progpu_native_scene_layer))
+                return state.fail(scene_build_error::invalid_state);
+            progpu_native_scene_layer child{};
+            std::memcpy(&child, command.payload.data(), sizeof(child));
+            const bool materialized = scene::layer_requires_materialization(child);
+            children[depth++] = materialized;
+            live += materialized ? 1U : 0U;
+            peak = std::max(peak, live);
+        } else if (command.record.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+            if (depth == 0U) return state.fail(scene_build_error::invalid_state);
+            live -= children[--depth] ? 1U : 0U;
+        }
+    }
+    if (depth != 0U || live != 0U) return state.fail(scene_build_error::invalid_state);
+    if (state.materialized_layer_depth + 1U + peak > PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS)
+        return state.fail(scene_build_error::capacity_exceeded);
+    auto& command = state.commands[command_index];
+    progpu_native_scene_layer layer{};
+    std::memcpy(&layer, command.payload.data(), sizeof(layer));
+    layer.flags |= PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    std::memcpy(command.payload.data(), &layer, sizeof(layer));
+    state.stack_kinds[scope - 1U] = 3U;
+    ++state.materialized_layer_depth;
+    state.error = scene_build_error::none;
+    return true;
 }
 
 bool semantic_scene_builder::pop_layer() noexcept {
@@ -970,6 +1025,7 @@ bool semantic_scene_builder::pop_layer() noexcept {
         implementation_->commands.push_back(std::move(command));
         --implementation_->stack_depth;
         implementation_->stack_kinds[implementation_->stack_depth] = 0U;
+        implementation_->layer_command_indices[implementation_->stack_depth] = 0U;
         implementation_->materialized_layer_depth -= kind == 3U ? 1U : 0U;
         implementation_->error = scene_build_error::none;
         return true;
