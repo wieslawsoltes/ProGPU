@@ -86,11 +86,16 @@ and [HarfBuzz](https://harfbuzz.github.io/shaping-concepts.html): already-shaped
 source glyphs must not enter a second shaper. Canvas-style state remains distinct
 from immutable draw inputs ([Skia](https://skia.org/docs/user/api/skcanvas_overview/));
 GPU rasterization remains shared rather than moving to a platform CPU bitmap path
-([Vello architecture](https://github.com/linebender/vello/blob/main/ARCHITECTURE.md)).
+([Vello architecture](https://github.com/linebender/vello/blob/main/README.md)).
 No external implementation source, coefficient tables or shader helper code is
 incorporated. Exact modern DirectWrite hint/filter and alpha-correction behavior
 remain separate from the published historical subpixel-filter model and must not
 be inferred from a shifted, already-quantized scalar atlas.
+
+The private [owned RGB coverage checkpoint](native-rgb-glyph-coverage.md) now
+retains independent channel coverage through shared GPU raster and opaque-target
+composition. Its explicitly selected linear box model does not change the
+ordinary source admission above or supply the missing general parameter policy.
 
 Original contracts: [OPTIONS1](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_layer_options1),
 [legacy OPTIONS](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_layer_options),

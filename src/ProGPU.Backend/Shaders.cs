@@ -43,6 +43,23 @@ public static class Shaders
 
     public static readonly string GlyphRasterizerShader = ShaderResource.Load(typeof(Shaders), "GlyphRasterizer.wgsl");
 
+    // These shared programs do not select RGB text for ordinary managed draws.
+    // The optional source path must prove its full raster/opaque-target contract.
+    public static string GlyphRgbRasterizerShader => RgbGlyphSource.Rasterizer;
+
+    public static string GlyphRgbCompositeShader => RgbGlyphSource.Composite;
+
+    private static class RgbGlyphSource
+    {
+        static RgbGlyphSource() { }
+
+        internal static readonly string Rasterizer = string.Concat(
+            ShaderResource.Load(typeof(Shaders), "GlyphRasterizer.wgsl"), "\n",
+            ShaderResource.Load(typeof(Shaders), "GlyphRgbRasterizer.wgsl"));
+
+        internal static readonly string Composite = ShaderResource.Load(typeof(Shaders), "GlyphRgbComposite.wgsl");
+    }
+
     public static readonly string PathRasterizerShader = string.Concat(
         ShaderResource.Load(typeof(Shaders), "PathRasterizerCommon.wgsl"),
         "\n",

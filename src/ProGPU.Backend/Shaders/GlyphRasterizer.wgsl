@@ -314,14 +314,8 @@ fn accumulate_winding_row(
     }
 }
 
-fn glyph_coverage_byte(x: u32, y: u32) -> u32 {
-    let glyphIndex = uniforms.glyphIndex;
-    let record = glyphRecords[glyphIndex];
-
-    let px = uniforms.xStart + f32(x);
-    let py = uniforms.yStart + f32(y);
-
-    let sample_xs = SampleRow(
+fn glyph_sample_row(px: f32) -> SampleRow {
+    return SampleRow(
         vec4<f32>(
             glyph_sample_x(px, 0u),
             glyph_sample_x(px, 1u),
@@ -332,6 +326,9 @@ fn glyph_coverage_byte(x: u32, y: u32) -> u32 {
             glyph_sample_x(px, 5u),
             glyph_sample_x(px, 6u),
             glyph_sample_x(px, 7u)));
+}
+
+fn glyph_row_coverage_byte(sample_xs: SampleRow, py: f32, record: GlyphRecord) -> u32 {
     var covered_samples = 0u;
 
     // Fixed 8x8 sampling matches the previous quality policy exactly. Curve roots
@@ -357,6 +354,13 @@ fn glyph_coverage_byte(x: u32, y: u32) -> u32 {
     }
 
     return min(255u, u32(round(f32(covered_samples) * 3.984375)));
+}
+
+fn glyph_coverage_byte(x: u32, y: u32) -> u32 {
+    let record = glyphRecords[uniforms.glyphIndex];
+    let px = uniforms.xStart + f32(x);
+    let py = uniforms.yStart + f32(y);
+    return glyph_row_coverage_byte(glyph_sample_row(px), py, record);
 }
 
 // Four adjacent pixels are packed by one invocation so the storage buffer has

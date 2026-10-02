@@ -110,6 +110,7 @@ struct progpu_native_engine {
     std::uint32_t path_atlas_size = native_initial_atlas_size;
     std::uint32_t path_atlas_generation = 0U;
     WGPUShaderModule glyph_raster_shader = nullptr;
+    progpu::native::rgb_glyph_pipeline_resources rgb_glyph_pipelines;
     WGPUComputePipeline glyph_raster_pipeline = nullptr;
     WGPUBindGroupLayout glyph_raster_layout = nullptr;
     WGPUPipelineLayout glyph_raster_pipeline_layout = nullptr;
@@ -634,6 +635,7 @@ struct progpu_native_engine {
             {path_split_signed_coverage_pipeline, "path_signed_pack"},
             {path_split_boolean_combine_pipeline, "path_boolean_combine"},
             {glyph_raster_pipeline, "glyph"},
+            {rgb_glyph_pipelines.compute, "glyph_rgb"},
             {effect_blur_horizontal_pipeline, "blur_horizontal"},
             {effect_blur_vertical_pipeline, "blur_vertical"},
             {effect_drop_shadow_pipeline, "drop_shadow"},
@@ -2034,6 +2036,7 @@ struct progpu_native_engine {
         if (glyph_raster_pipeline != nullptr) {
             wgpuComputePipelineRelease(glyph_raster_pipeline);
         }
+        rgb_glyph_pipelines.reset();
         if (glyph_raster_fallback_pipeline != nullptr) {
             wgpuRenderPipelineRelease(glyph_raster_fallback_pipeline);
         }
