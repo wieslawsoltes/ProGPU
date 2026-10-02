@@ -328,6 +328,8 @@ using ::progpu::native::text::sfnt_item_variation_store_view;
 using ::progpu::native::text::sfnt_delta_set_index_map_view;
 using ::progpu::native::text::sfnt_horizontal_advance_variation_instance;
 using ::progpu::native::text::sfnt_horizontal_metrics_variation_instance;
+using ::progpu::native::text::sfnt_vertical_metrics_variation;
+using ::progpu::native::text::sfnt_vertical_metrics_variation_instance;
 using ::progpu::native::text::sfnt_cff_data;
 using ::progpu::native::text::sfnt_cff_fd_select_view;
 using ::progpu::native::text::sfnt_cff_index_view;

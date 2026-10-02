@@ -1,5 +1,12 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Neutral VVAR instances borrow exact immutable font bytes/face and cached original
+normalized-instance scalars. Keep strict VVAR preflight separate from legacy
+HVAR acceptance, optional-map absence distinct from zero variation, and null
+subtables/no-variation indices valid. Preserve atomic outputs, caller tails and
+alias rejection. Metric deltas do not select vertical origins or admit sideways
+source drawing. See docs/native-vertical-metric-variations.md.
+
 Prepared original horizontal glyphs preserve logical source order and every bidi
 level. RTL changes the advance-box origin and directional offset, never outline
 orientation, glyph order or ascender offset. Keep explicit/null and signed

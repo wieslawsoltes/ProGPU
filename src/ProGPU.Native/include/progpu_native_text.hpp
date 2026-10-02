@@ -3156,6 +3156,45 @@ struct sfnt_horizontal_metrics_variation_instance final {
     bool has_left_side_bearing_map = false;
 };
 
+/* Neutral VVAR deltas in original design units. Map presence is independent
+ * of a zero delta (including an explicit no-variation index or null subtable).
+ * Applying these to an outline family or choosing a source vertical origin is
+ * a separate contract; no vertical/sideways drawing admission is implied. */
+struct sfnt_vertical_metrics_variation final {
+    float advance_height = 0.0F;
+    float top_side_bearing = 0.0F;
+    float bottom_side_bearing = 0.0F;
+    float vertical_origin_y = 0.0F;
+    bool uses_vvar = false;
+    bool has_top_side_bearing = false;
+    bool has_bottom_side_bearing = false;
+    bool has_vertical_origin_y = false;
+};
+
+/* Validated, allocation-free borrowed instance. The caller keeps the original
+ * font bytes AND the written scalar prefix alive and immutable until every copy
+ * of this instance is retired. Copies do not transfer ownership. Only the same
+ * original byte span/face may read it; equal bytes at another address are not
+ * the same owner. A default instance is not prepared, even for an absent VVAR. */
+class sfnt_vertical_metrics_variation_instance final {
+public:
+    bool uses_vvar() const noexcept { return uses_vvar_; }
+    std::uint16_t region_count() const noexcept { return store_.region_count; }
+
+private:
+    friend class sfnt_font_view;
+    std::span<const std::byte> font_bytes_{};
+    sfnt_item_variation_store_view store_{};
+    sfnt_delta_set_index_map_view maps_[4]{};
+    std::span<const float> region_scalars_{};
+    std::uint32_t face_index_ = 0U;
+    std::uint32_t face_offset_ = 0U;
+    std::uint16_t glyph_count_ = 0U;
+    bool prepared_ = false;
+    bool uses_vvar_ = false;
+    bool has_maps_[4]{};
+};
+
 struct sfnt_cff_index_view final {
     std::span<const std::byte> bytes{};
     std::size_t offsets_offset = 0U;
@@ -3950,6 +3989,33 @@ public:
         std::span<const std::int16_t> normalized_coordinates,
         float& result,
         bool& has_metric_record,
+        font_error* error = nullptr) const noexcept;
+    /* Strict VVAR 1.0 preflight. Coordinates must cover exactly the font's
+     * original fvar axes, each in [-16384,16384]. Missing VVAR succeeds with
+     * uses_vvar=false. No fallback metric or outline decoding occurs.
+     * All outputs (including scalar/output tails) remain unchanged on failure.
+     * Writable aliases of inputs, retained storage or other outputs fail. An
+     * aliased error pointer is not written. Preparation validates all mappings
+     * before writing cached scalars; prepared reads never allocate. */
+    bool try_get_vertical_metrics_variation_region_count(
+        std::span<const std::int16_t> normalized_coordinates,
+        std::uint16_t& result,
+        bool& uses_vvar,
+        font_error* error = nullptr) const noexcept;
+    bool try_prepare_vertical_metrics_variation(
+        std::span<const std::int16_t> normalized_coordinates,
+        std::span<float> region_scalars,
+        sfnt_vertical_metrics_variation_instance& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_vertical_metrics_variation(
+        std::uint16_t glyph_index,
+        const sfnt_vertical_metrics_variation_instance& variation,
+        sfnt_vertical_metrics_variation& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_vertical_metrics_variation(
+        std::span<const std::uint16_t> glyph_indices,
+        const sfnt_vertical_metrics_variation_instance& variation,
+        std::span<sfnt_vertical_metrics_variation> results,
         font_error* error = nullptr) const noexcept;
     bool try_get_layout_variation(
         std::uint16_t outer_index,
