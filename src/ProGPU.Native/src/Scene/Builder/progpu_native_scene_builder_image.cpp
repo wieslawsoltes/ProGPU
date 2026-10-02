@@ -366,6 +366,8 @@ bool semantic_scene_builder::copy_image_from_memory_outside_clips(
     const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
     const auto depth = implementation_->stack_depth;
     if (depth == 0U) return copy_image_from_memory(image, storage_flags, pixels, color_matrix);
+    if (!implementation_->hit_test_owners.empty())
+        return implementation_->fail(scene_build_error::invalid_state);
     // Validate every live frame before appending anything. The suspension is
     // only for aliased clip-only scopes, never materialized drawing/history or
     // source input scopes whose ranges would need a separate ownership model.

@@ -58,6 +58,7 @@ bool semantic_scene_builder_copies_outside_clips_atomically() {
     image.transform = semantic_scene_builder::identity_transform();
     image.opacity = 1.0F; image.max_anisotropy = 1U;
     const auto prepare = [&](semantic_scene_builder& builder, unsigned int kind) {
+        if (kind == 5U && !builder.set_hit_test_owner(42)) return false;
         auto clip = semantic_scene_builder::identity_state();
         clip.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
         clip.clip_rect = {8, 8, 16, 16};
@@ -72,7 +73,7 @@ bool semantic_scene_builder_copies_outside_clips_atomically() {
         return builder.restore() && builder.restore() && builder.build(bytes) &&
             scene::validate(bytes.data(), bytes.size()).status == PROGPU_NATIVE_STATUS_SUCCESS;
     };
-    for (unsigned int kind = 0U; kind < 5U; ++kind) {
+    for (unsigned int kind = 0U; kind < 6U; ++kind) {
         semantic_scene_builder actual(0x95A0U, 1U), expected(0x95A0U, 1U);
         if (!prepare(actual, kind) || !prepare(expected, kind)) return false;
         auto rejected = image;
