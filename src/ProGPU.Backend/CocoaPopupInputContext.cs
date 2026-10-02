@@ -50,7 +50,7 @@ internal sealed class CocoaPopupInputContext : IInputContext, INativePointerInpu
             InputGeneration = generation;
             CancelState();
         }
-        if (!_pumping && !_window.IsInNativeInputCallback) DrainCancellation();
+        if (!_pumping && !_window.IsInNativeInputCallback && !NativeWindowModalSession.IsInputPolicyTransitioning) DrainCancellation();
     }
 
     private void Pump()
@@ -59,6 +59,8 @@ internal sealed class CocoaPopupInputContext : IInputContext, INativePointerInpu
         if (_pumping) throw new InvalidOperationException("Owned popup input delivery cannot be nested.");
         if (_window.IsInNativeInputCallback)
             throw new InvalidOperationException("Owned popup input cannot dispatch from a native callback.");
+        if (NativeWindowModalSession.IsInputPolicyTransitioning)
+            throw new InvalidOperationException("Owned popup input cannot dispatch during a native modal transition.");
         _pumping = true;
         Exception? dispatchFailure = null;
         try
@@ -162,7 +164,7 @@ internal sealed class CocoaPopupInputContext : IInputContext, INativePointerInpu
 
     private void FlushCancellation()
     {
-        if (!_cancelPending || _window.IsInNativeInputCallback) return;
+        if (!_cancelPending || _window.IsInNativeInputCallback || NativeWindowModalSession.IsInputPolicyTransitioning) return;
         _cancelPending = false;
         var cancel = new NativePointerEvent(NativePointerEventKind.Cancel,
             _last.X, _last.Y, _last.Timestamp, -1, 0, NativePointerModifiers.None);
@@ -198,7 +200,7 @@ internal sealed class CocoaPopupInputContext : IInputContext, INativePointerInpu
         if (_disposed) return;
         _disposeRequested = true;
         CancelState();
-        if (!_pumping && !_window.IsInNativeInputCallback) DrainCancellation();
+        if (!_pumping && !_window.IsInNativeInputCallback && !NativeWindowModalSession.IsInputPolicyTransitioning) DrainCancellation();
     }
 
     private void FinishDispose()

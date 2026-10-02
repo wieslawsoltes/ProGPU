@@ -287,17 +287,26 @@ public sealed class NativeWindowModalSessionTests
     [Fact]
     public void FailedIdentityReleaseDoesNotPublishSuccessfulCompletion()
     {
-        var api = new Operations(11) { OnRelease = () => throw new InvalidOperationException("Release failed.") };
-        Assert.True(NativeWindowModalSession.TryBegin(api, out var session));
-        using (session)
+        // Identity release failure now also latches shared popup admission.
+        // Like failed End, it is terminal for this real thread-owned coordinator.
+        Exception? failure = null;
+        var thread = new Thread(() => failure = Record.Exception(() =>
         {
-            int completed = 0;
-            Assert.Throws<InvalidOperationException>(() =>
-                NativeWindowModalSession.TryReleaseWindow(CocoaWindow(11), () => completed++));
-            Assert.Equal(0, completed);
-            Assert.True(session!.IsReleased); // End succeeded; this is not a success notification.
-            Assert.False(NativeWindowModalSession.IsActive);
-        }
+            var api = new Operations(11) { OnRelease = () => throw new InvalidOperationException("Release failed.") };
+            Assert.True(NativeWindowModalSession.TryBegin(api, out var session));
+            using (session)
+            {
+                int completed = 0;
+                Assert.Throws<InvalidOperationException>(() =>
+                    NativeWindowModalSession.TryReleaseWindow(CocoaWindow(11), () => completed++));
+                Assert.Equal(0, completed);
+                Assert.True(session!.IsReleased); // End succeeded; this is not a success notification.
+                Assert.False(NativeWindowModalSession.IsActive);
+            }
+        }));
+        thread.Start();
+        thread.Join();
+        Assert.Null(failure);
     }
 
     [Fact]
