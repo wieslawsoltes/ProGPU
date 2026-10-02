@@ -15,10 +15,12 @@ inline bool build_original_shader_sampler_scene(progpu_native_mil_channel* chann
     using mil::command;
     using mil_clip_fixture_detail::append;
     using mil_clip_fixture_detail::packet;
-    if (variant >= 13U) return false;
+    if (variant >= 22U) return false;
     const auto source_variant = variant < 4U ? variant
+        : variant >= 13U ? variant <= 15U ? variant - 12U : 1U
         : variant == 6U || variant == 9U || variant == 10U ? 1U : 0U;
-    const bool full_source = variant >= 11U;
+    const bool full_source = variant == 11U || variant == 12U;
+    const bool two_axis = variant >= 16U && variant <= 19U;
     const bool inherited = variant >= 5U && variant <= 10U;
     const auto extent = full_source ? 100.0 : 32.0;
     const auto input_height = full_source ? 100.0 : 24.0;
@@ -52,13 +54,15 @@ inline bool build_original_shader_sampler_scene(progpu_native_mil_channel* chann
         variant < 4U || variant == 7U || variant == 9U ? 3U : 0U, 0U, 0U, 0U);
     packet(batch, command::solid_color_brush, 8U, 1.0, progpu_native_color{1, 1, 1, 1}, 0U, 0U, 0U, 0U);
     packet(batch, command::matrix_transform, 9U, 1.0, 0.0, 0.0, 1.0, 8.0, 0.0, 0U);
-    const std::array viewbox = !full_source ? std::array{0.0, 0.0, 1.0, 1.0}
+    const std::array viewbox = variant == 20U ? std::array{0.0, 0.0, 0.5, 1.0}
+        : !full_source ? std::array{0.0, 0.0, 1.0, 1.0}
         : variant == 11U ? std::array{50.0, 10.0, 100.0, 20.0} : std::array{0.25, 0.2, 0.5, 0.4};
     packet(batch, command::image_brush, 5U, full_source ? 0.25 : source_variant == 3U ? 1.0 : 0.5,
         std::array{0.0, 0.0, full_source || source_variant == 0U ? 1.0 : 0.5, 1.0}, viewbox,
-        0.707, 1.414, 0U, !full_source && source_variant == 2U ? 9U : 0U, 0U,
-        1U, variant == 11U ? 0U : 1U, 0U, 0U, full_source ? 0U : 1U,
-        full_source || source_variant == 0U ? 0U : 4U, 1U, 1U, 0U, 3U);
+        0.707, 1.414, 0U, !full_source && (source_variant == 2U || variant == 19U) ? 9U : 0U, 0U,
+        1U, variant == 11U ? 0U : 1U, 0U, 0U, full_source ? 0U : variant == 21U ? 2U : 1U,
+        full_source || source_variant == 0U ? 0U : two_axis ? (variant == 19U ? 1U : variant - 15U) : 4U,
+        1U, 1U, 0U, 3U);
     constexpr std::array<std::uint32_t, 15U> program{
         0xFFFF0200U, 0x0200001FU, 0x80000000U, 0xB0030000U,
         0x0200001FU, 0x90000000U, 0xA00F0800U,
@@ -81,12 +85,13 @@ inline bool build_original_shader_sampler_scene(progpu_native_mil_channel* chann
     const auto old_bitmap_generation = progpu_native_mil_channel_get_resource_generation(channel, 3U);
     const auto old_brush_generation = progpu_native_mil_channel_get_resource_generation(channel, 5U);
     const auto bitmap_width = full_source ? 400U : 2U;
-    const auto bitmap_height = full_source ? 200U : 1U;
+    const auto bitmap_height = full_source ? 200U : two_axis ? 2U : 1U;
     std::vector<std::uint8_t> pixels(bitmap_width * bitmap_height * 4U);
     for (std::uint32_t y = 0U; y < bitmap_height; ++y)
         for (std::uint32_t x = 0U; x < bitmap_width; ++x) {
             const auto at = (y * bitmap_width + x) * 4U;
-            pixels[at + (x >= bitmap_width / 2U ? 1U : !full_source && source_variant == 3U ? 2U : 0U)] = 255U;
+            const bool green = (x >= bitmap_width / 2U) != (two_axis && y != 0U);
+            pixels[at + (green ? 1U : !full_source && source_variant == 3U ? 2U : 0U)] = 255U;
             pixels[at + 3U] = 255U;
         }
     if (progpu_native_mil_channel_apply(channel, batch.data(), batch.size(), nullptr) != PROGPU_NATIVE_MIL_STATUS_SUCCESS ||
@@ -108,7 +113,7 @@ inline bool build_original_shader_sampler_scene(progpu_native_mil_channel* chann
 
 template<class Render, class Require>
 void verify_original_shader_sampler_pixels(Render render, Require require) {
-    std::array<std::vector<std::byte>, 13U> scenes;
+    std::array<std::vector<std::byte>, 20U> scenes;
     {
         progpu_native_mil_channel* raw{};
         require(progpu_native_mil_channel_create(&raw) == PROGPU_NATIVE_MIL_STATUS_SUCCESS,
@@ -125,7 +130,7 @@ void verify_original_shader_sampler_pixels(Render render, Require require) {
     std::vector<std::uint8_t> absolute_viewbox_pixels;
     std::vector<std::uint8_t> before_reset_pixels;
     for (std::uint32_t variant = 0U; variant < scenes.size(); ++variant) {
-        const auto image_extent = variant >= 11U ? 128U : 64U;
+        const auto image_extent = variant == 11U || variant == 12U ? 128U : 64U;
         const auto& scene = scenes[variant];
         progpu_native_scene_header header{};
         require(scene.size() >= sizeof(header), "ImageBrush shader scene header missing");
@@ -153,7 +158,7 @@ void verify_original_shader_sampler_pixels(Render render, Require require) {
             "owned sampler absolute/relative full-source viewbox pixels differ");
         for (unsigned y = 0U; y < image_extent; ++y) for (unsigned x = 0U; x < image_extent; ++x) {
             std::array<std::uint8_t, 4U> expected{0U, 0U, 0U, 255U};
-            if (variant >= 11U) {
+            if (variant == 11U || variant == 12U) {
                 // 400x200 pixels at 192/384 DPI are 200x50 DIPs. The
                 // centered Stretch.None viewbox maps the FULL source to
                 // (-50,30,200,50), then clips to the 100x100 viewport.
@@ -164,7 +169,33 @@ void verify_original_shader_sampler_pixels(Render render, Require require) {
                 const auto source_variant = variant < 4U ? variant
                     : variant == 6U || variant == 9U || variant == 10U ? 1U : 0U;
                 const auto offset = source_variant == 2U ? 8U : 0U;
-                if (variant == 4U) {
+                if (variant >= 13U) {
+                    // Independent four-neighbour interpolation over original
+                    // two-texel axes. Repeating a clamped enlarged page has a
+                    // different neighbourhood at every seam.
+                    const auto axis_weight = [](int numerator, int denominator, bool mirror) {
+                        const int lower = numerator >= 0 ? numerator / denominator
+                            : -((-numerator + denominator - 1) / denominator);
+                        const int fraction = numerator - lower * denominator;
+                        const auto color = [mirror](int index) {
+                            const int period = mirror ? 4 : 2;
+                            const int wrapped = (index % period + period) % period;
+                            return mirror ? (wrapped == 1 || wrapped == 2 ? 1 : 0) : wrapped;
+                        };
+                        return color(lower) * (denominator - fraction) + color(lower + 1) * fraction;
+                    };
+                    const bool two_axis = variant >= 16U;
+                    const int translation = variant == 14U || variant == 19U ? 8 : 0;
+                    const bool mirror_x = variant == 16U || variant == 18U || variant == 19U;
+                    const bool mirror_y = variant == 17U || variant == 18U;
+                    const int horizontal = axis_weight((static_cast<int>(x) - 8 - translation) * 2 - 7, 16, mirror_x);
+                    const int vertical = two_axis ? axis_weight((static_cast<int>(y) - 10) * 2 - 11, 24, mirror_y) : 0;
+                    const int green = horizontal * 24 + vertical * 16 - 2 * horizontal * vertical;
+                    const int opacity_divisor = variant == 15U ? 1 : 2;
+                    const int denominator = 384 * opacity_divisor;
+                    expected[1] = static_cast<std::uint8_t>((green * 255 + denominator / 2) / denominator);
+                    expected[variant == 15U ? 2U : 0U] = static_cast<std::uint8_t>(((384 - green) * 255 + denominator / 2) / denominator);
+                } else if (variant == 4U) {
                     // Two texel centers, clamped at the source image edge.
                     // Work in exact thirty-second-texel numerators; opacity is
                     // applied once when the capture is quantized to UNORM8.

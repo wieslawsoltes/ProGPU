@@ -15376,11 +15376,17 @@ struct channel::implementation {
             double y,
             double width,
             double height,
-            const render_scope_state& state) {
+            const render_scope_state& state,
+            const progpu_native_image_rect* addressed_source = nullptr,
+            std::uint32_t address_flags = 0U) {
             if (image_source_handle == 0U || width == 0.0 || height == 0.0) {
                 return status::success;
             }
             const auto bitmap = bitmap_sources.find(image_source_handle);
+            if (addressed_source != nullptr &&
+                (bitmap == bitmap_sources.end() || bitmap->second.external_image)) {
+                return status::unsupported_command;
+            }
             if (bitmap == bitmap_sources.end()) {
                 const auto d3d_image = d3d_images.find(image_source_handle);
                 if (d3d_image != d3d_images.end()) {
@@ -15496,15 +15502,16 @@ struct channel::implementation {
             }
             const progpu_native_scene_image_draw image_draw{
                 sizeof(progpu_native_scene_image_draw),
-                0U,
+                addressed_source == nullptr ? 0U :
+                    PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT | address_flags,
                 bitmap->second.width,
                 bitmap->second.height,
                 bitmap->second.row_bytes,
                 state.image_sampling,
-                {0.0F,
+                addressed_source == nullptr ? progpu_native_image_rect{0.0F,
                  0.0F,
                  static_cast<float>(bitmap->second.width),
-                 static_cast<float>(bitmap->second.height)},
+                 static_cast<float>(bitmap->second.height)} : *addressed_source,
                 {static_cast<float>(x),
                  static_cast<float>(y),
                  static_cast<float>(width),
@@ -15715,6 +15722,52 @@ struct channel::implementation {
             // outside it may remain visible until the Viewport clips it.
             clipped.transform = content_to_target;
             clipped.opacity *= opacity;
+            const auto owned_bitmap = bitmap_sources.find(brush.source_handle);
+            if (repeated && !vector_source && !state.per_point_guidelines &&
+                state.image_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
+                owned_bitmap != bitmap_sources.end() && !owned_bitmap->second.external_image &&
+                viewbox.x == 0.0 && viewbox.y == 0.0 &&
+                viewbox.width == content_width && viewbox.height == content_height &&
+                content_to_viewport.m31 == viewport.x && content_to_viewport.m32 == viewport.y &&
+                content_width * scale_x == viewport.width && content_height * scale_y == viewport.height &&
+                brush_transform.m12 == 0.0 && brush_transform.m21 == 0.0 &&
+                brush_transform.m11 > 0.0 && brush_transform.m22 > 0.0) {
+                // A full source exactly fills this tile: sample its original
+                // repeat/mirror neighbourhood, not an enlarged clamped page.
+                // The existing addressed-image path owns pixels and filtering
+                // in both providers. The already captured paint clip remains
+                // authoritative; this rectangle is only its sampling domain.
+                affine_2d_double inverse_brush{};
+                progpu_native_image_rect destination{};
+                if (!try_invert_affine(brush_transform, inverse_brush) ||
+                    !try_transform_bounds(paint_x, paint_y, paint_width, paint_height,
+                        inverse_brush, destination)) return status::unsupported_command;
+                const auto& bitmap = owned_bitmap->second;
+                const std::array source_values{
+                    (destination.x - viewport.x) / viewport.width * bitmap.width,
+                    (destination.y - viewport.y) / viewport.height * bitmap.height,
+                    destination.width / viewport.width * bitmap.width,
+                    destination.height / viewport.height * bitmap.height};
+                for (const auto value : source_values)
+                    if (!finite_double_as_float(value)) return status::unsupported_command;
+                const progpu_native_image_rect source{
+                    static_cast<float>(source_values[0]), static_cast<float>(source_values[1]),
+                    static_cast<float>(source_values[2]), static_cast<float>(source_values[3])};
+                const auto address_u = brush.tile_mode == 1U || brush.tile_mode == 3U
+                    ? PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT : PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT;
+                const auto address_v = brush.tile_mode == 2U || brush.tile_mode == 3U
+                    ? PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT : PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT;
+                clipped.transform = tile_to_target;
+                render_scope_state image_state = clipped;
+                image_state.transform = {};
+                if (!save_state(image_state)) return status::invalid_graph;
+                const status drawn = append_bitmap_source(brush.source_handle,
+                    destination.x, destination.y, destination.width, destination.height, clipped,
+                    &source, (address_u << PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT) |
+                        (address_v << PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT));
+                const bool restored = builder.restore();
+                return drawn != status::success ? drawn : restored ? status::success : status::invalid_graph;
+            }
             if (vector_source || repeated) {
                 if (active_drawings.size() >= maximum_visual_depth ||
                     !active_drawings.insert(brush_handle).second) return status::invalid_graph;
