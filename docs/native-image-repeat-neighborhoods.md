@@ -219,3 +219,27 @@ initialization, encoding, submission, callback completion and product capture.
 These markers add no GPU operations and change no descriptor, sampling policy,
 pixel/counter assertion or deadline. They locate the next hosted crash boundary;
 they are not a correction or a qualification result.
+
+The phase-marked replacement `37034592558` localizes the Windows ARM64
+(`110929541301`) and x64 failure inside `DeviceCreateRenderPipeline`: shader
+module creation returns, but pipeline creation does not. No reference texture,
+bind group, submission, readback or comparison has begun.
+
+The pinned native dependency's Cargo.lock selects wgpu
+`87576b72b37c6b78b41104eb25fc31893af94092`. Its
+[D3D12 stage setup](https://github.com/gfx-rs/wgpu/blob/87576b72b37c6b78b41104eb25fc31893af94092/wgpu-hal/src/dx12/device.rs#L248-L253)
+maps an absent shader-module label to an empty Rust string. Its
+[FXC call](https://github.com/gfx-rs/wgpu/blob/87576b72b37c6b78b41104eb25fc31893af94092/wgpu-hal/src/dx12/shader_compilation.rs#L38-L53)
+then passes that string's pointer, not a null pointer, as `pSourceName`.
+An empty Rust string does not provide a valid null-terminated C filename;
+[D3DCompile](https://learn.microsoft.com/en-us/windows/win32/api/d3dcompiler/nf-d3dcompiler-d3dcompile)
+requires null when the optional name is unused. The existing product shader
+module has a nonempty label and does not take this absent-name path.
+
+The independent reference now supplies a static nonempty module name, paired
+across both provider descriptor forms. This is the only behavior change: both
+WGSL stages, auto layout, vertex/fragment descriptors, blend state, sampling,
+assertions, compiler selection and deadlines remain unchanged. The concrete
+pinned-source defect is consistent with the observed Windows boundary; hosted
+pipeline creation and every original strict pixel control must still pass
+before identifying it as the confirmed cause of this execution failure.
