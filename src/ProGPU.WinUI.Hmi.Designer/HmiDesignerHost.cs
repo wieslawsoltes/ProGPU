@@ -75,10 +75,10 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         var header = BuildStudioHeader();
         AddChild(header); SetRow(header, 0);
 
-        var leftSplit = new ResponsiveSplitView { OpenPaneLength = 264, CompactModeThreshold = 950, PanePlacement = PanePlacement.Left, IsPaneScrollEnabled = false };
-        var rightSplit = new ResponsiveSplitView { OpenPaneLength = 284, CompactModeThreshold = 760, PanePlacement = PanePlacement.Right, IsPaneScrollEnabled = false };
+        var leftSplit = _libraryPane = new ResponsiveSplitView { Name = "HmiComponentLibraryPane", OpenPaneLength = 264, CompactModeThreshold = 950, PanePlacement = PanePlacement.Left, IsPaneScrollEnabled = false };
+        var rightSplit = _inspectorPane = new ResponsiveSplitView { Name = "HmiPropertyPane", OpenPaneLength = 284, CompactModeThreshold = 760, PanePlacement = PanePlacement.Right, IsPaneScrollEnabled = false };
         leftSplit.MainContent = rightSplit;
-        var left = _libraryTabs = new Pivot { Font = _font };
+        var left = _libraryTabs = new Pivot { Name = "HmiComponentLibraryTabs", Font = _font };
         var screens = new StackPanel { Padding = new Thickness(8) };
         var screenTools = Toolbar();
         screenTools.AddChild(Command("Add", () => DesignCommand(Session.AddScreen)));
@@ -92,16 +92,16 @@ public sealed partial class HmiDesignerHost : Grid, IDisposable
         toolbox.AddChild(search);
         var toolsScroll = new ScrollViewer { Content = _palette };
         toolbox.AddChild(toolsScroll); SetRow(toolsScroll, 1);
-        left.Items.Add(new PivotItem("Components", toolbox));
+        left.Items.Add(_componentsPage = new PivotItem("Components", toolbox));
         left.Items.Add(new PivotItem("Outline", _outline));
         left.SelectedIndex = 1;
         leftSplit.PaneContent = left;
-        var inspector = new Pivot { Font = _font, Margin = new Thickness(30, 0, 0, 0) };
+        var inspector = _inspectorTabs = new Pivot { Name = "HmiPropertyTabs", Font = _font, Margin = new Thickness(30, 0, 0, 0) };
         var properties = new Grid(); properties.RowDefinitions.Add(GridLength.Auto); properties.RowDefinitions.Add(GridLength.Auto); properties.RowDefinitions.Add(GridLength.Star(1));
         properties.AddChild(_selectionLabel);
         var quickProperties = BuildGraphicInspector(); properties.AddChild(quickProperties); SetRow(quickProperties, 1);
         properties.AddChild(_properties); SetRow(_properties, 2);
-        inspector.Items.Add(new PivotItem("HMI", properties));
+        inspector.Items.Add(_propertiesPage = new PivotItem("HMI", properties));
         inspector.Items.Add(new PivotItem("Layout", _layout));
         rightSplit.PaneContent = inspector;
         rightSplit.MainContent = _workspace;
