@@ -37,6 +37,24 @@ and the independent expected pixels against native Dawn replay. These are
 authored gates, not observed results; no local native renderer build, GPU/VM
 execution, original success or parity is claimed.
 
+## Bounded post-commit checks
+
+On implementation `97ac8ac81`, Apple Clang 21 strict C++20 syntax
+(`-Wall -Wextra -Wpedantic -Werror -fsyntax-only`) passed for the scene builder,
+image builder, Direct2D target, builder controls, compatibility controls and an
+explicit instantiation of the shared four-variant pixel fixture. Processes were
+bounded to 45 seconds each. The complete native contract verifier passed:
+143 MIL commands/141 packet layouts, coverage ledger, 93 owned GPU fields,
+all generated contracts and Unicode tables, and three inline-array generator
+controls. The first syntax pass identified incorrect fixture flag names;
+the corrected product preflight checks the actual transform/opacity values,
+and source-owner scopes have a separate atomic rejection control.
+
+No native library or renderer was linked or executed. The Windows-only and
+provider-specific translation units require their hosted SDK/dependency lanes;
+the original observation and GPU/cold-warm gates above remain pending. The full
+diff is whitespace-clean; no C wire layout or generated binding changed.
+
 Microsoft's [CopyFromMemory contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1bitmap-copyfrommemory)
 defines storage coordinates, matching formats and batch-flush failure behavior.
 That documentation does not alone prove the active clipped-target sequence;
