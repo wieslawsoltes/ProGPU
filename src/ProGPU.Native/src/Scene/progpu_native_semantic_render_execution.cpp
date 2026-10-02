@@ -1,6 +1,7 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_semantic_draw_execution.hpp"
 #include "progpu_native_semantic_layer_mask_resources.hpp"
+#include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_glyph_identity.hpp"
 #include "progpu_native_shader_effect_resource.hpp"
 #include "progpu_native_glyph_coverage_frame.hpp"
@@ -566,9 +567,17 @@ progpu_native_status render_scene(
                         // V5 has an independent complete input picture. Its
                         // output may intersect the target without changing UVs.
                         // Physical clip transport avoids logical-DPI round trips.
+                        bool source_vector_mask = layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX;
+                        if (!source_vector_mask) {
+                            const auto mask_resource = read_resource(layer.mask_resource_index);
+                            semantic::semantic_layer_mask parsed{};
+                            std::uint32_t mask_error = mask_resource.payload_offset;
+                            source_vector_mask = semantic::validate_layer_mask_resource(bytes, mask_resource, mask_error, &parsed) &&
+                                parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN && parsed.vector.opacity == 1.0F;
+                        }
                         complete_frame = static_cast<float>(sample_frame.source_dpi_x) == source_presentation.dpi_scale_x &&
                             static_cast<float>(sample_frame.source_dpi_y) == source_presentation.dpi_scale_y &&
-                            layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+                            source_vector_mask &&
                             (layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) == 0U &&
                             layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER && layer.opacity == 1.0F &&
                             index + 1U < header.command_count &&
@@ -4438,7 +4447,7 @@ progpu_native_status render_scene(
             std::uint32_t resource_index,
             semantic_render_bundle_span& operation,
             const semantic_scissor& source_extent,
-            const semantic_scissor& parent_extent) {
+            const semantic_scissor& parent_extent, bool source_vector_mask = false) {
             if (resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) {
                 return true;
             }
@@ -4510,7 +4519,8 @@ progpu_native_status render_scene(
                     if (!sampler_picture) sampler_picture = input_picture;
                     operation.shader_effect = create_semantic_sample_shader_binding(*engine, shader,
                         std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size), actual_frame, actual_target,
-                        std::move(sampler_picture), sample_frame, std::move(input_picture), derivative_register);
+                        std::move(sampler_picture), sample_frame, std::move(input_picture), derivative_register,
+                        source_vector_mask);
                 } else {
                     operation.shader_effect = create_semantic_shader_binding(*engine, shader,
                         std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
@@ -4986,7 +4996,8 @@ progpu_native_status render_scene(
                     if (!operation.backdrop) {
                         if (!append_effect_program(
                             layer.effect_resource_index,
-                            operation, source_extent, target_extent))
+                            operation, source_extent, target_extent,
+                            layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX))
                             return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
                     }
                     if (operation.effect_count != 0U &&
@@ -5953,7 +5964,7 @@ progpu_native_status render_scene(
                     ++semantic_effect_operation_count;
                     finish_pass();
                     if (!begin_pass(operation.target_layer, WGPULoadOp_Load, false) ||
-                        !encode_semantic_sample_shader_draw(pass, *operation.shader_effect))
+                        !encode_semantic_sample_shader_draw(pass, *operation.shader_effect, operation.mask_bind_group))
                         return fail_replay("A final-device WPF shader draw could not be encoded.");
                     ++semantic_layer_effect_pass_count;
                     ++executed_draw_calls;

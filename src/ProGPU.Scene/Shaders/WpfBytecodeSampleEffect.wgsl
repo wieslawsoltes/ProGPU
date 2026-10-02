@@ -1,5 +1,5 @@
 // Algorithm: rasterize an original homogeneous unit quad at final device samples.
-// Time complexity: O(I + S) per covered fragment for I instructions and S samples.
+// Time complexity: O(I + S) per covered fragment for I instructions and S samples; masked output adds one integer coverage load.
 // Space complexity: O(1) vertices/uniforms plus the bounded translated register file.
 // Original ProGPU final-device ShaderEffect path. The owned source capture and
 // device-lattice output have separate extents. Rasterize the original unit quad
@@ -21,6 +21,9 @@ struct SampleEffectUniforms {
 @group(0) @binding(0) var<uniform> effect: SampleEffectUniforms;
 @group(0) @binding(1) var source_sampler: sampler;
 @group(0) @binding(2) var source_texture: texture_2d<f32>;
+// Existing retained vector-mask layout. Only fs_source_mask statically uses
+// this binding; the ordinary pipeline neither initializes nor binds a mask.
+@group(1) @binding(1) var source_clip_coverage: texture_2d<f32>;
 
 struct SampleVertex {
     @builtin(position) position: vec4<f32>,
@@ -62,11 +65,24 @@ fn wpf_effect_main(uv: vec2<f32>) -> vec4<f32> {
     return o;
 }
 
-@fragment fn fs_main(input: SampleVertex) -> @location(0) vec4<f32> {
+fn wpf_final_sample_value(input: SampleVertex) -> vec4<f32> {
     // Translated derivatives execute before clip discard.
     let value = wpf_effect_main(input.uv);
     let physical = input.position.xy + effect.output_lattice.xy;
     if (physical.x < effect.physical_clip.x || physical.y < effect.physical_clip.y ||
         physical.x >= effect.physical_clip.z || physical.y >= effect.physical_clip.w) { discard; }
     return value;
+}
+
+@fragment fn fs_main(input: SampleVertex) -> @location(0) vec4<f32> {
+    return wpf_final_sample_value(input);
+}
+
+@fragment fn fs_source_mask(input: SampleVertex) -> @location(0) vec4<f32> {
+    // The existing clip rasterizer owns one R8 texel per actual parent device
+    // pixel. No source-image UV or resized effect texture participates. Apply
+    // coverage once to premultiplied output, after original shader evaluation.
+    let value = wpf_final_sample_value(input);
+    let coverage = textureLoad(source_clip_coverage, vec2<i32>(input.position.xy), 0).r;
+    return value * coverage;
 }

@@ -103,8 +103,27 @@ acquires the real input and binding. The fixture moves one live source outside
 the target and back, retaining exact no-effect-pass/no-uniform-upload controls
 for the hidden generation and ordinary cold/warm controls after restoration.
 
-Remaining implementation in this branch: nonrectangular source-mask contracts
-and final source/SDK/package qualification. No missing contract is redefined
+Nonrectangular source clips now use the existing typed vector/Boolean mask
+resource. The original path segments, fill rule, curve topology and intersection
+chain remain owned by the immutable scene. The existing shared mask rasterizer
+creates its retained R8 coverage at the actual parent target extent; the final
+shader uses one integer coverage load at that same device pixel and multiplies
+premultiplied output once, after bytecode evaluation. It does not clip the input
+capture, filter evaluated shader pixels, replace a shape with its envelope, or
+create a separate mask compositor. Existing span/submission retirement owns the
+mask texture, uniforms and bind group. Program cache identity includes masked
+versus unmasked layout, and the unmasked path does not initialize mask resources.
+
+Source admission requires every inherited vector clip to retain a proven basis:
+the existing path's logical-to-device transform must equal the traversal-owned
+original float transform. Unproven history stays unsupported rather than being
+reconstructed from rounded final bounds. Raw v5 accepts only the complete typed
+vector clip chain at opacity one; coverage-bitmap, analytic, brush, picture and
+composite masks retain their separate contracts. Legacy effect wires are unchanged.
+
+Remaining implementation in this branch: spatial source opacity masks, vector
+clips with unproven source-float mapping, and final source/SDK/package qualification.
+No missing contract is redefined
 as a dyadic-only final feature. Original-reference authoring is separately owned
 on `test/original-shader-axis-evidence`; this product branch does not alter its
 unexecuted observation-only UV/input/derivative claims.

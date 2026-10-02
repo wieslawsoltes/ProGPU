@@ -2837,6 +2837,7 @@ struct channel::implementation {
         std::array<float, 4U> shader_source_clip{};
         bool shader_source_has_clip{};
         bool shader_source_clip_proven{true};
+        bool shader_source_vector_mask_proven{};
         double opacity{1.0};
         progpu_native_image_rect clip_rect{};
         bool has_clip{};
@@ -11740,7 +11741,7 @@ struct channel::implementation {
         std::vector<progpu_native_scene_clip_path>& clip_paths,
         std::vector<progpu_native_path_segment>& clip_segments,
         std::vector<progpu_native_scene_path_boolean_node>&
-            clip_boolean_nodes) const {
+            clip_boolean_nodes, bool shader_source_frame_proven = false) const {
         clip_paths.resize(state.clip_path_count);
         clip_segments.resize(state.clip_segment_count);
         clip_boolean_nodes.resize(state.clip_boolean_node_count);
@@ -11868,6 +11869,8 @@ struct channel::implementation {
         state.clip_path_count = clip_paths.size();
         state.clip_segment_count = clip_segments.size();
         state.clip_boolean_node_count = clip_boolean_nodes.size();
+        state.shader_source_vector_mask_proven = shader_source_frame_proven &&
+            (state.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX || state.shader_source_vector_mask_proven);
         state.mask_resource_index = mask_resource_index;
         return status::success;
     }
@@ -12945,6 +12948,7 @@ struct channel::implementation {
             destination.clip_path_count = clip_paths.size();
             destination.clip_segment_count = clip_segments.size();
             destination.clip_boolean_node_count = clip_boolean_nodes.size();
+            destination.shader_source_vector_mask_proven = false;
             destination.mask_resource_index = mask_resource_index;
             return status::success;
         };
@@ -21224,7 +21228,8 @@ struct channel::implementation {
         if (visual == visuals.end() || visual->second.effect_handle == 0U || context.frame == nullptr ||
             !visual->second.has_cache_bounds || visual->second.cache_mode_handle != 0U ||
             context.frame->is_visual_brush() || context.frame->records_hit_test_owners() ||
-            !state.shader_source_transform_proven || state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            !state.shader_source_transform_proven ||
+            (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX && !state.shader_source_vector_mask_proven) ||
             (state.has_clip && (!state.shader_source_clip_proven || !state.shader_source_has_clip)))
             return status::unsupported_command;
         const auto& original = state.shader_source_transform;
@@ -21314,7 +21319,7 @@ struct channel::implementation {
         progpu_native_scene_layer layer{};
         layer.struct_size = sizeof(layer); layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
         layer.opacity = 1.0F; layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
-        layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX; layer.effect_resource_index = effect_index;
+        layer.mask_resource_index = state.mask_resource_index; layer.effect_resource_index = effect_index;
         layer.content_revision = layer.composite_revision = finish_nonzero_hash(revision);
         // Bounds retain original logical metadata only; v5 allocation and
         // final placement consume the physical frame, never this divided value.
@@ -22243,10 +22248,21 @@ struct channel::implementation {
                 visual->second.clip_geometry_handle,
                 current);
             if (clip_status == status::unsupported_command) {
+                // Preserve the existing exact source paths and Boolean tree.
+                // Its logical-to-device basis must agree with the independent
+                // original-float witness before v5 can consume this mask. This
+                // proof composes through every ancestor clip; render-data masks
+                // without that provenance do not acquire source admission.
+                const bool source_mask_frame = compile_context != nullptr && current.shader_source_transform_proven &&
+                    current.transform.m11 * compile_context->request.dpi_scale_x == current.shader_source_transform.m11 &&
+                    current.transform.m12 == 0.0 && current.transform.m21 == 0.0 &&
+                    current.transform.m22 * compile_context->request.dpi_scale_y == current.shader_source_transform.m22 &&
+                    current.transform.m31 * compile_context->request.dpi_scale_x == current.shader_source_transform.m31 &&
+                    current.transform.m32 * compile_context->request.dpi_scale_y == current.shader_source_transform.m32;
                 clip_status = append_geometry_clip(
                     visual->second.clip_geometry_handle,
                     current.transform, current, builder,
-                    clip_paths, clip_segments, clip_boolean_nodes);
+                    clip_paths, clip_segments, clip_boolean_nodes, source_mask_frame);
             }
             if (clip_status != status::success) {
                 active_visuals.erase(handle);
@@ -22358,7 +22374,8 @@ struct channel::implementation {
         const bool source_shader = source_effect != effects.end() && source_effect->second.type == effect_state::kind::shader;
         const auto fractional = [](double value) { return value != std::floor(value); };
         const bool requires_final_samples = source_shader && current.shader_source_transform_proven &&
-            (!native::shader_effect::exact_capture_scale(static_cast<float>(current.shader_source_transform.m11)) ||
+            (current.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+             !native::shader_effect::exact_capture_scale(static_cast<float>(current.shader_source_transform.m11)) ||
              !native::shader_effect::exact_capture_scale(static_cast<float>(current.shader_source_transform.m22)) ||
              fractional(current.shader_source_transform.m31) || fractional(current.shader_source_transform.m32) ||
              (current.shader_source_has_clip && std::any_of(current.shader_source_clip.begin(),
