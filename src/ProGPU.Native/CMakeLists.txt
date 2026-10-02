@@ -961,6 +961,7 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_gvar_tuples.cpp
     src/Text/progpu_native_item_variation_store.cpp
     src/Text/progpu_native_hvar.cpp
+    src/Text/progpu_native_vvar.cpp
     src/Text/progpu_native_mvar.cpp
     src/Text/progpu_native_gdef_variations.cpp
     src/Text/progpu_native_cff_index.cpp
