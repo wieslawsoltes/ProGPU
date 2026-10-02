@@ -22,6 +22,7 @@
 #include "progpu_native_shader_final_sample_fixture.hpp"
 #include "progpu_native_shader_source_mask_fixture.hpp"
 #include "progpu_native_shader_input_opacity_fixture.hpp"
+#include "progpu_native_shader_sampled_opacity_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
@@ -3506,9 +3507,10 @@ int main(int argc, char** argv) {
             std::uint32_t target_extent = 64U,
             const progpu_native_scene_picture_image* capture_frame = nullptr,
             progpu_native_engine* diagnostic_engine = nullptr,
-            std::uint32_t rectangular_height = 0U) {
+            std::uint32_t rectangular_height = 0U,
+            std::uint64_t maximum_submissions = 0U) {
             require((rectangular_height == 0U && (target_extent == 64U || target_extent == 128U)) ||
-                (capture_frame == nullptr && target_extent == 96U && rectangular_height == 64U),
+                (capture_frame == nullptr && (target_extent == 96U || target_extent == 128U) && rectangular_height == 64U),
                 "retained Dawn fixture target extent is unsupported");
             const auto target_width = capture_frame != nullptr ? capture_frame->width : target_extent;
             const auto target_height = capture_frame != nullptr ? capture_frame->height :
@@ -3570,7 +3572,11 @@ int main(int argc, char** argv) {
                 api.destroy_canvas(provider, picture_canvas);
                 return std::vector<std::uint8_t>{};
             }
-            require(rendered == PROGPU_NATIVE_STATUS_SUCCESS && metrics.command_count == commands && metrics.submission_count == submissions,
+            // Existing callers retain exact counts. Only an explicit bounded
+            // dependency graph may supply an upper count for retained mutations.
+            require(rendered == PROGPU_NATIVE_STATUS_SUCCESS && metrics.command_count == commands &&
+                (maximum_submissions == 0U ? metrics.submission_count == submissions :
+                    metrics.submission_count >= submissions && metrics.submission_count <= maximum_submissions),
                 "axis picture Dawn render failed");
             if (observed_frame != nullptr) *observed_frame = metrics;
             if (layers != nullptr)
@@ -3757,6 +3763,23 @@ int main(int argc, char** argv) {
                 baseline ? 1U : 0U, header.command_count, &layers, &metrics, dpi, nullptr,
                 PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, nullptr, 64U);
         }, require);
+    {
+        std::array<std::array<progpu_native_engine*, 3U>, 3U> sampled_engines{};
+        progpu::native::tests::verify_shader_sampled_input_opacity(
+            [&](unsigned family, unsigned lane, const auto& stream, const progpu_native_scene_header& header,
+                float dpi, bool baseline, std::uint64_t minimum_submissions, std::uint64_t maximum_submissions,
+                progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+                auto*& selected = sampled_engines[family][lane];
+                if (selected == nullptr)
+                    require(progpu_native_dawn_engine_create(&engine_options, &selected) == PROGPU_NATIVE_STATUS_SUCCESS && selected,
+                        "sampled source Dawn engine creation failed");
+                return render_retained_scene(false, stream, header.generation, minimum_submissions, header.scene_id,
+                    baseline ? 1U : 0U, header.command_count, &layers, &metrics, dpi, nullptr,
+                    PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, selected, 64U, maximum_submissions);
+            }, require);
+        for (auto& family : sampled_engines)
+            for (auto* selected : family) progpu_native_engine_destroy(selected);
+    }
     progpu::native::direct2d::tests::verify_scoped_memory_copy_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
             return render_retained_scene(reference, stream, generation, submissions, 0x95A3U, 1U, 1U);

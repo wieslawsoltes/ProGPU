@@ -18,6 +18,7 @@
 #include "progpu_native_shader_final_sample_fixture.hpp"
 #include "progpu_native_shader_source_mask_fixture.hpp"
 #include "progpu_native_shader_input_opacity_fixture.hpp"
+#include "progpu_native_shader_sampled_opacity_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
@@ -755,7 +756,7 @@ enum class sampler_engine_policy { original, native, four_load };
     std::uint32_t rectangular_height = 0U)
 {
     require((rectangular_height == 0U && (target_extent == 64U || target_extent == 128U)) ||
-        (capture_frame == nullptr && target_extent == 96U && rectangular_height == 64U),
+        (capture_frame == nullptr && (target_extent == 96U || target_extent == 128U) && rectangular_height == 64U),
         "retained fixture target extent is unsupported");
     const auto target_width = capture_frame != nullptr ? capture_frame->width : target_extent;
     const auto target_height = capture_frame != nullptr ? capture_frame->height :
@@ -2401,6 +2402,27 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(padding_reference_engine);
     phase("original shader padded captures passed");
+    {
+        std::array<std::array<progpu_native_engine*, 3U>, 3U> sampled_engines{};
+        progpu::native::tests::verify_shader_sampled_input_opacity(
+            [&](unsigned family, unsigned lane, const auto& stream, const progpu_native_scene_header& header,
+                float dpi, bool baseline, std::uint64_t minimum_submissions, std::uint64_t maximum_submissions,
+                progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+                auto*& selected = sampled_engines[family][lane];
+                if (selected == nullptr) selected = create_engine(gpu);
+                auto pixels = render_scene(gpu, selected, nullptr, baseline ? 1U : 0U, header.command_count,
+                    minimum_submissions == maximum_submissions ? minimum_submissions : 0U,
+                    stream, header.scene_id, header.generation, &metrics, dpi, nullptr,
+                    PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, 64U);
+                require(metrics.submission_count >= minimum_submissions && metrics.submission_count <= maximum_submissions &&
+                    progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                    "sampled input dependency counts/layer metrics differ");
+                return pixels;
+            }, require);
+        for (auto& family : sampled_engines)
+            for (auto* selected : family) progpu_native_engine_destroy(selected);
+    }
+    phase("original sampled source opacity captures passed");
     {
         // Explicit policies are isolated from the ordinary engine and adapter
         // defaults. Both routes retain the real owned scene/layer/readback path.
