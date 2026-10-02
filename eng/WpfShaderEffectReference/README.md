@@ -187,3 +187,21 @@ Both receipts retain the original PresentationCore identity, actual visual-field
 state, all pixels and independent replays. The unchanged 25 arithmetic inputs
 also passed their architecture-specific controls. This establishes the original
 reference, not a native renderer, source-host or package qualification.
+
+## Two-axis mirrored source neighborhoods
+
+Four additive inputs use an original two-by-two red/green checkerboard at
+144/192 DPI, the unchanged 32x24 receiving bounds and 16x16 external clip,
+half-width viewport, half opacity and Bilinear shader sampler. FlipX, FlipY,
+FlipXY and translated FlipX address each original source neighbor before
+bilinear interpolation; the reference does not enlarge a clamped tile first.
+The independent expected colors use continuous pixel-center coordinates and
+periodic/mirrored texel indices on both axes. Every output byte, opaque alpha,
+cold/warm/independent replay and the original shared deadline remains checked.
+
+The first twenty-four sampler inputs and all twenty-five arithmetic inputs are
+unchanged. The new complete inventory is 28 sampler inputs, 84 replays,
+22 independent color controls and five complete-pixel equivalence pairs.
+ARM64 still executes every input only as an unavailable-software control with
+zero qualified shaders. These new mirror observations are pending actual Windows
+execution; native-provider, source-host and package qualification remain separate.
