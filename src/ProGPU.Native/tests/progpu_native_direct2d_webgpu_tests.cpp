@@ -1,5 +1,6 @@
 #include "progpu_native.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
@@ -13,6 +14,12 @@
 #include "progpu_native_shader_local_frame_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
+#include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
+#include "progpu_native_direct2d_scoped_copy_fixture.hpp"
+#include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
+#include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
+#include "progpu_native_direct2d_gradient_stop_fixture.hpp"
+#include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -1455,6 +1462,16 @@ void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine*
     }
 }
 
+void verify_owned_bitmap_scene_copies(const gpu_context& gpu, progpu_native_engine* engine)
+{
+    auto parent = record_scene(9350U);
+    progpu::native::direct2d::tests::verify_owned_bitmap_scene_copy_pixels(parent.factory.get(),
+        [&](d2d::scene_render_target_native* scene, std::uint32_t draws,
+            std::uint32_t commands, std::uint64_t submissions) {
+            return render_scene(gpu, engine, scene, draws, commands, submissions);
+        }, require);
+}
+
 void verify_compatible_bitmap_uploads(const gpu_context& gpu, progpu_native_engine* engine)
 {
     // This independently updated target must not rewind the later main fixture.
@@ -2186,6 +2203,26 @@ int main(int argc, char** argv)
     progpu::native::tests::verify_picture_axis_presentation(render_picture, require);
     progpu::native::tests::verify_picture_resource_ownership(render_picture, require);
     progpu::native::tests::verify_picture_layer_presentation(render_picture, require);
+    progpu::native::direct2d::tests::verify_bitmap_destination_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_scene(gpu, reference ? picture_reference_engine : engine, nullptr,
+                1U, 1U, submissions, stream, 0x95C3U, generation);
+        }, require);
+    progpu::native::direct2d::tests::verify_gradient_stop_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation) {
+            return render_scene(gpu, reference ? picture_reference_engine : engine,
+                nullptr, 1U, 1U, 1U, stream, 0x95C5U, generation);
+        }, require);
+    progpu::native::direct2d::tests::verify_gradient_interval_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation) {
+            return render_scene(gpu, reference ? picture_reference_engine : engine,
+                nullptr, 1U, 1U, 1U, stream, 0x95C7U, generation);
+        }, require);
+    progpu::native::direct2d::tests::verify_compatible_dpi_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_scene(gpu, reference ? picture_reference_engine : engine,
+                nullptr, 1U, 1U, submissions, stream, 0x95CAU, generation);
+        }, require);
     progpu_native_engine_destroy(picture_reference_engine);
     phase("per-axis picture pixels passed");
     auto* shader_reference_engine = create_engine(gpu);
@@ -2262,6 +2299,19 @@ int main(int argc, char** argv)
     progpu_native_engine_destroy(sampler_reference_engine);
     }
     phase("original ImageBrush shader samplers passed");
+    auto* scoped_copy_reference_engine = create_engine(gpu);
+    progpu::native::direct2d::tests::verify_scoped_memory_copy_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_scene(gpu, reference ? scoped_copy_reference_engine : engine, nullptr,
+                1U, 1U, submissions, stream, 0x95A3U, generation);
+        }, require);
+    progpu::native::direct2d::tests::verify_scoped_source_copy_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_scene(gpu, reference ? scoped_copy_reference_engine : engine, nullptr,
+                1U, 1U, submissions, stream, 0x95B3U, generation);
+        }, require);
+    progpu_native_engine_destroy(scoped_copy_reference_engine);
+    phase("scoped bitmap memory copies passed");
     auto* derivative_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_original_shader_derivative_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation,
@@ -2339,7 +2389,10 @@ int main(int argc, char** argv)
     verify_incremental_picture_backing(gpu, engine);
     verify_compatible_bitmap_uploads(gpu, engine);
     verify_formatted_scene_copies(gpu, engine);
+    verify_owned_bitmap_scene_copies(gpu, engine);
     verify_full_target_clear(gpu, engine);
+    progpu::native::direct2d::tests::verify_clipped_clear(
+        [&](d2d::scene_render_target_native* target) { return render_scene(gpu, engine, target, 3U, 9U, 1U); }, require);
     portable_scene scene = record_scene();
     const std::vector<std::uint8_t> pixels = render_scene(
         gpu, engine, scene.scene_target.get());

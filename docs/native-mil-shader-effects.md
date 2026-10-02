@@ -22,7 +22,7 @@ Generated managed bindings describe that wire shape, not a rendering fallback.
 The original family is `ps_2_0`, at most 64 KiB and 512 instructions, with one
 declared 2D implicit-input sampler, `t0`, 12 temporary registers, 32 float constant
 registers and fully written `oC0`. Executable instructions are MOV, ADD, SUB, MUL,
-MAD, DP3, DP4, MIN, MAX, LRP, FRC, ABS, CMP and TEXLD. NOP, bounded comments, DCL
+MAD, DP3, DP4, MIN, MAX, LRP, FRC, CRS, ABS, CMP and TEXLD. NOP, bounded comments, DCL
 and finite DEF are parsed. Swizzles, write masks, NEG/ABS/ABSNEG source modifiers
 and SAT are explicit. Reading an unwritten component fails. Unknown opcodes,
 relative registers, predicates, unsupported modifiers, malformed lengths,
@@ -38,6 +38,15 @@ model-specific SINCOS and explicitly admitted immutable-DEF NRM operands. Its
 367 independent controls are registered with the original 110 translation
 controls. Runtime-valued NRM, RCP, RSQ, EXP and POW remain rejected; this does not
 claim complete arithmetic or floating-point equivalence.
+
+The [original cross-product family](native-shader-cross-product.md) adds `CRS`
+with selected-lane dependencies and the original destination, alias and swizzle
+restrictions. Its 406 controls supplement, rather than replace, those original
+translation/arithmetic controls; paired GPU qualification is still required.
+
+The [matrix product family](native-shader-matrices.md) adds the five original
+matrix opcodes with validated consecutive rows, exact component counts and
+per-dot read-port checks. It preserves the original bytecode and register limits.
 
 Version 1 admits one untransformed implicit-input brush at opacity one. An
 explicit [version-2 owned ImageBrush sampler](native-shader-image-samplers.md)

@@ -184,7 +184,9 @@ typedef enum progpu_native_scene_gradient_spread {
     PROGPU_NATIVE_SCENE_GRADIENT_PAD = 0,
     PROGPU_NATIVE_SCENE_GRADIENT_REFLECT = 1,
     PROGPU_NATIVE_SCENE_GRADIENT_REPEAT = 2,
-    PROGPU_NATIVE_SCENE_GRADIENT_DECAL = 3
+    PROGPU_NATIVE_SCENE_GRADIENT_DECAL = 3,
+    /* Direct2D linear/radial content clamps its parameter, not stop offsets. */
+    PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL = 4
 } progpu_native_scene_gradient_spread;
 
 enum {
@@ -344,7 +346,13 @@ enum {
      * raster extent. Recursive use of an active cache owner is invalid.
      * The producer must preserve identical source content for that revision;
      * opacity, composite state, sampling and final mask may differ. */
-    PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED = 1U << 9U
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED = 1U << 9U,
+    /* Restricts final replacement to pixel centers in the original BOUNDS,
+     * independently of outward-rounded texture allocation. Requires exactly
+     * BOUNDS plus this flag, SRC, opacity one, no mask/effect and zero revisions.
+     * Original float bounds map through the actual final DPI/viewport. */
+    /* PROGPU_CSHARP_ULONG: SceneLayerAliasedCompositeBounds */
+    PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS = 1024ULL
 };
 
 typedef enum progpu_native_image_sampling {

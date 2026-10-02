@@ -1,12 +1,15 @@
 #include "progpu_native.h"
 #include "progpu_native_text_styles.h"
 #include "progpu_native_text_flow.h"
+#include "progpu_native_text_source.h"
 #include "progpu_native_text.hpp"
 #include "progpu_native_text_font_source.hpp"
 #include "../progpu_native_text_cluster_breaks_internal.hpp"
 #include "../Font/progpu_native_hinted_transport.hpp"
 #include "../Font/progpu_native_hinted_shaper.hpp"
 #include "progpu_native_hinted_paragraph_internal.hpp"
+#include "progpu_native_hinted_source_fitting.hpp"
+#include "progpu_native_hinted_source_resource_cache.hpp"
 #include "progpu_native_hinted_paragraph_transport_internal.hpp"
 #include "progpu_native_owned_allocation_internal.hpp"
 #include "../progpu_native_text_layout_retained_internal.hpp"
@@ -51,9 +54,22 @@ struct progpu_native_hinted_run final {
     std::shared_ptr<const progpu::native::text::hinted_shaped_run> generation{};
 };
 
+// Immutable fieldwise C snapshot. Glyph resources share this exact owner,
+// never pointers into the creating paragraph handle.
+struct progpu_native_hinted_source_cache final {
+    progpu_native_hinted_source_options options{};
+    std::vector<progpu_native_hinted_source_style> styles{};
+    std::vector<progpu_native_hinted_source_logical_metrics> logical{};
+    std::vector<progpu_native_hinted_source_glyph_metrics> glyphs{};
+    std::vector<progpu_native_hinted_source_line_metrics> lines{};
+    std::vector<progpu_native_hinted_source_cluster_box> boxes{};
+    std::vector<progpu_native_hinted_source_caret_stop> carets{};
+};
+
 struct progpu_native_hinted_paragraph final {
     std::shared_ptr<const progpu::native::text::hinted_paragraph_generation> generation{};
     std::shared_ptr<const progpu::native::text::hinted_paragraph_interaction> interaction{};
+    std::shared_ptr<const progpu_native_hinted_source_cache> source{};
 };
 
 struct progpu_native_hinted_paragraph_frame final {
@@ -68,6 +84,8 @@ struct progpu_native_hinted_paragraph_frame final {
 struct progpu_native_hinted_glyph_resource final {
     std::shared_ptr<const progpu::native::text::hinted_paragraph_glyph_resource> generation{};
     std::shared_ptr<const progpu::native::text::hinted_paragraph_interaction> interaction{};
+    std::shared_ptr<const progpu_native_hinted_source_cache> source{};
+    std::shared_ptr<const progpu::native::text::hinted_source_resource_cache> source_resource{};
     std::vector<progpu_native_hinted_paragraph_device_style> device_styles{};
     std::vector<std::int32_t> variation_coordinates_16_16{};
     std::vector<progpu_native_hinted_glyph_run_slice> run_slices{};
@@ -788,6 +806,7 @@ bool hinted_run_output_aliases(const progpu_native_hinted_run& handle,
     const auto& run = *handle.generation;
     if (overlaps(&run, sizeof(run)) || vector_aliases(run.shaping_input) || vector_aliases(run.glyphs) ||
         vector_aliases(run.descriptor_indices) || vector_aliases(run.normalized_coordinates) ||
+        (run.positioning != nullptr && run.positioning->allocation_aliases(output, static_cast<std::size_t>(bytes))) ||
         run.batch == nullptr) return true;
     const auto& batch = *run.batch;
     if (overlaps(&batch, sizeof(batch)) || vector_aliases(batch.glyphs) || batch.identity == nullptr) return true;
@@ -1607,9 +1626,9 @@ progpu_native_status shape_core(
 progpu_native_status shape_hinted_request_generation(
     progpu_native_text_context* context, const progpu_native_hinted_font_request& hint,
     const std::int32_t* variation_coordinates, const progpu_native_text_shape_request& request,
-    std::shared_ptr<const hinted_shaped_run>& generation) {
+    std::shared_ptr<const hinted_shaped_run>& generation, bool retain_positioning = false) {
 #if !defined(PROGPU_NATIVE_FONT_HINTING)
-    (void)context; (void)hint; (void)variation_coordinates; (void)request; (void)generation;
+    (void)context; (void)hint; (void)variation_coordinates; (void)request; (void)generation; (void)retain_positioning;
     return PROGPU_NATIVE_STATUS_UNSUPPORTED;
 #else
     const auto& font = *context->font_at(hint.font_index);
@@ -1645,7 +1664,7 @@ progpu_native_status shape_hinted_request_generation(
     std::shared_ptr<const hinted_shaped_run> candidate{};
     hinted_shape_error failure{};
     if (!try_shape_context_hinted(context, hint.font_index, hinted_configuration, input, configuration.options,
-        candidate, failure, hinted_projection_policy::automatic, plan)) {
+        candidate, failure, hinted_projection_policy::automatic, plan, retain_positioning)) {
         if (failure.resource_exhausted) return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
         if (failure.capture != hinted_font_error::none) return hinted_status(failure.capture);
         if (failure.projection == hinted_projection_error::unsupported_policy ||
@@ -3415,14 +3434,23 @@ static progpu_native_status paragraph_layout_core(
                     static_cast<std::uint32_t>(device.policy), device.x_phase_26_6, device.y_phase_26_6,
                     static_cast<std::uint32_t>(device.variation_coordinates_16_16.size()), 0U};
                 shape_status = shape_hinted_request_generation(context, hint_request,
-                    device.variation_coordinates_16_16.data(), run_request, retained_run);
+                    device.variation_coordinates_16_16.data(), run_request, retained_run, hinted->generation->has_source_geometry);
                 if (shape_status == PROGPU_NATIVE_STATUS_SUCCESS) {
                     if (retained_run->glyphs.size() > run_glyphs.size())
                         shape_status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
                     else {
                         shape_result.glyph_count = static_cast<std::uint32_t>(retained_run->glyphs.size());
-                        for (std::size_t i = 0U; i < retained_run->glyphs.size(); ++i)
-                            copy_hinted_run_glyph(retained_run->glyphs[i], run_glyphs[i]);
+                        for (std::size_t i = 0U; i < retained_run->glyphs.size(); ++i) {
+                            auto fitting_glyph = retained_run->glyphs[i];
+                            if (!hinted->generation->source_styles.empty() &&
+                                !project_hinted_source_advance(retained_run->glyphs[i],
+                                    hinted->generation->source_styles[fallback_run_index].advance_policy,
+                                    fitting_glyph)) {
+                                shape_status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+                                break;
+                            }
+                            copy_hinted_run_glyph(fitting_glyph, run_glyphs[i]);
+                        }
                     }
                 }
                 // Source scale remains identity; it never reprojects device metrics.
@@ -3541,6 +3569,41 @@ static progpu_native_status paragraph_layout_core(
             for (std::size_t i = 0U; i < logical_count; ++i)
                 retained.logical_source_scales[i] = retained.runs[retained.logical_owners[i].run_index].source_scale;
             if (justify) retained.justification_classes.assign(justification.begin(), justification.begin() + logical_count);
+            if (retained.has_source_geometry) {
+                retained.source_logical_metrics.resize(logical_count);
+                retained.source_item_metrics.resize(logical_count);
+                retained.source_glyphs.resize(glyph_limit);
+                retained.source_lines.resize(glyph_limit);
+                for (std::size_t i = 0U; i < logical_count; ++i) {
+                    const auto style_index = retained.runs[retained.logical_owners[i].run_index].style_index;
+                    const auto& glyph = logical[i];
+                    if (!project_hinted_source_geometry(glyph, retained.source_styles[style_index], retained.source_logical_metrics[i])) {
+                        result->error_code = static_cast<std::uint32_t>(font_error::invalid_argument);
+                        result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
+                        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+                    }
+                    retained.source_item_metrics[i] = retained.source_style_metrics[style_index];
+                }
+                const auto fitted = fit_hinted_source_paragraph(retained, 0U, retained.source_maximum_width);
+                if (fitted.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                    result->error_code = static_cast<std::uint32_t>(font_error::invalid_argument);
+                    result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
+                    return fitted.status;
+                }
+                retained.source_fitting = fitted.generation;
+                retained.source_logical_metrics = fitted.generation->metrics;
+                if (retained.has_source_intrinsic_widths) {
+                    hinted_source_intrinsic_widths source_intrinsic{};
+                    const auto measured = measure_hinted_source_intrinsic_widths(retained, source_intrinsic);
+                    if (measured != PROGPU_NATIVE_STATUS_SUCCESS) {
+                        result->error_code = static_cast<std::uint32_t>(font_error::invalid_argument);
+                        result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
+                        return measured;
+                    }
+                    retained.source_minimum_intrinsic_width = source_intrinsic.minimum;
+                    retained.source_maximum_intrinsic_width = source_intrinsic.maximum;
+                }
+            }
         }
         // Shape and resolve bidi over the complete original paragraph first.
         // Only placement consumes a suffix, at an actual shaped cluster boundary.
@@ -3581,6 +3644,16 @@ static progpu_native_status paragraph_layout_core(
                 excluded_flow->origin_y, rectangles, exclusion_scratch, intervals, fragments, tab_advances, logical_scratch,
                 positioned, native_lines, placements, excluded_result,
                 excluded_flow->options->maximum_attempts, &font_result)
+            : hinted != nullptr && hinted->generation->has_source_geometry
+            ? try_layout_source_measured_logical_shaped_text_retained(logical, glyph_breaks.first(logical_count),
+                glyph_levels.first(logical_count), glyph_scales.first(logical_count), paragraph_level,
+                positioning_options, {0.0F, 0.0F, hinted->generation->source_allow_emergency_break},
+                logical_scratch, positioned, native_lines, positioned_count, written_lines,
+                {hinted->generation->bidi_levels, hinted->generation->line_origins, hinted->generation->line_frames},
+                {hinted->generation->source_maximum_width, hinted->generation->source_line_height,
+                    hinted->generation->source_logical_metrics, hinted->generation->source_item_metrics,
+                    hinted->generation->source_glyphs, hinted->generation->source_lines,
+                    hinted->generation->source_fitting->lines}, &font_result)
             : hinted != nullptr
             ? try_layout_measured_logical_shaped_text_retained(logical, glyph_breaks.first(logical_count),
                 glyph_levels.first(logical_count), glyph_scales.first(logical_count), paragraph_level,
@@ -3686,6 +3759,10 @@ static progpu_native_status paragraph_layout_core(
             retained.bidi_levels.resize(positioned_count);
             retained.line_origins.resize(written_lines);
             retained.line_frames.resize(written_lines);
+            if (retained.has_source_geometry) {
+                retained.source_glyphs.resize(positioned_count);
+                retained.source_lines.resize(written_lines);
+            }
             retained.metrics = metrics;
             retained.paragraph_result = *result;
         }
@@ -4102,7 +4179,11 @@ bool hinted_paragraph_aliases(const hinted_paragraph_generation& value,
         vector_aliases(value.normalized_coordinates) || vector_aliases(value.shaping_input) ||
         vector_aliases(value.scalar_levels) || vector_aliases(value.script_runs) || vector_aliases(value.graphemes) ||
         vector_aliases(value.fallback_runs) || vector_aliases(value.font_sources) || vector_aliases(value.styles) ||
-        vector_aliases(value.source_metrics) || vector_aliases(value.device_styles) || vector_aliases(value.runs) ||
+        vector_aliases(value.source_metrics) || vector_aliases(value.device_styles) || vector_aliases(value.source_styles) ||
+        vector_aliases(value.source_style_metrics) || vector_aliases(value.source_item_metrics) ||
+        vector_aliases(value.source_logical_metrics) || vector_aliases(value.source_glyphs) || vector_aliases(value.source_lines) ||
+        (value.source_fitting != nullptr && value.source_fitting->allocation_aliases(output, static_cast<std::size_t>(bytes))) ||
+        vector_aliases(value.runs) ||
         vector_aliases(value.logical_glyphs) || vector_aliases(value.logical_bidi_levels) ||
         vector_aliases(value.logical_font_indices) || vector_aliases(value.logical_source_scales) ||
         vector_aliases(value.glyph_scales) || vector_aliases(value.logical_owners) ||
@@ -4201,7 +4282,9 @@ progpu_native_status try_layout_context_hinted_paragraph(
     std::span<const progpu_native_text_style_metrics> source_metrics,
     std::span<const hinted_paragraph_style_configuration> device_styles,
     std::shared_ptr<const hinted_paragraph_generation>& result,
-    progpu_native_text_paragraph_result& diagnostic) noexcept {
+    progpu_native_text_paragraph_result& diagnostic,
+    std::span<const hinted_source_style> source_styles,
+    const hinted_source_paragraph_layout* source_layout) noexcept {
     // Validate address arithmetic before following any borrowed arrays. An alias
     // failure cannot write even the diagnostic or publication shared_ptr object.
     const auto valid_bytes = [](const void* data, std::size_t count) noexcept {
@@ -4213,15 +4296,20 @@ progpu_native_status try_layout_context_hinted_paragraph(
         !valid_hinted_buffer(&layout, 1U) || !valid_bytes(&shaping, shaping.struct_size) ||
         !valid_bytes(&layout, layout.struct_size) || !valid_bytes(shaping.font_data, shaping.font_size) ||
         !valid_bytes(shaping.normalization_data, shaping.normalization_data_size) || styles.size() > UINT32_MAX ||
-        source_metrics.size() > UINT32_MAX || device_styles.size() > UINT32_MAX ||
+        source_metrics.size() > UINT32_MAX || device_styles.size() > UINT32_MAX || source_styles.size() > UINT32_MAX ||
         !valid_hinted_buffer(styles.data(), static_cast<std::uint32_t>(styles.size())) ||
         !valid_hinted_buffer(source_metrics.data(), static_cast<std::uint32_t>(source_metrics.size())) ||
         !valid_hinted_buffer(device_styles.data(), static_cast<std::uint32_t>(device_styles.size())) ||
+        !valid_hinted_buffer(source_styles.data(), static_cast<std::uint32_t>(source_styles.size())) ||
         !valid_hinted_buffer(shaping.input, shaping.input_count) ||
         !valid_hinted_buffer(shaping.pre_context, shaping.pre_context_count) ||
         !valid_hinted_buffer(shaping.post_context, shaping.post_context_count) ||
         !valid_hinted_buffer(shaping.features, shaping.feature_count) ||
         !valid_hinted_buffer(shaping.normalized_coordinates, shaping.normalized_coordinate_count)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (source_layout != nullptr && (!valid_hinted_buffer(source_layout, 1U) ||
+        source_layout->style_metrics.size() > UINT32_MAX ||
+        !valid_hinted_buffer(source_layout->style_metrics.data(), static_cast<std::uint32_t>(source_layout->style_metrics.size()))))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     for (const auto& device : device_styles)
         if (device.hinting.variation_coordinates_16_16.size() > 65535U ||
             !valid_hinted_buffer(device.hinting.variation_coordinates_16_16.data(),
@@ -4232,6 +4320,9 @@ progpu_native_status try_layout_context_hinted_paragraph(
             overlaps(&layout, std::max<std::size_t>(sizeof(layout), layout.struct_size)) ||
             overlaps(styles.data(), styles.size_bytes()) || overlaps(source_metrics.data(), source_metrics.size_bytes()) ||
             overlaps(device_styles.data(), device_styles.size_bytes()) ||
+            overlaps(source_styles.data(), source_styles.size_bytes()) ||
+            (source_layout != nullptr && (overlaps(source_layout, sizeof(*source_layout)) ||
+                overlaps(source_layout->style_metrics.data(), source_layout->style_metrics.size_bytes()))) ||
             overlaps(shaping.input, static_cast<std::uint64_t>(shaping.input_count) * sizeof(*shaping.input)) ||
             overlaps(shaping.pre_context, static_cast<std::uint64_t>(shaping.pre_context_count) * sizeof(*shaping.pre_context)) ||
             overlaps(shaping.post_context, static_cast<std::uint64_t>(shaping.post_context_count) * sizeof(*shaping.post_context)) ||
@@ -4257,8 +4348,16 @@ progpu_native_status try_layout_context_hinted_paragraph(
         shaping.normalization_data != nullptr || shaping.normalization_data_size != 0U ||
         shaping.direction > PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT || layout.trimming != 0U ||
         styles.size() != source_metrics.size() || styles.size() != device_styles.size() ||
+        (!source_styles.empty() && source_styles.size() != styles.size()) ||
         (shaping.input_count != 0U && styles.empty()) || (shaping.input_count == 0U && !styles.empty()) ||
         !valid_style_runs(*context, shaping, styles.data(), static_cast<std::uint32_t>(styles.size()))) return fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    if (source_layout != nullptr && (source_styles.size() != styles.size() ||
+        source_layout->style_metrics.size() != styles.size() ||
+        !std::isfinite(source_layout->maximum_width) || source_layout->maximum_width < 0.0 ||
+        !std::isfinite(source_layout->line_height) || source_layout->line_height < 0.0 ||
+        static_cast<float>(source_layout->maximum_width) != layout.maximum_width ||
+        static_cast<float>(source_layout->line_height) != layout.line_height ||
+        layout.alignment == PROGPU_NATIVE_TEXT_ALIGNMENT_JUSTIFY)) return fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     const inline_flow_policy source_policy{source_metrics.data(), nullptr, 0U};
     if (!valid_inline_flow(shaping, layout, static_cast<std::uint32_t>(styles.size()), &source_policy)) return fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     std::uint64_t previous_end = 0U;
@@ -4270,6 +4369,13 @@ progpu_native_status try_layout_context_hinted_paragraph(
         previous_end = end;
     }
     for (std::size_t i = 0U; i < styles.size(); ++i) {
+        if (source_layout != nullptr) {
+            const auto metric = source_layout->style_metrics[i];
+            if (!std::isfinite(metric.ascent) || metric.ascent < 0.0 ||
+                !std::isfinite(metric.descent) || metric.descent < 0.0 ||
+                static_cast<float>(metric.ascent) != source_metrics[i].ascent ||
+                static_cast<float>(metric.descent) != source_metrics[i].descent) return fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        }
         const auto& device = device_styles[i];
         const auto& hint = device.hinting;
         const progpu_native_hinted_font_request request{PROGPU_NATIVE_ABI_VERSION, sizeof(progpu_native_hinted_font_request),
@@ -4281,6 +4387,18 @@ progpu_native_status try_layout_context_hinted_paragraph(
             !std::isfinite(device.logical_units_per_physical_pixel) || device.logical_units_per_physical_pixel <= 0.0F ||
             !std::isfinite(scale) || scale <= 0.0F ||
             !valid_hinted_shape_inputs(&request, hint.variation_coordinates_16_16.data(), &shaping)) return fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        if (!source_styles.empty()) {
+            hinted_source_device_selection selected{};
+            const auto* font = context->font_at(styles[i].font_index);
+            sfnt_header_metrics header{};
+            if (!resolve_hinted_source_device(source_styles[i], selected) || font == nullptr ||
+                !font->try_get_header_metrics(header) || header.units_per_em == 0U ||
+                static_cast<float>(source_styles[i].em_size) / static_cast<float>(header.units_per_em) != styles[i].scale ||
+                selected.pixels_per_em_26_6 != hint.x_pixels_per_em_26_6 ||
+                selected.pixels_per_em_26_6 != hint.y_pixels_per_em_26_6 ||
+                selected.logical_units_per_physical_pixel != device.logical_units_per_physical_pixel)
+                return fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        }
     }
 #if !defined(PROGPU_NATIVE_FONT_HINTING)
     return fail(PROGPU_NATIVE_STATUS_UNSUPPORTED, font_error::none);
@@ -4304,6 +4422,15 @@ progpu_native_status try_layout_context_hinted_paragraph(
         candidate->layout = layout;
         candidate->styles.assign(styles.begin(), styles.end());
         candidate->source_metrics.assign(source_metrics.begin(), source_metrics.end());
+        candidate->source_styles.assign(source_styles.begin(), source_styles.end());
+        if (source_layout != nullptr) {
+            candidate->has_source_geometry = true;
+            candidate->source_maximum_width = source_layout->maximum_width;
+            candidate->source_line_height = source_layout->line_height;
+            candidate->source_allow_emergency_break = source_layout->allow_emergency_break;
+            candidate->has_source_intrinsic_widths = source_layout->measure_intrinsic_widths;
+            candidate->source_style_metrics.assign(source_layout->style_metrics.begin(), source_layout->style_metrics.end());
+        }
         for (std::size_t i = 0U; i < context->font_count(); ++i) candidate->font_sources.push_back(context->source_at(i));
         for (const auto& device : device_styles) {
             const auto& hint = device.hinting;
@@ -4345,12 +4472,15 @@ progpu_native_status try_layout_context_hinted_paragraph(
 #endif
 }
 
-hinted_paragraph_reflow_result reflow_hinted_paragraph(
+static hinted_paragraph_reflow_result reflow_hinted_paragraph_core(
     const hinted_paragraph_generation& source, std::int32_t input_start,
-    float maximum_width) noexcept {
+    double maximum_width, bool source_geometry) noexcept {
     hinted_paragraph_reflow_result result{};
     const auto logical_count = source.logical_glyphs.size();
-    if (!std::isfinite(maximum_width) || maximum_width < 0.0F || input_start < 0 ||
+    if (!std::isfinite(maximum_width) || maximum_width < 0.0 || maximum_width > std::numeric_limits<float>::max() || input_start < 0 ||
+        source.has_source_geometry != source_geometry ||
+        (source_geometry && (source.source_logical_metrics.size() != logical_count ||
+            source.source_item_metrics.size() != logical_count || source.source_style_metrics.size() != source.styles.size())) ||
         source.lines.empty() || input_start < source.lines.front().input_start ||
         logical_count == 0U || logical_count > UINT32_MAX ||
         source.logical_bidi_levels.size() != logical_count || source.glyph_scales.size() != logical_count ||
@@ -4381,7 +4511,7 @@ hinted_paragraph_reflow_result reflow_hinted_paragraph(
         candidate->shaping.features = candidate->features.data();
         candidate->shaping.normalized_coordinates = candidate->normalized_coordinates.data();
         candidate->layout = source.layout;
-        candidate->layout.maximum_width = maximum_width;
+        candidate->layout.maximum_width = static_cast<float>(maximum_width);
         candidate->shaping_input = source.shaping_input;
         candidate->source_digit_bidi = source.source_digit_bidi;
         candidate->paragraph_level = source.paragraph_level;
@@ -4393,6 +4523,17 @@ hinted_paragraph_reflow_result reflow_hinted_paragraph(
         candidate->styles = source.styles;
         candidate->source_metrics = source.source_metrics;
         candidate->device_styles = source.device_styles;
+        candidate->source_styles = source.source_styles;
+        candidate->has_source_geometry = source.has_source_geometry;
+        candidate->source_allow_emergency_break = source.source_allow_emergency_break;
+        candidate->source_maximum_width = source_geometry ? maximum_width : source.source_maximum_width;
+        candidate->source_line_height = source.source_line_height;
+        candidate->has_source_intrinsic_widths = source.has_source_intrinsic_widths;
+        candidate->source_minimum_intrinsic_width = source.source_minimum_intrinsic_width;
+        candidate->source_maximum_intrinsic_width = source.source_maximum_intrinsic_width;
+        candidate->source_style_metrics = source.source_style_metrics;
+        candidate->source_item_metrics = source.source_item_metrics;
+        candidate->source_logical_metrics = source.source_logical_metrics;
         candidate->runs = source.runs;
         candidate->logical_glyphs = source.logical_glyphs;
         candidate->logical_bidi_levels = source.logical_bidi_levels;
@@ -4407,13 +4548,24 @@ hinted_paragraph_reflow_result reflow_hinted_paragraph(
         candidate->item_metrics = source.item_metrics;
         candidate->logical_cluster_ends = source.logical_cluster_ends;
 
+        if (source_geometry) {
+            const auto fitted = fit_hinted_source_paragraph(*candidate, start, maximum_width);
+            if (fitted.status != PROGPU_NATIVE_STATUS_SUCCESS) { result.status = fitted.status; return result; }
+            candidate->source_fitting = fitted.generation;
+            candidate->source_logical_metrics = fitted.generation->metrics;
+        }
+
         const auto logical = std::span(candidate->logical_glyphs).subspan(start);
         const auto breaks = std::span(candidate->breaks_after).subspan(start);
         const auto scales = std::span(candidate->glyph_scales).subspan(start);
         const auto options = convert_paragraph_layout_options(candidate->layout, candidate->paragraph_level);
         text_layout_requirements required{};
         font_error error = font_error::none;
-        if (!try_get_scaled_text_layout_requirements(logical, breaks, scales, options, required, &error)) {
+        if (source_geometry) {
+            // One glyph/line per remaining logical occurrence is the original
+            // producer bound; the common double scanner chooses actual counts.
+            required = {static_cast<std::uint32_t>(logical.size()), static_cast<std::uint32_t>(logical.size())};
+        } else if (!try_get_scaled_text_layout_requirements(logical, breaks, scales, options, required, &error)) {
             result.status = status_from_error(error); return result;
         }
         candidate->glyphs.resize(required.glyph_capacity);
@@ -4421,16 +4573,31 @@ hinted_paragraph_reflow_result reflow_hinted_paragraph(
         candidate->lines.resize(required.line_capacity);
         candidate->line_origins.resize(required.line_capacity);
         candidate->line_frames.resize(required.line_capacity);
+        if (source_geometry) {
+            candidate->source_glyphs.resize(required.glyph_capacity);
+            candidate->source_lines.resize(required.line_capacity);
+        }
         std::vector<text_visual_cluster_group> groups(required.glyph_capacity);
         std::vector<std::uint32_t> indices(required.glyph_capacity);
         std::uint32_t glyph_count = 0U, line_count = 0U;
-        if (!try_layout_measured_logical_shaped_text_retained(logical, breaks,
+        const bool laid_out = source_geometry
+            ? try_layout_source_measured_logical_shaped_text_retained(logical, breaks,
+                std::span(candidate->logical_bidi_levels).subspan(start), scales, candidate->paragraph_level,
+                options, {0.0F, 0.0F, candidate->source_allow_emergency_break}, {groups, indices},
+                candidate->glyphs, candidate->lines, glyph_count, line_count,
+                {candidate->bidi_levels, candidate->line_origins, candidate->line_frames},
+                {candidate->source_maximum_width, candidate->source_line_height,
+                    std::span(candidate->source_logical_metrics).subspan(start),
+                    std::span(candidate->source_item_metrics).subspan(start),
+                    candidate->source_glyphs, candidate->source_lines, candidate->source_fitting->lines}, &error)
+            : try_layout_measured_logical_shaped_text_retained(logical, breaks,
                 std::span(candidate->logical_bidi_levels).subspan(start), scales, candidate->paragraph_level,
                 options, {}, {}, {groups, indices}, candidate->glyphs, candidate->lines, glyph_count, line_count,
                 candidate->justification_classes.empty() ? std::span<const text_justification_class>{}
                     : std::span<const text_justification_class>(candidate->justification_classes).subspan(start),
                 std::span(candidate->item_metrics).subspan(start),
-                {candidate->bidi_levels, candidate->line_origins, candidate->line_frames}, &error)) {
+                {candidate->bidi_levels, candidate->line_origins, candidate->line_frames}, &error);
+        if (!laid_out) {
             result.status = status_from_error(error); return result;
         }
         candidate->glyphs.resize(glyph_count);
@@ -4438,6 +4605,10 @@ hinted_paragraph_reflow_result reflow_hinted_paragraph(
         candidate->lines.resize(line_count);
         candidate->line_origins.resize(line_count);
         candidate->line_frames.resize(line_count);
+        if (source_geometry) {
+            candidate->source_glyphs.resize(glyph_count);
+            candidate->source_lines.resize(line_count);
+        }
         candidate->positioned_owners.reserve(glyph_count);
         candidate->cluster_ends.reserve(glyph_count);
         for (auto& glyph : candidate->glyphs) {
@@ -4447,7 +4618,7 @@ hinted_paragraph_reflow_result reflow_hinted_paragraph(
             candidate->cluster_ends.push_back(candidate->logical_cluster_ends[glyph.glyph_index]);
         }
         if (candidate->lines.empty() || candidate->lines.front().input_start != input_start) return result;
-        if (!try_measure_measured_text_lines(candidate->lines, maximum_width, candidate->metrics, &error)) {
+        if (!try_measure_measured_text_lines(candidate->lines, static_cast<float>(maximum_width), candidate->metrics, &error)) {
             result.status = status_from_error(error); return result;
         }
         // Full shaping diagnostics still describe the same original producer.
@@ -4472,6 +4643,16 @@ hinted_paragraph_reflow_result reflow_hinted_paragraph(
     return result;
 }
 
+hinted_paragraph_reflow_result reflow_hinted_paragraph(
+    const hinted_paragraph_generation& source, std::int32_t input_start, float maximum_width) noexcept {
+    return reflow_hinted_paragraph_core(source, input_start, maximum_width, false);
+}
+
+hinted_paragraph_reflow_result reflow_hinted_source_paragraph(
+    const hinted_paragraph_generation& source, std::int32_t input_start, double maximum_width) noexcept {
+    return reflow_hinted_paragraph_core(source, input_start, maximum_width, true);
+}
+
 } // namespace progpu::native::text
 
 namespace {
@@ -4481,6 +4662,15 @@ struct hinted_paragraph_output_range final {
     const void* data = nullptr;
     std::uint64_t bytes = 0U;
 };
+
+bool hinted_source_cache_aliases(const std::shared_ptr<const progpu_native_hinted_source_cache>& source,
+    const void* output, std::size_t bytes) noexcept {
+    if (source == nullptr) return false;
+    const owned_output_range range{output, bytes};
+    return range.overlaps(source.get(), sizeof(*source)) || range.overlaps(source->styles) ||
+        range.overlaps(source->logical) || range.overlaps(source->glyphs) || range.overlaps(source->lines) ||
+        range.overlaps(source->boxes) || range.overlaps(source->carets);
+}
 
 bool valid_hinted_paragraph(const progpu_native_hinted_paragraph* handle) noexcept {
     if (!valid_hinted_buffer(handle, 1U) || handle->generation == nullptr || handle->interaction == nullptr ||
@@ -4511,6 +4701,7 @@ bool valid_hinted_paragraph(const progpu_native_hinted_paragraph* handle) noexce
 bool hinted_paragraph_handle_aliases(const progpu_native_hinted_paragraph& handle,
     const void* output, std::uint64_t bytes) noexcept {
     return byte_ranges_overlap(output, bytes, &handle, sizeof(handle)) ||
+        hinted_source_cache_aliases(handle.source, output, static_cast<std::size_t>(bytes)) ||
         progpu::native::text::hinted_paragraph_aliases(*handle.generation, output, bytes) ||
         handle.interaction->allocation_aliases(output, static_cast<std::size_t>(bytes));
 }
@@ -4715,6 +4906,17 @@ bool cache_hinted_glyph_resource_view(progpu_native_hinted_glyph_resource& handl
     view.pre_context = hinted_glyph_wire_data(paragraph.pre_context); view.pre_context_count = static_cast<std::uint32_t>(paragraph.pre_context.size());
     view.post_context = hinted_glyph_wire_data(paragraph.post_context); view.post_context_count = static_cast<std::uint32_t>(paragraph.post_context.size());
     view.features = hinted_glyph_wire_data(paragraph.features); view.feature_count = static_cast<std::uint32_t>(paragraph.features.size());
+    if (paragraph.has_source_geometry) {
+        if (handle.source == nullptr) return false;
+        const auto& source_cache = *handle.source;
+        const progpu_native_hinted_source_paragraph_view source_view{source_cache.options,
+            static_cast<std::uint32_t>(source_cache.styles.size()), static_cast<std::uint32_t>(source_cache.logical.size()),
+            static_cast<std::uint32_t>(source_cache.glyphs.size()), static_cast<std::uint32_t>(source_cache.lines.size()),
+            static_cast<std::uint32_t>(source_cache.boxes.size()), static_cast<std::uint32_t>(source_cache.carets.size()),
+            hinted_glyph_wire_data(source_cache.styles), hinted_glyph_wire_data(source_cache.logical), hinted_glyph_wire_data(source_cache.glyphs),
+            hinted_glyph_wire_data(source_cache.lines), hinted_glyph_wire_data(source_cache.boxes), hinted_glyph_wire_data(source_cache.carets)};
+        if (!cache_hinted_source_resource(paragraph, source_view, handle.source_resource)) return false;
+    }
     return true;
 }
 
@@ -4728,6 +4930,8 @@ bool hinted_glyph_resource_aliases(const progpu_native_hinted_glyph_resource& ha
     const void* output, std::size_t bytes) noexcept {
     const owned_output_range range{output, bytes};
     return range.overlaps(&handle, sizeof(handle)) || range.overlaps(handle.device_styles) ||
+        hinted_source_cache_aliases(handle.source, output, bytes) ||
+        (handle.source_resource != nullptr && handle.source_resource->allocation_aliases(output, bytes)) ||
         range.overlaps(handle.variation_coordinates_16_16) || range.overlaps(handle.run_slices) ||
         range.overlaps(handle.outline_owners) || range.overlaps(handle.admitted_scalars) ||
         range.overlaps(handle.scalar_levels) || range.overlaps(handle.logical_glyphs) ||
@@ -4978,6 +5182,9 @@ static progpu_native_status prepare_hinted_glyph_resource(
         request->projection_policy > PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE ||
         request->coverage > PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR ||
         !hinted_glyph_resource_format_bounded(*paragraph->generation)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (paragraph->generation->has_source_geometry && (paragraph->source == nullptr ||
+        static_cast<double>(request->dpi_scale) != paragraph->source->options.pixels_per_dip))
+        return PROGPU_NATIVE_STATUS_UNSUPPORTED;
     try {
         auto candidate = std::make_unique<progpu_native_hinted_glyph_resource>();
         const auto prepared = create_hinted_paragraph_glyph_resource(paragraph->generation, request->dpi_scale,
@@ -4985,6 +5192,7 @@ static progpu_native_status prepare_hinted_glyph_resource(
         if (prepared.status != PROGPU_NATIVE_STATUS_SUCCESS) return prepared.status;
         candidate->generation = prepared.generation;
         candidate->interaction = paragraph->interaction;
+        candidate->source = paragraph->source;
         if (candidate->generation == nullptr || candidate->generation->paragraph() != paragraph->generation ||
             !cache_hinted_glyph_resource_view(*candidate) || !valid_hinted_glyph_resource(candidate.get()))
             return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
@@ -5026,6 +5234,15 @@ progpu_native_status progpu_native_hinted_glyph_resource_borrow(
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
+progpu_native_status progpu_native_hinted_glyph_resource_borrow_source(
+    const progpu_native_hinted_glyph_resource* resource, progpu_native_hinted_source_glyph_resource_view* view) {
+    if (!valid_hinted_glyph_resource(resource) || !valid_hinted_buffer(view, 1U) ||
+        hinted_glyph_resource_aliases(*resource, view, sizeof(*view))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (resource->source_resource == nullptr) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    *view = resource->source_resource->view;
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 progpu_native_status progpu_native_hinted_glyph_resource_reflow(
     const progpu_native_hinted_glyph_resource* resource,
     std::int32_t input_start, float maximum_width,
@@ -5033,6 +5250,7 @@ progpu_native_status progpu_native_hinted_glyph_resource_reflow(
     if (!valid_hinted_glyph_resource(resource) || !valid_hinted_buffer(continuation, 1U) ||
         hinted_glyph_resource_aliases(*resource, continuation, sizeof(*continuation)))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (resource->generation->paragraph()->has_source_geometry) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
     const auto reflow = reflow_hinted_paragraph(*resource->generation->paragraph(), input_start, maximum_width);
     if (reflow.status != PROGPU_NATIVE_STATUS_SUCCESS) return reflow.status;
     const auto interaction = create_hinted_paragraph_interaction(reflow.generation);
@@ -5049,7 +5267,8 @@ progpu_native_status progpu_native_hinted_glyph_resource_borrow_nominal_metrics(
     const progpu_native_hinted_glyph_resource* resource, progpu_native_hinted_glyph_nominal_metrics_view* view) {
     if (!valid_hinted_glyph_resource(resource) || !valid_hinted_buffer(view, 1U) ||
         hinted_glyph_resource_aliases(*resource, view, sizeof(*view))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-    if (!resource->has_nominal_metrics) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    if (!resource->has_nominal_metrics || (resource->generation->paragraph() != nullptr &&
+        resource->generation->paragraph()->has_source_geometry)) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
     const progpu_native_hinted_glyph_nominal_metrics_view candidate{PROGPU_NATIVE_ABI_VERSION,
         sizeof(*view), static_cast<std::uint32_t>(resource->nominal_metrics.size()), 0U,
         hinted_glyph_wire_data(resource->nominal_metrics)};
@@ -5086,7 +5305,8 @@ progpu_native_status progpu_native_hinted_glyph_resource_validate_source_frame(
         byte_ranges_overlap(frame, sizeof(*frame), source_advances, static_cast<std::uint64_t>(glyph_count) * sizeof(*source_advances)) ||
         byte_ranges_overlap(frame, sizeof(*frame), source_offsets, static_cast<std::uint64_t>(glyph_count) * sizeof(*source_offsets)))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-    if (!resource->has_nominal_metrics) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    if (!resource->has_nominal_metrics || (resource->generation->paragraph() != nullptr &&
+        resource->generation->paragraph()->has_source_geometry)) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
     return progpu::native::text::validate_hinted_source_frame(resource->view, resource->nominal_metrics,
         {positioned_indices, glyph_count}, source_em_size, source_baseline_origin,
         {source_advances, glyph_count}, {source_offsets, glyph_count}, *frame);
@@ -5102,7 +5322,8 @@ progpu_native_status progpu_native_hinted_glyph_resource_copy_source_offsets(
         hinted_glyph_resource_aliases(*resource, offsets, static_cast<std::size_t>(bytes)) ||
         byte_ranges_overlap(offsets, bytes, positioned_indices, static_cast<std::uint64_t>(glyph_count) * sizeof(*positioned_indices)))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-    if (!resource->has_nominal_metrics) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    if (!resource->has_nominal_metrics || resource->generation->paragraph()->has_source_geometry)
+        return PROGPU_NATIVE_STATUS_UNSUPPORTED;
     return progpu::native::text::copy_hinted_source_offsets(resource->view, resource->nominal_metrics,
         {positioned_indices, glyph_count}, source_em_size, {offsets, offset_capacity});
 }
@@ -5153,3 +5374,5 @@ progpu_native_status progpu_native_hinted_paragraph_frame_borrow(const progpu_na
 void progpu_native_hinted_paragraph_frame_destroy(progpu_native_hinted_paragraph_frame* frame) { delete frame; }
 
 } // extern "C"
+
+#include "progpu_native_hinted_source_transport.inl"

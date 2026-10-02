@@ -73,6 +73,9 @@ Capture("dcs-engineering");
 var editor = studio.Engineering;
 editor.AddComponent(HmiSymbol.InstrumentBubble, 880, 320);
 string edited = editor.Session.ExportJson();
+Render(); VerifySetupNavigation(editor, compact: false);
+window.Resize(640, 1000); Render(); VerifySetupNavigation(editor, compact: true);
+window.Resize(1600, 1000); editor.SetDataPanelsVisible(false); Render();
 ClickButton("Operator Workplace");
 Require(HmiProjectSerializer.Serialize(studio.Operator.Session.GetProject()) == edited && studio.IsDirty,
     "Operator snapshot did not follow unsaved engineering edits.");
@@ -88,7 +91,109 @@ Require(studio.Operator.ProcessView is { Controls.Count: > 0 }, "Reattached work
 ClickButton("Pump station");
 Require(studio.Operator.Session.Location.ScreenId == "pumps", "Reattached navigation is not functional.");
 InputSystem.Current = new WindowInputState(); window.Content = null;
-Console.WriteLine($"PASS {scheme}: standalone DCS native display/object/aspect navigation, retained controls, reviewed/canceled/confirmed local command, alarm acknowledgement, events/trends/system, lazy engineering and dirty snapshot round-trip; JSON reflection disabled.");
+Console.WriteLine($"PASS {scheme}: standalone DCS native display/object/aspect navigation, retained controls, reviewed/canceled/confirmed local command, alarm acknowledgement, events/trends/system, lazy engineering and dirty snapshot round-trip; all five setup pointer routes at1600/640 with real overflow arrows and unchanged selection/history/offline state; JSON reflection disabled.");
+
+void VerifySetupNavigation(HmiDesignerHost host, bool compact)
+{
+    string layout = compact ? "compact" : "wide";
+    var tabs = Named<Pivot>(host, "HmiProjectDataTabs");
+    var tags = tabs.Items.Single(item => Equals(item.Header, "Tags"));
+    var connections = tabs.Items.Single(item => Equals(item.Header, "Connections"));
+    var help = tabs.Items.Single(item => Equals(item.Header, "Help"));
+    var area = (Grid)tabs.Parent!;
+    var library = Named<ResponsiveSplitView>(host, "HmiComponentLibraryPane");
+    var inspector = Named<ResponsiveSplitView>(host, "HmiPropertyPane");
+    var libraryTabs = Named<Pivot>(host, "HmiComponentLibraryTabs");
+    var propertyTabs = Named<Pivot>(host, "HmiPropertyTabs");
+    var components = libraryTabs.Items.Single(item => Equals(item.Header, "Components"));
+    var properties = propertyTabs.Items.Single(item => Equals(item.Header, "HMI"));
+    string original = host.Session.ExportJson();
+    var selection = host.Selection.Selection.ToArray();
+    Require(selection.Length == 1 && host.Session.IsDirty && host.Session.CanUndo,
+        "Setup pointer control must start with the existing selected unsaved component.");
+    bool canRedo = host.Session.CanRedo;
+    var connectionFactory = host.ConnectionFactory;
+    var authorizer = host.WriteAuthorizer;
+    var mode = compact ? SplitViewDisplayMode.Overlay : SplitViewDisplayMode.Inline;
+    Require(library.DisplayMode == mode && inspector.DisplayMode == mode,
+        "Setup pointer layout did not reach the required pane mode.");
+    Require(Named<Grid>(host, "HmiStudioHeader").Size.Y is >= 83 and <= 85,
+        "Setup navigation grew the fixed studio header.");
+
+    tabs.SelectedIndex = tabs.Items.IndexOf(help);
+    host.SetDataPanelHeight(140); host.SetDataPanelsVisible(false); Render();
+    Invoke("HmiSetupTags", "tags");
+    Require(host.AreDataPanelsVisible && area.Height >= 360 && ReferenceEquals(tags, tabs.Items[tabs.SelectedIndex]),
+        "Setup Tags pointer did not reveal the exact existing page and expand its hidden panel.");
+    host.SetDataPanelHeight(520); host.SetDataPanelsVisible(false); Render();
+    Invoke("HmiSetupConnections", "connections");
+    Require(host.AreDataPanelsVisible && area.Height == 520 && ReferenceEquals(connections, tabs.Items[tabs.SelectedIndex]),
+        "Setup Connections pointer lost its page or shrank the larger panel.");
+
+    host.SetDataPanelsVisible(false);
+    libraryTabs.SelectedIndex = libraryTabs.Items.IndexOf(libraryTabs.Items.First(item => !ReferenceEquals(item, components)));
+    library.IsPaneOpen = false; inspector.IsPaneOpen = true; Render();
+    Invoke("HmiSetupComponents", "components");
+    Require(library.IsPaneOpen && inspector.IsPaneOpen == !compact &&
+        ReferenceEquals(components, libraryTabs.Items[libraryTabs.SelectedIndex]),
+        "Setup Components pointer did not reveal the library or retain the correct neighbor mode.");
+    propertyTabs.SelectedIndex = propertyTabs.Items.IndexOf(propertyTabs.Items.First(item => !ReferenceEquals(item, properties)));
+    Render();
+    Invoke("HmiSetupBindings", "bindings");
+    Require(inspector.IsPaneOpen && library.IsPaneOpen == !compact &&
+        ReferenceEquals(properties, propertyTabs.Items[propertyTabs.SelectedIndex]),
+        "Setup Bind selected pointer did not reveal the exact HMI page or preserve pane ownership.");
+    Invoke("HmiSetupHelp", "help");
+    Require(host.AreDataPanelsVisible && area.Height == 520 && ReferenceEquals(help, tabs.Items[tabs.SelectedIndex]),
+        "Setup guide pointer did not reveal the existing Help page.");
+
+    void Invoke(string name, string capture)
+    {
+        ClickStudioCommand(host, Named<Button>(host, name));
+        Require(host.Session.ExportJson() == original && host.Session.IsDirty && host.Session.CanUndo &&
+            host.Session.CanRedo == canRedo && host.Selection.Selection.SequenceEqual(selection),
+            "Setup pointer navigation changed the document, journal or selected control identity: " + name);
+        Require(!host.IsPreviewing && host.Runtime == null && host.ConnectionDiagnostics == null &&
+            ReferenceEquals(connectionFactory, host.ConnectionFactory) && ReferenceEquals(authorizer, host.WriteAuthorizer) &&
+            !studio.Operator.Session.Runtime.IsRunning,
+            "Setup pointer navigation changed runtime, transport or authorization state: " + name);
+        Capture("dcs-setup-" + capture + "-" + layout);
+    }
+}
+
+void ClickStudioCommand(HmiDesignerHost host, Button button)
+{
+    var viewport = Named<ScrollViewer>(host, "HmiStudioTools");
+    // Reveal using only real arrow clicks. Direct ChangeView/offset mutation
+    // here would bypass the compact pointer route this smoke must exercise.
+    for (int attempt = 0; attempt < 12; ++attempt)
+    {
+        var start = button.TransformToVisual(viewport).TransformPoint(Vector2.Zero);
+        Require(button.IsEnabled && button.Size.X > 0 && button.Size.Y > 0,
+            "Setup button is not laid out and enabled: " + button.Name);
+        if (start.X >= 0 && start.X + button.Size.X <= viewport.Size.X)
+        {
+            Click(button, button.Size / 2);
+            return;
+        }
+        var arrow = Named<Button>(host, start.X < 0 ? "HmiStudioScrollLeft" : "HmiStudioScrollRight");
+        Require(arrow.IsEnabled, "Studio overflow arrow cannot reveal: " + button.Name);
+        float offset = viewport.HorizontalOffset;
+        Click(arrow, arrow.Size / 2);
+        Require(viewport.HorizontalOffset != offset, "Actual studio overflow pointer did not scroll.");
+    }
+    throw new InvalidOperationException("Studio command was not reachable in the bounded pointer route: " + button.Name);
+}
+
+T Named<T>(Visual root, string name) where T : FrameworkElement =>
+    Descendants(root).OfType<T>().Single(element => element.Name == name);
+IEnumerable<Visual> Descendants(Visual root)
+{
+    yield return root;
+    if (root is ContainerVisual container)
+        foreach (var child in container.Children)
+            foreach (var descendant in Descendants(child)) yield return descendant;
+}
 
 void Render() { window.Render(0); window.Render(0); }
 void Capture(string name) { Render(); window.SaveScreenshot(Path.Combine(args[1], name + "-" + suffix + ".png")); }

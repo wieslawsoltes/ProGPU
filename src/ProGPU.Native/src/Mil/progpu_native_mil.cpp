@@ -22444,26 +22444,57 @@ status channel::apply_with_hinted_glyph_resources(
     std::span<const progpu_native_hinted_glyph_resource_view> resources,
     std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
     std::span<const std::uint32_t> positioned_indices) noexcept {
+    return apply_glyph_resource_inputs(bytes, resources, {}, bindings, positioned_indices);
+}
+
+status channel::apply_with_source_glyph_resources(
+    std::span<const std::byte> bytes,
+    std::span<const progpu_native_hinted_glyph_resource_input> resources,
+    std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
+    std::span<const std::uint32_t> positioned_indices) noexcept {
+    return apply_glyph_resource_inputs(bytes, {}, resources, bindings, positioned_indices);
+}
+
+status channel::apply_glyph_resource_inputs(
+    std::span<const std::byte> bytes,
+    std::span<const progpu_native_hinted_glyph_resource_view> legacy_resources,
+    std::span<const progpu_native_hinted_glyph_resource_input> source_resources,
+    std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
+    std::span<const std::uint32_t> positioned_indices) noexcept {
     const auto valid_span = []<class T>(std::span<const T> span, std::size_t maximum) noexcept {
         const auto address = reinterpret_cast<std::uintptr_t>(span.data());
         return span.size() <= maximum && (span.empty() || (span.data() != nullptr && address % alignof(T) == 0U)) &&
             span.size() <= (std::numeric_limits<std::uintptr_t>::max() - address) / sizeof(T);
     };
-    if (implementation_ == nullptr || !valid_span(bytes, UINT32_MAX) || !valid_span(resources, 1U << 20U) ||
+    if (implementation_ == nullptr || !valid_span(bytes, UINT32_MAX) || !valid_span(legacy_resources, 1U << 20U) ||
+        !valid_span(source_resources, 1U << 20U) || (!legacy_resources.empty() && !source_resources.empty()) ||
         !valid_span(bindings, 1U << 20U) || !valid_span(positioned_indices, 1U << 24U)) return status::invalid_argument;
+    const auto resource_count = legacy_resources.size() + source_resources.size();
     try {
         std::unordered_set<std::uint32_t> handles;
         for (const auto& binding : bindings) {
-            if (binding.reserved != 0U || binding.glyph_run_handle == 0U || binding.resource_index >= resources.size() ||
+            if (binding.reserved != 0U || binding.glyph_run_handle == 0U || binding.resource_index >= resource_count ||
                 binding.positioned_index_count == 0U || binding.positioned_index_count > UINT16_MAX ||
                 binding.positioned_index_start > positioned_indices.size() ||
                 binding.positioned_index_count > positioned_indices.size() - binding.positioned_index_start ||
                 !handles.insert(binding.glyph_run_handle).second) return status::invalid_argument;
         }
         std::vector<std::shared_ptr<const text::hinted_paragraph_glyph_resource>> imported;
-        imported.reserve(resources.size());
-        for (const auto& view : resources) {
-            const auto result = text::import_hinted_paragraph_glyph_resource(view);
+        imported.reserve(resource_count);
+        for (std::size_t resource_index = 0U; resource_index < resource_count; ++resource_index) {
+            const progpu_native_hinted_glyph_resource_view* raster = nullptr;
+            const progpu_native_hinted_source_glyph_resource_view* source = nullptr;
+            if (!source_resources.empty()) {
+                const auto& input = source_resources[resource_index];
+                if (input.abi_version != PROGPU_NATIVE_ABI_VERSION || input.struct_size != sizeof(input) ||
+                    input.version != 2U || input.reserved != 0U ||
+                    !valid_span(std::span<const progpu_native_hinted_glyph_resource_view>{input.raster, 1U}, 1U) ||
+                    (input.source != nullptr && !valid_span(
+                        std::span<const progpu_native_hinted_source_glyph_resource_view>{input.source, 1U}, 1U))) return status::invalid_argument;
+                raster = input.raster; source = input.source;
+            } else raster = &legacy_resources[resource_index];
+            const auto result = source == nullptr ? text::import_hinted_paragraph_glyph_resource(*raster) :
+                text::import_hinted_paragraph_glyph_resource(*raster, *source);
             if (result.status != PROGPU_NATIVE_STATUS_SUCCESS) {
                 if (result.status == PROGPU_NATIVE_STATUS_OUT_OF_MEMORY) return status::capacity_exceeded;
                 if (result.status == PROGPU_NATIVE_STATUS_UNSUPPORTED) return status::unsupported_command;

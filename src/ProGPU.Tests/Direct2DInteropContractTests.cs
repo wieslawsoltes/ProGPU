@@ -9,6 +9,26 @@ namespace ProGPU.Tests;
 public sealed class Direct2DInteropContractTests
 {
     [Fact]
+    public void ClippedClearUsesSharedReplacementAndKeepsUnsupportedScopeGates()
+    {
+        string portable = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d_render_target.cpp");
+        string windows = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d.cpp");
+        string shared = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d_clear.hpp");
+        foreach (string source in new[] { portable, windows })
+        {
+            Assert.Contains("append_clipped_clear(builder_, clip_stack_[clip_depth_ - 1U]", source, StringComparison.Ordinal);
+            Assert.Contains("clip_depth_ != scope_depth_", source, StringComparison.Ordinal);
+            Assert.Contains("return scope == scope_axis_aligned_clip", source, StringComparison.Ordinal);
+        }
+        Assert.Contains("PROGPU_NATIVE_BLEND_SRC", shared, StringComparison.Ordinal);
+        Assert.Contains("semantic_scene_builder::identity_transform()", shared, StringComparison.Ordinal);
+        Assert.DoesNotContain("builder.reset", shared, StringComparison.Ordinal);
+        Assert.Contains("if (recorded) ++draw_count_", portable, StringComparison.Ordinal);
+        Assert.Contains("clipped_clear_pixels(clipped_system", ReadRepoFile("src", "ProGPU.Native", "tests",
+            "progpu_native_direct2d_differential_tests.cpp"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RecorderTargetUsesGeneratedNativeLayoutAndIndependentDpi()
     {
         Assert.Equal(24, Unsafe.SizeOf<NativeDirect2DTargetExtent>());

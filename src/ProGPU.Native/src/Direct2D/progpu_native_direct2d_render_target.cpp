@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_render_target.hpp"
+#include "progpu_native_direct2d_clear.hpp"
 
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
@@ -10,6 +11,7 @@
 #include <cstddef>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <numbers>
@@ -343,6 +345,9 @@ struct bitmap_snapshot final {
     std::uint32_t copy_source_x = 0U;
     std::uint32_t copy_source_y = 0U;
     float picture_raster_dpi_scale_y = 1.0F;
+    // Full-copy unwrapping must retain an original recorder's opaque-alpha
+    // operation. This is separate from a bitmap view reinterpreting raw bytes.
+    bool copy_source_alpha_ignore = false;
 };
 
 struct scene_bitmap_native : com::unknown {
@@ -999,6 +1004,10 @@ public:
         bitmap_snapshot source_snapshot{};
         const com::result snapshot_result =
             native->GetSnapshot(&source_snapshot);
+        if (snapshot_result == wrong_state ||
+            (com::succeeded(snapshot_result) && source_snapshot.picture_image)) {
+            return copy_from_scene_source(destination_point, source, source_rectangle);
+        }
         if (com::failed(snapshot_result)) {
             return snapshot_result;
         }
@@ -1045,6 +1054,12 @@ public:
             if (generation_ == std::numeric_limits<std::uint64_t>::max()) {
                 return failure;
             }
+            if (retained_ && !(actual_destination.x == 0U && actual_destination.y == 0U &&
+                    copy_width == size_.width && copy_height == size_.height)) {
+                const rectangle_u rectangle{actual_destination.x, actual_destination.y,
+                    actual_destination.x + copy_width, actual_destination.y + copy_height};
+                return append_upload_locked(rectangle, copy.data(), compact_pitch);
+            }
             for (std::uint32_t row = 0U; row < copy_height; ++row) {
                 std::memcpy(
                     pixels_.data() +
@@ -1054,6 +1069,7 @@ public:
                     copy.data() + static_cast<std::size_t>(row) * compact_pitch,
                     compact_pitch);
             }
+            retained_.reset();
             ++generation_;
             return com::ok;
         } catch (const std::bad_alloc&) {
@@ -1064,9 +1080,9 @@ public:
     }
 
     com::result PROGPU_NATIVE_COM_CALL CopyFromRenderTarget(
-        const point_2u*, render_target*, const rectangle_u*) noexcept override
+        const point_2u* destination, render_target* source, const rectangle_u* rectangle) noexcept override
     {
-        return not_implemented;
+        return copy_from_scene_source(destination, source, rectangle);
     }
 
     com::result PROGPU_NATIVE_COM_CALL CopyFromMemory(
@@ -1095,6 +1111,9 @@ public:
         if (generation_ == std::numeric_limits<std::uint64_t>::max()) {
             return failure;
         }
+        const bool whole = rectangle.left == 0U && rectangle.top == 0U &&
+            rectangle.right == size_.width && rectangle.bottom == size_.height;
+        if (retained_ && !whole) return append_upload_locked(rectangle, source_data, pitch);
         const auto* source = static_cast<const std::byte*>(source_data);
         for (std::uint32_t row = 0U; row < height; ++row) {
             std::memcpy(
@@ -1104,6 +1123,9 @@ public:
                 source + static_cast<std::size_t>(row) * pitch,
                 copy_bytes);
         }
+        // A complete raw upload restores readable storage without reconstructing
+        // any pixels on the CPU. Partial writes retain the immutable GPU history.
+        retained_.reset();
         ++generation_;
         return com::ok;
     }
@@ -1135,6 +1157,7 @@ public:
             return com::pointer_error;
         }
         const std::lock_guard lock(mutex_);
+        if (retained_) return capture_retained_locked(*builder, *resource_index, *snapshot);
         const bool bgra = properties_.pixel_format_value.format ==
             dxgi_format_b8g8r8a8_unorm;
         const bool added = properties_.pixel_format_value.format == dxgi_format_a8_unorm
@@ -1181,6 +1204,9 @@ public:
             return com::invalid_argument;
         }
         const std::lock_guard lock(mutex_);
+        // Never return stale pre-promotion bytes. Caller-backed WIC destinations
+        // observe this failure before their write-through storage is touched.
+        if (retained_) return not_implemented;
         auto* output = static_cast<std::byte*>(destination);
         for (std::uint32_t row = 0U; row < height; ++row) {
             std::memcpy(
@@ -1194,17 +1220,192 @@ public:
         return com::ok;
     }
 
+    com::result PROGPU_NATIVE_COM_CALL CaptureForCopy(
+        semantic_scene_builder* builder, std::uint32_t* resource_index,
+        bitmap_snapshot* snapshot) const noexcept override
+    {
+        if (builder == nullptr || resource_index == nullptr || snapshot == nullptr) return com::pointer_error;
+        {
+            const std::lock_guard lock(mutex_);
+            if (retained_) return capture_retained_locked(*builder, *resource_index, *snapshot, true);
+        }
+        return AddToScene(builder, resource_index, snapshot);
+    }
+
 private:
+    static com::result recording_error(const semantic_scene_builder& builder) noexcept
+    {
+        return builder.last_error() == scene_build_error::out_of_memory ? com::out_of_memory : failure;
+    }
+
+    // Owned bitmap storage is in physical pixels at scale 1. Bitmap DPI and alpha
+    // are view metadata; raw upload alpha must survive later shared-view changes.
+    static progpu_native_scene_image_draw storage_draw(std::uint32_t width, std::uint32_t height,
+        std::uint32_t pitch, progpu_native_image_rect source, progpu_native_image_rect destination) noexcept
+    {
+        progpu_native_scene_image_draw image{};
+        image.image_width = width;
+        image.image_height = height;
+        image.row_bytes = pitch;
+        image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+        image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+        image.max_anisotropy = 1U;
+        image.source_rect = source;
+        image.destination_rect = destination;
+        image.transform = semantic_scene_builder::identity_transform();
+        image.opacity = 1.0F;
+        return image;
+    }
+
+    bool record_upload(semantic_scene_builder& builder, rectangle_u rectangle,
+        const void* source, std::uint32_t pitch) const noexcept
+    {
+        const auto width = rectangle.right - rectangle.left, height = rectangle.bottom - rectangle.top;
+        const auto required = static_cast<std::uint64_t>(pitch) * (height - 1U) +
+            static_cast<std::uint64_t>(width) * bitmap_pixel_bytes(properties_.pixel_format_value);
+        if (required > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES || required > std::numeric_limits<std::size_t>::max())
+            return false;
+        auto image = storage_draw(width, height, pitch, {0, 0, static_cast<float>(width), static_cast<float>(height)},
+            {static_cast<float>(rectangle.left), static_cast<float>(rectangle.top),
+                static_cast<float>(width), static_cast<float>(height)});
+        const bool alpha_only = properties_.pixel_format_value.format == dxgi_format_a8_unorm;
+        const auto matrix = bitmap_alpha_matrix(false);
+        if (alpha_only) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+        const std::uint32_t flags = alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_R8
+            : properties_.pixel_format_value.format == dxgi_format_b8g8r8a8_unorm ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U;
+        return builder.copy_image_from_memory(image, flags,
+            {static_cast<const std::byte*>(source), static_cast<std::size_t>(required)}, alpha_only ? &matrix : nullptr);
+    }
+
+    com::result append_upload_locked(rectangle_u rectangle, const void* source, std::uint32_t pitch) noexcept
+    {
+        const auto required = static_cast<std::uint64_t>(pitch) * (rectangle.bottom - rectangle.top - 1U) +
+            static_cast<std::uint64_t>(rectangle.right - rectangle.left) * bitmap_pixel_bytes(properties_.pixel_format_value);
+        if (required > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES || required > std::numeric_limits<std::size_t>::max())
+            return com::invalid_argument;
+        if (!record_upload(*retained_, rectangle, source, pitch)) return recording_error(*retained_);
+        retained_->advance_generation(++generation_);
+        return com::ok;
+    }
+
+    com::result copy_from_scene_source(const point_2u* destination, resource* source,
+        const rectangle_u* rectangle) noexcept
+    {
+        if (source == nullptr) return com::invalid_argument;
+        com::pointer<factory> source_factory;
+        source->GetFactory(source_factory.put());
+        if (source_factory.get() != owner_.get()) return wrong_factory;
+        com::pointer<scene_bitmap_native> native;
+        const auto query = source->QueryInterface(scene_bitmap_native_interface_id,
+            reinterpret_cast<void**>(native.put()));
+        if (com::failed(query) || !native) return not_implemented;
+        try {
+            semantic_scene_builder captured(1U);
+            std::uint32_t index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            bitmap_snapshot snapshot{};
+            const auto result = native->CaptureForCopy(&captured, &index, &snapshot);
+            if (com::failed(result)) return result;
+            const bool same_storage = native->GetStorageIdentity() == this;
+            const auto origin = destination == nullptr ? point_2u{} : *destination;
+            const auto crop = rectangle == nullptr ? rectangle_u{0U, 0U, snapshot.width, snapshot.height} : *rectangle;
+            if (!valid_rectangle(crop) || crop.right > snapshot.width || crop.bottom > snapshot.height ||
+                origin.x > size_.width || origin.y > size_.height || crop.right - crop.left > size_.width - origin.x ||
+                crop.bottom - crop.top > size_.height - origin.y ||
+                snapshot.format.format != properties_.pixel_format_value.format ||
+                snapshot.format.alpha != properties_.pixel_format_value.alpha) return com::invalid_argument;
+            const std::lock_guard lock(mutex_);
+            if (same_storage && origin.x == crop.left && origin.y == crop.top) return com::ok;
+            if (generation_ == std::numeric_limits<std::uint64_t>::max()) return failure;
+            const bool whole = origin.x == 0U && origin.y == 0U &&
+                crop.right - crop.left == size_.width && crop.bottom - crop.top == size_.height;
+            std::unique_ptr<semantic_scene_builder> replacement;
+            auto scene_id = scene_id_;
+            if (!retained_ || whole) {
+                if (scene_id == 0U) scene_id = next_compatible_scene_id.fetch_add(1U, std::memory_order_relaxed);
+                if (scene_id == 0U || scene_id == std::numeric_limits<std::uint64_t>::max()) return failure;
+                replacement = std::make_unique<semantic_scene_builder>(scene_id, generation_);
+                if (!whole && !record_upload(*replacement, {0U, 0U, size_.width, size_.height}, pixels_.data(), row_bytes_))
+                    return recording_error(*replacement);
+            }
+            auto& recording = replacement ? *replacement : *retained_;
+            auto image = storage_draw(snapshot.copy_image_width == 0U ? snapshot.width : snapshot.copy_image_width,
+                snapshot.copy_image_height == 0U ? snapshot.height : snapshot.copy_image_height, snapshot.row_bytes,
+                {static_cast<float>(snapshot.copy_source_x) + crop.left, static_cast<float>(snapshot.copy_source_y) + crop.top,
+                    static_cast<float>(crop.right - crop.left), static_cast<float>(crop.bottom - crop.top)},
+                {static_cast<float>(origin.x), static_cast<float>(origin.y),
+                    static_cast<float>(crop.right - crop.left), static_cast<float>(crop.bottom - crop.top)});
+            if (snapshot.copy_source_alpha_ignore) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE;
+            const bool alpha_only = properties_.pixel_format_value.format == dxgi_format_a8_unorm;
+            const auto matrix = bitmap_alpha_matrix(snapshot.picture_image);
+            if (alpha_only) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+            if (!recording.copy_image_from_builder(std::move(captured), index, image, alpha_only ? &matrix : nullptr))
+                return recording_error(recording);
+            if (replacement) retained_ = std::move(replacement);
+            scene_id_ = scene_id;
+            retained_->advance_generation(++generation_);
+            return com::ok;
+        } catch (const std::bad_alloc&) { return com::out_of_memory; }
+        catch (...) { return failure; }
+    }
+
+    com::result capture_retained_locked(semantic_scene_builder& builder, std::uint32_t& index,
+        bitmap_snapshot& snapshot, bool for_copy = false) const noexcept
+    {
+        index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (&builder == retained_.get()) return wrong_state;
+        if (for_copy) {
+            scene_full_image_copy copy{};
+            progpu_native_scene_presentation presentation{};
+            const progpu_native_image_rect bounds{0, 0, static_cast<float>(size_.width), static_cast<float>(size_.height)};
+            if (retained_->try_get_full_image_copy(bounds, size_.width, size_.height, copy, presentation)) {
+                const bool picture = (copy.resource_flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
+                const bool alpha_only = properties_.pixel_format_value.format == dxgi_format_a8_unorm;
+                const auto matrix = bitmap_alpha_matrix(picture);
+                const auto flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+                    (alpha_only ? std::uint32_t{PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX} : 0U);
+                const std::uint32_t storage = picture ? std::uint32_t{PROGPU_NATIVE_SCENE_IMAGE_PICTURE}
+                    : alpha_only ? std::uint32_t{PROGPU_NATIVE_SCENE_IMAGE_R8}
+                    : properties_.pixel_format_value.format == dxgi_format_b8g8r8a8_unorm
+                        ? std::uint32_t{PROGPU_NATIVE_SCENE_IMAGE_BGRA8} : 0U;
+                if ((copy.image.flags & ~PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE) == flags &&
+                    copy.resource_flags == (PROGPU_NATIVE_SCENE_RECORD_REQUIRED | storage) &&
+                    (!alpha_only || std::memcmp(&copy.color_matrix, &matrix, sizeof(matrix)) == 0)) {
+                    if (!builder.copy_image_resource_from(*retained_, copy.resource_index, index))
+                        return recording_error(builder);
+                    snapshot = make_snapshot();
+                    snapshot.row_bytes = copy.image.row_bytes;
+                    snapshot.picture_image = picture;
+                    snapshot.picture_raster_dpi_scale = picture ? presentation.dpi_scale_x : 1.0F;
+                    snapshot.picture_raster_dpi_scale_y = picture ? presentation.dpi_scale_y : 1.0F;
+                    snapshot.copy_source_alpha_ignore =
+                        (copy.image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE) != 0U;
+                    snapshot.copy_image_width = copy.image.image_width;
+                    snapshot.copy_image_height = copy.image.image_height;
+                    snapshot.copy_source_x = static_cast<std::uint32_t>(copy.image.source_rect.x);
+                    snapshot.copy_source_y = static_cast<std::uint32_t>(copy.image.source_rect.y);
+                    return com::ok;
+                }
+            }
+        }
+        std::vector<std::byte> bytes;
+        if (!retained_->build(bytes)) return recording_error(*retained_);
+        const progpu_native_scene_picture_image picture{sizeof(picture), 0U, size_.width, size_.height,
+            1.0F, {0U, 0U, 0U}, {0, 0, 0, 0}};
+        if (!builder.add_picture_image(picture, bytes, index)) return recording_error(builder);
+        snapshot = make_snapshot();
+        return com::ok;
+    }
+
     [[nodiscard]] bitmap_snapshot make_snapshot() const noexcept
     {
         return {
             size_.width,
             size_.height,
-            row_bytes_,
+            retained_ ? size_.width * 4U : row_bytes_,
             properties_.pixel_format_value,
             properties_.dpi_x,
             properties_.dpi_y,
-            generation_};
+            generation_, retained_ ? scene_id_ : 0U, retained_ != nullptr};
     }
 
     friend class com::atomic_reference_count<portable_bitmap>;
@@ -1218,6 +1419,8 @@ private:
     std::uint32_t row_bytes_ = 0U;
     std::vector<std::byte> pixels_;
     std::uint64_t generation_ = 1U;
+    std::unique_ptr<semantic_scene_builder> retained_;
+    std::uint64_t scene_id_ = 0U;
 };
 
 class portable_wic_lock_bitmap final :
@@ -4003,17 +4206,13 @@ public:
                 extend_mode_value != extend_mode::mirror)) {
             return com::invalid_argument;
         }
-        float previous = -std::numeric_limits<float>::infinity();
         for (std::uint32_t index = 0U;
              index < gradient_stop_count;
              ++index) {
             const gradient_stop& stop = gradient_stops[index];
-            if (!std::isfinite(stop.position) || stop.position < 0.0F ||
-                stop.position > 1.0F || stop.position < previous ||
-                !valid_color(stop.color)) {
+            if (!std::isfinite(stop.position) || !valid_color(stop.color)) {
                 return com::invalid_argument;
             }
-            previous = stop.position;
         }
         try {
             std::vector<gradient_stop> stops(
@@ -4168,10 +4367,10 @@ public:
         if (desired_pixel_size != nullptr) {
             pixel_size = *desired_pixel_size;
         } else if (desired_size != nullptr) {
-            const double width = std::ceil(
-                static_cast<double>(desired_size->width) * dpi_x / 96.0);
-            const double height = std::ceil(
-                static_cast<double>(desired_size->height) * dpi_y / 96.0);
+            const double requested_width = static_cast<double>(desired_size->width) * dpi_x / 96.0;
+            const double requested_height = static_cast<double>(desired_size->height) * dpi_y / 96.0;
+            const double width = std::ceil(requested_width);
+            const double height = std::ceil(requested_height);
             if (width < 1.0 || height < 1.0 || width > 16384.0 ||
                 height > 16384.0) {
                 return com::invalid_argument;
@@ -4179,6 +4378,12 @@ public:
             pixel_size = {
                 static_cast<std::uint32_t>(width),
                 static_cast<std::uint32_t>(height)};
+            // Preserve an integral axis's exact parent DPI. Only a rounded-up
+            // axis needs denser storage so the requested DIP corner still maps
+            // to the actual physical corner, independently on X and Y.
+            if (width != requested_width) dpi_x = static_cast<float>(width * 96.0 / desired_size->width);
+            if (height != requested_height) dpi_y = static_cast<float>(height * 96.0 / desired_size->height);
+            if (!valid_dpi(dpi_x, dpi_y)) return com::invalid_argument;
         }
         if (desired_size != nullptr && desired_pixel_size != nullptr) {
             dpi_x = static_cast<float>(
@@ -4899,13 +5104,21 @@ public:
             0.0F,
             static_cast<float>(snapshot.width) * 96.0F / snapshot.dpi_x,
             static_cast<float>(snapshot.height) * 96.0F / snapshot.dpi_y};
-        const rectangle_f destination_rectangle = destination == nullptr
-            ? bitmap_dips
-            : *destination;
         const rectangle_f source_rectangle = source == nullptr
             ? bitmap_dips
             : *source;
-        if (!valid_rectangle(destination_rectangle) ||
+        const rectangle_f destination_rectangle = destination == nullptr
+            ? rectangle_f{0.0F, 0.0F,
+                source_rectangle.right - source_rectangle.left,
+                source_rectangle.bottom - source_rectangle.top}
+            : *destination;
+        // A missing destination retains the selected source's DIP extent at
+        // the target origin, not the complete bitmap size. Validate original
+        // resource/source/nonfinite errors before the finite inverted no-op.
+        if (!std::isfinite(destination_rectangle.left) ||
+            !std::isfinite(destination_rectangle.top) ||
+            !std::isfinite(destination_rectangle.right) ||
+            !std::isfinite(destination_rectangle.bottom) ||
             !valid_rectangle(source_rectangle) ||
             source_rectangle.left < 0.0F || source_rectangle.top < 0.0F ||
             source_rectangle.right > bitmap_dips.right ||
@@ -4913,6 +5126,10 @@ public:
             latch(com::invalid_argument);
             return;
         }
+        // Direct2D explicitly leaves the target usable for a destination whose
+        // finite edges are not well-ordered. This is not a mirrored image draw.
+        if (destination_rectangle.left > destination_rectangle.right ||
+            destination_rectangle.top > destination_rectangle.bottom) return;
         progpu_native_scene_image_draw image{};
         image.image_width = snapshot.width;
         image.image_height = snapshot.height;
@@ -5678,7 +5895,26 @@ public:
             return;
         }
         if (scope_depth_ != 0U) {
-            latch(not_implemented);
+            if (clip_depth_ != scope_depth_ ||
+                !std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                    [](std::uint8_t scope) { return scope == scope_axis_aligned_clip; })) {
+                latch(not_implemented);
+                return;
+            }
+            if (draw_count_ == std::numeric_limits<std::uint32_t>::max()) {
+                latch(com::out_of_memory);
+                return;
+            }
+            const float alpha = pixel_format_.alpha == alpha_mode::ignore ? 1.0F : value.alpha;
+            bool recorded = false;
+            if (!direct2d::append_clipped_clear(builder_, clip_stack_[clip_depth_ - 1U],
+                    {value.red, value.green, value.blue, alpha}, recorded)) {
+                latch(builder_failure());
+                return;
+            }
+            // Retained draw content participates in the existing DPI-history
+            // guard, without changing leading-clear metadata or prior resources.
+            if (recorded) ++draw_count_;
             return;
         }
         // Full-target Clear replaces the recorded scene for ordinary targets
@@ -5926,9 +6162,9 @@ public:
         if (!compatible_) return not_implemented;
         if (com::failed(failure_)) return failure_;
         // Copy is in physical pixels and ignores the target's drawing transform.
-        // Scoped recording needs a future suspend/resume transport; never apply
-        // its current clip or opacity to a bitmap storage operation.
-        if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
+        // Storage replacement suspends only actual aliased clip scopes. Layers
+        // own intermediate contents and require a distinct flush contract.
+        if (!can_copy_outside_clips_locked()) return wrong_state;
         const rectangle_u rectangle = destination == nullptr
             ? rectangle_u{0U, 0U, pixel_width_, pixel_height_} : *destination;
         if (!valid_rectangle(rectangle) || rectangle.right > pixel_width_ ||
@@ -5967,7 +6203,7 @@ public:
         const std::uint32_t storage_flags = alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_R8
             : pixel_format_.format == dxgi_format_b8g8r8a8_unorm ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U;
         return record_bitmap_copy_locked(replace_contents, [&](semantic_scene_builder& recording) {
-            return recording.copy_image_from_memory(image, storage_flags,
+            return recording.copy_image_from_memory_outside_clips(image, storage_flags,
                 {static_cast<const std::byte*>(source), static_cast<std::size_t>(required_bytes)},
                 alpha_only ? &alpha_matrix : nullptr);
         });
@@ -6025,6 +6261,13 @@ public:
     }
 
 private:
+    bool can_copy_outside_clips_locked() const noexcept
+    {
+        return scope_depth_ == clip_depth_ &&
+            std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                [](auto scope) { return scope == scope_axis_aligned_clip; });
+    }
+
     template<typename RecordCopy>
     com::result record_bitmap_copy_locked(bool replace_contents, RecordCopy&& record) noexcept
     {
@@ -6039,6 +6282,19 @@ private:
             semantic_scene_builder replacement(scene_id_, generation_);
             if (!record(replacement)) return replacement.last_error() == scene_build_error::out_of_memory
                 ? com::out_of_memory : failure;
+            // Full replacement discards old pixels/history, not the caller's
+            // active drawing scopes. Recreate the original capture-time clip
+            // rectangles before publishing the independently built replacement.
+            for (std::size_t i = 0U; i < scope_depth_; ++i) {
+                if (scope_stack_[i] != scope_axis_aligned_clip || i >= clip_depth_) return wrong_state;
+                auto state = semantic_scene_builder::identity_state();
+                state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+                state.clip_rect = clip_stack_[i];
+                std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!replacement.add_state(state, state_index) || !replacement.save(state_index))
+                    return replacement.last_error() == scene_build_error::out_of_memory
+                        ? com::out_of_memory : failure;
+            }
             builder_ = std::move(replacement);
             bitmap_resources_.clear();
             picture_bitmap_sources_.clear();
@@ -6101,7 +6357,7 @@ private:
             const std::lock_guard lock(mutex_);
             if (!compatible_) return not_implemented;
             if (com::failed(failure_)) return failure_;
-            if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
+            if (!can_copy_outside_clips_locked()) return wrong_state;
             const auto source_rect = rectangle == nullptr
                 ? rectangle_u{0U, 0U, snapshot.width, snapshot.height} : *rectangle;
             const auto point = destination == nullptr ? point_2u{0U, 0U} : *destination;
@@ -6126,6 +6382,7 @@ private:
             image.image_height = snapshot.copy_image_height == 0U ? snapshot.height : snapshot.copy_image_height;
             image.row_bytes = snapshot.row_bytes;
             image.flags = image_alpha_flags(snapshot.format.alpha);
+            if (snapshot.copy_source_alpha_ignore) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE;
             image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
             image.max_anisotropy = 1U;
             image.source_rect = {static_cast<float>(snapshot.copy_source_x) + static_cast<float>(source_rect.left),
@@ -6139,7 +6396,7 @@ private:
             const auto matrix = bitmap_alpha_matrix(snapshot.picture_image);
             if (alpha_only) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
             return record_bitmap_copy_locked(replace_contents, [&](semantic_scene_builder& recording) {
-                return recording.copy_image_from_builder(std::move(captured), resource_index, image,
+                return recording.copy_image_from_builder_outside_clips(std::move(captured), resource_index, image,
                     alpha_only ? &matrix : nullptr);
             });
         } catch (const std::bad_alloc&) {
@@ -6186,6 +6443,8 @@ private:
                     snapshot.picture_image = picture;
                     snapshot.picture_raster_dpi_scale = picture ? copy_presentation.dpi_scale_x : 1.0F;
                     snapshot.picture_raster_dpi_scale_y = picture ? copy_presentation.dpi_scale_y : 1.0F;
+                    snapshot.copy_source_alpha_ignore =
+                        (copy.image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_ALPHA_IGNORE) != 0U;
                     snapshot.copy_image_width = copy.image.image_width;
                     snapshot.copy_image_height = copy.image.image_height;
                     snapshot.copy_source_x = static_cast<std::uint32_t>(copy.image.source_rect.x);
@@ -8076,7 +8335,8 @@ private:
 
     [[nodiscard]] bool set_gradient_coordinate_transform(
         brush* source,
-        progpu_native_scene_brush& destination) noexcept
+        progpu_native_scene_brush& destination,
+        bool analytic_local_coordinates) noexcept
     {
         matrix_3x2_f brush_transform{};
         source->GetTransform(&brush_transform);
@@ -8088,8 +8348,12 @@ private:
             latch(com::invalid_argument);
             return false;
         }
-        const matrix_3x2_f coordinate =
-            compose_transform(inverse_draw, inverse_brush);
+        // Analytic rectangles/ellipses retain original center + local SDF
+        // coordinates even when their vertices carry the draw transform.
+        // Paths/geometry instead supply target coordinates. Keep the existing
+        // transform validity gate in both cases; remove no native admission.
+        const matrix_3x2_f coordinate = analytic_local_coordinates
+            ? inverse_brush : compose_transform(inverse_draw, inverse_brush);
         if (!core::valid_transform(&coordinate)) {
             latch(com::invalid_argument);
             return false;
@@ -8107,7 +8371,8 @@ private:
         brush* source,
         gradient_stop_collection* collection,
         progpu_native_scene_brush& native,
-        std::vector<progpu_native_scene_gradient_stop>& native_stops) noexcept
+        std::vector<progpu_native_scene_gradient_stop>& native_stops,
+        bool analytic_local_coordinates = false) noexcept
     {
         if (collection == nullptr) {
             latch(com::invalid_argument);
@@ -8159,11 +8424,8 @@ private:
             collection->GetGradientStops(stops.data(), stop_count);
             native_stops.clear();
             native_stops.reserve(stop_count);
-            float previous = -std::numeric_limits<float>::infinity();
             for (const gradient_stop& stop : stops) {
-                if (!std::isfinite(stop.position) || stop.position < 0.0F ||
-                    stop.position > 1.0F || stop.position < previous ||
-                    !valid_color(stop.color)) {
+                if (!std::isfinite(stop.position) || !valid_color(stop.color)) {
                     latch(com::invalid_argument);
                     return false;
                 }
@@ -8174,7 +8436,15 @@ private:
                     0U,
                     0U,
                     0U});
-                previous = stop.position;
+            }
+            // The public collection retains original order/values. Only its
+            // owned rendering snapshot is sorted: equal-position stops must
+            // retain caller order, including the low/high sides of a hard edge.
+            std::stable_sort(native_stops.begin(), native_stops.end(),
+                [](const auto& left, const auto& right) { return left.offset < right.offset; });
+            if (native.spread_method == PROGPU_NATIVE_SCENE_GRADIENT_PAD &&
+                (native_stops.front().offset < 0.0F || native_stops.back().offset > 1.0F)) {
+                native.spread_method = PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL;
             }
             native.stop_count = stop_count;
             const std::size_t inline_count = std::min<std::size_t>(
@@ -8187,7 +8457,7 @@ private:
                     native.offsets1[index - 4U] = native_stops[index].offset;
                 }
             }
-            if (!set_gradient_coordinate_transform(source, native)) {
+            if (!set_gradient_coordinate_transform(source, native, analytic_local_coordinates)) {
                 return false;
             }
             return true;
@@ -8204,11 +8474,12 @@ private:
         brush* source,
         gradient_stop_collection* collection,
         progpu_native_scene_brush& native,
-        std::uint32_t& brush_index) noexcept
+        std::uint32_t& brush_index,
+        bool analytic_local_coordinates) noexcept
     {
         std::vector<progpu_native_scene_gradient_stop> native_stops;
         if (!translate_gradient_brush(
-                source, collection, native, native_stops)) {
+                source, collection, native, native_stops, analytic_local_coordinates)) {
             return false;
         }
         if (!builder_.add_brush(native, native_stops, brush_index)) {
@@ -8220,7 +8491,8 @@ private:
 
     [[nodiscard]] bool add_brush(
         brush* brush_value,
-        std::uint32_t& brush_index) noexcept
+        std::uint32_t& brush_index,
+        bool analytic_local_coordinates = false) noexcept
     {
         if (brush_value == nullptr) {
             latch(com::invalid_argument);
@@ -8260,7 +8532,7 @@ private:
             native.start_point = {start.x, start.y};
             native.end_point = {end.x, end.y};
             return add_gradient_brush(
-                linear.get(), collection.get(), native, brush_index);
+                linear.get(), collection.get(), native, brush_index, analytic_local_coordinates);
         }
 
         radial_gradient_brush* raw_radial = nullptr;
@@ -8297,7 +8569,7 @@ private:
             native.radius = radius_x;
             native.radius_y = radius_y;
             return add_gradient_brush(
-                radial.get(), collection.get(), native, brush_index);
+                radial.get(), collection.get(), native, brush_index, analytic_local_coordinates);
         }
 
         solid_color_brush* raw_solid = nullptr;
@@ -8449,7 +8721,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
@@ -8627,7 +8899,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
@@ -8728,7 +9000,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);

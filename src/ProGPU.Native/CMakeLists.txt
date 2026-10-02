@@ -854,13 +854,18 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_edit_word_boundaries.cpp
     "${generated_unicode_normalization_source}"
     src/Text/Font/progpu_native_hinted_transport.cpp
+    src/Text/Font/progpu_native_hinted_source_policy.cpp
+    src/Text/Font/progpu_native_hinted_positioning.cpp
     src/Text/Font/progpu_native_hinted_text_layout.cpp
     src/Text/Font/progpu_native_hinted_outline.cpp
     src/Text/Font/progpu_native_hinted_glyph_frame.cpp
     src/Text/Interop/progpu_native_hinted_paragraph_interaction.cpp
+    src/Text/Interop/progpu_native_hinted_source_fitting.cpp
+    src/Text/Interop/progpu_native_hinted_source_resource_cache.cpp
     src/Text/Interop/progpu_native_hinted_paragraph_glyph_frame.cpp
     src/Text/Interop/progpu_native_hinted_nominal_metrics.cpp
     src/Text/Interop/progpu_native_hinted_source_frame.cpp
+    src/Text/Interop/progpu_native_hinted_source_run.cpp
     src/Text/Interop/progpu_native_hinted_glyph_resource_import.cpp
     src/Text/progpu_native_unicode.cpp
     src/Text/Unicode/progpu_native_unicode_category.cpp
@@ -2233,6 +2238,31 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME progpu_native_hinted_source_frame_tests COMMAND progpu_native_hinted_source_frame_tests)
     set_tests_properties(progpu_native_hinted_source_frame_tests PROPERTIES TIMEOUT 60)
 
+    foreach(source_test IN ITEMS run transport import)
+        add_executable(progpu_native_hinted_source_${source_test}_tests tests/progpu_native_hinted_source_${source_test}_tests.cpp)
+        target_compile_features(progpu_native_hinted_source_${source_test}_tests PRIVATE cxx_std_20)
+        target_link_libraries(progpu_native_hinted_source_${source_test}_tests PRIVATE progpu_native_text)
+        if(NOT source_test STREQUAL "run")
+            target_sources(progpu_native_hinted_source_${source_test}_tests PRIVATE
+                src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+            target_compile_definitions(progpu_native_hinted_source_${source_test}_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+        endif()
+        if(PROGPU_NATIVE_FONT_HINTING)
+            target_compile_definitions(progpu_native_hinted_source_${source_test}_tests PRIVATE PROGPU_NATIVE_FONT_HINTING=1)
+        endif()
+        progpu_native_enable_warnings(progpu_native_hinted_source_${source_test}_tests)
+        progpu_native_enable_sanitizers(progpu_native_hinted_source_${source_test}_tests)
+        add_test(NAME progpu_native_hinted_source_${source_test}_tests COMMAND progpu_native_hinted_source_${source_test}_tests)
+        set_tests_properties(progpu_native_hinted_source_${source_test}_tests PROPERTIES TIMEOUT 60)
+    endforeach()
+    add_executable(progpu_native_hinted_source_policy_tests tests/progpu_native_hinted_source_policy_tests.cpp)
+    target_compile_features(progpu_native_hinted_source_policy_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_hinted_source_policy_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_source_policy_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_source_policy_tests)
+    add_test(NAME progpu_native_hinted_source_policy_tests COMMAND progpu_native_hinted_source_policy_tests)
+    set_tests_properties(progpu_native_hinted_source_policy_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_text_shaping_showcase_tests
         tests/progpu_native_text_shaping_showcase_tests.cpp
         src/Text/Interop/progpu_native_text_shaping_interop.cpp)
@@ -2396,6 +2426,8 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_scene_builder.hpp
         include/progpu_native_text.hpp
         include/progpu_native_text_hinting.h
+        include/progpu_native_text_source.h
+        include/progpu_native_text_source_resource.h
         include/progpu_native_text_interaction.h
         include/progpu_native_text_styles.h
         include/progpu_native_text_flow.h

@@ -8,6 +8,30 @@ dotnet run --project samples/HmiDcs/HmiDcs.csproj -c Release
 
 The initial screen is an **offline** Northwater plant overview. No driver, endpoint, simulation timer state, or write authorizer is activated merely by opening the sample. The shared gallery's **Visual Designer → HMI / DCS** entry now points to this standalone application rather than embedding a second complete workbench. The existing `samples/HmiDesigner` remains a focused engineering-only host for library consumers.
 
+The standalone DCS host establishes its font before creating the studio. It
+preserves an explicitly installed host default, otherwise using the existing
+embedded Inter Regular face. Workplace controls snapshot that exact font at
+construction and pass it to later screen/engineering views. Native `Window.Load`
+occurs too late to supply those captured references and its optional Arial path
+does not exist on ordinary Windows installations. The startup regression covers
+this fontless-process path directly without creating a native window or GPU;
+the original rendered DCS smoke cases, which explicitly supply a font, remain
+required and unchanged. This fixes the missing-label startup path reported in
+[issue #260](https://github.com/wieslawsoltes/ProGPU/issues/260), not a renderer or
+industrial process-policy change.
+
+The three new startup regressions link the exact sample startup source into the
+existing serialized HMI test assembly; they preserve/restore the process-wide
+default font and do not activate a window. They cover empty initial font state,
+an explicit host face, and a later default-font change followed by navigation
+and lazy engineering. Sample edits now trigger the unchanged full HMI visual and
+pointer workflow as well as the existing three-platform build/test/package gate.
+Post-commit local checks validated both changed project files, workflow syntax
+and trigger coverage, and whitespace. Current cached HMI assemblies predate the
+DCS workplace, so these new tests were not compiled or executed locally; no full
+source closure, native renderer, GPU, VM or runtime staging was run. Hosted source
+tests and final Windows visual confirmation remain pending.
+
 ## Workplace structure
 
 The top-level **Operator Workplace / Engineering Workplace** switch changes working context without discarding the engineering document. Operator navigation has a persistent priority/quality band, Back/Forward/Home controls, display tabs, a searchable plant explorer, a central aspect area, a contextual object faceplate and a status strip. The alarm band remains visible while visiting graphics, alarms, events, trends and diagnostics.
@@ -99,6 +123,30 @@ PROGPU_WGPU_BACKEND=vulkan dotnet run --project tests/ProGPU.Hmi.DcsSmoke -c Rel
 ```
 
 The DCS native probe exercises real display-tab/object clicks, local review/cancel/confirm, selected acknowledgement, export preview, linked aspects, engineering switching, unsaved design synchronization and reattachment. It renders all three palettes through actual ProGPU native WebGPU. It is additional to the existing complete HMI renderer/pointer probes, not a substitute. Test artifacts must identify source revision, SDK and software/physical adapter. Software-Vulkan results are not Apple Metal/Retina, hardware-touch, accessibility or production-PLC qualification.
+
+The setup extension adds injected-pointer routes for Tags, Connections,
+Components, Bind selected and Setup guide at both 1600×1000 and 640×1000. It
+captures every revealed page/pane in every existing palette. Hidden/small data
+panels must expand; larger panels stay unchanged. Wide inline neighbors remain
+open, while compact side overlays dismiss the opposite pane. The exact selected
+control, unsaved document, undo/redo availability and offline runtime/transport
+state must survive every click. These routes use the visible toolbar arrows to
+reveal overflow, never direct scroll-offset mutation or direct button callbacks.
+The existing operator-compact, source tests, captures and 180-second per-palette
+deadline remain unchanged. Compact widths other than 640, shorter engineering
+heights, OS-delivered touch/keyboard and actual desktop DPI remain separate
+qualification; an authored route or syntax check is not a passing native capture.
+
+The setup toolbar shares the existing 40-pixel command row, preserving the
+original 84-pixel header and button sizes. A prior extra auto-height setup row
+failed the unchanged header-height test with 122 pixels. Removing that extra
+row and making real overflow navigation explicit corrects the layout, rather
+than relaxing the original assertion or hiding commands outside the viewport.
+
+The fixed-header and pointer-route implementation is committed but not yet
+runtime-qualified. Per the current integration policy, its intermediate PR stays
+draft and skips CI; the final integrated stack tip must execute the unchanged
+source tests and all native palette/pointer checks before release.
 
 Public primary sources reviewed for workflow and presentation intent:
 

@@ -1,0 +1,13 @@
+{
+  "Repository": "https://github.com/notofonts/noto-fonts",
+  "Commit": "ffebf8c1ee449e544955a7e813c54f9b73848eac",
+  "FamilyName": "Noto Sans Hebrew",
+  "FontPath": "hinted/ttf/NotoSansHebrew/NotoSansHebrew-Regular.ttf",
+  "FontFileName": "NotoSansHebrew-Regular.ttf",
+  "FontLength": 26900,
+  "FontSha256": "A7FA16FFFB27BEDB060A0866267C29E9859AEB9C21CC33F5B3AAF6EB062ECA85",
+  "LicensePath": "LICENSE",
+  "LicenseFileName": "OFL.txt",
+  "LicenseLength": 4377,
+  "LicenseSha256": "0DAB92D0544F7B233403F14B84A663BDBFA746982EDA629E7F4F9FFE1B036FEB"
+}

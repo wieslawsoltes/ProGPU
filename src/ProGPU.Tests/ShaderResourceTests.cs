@@ -14,6 +14,49 @@ namespace ProGPU.Tests;
 
 public class ShaderResourceTests
 {
+    [Theory]
+    [InlineData("RegisteredMaterialCommon.wgsl", "linear_to_srgb_component", false)]
+    [InlineData("Hatch.wgsl", "linear_to_srgb_component", true)]
+    [InlineData("Native3D.wgsl", "material_linear_to_srgb_component", true)]
+    [InlineData("Mesh3DSolid.wgsl", "LinearToSrgbMaterialComponent", true)]
+    public void GradientConversionPreservesOnlyExactNormalizedEndpoints(string resource, string function, bool scene)
+    {
+        string source = ShaderResource.Load(scene ? typeof(Mesh3DExtensionPipeline) : typeof(Shaders), resource);
+        var match = Regex.Match(source, $@"fn {Regex.Escape(function)}\(value: f32\) -> f32 \{{(?<body>.*?)\n\}}",
+            RegexOptions.Singleline);
+        Assert.True(match.Success);
+        string body = Regex.Replace(match.Groups["body"].Value, @"//[^\r\n]*", "");
+        body = Regex.Replace(body, @"\s+", " ").Trim();
+        string expression = resource is "RegisteredMaterialCommon.wgsl" or "Hatch.wgsl"
+            ? "(1.055 * pow(clamped, 1.0 / 2.4)) - 0.055"
+            : "1.055 * pow(clamped, 1.0 / 2.4) - 0.055";
+        // Exact equality is the whole added admission: no near-endpoint snap,
+        // upper clamp, altered HDR expression or changed old negative policy.
+        Assert.Equal("if (value == 0.0 || value == 1.0) { return value; } " +
+            "let clamped = max(value, 0.0); if (clamped <= 0.0031308) { return clamped * 12.92; } " +
+            $"return {expression};", body);
+    }
+
+    [Fact]
+    public void RegisteredGradientConsumersIncludeUnitIntervalPad()
+    {
+        string common = ShaderResource.Load(typeof(Shaders), "RegisteredMaterialCommon.wgsl");
+        Assert.Contains("if (spreadMethod == 4u)", common, StringComparison.Ordinal);
+        Assert.Contains("return clamp(t, 0.0, 1.0);", common, StringComparison.Ordinal);
+        foreach (string shader in new[] { Shaders.VectorShader, Shaders.HintedGlyphPaintShader })
+        {
+            Assert.Contains(common, shader, StringComparison.Ordinal);
+            Assert.Single(Regex.Matches(shader, "fn apply_gradient_spread\\("));
+        }
+
+        string cmake = File.ReadAllText(Path.Combine(FindRepositoryRoot().FullName,
+            "src", "ProGPU.Native", "CMakeLists.txt"));
+        Assert.Contains("-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl",
+            cmake, StringComparison.Ordinal);
+        Assert.Contains("-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl",
+            cmake, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void TextureAndNativeMaskCompositionShareSampledMaskContract()
     {

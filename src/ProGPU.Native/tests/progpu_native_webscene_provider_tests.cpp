@@ -1,5 +1,6 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
@@ -17,6 +18,12 @@
 #include "progpu_native_shader_local_frame_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
+#include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
+#include "progpu_native_direct2d_scoped_copy_fixture.hpp"
+#include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
+#include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
+#include "progpu_native_direct2d_gradient_stop_fixture.hpp"
+#include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "progpu_native_webscene_state_mask_fixture.hpp"
@@ -3142,12 +3149,11 @@ void verify_direct2d_scene(IOSurfaceRef surface) {
 
 } // namespace
 
-#if defined(PROGPU_NATIVE_FONT_HINTING)
 namespace {
 // Same canvas presentation/GPU_COMPLETE/IOSurface storage contract as the
 // original glyph-sharing fixture. No extra queue wait, copy or global poll.
 template<class Draw>
-std::vector<std::uint8_t> render_hinted_glyphs(const provider_api& api,
+std::vector<std::uint8_t> render_retained_fixture(const provider_api& api,
     webscene_gpu_provider* provider, const webscene_gpu_canvas_configuration& configuration,
     progpu_native_engine* engine, Draw draw) {
     auto* canvas = api.create_canvas(provider, &configuration, 64U, 64U);
@@ -3184,7 +3190,6 @@ std::vector<std::uint8_t> render_hinted_glyphs(const provider_api& api,
     return pixels;
 }
 } // namespace
-#endif
 
 int main(int argc, char** argv) {
     require(argc == 2 || argc == 3,
@@ -3603,6 +3608,18 @@ int main(int argc, char** argv) {
     progpu::native::tests::verify_picture_axis_presentation(render_picture, require);
     progpu::native::tests::verify_picture_resource_ownership(render_picture, require);
     progpu::native::tests::verify_picture_layer_presentation(render_picture, require);
+    progpu::native::direct2d::tests::verify_gradient_stop_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation) {
+            return render_retained_scene(reference, stream, generation, 1U, 0x95C5U, 1U, 1U);
+        }, require);
+    progpu::native::direct2d::tests::verify_gradient_interval_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation) {
+            return render_retained_scene(reference, stream, generation, 1U, 0x95C7U, 1U, 1U);
+        }, require);
+    progpu::native::direct2d::tests::verify_compatible_dpi_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_retained_scene(reference, stream, generation, submissions, 0x95CAU, 1U, 1U);
+        }, require);
     progpu::native::tests::verify_original_shader_effect_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation,
             progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {
@@ -3710,7 +3727,70 @@ int main(int argc, char** argv) {
                 1U, header.command_count, &layers, &metrics, test.dpi, nullptr, expected_status,
                 false, 96U, nullptr, nullptr, 64U);
         }, require);
+    progpu::native::direct2d::tests::verify_scoped_memory_copy_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_retained_scene(reference, stream, generation, submissions, 0x95A3U, 1U, 1U);
+        }, require);
+    progpu::native::direct2d::tests::verify_scoped_source_copy_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_retained_scene(reference, stream, generation, submissions, 0x95B3U, 1U, 1U);
+        }, require);
+    progpu::native::direct2d::tests::verify_bitmap_destination_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_retained_scene(reference, stream, generation, submissions, 0x95C3U, 1U, 1U);
+        }, require);
     for (auto* picture_engine : picture_engines) progpu_native_engine_destroy(picture_engine);
+    progpu::native::direct2d::tests::verify_owned_bitmap_scene_copy_pixels(d2d_factory.get(),
+        [&](d2d::scene_render_target_native* scene, std::uint32_t draws,
+            std::uint32_t commands, std::uint64_t submissions) {
+            auto* canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);
+            require(canvas != nullptr, "owned bitmap Dawn canvas creation");
+            std::uintptr_t handle{};
+            require(api.acquire(provider, canvas, &handle) == WEBSCENE_GPU_STATUS_SUCCESS && handle != 0U,
+                "owned bitmap Dawn texture acquisition");
+            auto texture = reinterpret_cast<WGPUTexture>(handle);
+            WGPUTextureViewDescriptor descriptor = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+            auto view = resolve<WGPUProcTextureCreateView>(api, provider, "wgpuTextureCreateView")(texture, &descriptor);
+            require(view != nullptr, "owned bitmap Dawn texture view");
+            std::vector<std::byte> scratch(static_cast<std::size_t>(scene->GetRequiredSceneSize()));
+            const d2d::scene_render_options options{reinterpret_cast<std::uintptr_t>(view), PROGPU_NATIVE_SCENE_FRAME_NONE};
+            progpu_native_scene_metrics update{};
+            update.struct_size = sizeof(update);
+            progpu_native_scene_frame_metrics metrics{};
+            metrics.struct_size = sizeof(metrics);
+            d2d::scene_submission_diagnostics diagnostics{};
+            require(d2d::render_scene_target(scene, engine, options, scratch, &update, &metrics, &diagnostics) ==
+                PROGPU_NATIVE_STATUS_SUCCESS && update.draw_count == draws && metrics.command_count == commands &&
+                metrics.submission_count == submissions, "owned bitmap Dawn scene submission");
+            resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(view);
+            resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(texture);
+            webscene_gpu_external_texture presented{};
+            presented.struct_size = sizeof(presented);
+            require(api.present(provider, canvas, &presented) == WEBSCENE_GPU_STATUS_SUCCESS &&
+                presented.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+                (presented.flags & WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+                "owned bitmap Dawn presentation completion");
+            auto surface = reinterpret_cast<IOSurfaceRef>(presented.shared_handle);
+            require(surface != nullptr && IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) == kIOReturnSuccess,
+                "owned bitmap Dawn readback lock");
+            const auto* data = static_cast<const std::uint8_t*>(IOSurfaceGetBaseAddress(surface));
+            const auto stride = IOSurfaceGetBytesPerRow(surface);
+            require(data != nullptr && IOSurfaceGetWidth(surface) == 64U && IOSurfaceGetHeight(surface) == 64U &&
+                stride >= 256U, "owned bitmap Dawn readback extent");
+            std::vector<std::uint8_t> pixels(64U * 256U);
+            for (std::size_t y = 0U; y < 64U; ++y) {
+                for (std::size_t x = 0U; x < 64U; ++x) {
+                    const auto* bgra = data + y * stride + x * 4U;
+                    auto* rgba = pixels.data() + (y * 64U + x) * 4U;
+                    rgba[0] = bgra[2]; rgba[1] = bgra[1]; rgba[2] = bgra[0]; rgba[3] = bgra[3];
+                }
+            }
+            require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) == kIOReturnSuccess,
+                "owned bitmap Dawn readback unlock");
+            api.release_external(provider, &presented);
+            api.destroy_canvas(provider, canvas);
+            return pixels;
+        }, require);
     progpu::native::tests::verify_path_pixel_mapping(
         [&](bool clip, const auto& stream, progpu_native_scene_frame_metrics& metrics) {
             auto* pixel_canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);
@@ -3767,6 +3847,26 @@ int main(int argc, char** argv) {
                 "pixel mapping IOSurface unlock failed");
             api.release_external(provider, &presented);
             api.destroy_canvas(provider, pixel_canvas);
+            return pixels;
+        }, require);
+    progpu::native::direct2d::tests::verify_clipped_clear(
+        [&](d2d::scene_render_target_native* target) {
+            auto pixels = render_retained_fixture(api, provider, canvas_configuration, engine,
+                [&](progpu_native_engine* retained_engine, std::uintptr_t view) {
+                    std::vector<std::byte> scratch(static_cast<std::size_t>(target->GetRequiredSceneSize()));
+                    progpu_native_scene_metrics update{};
+                    update.struct_size = sizeof(update);
+                    progpu_native_scene_frame_metrics metrics{};
+                    metrics.struct_size = sizeof(metrics);
+                    d2d::scene_submission_diagnostics diagnostics{};
+                    require(d2d::render_scene_target(target, retained_engine, {view, 0U}, scratch,
+                            &update, &metrics, &diagnostics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                        diagnostics.stage == d2d::scene_submission_stage::none && update.draw_count == 3U &&
+                        metrics.command_count == 9U && metrics.submission_count == 1U,
+                        "clipped Clear Dawn submission changed structure or submission count");
+                });
+            // IOSurface is BGRA; the common physical reference is RGBA.
+            for (std::size_t i = 0U; i < pixels.size(); i += 4U) std::swap(pixels[i], pixels[i + 2U]);
             return pixels;
         }, require);
     std::array<progpu_native_engine*, 2U> glyph_engines{};
@@ -3842,7 +3942,7 @@ int main(int argc, char** argv) {
     }
     progpu::native::tests::verify_hinted_glyph_rendering(
         [&](bool reference, float, auto draw) {
-            return render_hinted_glyphs(api, provider, canvas_configuration,
+            return render_retained_fixture(api, provider, canvas_configuration,
                 hinted_engines[reference ? 1U : 0U], draw);
         }, require);
     for (auto* hinted_engine : hinted_engines) progpu_native_engine_destroy(hinted_engine);
@@ -3853,7 +3953,7 @@ int main(int argc, char** argv) {
     }
     progpu::native::tests::verify_hinted_paragraph_glyph_rendering(
         [&](bool reference, float, auto draw) {
-            return render_hinted_glyphs(api, provider, canvas_configuration,
+            return render_retained_fixture(api, provider, canvas_configuration,
                 hinted_engines[reference ? 1U : 0U], draw);
         }, require);
     for (auto* hinted_engine : hinted_engines) progpu_native_engine_destroy(hinted_engine);

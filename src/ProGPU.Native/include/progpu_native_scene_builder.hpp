@@ -175,11 +175,27 @@ public:
         std::uint32_t storage_flags,
         std::span<const std::byte> pixels,
         const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
+    // Same storage copy outside active clip-only SAVE frames. Suspends and
+    // restores their exact owned state indices in one append transaction.
+    // Rejects layers, transforms, masks, guidelines and input/owner scopes;
+    // every pre-existing command, resource and stack entry survives failure.
+    bool copy_image_from_memory_outside_clips(
+        const progpu_native_scene_image_draw& image,
+        std::uint32_t storage_flags,
+        std::span<const std::byte> pixels,
+        const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
     // Consume a staging builder and move its selected owned image into an
     // atomic SRC copy. Accepts uploaded or picture images, not external handles.
     // The staging builder is consumed even on failure; destination history is
     // unchanged on failure. No second payload/scene byte copy is performed.
     bool copy_image_from_builder(
+        semantic_scene_builder source,
+        std::uint32_t source_resource_index,
+        const progpu_native_scene_image_draw& image,
+        const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
+    // Same owned-resource move outside clip-only SAVE frames, sharing the
+    // memory-copy transaction and exclusions. Source is consumed on failure.
+    bool copy_image_from_builder_outside_clips(
         semantic_scene_builder source,
         std::uint32_t source_resource_index,
         const progpu_native_scene_image_draw& image,
@@ -503,6 +519,8 @@ public:
     static progpu_native_scene_state identity_state() noexcept;
 
 private:
+    template<class Copy>
+    bool copy_image_outside_clips(Copy&& copy) noexcept;
     bool append_image_copy_commands(
         std::uint32_t resource_index,
         const progpu_native_scene_image_draw& image,

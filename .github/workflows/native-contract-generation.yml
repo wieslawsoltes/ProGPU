@@ -32,6 +32,7 @@ jobs:
           ./eng/progpu-generate-native-contract.sh
           git rev-parse HEAD > src/ProGPU.Backend.Native/Generated/generator-head.txt
           sha256sum src/ProGPU.Native/include/progpu_native_text_hinting.h > src/ProGPU.Backend.Native/Generated/hinting-header.sha256
+          sha256sum src/ProGPU.Native/include/progpu_native_text_source.h src/ProGPU.Native/include/progpu_native_text_source_resource.h > src/ProGPU.Backend.Native/Generated/source-headers.sha256
       - name: Verify bounded inline-array generation and atomic rejection
         shell: bash
         run: python3 eng/tests/test_native_contract_inline_arrays.py

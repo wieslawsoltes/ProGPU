@@ -3,6 +3,7 @@
 #include "progpu_native_hinted_paragraph_internal.hpp"
 #include "../Font/progpu_native_hinted_glyph_frame.hpp"
 #include "progpu_native_text_hinting.h"
+#include "progpu_native_text_source_resource.h"
 
 namespace progpu::native::text {
 
@@ -67,6 +68,9 @@ public:
     std::span<const std::uint32_t> positioned_outline_indices() const noexcept { return positioned_outline_indices_; }
     std::span<const hinted_paragraph_draw_owner> positioned_owners() const noexcept { return positioned_owners_; }
     hinted_glyph_binding_view binding_view() const noexcept;
+    // Private native borrow of the owned flat source extension. Null for old
+    // raw imports and original producers; never fabricates a paragraph owner.
+    const progpu_native_hinted_source_glyph_resource_view* imported_source_view() const noexcept;
     // Local object/vector capacities. The original paragraph's complete reachable
     // allocations remain covered by the existing paragraph ownership walk.
     bool allocation_aliases(const void* output, std::size_t bytes) const noexcept;
@@ -93,6 +97,9 @@ private:
         hinted_projection_policy, hinted_outline_coverage) noexcept;
     friend hinted_paragraph_glyph_resource_result import_hinted_paragraph_glyph_resource(
         const progpu_native_hinted_glyph_resource_view&) noexcept;
+    friend hinted_paragraph_glyph_resource_result import_hinted_paragraph_glyph_resource(
+        const progpu_native_hinted_glyph_resource_view&,
+        const progpu_native_hinted_source_glyph_resource_view&) noexcept;
 };
 
 struct hinted_paragraph_glyph_resource_result final {
@@ -110,6 +117,13 @@ hinted_paragraph_glyph_resource_result create_hinted_paragraph_glyph_resource(
 // occurrences and exact font bytes survive caller/producer retirement.
 hinted_paragraph_glyph_resource_result import_hinted_paragraph_glyph_resource(
     const progpu_native_hinted_glyph_resource_view& view) noexcept;
+
+// The additive source lane owns original double geometry, policy, raw/effective
+// occurrences and fitting witnesses. Validate both views before publication;
+// no shaping, hinting, float-promoted source geometry or foreign owner survives.
+hinted_paragraph_glyph_resource_result import_hinted_paragraph_glyph_resource(
+    const progpu_native_hinted_glyph_resource_view& raster,
+    const progpu_native_hinted_source_glyph_resource_view& source) noexcept;
 
 struct hinted_paragraph_glyph_frame_result;
 

@@ -33,6 +33,15 @@ raster-padding overrides. Keep actual DPI explicit and invalid/overflow output
 atomic; no texture/device ownership or native capture admission belongs here.
 See docs/effect-capture-frame.md; arithmetic checks are not shader pixel parity.
 
+Compatible-target bitmap memory copies may suspend only captured aliased
+axis-aligned clip SAVE scopes. Storage replacement ignores the drawing transform;
+subsequent draws retain original capture-time clips, transform and tags. Preserve
+balanced original-state restoration, atomic appended-tail rollback and full-write
+history replacement; geometric/AA/opacity/input scopes remain rejected. Ordinary
+owned-bitmap storage and other copy APIs keep their own admission. Require paired
+provider pixels and actual Windows active-copy observations before qualification.
+See docs/direct2d-scoped-memory-copies.md.
+
 ShaderEffect UV derivative registers use explicit version-3 metadata while
 preserving v1/v2 layouts. The native binding writes the selected register after
 original constants from the proven complete positive-axis physical capture
@@ -77,6 +86,16 @@ byte-identical warm captures, ordinary generation-independent family retention,
 queued resource leases and separate intrinsic glyph raster identity. Never repair
 cross-owner reuse by isolating fixtures or weakening original pixel/counter gates.
 See docs/DIRECT2D_WIN2D_COMPATIBILITY.md, retained picture resource ownership.
+
+Owned Direct2D upload bitmaps may retain immutable scene-copy storage without
+changing public bitmap/COM identity, raw upload bytes or shared-view format/DPI.
+Keep copies in physical pixels, capture before destination locking, and preserve
+the source recorder's opaque-alpha operation separately from a raw bitmap view.
+Full raw replacement restores CPU-readable storage; partial writes retain GPU
+history. Never return stale pre-copy bytes or write a GPU-only source through a
+caller-backed WIC lock. Preserve exact full-copy flattening, alias/lifetime guards
+and paired provider controls; authored source tests are not runtime qualification.
+See docs/DIRECT2D_WIN2D_COMPATIBILITY.md, owned upload bitmap scene copies.
 
 Retained picture-image copies own original per-axis presentation in an explicit
 validated suffix, never a DPI ratio or inferred logical extent. Keep the original
@@ -124,6 +143,15 @@ half-open shared edges and derivatives before discard. Both renderers must use
 the matching vertex count. Folded/near-singular edges, multisampling and complete
 provider/package pixels remain explicit gates; shader compilation is not parity.
 
+Source Display capture retains original double em/DPI separately from explicit
+physical-em and advance policies. Preserve immutable raw post-GPOS generations,
+source/descriptor/bidi identity and unsafe flags while deriving fitting metrics.
+One matching advance corpus does not establish midpoint, offset, wrapping or
+caret policy. Precise source geometry must come from the original native writer,
+not float promotion or source-side division/snapping. Keep public raw ABIs and
+Display activation unchanged until the complete paired source contract qualifies.
+See docs/native-source-display-text.md.
+
 Paired Display probes preserve original Microsoft glyph/run receipts and separate
 raw signed hinted slots from full source-context shaping and positioned output.
 Keep exact source DPI and original 26.6 values beside float render projections;
@@ -159,8 +187,18 @@ subsequent drawing state and independent exported snapshots. Preserve cumulative
 Windows translated-draw/callback/failure accounting; retained scene counts describe
 only surviving content. Keep public clear RGBA straight, honor actual IGNORE alpha,
 and premultiply once at ordinary scene submission. Compatible picture conversion
-remains independent. Scoped Clear and failed recordings remain explicit rejection.
+remains independent. An all-aliased clip stack records bounded SRC replacement in
+its captured target frame, preserving history and ignoring the later transform.
+Keep fractional physical coverage, retained DPI-history accounting and both native
+producers paired; antialiased clips, source layers and failed recordings still reject.
 See docs/direct2d-full-target-clear.md; metadata fixtures are not pixel qualification.
+
+Aliased clipped SRC replacement carries explicit final composite bounds, distinct
+from outward-rounded layer storage. Preserve original float edges, actual per-axis
+DPI/viewport, half-open pixel-center coverage and parent-target localization.
+Never infer replacement coverage from source alpha or erase transparent allocation
+margins. Keep the flag bounded to transient SRC without masks/effects/cache/state,
+paired native/managed wire validation and unchanged strict Windows/GPU pixels.
 
 Direct2D ordinary scene copies require explicit immutable pixel-format admission
 through the separate formatted factory capability. Keep legacy UNKNOWN targets

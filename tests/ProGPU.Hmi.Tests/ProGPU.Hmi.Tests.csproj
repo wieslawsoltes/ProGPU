@@ -9,6 +9,8 @@
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/ProGPU.Fonts.Inter/ProGPU.Fonts.Inter.csproj" />
+    <Compile Include="../../samples/HmiDcs/DcsStartup.cs" Link="DcsStartup.cs" />
     <RuntimeHostConfigurationOption Include="System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault" Value="false" />
     <ProjectReference Include="../../src/ProGPU.Hmi.Modbus/ProGPU.Hmi.Modbus.csproj" />
     <ProjectReference Include="../../src/ProGPU.Hmi.Mqtt/ProGPU.Hmi.Mqtt.csproj" />
