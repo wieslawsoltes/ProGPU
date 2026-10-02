@@ -361,11 +361,11 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
 {
     if (!request || request->font != state_->source) return com::invalid_argument;
     // Genuine source OUTLINE selects design contours, not any modern raster
-    // profile or the internal historical RGB box model. Sideways/RTL and GDI
+    // profile or the internal historical RGB box model. Sideways and GDI
     // metrics remain separate original placement contracts. Absent advances
     // use the owned unhinted horizontal metrics, never hinted device widths.
     if (!request->rendering.supplied || request->rendering.rendering_mode != 6U ||
-        request->sideways != 0 || (request->bidi_level & 1U) != 0U ||
+        request->sideways != 0 ||
         request->measuring != compat::measuring_mode::natural)
         return compat::not_implemented;
     try {
@@ -400,10 +400,24 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
             occurrences.push_back(std::move(decoded));
         }
         candidate->segments_.reserve(output_segments);
+        const bool right_to_left = (original.bidi_level & 1U) != 0U;
         float pen = 0.0F;
         for (std::uint32_t index = 0U; index < original.glyphs.count(); ++index) {
+            // Keep logical source order and captured null-pointer identity.
+            // Explicit advances, including zero/negative values, always win.
+            const float advance = original.glyphs.advances() != nullptr
+                ? original.glyphs.advances()[index]
+                : static_cast<float>(occurrences[index]->horizontal_advance) * scale;
+            const float next_pen = pen + advance;
+            if (!std::isfinite(next_pen)) return com::invalid_argument;
             const auto offset = original.glyphs.offsets() == nullptr ? compat::glyph_offset{} : original.glyphs.offsets()[index];
-            const float x = original.target.baseline.x + pen + offset.advance_offset;
+            // An RTL pen starts at the right edge of the glyph's advance box.
+            // Move its left-oriented outline origin, never reflect contours or
+            // reverse occurrences. Advance offsets follow the run direction;
+            // ascender offsets retain their original screen-up direction.
+            const float glyph_pen = right_to_left ? -next_pen : pen;
+            const float advance_offset = right_to_left ? -offset.advance_offset : offset.advance_offset;
+            const float x = original.target.baseline.x + glyph_pen + advance_offset;
             const float y = original.target.baseline.y - offset.ascender_offset;
             if (!std::isfinite(x) || !std::isfinite(y)) return com::invalid_argument;
             for (auto segment : occurrences[index]->segments) {
@@ -411,13 +425,7 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
                     return com::invalid_argument;
                 candidate->segments_.push_back(segment);
             }
-            // Keep the captured null pointer as original source identity. An
-            // explicit advance, including zero/negative values, always wins.
-            const float advance = original.glyphs.advances() != nullptr
-                ? original.glyphs.advances()[index]
-                : static_cast<float>(occurrences[index]->horizontal_advance) * scale;
-            pen += advance;
-            if (!std::isfinite(pen)) return com::invalid_argument;
+            pen = next_pen;
         }
         // Complete run preflight precedes both cache and output publication.
         // reserve may allocate but does not remove earlier cache entries. merge
