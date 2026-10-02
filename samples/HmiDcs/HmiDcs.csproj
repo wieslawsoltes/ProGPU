@@ -5,6 +5,7 @@
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/ProGPU.Fonts.Inter/ProGPU.Fonts.Inter.csproj" />
     <ProjectReference Include="../../src/ProGPU.WinUI.Hmi.Designer/ProGPU.WinUI.Hmi.Designer.csproj" />
     <ProjectReference Include="../../src/ProGPU.WinUI.Themes.Fluent/ProGPU.WinUI.Themes.Fluent.csproj" />
     <ProjectReference Include="../../src/ProGPU.Hmi.Modbus/ProGPU.Hmi.Modbus.csproj" />

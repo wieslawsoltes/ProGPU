@@ -8,6 +8,30 @@ dotnet run --project samples/HmiDcs/HmiDcs.csproj -c Release
 
 The initial screen is an **offline** Northwater plant overview. No driver, endpoint, simulation timer state, or write authorizer is activated merely by opening the sample. The shared gallery's **Visual Designer → HMI / DCS** entry now points to this standalone application rather than embedding a second complete workbench. The existing `samples/HmiDesigner` remains a focused engineering-only host for library consumers.
 
+The standalone DCS host establishes its font before creating the studio. It
+preserves an explicitly installed host default, otherwise using the existing
+embedded Inter Regular face. Workplace controls snapshot that exact font at
+construction and pass it to later screen/engineering views. Native `Window.Load`
+occurs too late to supply those captured references and its optional Arial path
+does not exist on ordinary Windows installations. The startup regression covers
+this fontless-process path directly without creating a native window or GPU;
+the original rendered DCS smoke cases, which explicitly supply a font, remain
+required and unchanged. This fixes the missing-label startup path reported in
+[issue #260](https://github.com/wieslawsoltes/ProGPU/issues/260), not a renderer or
+industrial process-policy change.
+
+The three new startup regressions link the exact sample startup source into the
+existing serialized HMI test assembly; they preserve/restore the process-wide
+default font and do not activate a window. They cover empty initial font state,
+an explicit host face, and a later default-font change followed by navigation
+and lazy engineering. Sample edits now trigger the unchanged full HMI visual and
+pointer workflow as well as the existing three-platform build/test/package gate.
+Post-commit local checks validated both changed project files, workflow syntax
+and trigger coverage, and whitespace. Current cached HMI assemblies predate the
+DCS workplace, so these new tests were not compiled or executed locally; no full
+source closure, native renderer, GPU, VM or runtime staging was run. Hosted source
+tests and final Windows visual confirmation remain pending.
+
 ## Workplace structure
 
 The top-level **Operator Workplace / Engineering Workplace** switch changes working context without discarding the engineering document. Operator navigation has a persistent priority/quality band, Back/Forward/Home controls, display tabs, a searchable plant explorer, a central aspect area, a contextual object faceplate and a status strip. The alarm band remains visible while visiting graphics, alarms, events, trends and diagnostics.
