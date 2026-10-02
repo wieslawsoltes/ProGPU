@@ -87,7 +87,15 @@ inline std::array<std::uint8_t, 4U> gradient_stop_expected(unsigned variant, uns
         : std::array<std::uint8_t, 4U>{0, 0, level, 255};
 }
 
-inline bool gradient_stop_snapshot(std::span<const std::byte> bytes) {
+inline std::uint32_t gradient_stop_spread(unsigned variant) {
+    switch ((variant / 2U) % 3U) {
+    case 0U: return PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL;
+    case 1U: return PROGPU_NATIVE_SCENE_GRADIENT_REPEAT;
+    default: return PROGPU_NATIVE_SCENE_GRADIENT_REFLECT;
+    }
+}
+
+inline bool gradient_stop_snapshot(std::span<const std::byte> bytes, std::uint32_t expected_spread) {
     progpu_native_scene_header header{};
     progpu_native_scene_command command{};
     progpu_native_scene_draw_brushes draw{};
@@ -102,7 +110,7 @@ inline bool gradient_stop_snapshot(std::span<const std::byte> bytes) {
         !read_scene_value(bytes, header.resource_offset +
             std::uint64_t{draw.brush_resource_index} * header.resource_stride, table) ||
         !read_scene_value(bytes, table.payload_offset + std::uint64_t{index} * sizeof(brush), brush) ||
-        brush.stop_count != unordered_gradient_stops.size()) return false;
+        brush.stop_count != unordered_gradient_stops.size() || brush.spread_method != expected_spread) return false;
     for (std::size_t i = 0; i < unordered_gradient_stops.size(); ++i) {
         progpu_native_scene_gradient_stop actual{};
         const auto& expected = unordered_gradient_stops[ordered_gradient_indices[i]];
@@ -252,7 +260,8 @@ void verify_gradient_stop_pixels(Render render, Require require) {
                 target.as(compat::scene_render_target_native_interface_id, scene) == com::ok, "gradient order target");
             record_gradient_stop_order(target.get(), variant, ordered, require);
             std::vector<std::byte> stream;
-            require(export_copy_scene(scene.get(), stream) && gradient_stop_snapshot(stream), "stable snapshot stops");
+            require(export_copy_scene(scene.get(), stream) && gradient_stop_snapshot(stream, gradient_stop_spread(variant)),
+                "stable snapshot stops");
             scene.reset(); target.reset();
             const auto pixels = render(false, stream, properties.generation);
             require(pixels.size() == 64U * 64U * 4U && pixels == render(false, stream, properties.generation) &&
@@ -279,7 +288,8 @@ inline bool gradient_stop_contract(compat::scene_factory_native* factory) {
     for (unsigned variant = 0; variant < 12U; ++variant) {
         record_gradient_stop_order(target.get(), variant, false, [&](bool result, const char*) { valid &= result; });
         std::vector<std::byte> before, after;
-        if (!valid || !export_copy_scene(scene.get(), before) || !gradient_stop_snapshot(before)) return false;
+        if (!valid || !export_copy_scene(scene.get(), before) ||
+            !gradient_stop_snapshot(before, gradient_stop_spread(variant))) return false;
         for (unsigned invalid = 0; invalid < 6U; ++invalid) {
             auto stops = unordered_gradient_stops;
             if (invalid < 2U) stops.back().position = invalid == 0U ? std::numeric_limits<float>::quiet_NaN()

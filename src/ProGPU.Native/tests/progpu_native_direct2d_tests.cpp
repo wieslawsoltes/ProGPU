@@ -237,7 +237,8 @@ void gradient_stop_order_regressions(ID2D1DeviceContext* source_context)
     ComPtr<ID2D1DeviceContext> context;
     require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
         "gradient order context creation");
-    for (const bool streamed : {false, true}) for (const bool radial : {false, true}) {
+    for (const bool streamed : {false, true}) for (const bool radial : {false, true})
+    for (const bool clamp : {false, true}) {
         std::array<D2D1_GRADIENT_STOP, 6U> stops{};
         for (std::size_t i = 0; i < stops.size(); ++i) {
             const auto& source = fixture::unordered_gradient_stops[i];
@@ -246,7 +247,8 @@ void gradient_stop_order_regressions(ID2D1DeviceContext* source_context)
         ComPtr<ID2D1GradientStopCollection1> collection;
         require(context->CreateGradientStopCollection(stops.data(), static_cast<UINT32>(stops.size()),
             D2D1_COLOR_SPACE_SRGB, D2D1_COLOR_SPACE_SRGB, D2D1_BUFFER_PRECISION_8BPC_UNORM,
-            D2D1_EXTEND_MODE_MIRROR, D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT, collection.GetAddressOf()) == S_OK,
+            clamp ? D2D1_EXTEND_MODE_CLAMP : D2D1_EXTEND_MODE_MIRROR,
+            D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT, collection.GetAddressOf()) == S_OK,
             "original GetGradientStops1 unordered collection");
         std::array<D2D1_GRADIENT_STOP, 6U> returned{};
         collection->GetGradientStops1(returned.data(), static_cast<UINT32>(returned.size()));
@@ -296,7 +298,8 @@ void gradient_stop_order_regressions(ID2D1DeviceContext* source_context)
             "gradient order stream measurement");
         std::vector<std::uint8_t> bytes(static_cast<std::size_t>(result.required_bytes));
         require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
-            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::gradient_stop_snapshot(std::as_bytes(std::span(bytes))),
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::gradient_stop_snapshot(std::as_bytes(std::span(bytes)),
+                clamp ? PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL : PROGPU_NATIVE_SCENE_GRADIENT_REFLECT),
             "GetGradientStops1 canonical stable snapshot/ownership");
         sink.Reset(); progpu_native_direct2d_scene_recorder_destroy(recorder);
     }
