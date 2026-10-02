@@ -5429,7 +5429,8 @@ public:
         // The prepared path is in the original baseline-local target DIP frame.
         // Existing geometry publication applies the captured target transform
         // and all current clip/layer scopes once under the same generation lease.
-        // No source font callback, nominal advance, font lookup or hinting occurs.
+        // Preparation uses owned cached nominal metrics only when source advances
+        // are absent. No source font callback, font lookup or hinting occurs.
         draw_filled_geometry(path.get(), retained_foreground.get(), nullptr,
             target.antialias == text_antialias_mode::aliased ? 1U : 8U, capture_id);
         const std::lock_guard lock(mutex_);
