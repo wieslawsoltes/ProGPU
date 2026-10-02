@@ -956,7 +956,16 @@ bool create_semantic_layer_mask_binding(
         std::copy_n(source.corner_radii_y, 4U, mask.corner_radii_y);
         mask.opacity = source.opacity;
         normalize_group_mask_radii(mask);
-        return create_rounded_group_mask_uniforms(mask, dpi_scale, uniforms);
+        if (!create_rounded_group_mask_uniforms(mask, dpi_scale, uniforms)) return false;
+        if ((source.flags & PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA) != 0U) {
+            // Source identity plus the actual per-axis presentation is still
+            // diagonal after target localization. One fragment is one physical
+            // pixel; its inverse local dimensions are these two coefficients.
+            if (uniforms.coordinate0[1] != 0.0F || uniforms.coordinate1[0] != 0.0F ||
+                !(uniforms.coordinate0[0] > 0.0F) || !(uniforms.coordinate1[1] > 0.0F)) return false;
+            uniforms.options[0] = 5.0F;
+        }
+        return true;
     };
     const bool chained = parsed.kind ==
         PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN;

@@ -6673,12 +6673,8 @@ public:
             // Original portable Direct2D lowering: clip the transformed AABB,
             // then apply edge coverage once to the group at PopAxisAlignedClip.
             // Do not apply the fractional mask independently to each draw.
-            progpu_native_scene_layer_mask mask{};
-            mask.bounds = clip;
-            mask.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
-            mask.opacity = 1.0F;
             uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder_.add_rounded_rectangle_mask(mask, mask_resource_index)) {
+            if (!builder_.add_axis_aligned_clip_mask(clip, mask_resource_index)) {
                 return fail_builder();
             }
             const progpu_native_scene_layer layer{

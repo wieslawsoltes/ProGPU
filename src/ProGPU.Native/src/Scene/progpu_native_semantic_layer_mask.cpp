@@ -96,9 +96,18 @@ bool valid_analytic(const progpu_native_scene_layer_mask& mask) noexcept {
     const auto radius = [](float value) noexcept {
         return std::isfinite(value) && value >= 0.0F;
     };
+    const bool axis_clip = (mask.flags & PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA) != 0U;
+    const bool exact_clip = !axis_clip ||
+        (mask.transform.m11 == 1.0F && mask.transform.m12 == 0.0F &&
+         mask.transform.m21 == 0.0F && mask.transform.m22 == 1.0F &&
+         mask.transform.m31 == 0.0F && mask.transform.m32 == 0.0F &&
+         mask.opacity == 1.0F &&
+         std::ranges::all_of(mask.corner_radii_x, [](float value) { return value == 0.0F; }) &&
+         std::ranges::all_of(mask.corner_radii_y, [](float value) { return value == 0.0F; }));
     return mask.struct_size == sizeof(mask) &&
         mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE &&
-        mask.flags == 0U && mask.reserved == 0U &&
+        (mask.flags & ~PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA) == 0U &&
+        exact_clip && mask.reserved == 0U &&
         mask.reserved0 == 0U && mask.reserved1 == 0U &&
         mask.reserved2 == 0U && valid_bounds(mask.bounds) &&
         valid_transform(mask.transform) &&

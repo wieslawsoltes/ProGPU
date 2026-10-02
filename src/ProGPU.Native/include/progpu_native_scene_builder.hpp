@@ -271,6 +271,8 @@ public:
         std::span<const progpu_native_scene_color_glyph_bitmap> bitmaps,
         std::span<const std::byte> rgba_pixels,
         std::uint32_t& resource_index) noexcept;
+    bool add_axis_aligned_clip_mask(progpu_native_image_rect bounds,
+        std::uint32_t& resource_index) noexcept;
     bool add_rounded_rectangle_mask(
         const progpu_native_scene_layer_mask& mask,
         std::uint32_t& resource_index) noexcept;
