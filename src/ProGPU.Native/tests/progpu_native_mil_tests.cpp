@@ -7,6 +7,7 @@
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
+#include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
 #include "../src/Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../src/Scene/progpu_native_semantic_state.hpp"
@@ -21894,6 +21895,52 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
     return true;
 }
 
+bool original_shader_sampler_inherits_actual_visual_options() {
+    progpu_native_mil_channel* raw{};
+    PROGPU_REQUIRE(progpu_native_mil_channel_create(&raw) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    progpu::native::tests::mil_clip_channel owner(raw);
+    for (std::uint32_t variant = 0U; variant < 13U; ++variant) {
+        std::vector<std::byte> stream;
+        PROGPU_REQUIRE(progpu::native::tests::build_original_shader_sampler_scene(raw, variant, stream));
+        PROGPU_REQUIRE(progpu::native::scene::validate(stream.data(), stream.size()).status ==
+            PROGPU_NATIVE_STATUS_SUCCESS);
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        std::uint32_t pictures = 0U;
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset + i * header.resource_stride);
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+                (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U) continue;
+            ++pictures;
+            const auto nested = read_value<progpu_native_scene_header>(stream, resource.auxiliary_offset);
+            std::uint32_t images = 0U;
+            for (std::uint32_t j = 0U; j < nested.command_count; ++j) {
+                const auto record = read_value<progpu_native_scene_command>(stream,
+                    resource.auxiliary_offset + nested.command_offset + j * sizeof(progpu_native_scene_command));
+                if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) continue;
+                ++images;
+                const auto image = read_value<progpu_native_scene_image_draw>(stream,
+                    resource.auxiliary_offset + record.payload_offset);
+                const std::uint32_t expected_sampling = variant == 4U || variant >= 11U
+                    ? PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR : PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+                PROGPU_REQUIRE(image.sampling == expected_sampling);
+                if (variant >= 11U) {
+                    PROGPU_REQUIRE(image.image_width == 400U && image.image_height == 200U);
+                    PROGPU_REQUIRE(image.source_rect.x == 0.0F && image.source_rect.y == 0.0F &&
+                        image.source_rect.width == 400.0F && image.source_rect.height == 200.0F);
+                    PROGPU_REQUIRE(image.destination_rect.x == 0.0F && image.destination_rect.y == 0.0F &&
+                        image.destination_rect.width == 200.0F && image.destination_rect.height == 50.0F);
+                    PROGPU_REQUIRE(image.transform.m11 == 1.0F && image.transform.m22 == 1.0F &&
+                        image.transform.m31 == -50.0F && image.transform.m32 == 30.0F);
+                }
+            }
+            PROGPU_REQUIRE(images == 1U);
+        }
+        PROGPU_REQUIRE(pictures == 1U);
+    }
+    return true;
+}
+
 bool malformed_and_unsupported_packets_fail_closed() {
     channel state;
     const std::array malformed{
@@ -22193,6 +22240,7 @@ bool c_abi_is_typed_and_size_versioned() {
 
 int main() {
     PROGPU_REQUIRE(original_shader_effect_resources_compile_and_reject_atomically());
+    PROGPU_REQUIRE(original_shader_sampler_inherits_actual_visual_options());
     const auto capture_hits = [](progpu::native::semantic_scene_builder& builder,
         progpu::native::scene_hit_test_opacity_mode opacity_mode =
             progpu::native::scene_hit_test_opacity_mode::rendered_visibility) {

@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Flagged native visual BitmapScalingMode Unspecified preserves inherited sampling;
+only a genuinely unspecified ancestry uses the Linear default. Preserve actual
+visual-field propagation and same-owner reset semantics: an attached property on
+a bare DrawingVisual/ContainerVisual is not proof of an emitted MIL option.
+Keep shader sampling separate from ImageBrush realization, original independent
+reference inputs and paired cold/warm ownership controls. See
+docs/native-shader-sampler-render-options.md; SoftwareOnly reference evidence does
+not qualify hardware filtering or repeated-source addressing.
+
 ShaderEffect UV derivative registers use explicit version-3 metadata while
 preserving v1/v2 layouts. The native binding writes the selected register after
 original constants from the proven complete positive-axis physical capture

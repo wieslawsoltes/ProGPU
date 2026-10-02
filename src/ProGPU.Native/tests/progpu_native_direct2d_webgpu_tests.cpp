@@ -727,14 +727,18 @@ struct portable_scene final {
     float dpi_scale = 1.0F,
     const progpu_native_scene_presentation* presentation = nullptr,
     progpu_native_status expected_status = PROGPU_NATIVE_STATUS_SUCCESS,
-    bool expect_picture_rejection = false)
+    bool expect_picture_rejection = false,
+    std::uint32_t target_extent = width)
 {
+    require(target_extent == 64U || target_extent == 128U,
+        "retained fixture target extent is unsupported");
+    const auto target_row_bytes = target_extent * 4U;
     WGPUTextureDescriptor texture_descriptor{};
     texture_descriptor.label = "ProGPU portable Direct2D target";
     texture_descriptor.usage = WGPUTextureUsage_RenderAttachment |
         WGPUTextureUsage_CopySrc;
     texture_descriptor.dimension = WGPUTextureDimension_2D;
-    texture_descriptor.size = {width, height, 1U};
+    texture_descriptor.size = {target_extent, target_extent, 1U};
     texture_descriptor.format = WGPUTextureFormat_RGBA8Unorm;
     texture_descriptor.mipLevelCount = 1U;
     texture_descriptor.sampleCount = 1U;
@@ -770,8 +774,8 @@ struct portable_scene final {
             scene_updated = true;
             progpu_native_scene_frame frame{};
             frame.struct_size = sizeof(frame);
-            frame.width = width;
-            frame.height = height;
+            frame.width = target_extent;
+            frame.height = target_extent;
             frame.dpi_scale = dpi_scale;
             frame.target_view = reinterpret_cast<std::uintptr_t>(view);
             frame.clear_color = {0.0F, 0.0F, 0.0F, 1.0F};
@@ -868,7 +872,7 @@ struct portable_scene final {
 
     WGPUBufferDescriptor buffer_descriptor{};
     buffer_descriptor.label = "ProGPU portable Direct2D readback";
-    buffer_descriptor.size = static_cast<std::uint64_t>(row_bytes) * height;
+    buffer_descriptor.size = static_cast<std::uint64_t>(target_row_bytes) * target_extent;
     buffer_descriptor.usage = WGPUBufferUsage_CopyDst |
         WGPUBufferUsage_MapRead;
     WGPUBuffer buffer = wgpuDeviceCreateBuffer(
@@ -882,9 +886,9 @@ struct portable_scene final {
     source.aspect = WGPUTextureAspect_All;
     WGPUImageCopyBuffer destination{};
     destination.buffer = buffer;
-    destination.layout.bytesPerRow = row_bytes;
-    destination.layout.rowsPerImage = height;
-    const WGPUExtent3D extent{width, height, 1U};
+    destination.layout.bytesPerRow = target_row_bytes;
+    destination.layout.rowsPerImage = target_extent;
+    const WGPUExtent3D extent{target_extent, target_extent, 1U};
     wgpuCommandEncoderCopyTextureToBuffer(
         encoder, &source, &destination, &extent);
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, nullptr);
@@ -2191,10 +2195,12 @@ int main(int argc, char** argv)
     auto* sampler_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_original_shader_sampler_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions,
-            std::uint32_t commands, progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            std::uint32_t commands, std::uint32_t target_extent,
+            progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
             auto* selected = reference ? sampler_reference_engine : engine;
             auto pixels = render_scene(gpu, selected, nullptr, 1U, commands, submissions,
-                stream, 0x9494U, generation, &metrics);
+                stream, 0x9494U, generation, &metrics, 1.0F, nullptr,
+                PROGPU_NATIVE_STATUS_SUCCESS, false, target_extent);
             require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
                 "owned sampler layer metrics unavailable");
             return pixels;
