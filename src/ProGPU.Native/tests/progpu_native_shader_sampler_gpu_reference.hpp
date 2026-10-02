@@ -5,6 +5,7 @@
 // or captured product pixel contributes to this reference.
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstdint>
 #include <vector>
 
@@ -51,6 +52,7 @@ public:
     template<class Readback, class Require>
     std::vector<std::uint8_t> render(std::uint32_t variant, Readback readback, Require require) {
         require(variant >= 13U && variant <= 19U, "native sampler reference variant is unsupported");
+        phase("raw render begin", variant);
         if (!pipeline_) initialize(require);
         const bool checker = variant >= 16U;
         const std::uint32_t source_height = checker ? 2U : 1U;
@@ -72,6 +74,7 @@ public:
         pitch.bytesPerRow = 8U;
         pitch.rowsPerImage = source_height;
         const WGPUExtent3D source_extent{2U, source_height, 1U};
+        phase("raw texture upload", variant);
         api_.QueueWriteTexture(queue_, &upload, pixels.data(), source_height * 8U, &pitch, &source_extent);
         const std::array<float, 4U> parameters{
             variant == 14U || variant == 19U ? 8.0F : 0.0F,
@@ -87,8 +90,10 @@ public:
         group_descriptor.layout = layout_;
         group_descriptor.entryCount = entries.size();
         group_descriptor.entries = entries.data();
+        phase("raw bind group creation", variant);
         auto group = api_.DeviceCreateBindGroup(device_, &group_descriptor);
         require(group != nullptr, "native sampler reference bind group creation failed");
+        phase("raw encoder creation", variant);
         auto encoder = api_.DeviceCreateCommandEncoder(device_, nullptr);
         require(encoder != nullptr, "native sampler reference encoder creation failed");
         WGPURenderPassColorAttachment color{};
@@ -100,30 +105,41 @@ public:
         WGPURenderPassDescriptor pass_descriptor{};
         pass_descriptor.colorAttachmentCount = 1U;
         pass_descriptor.colorAttachments = &color;
+        phase("raw pass begin", variant);
         auto pass = api_.CommandEncoderBeginRenderPass(encoder, &pass_descriptor);
         require(pass != nullptr, "native sampler reference pass creation failed");
         api_.RenderPassEncoderSetPipeline(pass, pipeline_);
         api_.RenderPassEncoderSetBindGroup(pass, 0U, group, 0U, nullptr);
+        phase("raw draw", variant);
         api_.RenderPassEncoderDraw(pass, 3U, 1U, 0U, 0U);
         api_.RenderPassEncoderEnd(pass);
+        phase("raw pass ended", variant);
         auto result = read_target(encoder, readback, require);
         api_.RenderPassEncoderRelease(pass);
         api_.BindGroupRelease(group);
+        phase("raw render complete", variant);
         return result;
     }
 
     template<class Draw, class Readback, class Require>
     std::vector<std::uint8_t> capture(Draw draw, Readback readback, Require require) {
+        phase("product capture begin");
         if (!pipeline_) initialize(require);
         // Actual product capture replay uses the same *format*, not a converted
         // presentation surface. It cannot supply oracle inputs or shader state.
         draw(target_view_);
+        phase("product capture submitted");
         auto encoder = api_.DeviceCreateCommandEncoder(device_, nullptr);
         require(encoder != nullptr, "sampler capture readback encoder unavailable");
         return read_target(encoder, readback, require);
     }
 
 private:
+    static void phase(const char* name, std::uint32_t ordinal = 0U) {
+        std::fprintf(stderr, "Sampler raw GPU phase: %s (%u)\n", name, ordinal);
+        std::fflush(stderr);
+    }
+
     template<class Readback, class Require>
     std::vector<std::uint8_t> read_target(WGPUCommandEncoder encoder, Readback readback, Require require) {
 #if defined(PROGPU_SAMPLER_REFERENCE_DAWN)
@@ -139,17 +155,23 @@ private:
         destination.layout.bytesPerRow = 256U;
         destination.layout.rowsPerImage = 24U;
         const WGPUExtent3D extent{32U, 24U, 1U};
+        phase("readback copy encoding");
         api_.CommandEncoderCopyTextureToBuffer(encoder, &source, &destination, &extent);
+        phase("readback encoder finish");
         auto command = api_.CommandEncoderFinish(encoder, nullptr);
         require(command != nullptr, "native sampler reference command creation failed");
+        phase("readback queue submit");
         api_.QueueSubmit(queue_, 1U, &command);
+        phase("readback map begin");
         const auto mapped = readback(readback_, 256U * 24U);
+        phase("readback map completed");
         require(mapped.size() == 256U * 24U, "native sampler reference readback size differs");
         std::vector<std::uint8_t> result(32U * 24U * 4U);
         for (std::size_t row = 0U; row < 24U; ++row)
             std::copy_n(mapped.data() + row * 256U, 128U, result.data() + row * 128U);
         api_.CommandBufferRelease(command);
         api_.CommandEncoderRelease(encoder);
+        phase("readback handles released");
         return result;
     }
     template<class Require> void initialize(Require require) {
@@ -183,6 +205,7 @@ private:
 #endif
         WGPUShaderModuleDescriptor module_descriptor{};
         module_descriptor.nextInChain = &code.chain;
+        phase("shader module creation");
         auto module = api_.DeviceCreateShaderModule(device_, &module_descriptor);
         require(module != nullptr, "native sampler reference shader creation failed");
         // Retained semantic image capture converts its straight source to
@@ -214,9 +237,12 @@ private:
         pipeline.primitive.cullMode = WGPUCullMode_None;
         pipeline.multisample.count = 1U;
         pipeline.multisample.mask = UINT32_MAX;
+        phase("render pipeline creation");
         pipeline_ = api_.DeviceCreateRenderPipeline(device_, &pipeline);
+        phase("render pipeline returned");
         api_.ShaderModuleRelease(module);
         require(pipeline_ != nullptr, "native sampler reference pipeline creation failed");
+        phase("pipeline bind group layout acquisition");
         layout_ = api_.RenderPipelineGetBindGroupLayout(pipeline_, 0U);
         require(layout_ != nullptr, "native sampler reference layout unavailable");
         WGPUTextureDescriptor texture{};
@@ -226,24 +252,30 @@ private:
         texture.mipLevelCount = 1U;
         texture.sampleCount = 1U;
         texture.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
+        phase("target texture creation");
         target_ = api_.DeviceCreateTexture(device_, &texture);
         require(target_ != nullptr, "native sampler reference target creation failed");
+        phase("target view creation");
         target_view_ = api_.TextureCreateView(target_, nullptr);
         require(target_view_ != nullptr, "native sampler reference target view creation failed");
         texture.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
         for (std::uint32_t i = 0U; i < sources_.size(); ++i) {
             texture.size = {2U, i + 1U, 1U};
+            phase("source texture creation", i);
             sources_[i] = api_.DeviceCreateTexture(device_, &texture);
             require(sources_[i] != nullptr, "native sampler reference source creation failed");
+            phase("source view creation", i);
             source_views_[i] = api_.TextureCreateView(sources_[i], nullptr);
             require(source_views_[i] != nullptr, "native sampler reference source view creation failed");
         }
         WGPUBufferDescriptor buffer{};
         buffer.size = 16U;
         buffer.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+        phase("uniform buffer creation");
         uniform_ = api_.DeviceCreateBuffer(device_, &buffer);
         buffer.size = 256U * 24U;
         buffer.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
+        phase("readback buffer creation");
         readback_ = api_.DeviceCreateBuffer(device_, &buffer);
         require(uniform_ != nullptr && readback_ != nullptr, "native sampler reference buffers unavailable");
         for (std::uint32_t i = 0U; i < samplers_.size(); ++i) {
@@ -256,9 +288,11 @@ private:
             sampler.mipmapFilter = WGPUMipmapFilterMode_Nearest;
             sampler.lodMaxClamp = 32.0F;
             sampler.maxAnisotropy = 1U;
+            phase("sampler creation", i);
             samplers_[i] = api_.DeviceCreateSampler(device_, &sampler);
             require(samplers_[i] != nullptr, "native sampler reference sampler creation failed");
         }
+        phase("initialization complete");
     }
 
     sampler_reference_api api_;

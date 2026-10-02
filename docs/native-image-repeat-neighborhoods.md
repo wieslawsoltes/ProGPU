@@ -207,3 +207,15 @@ Naga rejected dynamic indexing of the reference vertex shader's value array
 before any pixel comparison. Explicit vertex-index branches now select the same
 three fullscreen-triangle vertices. Sampling, blend state, expectations and
 policies are unchanged; the failed build provides no pixel qualification.
+
+Replacement `37031437949` passes the Linux ARM native job but Windows MSVC
+job `110918990001` terminates with a segmentation fault after creating the two
+default-policy engines, before any raw-reference comparison diagnostic. This is
+not an established sampler, descriptor or lifetime defect: the pinned native
+revision is `33133da4ec5a0174cb21539ef2d3346f75200411`, and its inspected pipeline,
+layout and release entrypoints do not establish a fault from static source alone.
+The test-only raw reference now flushes bounded phase markers around its actual
+initialization, encoding, submission, callback completion and product capture.
+These markers add no GPU operations and change no descriptor, sampling policy,
+pixel/counter assertion or deadline. They locate the next hosted crash boundary;
+they are not a correction or a qualification result.
