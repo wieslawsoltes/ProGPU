@@ -219,6 +219,7 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
             const auto source = paragraph.source_glyphs[i];
             const auto original = paragraph.source_logical_metrics[logical];
             if (!std::isfinite(source.x) || !std::isfinite(source.y) ||
+                source.cluster != glyph.cluster ||
                 source.advance_x != original.advance_x || source.advance_y != original.advance_y ||
                 static_cast<float>(source.x) != glyph.x || static_cast<float>(source.y) != glyph.y ||
                 static_cast<float>(source.advance_x) != glyph.advance_x || static_cast<float>(source.advance_y) != glyph.advance_y)
@@ -236,6 +237,7 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
         if (paragraph.has_source_geometry) {
             const auto source = paragraph.source_lines[i];
             if (!std::isfinite(source.width) || source.width < 0.0 || !std::isfinite(source.top) || source.top < 0.0 ||
+                source.glyph_start != line.glyph_start || source.glyph_count != line.glyph_count ||
                 !std::isfinite(source.height) || source.height < 0.0 || !std::isfinite(source.baseline_offset) || source.baseline_offset < 0.0 ||
                 source.baseline_y != source.top + source.baseline_offset || !std::isfinite(source.origin_x) ||
                 static_cast<float>(source.width) != line.width || static_cast<float>(source.baseline_y) != line.baseline_y ||

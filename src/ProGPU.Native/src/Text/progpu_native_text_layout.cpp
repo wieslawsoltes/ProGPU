@@ -1259,7 +1259,7 @@ static bool layout_measured_core(
                 retained->positioned_bidi_levels[output_cursor] = scratch.visual_groups[retained_group].bidi_level;
             }
             if constexpr (std::is_same_v<Number, double>) {
-                const text_source_glyph_position position{cursor_x + metrics[2], cursor_y + metrics[3], metrics[0], metrics[1]};
+                const text_source_glyph_position position{cursor_x + metrics[2], cursor_y + metrics[3], metrics[0], metrics[1], glyph.cluster};
                 if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
                     std::abs(position.x) > std::numeric_limits<float>::max() || std::abs(position.y) > std::numeric_limits<float>::max()) {
                     glyph_count = 0U; line_count = 0U;
@@ -1336,7 +1336,8 @@ static bool layout_measured_core(
                 static_cast<float>(baseline_offset), !item_metrics.empty() || std::is_same_v<Number, double>};
         if constexpr (std::is_same_v<Number, double>) {
             source->line_metrics[line_count] = {output_width, measured_top, line_height, baseline_offset, baseline,
-                alignment_shift > 0.0 ? initial_cursor_x + alignment_shift : initial_cursor_x};
+                alignment_shift > 0.0 ? initial_cursor_x + alignment_shift : initial_cursor_x,
+                static_cast<std::uint32_t>(output_start), static_cast<std::uint32_t>(output_cursor - output_start)};
             if (retained != nullptr && !retained->line_frames.empty()) retained->line_frames[line_count].top = measured_top;
         }
         ++line_count;

@@ -16,11 +16,13 @@ struct text_source_item_metrics final {
 
 struct text_source_glyph_position final {
     double x = 0.0, y = 0.0, advance_x = 0.0, advance_y = 0.0;
+    std::int32_t cluster = 0;
 };
 
 struct text_source_line_metrics final {
     double width = 0.0, top = 0.0, height = 0.0;
     double baseline_offset = 0.0, baseline_y = 0.0, origin_x = 0.0;
+    std::uint32_t glyph_start = 0U, glyph_count = 0U;
 };
 
 // Optional double lane of the same logical scanner/measured writer. IDs, source

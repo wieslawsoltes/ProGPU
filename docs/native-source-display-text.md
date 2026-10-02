@@ -49,12 +49,21 @@ generations instead of silently narrowing them. Publication and complete output
 alias guards cover all new retained buffers; frame validation compares raw shaping,
 selected fitting policy, precise source metrics and raster shadows separately.
 
+The same retained interaction builder now consumes the owned double positions,
+line frames and original visual-order advances. Its source boxes, carets, hit
+input and selection rectangles remain double throughout; old float consumers
+retain their original arithmetic and records. Exact glyph/line/source identity is
+checked before interaction publication. Neither positioned ink offsets nor an
+independently reconstructed bidi paragraph determine advance interaction. Source
+interaction and raster arrays retain the same original paragraph owner, including
+after context retirement and width-changing continuation.
+
 This first lane deliberately admits no tabs, objects, justification or trimming.
 Raw device offsets are projected unchanged; this is not yet the original WPF
 offset-conversion contract. Original unsafe shaping flags remain authoritative,
 so the known emergency-fit blocker is still explicit. Required next work is the
-original offset policy, shaping-boundary fitting/recomposition, double interaction
-geometry and paired optional source binding/transport. No source-local division,
+original offset policy, shaping-boundary fitting/recomposition and paired optional
+source binding/transport. No source-local division,
 snapping, prefix shaping, unsafe-flag stripping or Ideal fallback is permitted.
 
 ## Revalidated diagnostic evidence
