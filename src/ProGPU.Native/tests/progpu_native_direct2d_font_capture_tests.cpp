@@ -2,14 +2,19 @@
 #include "../src/Direct2D/progpu_native_direct2d_prepared_glyphs.hpp"
 #include "progpu_native_hint_fault_fixture.hpp"
 #include "progpu_native_direct2d_font_source_fixture.hpp"
+#include "progpu_native_direct2d_font_axis_fixture.hpp"
 
 #include <array>
+#include <bit>
 #include <cstdio>
 #include <cstring>
 #include <limits>
 
 #if defined(_WIN32)
-#include <dwrite.h>
+#include <dwrite_3.h>
+static_assert(sizeof(progpu::native::direct2d::original_font_axis_value) == sizeof(DWRITE_FONT_AXIS_VALUE));
+static_assert(alignof(progpu::native::direct2d::original_font_axis_value) == alignof(DWRITE_FONT_AXIS_VALUE));
+static_assert(offsetof(progpu::native::direct2d::original_font_axis_value, value) == offsetof(DWRITE_FONT_AXIS_VALUE, value));
 #endif
 
 namespace {
@@ -171,6 +176,98 @@ using namespace progpu::native::direct2d::tests;
         request->glyphs.advances() == nullptr && request->glyphs.offsets() == nullptr,
         "absent values stay absent")) return false;
     return balanced() && parameters.references == 1U;
+}
+
+[[nodiscard]] bool original_axis_contracts()
+{
+    font_stream stream;
+    font_loader loader; loader.stream = &stream;
+    font_file file; file.loader = &loader;
+    font_face5 face; face.files[0] = &file; face.declared_count = 1U;
+    std::shared_ptr<const capture::original_font_capture> output;
+    if (!check(capture::capture_original_font(&face, output) == com::ok && output->axis_values_available &&
+        output->has_variations && output->axis_values.size() == 2U && output->axis_values[0].tag == 0x74686777U &&
+        output->axis_values[0].value == 625.25F && output->axis_values[1].tag == 0x544D5343U &&
+        std::bit_cast<std::uint32_t>(output->axis_values[1].value) == 0x80000000U &&
+        face.value_reads == 2U && face.unused_calls == 0U && face.outline_calls == 0U && face.table_calls == 0U,
+        "original Face5 user-axis order/tag-case/bits without unused slot calls")) return false;
+    const auto retained = output;
+    face.axes[0].value = 700.5F;
+    if (!check(retained->axis_values[0].value == 625.25F, "captured axes are not borrowed mutable arrays")) return false;
+    face.variable = false;
+    if (!check(capture::capture_original_font(&face, output) == com::ok && output->axis_values_available &&
+        !output->has_variations && output->axis_values.size() == 2U,
+        "static Face5 attributes are not rejected or fabricated fvar coordinates")) return false;
+    face.axes.clear();
+    if (!check(capture::capture_original_font(&face, output) == com::ok && output->axis_values_available &&
+        !output->has_variations && output->axis_values.empty(), "genuine zero-axis Face5 availability")) return false;
+    font_face legacy; legacy.files[0] = &file; legacy.declared_count = 1U;
+    if (!check(capture::capture_original_font(&legacy, output) == com::ok && !output->axis_values_available &&
+        !output->has_variations && output->axis_values.empty(), "legacy E_NOINTERFACE remains unavailable not default axes")) return false;
+    output = retained;
+
+    // Positive larger inventory proves there is no implicit 64-axis limit.
+    // Mixed-case printable custom tags preserve their original SDK byte order.
+    for (std::uint32_t index = 0U; index < 128U; ++index) {
+        const auto tag = 0x41780000U | (static_cast<std::uint32_t>('A') + index % 26U) |
+            ((static_cast<std::uint32_t>('a') + index / 26U) << 8U);
+        face.axes.push_back({tag, static_cast<float>(index) + 0.25F});
+    }
+    face.variable = true;
+    if (!check(capture::capture_original_font(&face, output) == com::ok && output->axis_values.size() == 128U,
+        "original axis capture admits the real larger native domain")) return false;
+    for (std::size_t index = 0U; index < face.axes.size(); ++index)
+        if (!check(output->axis_values[index].tag == face.axes[index].tag &&
+            std::bit_cast<std::uint32_t>(output->axis_values[index].value) == std::bit_cast<std::uint32_t>(face.axes[index].value),
+            "larger axis inventory order/bits")) return false;
+    output = retained;
+
+    for (unsigned invalid = 0U; invalid < 14U; ++invalid) {
+        font_face5 rejected; rejected.files[0] = &file; rejected.declared_count = 1U;
+        auto expected = com::invalid_argument;
+        if (invalid == 0U) { rejected.axis_query_result = compat::not_implemented; rejected.axis_query_output = false; expected = compat::not_implemented; }
+        if (invalid == 1U) { rejected.axis_query_output = false; expected = com::pointer_error; }
+        if (invalid == 2U) rejected.axis_query_result = com::no_interface; // Malformed retained reference on failure.
+        if (invalid == 3U) rejected.axes[0].value = std::numeric_limits<float>::quiet_NaN();
+        if (invalid == 4U) rejected.axes[0].value = std::numeric_limits<float>::infinity();
+        if (invalid == 5U) rejected.axes[1].tag = rejected.axes[0].tag;
+        if (invalid == 6U) rejected.axes[1].tag = 0U;
+        if (invalid == 7U) rejected.declared_axes = capture::original_font_capture::maximum_axes + 1U;
+        if (invalid == 8U) rejected.axes.clear(); // Cannot claim variable axes with none reported.
+        if (invalid == 9U) { rejected.values_result = compat::not_implemented; expected = compat::not_implemented; }
+        if (invalid == 10U || invalid == 11U) {
+            rejected.callback_context = &rejected;
+            rejected.files_callback = invalid == 10U
+                ? +[](void* value) noexcept { static_cast<font_face5*>(value)->axes[1].value = 0.0F; }
+                : +[](void* value) noexcept { static_cast<font_face5*>(value)->variable = false; };
+        }
+        if (invalid == 12U) {
+            rejected.values_context = &rejected;
+            rejected.values_callback = +[](void* value) noexcept { static_cast<font_face5*>(value)->declared_axes = 3U; };
+        }
+        if (invalid == 13U) rejected.foreign_identity = &legacy;
+        if (!check(capture::capture_original_font(&rejected, output) == expected && output == retained &&
+            rejected.references == 1U && rejected.unused_calls == 0U && file.references == 1U &&
+            loader.references == 1U && stream.references == 1U && stream.reads == stream.releases && !stream.bad_release,
+            "Face5 malformed/failed/reentrant mutation preserves output and every lease")) return false;
+    }
+    struct reentrant_capture final {
+        font_face5* face;
+        std::shared_ptr<const capture::original_font_capture> output;
+        com::result status = com::ok;
+        unsigned calls = 0U;
+    } nested{&face, retained};
+    face.values_context = &nested;
+    face.values_callback = +[](void* value) noexcept {
+        auto& state = *static_cast<reentrant_capture*>(value);
+        ++state.calls;
+        state.status = capture::capture_original_font(state.face, state.output);
+    };
+    if (!check(capture::capture_original_font(&face, output) == com::ok && nested.calls == 2U &&
+        nested.status == compat::wrong_state && nested.output == retained && output->axis_values.size() == 128U &&
+        face.unused_calls == 0U, "same-face recursive capture rejects without replacing outer or earlier output")) return false;
+    face.values_callback = nullptr;
+    return true;
 }
 
 [[nodiscard]] bool prepared_source_contracts()
@@ -528,6 +625,23 @@ using namespace progpu::native::direct2d::tests;
         font->face_index == original_face->GetIndex() && font->face_type == original_face->GetType() &&
         font->simulations == original_face->GetSimulations() && font->glyph_count == original_face->GetGlyphCount(),
         "original face metadata")) return false;
+    // Exercise the actual SDK ABI independently, including static design
+    // attributes. Never infer axes or HasVariations from fvar/file inspection.
+    com::pointer<IDWriteFontFace5> original_axes;
+    if (!check(original_face->QueryInterface(__uuidof(IDWriteFontFace5),
+        reinterpret_cast<void**>(original_axes.put())) == S_OK && font->axis_values_available,
+        "genuine original Face5 interface/availability")) return false;
+    const auto axis_count = original_axes->GetFontAxisValueCount();
+    std::vector<DWRITE_FONT_AXIS_VALUE> axes(axis_count);
+    DWRITE_FONT_AXIS_VALUE empty{};
+    if (!check(axis_count == font->axis_values.size() &&
+        original_axes->GetFontAxisValues(axes.empty() ? &empty : axes.data(), axis_count) == S_OK &&
+        (original_axes->HasVariations() != FALSE) == font->has_variations,
+        "genuine original axis inventory and variation identity")) return false;
+    for (std::size_t index = 0U; index < axes.size(); ++index)
+        if (!check(static_cast<std::uint32_t>(axes[index].axisTag) == font->axis_values[index].tag &&
+            std::bit_cast<std::uint32_t>(axes[index].value) == std::bit_cast<std::uint32_t>(font->axis_values[index].value),
+            "genuine original canonical axis order and user-coordinate float bits")) return false;
     UINT32 count = 0U;
     if (!check(SUCCEEDED(original_face->GetFiles(&count, nullptr)) && count == font->files.size(),
         "original ordered file count")) return false;
@@ -561,6 +675,7 @@ using namespace progpu::native::direct2d::tests;
 bool progpu_native_direct2d_font_capture_tests()
 {
     if (!source_contracts()) return false;
+    if (!original_axis_contracts()) return false;
     if (!prepared_source_contracts()) return false;
     if (!prepared_origin_contracts()) return false;
     if (!prepared_nominal_contracts()) return false;
