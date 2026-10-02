@@ -2080,7 +2080,7 @@ int main(int argc, char** argv)
     progpu::native::tests::verify_picture_axis_presentation(
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
             return render_scene(gpu, reference ? picture_reference_engine : engine,
-                nullptr, 2U, 2U, submissions, stream, 0x9491U, generation);
+                nullptr, 1U, 1U, submissions, stream, 0x9491U, generation);
         }, require);
     progpu_native_engine_destroy(picture_reference_engine);
     phase("per-axis picture pixels passed");

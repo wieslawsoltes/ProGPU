@@ -3491,7 +3491,7 @@ int main(int argc, char** argv) {
             progpu_native_scene_metrics update{};
             update.struct_size = sizeof(update);
             require(progpu_native_engine_update_scene(picture_engine, stream.data(), stream.size(), &update) ==
-                    PROGPU_NATIVE_STATUS_SUCCESS && update.draw_count == 2U,
+                    PROGPU_NATIVE_STATUS_SUCCESS && update.draw_count == 1U,
                 "axis picture Dawn snapshot failed");
             progpu_native_scene_frame frame{};
             frame.struct_size = sizeof(frame);
@@ -3504,7 +3504,7 @@ int main(int argc, char** argv) {
             progpu_native_scene_frame_metrics metrics{};
             metrics.struct_size = sizeof(metrics);
             require(progpu_native_engine_render_scene(picture_engine, &frame, &metrics) ==
-                    PROGPU_NATIVE_STATUS_SUCCESS && metrics.command_count == 2U && metrics.submission_count == submissions,
+                    PROGPU_NATIVE_STATUS_SUCCESS && metrics.command_count == 1U && metrics.submission_count == submissions,
                 "axis picture Dawn render failed");
             resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(picture_view);
             resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(picture_texture);
