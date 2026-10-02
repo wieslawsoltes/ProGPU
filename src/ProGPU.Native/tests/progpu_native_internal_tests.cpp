@@ -2221,6 +2221,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_append_capacity_is_amortized_and_atomic());
     require(progpu::native::tests::
+        semantic_scene_builder_copies_outside_clips_atomically());
+    require(progpu::native::tests::
         semantic_scene_builder_bounds_composite_only_guidelines());
     require(progpu::native::tests::
         semantic_scene_builder_records_final_composite_clip());

@@ -6128,9 +6128,11 @@ public:
         if (!compatible_) return not_implemented;
         if (com::failed(failure_)) return failure_;
         // Copy is in physical pixels and ignores the target's drawing transform.
-        // Scoped recording needs a future suspend/resume transport; never apply
-        // its current clip or opacity to a bitmap storage operation.
-        if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
+        // Storage replacement suspends only actual aliased clip scopes. Layers
+        // own intermediate contents and require a distinct flush contract.
+        if (scope_depth_ != clip_depth_ ||
+            !std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                [](auto scope) { return scope == scope_axis_aligned_clip; })) return wrong_state;
         const rectangle_u rectangle = destination == nullptr
             ? rectangle_u{0U, 0U, pixel_width_, pixel_height_} : *destination;
         if (!valid_rectangle(rectangle) || rectangle.right > pixel_width_ ||
@@ -6169,7 +6171,7 @@ public:
         const std::uint32_t storage_flags = alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_R8
             : pixel_format_.format == dxgi_format_b8g8r8a8_unorm ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U;
         return record_bitmap_copy_locked(replace_contents, [&](semantic_scene_builder& recording) {
-            return recording.copy_image_from_memory(image, storage_flags,
+            return recording.copy_image_from_memory_outside_clips(image, storage_flags,
                 {static_cast<const std::byte*>(source), static_cast<std::size_t>(required_bytes)},
                 alpha_only ? &alpha_matrix : nullptr);
         });
@@ -6241,6 +6243,19 @@ private:
             semantic_scene_builder replacement(scene_id_, generation_);
             if (!record(replacement)) return replacement.last_error() == scene_build_error::out_of_memory
                 ? com::out_of_memory : failure;
+            // Full replacement discards old pixels/history, not the caller's
+            // active drawing scopes. Recreate the original capture-time clip
+            // rectangles before publishing the independently built replacement.
+            for (std::size_t i = 0U; i < scope_depth_; ++i) {
+                if (scope_stack_[i] != scope_axis_aligned_clip || i >= clip_depth_) return wrong_state;
+                auto state = semantic_scene_builder::identity_state();
+                state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+                state.clip_rect = clip_stack_[i];
+                std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!replacement.add_state(state, state_index) || !replacement.save(state_index))
+                    return replacement.last_error() == scene_build_error::out_of_memory
+                        ? com::out_of_memory : failure;
+            }
             builder_ = std::move(replacement);
             bitmap_resources_.clear();
             picture_bitmap_sources_.clear();

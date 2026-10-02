@@ -84,6 +84,7 @@ bool semantic_scene_builder::reset(
     implementation_->materialized_layer_depth = 0U;
     implementation_->maximum_stack_depth = 0U;
     implementation_->stack_kinds.fill(0U);
+    implementation_->stack_state_indices.fill(PROGPU_NATIVE_SCENE_NO_INDEX);
     implementation_->arena_reserve = 0U;
     implementation_->error = scene_build_error::none;
     return true;
@@ -464,6 +465,7 @@ bool semantic_scene_builder::save(
         implementation_->render_only_stack[implementation_->stack_depth] = render_only ? render_ranges.size() : 0U;
         implementation_->commands.push_back(std::move(command));
         implementation_->stack_kinds[implementation_->stack_depth] = 1U;
+        implementation_->stack_state_indices[implementation_->stack_depth] = state_resource_index;
         ++implementation_->stack_depth;
         implementation_->maximum_stack_depth = std::max(
             implementation_->maximum_stack_depth,
