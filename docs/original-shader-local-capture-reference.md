@@ -178,3 +178,19 @@ ties and the actual `17/32` next-integer transition, plus controls distinguishin
 allocation, output clip and unchanged normalized frame. Existing counts and
 deadlines remain strict; fresh hosted original execution is still required.
 This correction establishes no original hardware or native provider parity.
+
+After cause-fix commit `ea2d91ed5`, the bounded pure harness passed145 controls
+(19 unchanged sampler +38 unchanged padding +88 local capture). Running that
+same corrected oracle over all63 preserved failed-run BGRA rasters matched
+all1,548,288 bytes exactly, including both deferred final-placement controls.
+This is offline reanalysis of immutable original data, not a replacement original
+Windows execution or a change to the failed receipt's zero-qualified status.
+
+The actual seven-file original-only source type-compiled again with warnings as
+errors against the same cached references and30-second limit; it was not executed
+on this host. YAML parsed, and an exact comparison proved the workflow changed
+only its required local arithmetic inventory70→88, preserving all deadlines and
+old gates. All21 case declarations and five earlier reference source/oracle files
+are byte-identical to the failed head. The original failed receipt hash remains
+unchanged; `git diff --check` passes. Root review and fresh exact-head hosted
+Windows execution remain required before declaring this reference successful.
