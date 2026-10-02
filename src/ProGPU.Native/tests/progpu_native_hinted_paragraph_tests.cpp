@@ -691,7 +691,8 @@ void original_source_policy_controls() {
             std::shared_ptr<const hinted_paragraph_generation> precise;
             require(try_layout_context_hinted_paragraph(font.context.value, request.shaping, request.layout,
                 request.styles, request.metrics, request.configurations, precise, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS);
-            const auto verify_precise = [&](const hinted_paragraph_generation& value) {
+            const auto verify_precise = [&](const std::shared_ptr<const hinted_paragraph_generation>& owner) {
+                const auto& value = *owner;
                 require(value.has_source_geometry && value.source_glyphs.size() == value.glyphs.size() &&
                     value.source_lines.size() == value.lines.size() && value.logical_owners == rounded->logical_owners);
                 bool non_float_metric = false;
@@ -732,8 +733,55 @@ void original_source_policy_controls() {
                         line.baseline_y == static_cast<float>(frame.baseline_y) && line.width == static_cast<float>(frame.width));
                     top += frame.height;
                 }
+                const auto interaction = create_hinted_paragraph_interaction(owner);
+                require(interaction.status == PROGPU_NATIVE_STATUS_SUCCESS && interaction.generation != nullptr &&
+                    interaction.generation->paragraph() == owner && interaction.generation->boxes().empty() &&
+                    interaction.generation->carets().empty() && !interaction.generation->source_boxes().empty() &&
+                    !interaction.generation->source_carets().empty());
+                const auto boxes = interaction.generation->source_boxes();
+                std::size_t box_index = 0U;
+                for (std::size_t row = 0U; row < value.source_lines.size(); ++row) {
+                    const auto& line = value.source_lines[row];
+                    double pen = line.origin_x;
+                    for (std::size_t i = line.glyph_start; i < line.glyph_start + line.glyph_count;) {
+                        const auto cluster = value.source_glyphs[i].cluster;
+                        const auto level = value.bidi_levels[i];
+                        double left = pen, right = pen;
+                        std::int32_t end = value.cluster_ends[i];
+                        do {
+                            const double next = pen + value.source_glyphs[i].advance_x;
+                            left = std::min(left, std::min(pen, next)); right = std::max(right, std::max(pen, next));
+                            pen = next; end = std::max(end, value.cluster_ends[i]); ++i;
+                        } while (i < line.glyph_start + line.glyph_count && value.source_glyphs[i].cluster == cluster);
+                        require(box_index < boxes.size());
+                        const auto& box = boxes[box_index++];
+                        require(box.input_start == cluster && box.input_end == end && box.line_index == row &&
+                            box.bidi_level == level && box.x == left && box.y == line.top &&
+                            box.width == std::max(0.0, right - left) && box.height == line.height);
+                    }
+                }
+                require(box_index == boxes.size());
+                const auto first = interaction.generation->source_carets().front();
+                hinted_source_caret_stop caret{};
+                require(interaction.generation->source_caret(first.input_position, first.trailing, caret) &&
+                    caret.x == first.x && caret.y == first.y && caret.height == first.height &&
+                    caret.input_position == first.input_position && caret.line_index == first.line_index);
+                const auto positive = std::find_if(boxes.begin(), boxes.end(), [](const auto& box) {
+                    return box.width > 0.0 && box.height > 0.0;
+                });
+                require(positive != boxes.end());
+                hinted_source_hit hit{};
+                require(interaction.generation->hit_test_source(positive->x + positive->width * 0.25,
+                    positive->y + positive->height * 0.5, hit) && hit.inside &&
+                    hit.bounds.x == positive->x && hit.bounds.width == positive->width && hit.line_index == positive->line_index);
+                std::vector<hinted_source_rectangle> rectangles(boxes.size() + 1U);
+                rectangles.back() = {101.25, 102.5, 103.75, 104.0};
+                std::uint32_t written = UINT32_MAX;
+                require(interaction.generation->source_selection(positive->input_start, positive->input_end,
+                    std::span(rectangles).first(boxes.size()), written) && written != 0U &&
+                    rectangles.back().x == 101.25 && rectangles.back().height == 104.0);
             };
-            verify_precise(*precise);
+            verify_precise(precise);
             require(create_hinted_paragraph_glyph_resource(precise, 1.5F,
                 hinted_projection_policy::scalar_reference, hinted_outline_coverage::nonzero_vector).status == PROGPU_NATIVE_STATUS_SUCCESS);
             require(reflow_hinted_paragraph(*precise, precise->lines.front().input_start, 80.0F).status == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
@@ -784,7 +832,7 @@ void original_source_policy_controls() {
                 precise_reflow.generation->source_maximum_width != static_cast<double>(precise_reflow.generation->layout.maximum_width));
             for (std::size_t i = 0U; i < precise->runs.size(); ++i)
                 require(precise_reflow.generation->runs[i].generation == precise->runs[i].generation);
-            verify_precise(*precise_reflow.generation);
+            verify_precise(precise_reflow.generation);
             require(create_hinted_paragraph_glyph_resource(precise_reflow.generation, 1.5F,
                 hinted_projection_policy::scalar_reference, hinted_outline_coverage::nonzero_vector).status == PROGPU_NATIVE_STATUS_SUCCESS);
         }
