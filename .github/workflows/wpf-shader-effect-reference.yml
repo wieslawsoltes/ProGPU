@@ -112,6 +112,15 @@ jobs:
               if ($cases.Count -ne 1 -or $cases[0].OriginalDoubleBits.Count -ne 24 -or $cases[0].Values.Count -ne 156 -or $cases[0].FloatBits.Count -ne 156 -or $cases[0].Traits.Count -ne 5) { throw "Missing or incomplete original affine SDK case: $name" }
             }
             if ($affine.SdkCompanion.Build.SourceCommit -cne $env:REFERENCE_COMMIT -or $affine.SdkCompanion.Binary.Sha256 -cne $axis.SdkCompanion.Binary.Sha256) { throw 'Affine SDK companion identity differs from the original companion.' }
+            $primitivePath = Join-Path $evidence 'transform-primitives.json'
+            if ((Get-Item -LiteralPath $primitivePath).Length -gt 1MB) { throw 'Original primitive receipt exceeds its bound.' }
+            $primitive = Get-Content -LiteralPath $primitivePath -Raw | ConvertFrom-Json
+            if ($primitive.Schema -ne 1 -or $primitive.SourceCommit -cne $env:REFERENCE_COMMIT -or $primitive.Architecture -cne '${{ matrix.arch }}' -or $primitive.CaseCount -ne 10 -or $primitive.Cases.Count -ne 10 -or $primitive.AtomicControls -ne 5 -or $primitive.Failures.Count -ne 0 -or $primitive.QualifiedNativeCases -ne 0 -or $primitive.QualifiedHardwareCases -ne 0 -or $primitive.TrigonometricOracle -cne 'ObservationOnly') { throw 'Incomplete or misqualified original primitive inventory.' }
+            foreach ($name in @('translate-quarter', 'scale-centered', 'rotate-zero', 'rotate-quarter', 'rotate-negative', 'rotate-large', 'rotate-angle-ulp', 'skew-centered', 'skew-large', 'skew-signed-zero')) {
+              $cases = @($primitive.Cases | Where-Object { $_.Name -ceq $name })
+              if ($cases.Count -ne 1 -or $cases[0].OriginalDoubleBits.Count -ne 5 -or $cases[0].Values.Count -ne 40 -or $cases[0].FloatBits.Count -ne 40 -or $cases[0].Traits.Count -ne 5) { throw "Missing or incomplete original primitive case: $name" }
+            }
+            if ($primitive.SdkCompanion.Build.SourceCommit -cne $env:REFERENCE_COMMIT -or $primitive.SdkCompanion.Binary.Sha256 -cne $axis.SdkCompanion.Binary.Sha256) { throw 'Primitive SDK identity differs from the original companion.' }
             Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
           } finally {
             if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }

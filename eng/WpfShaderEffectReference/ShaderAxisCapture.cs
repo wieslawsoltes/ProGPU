@@ -143,6 +143,7 @@ internal static partial class Program
         private readonly IntPtr library;
         private readonly Probe probe;
         private readonly Probe affineProbe;
+        private readonly Probe primitiveProbe;
         internal object Identity {get;}
         internal OriginalAxisSdk(string commit)
         {
@@ -178,6 +179,7 @@ internal static partial class Program
             {
                 probe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderAxisMath"));
                 affineProbe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderAffineMath"));
+                primitiveProbe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalTransformPrimitiveMath"));
             }
             catch { NativeLibrary.Free(library); throw; }
         }
@@ -236,6 +238,28 @@ internal static partial class Program
                     throw new InvalidOperationException("Affine SDK companion rejection was not atomic.");
             }
             return 4;
+        }
+        internal (float[] Values,uint[] Traits) CapturePrimitive(double[] input)
+        {
+            if(input.Length!=5) throw new InvalidOperationException("Wrong original primitive input count.");
+            var values=new float[40]; var traits=new uint[5];
+            if(Invoke(input,5,values,40,traits,primitiveProbe)!=1) throw new InvalidOperationException("Original primitive SDK capture failed.");
+            return(values,traits);
+        }
+        internal int VerifyPrimitiveAtomicControls(double[] original)
+        {
+            for(int mode=0;mode<5;++mode)
+            {
+                var input=(double[])original.Clone();
+                var values=Enumerable.Repeat(3.25f,40).ToArray(); var traits=Enumerable.Repeat(777U,5).ToArray();
+                if(mode==0) input[1]=double.NaN;
+                if(mode==3) input[0]=99;
+                if(mode==4) { input[0]=2; input[2]=1; }
+                if(Invoke(input,mode==1?4U:5U,values,mode==2?39U:40U,traits,primitiveProbe)!=0 ||
+                    values.Any(x=>x!=3.25f) || traits.Any(x=>x!=777U))
+                    throw new InvalidOperationException("Primitive SDK companion rejection was not atomic.");
+            }
+            return 5;
         }
         public void Dispose()=>NativeLibrary.Free(library);
     }
