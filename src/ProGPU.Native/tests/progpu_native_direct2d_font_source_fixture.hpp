@@ -100,9 +100,10 @@ public:
     bool null_key = false, change_key = false;
 };
 
-class font_face final : public source_object<compat::font_face> {
+template<class Interface>
+class font_face_base : public source_object<Interface> {
 public:
-    font_face() { interface_id = &compat::font_face_interface_id; }
+    font_face_base() { this->interface_id = &compat::font_face_interface_id; }
     std::uint32_t PROGPU_NATIVE_COM_CALL GetType() noexcept override { return type; }
     std::uint32_t PROGPU_NATIVE_COM_CALL GetIndex() noexcept override { return index; }
     std::uint32_t PROGPU_NATIVE_COM_CALL GetSimulations() noexcept override { return simulations; }
@@ -116,6 +117,7 @@ public:
             if (output[i] != nullptr) output[i]->AddRef();
         }
         if (change_count) *count = 1U;
+        if (files_callback != nullptr) files_callback(callback_context);
         return files_result;
     }
     void PROGPU_NATIVE_COM_CALL GetMetrics(void*) noexcept override {}
@@ -135,7 +137,10 @@ public:
     std::uint16_t glyph_count = 400U;
     com::result count_result = com::ok, files_result = com::ok;
     bool change_count = false;
+    void (*files_callback)(void*) noexcept = nullptr;
+    void* callback_context = nullptr;
 };
+using font_face = font_face_base<compat::font_face>;
 
 class rendering_parameters final : public source_object<compat::rendering_parameters> {
 public:
