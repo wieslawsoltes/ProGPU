@@ -15,6 +15,7 @@
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
+#include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "progpu_native_webscene_state_mask_fixture.hpp"
@@ -3603,6 +3604,57 @@ int main(int argc, char** argv) {
                 test.dpi, test.mapped ? &presentation : nullptr, test.expected);
         }, require);
     for (auto* picture_engine : picture_engines) progpu_native_engine_destroy(picture_engine);
+    progpu::native::direct2d::tests::verify_owned_bitmap_scene_copy_pixels(d2d_factory.get(),
+        [&](d2d::scene_render_target_native* scene, std::uint32_t draws,
+            std::uint32_t commands, std::uint64_t submissions) {
+            auto* canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);
+            require(canvas != nullptr, "owned bitmap Dawn canvas creation");
+            std::uintptr_t handle{};
+            require(api.acquire(provider, canvas, &handle) == WEBSCENE_GPU_STATUS_SUCCESS && handle != 0U,
+                "owned bitmap Dawn texture acquisition");
+            auto texture = reinterpret_cast<WGPUTexture>(handle);
+            WGPUTextureViewDescriptor descriptor = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+            auto view = resolve<WGPUProcTextureCreateView>(api, provider, "wgpuTextureCreateView")(texture, &descriptor);
+            require(view != nullptr, "owned bitmap Dawn texture view");
+            std::vector<std::byte> scratch(static_cast<std::size_t>(scene->GetRequiredSceneSize()));
+            const d2d::scene_render_options options{reinterpret_cast<std::uintptr_t>(view), PROGPU_NATIVE_SCENE_FRAME_NONE};
+            progpu_native_scene_metrics update{};
+            update.struct_size = sizeof(update);
+            progpu_native_scene_frame_metrics metrics{};
+            metrics.struct_size = sizeof(metrics);
+            d2d::scene_submission_diagnostics diagnostics{};
+            require(d2d::render_scene_target(scene, engine, options, scratch, &update, &metrics, &diagnostics) ==
+                PROGPU_NATIVE_STATUS_SUCCESS && update.draw_count == draws && metrics.command_count == commands &&
+                metrics.submission_count == submissions, "owned bitmap Dawn scene submission");
+            resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(view);
+            resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(texture);
+            webscene_gpu_external_texture presented{};
+            presented.struct_size = sizeof(presented);
+            require(api.present(provider, canvas, &presented) == WEBSCENE_GPU_STATUS_SUCCESS &&
+                presented.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+                (presented.flags & WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+                "owned bitmap Dawn presentation completion");
+            auto surface = reinterpret_cast<IOSurfaceRef>(presented.shared_handle);
+            require(surface != nullptr && IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) == kIOReturnSuccess,
+                "owned bitmap Dawn readback lock");
+            const auto* data = static_cast<const std::uint8_t*>(IOSurfaceGetBaseAddress(surface));
+            const auto stride = IOSurfaceGetBytesPerRow(surface);
+            require(data != nullptr && IOSurfaceGetWidth(surface) == 64U && IOSurfaceGetHeight(surface) == 64U &&
+                stride >= 256U, "owned bitmap Dawn readback extent");
+            std::vector<std::uint8_t> pixels(64U * 256U);
+            for (std::size_t y = 0U; y < 64U; ++y) {
+                for (std::size_t x = 0U; x < 64U; ++x) {
+                    const auto* bgra = data + y * stride + x * 4U;
+                    auto* rgba = pixels.data() + (y * 64U + x) * 4U;
+                    rgba[0] = bgra[2]; rgba[1] = bgra[1]; rgba[2] = bgra[0]; rgba[3] = bgra[3];
+                }
+            }
+            require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) == kIOReturnSuccess,
+                "owned bitmap Dawn readback unlock");
+            api.release_external(provider, &presented);
+            api.destroy_canvas(provider, canvas);
+            return pixels;
+        }, require);
     progpu::native::tests::verify_path_pixel_mapping(
         [&](bool clip, const auto& stream, progpu_native_scene_frame_metrics& metrics) {
             auto* pixel_canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);

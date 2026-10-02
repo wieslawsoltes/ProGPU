@@ -4,6 +4,7 @@
 #include "progpu_native_direct2d_brush_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
+#include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -800,6 +801,47 @@ private:
     std::uint32_t stride_ = 0U;
     std::uint32_t* destruction_count_ = nullptr;
 };
+
+bool owned_bitmap_wic_read_boundary(compat::factory* owner)
+{
+    com::pointer<compat::formatted_scene_factory_native> factory;
+    if (owner->QueryInterface(compat::formatted_scene_factory_native_interface_id,
+            reinterpret_cast<void**>(factory.put())) != com::ok) return false;
+    const compat::pixel_format format{87U, compat::alpha_mode::premultiplied};
+    const compat::scene_render_target_properties properties{4U, 4U, 96, 96, 7953U, 1U};
+    const compat::bitmap_properties bitmap_properties{format, 96, 96};
+    com::pointer<compat::render_target> target;
+    if (factory->CreateFormattedSceneRenderTarget(&properties, &format, target.put()) != com::ok) return false;
+    auto* raw_lock = new fake_wic_bitmap_lock(compat::wic_pixel_format_32bpp_pbgra,
+        4U, 4U, 20U, std::vector<std::uint8_t>(80U, 0xCDU));
+    com::pointer<compat::wic_bitmap_lock> lock;
+    lock.attach(raw_lock);
+    std::array<std::uint8_t, 64U> upload{};
+    upload.fill(0x40U);
+    com::pointer<compat::bitmap> owned, external;
+    if (target->CreateBitmap({4U, 4U}, upload.data(), 16U, &bitmap_properties, owned.put()) != com::ok ||
+        target->CreateSharedBitmap(compat::wic_bitmap_lock_interface_id, lock.get(),
+            &bitmap_properties, external.put()) != com::ok ||
+        external->CopyFromBitmap(nullptr, owned.get(), nullptr) != com::ok) return false;
+    const auto before = raw_lock->pixels;
+    for (unsigned y = 0U; y < 4U; ++y)
+        for (unsigned x = 0U; x < 20U; ++x)
+            if (before[y * 20U + x] != (x < 16U ? 0x40U : 0xCDU)) return false;
+    target->BeginDraw();
+    const compat::color_f red{1, 0, 0, 1};
+    target->Clear(&red);
+    if (owned->CopyFromRenderTarget(nullptr, target.get(), nullptr) != com::ok ||
+        external->CopyFromBitmap(nullptr, owned.get(), nullptr) != compat::not_implemented ||
+        external->CopyFromRenderTarget(nullptr, target.get(), nullptr) != compat::not_implemented ||
+        raw_lock->pixels != before || target->EndDraw(nullptr, nullptr) != com::ok) return false;
+    upload.fill(0x60U);
+    if (owned->CopyFromMemory(nullptr, upload.data(), 16U) != com::ok ||
+        external->CopyFromBitmap(nullptr, owned.get(), nullptr) != com::ok) return false;
+    for (unsigned y = 0U; y < 4U; ++y)
+        for (unsigned x = 0U; x < 20U; ++x)
+            if (raw_lock->pixels[y * 20U + x] != (x < 16U ? 0x60U : 0xCDU)) return false;
+    return raw_lock->data_call_count == 1U;
+}
 
 class fake_font_face final : public compat::font_face {
 public:
@@ -6356,6 +6398,8 @@ int run_tests()
     if (!mutable_brush_regressions(scene_factory.get())) return 401;
     if (!full_target_clear_regressions(scene_factory.get())) return 402;
     if (!progpu::native::direct2d::tests::formatted_scene_copy_contract(factory.get(), second_factory.get())) return 403;
+    if (!progpu::native::direct2d::tests::owned_bitmap_scene_copy_contract(factory.get(), second_factory.get())) return 404;
+    if (!owned_bitmap_wic_read_boundary(factory.get())) return 405;
     const compat::scene_render_target_properties target_properties{
         640U, 480U, 96.0F, 96.0F, 7001U, 11U};
     compat::render_target* raw_target = nullptr;

@@ -45,6 +45,16 @@ queued resource leases and separate intrinsic glyph raster identity. Never repai
 cross-owner reuse by isolating fixtures or weakening original pixel/counter gates.
 See docs/DIRECT2D_WIN2D_COMPATIBILITY.md, retained picture resource ownership.
 
+Owned Direct2D upload bitmaps may retain immutable scene-copy storage without
+changing public bitmap/COM identity, raw upload bytes or shared-view format/DPI.
+Keep copies in physical pixels, capture before destination locking, and preserve
+the source recorder's opaque-alpha operation separately from a raw bitmap view.
+Full raw replacement restores CPU-readable storage; partial writes retain GPU
+history. Never return stale pre-copy bytes or write a GPU-only source through a
+caller-backed WIC lock. Preserve exact full-copy flattening, alias/lifetime guards
+and paired provider controls; authored source tests are not runtime qualification.
+See docs/DIRECT2D_WIN2D_COMPATIBILITY.md, owned upload bitmap scene copies.
+
 Retained picture-image copies own original per-axis presentation in an explicit
 validated suffix, never a DPI ratio or inferred logical extent. Keep the original
 48-byte uniform descriptor and COM slots, exact suffix sizes/flags, whole pixel

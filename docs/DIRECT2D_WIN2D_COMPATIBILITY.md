@@ -5161,6 +5161,74 @@ red `(128,0,0,255)`. All buffers retained 16,384 bytes and the original counters
 passed. This identifies the cache-owner collision; successful execution of the
 corrected exact head remains required before claiming the fix runtime-qualified.
 
+### Owned upload bitmap scene copies
+
+The existing `CreateBitmap` implementation now supports `CopyFromRenderTarget`
+and copies from compatible/retained bitmap sources through the same private
+`CaptureForCopy` seam. Only owned upload storage is promoted. The object keeps
+its original COM identity, factory, format, alpha, pixel size and view DPI;
+shared bitmap aliases continue to address that exact storage. No public method,
+IID, wire layout, device requirement or CPU renderer is introduced.
+
+A partial first copy stages an owned upload of the original bytes followed by
+the immutable source resource. Subsequent partial copies/uploads append the
+existing transactional SRC layers. Storage coordinates are physical pixels at
+scale1, while view DPI stays independent; source picture axes/crops remain exact.
+Capture happens before destination locking, including overlapping alias copies.
+Exact identity copies do not change a promoted generation. Factory, format/alpha,
+bounds, active source scopes/errors and mixed-DPI source history keep their
+existing rejection rules. Failed staging leaves destination content unchanged.
+Neither source COM objects nor external storage pointers are retained by a copy.
+
+Raw owned storage must not prematurely apply its view's IGNORE alpha policy: a
+later premultiplied shared view still observes the original upload alpha/RGB,
+including nonzero RGB with zero raw alpha. Conversely, unwrapping a compatible
+target's full-copy command cannot discard that recorder's explicit opaque-alpha
+operation. Private copy metadata retains that operation independently of view
+format, and both exact-copy consumers honor it. A8 continues to use the existing
+R-to-alpha upload and alpha-to-alpha picture matrix, with no CPU pixel conversion.
+
+Full raw-memory/CPU-bitmap replacement discards retained GPU history and restores
+ordinary CPU-readable owned storage. Partial raw writes retain the scene and
+never pretend that the old CPU allocation contains updated GPU pixels. Owned
+`ID2D1Bitmap` exposes no public Map/Lock/readback interface; it still does not claim
+one. Its private CPU `CopyPixels` rejects while promoted. Thus a caller-backed
+WIC-lock destination rejects copying a GPU-only source before touching caller
+memory; its existing write-through contract remains unchanged. Readback into
+caller-owned storage needs a real GPU readback capability and remains unsupported.
+
+Exact full-copy capture reuses the existing semantic full-image resource helper,
+preserving source dimensions, offsets, per-axis presentation and alpha operation
+without nesting another wrapper for every transfer. The original recording,
+resource/depth and byte budgets remain authoritative. Captures own O(H) scene
+bytes; partial histories grow with actual writes until full replacement. There is
+no new shader, provider-specific renderer, pixel readback or performance claim.
+Both provider factories use the shared implementation.
+
+Authored portable/Windows contracts cover five admitted format/alpha pairs,
+nonuniform source/view DPI, source mutation/disposal, cross-factory/null/bounds and
+active-clip rejection, alias/self/overlap copies, immutable captures, 32 full-copy
+round trips with constant retained depth, partial writes and full raw demotion.
+A real fake-WIC-lock fixture checks prior successful CPU copies, rejected promoted
+copies with untouched data/padding, and successful copies after raw replacement.
+Shared wgpu-native/Dawn tests compare all RGBA pixels on cold/warm replay, including
+original upload alpha, zero-alpha RGB, typed shared views and retained compatible
+source alpha conversion. Structural checks retain both original view draws as
+either two exact patches or separate alpha/matrix commands. These tests were
+authored before the substantive commit and have not been run locally. Actual
+provider/Windows/package/application qualification remains pending; no native
+binary was built, executed or staged for this change.
+
+Post-commit source checks passed with Apple Clang C++20 and
+`-Wall -Wextra -Wpedantic -Werror -fsyntax-only` for the complete shared target and
+portable compatibility test translation units, plus instantiation of the shared
+owned-bitmap pixel fixture. The memory inventory guard passed (92 owned fields,
+seven non-owning identities excluded), and the branch includes the exact published
+`5fc73a8b` ownership-fix foundation. These checks produce no native binary and do
+not execute the tests; provider GPU translation units, Windows SDK and runtime
+behavior remain explicitly pending hosted qualification.
+### Shared retained-picture failure diagnostics
+
 Build `36988497904` at `5fc73a8b` passed the paired picture ownership controls
 and original incremental/collision replay, then failed a later Direct2D target
 submission with the generic retained-picture error (Linux ARM64 job
