@@ -67,3 +67,14 @@ claim about WGSL floating-point propagation. All ten original paired GPU program
 pixels, cold/warm/independent counts and deadlines are unchanged. The emission
 fix must still pass the exact hosted Dawn/Metal lane; no local renderer/GPU run
 or pixel qualification is inferred from these source controls.
+
+Implementation `4ae370677` was committed before checks, with signed-zero
+controls added at `4b172b90b`. Apple Clang 21 strict C++20 compilation
+(`-Wall -Wextra -Wpedantic -Werror`) passed the changed translator and fixture.
+A bounded two-translation-unit CPU-only executable passed **110 translation +
+367 arithmetic + 406 original CRS + 232 scalar-source controls**, exit zero,
+under a ten-second execution limit (30-second compile limit). The executable
+is `/private/tmp/progpu-crs-signed-zero-controls.904e793e/controls` for this local
+receipt. No native library, renderer, GPU, VM or dependency graph was built or
+executed. `git diff --check` passed. The original paired pixel fixture has no
+diff; successful replacement hosted execution is still required.
