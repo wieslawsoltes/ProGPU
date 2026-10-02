@@ -36,6 +36,7 @@ public sealed unsafe partial class NativeHintedGlyphResource : IDisposable
             view.ProjectionPolicy != (uint)projection || view.Coverage != (uint)coverage)
             throw new InvalidOperationException("Native hinted geometry changed its exact prepared execution contract.");
         _view = view;
+        if (sourceGeometry) _sourceView = BorrowSourceView(handle, in view);
         if (nominalMetrics && !sourceGeometry) _nominalMetrics = BorrowNominalMetrics(handle, view.Counts.PositionedGlyphCount);
         _hasSourceMetrics = nominalMetrics && sourceGeometry;
         _lineFrames = BorrowLineFrames(handle, view.Counts.LineCount);
@@ -51,10 +52,13 @@ public sealed unsafe partial class NativeHintedGlyphResource : IDisposable
         Action<nint> destroy, NativeMethods.HintedGlyphNominalMetricsView? nominalMetrics = null,
         HintedSourceFrameValidator? validateSourceFrame = null,
         NativeMethods.HintedTextLineFramesView? lineFrames = null,
-        HintedResourceReflow? reflow = null)
+        HintedResourceReflow? reflow = null,
+        NativeMethods.HintedSourceGlyphResourceView? sourceView = null)
     {
         ArgumentNullException.ThrowIfNull(destroy);
         _view = view;
+        if (sourceView is { } source) ValidateSourceView(in source, in view);
+        _sourceView = sourceView;
         _nominalMetrics = nominalMetrics;
         _lineFrames = lineFrames;
         _destroy = destroy;

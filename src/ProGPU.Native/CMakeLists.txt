@@ -2405,6 +2405,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_text.hpp
         include/progpu_native_text_hinting.h
         include/progpu_native_text_source.h
+        include/progpu_native_text_source_resource.h
         include/progpu_native_text_interaction.h
         include/progpu_native_text_styles.h
         include/progpu_native_text_flow.h

@@ -48,6 +48,7 @@ required_entries=(
   build/native/include/progpu_native_text.hpp
   build/native/include/progpu_native_text_hinting.h
   build/native/include/progpu_native_text_source.h
+  build/native/include/progpu_native_text_source_resource.h
   build/native/modules/progpu_native_compression.cppm
   build/native/modules/progpu_native_hit_testing.cppm
   build/native/modules/progpu_native_image.cppm
