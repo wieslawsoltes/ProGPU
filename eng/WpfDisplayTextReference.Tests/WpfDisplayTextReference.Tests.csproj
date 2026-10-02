@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <Compile Include="../WpfDisplayTextReference/MidpointCases.cs" Link="MidpointCases.cs" />
+    <Compile Include="../WpfDisplayTextReference/ReferenceFontPin.cs" Link="ReferenceFontPin.cs" />
+    <EmbeddedResource Include="../WpfDisplayTextReference/rtl-font.json" LogicalName="rtl-font.json" />
+  </ItemGroup>
+</Project>
