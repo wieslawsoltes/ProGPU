@@ -4,6 +4,15 @@ This implementation extends the explicit original-font prepared-outline route;
 it does not select that route automatically or qualify DirectWrite raster parity.
 The authored product and reference controls have not been executed.
 
+The owned DICT real parser also corrects a bounded decimal conversion defect:
+negative scales through22 divide by an exactly constructed integer power of ten,
+instead of multiplying an already-rounded reciprocal. Positive powers through22
+use the same exact integer sequence. This retains the existing digit grammar,
+significand accumulation, signed zero, overflow rejection and longer-exponent
+policy; it does not claim fully correctly rounded arbitrary-decimal conversion.
+Literal controls require exact binary results for1/2048,1/1000 and the other
+authored matrix values, with no matrix tolerance.
+
 ## Source and outline ownership
 
 One retained original CFF face (source type CFF or OpenType collection) selects

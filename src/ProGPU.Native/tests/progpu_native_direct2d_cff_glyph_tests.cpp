@@ -1,11 +1,17 @@
 #include "progpu_native_direct2d_cff_glyph_fixture.hpp"
 #include "../src/Direct2D/progpu_native_direct2d_cff_source.hpp"
 
+#include <algorithm>
+#include <array>
 #include <bit>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <string_view>
+#include <utility>
 
 namespace {
 using namespace progpu::native::direct2d::tests;
@@ -91,6 +97,47 @@ bool matrix_metadata()
         if (!check(com::failed(d2d::detail::read_cff_source_dictionary(bad, parsed)) &&
             parsed.has_matrix == retained.has_matrix && parsed.matrix.dx == retained.matrix.dx &&
             parsed.matrix.dy == retained.matrix.dy, "unsupported/malformed matrix dictionary keeps output atomic")) return false;
+    }
+    return true;
+}
+
+bool dictionary_decimal_contract()
+{
+    // Independently specified literals/rationals, not the product decimal
+    // conversion or a tolerance. These finite short significands are exact.
+    const std::array<std::pair<std::string_view, double>, 9U> cases{{
+        {"0.00048828125", 1.0 / 2048.0}, {"0.001", 1.0 / 1000.0},
+        {"0.0009765625", 1.0 / 1024.0}, {"0.000244140625", 1.0 / 4096.0},
+        {"0.015625", 1.0 / 64.0}, {"-0.00048828125", -1.0 / 2048.0},
+        {"0.1", 0.1}, {"10000000000000000000000", 1.0e22}, {"-0.0", -0.0}}};
+    for (const auto& [literal, expected] : cases) {
+        std::vector<std::byte> bytes;
+        cff_font_wire::real(bytes, literal);
+        std::size_t cursor = 1U;
+        double value = 999;
+        if (!check(text::sfnt_cff_data::try_read_dictionary_number(bytes, cursor, 30U, value) && cursor == bytes.size() &&
+            std::bit_cast<std::uint64_t>(value) == std::bit_cast<std::uint64_t>(expected),
+            "bounded original DICT decimal exact binary value/signed zero")) return false;
+    }
+    // Literal 1E-3 and 1E22 exercise exponent spelling, independent of the
+    // fixture's decimal-only encoder. 1E400 remains a rejected overflow.
+    const std::array<std::vector<std::byte>, 3U> exponent{{
+        {std::byte{0x1C}, std::byte{0x3F}},
+        {std::byte{0x1B}, std::byte{0x22}, std::byte{0xFF}},
+        {std::byte{0x1B}, std::byte{0x40}, std::byte{0x0F}}}};
+    for (std::size_t index = 0U; index < exponent.size(); ++index) {
+        std::size_t cursor = 0U;
+        double value = 999;
+        const bool valid = text::sfnt_cff_data::try_read_dictionary_number(exponent[index], cursor, 30U, value);
+        if (!check(index == 2U ? !valid : valid && value == (index == 0U ? 1.0 / 1000.0 : 1.0e22),
+            "DICT exponent spelling and original finite-overflow rejection")) return false;
+    }
+    for (const auto malformed : {std::byte{0x1D}, std::byte{0x1C}}) {
+        const std::array bytes{malformed, std::byte{0xFF}};
+        std::size_t cursor = 0U;
+        double value = 999;
+        if (!check(!text::sfnt_cff_data::try_read_dictionary_number(bytes, cursor, 30U, value),
+            "reserved nibble and absent exponent digits stay rejected")) return false;
     }
     return true;
 }
@@ -268,5 +315,6 @@ bool full_design_runs_and_atomicity()
 
 bool progpu_native_direct2d_cff_glyph_tests()
 {
-    return matrix_metadata() && family_and_axis_admission() && transformed_decode_atomicity() && full_design_runs_and_atomicity();
+    return matrix_metadata() && dictionary_decimal_contract() && family_and_axis_admission() &&
+        transformed_decode_atomicity() && full_design_runs_and_atomicity();
 }
