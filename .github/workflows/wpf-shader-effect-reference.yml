@@ -73,6 +73,11 @@ jobs:
             $padding = Get-Content -LiteralPath $paddingReceipt -Raw | ConvertFrom-Json
             $qualifiedPadding = if ('${{ matrix.mode }}' -eq 'shader-pixels') { 13 } else { 0 }
             if ($padding.SourceCommit -ne $env:REFERENCE_COMMIT -or $padding.Architecture -ne '${{ matrix.arch }}' -or $padding.CaseCount -ne 13 -or $padding.Cases.Count -ne 13 -or $padding.Replays -ne 39 -or $padding.NativeAdmittedCases -ne 10 -or $padding.ArithmeticControls -ne 38 -or $padding.MutationChecks -ne 4 -or $padding.InvalidShaders -ne 0 -or $padding.Failures.Count -ne 0 -or $padding.CaptureMode -ne '${{ matrix.mode }}' -or $padding.QualifiedShaderCases -ne $qualifiedPadding) { throw 'Incomplete or wrong-identity original padding reference.' }
+            $localReceipt = Join-Path $evidence 'shader-local-capture.json'
+            if ((Get-Item -LiteralPath $localReceipt).Length -gt 2MB) { throw 'Original local capture receipt exceeds its bound.' }
+            $localCapture = Get-Content -LiteralPath $localReceipt -Raw | ConvertFrom-Json
+            $qualifiedLocal = if ('${{ matrix.mode }}' -eq 'shader-pixels') { 21 } else { 0 }
+            if ($localCapture.SourceCommit -ne $env:REFERENCE_COMMIT -or $localCapture.Architecture -ne '${{ matrix.arch }}' -or $localCapture.CaseCount -ne 21 -or $localCapture.Cases.Count -ne 21 -or $localCapture.Replays -ne 63 -or $localCapture.OriginalDrawingBaselines -ne 23 -or $localCapture.NativeCandidateCases -ne 18 -or $localCapture.DeferredFinalPlacementControls -ne 2 -or $localCapture.DeferredFloatHistoryControls -ne 1 -or $localCapture.ArithmeticControls -ne 88 -or $localCapture.MutationChecks -ne 4 -or $localCapture.InvalidShaders -ne 0 -or $localCapture.Failures.Count -ne 0 -or $localCapture.CaptureMode -ne '${{ matrix.mode }}' -or $localCapture.QualifiedShaderCases -ne $qualifiedLocal) { throw 'Incomplete or wrong-identity original fractional local capture reference.' }
             Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
           } finally {
             if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
