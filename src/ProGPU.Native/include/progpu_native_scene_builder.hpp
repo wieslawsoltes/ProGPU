@@ -375,6 +375,10 @@ public:
         bool empty_point_region = false,
         bool render_only = false) noexcept;
     bool restore() noexcept;
+
+    // Replace the actual current target through its binary clip. Source
+    // transform/opacity/guidelines do not affect this storage operation.
+    bool clear_target(const progpu_native_color& color) noexcept;
     bool add_tile_composite(const progpu_native_scene_tile_composite& tile,
         std::uint32_t& resource_index) noexcept;
     bool push_layer(const progpu_native_scene_layer& layer,

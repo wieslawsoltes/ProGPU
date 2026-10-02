@@ -697,6 +697,8 @@ public enum NativeSceneCommandKind : uint
     Restore = 2,
     PushLayer = 3,
     PopLayer = 4,
+    /// <summary>Replaces active target storage through its binary clip.</summary>
+    ClearTarget = 5,
     DrawAnalytic = 16,
     DrawPath = 17,
     DrawGlyphRun = 18,

@@ -227,6 +227,9 @@ typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_RESTORE = 2,
     PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER = 3,
     PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER = 4,
+    /* Target-storage replacement: one straight progpu_native_color payload,
+       no geometry resource/bounds. Only the active binary clip is applied. */
+    PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET = 5,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC = 16,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH = 17,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN = 18,

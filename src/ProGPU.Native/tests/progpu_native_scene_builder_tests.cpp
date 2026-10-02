@@ -77,6 +77,87 @@ bool equal_closed_isolation_builders(semantic_scene_builder& actual, semantic_sc
 
 } // namespace
 
+bool semantic_scene_builder_target_clear_is_owned_and_atomic() {
+    static_assert(PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET == 5U);
+    semantic_scene_builder builder(0x96D0U, 1U);
+    progpu_native_color color{2.0F, -.5F, -0.0F, .25F};
+    const auto original = color;
+    if (!builder.clear_target(color)) return false;
+    color = {};
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes)) return false;
+    const auto validated = scene::validate(bytes.data(), bytes.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS || validated.draw_count != 1U ||
+        validated.header.command_count != 1U || validated.header.resource_count != 0U) return false;
+    const auto command = read<progpu_native_scene_command>(bytes, validated.header.command_offset);
+    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET ||
+        command.resource_index != PROGPU_NATIVE_SCENE_NO_INDEX || command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        command.payload_size != sizeof(original) || std::memcmp(bytes.data() + command.payload_offset, &original, sizeof(original)) != 0)
+        return false;
+    for (unsigned variant = 0U; variant < 11U; ++variant) {
+        auto invalid = bytes;
+        auto changed = command;
+        auto value = original;
+        switch (variant) {
+            case 0U: changed.payload_size -= 4U; break;
+            case 1U: changed.resource_index = 0U; break;
+            case 2U: changed.bounds_width = 1.0F; break;
+            case 3U: changed.flags |= PROGPU_NATIVE_SCENE_GLYPH_STYLED; break;
+            case 4U: value.a = -.25F; break;
+            case 5U: value.a = 1.25F; break;
+            case 6U: value.r = std::numeric_limits<float>::infinity(); break;
+            case 7U: value.g = std::numeric_limits<float>::quiet_NaN(); break;
+            case 8U: value.b = -std::numeric_limits<float>::infinity(); break;
+            case 9U: value.a = std::numeric_limits<float>::quiet_NaN(); break;
+            default: changed.kind = 6U; break;
+        }
+        std::memcpy(invalid.data() + validated.header.command_offset, &changed, sizeof(changed));
+        std::memcpy(invalid.data() + command.payload_offset, &value, sizeof(value));
+        if (scene::validate(invalid.data(), invalid.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+        if (variant >= 4U && variant <= 9U) {
+            if (builder.clear_target(value)) return false;
+            std::vector<std::byte> after;
+            if (!builder.build(after) || after != bytes) return false;
+        }
+    }
+    // A clear-only child is real owned picture content, not an empty scene or
+    // a single-image flattening candidate. The source bytes survive mutation.
+    semantic_scene_builder outer(0x96D1U, 1U);
+    progpu_native_scene_picture_image picture{};
+    picture.struct_size = sizeof(picture); picture.width = picture.height = 8U; picture.dpi_scale = 1.0F;
+    std::uint32_t picture_index{};
+    if (!outer.add_picture_image(picture, bytes, picture_index)) return false;
+    const auto original_bytes = bytes;
+    bytes.assign(bytes.size(), std::byte{0xA5});
+    if (!outer.build(bytes)) return false;
+    const auto outer_validation = scene::validate(bytes.data(), bytes.size());
+    if (outer_validation.status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    const auto resource = read<progpu_native_scene_resource>(bytes, outer_validation.header.resource_offset);
+    return resource.auxiliary_size == original_bytes.size() &&
+        std::memcmp(bytes.data() + resource.auxiliary_offset, original_bytes.data(), original_bytes.size()) == 0;
+}
+
+bool semantic_scene_builder_target_clear_preserves_input_owners() {
+    semantic_scene_builder builder(0x96D2U, 1U);
+    if (!builder.set_hit_test_owner(17) || !draw_isolation_test(builder) ||
+        !builder.clear_target({0, 0, 0, 0}) || !builder.set_hit_test_owner(29) ||
+        !draw_isolation_test(builder)) return false;
+    std::uint32_t index{};
+    if (!builder.add_recorded_hit_test_index(index)) return false;
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes)) return false;
+    const auto validation = scene::validate(bytes.data(), bytes.size());
+    if (validation.status != PROGPU_NATIVE_STATUS_SUCCESS || validation.draw_count != 3U) return false;
+    const auto resource = read<progpu_native_scene_resource>(bytes,
+        validation.header.resource_offset + index * validation.header.resource_stride);
+    const auto page = read<progpu_native_scene_hit_test_index>(bytes, resource.payload_offset);
+    if (page.primitive_count != 2U) return false;
+    const auto first = read<progpu_native_hit_test_primitive>(bytes, resource.auxiliary_offset + page.primitive_offset);
+    const auto second = read<progpu_native_hit_test_primitive>(bytes,
+        resource.auxiliary_offset + page.primitive_offset + sizeof(first));
+    return first.id == 17 && second.id == 29 && first.z_index == 0 && second.z_index == 1;
+}
+
 bool semantic_scene_builder_rgb_transport_is_owned_and_atomic() {
     semantic_scene_builder builder(0x9680U, 1U);
     const std::array segments{

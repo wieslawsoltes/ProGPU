@@ -606,6 +606,9 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 query_participation = query_stack[depth];
                 continue;
             }
+            // Storage replacement has no source input geometry. Do not turn
+            // its zero bounds or absent resource into an owner hit/miss reset.
+            if (kind == PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET) continue;
             if (!owner) continue;
             const auto state_index = command.record.state_index == PROGPU_NATIVE_SCENE_NO_INDEX
                 ? current_state : command.record.state_index;

@@ -1980,6 +1980,34 @@ public ref struct NativeSceneStreamBuilder
     public bool TryPopLayer(ulong commandId) =>
         TryPopControl(NativeSceneCommandKind.PopLayer, commandId, isLayer: true);
 
+    /// <summary>
+    /// Replaces the active target with the original straight color. Source
+    /// transforms, opacity and guidelines are ignored; binary clips remain.
+    /// Per-draw masks require an enclosing layer and reject at native preflight.
+    /// </summary>
+    public bool TryClearTarget(ulong commandId, Vector4 color,
+        uint stateIndex = NativeMethods.SceneNoIndex)
+    {
+        if (_built || _commandCount == _commandCapacity ||
+            commandId == 0U || commandId <= _lastCommandId ||
+            !IsFinite(color) || color.W < 0f || color.W > 1f ||
+            !HasUsableCommandState(stateIndex, allowPerPoint: true))
+            return false;
+        // All publication checks precede the arena write; rejected arguments
+        // cannot consume a command ID, stack entry or caller-owned bytes.
+        int originalArenaSize = _arenaSize;
+        if (!TryWriteArena(MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref color, 1)),
+                out uint offset))
+            return false;
+        if (!TryWriteControl(NativeSceneCommandKind.ClearTarget, commandId,
+                stateIndex, offset, checked((uint)Unsafe.SizeOf<Vector4>())))
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        return true;
+    }
+
     public bool TryDrawAnalytic(
         ulong commandId,
         uint resourceIndex,
