@@ -3,6 +3,7 @@
 #include "../src/Text/progpu_native_text_interaction_impl.hpp"
 #include "../src/Scene/progpu_native_semantic_state.hpp"
 #include "progpu_native_mil.h"
+#include "progpu_native_text_source_resource.h"
 #include "progpu_native_hinted_shape_fixture.hpp"
 #include "progpu_native_hinted_variable_font_fixture.hpp"
 
@@ -708,6 +709,152 @@ void variable_flat_controls() {
     verify_scene(c_scene,e);
 }
 
+void mixed_source_controls(font_hint_policy policy, bool rtl) {
+    const auto font = progpu::native::tests::make_hinted_pair_font();
+    progpu_native_text_context* context = nullptr;
+    std::array<progpu_native_hinted_paragraph*, 3U> paragraphs{};
+    std::array<progpu_native_hinted_glyph_resource*, 2U> resources{};
+    struct producer_cleanup final {
+        progpu_native_text_context*& context;
+        std::array<progpu_native_hinted_paragraph*, 3U>& paragraphs;
+        std::array<progpu_native_hinted_glyph_resource*, 2U>& resources;
+        void retire() {
+            for (auto& value : resources) { progpu_native_hinted_glyph_resource_destroy(value); value = nullptr; }
+            for (auto& value : paragraphs) { progpu_native_hinted_paragraph_destroy(value); value = nullptr; }
+            progpu_native_text_context_destroy(context); context = nullptr;
+        }
+        ~producer_cleanup() { retire(); }
+    } cleanup{context, paragraphs, resources};
+    require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
+        reinterpret_cast<const std::uint8_t*>(font.data()), font.size(), 0U, nullptr, 0U, &context) == PROGPU_NATIVE_STATUS_SUCCESS);
+    std::array<progpu_native_text_scalar, 4U> input{};
+    for (std::uint32_t i = 0U; i < input.size(); ++i)
+        input[i] = {rtl ? 0x05D0U : std::uint32_t{'A'}, 9U + i * 2U, 2U, 0U, 0U, 0U};
+    const progpu_native_text_feature feature{0x6B65726EU, 1U, 0U, UINT32_MAX};
+    progpu_native_text_shape_request shaping{};
+    shaping.abi_version = PROGPU_NATIVE_ABI_VERSION; shaping.struct_size = sizeof(shaping);
+    shaping.input = input.data(); shaping.input_count = 4U; shaping.features = &feature; shaping.feature_count = 1U;
+    shaping.direction = rtl ? PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT : PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT;
+    progpu_native_text_layout_options layout{};
+    layout.struct_size = sizeof(layout); layout.scale = 1.0F; layout.maximum_width = 200.0F; layout.direction = shaping.direction;
+    const progpu_native_text_style_run style{0U, 4U, 0U, em / 1000.0F, 0U, 1U, 0U, 0U, 0U, 0U, 0U};
+    const progpu_native_text_style_metrics metrics{5.5F, 1.75F};
+    const progpu_native_hinted_paragraph_device_style device{0U, style.scale, 1.0F / dpi,
+        640U, 640U, static_cast<std::uint32_t>(policy), 0U, 0U, 0U, 0U, 0U};
+    const progpu_native_hinted_source_style source_style{em, metrics.ascent, metrics.descent};
+    const progpu_native_hinted_source_options options{PROGPU_NATIVE_ABI_VERSION, sizeof(options), 1U,
+        PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS, em, dpi, 200.0, 0.0, 0.0,
+        PROGPU_NATIVE_SOURCE_EM_FLOAT_CAPTURE_NEAREST_HALF_UP, PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS,
+        PROGPU_NATIVE_SOURCE_OFFSET_IDEAL_UNITS, 1U};
+    progpu_native_text_paragraph_result diagnostic{}; diagnostic.struct_size = sizeof(diagnostic);
+    require(progpu_native_text_context_layout_hinted_paragraph(context, &shaping, &layout, &style, 1U, &metrics,
+        &device, 1U, nullptr, 0U, &paragraphs[0U], &diagnostic) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(progpu_native_text_context_layout_hinted_source_paragraph(context, &shaping, &layout, &style, 1U, &metrics,
+        &device, 1U, nullptr, 0U, &options, &source_style, 1U, &paragraphs[1U], &diagnostic) == PROGPU_NATIVE_STATUS_SUCCESS);
+    progpu_native_hinted_source_paragraph_view paragraph_view{};
+    require(progpu_native_hinted_source_paragraph_borrow(paragraphs[1U], &paragraph_view) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        paragraph_view.logical_count == 4U);
+    const double width = paragraph_view.logical_metrics[0U].advance_x + paragraph_view.logical_metrics[3U].advance_x;
+    require(progpu_native_hinted_source_paragraph_reflow(paragraphs[1U], 9, width, &paragraphs[2U]) == PROGPU_NATIVE_STATUS_SUCCESS);
+    const progpu_native_hinted_glyph_resource_request prepare{PROGPU_NATIVE_ABI_VERSION, sizeof(prepare), dpi,
+        PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE, PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR, 0U};
+    std::array<progpu_native_hinted_glyph_resource_view, 2U> raster{};
+    for (std::size_t i = 0U; i < resources.size(); ++i) {
+        require(progpu_native_hinted_paragraph_prepare_glyph_resource_with_nominal_metrics(paragraphs[i == 0U ? 0U : 2U],
+            &prepare, &resources[i]) == PROGPU_NATIVE_STATUS_SUCCESS);
+        require(progpu_native_hinted_glyph_resource_borrow(resources[i], &raster[i]) == PROGPU_NATIVE_STATUS_SUCCESS);
+    }
+    progpu_native_hinted_source_glyph_resource_view source{};
+    require(progpu_native_hinted_glyph_resource_borrow_source(resources[1U], &source) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        source.slice_count != 0U && source.source.line_count == 2U && source.source.box_count != 0U &&
+        raster[1U].counts.cluster_box_count == 0U && raster[1U].counts.caret_stop_count == 0U &&
+        (raster[1U].runs[0U].bidi_level & 1) == (rtl ? 1 : 0));
+    // Both records come from real independent C producers. Source placement is
+    // the native recomposed generation, not a raw resource relabeled as Display.
+    const auto describe = [&](const progpu_native_hinted_glyph_resource_view& view) {
+        expected result;
+        result.outlines.assign(view.outlines, view.outlines + view.outline_count);
+        result.segments.assign(view.segments, view.segments + view.segment_count);
+        for (std::uint32_t i = 0U; i < view.counts.positioned_glyph_count; ++i) {
+            const auto& glyph = view.positioned_glyphs[i];
+            require(glyph.glyph_id <= UINT16_MAX);
+            result.selected.push_back(i); result.ids.push_back(static_cast<std::uint16_t>(glyph.glyph_id));
+            result.positions.push_back({glyph.x + origin.x, glyph.y + origin.y});
+            const auto outline = view.positioned_outline_indices[i];
+            if (outline != hinted_no_outline) {
+                result.draw_outlines.push_back(outline); result.draw_positions.push_back(result.positions.back());
+            }
+        }
+        return result;
+    };
+    const auto raw_expected = describe(raster[0U]), source_expected = describe(raster[1U]);
+    auto canonical = source_scene_batch(source_expected); glyph_packet(canonical, 9U, raw_expected);
+    const std::array<progpu_native_hinted_glyph_resource_input, 2U> inputs{{
+        {PROGPU_NATIVE_ABI_VERSION, sizeof(progpu_native_hinted_glyph_resource_input), 2U, 0U, &raster[0U], nullptr},
+        {PROGPU_NATIVE_ABI_VERSION, sizeof(progpu_native_hinted_glyph_resource_input), 2U, 0U, &raster[1U], &source}}};
+    std::vector<std::uint32_t> indices = raw_expected.selected;
+    indices.insert(indices.end(), source_expected.selected.begin(), source_expected.selected.end());
+    const std::array<progpu_native_mil_hinted_glyph_binding, 2U> bindings{{
+        {9U, 0U, 0U, 0U, static_cast<std::uint32_t>(raw_expected.selected.size()), 0U, origin, {1,0,0,1,0,0}},
+        {5U, 1U, 0U, static_cast<std::uint32_t>(raw_expected.selected.size()),
+            static_cast<std::uint32_t>(source_expected.selected.size()), 0U, origin, {1,0,0,1,0,0}}}};
+    channel state;
+    require(state.apply_with_source_glyph_resources(canonical, inputs, bindings, indices) == status::success);
+    const auto previous_metrics = state.last_hinted_batch_metrics();
+    const auto glyph_generation = state.resource_generation(5U), raw_generation = state.resource_generation(9U);
+    const auto visual_generation = state.resource_generation(1U);
+    scene_build_request request{}; request.target_handle = 3U; request.scene_id = 17003U;
+    request.generation = request.request_serial = 1U; request.dpi_scale_x = request.dpi_scale_y = dpi;
+    std::span<const std::byte> compiled;
+    require(state.build_scene(request, compiled) == status::success); verify_scene(compiled, source_expected);
+    const bytes previous(compiled.begin(), compiled.end()); const auto* cached = compiled.data();
+    const auto preserved = [&] {
+        require(equal(previous_metrics, state.last_hinted_batch_metrics()) && state.resource_generation(5U) == glyph_generation &&
+            state.resource_generation(9U) == raw_generation && state.resource_generation(1U) == visual_generation && !state.has_resource(10U));
+        require(state.build_scene(request, compiled) == status::success && compiled.data() == cached);
+        equal_bytes(compiled, 0U, compiled.size(), previous.data(), previous.size());
+    };
+    bytes update; glyph_packet(update, 10U, source_expected); cmd(update, command::visual_set_alpha, 1U, 0.75);
+    auto bad_inputs = inputs;
+    for (unsigned invalid = 0U; invalid < 5U; ++invalid) {
+        bad_inputs = inputs;
+        switch (invalid) {
+        case 0U: bad_inputs[1U].version = 1U; break;
+        case 1U: bad_inputs[1U].reserved = 1U; break;
+        case 2U: bad_inputs[1U].raster = nullptr; break;
+        case 3U: bad_inputs[1U].source = nullptr; break; // Cannot fall back to the old float contract.
+        default: bad_inputs[0U].source = &source; break; // Wrong original raw/source owner.
+        }
+        require(state.apply_with_source_glyph_resources(update, bad_inputs, bindings, indices) == status::invalid_argument); preserved();
+    }
+    auto bad_source = source; bad_source.flags = 1U; bad_inputs = inputs; bad_inputs[1U].source = &bad_source;
+    require(state.apply_with_source_glyph_resources(update, bad_inputs, bindings, indices) == status::invalid_argument); preserved();
+    auto bad_indices = indices; bad_indices.back() = UINT32_MAX;
+    require(state.apply_with_source_glyph_resources(update, inputs, bindings, bad_indices) == status::invalid_argument); preserved();
+
+    progpu_native_mil_channel* c_channel = nullptr;
+    require(progpu_native_mil_channel_create(&c_channel) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    struct channel_cleanup final { progpu_native_mil_channel* value; ~channel_cleanup() { progpu_native_mil_channel_destroy(value); } } destroy{c_channel};
+    require(progpu_native_mil_channel_apply_with_source_glyph_resources(c_channel,
+        reinterpret_cast<const std::uint8_t*>(canonical.data()), canonical.size(), inputs.data(), 2U, bindings.data(), 2U,
+        indices.data(), static_cast<std::uint32_t>(indices.size())) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    require(progpu_native_mil_channel_apply_with_source_glyph_resources(c_channel,
+        reinterpret_cast<const std::uint8_t*>(update.data()), update.size(), inputs.data(), 2U, bindings.data(), 2U,
+        bad_indices.data(), static_cast<std::uint32_t>(bad_indices.size())) == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+    cleanup.retire(); // Neither importer keeps producer handles, contexts or borrowed arrays.
+    bytes recompile; cmd(recompile, command::matrix_transform, 6U, 1.0,0.0,0.0,1.0,3.5,-2.25,0U);
+    require(state.apply(recompile) == status::success && state.build_scene(request, compiled) == status::success);
+    verify_scene(compiled, source_expected);
+    progpu_native_mil_scene_build_request c_request{}; c_request.struct_size = sizeof(c_request); c_request.target_handle = 3U;
+    c_request.scene_id = request.scene_id; c_request.generation = c_request.request_serial = 1U;
+    c_request.dpi_scale_x = c_request.dpi_scale_y = dpi;
+    std::size_t needed = 0U; progpu_native_mil_scene_build_result result{}; result.struct_size = sizeof(result);
+    require(progpu_native_mil_channel_build_scene_with_request(c_channel, &c_request, nullptr, 0U, &needed, nullptr, &result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    bytes scene(needed);
+    require(progpu_native_mil_channel_build_scene_with_request(c_channel, &c_request, scene.data(), scene.size(), &needed, nullptr, &result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    verify_scene(scene, source_expected);
+}
+
 void controls(font_hint_policy policy, bool rtl) {
     std::weak_ptr<const hinted_paragraph_generation> weak_paragraph;
     std::weak_ptr<const hinted_paragraph_glyph_resource> weak_resource;
@@ -815,7 +962,7 @@ int main() {
 #if defined(PROGPU_NATIVE_FONT_HINTING)
         interaction_visitor_controls();
         for (const auto policy : {font_hint_policy::truetype_35,font_hint_policy::truetype_40})
-            for (const bool rtl : {false,true}) { controls(policy,rtl); flat_controls(policy,rtl); flat_controls(policy,rtl,PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR); }
+            for (const bool rtl : {false,true}) { controls(policy,rtl); flat_controls(policy,rtl); flat_controls(policy,rtl,PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR); mixed_source_controls(policy,rtl); }
         variable_flat_controls();
 #endif
         std::cout << "MIL retained hinted glyph semantic controls passed\n"; return 0;
