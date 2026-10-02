@@ -3487,12 +3487,18 @@ int main(int argc, char** argv) {
             const progpu_native_scene_presentation* presentation = nullptr,
             progpu_native_status expected_status = PROGPU_NATIVE_STATUS_SUCCESS,
             bool expect_picture_rejection = false,
-            std::uint32_t target_extent = 64U) {
+            std::uint32_t target_extent = 64U,
+            const progpu_native_scene_picture_image* capture_frame = nullptr,
+            progpu_native_engine* diagnostic_engine = nullptr) {
             require(target_extent == 64U || target_extent == 128U,
                 "retained Dawn fixture target extent is unsupported");
-            const auto target_row_bytes = target_extent * 4U;
-            auto* picture_engine = picture_engines[reference ? 1U : 0U];
-            auto* picture_canvas = api.create_canvas(provider, &canvas_configuration, target_extent, target_extent);
+            const auto target_width = capture_frame != nullptr ? capture_frame->width : target_extent;
+            const auto target_height = capture_frame != nullptr ? capture_frame->height : target_extent;
+            require(capture_frame == nullptr || (target_width == 32U && target_height == 24U),
+                "sampler Dawn diagnostic physical frame is unsupported");
+            const auto target_row_bytes = target_width * 4U;
+            auto* picture_engine = diagnostic_engine != nullptr ? diagnostic_engine : picture_engines[reference ? 1U : 0U];
+            auto* picture_canvas = api.create_canvas(provider, &canvas_configuration, target_width, target_height);
             require(picture_canvas != nullptr, "axis picture canvas creation failed");
             std::uintptr_t handle{};
             require(api.acquire(provider, picture_canvas, &handle) == WEBSCENE_GPU_STATUS_SUCCESS && handle != 0U,
@@ -3509,10 +3515,11 @@ int main(int argc, char** argv) {
                 "axis picture Dawn snapshot failed");
             progpu_native_scene_frame frame{};
             frame.struct_size = sizeof(frame);
-            frame.width = frame.height = target_extent;
+            frame.width = target_width;
+            frame.height = target_height;
             frame.dpi_scale = dpi;
             frame.target_view = reinterpret_cast<std::uintptr_t>(picture_view);
-            frame.clear_color = {0, 0, 0, 1};
+            frame.clear_color = capture_frame != nullptr ? capture_frame->clear_color : progpu_native_color{0, 0, 0, 1};
             frame.scene_id = scene_id;
             frame.generation = generation;
             if (presentation != nullptr) {
@@ -3563,14 +3570,14 @@ int main(int argc, char** argv) {
                 kIOReturnSuccess, "axis picture IOSurface lock failed");
             const auto* data = static_cast<const std::uint8_t*>(IOSurfaceGetBaseAddress(surface));
             const auto stride = IOSurfaceGetBytesPerRow(surface);
-            require(data != nullptr && IOSurfaceGetWidth(surface) == target_extent &&
-                IOSurfaceGetHeight(surface) == target_extent && stride >= target_row_bytes,
+            require(data != nullptr && IOSurfaceGetWidth(surface) == target_width &&
+                IOSurfaceGetHeight(surface) == target_height && stride >= target_row_bytes,
                 "axis picture IOSurface storage is invalid");
             // The configured surface is explicitly BGRA8; normalize this
             // readback to the shared fixture's RGBA byte order, without color
             // conversion or changing the actual premultiplied values.
-            std::vector<std::uint8_t> pixels(target_extent * target_row_bytes);
-            for (std::size_t row = 0U; row < target_extent; ++row)
+            std::vector<std::uint8_t> pixels(target_height * target_row_bytes);
+            for (std::size_t row = 0U; row < target_height; ++row)
                 std::memcpy(pixels.data() + row * target_row_bytes, data + row * stride, target_row_bytes);
             for (std::size_t i = 0U; i < pixels.size(); i += 4U)
                 std::swap(pixels[i], pixels[i + 2U]);
@@ -3599,7 +3606,22 @@ int main(int argc, char** argv) {
             progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {
             return render_retained_scene(reference, stream, generation, submissions, 0x9494U, 1U, commands,
                 &layers, &frame, 1.0F, nullptr, PROGPU_NATIVE_STATUS_SUCCESS, false, target_extent);
-        }, require);
+        }, require, [&](const auto& stream, const progpu_native_scene_header& header,
+            const progpu_native_scene_picture_image& picture) {
+            progpu_native_engine* diagnostic_engine{};
+            require(progpu_native_dawn_engine_create(&engine_options, &diagnostic_engine) ==
+                PROGPU_NATIVE_STATUS_SUCCESS && diagnostic_engine != nullptr,
+                "sampler diagnostic Dawn engine creation failed");
+            std::fprintf(stderr, "Sampler direct Dawn diagnostic engine flags=%llu\n",
+                static_cast<unsigned long long>(engine_options.flags));
+            std::array<std::vector<std::uint8_t>, 2U> pixels;
+            for (auto& replay : pixels)
+                replay = render_retained_scene(false, stream, header.generation, 1U, header.scene_id,
+                    1U, header.command_count, nullptr, nullptr, picture.dpi_scale, nullptr,
+                    PROGPU_NATIVE_STATUS_SUCCESS, false, 64U, &picture, diagnostic_engine);
+            progpu_native_engine_destroy(diagnostic_engine);
+            return pixels;
+        });
     progpu::native::tests::verify_original_shader_derivative_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation,
             const progpu::native::tests::shader_derivative_frame_case& test,

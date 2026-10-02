@@ -98,3 +98,27 @@ execution is still a separate hosted gate.
 Hosted native/provider execution, Windows hardware, package closure and actual
 source application qualification remain pending. No local native/GPU build,
 runtime staging or VM is part of this change.
+
+## Capture-pass isolation after hosted sampling failures
+
+Build `37019432709` at `fdd89c8de` passes all raw MIL controls on Linux ARM64,
+confirming the semantic Fill route. Its Vulkan llvmpipe GPU job `110878404492`
+fails variant 15 at `(16,12)`: RGBA `(0,143,111,255)` instead of
+`(0,143,112,255)`. Windows ARM64 D3D12 WARP job `110878404415` passes that case,
+then fails variant 16 at `(19,13)`: `(32,96,0,255)` instead of `(31,96,0,255)`.
+These observations do not identify which filtering pass introduces the byte
+difference and do not establish an address mapping defect.
+
+A failure-only paired-provider diagnostic extracts the unchanged immutable
+sampler picture from the actual failing scene. It replays that nested scene on a
+fresh engine with the same provider options and exact 32x24 physical frame,
+original DPI and transparent clear. Cold and warm diagnostic replays must match
+and each submit exactly once. Existing readback completion and resource teardown
+remain authoritative; readback pitch is padded without changing returned bytes,
+and Dawn retains its BGRA-to-RGBA swizzle. No work is submitted on the original
+engines, and their three replay counters and original fatal pixel assertion are
+unchanged. Logs distinguish capture bytes from post-effect bytes, including the
+first RGB difference within the original clip, and report actual sampler flags.
+This is diagnosis, not a rendering fix or qualification: native-sampler defaults,
+explicit/required-native sampling policy, pixel expectations and tolerances are
+unchanged. Hosted capture-pass evidence remains required before a policy change.

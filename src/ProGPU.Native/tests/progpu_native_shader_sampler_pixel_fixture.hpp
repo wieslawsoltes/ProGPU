@@ -112,8 +112,86 @@ inline bool build_original_shader_sampler_scene(progpu_native_mil_channel* chann
         &written, nullptr, &result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS && written == scene.size();
 }
 
-template<class Render, class Require>
-void verify_original_shader_sampler_pixels(Render render, Require require) {
+// Failure-only diagnostic: replay the original immutable capture before the
+// effect samples it. The provider callback uses a separate engine and the exact
+// retained physical frame; this never changes the original replay timeline.
+template<class Diagnose, class Require>
+void diagnose_original_shader_sampler_capture(const std::vector<std::byte>& scene,
+    std::uint32_t variant, std::uint32_t failed_x, std::uint32_t failed_y,
+    const std::array<std::uint8_t, 4U>& expected,
+    const std::vector<std::uint8_t>& effected, Diagnose diagnose, Require require) {
+    const auto read = [&scene, &require]<class T>(std::size_t offset, T& value) {
+        require(offset <= scene.size() && sizeof(T) <= scene.size() - offset,
+            "sampler diagnostic record is outside the original scene");
+        std::memcpy(&value, scene.data() + offset, sizeof(T));
+    };
+    progpu_native_scene_header outer{};
+    read(0U, outer);
+    std::uint32_t pictures = 0U;
+    for (std::uint32_t i = 0U; i < outer.resource_count; ++i) {
+        progpu_native_scene_resource resource{};
+        read(outer.resource_offset + static_cast<std::size_t>(i) * outer.resource_stride, resource);
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+            (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U) continue;
+        ++pictures;
+        progpu_native_scene_picture_image picture{};
+        read(resource.payload_offset, picture);
+        require(picture.flags == 0U && picture.width == 32U && picture.height == 24U &&
+            picture.dpi_scale == 1.0F && picture.clear_color.r == 0.0F &&
+            picture.clear_color.g == 0.0F && picture.clear_color.b == 0.0F &&
+            picture.clear_color.a == 0.0F,
+            "sampler diagnostic changed the original capture frame");
+        require(resource.auxiliary_offset <= scene.size() &&
+            resource.auxiliary_size <= scene.size() - resource.auxiliary_offset,
+            "sampler diagnostic nested scene is outside the original capture");
+        const std::vector<std::byte> nested(scene.begin() + resource.auxiliary_offset,
+            scene.begin() + resource.auxiliary_offset + resource.auxiliary_size);
+        progpu_native_scene_header header{};
+        read(resource.auxiliary_offset, header);
+        std::fprintf(stderr, "Sampler direct diagnostic variant=%u scene=%llu/%llu extent=%ux%u dpi=%g\n",
+            variant, static_cast<unsigned long long>(header.scene_id),
+            static_cast<unsigned long long>(header.generation), picture.width, picture.height,
+            static_cast<double>(picture.dpi_scale));
+        for (std::uint32_t j = 0U; j < header.command_count; ++j) {
+            progpu_native_scene_command command{};
+            read(resource.auxiliary_offset + header.command_offset +
+                static_cast<std::size_t>(j) * sizeof(command), command);
+            if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) continue;
+            progpu_native_scene_image_draw image{};
+            read(resource.auxiliary_offset + command.payload_offset, image);
+            std::fprintf(stderr, "Sampler direct image sampling=%u flags=%u size=%ux%u source=(%g,%g,%g,%g)\n",
+                image.sampling, image.flags, image.image_width, image.image_height,
+                static_cast<double>(image.source_rect.x), static_cast<double>(image.source_rect.y),
+                static_cast<double>(image.source_rect.width), static_cast<double>(image.source_rect.height));
+        }
+        const auto direct = diagnose(nested, header, picture);
+        require(direct[0] == direct[1] && direct[0].size() == picture.width * picture.height * 4U,
+            "sampler direct diagnostic cold/warm pixels differ");
+        const auto* failed_direct = direct[0].data() +
+            ((failed_y - 10U) * picture.width + failed_x - 8U) * 4U;
+        const auto* failed_effect = effected.data() + (failed_y * 64U + failed_x) * 4U;
+        std::fprintf(stderr,
+            "Sampler direct failing pixel=(%u,%u) capture=(%u,%u,%u,%u) effect=(%u,%u,%u,%u) expected=(%u,%u,%u,%u)\n",
+            failed_x, failed_y, failed_direct[0], failed_direct[1], failed_direct[2], failed_direct[3],
+            failed_effect[0], failed_effect[1], failed_effect[2], failed_effect[3],
+            expected[0], expected[1], expected[2], expected[3]);
+        bool different = false;
+        for (std::uint32_t y = 12U; y < 28U && !different; ++y)
+            for (std::uint32_t x = 16U; x < 32U && !different; ++x) {
+                const auto* before = direct[0].data() + ((y - 10U) * picture.width + x - 8U) * 4U;
+                const auto* after = effected.data() + (y * 64U + x) * 4U;
+                different = !std::equal(before, before + 3U, after);
+                if (different)
+                    std::fprintf(stderr, "Sampler direct first RGB difference pixel=(%u,%u) capture=(%u,%u,%u,%u) effect=(%u,%u,%u,%u)\n",
+                        x, y, before[0], before[1], before[2], before[3], after[0], after[1], after[2], after[3]);
+            }
+        if (!different) std::fprintf(stderr, "Sampler direct and effect RGB are identical throughout the original clip\n");
+    }
+    require(pictures == 1U, "sampler diagnostic requires the one actual retained capture");
+}
+
+template<class Render, class Require, class Diagnose>
+void verify_original_shader_sampler_pixels(Render render, Require require, Diagnose diagnose) {
     std::array<std::vector<std::byte>, 20U> scenes;
     {
         progpu_native_mil_channel* raw{};
@@ -218,6 +296,8 @@ void verify_original_shader_sampler_pixels(Render render, Require require) {
                     static_cast<unsigned>(actual[2]), static_cast<unsigned>(actual[3]),
                     static_cast<unsigned>(expected[0]), static_cast<unsigned>(expected[1]),
                     static_cast<unsigned>(expected[2]), static_cast<unsigned>(expected[3]));
+                if (variant >= 13U && variant <= 19U)
+                    diagnose_original_shader_sampler_capture(scene, variant, x, y, expected, images[0], diagnose, require);
             }
             require(matches,
                 "original sampler color/opacity/physical normalization/tile transform/final clip differs");
