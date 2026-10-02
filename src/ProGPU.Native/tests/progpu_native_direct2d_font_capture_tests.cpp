@@ -261,19 +261,27 @@ using namespace progpu::native::direct2d::tests;
             "independent original design/offset/advance coordinates")) return false;
     }
     const auto retained = prepared;
-    for (unsigned unsupported = 0U; unsupported < 10U; ++unsupported) {
+    for (unsigned unsupported = 0U; unsupported < 9U; ++unsupported) {
         auto candidate_run = run;
         if (unsupported < 6U) parameters.mode = static_cast<compat::rendering_mode>(unsupported);
         if (unsupported == 6U) candidate_run.is_sideways = 1;
         if (unsupported == 7U) candidate_run.bidi_level = 1U;
-        if (unsupported == 8U) candidate_run.glyph_advances = nullptr;
-        const auto measuring = unsupported == 9U ? compat::measuring_mode::gdi_natural : compat::measuring_mode::natural;
+        const auto measuring = unsupported == 8U ? compat::measuring_mode::gdi_natural : compat::measuring_mode::natural;
         if (capture::capture_original_glyph_request(font, candidate_run, measuring,
             &parameters, frame, request) != com::ok) return false;
         if (!check(prepared_font->prepare(request, prepared) == compat::not_implemented && prepared == retained &&
             prepared_font->cached_glyph_count() == 3U, "unimplemented original mode/placement remains atomic")) return false;
         parameters.mode = compat::rendering_mode::outline;
     }
+    auto nominal_run = run;
+    nominal_run.glyph_advances = nullptr;
+    if (!check(capture::capture_original_glyph_request(font, nominal_run, compat::measuring_mode::natural,
+        &parameters, frame, request) == com::ok && prepared_font->prepare(request, prepared) == com::ok &&
+        prepared != retained && prepared->request().glyphs.advances() == nullptr &&
+        retained->request().glyphs.advances() != nullptr && retained->request().glyphs.advances()[1] == -7 &&
+        prepared_font->cached_glyph_count() == 3U && stream.reads == original_reads &&
+        face.outline_calls == 0U && face.table_calls == 0U,
+        "nominal advances reuse cached metrics without replacing explicit source identity")) return false;
     for (const bool replace_parameters : {false, true}) {
         parameters.context = target.get();
         parameters.callback = replace_parameters
@@ -348,7 +356,7 @@ using namespace progpu::native::direct2d::tests;
         const auto put16 = [](auto& bytes, std::size_t offset, std::uint16_t value) {
             bytes[offset] = static_cast<std::byte>(value >> 8U); bytes[offset + 1U] = static_cast<std::byte>(value & 255U);
         };
-        for (unsigned malformed = 0U; malformed < 4U; ++malformed) {
+        for (unsigned malformed = 0U; malformed < 6U; ++malformed) {
             auto bad = std::make_shared<capture::original_font_capture>(*source);
             auto& bytes = bad->files[0];
             bool changed = false;
@@ -357,9 +365,12 @@ using namespace progpu::native::direct2d::tests;
                 if (malformed < 2U && tag == 0x68686561U) { // hhea declared metric count
                     put16(bytes, offset + 34U, malformed == 0U ? 0U : 4U); changed = true;
                 }
-                if (malformed >= 2U && tag == 0x686D7478U) { // hmtx lacks one/both bytes of final bearing
+                if (malformed >= 2U && tag == 0x686D7478U) {
+                    // Existing final-bearing truncations plus a missing or
+                    // single-byte first advance; neither may become width zero.
                     put16(bytes, record + 12U, 0U);
-                    put16(bytes, record + 14U, static_cast<std::uint16_t>((compact ? 8U : 12U) - (malformed - 1U)));
+                    put16(bytes, record + 14U, static_cast<std::uint16_t>(malformed >= 4U
+                        ? malformed - 4U : (compact ? 8U : 12U) - (malformed - 1U)));
                     changed = true;
                 }
             }
@@ -367,6 +378,129 @@ using namespace progpu::native::direct2d::tests;
             if (!check(changed && capture::prepared_original_font::create(bad, prior) == com::invalid_argument && prior == font &&
                 font->cached_glyph_count() == 3U, "malformed original bearing cannot become implicit zero or replace context")) return false;
         }
+    }
+    return true;
+}
+
+[[nodiscard]] bool prepared_nominal_contracts()
+{
+    com::pointer<compat::factory> factory;
+    com::pointer<compat::scene_factory_native> scene_factory;
+    com::pointer<compat::render_target> target;
+    com::pointer<compat::scene_render_target_native> scene;
+    com::pointer<capture::prepared_glyph_target> prepared_target;
+    constexpr compat::scene_render_target_properties properties{64U, 64U, 96, 96, 8443U, 1U};
+    if (compat::create_factory(factory.put()) != com::ok ||
+        factory.as(compat::scene_factory_native_interface_id, scene_factory) != com::ok ||
+        scene_factory->CreateSceneRenderTarget(&properties, target.put()) != com::ok ||
+        target.as(compat::scene_render_target_native_interface_id, scene) != com::ok ||
+        target.as(capture::prepared_glyph_target_id, prepared_target) != com::ok) return false;
+    com::pointer<compat::solid_color_brush> brush;
+    constexpr compat::color_f red{1, 0, 0, 1};
+    if (target->CreateSolidColorBrush(&red, nullptr, brush.put()) != com::ok) return false;
+    rendering_parameters parameters; parameters.mode = compat::rendering_mode::outline;
+    struct release_parameters final {
+        compat::render_target* target;
+        ~release_parameters() { target->SetTextRenderingParams(nullptr); }
+    } release{target.get()};
+    target->SetTextRenderingParams(&parameters);
+    target->SetTextAntialiasMode(compat::text_antialias_mode::grayscale);
+    capture::original_glyph_target frame{com::pointer<com::unknown>(target.get()), 1U,
+        {1, 0, 0, 1, 0, 0}, {3.59375F, 17.90625F}, {64U, 64U}, 96, 96, {}, compat::text_antialias_mode::grayscale};
+    for (const bool compact : {false, true}) {
+        font_stream stream;
+        stream.bytes = progpu::native::tests::make_hint_fault_font(29, -19, compact);
+        stream.declared_size = stream.bytes.size();
+        font_loader loader; loader.stream = &stream;
+        font_file file; file.loader = &loader;
+        font_face face; face.files[0] = &file; face.declared_count = 1U;
+        face.type = 1U; face.index = 0U; face.simulations = 0U; face.glyph_count = 3U;
+        std::shared_ptr<const capture::original_font_capture> source;
+        std::shared_ptr<capture::prepared_original_font> font;
+        if (capture::capture_original_font(&face, source) != com::ok ||
+            capture::prepared_original_font::create(source, font) != com::ok) return false;
+        const auto reads = stream.reads;
+        face.count_result = compat::not_implemented;
+        const std::uint16_t seed_index[]{1U};
+        compat::glyph_run run{&face, 31.25F, 1U, seed_index, nullptr, nullptr, 0, 2U};
+        std::shared_ptr<const capture::original_glyph_request> request;
+        std::shared_ptr<const capture::prepared_original_glyph_run> prepared;
+        if (!check(capture::capture_original_glyph_request(source, run, compat::measuring_mode::natural,
+            &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::ok &&
+            font->cached_glyph_count() == 1U && prepared->segments().size() == 4U &&
+            prepared->request().glyphs.advances() == nullptr && prepared->request().glyphs.offsets() == nullptr,
+            "nominal initial cache/source absence")) return false;
+        const auto retained = prepared;
+        const auto retained_request = request;
+        const std::uint16_t invalid_indices[]{2U, 0U, 3U};
+        run.glyph_count = 3U; run.glyph_indices = invalid_indices;
+        const auto parameter_reads = parameters.reads;
+        if (!check(capture::capture_original_glyph_request(source, run, compat::measuring_mode::natural,
+            &parameters, frame, request) == com::invalid_argument && request == retained_request &&
+            prepared == retained && font->cached_glyph_count() == 1U && parameters.reads == parameter_reads,
+            "nominal malformed occurrence rejects before callbacks or publication")) return false;
+
+        // Only no-ink occurrences: rejection must come from accumulated nominal
+        // advances, not an overflowing contour coordinate. Glyph zero is not yet
+        // cached, so its candidate addition must be rolled back with the output.
+        const std::uint16_t empty_indices[]{0U, 0U, 0U};
+        run.glyph_indices = empty_indices;
+        run.font_em_size = std::numeric_limits<float>::max();
+        if (!check(capture::capture_original_glyph_request(source, run, compat::measuring_mode::natural,
+            &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::invalid_argument &&
+            prepared == retained && font->cached_glyph_count() == 1U,
+            "nominal no-ink pen overflow preserves prior output and cache")) return false;
+        target->BeginDraw();
+        if (!check(prepared_target->DrawOwnedGlyphRun(font, frame.baseline, &run, brush.get(),
+            compat::measuring_mode::natural) == com::invalid_argument &&
+            target->EndDraw(nullptr, nullptr) == com::invalid_argument && font->cached_glyph_count() == 1U,
+            "nominal overflow rejects actual recorder transaction")) return false;
+        compat::scene_render_target_summary summary{}; scene->GetSummary(&summary);
+        if (!check(summary.draw_count == 0U, "nominal overflow publishes no retained draw")) return false;
+
+        // A positive source em that cannot preserve a positive design scale is
+        // not rounded up. The failed candidate still cannot populate glyph zero.
+        run.font_em_size = std::numeric_limits<float>::denorm_min();
+        if (!check(capture::capture_original_glyph_request(source, run, compat::measuring_mode::natural,
+            &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::invalid_argument &&
+            prepared == retained && font->cached_glyph_count() == 1U,
+            "nominal scale underflow preserves prior output and cache")) return false;
+
+        const std::uint16_t indices[]{1U, 0U, 2U};
+        const compat::glyph_offset offsets[]{{0, 0}, {0, 0}, {-0.75F, 2.5F}};
+        run = {&face, 31.25F, 3U, indices, nullptr, offsets, 0, 2U};
+        for (unsigned repeat = 0U; repeat < 2U; ++repeat) {
+            if (!check(capture::capture_original_glyph_request(source, run, compat::measuring_mode::natural,
+                &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::ok &&
+                prepared->segments().size() == 8U && prepared->request().font == source &&
+                prepared->request().glyphs.advances() == nullptr && font->cached_glyph_count() == 3U,
+                "nominal cold/warm recovery retains exact source identity")) return false;
+            for (std::size_t index = 0U; index < prepared->segments().size(); ++index) {
+                const auto& segment = prepared->segments()[index];
+                const float left = index < 4U ? 4.5F : 33.5F, right = index < 4U ? 13.875F : 42.875F;
+                const float top = index < 4U ? 5.0F : 2.5F, bottom = index < 4U ? 17.5F : 15.0F;
+                const auto corner = [&](progpu_native_point point) {
+                    return (point.x == left || point.x == right) && (point.y == top || point.y == bottom);
+                };
+                if (!check(segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE && corner(segment.p0) && corner(segment.p1),
+                    "nominal complete/compact original width and bearing geometry")) return false;
+            }
+        }
+        const auto nominal = prepared;
+        const float explicit_advances[]{0, -3, 9};
+        run.glyph_advances = explicit_advances;
+        if (!check(capture::capture_original_glyph_request(source, run, compat::measuring_mode::natural,
+            &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::ok &&
+            prepared->request().glyphs.advances()[0] == 0 && prepared->request().glyphs.advances()[1] == -3 &&
+            nominal->request().glyphs.advances() == nullptr && font->cached_glyph_count() == 3U,
+            "explicit zero/negative overrides cached nominal widths without altering earlier request")) return false;
+        // Glyph two now starts three DIPs left of the original pen, not after
+        // two nominal advances. Its bearing and offset still apply normally.
+        const auto& explicit_segment = prepared->segments()[4U];
+        if (!check((explicit_segment.p0.x == -0.75F || explicit_segment.p0.x == 8.625F) &&
+            (explicit_segment.p1.x == -0.75F || explicit_segment.p1.x == 8.625F) &&
+            stream.reads == reads && face.outline_calls == 0U && face.table_calls == 0U,
+            "explicit placement precedence and no repeated source font callbacks")) return false;
     }
     return true;
 }
@@ -429,6 +563,7 @@ bool progpu_native_direct2d_font_capture_tests()
     if (!source_contracts()) return false;
     if (!prepared_source_contracts()) return false;
     if (!prepared_origin_contracts()) return false;
+    if (!prepared_nominal_contracts()) return false;
 #if defined(_WIN32)
     if (!original_windows_contract()) return false;
 #endif
