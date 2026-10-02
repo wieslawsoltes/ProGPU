@@ -50,3 +50,12 @@ glyph counts, not arbitrary allocations or retries.
 Implementation and raw controls are authored for the final integrated validation
 phase. No compilation, tests, probes, native/GPU execution or CI dispatch have
 been performed for this branch. This is not DirectWrite vertical parity.
+
+`progpu_native_vvar_tests` owns a minimal original SFNT metadata fixture, separate
+from independently drawable vertical source fonts. It covers unrelated signed
+metric rows, positive/negative/default instances, reordered/repeated glyphs,
+explicit and implicit advance maps, shortened-map repetition, optional absence,
+null subtables and explicit no-variation indices. Adversarial cases retain
+sentinels across every table truncation, malformed maps/regions/references,
+insufficient scratch, late invalid glyphs, nonfinite cached scalars, aliases,
+foreign byte owners and distinct TTC face indices sharing one directory.
