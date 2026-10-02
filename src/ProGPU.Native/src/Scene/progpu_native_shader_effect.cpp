@@ -130,7 +130,7 @@ bool translate(std::span<const std::byte> bytecode,
                 sources = 1U; break; // mov/log/frc/abs/bounded nrm
             case 37U: sources = shader_model_three ? 1U : 3U; break; // sincos
             case 2U: case 3U: case 5U: case 8U: case 9U: case 10U: case 11U:
-            case 66U: sources = 2U; break; // add/sub/mul/dp3/dp4/min/max/texld
+            case 33U: case 66U: sources = 2U; break; // add/sub/mul/dp3/dp4/min/max/crs/texld
             case 4U: case 18U: case 88U: case 90U: sources = 3U; break; // mad/lrp/cmp/dp2add
             // RCP/RSQ require infinity at zero. EXP/POW also need an overflow
             // and numeric-domain contract beyond WGSL's finite-math allowance.
@@ -151,6 +151,8 @@ bool translate(std::span<const std::byte> bytecode,
                 return false; // The admitted TEXLD form writes a temporary.
             if ((opcode == 36U || opcode == 37U) && destination_type != 0U)
                 return false;
+            if (opcode == 33U && (destination_type != 0U || (mask & 8U) != 0U))
+                return false; // CRS writes only selected XYZ temporary lanes; W is not defined.
             if (opcode == 37U && mask > 3U) return false;
             std::array<std::string, 3U> operands;
             std::uint32_t constant_register = 32U;
@@ -183,6 +185,9 @@ bool translate(std::span<const std::byte> bytecode,
                 }
                 if (source_modifier != 0U && source_modifier != 1U &&
                     source_modifier != 11U && source_modifier != 12U) return false;
+                if (opcode == 33U && (((token >> 16U) & 255U) != 0xE4U ||
+                    (type == destination_type && number == destination_index)))
+                    return false; // Original CRS disallows source swizzles and destination aliases.
                 const bool scalar = opcode == 15U || opcode == 37U ||
                     (opcode == 90U && index == 2U);
                 if (scalar && ((token >> 16U) & 255U) !=
@@ -230,7 +235,10 @@ bool translate(std::span<const std::byte> bytecode,
                            number == input_register) {
                     available = input_mask; expression = "input_v" + std::to_string(number);
                 } else return false;
-                const auto required = scalar ? 1U : opcode == 36U ? (7U | (mask & 8U)) :
+                const auto cross_required = ((mask & 1U) != 0U ? 6U : 0U) |
+                    ((mask & 2U) != 0U ? 5U : 0U) | ((mask & 4U) != 0U ? 3U : 0U);
+                const auto required = scalar ? 1U : opcode == 33U ? cross_required :
+                    opcode == 36U ? (7U | (mask & 8U)) :
                     opcode == 8U ? 7U : opcode == 9U ? 15U :
                     opcode == 66U || opcode == 90U ? 3U : mask;
                 expression += ".";
@@ -274,6 +282,19 @@ bool translate(std::span<const std::byte> bytecode,
             }
             case 18U: result = a + " * " + b + " + (vec4<f32>(1.0) - " + a + ") * " + c; break;
             case 19U: result = "fract(" + a + ")"; break;
+            case 33U: {
+                // Evaluate only the source components needed by actual writes.
+                // A masked cross product must not read an undefined third lane
+                // or manufacture a source W value. Existing writes retain W.
+                const auto component = [&](char first_lane, char second_lane) {
+                    return "(" + a + ")." + first_lane + " * (" + b + ")." + second_lane +
+                        " - (" + a + ")." + second_lane + " * (" + b + ")." + first_lane;
+                };
+                result = "vec4<f32>(" + ((mask & 1U) != 0U ? component('y', 'z') : "0.0") + ", " +
+                    ((mask & 2U) != 0U ? component('z', 'x') : "0.0") + ", " +
+                    ((mask & 4U) != 0U ? component('x', 'y') : "0.0") + ", 0.0)";
+                break;
+            }
             case 35U: result = "abs(" + a + ")"; break;
             case 36U: {
                 const auto normal = "normal_source" + suffix;
