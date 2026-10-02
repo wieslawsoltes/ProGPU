@@ -1458,6 +1458,13 @@ public sealed class WpfShaderEffect : EffectBase
 
     public WpfShaderEffectParams Parameters { get; }
 
+    /// <summary>
+    /// Captures this source visual's opacity and opacity mask before evaluating
+    /// the shader. Geometry clips still apply to the completed effect. Source
+    /// adapters opt in explicitly; ordinary effects keep output-opacity ordering.
+    /// </summary>
+    public bool CaptureSourceVisualOpacity { get; init; }
+
     public float Padding
     {
         get => _padding;
@@ -1527,6 +1534,7 @@ public sealed class WpfShaderEffect : EffectBase
         hash.Add(GetType());
         hash.Add(ChangeVersion);
         hash.Add(Padding);
+        hash.Add(CaptureSourceVisualOpacity);
         Parameters.AddRenderCacheKey(ref hash);
         return hash.ToHashCode();
     }

@@ -5519,7 +5519,8 @@ SceneStateUploadComplete:
         Matrix4x4 parentTransform,
         Vector2? offsetOverride,
         bool includeLocalTransform = true,
-        bool includeLocalVisualState = true)
+        bool includeLocalVisualState = true,
+        bool includeLocalOpacityOnly = false)
     {
         // Ownership checks reject retained-tree cycles when children are
         // attached. Keep a separate corruption guard here, but allow the
@@ -5543,7 +5544,8 @@ SceneStateUploadComplete:
                 parentTransform,
                 offsetOverride,
                 includeLocalTransform,
-                includeLocalVisualState);
+                includeLocalVisualState,
+                includeLocalOpacityOnly);
         }
         finally
         {
@@ -5556,7 +5558,8 @@ SceneStateUploadComplete:
         Matrix4x4 parentTransform,
         Vector2? offsetOverride,
         bool includeLocalTransform,
-        bool includeLocalVisualState)
+        bool includeLocalVisualState,
+        bool includeLocalOpacityOnly)
     {
         // DrawingContext command storage can change without invalidating its owning
         // visual, so populated drawing visuals cannot participate in compiled-scene
@@ -5574,7 +5577,9 @@ SceneStateUploadComplete:
             return;
         }
 
-        if ((includeLocalVisualState && node.Opacity <= 0.0001f)
+        bool sourceShaderOutput = node.Effect is WpfShaderEffect { CaptureSourceVisualOpacity: true } &&
+            !_elementsRenderingEffects.Contains(node);
+        if (((includeLocalVisualState || includeLocalOpacityOnly) && node.Opacity <= 0.0001f && !sourceShaderOutput)
             || _activeOpacity <= 0.0001f)
         {
             if (Options.EnableGpuHitTesting && !_suspendHitTestCacheWrites &&
@@ -5594,7 +5599,14 @@ SceneStateUploadComplete:
 
         if (UsesLayerCache(node) && !_elementsRenderingLayers.Contains(node))
         {
-            ApplyAndDrawLayer(node, parentTransform);
+            // A source shader captures cached content in its input frame too.
+            // The cache retains its own storage/raster policy; only its final
+            // placement and root opacity scope belong to this private capture.
+            Matrix4x4? inputTransform = includeLocalOpacityOnly
+                ? Matrix4x4.CreateTranslation(offsetOverride.GetValueOrDefault().X,
+                    offsetOverride.GetValueOrDefault().Y, 0f) * parentTransform
+                : null;
+            ApplyAndDrawLayer(node, parentTransform, inputTransform, includeLocalOpacityOnly);
             return;
         }
 
@@ -5608,7 +5620,9 @@ SceneStateUploadComplete:
 
         var visualScope = includeLocalVisualState
             ? PushVisualCompositeScope(node, globalTransform, parentTransform)
-            : VisualCompositeScope.None;
+            : includeLocalOpacityOnly
+                ? PushVisualOpacityScope(node, globalTransform)
+                : VisualCompositeScope.None;
 
         AddVisualHitTestBounds(node, globalTransform);
         bool compileLocalCommands = !IsLocalRenderOutsideActiveClip(node, globalTransform);
@@ -16874,6 +16888,7 @@ CompilePathStroke:
     {
         var effect = fe.Effect;
         if (effect == null) return;
+        bool captureSourceOpacity = effect is WpfShaderEffect { CaptureSourceVisualOpacity: true };
 
         float paddingX = 0f;
         float paddingY = 0f;
@@ -17008,7 +17023,8 @@ CompilePathStroke:
                     -paddedRect.Position,
                     dpiScale,
                     includeRootTransform: false,
-                    includeRootVisualState: false);
+                    includeRootVisualState: false,
+                    includeRootOpacityOnly: captureSourceOpacity);
             }
             finally
             {
@@ -17089,7 +17105,8 @@ CompilePathStroke:
 
         var cachedTextures = textures!;
         var compositeTransform = fe.GetLocalTransform() * parentTransform;
-        var compositeScope = PushVisualCompositeScope(fe, compositeTransform, parentTransform);
+        var compositeScope = PushVisualCompositeScope(fe, compositeTransform, parentTransform,
+            includeOpacity: !captureSourceOpacity);
         try
         {
             // Draw the cached texture onto the main swapchain.
@@ -17153,18 +17170,19 @@ CompilePathStroke:
         fe.IsDirty = false;
     }
 
-    private void ApplyAndDrawLayer(Visual node, Matrix4x4 parentTransform)
+    private void ApplyAndDrawLayer(Visual node, Matrix4x4 parentTransform,
+        Matrix4x4? compositeTransformOverride = null, bool opacityOnly = false)
     {
         if (!TryCaptureSourceCompositeInput(node, parentTransform))
         {
-            ApplyAndDrawLayerCore(node, parentTransform);
+            ApplyAndDrawLayerCore(node, parentTransform, compositeTransformOverride, opacityOnly);
             return;
         }
         bool savedSuspendHitTestCacheWrites = _suspendHitTestCacheWrites;
         _suspendHitTestCacheWrites = true;
         try
         {
-            ApplyAndDrawLayerCore(node, parentTransform);
+            ApplyAndDrawLayerCore(node, parentTransform, compositeTransformOverride, opacityOnly);
         }
         finally
         {
@@ -17172,13 +17190,14 @@ CompilePathStroke:
         }
     }
 
-    private void ApplyAndDrawLayerCore(Visual node, Matrix4x4 parentTransform)
+    private void ApplyAndDrawLayerCore(Visual node, Matrix4x4 parentTransform,
+        Matrix4x4? compositeTransformOverride, bool opacityOnly)
     {
         if (!EnsureLayerTexture(node)) return;
 
         float dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
         var controlRect = new Rect(Vector2.Zero, node.Size);
-        var compositeTransform = node.GetLocalTransform() * parentTransform;
+        var compositeTransform = compositeTransformOverride ?? node.GetLocalTransform() * parentTransform;
         if (node.LayerCacheSnapsToDevicePixels)
         {
             Vector2 topLeft = Vector2.Transform(
@@ -17194,7 +17213,9 @@ CompilePathStroke:
                 -snap.Y,
                 0f);
         }
-        var compositeScope = PushVisualCompositeScope(node, compositeTransform, parentTransform);
+        var compositeScope = opacityOnly
+            ? PushVisualOpacityScope(node, compositeTransform)
+            : PushVisualCompositeScope(node, compositeTransform, parentTransform);
         try
         {
             // Draw the cached layer texture onto the main swapchain.
@@ -17475,7 +17496,8 @@ CompilePathStroke:
     private VisualCompositeScope PushVisualCompositeScope(
         Visual node,
         Matrix4x4 compositeTransform,
-        Matrix4x4 parentTransform)
+        Matrix4x4 parentTransform,
+        bool includeOpacity = true)
     {
         var scope = VisualCompositeScope.None;
         if (node.ClipBounds.HasValue)
@@ -17555,6 +17577,15 @@ CompilePathStroke:
             scope |= VisualCompositeScope.GeometryClip;
         }
 
+        if (includeOpacity)
+            scope |= PushVisualOpacityScope(node, compositeTransform);
+
+        return scope;
+    }
+
+    private VisualCompositeScope PushVisualOpacityScope(Visual node, Matrix4x4 compositeTransform)
+    {
+        var scope = VisualCompositeScope.None;
         if (node.Opacity < 1.0f)
         {
             PushOpacityValue(node.Opacity);
@@ -17898,7 +17929,8 @@ CompilePathStroke:
         bool loadExistingContents = false,
         bool includeRootTransform = true,
         bool includeRootVisualState = true,
-        Vector2? logicalExtent = null)
+        Vector2? logicalExtent = null,
+        bool includeRootOpacityOnly = false)
     {
         _compiledSceneReusable = false;
         lock (_offscreenRenderLock)
@@ -17937,7 +17969,8 @@ CompilePathStroke:
                             loadExistingContents,
                             includeRootTransform,
                             includeRootVisualState,
-                            logicalExtent);
+                            logicalExtent,
+                            includeRootOpacityOnly);
                         break;
                     }
                     catch (PathAtlasCapacityExceededException)
@@ -17984,7 +18017,8 @@ CompilePathStroke:
         bool loadExistingContents,
         bool includeRootTransform,
         bool includeRootVisualState,
-        Vector2? logicalExtent)
+        Vector2? logicalExtent,
+        bool includeRootOpacityOnly)
     {
         long totalStartTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
         using var currentContextScope = WgpuContext.PushCurrent(_context);
@@ -18103,7 +18137,8 @@ CompilePathStroke:
             Matrix4x4.Identity,
             rootTranslation,
             includeRootTransform,
-            includeRootVisualState);
+            includeRootVisualState,
+            includeRootOpacityOnly);
 
         CommitPendingDrawCalls();
         long compileEndTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
