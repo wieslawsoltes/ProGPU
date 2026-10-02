@@ -2,6 +2,7 @@
 
 #include "progpu_native_shader_effect.hpp"
 #include "progpu_native_shader_sample_frame.hpp"
+#include "progpu_native_shader_affine_frame.hpp"
 
 #include <memory>
 #include <vector>
@@ -19,6 +20,7 @@ struct semantic_shader_program {
     std::vector<std::byte> bytecode;
     std::uint32_t source_sampler = 0U;
     bool final_sample_program = false;
+    bool affine_sample_program = false;
     bool source_vector_mask = false;
     WGPUTextureFormat target_format = WGPUTextureFormat_Undefined;
     WGPUBindGroupLayout layout = nullptr;
@@ -66,7 +68,8 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     const progpu_native_scene_shader_sample_frame& source_frame,
     std::shared_ptr<semantic_picture_backing> input_picture,
     std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX,
-    bool source_vector_mask = false);
+    bool source_vector_mask = false,
+    const progpu_native_scene_shader_affine_frame* affine_frame = nullptr);
 
 bool encode_semantic_shader_effect(progpu_native_engine& engine,
     WGPUCommandEncoder encoder, const semantic_shader_binding& binding,

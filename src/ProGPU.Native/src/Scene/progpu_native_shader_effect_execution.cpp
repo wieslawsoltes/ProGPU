@@ -4,6 +4,7 @@
 #include "progpu_native_replay_execution.hpp"
 #include "WpfBytecodeEffectWgsl.generated.hpp"
 #include "WpfBytecodeSampleEffectWgsl.generated.hpp"
+#include "WpfBytecodeAffineEffectWgsl.generated.hpp"
 
 #include <algorithm>
 #include <array>
@@ -36,13 +37,20 @@ struct sample_effect_uniforms {
     float physical_clip[4];
 };
 static_assert(sizeof(sample_effect_uniforms) == 592U);
+struct affine_effect_uniforms {
+    sample_effect_uniforms sample;
+    float quad_cross[4];
+};
+static_assert(sizeof(affine_effect_uniforms) == 608U);
 
 std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engine,
     const progpu_native_scene_shader_effect& descriptor, std::span<const std::byte> bytecode,
-    bool final_sample_program = false, bool source_vector_mask = false) {
+    bool final_sample_program = false, bool source_vector_mask = false, bool affine_sample_program = false) {
+    if (affine_sample_program && !final_sample_program) return {};
     if (source_vector_mask && (!final_sample_program || !create_layer_mask_resources(engine))) return {};
     for (const auto& program : engine.semantic_shader_programs) {
         if (program->source_sampler == descriptor.source_sampler && program->final_sample_program == final_sample_program &&
+            program->affine_sample_program == affine_sample_program &&
             program->source_vector_mask == source_vector_mask &&
             program->target_format == (final_sample_program ? engine.target_format : WGPUTextureFormat_RGBA8Unorm) &&
             std::ranges::equal(program->bytecode, bytecode)) return program;
@@ -61,10 +69,13 @@ std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engin
     program->bytecode.assign(bytecode.begin(), bytecode.end());
     program->source_sampler = descriptor.source_sampler;
     program->final_sample_program = final_sample_program;
+    program->affine_sample_program = affine_sample_program;
     program->source_vector_mask = source_vector_mask;
     program->target_format = final_sample_program ? engine.target_format : WGPUTextureFormat_RGBA8Unorm;
-    const auto* source_bytes = final_sample_program ? generated::wpf_bytecode_sample_effect_wgsl : generated::wpf_bytecode_effect_wgsl;
-    const auto source_size = final_sample_program ? generated::wpf_bytecode_sample_effect_wgsl_size : generated::wpf_bytecode_effect_wgsl_size;
+    const auto* source_bytes = affine_sample_program ? generated::wpf_bytecode_affine_effect_wgsl :
+        final_sample_program ? generated::wpf_bytecode_sample_effect_wgsl : generated::wpf_bytecode_effect_wgsl;
+    const auto source_size = affine_sample_program ? generated::wpf_bytecode_affine_effect_wgsl_size :
+        final_sample_program ? generated::wpf_bytecode_sample_effect_wgsl_size : generated::wpf_bytecode_effect_wgsl_size;
     std::string source(reinterpret_cast<const char*>(source_bytes), source_size);
     constexpr std::string_view marker = "// PROGPU_VALIDATED_BYTECODE_BODY";
     const auto position = source.find(marker);
@@ -80,7 +91,8 @@ std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engin
     entries[0].binding = 0U; entries[0].visibility = WGPUShaderStage_Fragment;
     if (final_sample_program) entries[0].visibility |= WGPUShaderStage_Vertex;
     entries[0].buffer.type = WGPUBufferBindingType_Uniform;
-    entries[0].buffer.minBindingSize = final_sample_program ? sizeof(sample_effect_uniforms) : sizeof(effect_uniforms);
+    entries[0].buffer.minBindingSize = affine_sample_program ? sizeof(affine_effect_uniforms) :
+        final_sample_program ? sizeof(sample_effect_uniforms) : sizeof(effect_uniforms);
     entries[1].binding = 1U; entries[1].visibility = WGPUShaderStage_Fragment;
     entries[1].sampler.type = WGPUSamplerBindingType_Filtering;
     entries[2].binding = 2U; entries[2].visibility = WGPUShaderStage_Fragment;
@@ -178,27 +190,30 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     std::shared_ptr<semantic_picture_backing> source_picture,
     const progpu_native_scene_shader_sample_frame& source_frame,
     std::shared_ptr<semantic_picture_backing> input_picture, std::uint32_t derivative_register,
-    bool source_vector_mask) {
+    bool source_vector_mask, const progpu_native_scene_shader_affine_frame* affine_frame) {
     if (!shader_effect::validate(descriptor, bytecode) || !source_picture || source_picture->owner != &engine ||
         source_picture->view == nullptr || source_picture->descriptor.width != frame.capture.width ||
         source_picture->descriptor.height != frame.capture.height || frame.capture.width == 0U || frame.capture.height == 0U ||
         frame.output.width == 0U || frame.output.height == 0U || frame.output.width > 16'384U || frame.output.height > 16'384U ||
-        !shader_effect::finite_axis_matrix(frame.unit_to_device) || !shader_effect::finite_axis_matrix(frame.device_to_unit) ||
-        frame.unit_to_device.w <= 0.0F || !shader_effect::validate_sample_frame(source_frame) ||
+        !shader_effect::finite_affine_matrix(frame.unit_to_device) || !shader_effect::finite_affine_matrix(frame.device_to_unit) ||
+        frame.unit_to_device.w <= 0.0F || frame.affine != (affine_frame != nullptr) ||
+        !(affine_frame ? shader_effect::validate_affine_frame(*affine_frame) : shader_effect::validate_sample_frame(source_frame)) ||
         !input_picture || input_picture->owner != &engine || input_picture->view == nullptr ||
         input_picture->descriptor.width != frame.capture.width || input_picture->descriptor.height != frame.capture.height ||
         (derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX && derivative_register >= 32U)) return {};
     shader_effect::sample_projection projection{};
-    if (!shader_effect::project_sample_frame(frame, target, projection)) return {};
-    auto program = program_for(engine, descriptor, bytecode, true, source_vector_mask);
+    if (!(frame.affine ? shader_effect::project_affine_sample_frame(frame, target, projection) :
+            shader_effect::project_sample_frame(frame, target, projection))) return {};
+    auto program = program_for(engine, descriptor, bytecode, true, source_vector_mask, frame.affine);
     if (!program) return {};
-    sample_effect_uniforms uniforms{};
+    affine_effect_uniforms extended_uniforms{};
+    auto& uniforms = extended_uniforms.sample;
     std::copy(std::begin(descriptor.constants), std::end(descriptor.constants), uniforms.source.constants.begin());
     if (derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX) {
         const auto offset = derivative_register * 4U;
         uniforms.source.constants[offset] = frame.device_to_unit.x;
-        uniforms.source.constants[offset + 1U] = 0.0F;
-        uniforms.source.constants[offset + 2U] = 0.0F;
+        uniforms.source.constants[offset + 1U] = frame.affine ? frame.device_to_unit.xy : 0.0F;
+        uniforms.source.constants[offset + 2U] = frame.affine ? frame.device_to_unit.yx : 0.0F;
         uniforms.source.constants[offset + 3U] = frame.device_to_unit.y;
     }
     uniforms.source.extent[0] = static_cast<float>(frame.capture.width);
@@ -218,6 +233,9 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     uniforms.homogeneous[2] = projection.reciprocal_height;
     uniforms.physical_clip[0] = source_frame.clip_left; uniforms.physical_clip[1] = source_frame.clip_top;
     uniforms.physical_clip[2] = source_frame.clip_right; uniforms.physical_clip[3] = source_frame.clip_bottom;
+    extended_uniforms.quad_cross[0] = projection.unit_to_clip.xy;
+    extended_uniforms.quad_cross[1] = projection.unit_to_clip.yx;
+    const auto uniform_size = frame.affine ? sizeof(extended_uniforms) : sizeof(uniforms);
     auto binding = std::make_shared<semantic_shader_binding>();
     binding->program = std::move(program); binding->sampler_picture = std::move(source_picture);
     binding->input_picture = std::move(input_picture);
@@ -225,12 +243,12 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     binding->final_sample_program = true;
     WGPUBufferDescriptor buffer{};
     buffer.label = webgpu::string_view("ProGPU retained final-device shader frame");
-    buffer.size = sizeof(uniforms); buffer.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+    buffer.size = uniform_size; buffer.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     binding->uniforms = wgpuDeviceCreateBuffer(engine.device, &buffer);
     if (binding->uniforms == nullptr) return {};
-    wgpuQueueWriteBuffer(engine.queue, binding->uniforms, 0U, &uniforms, sizeof(uniforms));
+    wgpuQueueWriteBuffer(engine.queue, binding->uniforms, 0U, &extended_uniforms, uniform_size);
     std::array<WGPUBindGroupEntry, 3U> entries{};
-    entries[0].binding = 0U; entries[0].buffer = binding->uniforms; entries[0].size = sizeof(uniforms);
+    entries[0].binding = 0U; entries[0].buffer = binding->uniforms; entries[0].size = uniform_size;
     entries[1].binding = 1U; entries[1].sampler = descriptor.sampling_mode == 0U
         ? engine.image_nearest_sampler : engine.image_linear_sampler;
     entries[2].binding = 2U; entries[2].textureView = binding->sampler_picture->view;

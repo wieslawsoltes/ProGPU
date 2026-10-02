@@ -3005,6 +3005,37 @@ typedef struct progpu_native_scene_shader_effect_samples {
     progpu_native_scene_shader_effect program;
 } progpu_native_scene_shader_effect_samples;
 
+/* Version 6 retains all six original float affine components. The placement
+ * prefix keeps the source diagonal/translation and lattice/clip fields; its
+ * derived quad is completed by the two cross terms below. Version-5 validation
+ * is intentionally NOT applicable to this distinct descriptor. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderAffineFrame */
+typedef struct progpu_native_scene_shader_affine_frame {
+    /* PROGPU_CSHARP_TYPE: SceneShaderSampleFrame */
+    progpu_native_scene_shader_sample_frame placement;
+    float source_m12;
+    float source_m21;
+    float quad_m12;
+    float quad_m21;
+} progpu_native_scene_shader_affine_frame;
+
+/* Same immutable earlier-picture ownership as version 5; no caller texture,
+ * opaque transform witness or evaluated-effect image is admitted. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderEffectAffine */
+typedef struct progpu_native_scene_shader_effect_affine {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t input_resource_index;
+    uint32_t sampler_resource_index;
+    uint32_t derivative_register;
+    uint32_t flags;
+    uint32_t reserved[2];
+    /* PROGPU_CSHARP_TYPE: SceneShaderAffineFrame */
+    progpu_native_scene_shader_affine_frame frame;
+    /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
+    progpu_native_scene_shader_effect program;
+} progpu_native_scene_shader_effect_affine;
+
 /*
  * A bounded linear retained effect chain. Effects are evaluated in array
  * order, so effects[1] consumes effects[0]'s output. The engine copies all

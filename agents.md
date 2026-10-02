@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Affine ShaderEffect frames retain all original float XY coefficients and the
+independent scale-space input lattice. Keep full homogeneous residual/projection,
+mirrored orientation, actual parent target and all derivative components; never
+resample evaluated effects or replace a transformed clip with its envelope.
+Version 6 has a distinct wire, reader and shader layout; v1–v5 contracts remain
+independent. Actual source transform history must be witnessed per push, not
+reconstructed from a final double aggregate. Named rotation/skew constructors
+need their own original primitive proof. See docs/native-shader-affine-frame.md.
+
 Retained RGB glyph replay keeps the explicit box model separate from original
 DirectWrite modes. Prove opacity from the actual materialized target, never a
 root clear or ancestor. Preserve original sampling phase, exact two-axis DPI,
