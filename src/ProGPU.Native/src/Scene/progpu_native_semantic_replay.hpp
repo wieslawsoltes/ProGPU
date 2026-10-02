@@ -280,7 +280,8 @@ enum class semantic_replay_kind : std::uint8_t {
     bundle,
     push_layer,
     pop_layer,
-    rgb_glyphs
+    rgb_glyphs,
+    clear_target
 };
 
 // Owned CPU originals survive immutable-scene replacement and bundle reuse.
@@ -306,6 +307,7 @@ struct semantic_render_bundle_span {
     std::shared_ptr<semantic_shader_binding> shader_effect;
     std::shared_ptr<const semantic_rgb_glyph_packet> rgb_glyphs;
     semantic_replay_kind kind = semantic_replay_kind::bundle;
+    progpu_native_color clear_color{};
     WGPURenderBundle bundle = nullptr;
     std::uint32_t clip_x = 0U;
     std::uint32_t clip_y = 0U;

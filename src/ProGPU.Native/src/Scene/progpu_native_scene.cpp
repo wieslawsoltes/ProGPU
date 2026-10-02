@@ -97,6 +97,7 @@ bool is_known_command(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE ||
         kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
         kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER ||
+        kind == PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET ||
         (kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
             kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN);
 }
@@ -1214,6 +1215,23 @@ validation_result validate(
                         offset);
                 }
             }
+        }
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET) {
+            if (command.resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+                command.payload_size != sizeof(progpu_native_color) ||
+                command.bounds_x != 0.0F || command.bounds_y != 0.0F ||
+                command.bounds_width != 0.0F || command.bounds_height != 0.0F ||
+                (command.flags & ~PROGPU_NATIVE_SCENE_RECORD_REQUIRED) != 0U)
+                return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+            const auto color = read_record<progpu_native_color>(bytes, command.payload_offset);
+            if (!std::isfinite(color.r) || !std::isfinite(color.g) || !std::isfinite(color.b) ||
+                !std::isfinite(color.a) || color.a < 0.0F || color.a > 1.0F)
+                return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, command.payload_offset);
+            // A storage operation is observable draw work, but never indexes
+            // one of the resource-backed geometry draw families (16..27).
+            ++draw_count;
+            payload_bytes += command.payload_size;
+            continue;
         }
         if (is_draw_command(command.kind)) {
             if (command.resource_index >= header.resource_count) {
