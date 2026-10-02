@@ -66,6 +66,9 @@ void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
         return pixels;
     };
 
+    // Preserve the original forty LTR observations, then request the separate
+    // forty RTL runs from genuine SDK instances of the same immutable bytes.
+    for (const bool right_to_left : {false, true}) {
     for (const auto options : variable_pixel_font_options) {
         const auto bytes = make_variable_font(options);
         ComPtr<IDWriteFontFile> file;
@@ -164,14 +167,14 @@ void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
             }
             for (const bool nominal : {false, true}) {
                 const auto variant = static_cast<std::uint32_t>((case_index + (nominal ? 1U : 0U)) % 3U);
-                const float advances[]{12, -3, 9};
+                const float advances[]{12, -3, right_to_left ? 20.0F : 9.0F};
                 const compat::glyph_offset offsets[]{{0,0}, {0,0}, {-0.75F,2.5F}};
                 const compat::glyph_run run{captured->face.get(), 31.25F, 3U, indices,
-                    nominal ? nullptr : advances, offsets, 0, 2U};
+                    nominal ? nullptr : advances, offsets, 0, right_to_left ? 3U : 2U};
                 original_glyph_target frame;
                 frame.identity = com::pointer<com::unknown>(typed_target.get());
-                frame.generation = case_index * 2U + (nominal ? 2U : 1U);
-                frame.transform = variable_pixel_transform(variant); frame.baseline = {4,28};
+                frame.generation = (right_to_left ? 10U : 0U) + case_index * 2U + (nominal ? 2U : 1U);
+                frame.transform = variable_pixel_transform(variant); frame.baseline = {right_to_left ? 56.0F : 4.0F,28};
                 frame.pixels = {64U,64U}; frame.dpi_x = 96; frame.dpi_y = 96;
                 frame.format = {87U, compat::alpha_mode::premultiplied};
                 frame.antialias = variant == 0U ? compat::text_antialias_mode::aliased : compat::text_antialias_mode::grayscale;
@@ -181,6 +184,50 @@ void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
                     typed_parameters.get(), frame, request) == S_OK && prepared->prepare(request, glyphs) == S_OK &&
                     (glyphs->request().glyphs.advances() == nullptr) == nominal,
                     "original variable prepared source occurrence identity");
+                if (right_to_left) {
+                    const auto& retained = glyphs->request();
+                    require(retained.font == captured && retained.bidi_level == 3U && retained.sideways == 0 &&
+                        retained.glyphs.count() == 3U && retained.glyphs.indices()[0] == 1U &&
+                        retained.glyphs.indices()[1] == 0U && retained.glyphs.indices()[2] == 2U &&
+                        retained.glyphs.offsets() != nullptr && retained.glyphs.offsets()[2].advance_offset == -0.75F &&
+                        retained.glyphs.offsets()[2].ascender_offset == 2.5F &&
+                        (nominal || (retained.glyphs.advances()[0] == 12.0F && retained.glyphs.advances()[1] == -3.0F &&
+                                     retained.glyphs.advances()[2] == 20.0F)),
+                        "variable RTL retains logical IDs, exact source owner, signed advances and offsets");
+                    const auto expected = variable_rtl_pixel_rectangles(case_index, nominal);
+                    require(glyphs->segments().size() == 8U, "variable RTL two original ink occurrences");
+                    for (std::size_t occurrence = 0U; occurrence < 2U; ++occurrence) {
+                        const auto& first = glyphs->segments()[occurrence * 4U];
+                        compat::rectangle_f bounds{first.p0.x, first.p0.y, first.p0.x, first.p0.y};
+                        for (std::size_t edge = 0U; edge < 4U; ++edge) {
+                            const auto& segment = glyphs->segments()[occurrence * 4U + edge];
+                            require(segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE,
+                                "variable RTL original rectangular contour kind");
+                            for (const auto point : {segment.p0, segment.p1}) {
+                                bounds.left = std::min(bounds.left, point.x); bounds.right = std::max(bounds.right, point.x);
+                                bounds.top = std::min(bounds.top, point.y); bounds.bottom = std::max(bounds.bottom, point.y);
+                            }
+                        }
+                        require(bounds.left == expected[occurrence].left && bounds.top == expected[occurrence].top &&
+                            bounds.right == expected[occurrence].right && bounds.bottom == expected[occurrence].bottom,
+                            "variable RTL preserves each logical occurrence's independent varied origin/advance rectangle");
+                    }
+                    ComPtr<ID2D1PathGeometry> original_rtl_geometry;
+                    ComPtr<ID2D1GeometrySink> original_rtl_sink;
+                    const DWRITE_GLYPH_OFFSET original_offsets[]{{0,0}, {0,0}, {-0.75F,2.5F}};
+                    require(factory->CreatePathGeometry(original_rtl_geometry.GetAddressOf()) == S_OK &&
+                        original_rtl_geometry->Open(original_rtl_sink.GetAddressOf()) == S_OK &&
+                        face->GetGlyphRunOutline(31.25F, indices, nominal ? nullptr : advances, original_offsets,
+                            3U, FALSE, TRUE, original_rtl_sink.Get()) == S_OK && original_rtl_sink->Close() == S_OK,
+                        "original variable RTL logical-run outline observation");
+                    D2D1_RECT_F original_bounds{};
+                    require(original_rtl_geometry->GetBounds(nullptr, &original_bounds) == S_OK &&
+                        original_bounds.left == std::min(expected[0].left, expected[1].left) - 56.0F &&
+                        original_bounds.top == std::min(expected[0].top, expected[1].top) - 28.0F &&
+                        original_bounds.right == std::max(expected[0].right, expected[1].right) - 56.0F &&
+                        original_bounds.bottom == std::max(expected[0].bottom, expected[1].bottom) - 28.0F,
+                        "original variable RTL outline bounds preserve current/empty advances and signed offsets");
+                }
                 com::pointer<compat::path_geometry> geometry;
                 com::pointer<compat::geometry_sink> sink;
                 require(typed_factory->CreatePathGeometry(geometry.put()) == S_OK && geometry->Open(sink.put()) == S_OK &&
@@ -200,7 +247,7 @@ void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
                 for (std::size_t index = 0U; index < (nominal ? 4U : 3U); ++index) {
                     context->SetTarget(target.Get());
                     record_variable_pixel_case(typed_factory.get(), typed_target.get(), prepared, typed_parameters.get(),
-                        case_index, nominal, variant, paths[index], require, geometry.get(), original_advances.data());
+                        case_index, nominal, variant, paths[index], require, geometry.get(), original_advances.data(), right_to_left);
                     pixels[index] = copy_pixels();
                 }
                 require(pixels[0] == pixels[1] && pixels[0] == pixels[2],
@@ -209,6 +256,7 @@ void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
                     "original variable null advance differs from original design advance");
             }
         }
+    }
     }
 }
 } // namespace progpu::native::direct2d::tests

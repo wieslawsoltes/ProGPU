@@ -1,7 +1,8 @@
 # Prepared original variable glyphs
 
 This implementation extends the explicit original-font `OUTLINE` / natural,
-horizontal even-bidi Direct2D path. It is not a hint interpreter, a modern
+horizontal Direct2D path. Direction is retained by the shared
+[original placement](direct2d-horizontal-glyph-direction.md). It is not a hint interpreter, a modern
 DirectWrite raster implementation, automatic text admission or desktop evidence.
 All implementation and authored controls in this stack are **unexecuted** pending
 the final integrated validation requested by the user.
@@ -60,7 +61,7 @@ These inform ownership separation, not arithmetic or pixel oracles.
 
 Original Windows instance/outline/nominal-metric comparisons and paired native
 provider full-byte controls are required. No expected result is derived from the
-decoder under test. CFF/CFF2, simulations, multiple files, sideways/odd-bidi
+decoder under test. CFF/CFF2, simulations, multiple files, sideways
 placement, GDI measuring, hinting and unsupported raster policies stay closed.
 Neither a prepared object nor an authored fixture proves those contracts or
 qualifies arbitrary variable-font application rendering.
@@ -93,3 +94,38 @@ The separate stacked Windows companion creates actual original SDK variable
 instances from the same authored bytes and compares original metrics, outlines
 and complete images. That companion is an independent required qualification
 gate, not a claim implied by these provider fixtures.
+
+## Variable horizontal RTL controls (authored only)
+
+The existing forty LTR configurations, original font bytes, expected design
+table, transforms, clips and layer inputs are unchanged. A second direction pass
+adds forty RTL configurations over the same four alternatives and five instances,
+using original logical IDs `1,0,2`, bidi level 3 and baseline `(56,28)`. Explicit
+advances are `12,-3,20`; null advances use the independent per-instance design
+table. The third explicit advance differs from the LTR input deliberately so the
+RTL ink regions have a visible gap. The no-ink middle glyph still moves the pen.
+The original third offset `(-0.75,2.5)` changes its horizontal direction only.
+
+The separate RTL rectangle oracle subtracts each occurrence's cumulative advance
+including its own advance, then applies its independently authored variable
+origin. It does not query the decoder or the prepared run. Both providers consume
+the shared existing callback with unchanged draw/command/submission assertions,
+comparing every cold/warm/independent RGBA byte. Absolute first/last ink and gap
+samples supplement the original nonempty/background/channel controls. Mutable
+source bytes and axis callbacks are retired before each provider replay, exactly
+as in the LTR fixture.
+
+The Windows companion requests genuine variable Face5 instances and adds actual
+RTL `GetGlyphRunOutline` bounds plus original `DrawGlyphRun` images. It checks
+each prepared contour's logical occurrence against its own independent rectangle,
+retained source owner/direction/IDs/offsets/advance policy, and compares complete
+images with both independently recorded rectangles and prepared contours through
+the original rasterizer. Null advances must also match actual SDK design-advance
+queries. These controls use the public [logical outline input](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritefontface-getglyphrunoutline)
+and [directional offset](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ns-dwrite-dwrite_glyph_offset)
+contracts; there is no reordering, reshaping or source-output substitution.
+
+All eighty configurations are authored, not executed. No build, syntax check,
+source verifier, original SDK probe, GPU run or CI was performed for this child.
+The final integrated validation must execute both providers and the independent
+Windows controls without changing existing deadlines, counters or tolerances.

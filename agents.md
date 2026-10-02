@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Prepared original horizontal glyphs preserve logical source order and every bidi
+level. RTL changes the advance-box origin and directional offset, never outline
+orientation, glyph order or ascender offset. Keep explicit/null and signed
+advances, no-ink movement, paired variable origin/metrics and whole-run atomic
+publication. No extra source shaping/font callback or raster policy is admitted.
+Retain independent original Windows and both provider full-frame controls;
+authored direction controls are not source UI or package qualification. See
+docs/direct2d-horizontal-glyph-direction.md.
+
 Version-4 native ShaderEffect captures retain original local float edges and a
 traversal-owned root-DPI/per-push float witness. Allocate floor(min)/ceil(max) in
 scale space, preserving complete UV/derivative extent and integral residual
