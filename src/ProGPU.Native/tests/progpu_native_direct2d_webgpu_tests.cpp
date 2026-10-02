@@ -2393,7 +2393,9 @@ int main(int argc, char** argv)
     verify_owned_bitmap_scene_copies(gpu, engine);
     verify_full_target_clear(gpu, engine);
     progpu::native::direct2d::tests::verify_layer_background(
-        [&](d2d::scene_render_target_native* target) { return render_scene(gpu, engine, target, 2U, 4U, 1U); }, require);
+        [&](d2d::scene_render_target_native* target, bool cleared) {
+            return render_scene(gpu, engine, target, cleared ? 3U : 2U, cleared ? 7U : 4U, 1U);
+        }, require);
     progpu::native::direct2d::tests::verify_clipped_clear(
         [&](d2d::scene_render_target_native* target) { return render_scene(gpu, engine, target, 3U, 9U, 1U); }, require);
     portable_scene scene = record_scene();

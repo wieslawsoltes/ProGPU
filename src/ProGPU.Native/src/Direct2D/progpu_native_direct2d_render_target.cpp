@@ -5722,6 +5722,10 @@ public:
             return;
         }
         layer_stack_[scope_depth_] = layer_native;
+        layer_clear_bounds_[scope_depth_] = has_bounds ? bounds : progpu_native_image_rect{
+            0, 0, static_cast<float>(pixel_width_) * 96.0F / dpi_x_,
+            static_cast<float>(pixel_height_) * 96.0F / dpi_y_};
+        layer_initialization_[scope_depth_] = initialization_flags;
         scope_stack_[scope_depth_] = scope_opacity_layer;
         ++scope_depth_;
     }
@@ -5928,19 +5932,33 @@ public:
             return;
         }
         if (scope_depth_ != 0U) {
-            if (clip_depth_ != scope_depth_ ||
-                !std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
-                    [](std::uint8_t scope) { return scope == scope_axis_aligned_clip; })) {
+            if (!std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                    [](std::uint8_t scope) { return scope == scope_axis_aligned_clip || scope == scope_opacity_layer; })) {
                 latch(not_implemented);
                 return;
+            }
+            progpu_native_image_rect clear_bounds = clip_depth_ == 0U
+                ? progpu_native_image_rect{} : clip_stack_[clip_depth_ - 1U];
+            bool opaque = pixel_format_.alpha == alpha_mode::ignore;
+            for (std::size_t index = scope_depth_; index != 0U; --index) {
+                if (scope_stack_[index - 1U] != scope_opacity_layer) continue;
+                const auto initialization = layer_initialization_[index - 1U];
+                if (initialization == 0U) {
+                    latch(not_implemented);
+                    return;
+                }
+                clear_bounds = layer_clear_bounds_[index - 1U];
+                if (clip_depth_ != 0U) clear_bounds = intersect_rectangles(clear_bounds, clip_stack_[clip_depth_ - 1U]);
+                opaque = (initialization & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
+                break;
             }
             if (draw_count_ == std::numeric_limits<std::uint32_t>::max()) {
                 latch(com::out_of_memory);
                 return;
             }
-            const float alpha = pixel_format_.alpha == alpha_mode::ignore ? 1.0F : value.alpha;
+            const float alpha = opaque ? 1.0F : value.alpha;
             bool recorded = false;
-            if (!direct2d::append_clipped_clear(builder_, clip_stack_[clip_depth_ - 1U],
+            if (!direct2d::append_clipped_clear(builder_, clear_bounds,
                     {value.red, value.green, value.blue, alpha}, recorded)) {
                 latch(builder_failure());
                 return;
@@ -9104,6 +9122,8 @@ private:
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> scope_stack_{};
     std::array<com::pointer<scene_layer_native>,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_stack_{};
+    std::array<progpu_native_image_rect, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_clear_bounds_{};
+    std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_initialization_{};
     std::size_t clip_depth_ = 0U;
     std::size_t scope_depth_ = 0U;
     float dpi_x_ = 96.0F;

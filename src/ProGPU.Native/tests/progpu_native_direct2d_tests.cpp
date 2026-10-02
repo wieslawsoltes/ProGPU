@@ -100,7 +100,7 @@ void require(bool condition, const char* message)
     }
 }
 
-void layer_background_regressions(ID2D1DeviceContext* source_context)
+void layer_background_regressions(progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
 {
     namespace fixture = progpu::native::direct2d::tests;
     ComPtr<ID2D1Device> device;
@@ -120,7 +120,7 @@ void layer_background_regressions(ID2D1DeviceContext* source_context)
     require(context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &target_properties, target.GetAddressOf()) == S_OK &&
         context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &read_properties, readback.GetAddressOf()) == S_OK,
         "layer background original target/readback failed");
-    for (std::uint32_t variant = 0U; variant < 24U; ++variant) {
+    for (const bool clear_layer : {false, true}) for (std::uint32_t variant = 0U; variant < 24U; ++variant) {
         const auto record = [&] {
             return fixture::record_layer_background(reinterpret_cast<compat::render_target*>(context.Get()),
                 reinterpret_cast<compat::factory*>(factory.Get()), variant,
@@ -132,7 +132,7 @@ void layer_background_regressions(ID2D1DeviceContext* source_context)
                         D2D1::Matrix3x2F::Identity(), parameters.opacity, nullptr,
                         static_cast<D2D1_LAYER_OPTIONS1>(fixture::layer_background_options(variant))};
                     context->PushLayer(&original, nullptr);
-                });
+                }, clear_layer);
         };
         context->SetTarget(target.Get());
         require(record() == S_OK, "layer background original Windows draw failed");
@@ -145,7 +145,7 @@ void layer_background_regressions(ID2D1DeviceContext* source_context)
         std::vector<std::uint8_t> pixels(64U * 256U);
         for (std::size_t row = 0U; row < 64U; ++row)
             std::memcpy(pixels.data() + row * 256U, mapped.bits + row * mapped.pitch, 256U);
-        require(readback->Unmap() == S_OK && fixture::layer_background_pixels(pixels, 64U, variant, true),
+        require(readback->Unmap() == S_OK && fixture::layer_background_pixels(pixels, 64U, variant, true, clear_layer),
             "layer background original Windows full bytes differ from independent expected pixels");
 
         ComPtr<ID2D1CommandList> list;
@@ -156,6 +156,14 @@ void layer_background_regressions(ID2D1DeviceContext* source_context)
         context->SetTarget(nullptr);
         progpu_native_direct2d_scene_recorder* recorder = nullptr;
         std::int32_t hr = E_FAIL;
+        // Original command lists can discard overwritten draws. Count their
+        // real callbacks independently; do not make source-call count an oracle.
+        progpu_native_direct2d_command_stream_summary summary{};
+        summary.struct_size = sizeof(summary);
+        require(progpu_native_direct2d_command_list_get_stream_summary(surface, list.Get(),
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS,
+                &summary, &hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
+            "layer background independent original callback inventory failed");
         require(progpu_native_direct2d_scene_recorder_create(0xBC00U + variant, 1U, nullptr, &recorder, &hr) ==
             PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "layer background recorder failed");
         void* raw_sink = nullptr;
@@ -170,7 +178,8 @@ void layer_background_regressions(ID2D1DeviceContext* source_context)
             PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "layer background stream measurement failed");
         std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
         require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
-            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::layer_background_contract(bytes, variant),
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::layer_background_contract(bytes, variant, clear_layer,
+                summary.draw_count + summary.fill_count),
             "layer background original stream lost typed initialization metadata");
         sink.Reset();
         progpu_native_direct2d_scene_recorder_destroy(recorder);
@@ -181,7 +190,7 @@ void full_target_clear_regressions(
     progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
 {
     namespace fixture = progpu::native::direct2d::tests;
-    layer_background_regressions(source_context);
+    layer_background_regressions(surface, source_context);
     ComPtr<ID2D1Device> device;
     source_context->GetDevice(device.GetAddressOf());
     ComPtr<ID2D1DeviceContext> context;

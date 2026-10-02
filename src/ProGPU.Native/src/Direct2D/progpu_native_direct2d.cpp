@@ -6275,13 +6275,25 @@ public:
             return fail_invalid_value();
         }
         if (scope_depth_ != 0U) {
-            if (clip_depth_ != scope_depth_ ||
-                !std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
-                    [](uint8_t scope) { return scope == scope_axis_aligned_clip; }))
+            if (!std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                    [](uint8_t scope) { return scope == scope_axis_aligned_clip || scope == scope_opacity_layer; }))
                 return fail_unsupported_operation();
+            progpu_native_image_rect clear_bounds = clip_depth_ == 0U
+                ? progpu_native_image_rect{} : clip_stack_[clip_depth_ - 1U];
+            bool opaque = false;
+            for (std::uint32_t index = scope_depth_; index != 0U; --index) {
+                if (scope_stack_[index - 1U] != scope_opacity_layer) continue;
+                const auto initialization = layer_initialization_[index - 1U];
+                if (initialization == 0U || !layer_clear_bounds_known_[index - 1U])
+                    return fail_unsupported_operation();
+                clear_bounds = layer_clear_bounds_[index - 1U];
+                if (clip_depth_ != 0U) clear_bounds = intersect_rectangles(clear_bounds, clip_stack_[clip_depth_ - 1U]);
+                opaque = (initialization & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
+                break;
+            }
             bool recorded = false;
-            if (!progpu::native::direct2d::append_clipped_clear(builder_, clip_stack_[clip_depth_ - 1U],
-                    {value.r, value.g, value.b, value.a}, recorded)) return fail_builder();
+            if (!progpu::native::direct2d::append_clipped_clear(builder_, clear_bounds,
+                    {value.r, value.g, value.b, opaque ? 1.0F : value.a}, recorded)) return fail_builder();
             has_aliased_primitives_ |= recorded;
             has_opacity_layers_ |= recorded;
             // Original stream Clear is not a draw callback: keep its existing
@@ -6689,6 +6701,13 @@ public:
         if (!builder_.push_layer(layer)) {
             return fail_builder();
         }
+        layer_clear_bounds_known_[scope_depth_] = has_bounds ||
+            (target_width_ > 0.0 && target_height_ > 0.0 &&
+                target_width_ <= std::numeric_limits<float>::max() && target_height_ <= std::numeric_limits<float>::max());
+        layer_clear_bounds_[scope_depth_] = has_bounds ? bounds : progpu_native_image_rect{
+            0, 0, static_cast<float>(target_width_), static_cast<float>(target_height_)};
+        layer_initialization_[scope_depth_] = layer.flags &
+            (PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND | PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA);
         scope_stack_[scope_depth_] = scope_opacity_layer;
         ++scope_depth_;
         has_opacity_layers_ = true;
@@ -8589,6 +8608,9 @@ private:
     static constexpr uint8_t scope_opacity_layer = 2U;
     static constexpr uint8_t scope_antialiased_axis_clip = 3U;
     std::array<uint8_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> scope_stack_{};
+    std::array<progpu_native_image_rect, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_clear_bounds_{};
+    std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_initialization_{};
+    std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_clear_bounds_known_{};
     std::vector<brush_cache_entry> brush_cache_;
     D2D1_ANTIALIAS_MODE antialias_mode_ =
         D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;

@@ -32,14 +32,22 @@ write after copying, retaining exact copied RGB. Transparent initialization uses
 an opaque-black attachment clear. Reused transient slots take the current replay
 scope's policy, never the last compiled scope's policy.
 
-Authored controls cover 24 opaque/translucent parent, full/half opacity and
+New OPTIONS1 scopes retain their captured clear extent and alpha policy. Clear
+appends a real SRC replacement inside that owned scope, ignoring later transforms,
+preserving outside history and applying the layer's mask/opacity only at pop.
+Antialiased clip stacks and legacy uninitialized-layer Clear remain explicit
+unsupported cases. A target-independent command recorder also rejects Clear in
+an unbounded layer unless real target metrics are supplied; it never invents an
+allocation extent. Source setup must keep this boundary explicit.
+
+Authored controls cover 48 opaque/translucent parent, full/half opacity and
 original aliased geometric-mask combinations, every pixel cold/warm on both
 providers, actual Microsoft device-context pixels, original command-list
 translation, and atomic invalid-option/flag rejection. Legacy ClearType rejection
 is retained. These controls are **not executed yet**: validation is deferred to
 the final integrated stack tip.
 
-Remaining implementation: Clear inside materialized source layers; real ClearType RGB glyph
+Remaining implementation: the unbounded/legacy Clear cases above; real ClearType RGB glyph
 coverage and corresponding original Windows controls. None is silently admitted
 by the background flag or inferred from scalar glyph outlines.
 
