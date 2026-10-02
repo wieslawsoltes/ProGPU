@@ -6,6 +6,7 @@
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
+#include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -6430,6 +6431,7 @@ int run_tests()
     if (!full_target_clear_regressions(scene_factory.get())) return 402;
     if (!progpu::native::direct2d::tests::formatted_scene_copy_contract(factory.get(), second_factory.get())) return 403;
     if (!progpu::native::direct2d::tests::owned_bitmap_scene_copy_contract(factory.get(), second_factory.get())) return 404;
+    if (!progpu::native::direct2d::tests::scoped_source_copy_contract(factory.get())) return 405;
     if (!owned_bitmap_wic_read_boundary(factory.get())) return 405;
     const compat::scene_render_target_properties target_properties{
         640U, 480U, 96.0F, 96.0F, 7001U, 11U};
@@ -8814,14 +8816,17 @@ int run_tests()
             return 288;
         upload_target->BeginDraw();
         const compat::rectangle_f clip{0.0F, 0.0F, 2.0F, 2.0F};
-        upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::aliased);
+        upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::per_primitive);
         if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != compat::wrong_state) return 288;
         upload_target->PopAxisAlignedClip();
-        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok ||
-            upload_target->EndDraw(nullptr, nullptr) != com::ok) return 288;
+        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok) return 288;
+        upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::aliased);
+        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok) return 288;
+        upload_target->PopAxisAlignedClip();
+        if (upload_target->EndDraw(nullptr, nullptr) != com::ok) return 288;
         compat::scene_render_target_summary after_copy{};
         upload_scene->GetSummary(&after_copy);
-        if (after_copy.generation <= before_copy.generation || after_copy.draw_count != 2U) return 288;
+        if (after_copy.generation <= before_copy.generation || after_copy.draw_count != 3U) return 288;
         std::vector<std::byte> full_upload(8U * 8U * pixel_bytes, std::byte{0});
         if (upload_bitmap->CopyFromMemory(nullptr, full_upload.data(), 8U * pixel_bytes) != com::ok) return 288;
         const auto full_copy_size = upload_scene->GetRequiredSceneSize();

@@ -33,6 +33,15 @@ raster-padding overrides. Keep actual DPI explicit and invalid/overflow output
 atomic; no texture/device ownership or native capture admission belongs here.
 See docs/effect-capture-frame.md; arithmetic checks are not shader pixel parity.
 
+Compatible-target bitmap memory copies may suspend only captured aliased
+axis-aligned clip SAVE scopes. Storage replacement ignores the drawing transform;
+subsequent draws retain original capture-time clips, transform and tags. Preserve
+balanced original-state restoration, atomic appended-tail rollback and full-write
+history replacement; geometric/AA/opacity/input scopes remain rejected. Ordinary
+owned-bitmap storage and other copy APIs keep their own admission. Require paired
+provider pixels and actual Windows active-copy observations before qualification.
+See docs/direct2d-scoped-memory-copies.md.
+
 ShaderEffect UV derivative registers use explicit version-3 metadata while
 preserving v1/v2 layouts. The native binding writes the selected register after
 original constants from the proven complete positive-axis physical capture

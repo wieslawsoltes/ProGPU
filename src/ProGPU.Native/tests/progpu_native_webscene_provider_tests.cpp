@@ -19,6 +19,8 @@
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
+#include "progpu_native_direct2d_scoped_copy_fixture.hpp"
+#include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "progpu_native_webscene_state_mask_fixture.hpp"
@@ -3709,6 +3711,14 @@ int main(int argc, char** argv) {
             return render_retained_scene(reference, stream, header.generation, submissions, header.scene_id,
                 1U, header.command_count, &layers, &metrics, test.dpi, nullptr, expected_status,
                 false, 96U, nullptr, nullptr, 64U);
+        }, require);
+    progpu::native::direct2d::tests::verify_scoped_memory_copy_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_retained_scene(reference, stream, generation, submissions, 0x95A3U, 1U, 1U);
+        }, require);
+    progpu::native::direct2d::tests::verify_scoped_source_copy_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_retained_scene(reference, stream, generation, submissions, 0x95B3U, 1U, 1U);
         }, require);
     for (auto* picture_engine : picture_engines) progpu_native_engine_destroy(picture_engine);
     progpu::native::direct2d::tests::verify_owned_bitmap_scene_copy_pixels(d2d_factory.get(),

@@ -4106,6 +4106,12 @@ claim about native Direct2D's permitted calls.
 
 ## Implementation-first checkpoint: bitmap and compatible-target source copies
 
+An additive implementation-first lane now covers compatible-target memory
+replacement during active captured aliased axis-aligned clips. It preserves the
+root-only old builder API and other copy-scope failures; see
+[storage copies with active aliased clips](direct2d-scoped-memory-copies.md) for
+the exact atomic transaction and pending paired-provider/original-Windows gates.
+
 Native compatible bitmap destinations now implement `CopyFromBitmap` and
 `CopyFromRenderTarget` through the private typed image-source contract. Bitmap
 sources include owned uploads, WIC lock-backed/shared views and compatible target
