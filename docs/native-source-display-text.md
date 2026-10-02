@@ -147,6 +147,25 @@ This connects bounded native recomposition to fitting, not ordinary WPF Display
 admission. Complex/mark/contextual placement, offset conversion, source transport
 and independent wrapping/interaction comparisons remain explicit gates.
 
+Optional intrinsic measurement retains double minimum/maximum widths from the
+complete original paragraph, independent of requested width and maximum lines.
+The same placement candidates measure legal words and complete hard rows; source
+scalars across each whole original cluster determine trailing whitespace. An
+unproved legal placement boundary fails rather than returning an estimated
+minimum. This pass has its own fixed 2^24 candidate-glyph budget, publishes only
+after all rows succeed, and reflow copies its original owned result unchanged.
+The request is explicit; absent measurement is not a zero-width result.
+
+Authored PairPos controls use the real context, GSUB/capture/GPOS pipeline and
+original two-interpreter/font ownership. Latin and genuine Hebrew odd runs have
+four identical source glyphs and a two-pixel pair adjustment at physical em 20.
+Wrapping into two rows must remove the crossed pair's advance and placement,
+while all original raw flags/metrics remain unchanged. Width-changing reflow
+after context retirement, original nonzero suffix indices, whole-word overflow,
+double writer/interaction ownership, corrupted provenance and unsafe prepared
+edges are independently asserted. These controls are authored for hosted native
+execution; local syntax checking is not an execution or parity result.
+
 ## Revalidated diagnostic evidence
 
 The earlier immutable receipt `device-em-source-rounding-hypotheses.json` was

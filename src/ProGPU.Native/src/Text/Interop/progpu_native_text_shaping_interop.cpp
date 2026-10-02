@@ -3591,6 +3591,17 @@ static progpu_native_status paragraph_layout_core(
                 }
                 retained.source_fitting = fitted.generation;
                 retained.source_logical_metrics = fitted.generation->metrics;
+                if (retained.has_source_intrinsic_widths) {
+                    hinted_source_intrinsic_widths source_intrinsic{};
+                    const auto measured = measure_hinted_source_intrinsic_widths(retained, source_intrinsic);
+                    if (measured != PROGPU_NATIVE_STATUS_SUCCESS) {
+                        result->error_code = static_cast<std::uint32_t>(font_error::invalid_argument);
+                        result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
+                        return measured;
+                    }
+                    retained.source_minimum_intrinsic_width = source_intrinsic.minimum;
+                    retained.source_maximum_intrinsic_width = source_intrinsic.maximum;
+                }
             }
         }
         // Shape and resolve bidi over the complete original paragraph first.
@@ -4416,6 +4427,7 @@ progpu_native_status try_layout_context_hinted_paragraph(
             candidate->source_maximum_width = source_layout->maximum_width;
             candidate->source_line_height = source_layout->line_height;
             candidate->source_allow_emergency_break = source_layout->allow_emergency_break;
+            candidate->has_source_intrinsic_widths = source_layout->measure_intrinsic_widths;
             candidate->source_style_metrics.assign(source_layout->style_metrics.begin(), source_layout->style_metrics.end());
         }
         for (std::size_t i = 0U; i < context->font_count(); ++i) candidate->font_sources.push_back(context->source_at(i));
@@ -4515,6 +4527,9 @@ static hinted_paragraph_reflow_result reflow_hinted_paragraph_core(
         candidate->source_allow_emergency_break = source.source_allow_emergency_break;
         candidate->source_maximum_width = source_geometry ? maximum_width : source.source_maximum_width;
         candidate->source_line_height = source.source_line_height;
+        candidate->has_source_intrinsic_widths = source.has_source_intrinsic_widths;
+        candidate->source_minimum_intrinsic_width = source.source_minimum_intrinsic_width;
+        candidate->source_maximum_intrinsic_width = source.source_maximum_intrinsic_width;
         candidate->source_style_metrics = source.source_style_metrics;
         candidate->source_item_metrics = source.source_item_metrics;
         candidate->source_logical_metrics = source.source_logical_metrics;

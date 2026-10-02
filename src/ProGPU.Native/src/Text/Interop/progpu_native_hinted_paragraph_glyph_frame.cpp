@@ -76,10 +76,16 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
             static_cast<float>(paragraph.source_maximum_width) != paragraph.layout.maximum_width ||
             static_cast<float>(paragraph.source_line_height) != paragraph.layout.line_height ||
             paragraph.layout.alignment == PROGPU_NATIVE_TEXT_ALIGNMENT_JUSTIFY) return false;
+        if (!std::isfinite(paragraph.source_minimum_intrinsic_width) || paragraph.source_minimum_intrinsic_width < 0.0 ||
+            !std::isfinite(paragraph.source_maximum_intrinsic_width) || paragraph.source_maximum_intrinsic_width < 0.0 ||
+            (!paragraph.has_source_intrinsic_widths && (paragraph.source_minimum_intrinsic_width != 0.0 ||
+                paragraph.source_maximum_intrinsic_width != 0.0))) return false;
         if (logical_count != 0U && (paragraph.source_fitting == nullptr ||
             !validate_hinted_source_fitting(paragraph, *paragraph.source_fitting))) return false;
     } else if (!paragraph.source_style_metrics.empty() || !paragraph.source_item_metrics.empty() ||
-        !paragraph.source_logical_metrics.empty() || !paragraph.source_glyphs.empty() || !paragraph.source_lines.empty()) return false;
+        !paragraph.source_logical_metrics.empty() || !paragraph.source_glyphs.empty() || !paragraph.source_lines.empty() ||
+        paragraph.has_source_intrinsic_widths || paragraph.source_minimum_intrinsic_width != 0.0 ||
+        paragraph.source_maximum_intrinsic_width != 0.0) return false;
     std::uint64_t source_end = 0U;
     for (std::size_t i = 0U; i < scalar_count; ++i) {
         const auto& source = paragraph.source_input[i];

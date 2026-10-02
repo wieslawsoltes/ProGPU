@@ -54,6 +54,33 @@ struct candidate_line final {
     std::vector<hinted_source_fitted_slice> slices{};
 };
 
+bool original_occurrence_map(const hinted_paragraph_generation& paragraph,
+    std::vector<std::vector<std::uint32_t>>& raw_to_logical) {
+    const auto count = paragraph.logical_glyphs.size();
+    if (!paragraph.has_source_geometry || count > UINT32_MAX || paragraph.logical_owners.size() != count ||
+        paragraph.breaks_after.size() != count || paragraph.source_styles.size() != paragraph.styles.size()) return false;
+    raw_to_logical.resize(paragraph.runs.size());
+    std::size_t run_end = 0U;
+    for (std::size_t run = 0U; run < paragraph.runs.size(); ++run) {
+        const auto& value = paragraph.runs[run];
+        if (value.generation == nullptr || value.style_index >= paragraph.source_styles.size() ||
+            value.logical_start != run_end || value.logical_count > count - run_end ||
+            value.generation->glyphs.size() != value.logical_count) return false;
+        run_end += value.logical_count;
+        raw_to_logical[run].resize(value.generation->glyphs.size(), UINT32_MAX);
+    }
+    if (run_end != count) return false;
+    for (std::size_t i = 0U; i < count; ++i) {
+        const auto owner = paragraph.logical_owners[i];
+        if (owner.run_index >= raw_to_logical.size() || owner.run_glyph_index >= raw_to_logical[owner.run_index].size() ||
+            raw_to_logical[owner.run_index][owner.run_glyph_index] != UINT32_MAX) return false;
+        const auto& run = paragraph.runs[owner.run_index];
+        if (i < run.logical_start || i - run.logical_start >= run.logical_count) return false;
+        raw_to_logical[owner.run_index][owner.run_glyph_index] = static_cast<std::uint32_t>(i);
+    }
+    return true;
+}
+
 progpu_native_status compose_candidate(const hinted_paragraph_generation& paragraph,
     std::span<const std::vector<std::uint32_t>> raw_to_logical, std::uint32_t start, std::uint32_t end,
     std::size_t& visits, candidate_line& output) {
@@ -137,24 +164,10 @@ hinted_source_fitting_result fit_hinted_source_paragraph(const hinted_paragraph_
         fitted->metrics.resize(count);
         fitted->slice_indices.resize(count, UINT32_MAX);
         fitted->slice_glyph_indices.resize(count, UINT32_MAX);
-        std::vector<std::vector<std::uint32_t>> raw_to_logical(paragraph.runs.size());
-        std::size_t run_end = 0U;
-        for (std::size_t run = 0U; run < paragraph.runs.size(); ++run) {
-            const auto& value = paragraph.runs[run];
-            if (value.generation == nullptr || value.style_index >= paragraph.source_styles.size() ||
-                value.logical_start != run_end || value.logical_count > count - run_end ||
-                value.generation->glyphs.size() != value.logical_count) return result;
-            run_end += value.logical_count;
-            raw_to_logical[run].resize(value.generation->glyphs.size(), UINT32_MAX);
-        }
-        if (run_end != count) return result;
+        std::vector<std::vector<std::uint32_t>> raw_to_logical;
+        if (!original_occurrence_map(paragraph, raw_to_logical)) return result;
         for (std::size_t i = 0U; i < count; ++i) {
             const auto owner = paragraph.logical_owners[i];
-            if (owner.run_index >= raw_to_logical.size() || owner.run_glyph_index >= raw_to_logical[owner.run_index].size() ||
-                raw_to_logical[owner.run_index][owner.run_glyph_index] != UINT32_MAX) return result;
-            const auto& run = paragraph.runs[owner.run_index];
-            if (i < run.logical_start || i - run.logical_start >= run.logical_count) return result;
-            raw_to_logical[owner.run_index][owner.run_glyph_index] = static_cast<std::uint32_t>(i);
             const auto style = paragraph.runs[owner.run_index].style_index;
             if (!project_hinted_source_geometry(paragraph.logical_glyphs[i], paragraph.source_styles[style].pixels_per_dip, fitted->metrics[i])) return result;
         }
@@ -226,6 +239,68 @@ hinted_source_fitting_result fit_hinted_source_paragraph(const hinted_paragraph_
     } catch (const std::bad_alloc&) { result.status = PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
     catch (...) { result.status = PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
     return result;
+}
+
+progpu_native_status measure_hinted_source_intrinsic_widths(const hinted_paragraph_generation& paragraph,
+    hinted_source_intrinsic_widths& result) noexcept {
+    try {
+        std::vector<std::vector<std::uint32_t>> raw_to_logical;
+        if (!original_occurrence_map(paragraph, raw_to_logical)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        const auto count = paragraph.logical_glyphs.size();
+        std::vector<std::uint8_t> whitespace(count);
+        std::size_t scalar = 0U;
+        for (std::size_t first = 0U; first < count;) {
+            const auto cluster = paragraph.logical_glyphs[first].cluster;
+            if (cluster < 0 || scalar >= paragraph.source_input.size() ||
+                paragraph.source_input[scalar].input_index != static_cast<std::uint32_t>(cluster)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            auto end = first + 1U;
+            while (end < count && paragraph.logical_glyphs[end].cluster == cluster) ++end;
+            if (end < count && paragraph.logical_glyphs[end].cluster <= cluster) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            const auto next = end < count ? static_cast<std::uint64_t>(paragraph.logical_glyphs[end].cluster) :
+                static_cast<std::uint64_t>(paragraph.source_input.back().input_index) + paragraph.source_input.back().input_length;
+            bool spaces = true;
+            while (scalar < paragraph.source_input.size() && paragraph.source_input[scalar].input_index < next)
+                spaces &= is_text_layout_trailing_space(paragraph.source_input[scalar++].code_point);
+            std::fill(whitespace.begin() + first, whitespace.begin() + end, static_cast<std::uint8_t>(spaces));
+            first = end;
+        }
+        const auto visible_width = [&](const candidate_line& candidate, double& width) noexcept {
+            double advance = 0.0; width = 0.0;
+            for (std::size_t i = 0U; i < candidate.metrics.size(); ++i) {
+                advance += candidate.metrics[i].advance_x;
+                if (!std::isfinite(advance) || advance < 0.0) return false;
+                if (whitespace[candidate.start + i] == 0U) width = advance;
+            }
+            return true;
+        };
+        hinted_source_intrinsic_widths measured{};
+        std::size_t visits = 0U;
+        std::uint32_t word_start = 0U, paragraph_start = 0U;
+        for (std::uint32_t end = 1U; end <= count; ++end) {
+            const bool final = end == count;
+            const auto break_kind = paragraph.breaks_after[end - 1U];
+            if (!final && break_kind == text_line_break_kind::prohibited) continue;
+            if (!safe_boundary(paragraph, end)) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+            candidate_line word;
+            auto status = compose_candidate(paragraph, raw_to_logical, word_start, end, visits, word);
+            if (status != PROGPU_NATIVE_STATUS_SUCCESS) return status;
+            double visible = 0.0;
+            if (!visible_width(word, visible)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            measured.minimum = std::max(measured.minimum, visible);
+            word_start = end;
+            if (final || break_kind == text_line_break_kind::mandatory) {
+                candidate_line row;
+                status = compose_candidate(paragraph, raw_to_logical, paragraph_start, end, visits, row);
+                if (status != PROGPU_NATIVE_STATUS_SUCCESS) return status;
+                if (!visible_width(row, visible)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+                measured.maximum = std::max(measured.maximum, visible);
+                paragraph_start = end;
+            }
+        }
+        result = measured;
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) { return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
+    catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
 }
 
 bool validate_hinted_source_fitting(const hinted_paragraph_generation& paragraph, const hinted_source_fitting& fitting) noexcept {
