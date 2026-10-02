@@ -348,9 +348,9 @@ void cross_products(controls& test, bool three) {
     const auto source = src(0U, 0U);
     const auto constant = src(2U, 0U);
     auto program = make(xyz, source, constant);
-    require(test.accept(program).find("vec4<f32>((r[0].xyzw).y * (c[0].xyzw).z - (r[0].xyzw).z * (c[0].xyzw).y, "
-        "(r[0].xyzw).z * (c[0].xyzw).x - (r[0].xyzw).x * (c[0].xyzw).z, "
-        "(r[0].xyzw).x * (c[0].xyzw).y - (r[0].xyzw).y * (c[0].xyzw).x, 0.0)") != std::string::npos,
+    require(test.accept(program).find("vec4<f32>(r[0].y * c[0].z - r[0].z * c[0].y, "
+        "r[0].z * c[0].x - r[0].x * c[0].z, "
+        "r[0].x * c[0].y - r[0].y * c[0].x, 0.0)") != std::string::npos,
         "CRS right-handed lane/sign order changed");
     test.accept(make(xyz, constant, constant));
     test.reject(make(xyz, constant, src(2U, 1U)), "CRS admitted two constant-register read ports");
@@ -476,6 +476,58 @@ void matrices(controls& test, bool three) {
         }
     }
 }
+
+// Exercise the precise scalar load form independently of the existing CRS
+// admission controls. Only the required source lanes exist in these programs.
+void cross_scalar_sources(controls& test, bool three) {
+    for (std::uint32_t mask = 1U; mask < 8U; ++mask)
+        for (const auto first_modifier : {0U, 1U, 11U, 12U})
+            for (const auto second_modifier : {0U, 1U, 11U, 12U}) {
+                const auto required = ((mask & 1U) != 0U ? 6U : 0U) |
+                    ((mask & 2U) != 0U ? 5U : 0U) | ((mask & 4U) != 0U ? 3U : 0U);
+                auto program = prefix(three);
+                instruction(program, 1U, dst(0U, 1U, required), {src(0U, 0U)});
+                instruction(program, 1U, dst(0U, 2U, required), {src(0U, 0U)});
+                instruction(program, 33U, dst(0U, 0U, mask),
+                    {src(0U, 1U, 0xE4U, first_modifier), src(0U, 2U, 0xE4U, second_modifier)});
+                finish(program);
+                const auto body = test.accept(program);
+                const auto begin = body.find("let value6 = ");
+                const auto operation = body.substr(begin, body.find("let value7 = ", begin) - begin);
+                require(operation.find(".xyzw") == std::string::npos &&
+                    operation.find("r[1].w") == std::string::npos && operation.find("r[2].w") == std::string::npos,
+                    "CRS introduced a nested swizzle view or source W read");
+                for (std::uint32_t source = 1U; source <= 2U; ++source)
+                    for (std::uint32_t lane = 0U; lane < 3U; ++lane) {
+                        const auto scalar = "r[" + std::to_string(source) + "]." + "xyz"[lane];
+                        const bool needed = (required & (1U << lane)) != 0U;
+                        require((operation.find(scalar) != std::string::npos) == needed,
+                            "CRS scalar source dependency changed");
+                        if (!needed) continue;
+                        const auto modifier = source == 1U ? first_modifier : second_modifier;
+                        const auto expected = modifier == 0U ? scalar : modifier == 1U ? "(-" + scalar + ")" :
+                            modifier == 11U ? "abs(" + scalar + ")" : "(-abs(" + scalar + "))";
+                        require(operation.find(expected) != std::string::npos,
+                            "CRS scalar modifier or ABSNEG order changed");
+                    }
+            }
+    for (const auto modifier : {0U, 1U, 11U, 12U}) {
+        auto program = prefix(three);
+        definition(program, 31U, {-0.0F, 0.0F, -0.0F, 0.0F});
+        instruction(program, 1U, dst(0U, 1U), {src(0U, 0U)});
+        instruction(program, 33U, dst(0U, 1U, 1U),
+            {src(0U, 0U), src(2U, 31U, 0xE4U, modifier)});
+        finish(program, src(0U, 1U));
+        const auto body = test.accept(program);
+        require(body.find("c[31] = vec4<f32>(bitcast<f32>(2147483648u), bitcast<f32>(0u), "
+            "bitcast<f32>(2147483648u), bitcast<f32>(0u));") != std::string::npos,
+            "CRS scalar emission canonicalized original signed-zero DEF bits");
+        const std::array expected{"c[31].z", "(-c[31].z)", "abs(c[31].z)", "(-abs(c[31].z))"};
+        const auto index = modifier == 0U ? 0U : modifier == 1U ? 1U : modifier == 11U ? 2U : 3U;
+        require(body.find(std::string("r[0].y * ") + expected[index]) != std::string::npos,
+            "CRS changed the modifier operation on a signed-zero source");
+    }
+}
 } // namespace shader_arithmetic_controls
 
 bool run_shader_effect_arithmetic_tests() {
@@ -494,6 +546,9 @@ bool run_shader_effect_arithmetic_tests() {
         shader_arithmetic_controls::controls matrices;
         for (const bool three : {false, true}) shader_arithmetic_controls::matrices(matrices, three);
         std::cout << "shader effect original-bytecode matrix controls: " << matrices.count << " passed\n";
+        shader_arithmetic_controls::controls scalar_sources;
+        for (const bool three : {false, true}) shader_arithmetic_controls::cross_scalar_sources(scalar_sources, three);
+        std::cout << "shader effect cross-product scalar-source controls: " << scalar_sources.count << " passed\n";
         return true;
     } catch (const std::exception& error) {
         std::cerr << "shader effect arithmetic control failed: " << error.what() << '\n';
