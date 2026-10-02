@@ -125,6 +125,12 @@ original and arithmetic control files with a minimal entry point) passed all
 required. The executable SHA-256 is
 `9202bc4e9594b7762a4e8874e8edf157d06ccef5708557321071f7062022e76f`.
 
-The integration owner wires the independent fixture into the existing native
-target. Native renderer/dependency builds, GPU execution, both-provider/package
+The independent fixture is now registered alongside the existing 110-control
+translation fixture in `progpu_native_internal_tests`, and its translation unit
+is listed in that target's CMake sources. The combined source coverage is 477
+controls; the earlier two-TU execution receipt above remains specific to its
+recorded implementation snapshot, not an execution of the integrated renderer.
+Owned ImageBrush sampling and scene-owner-qualified picture caching integrate
+without changing the arithmetic bytecode emitter or its original controls.
+Native renderer/dependency builds, GPU execution, both-provider/package
 gates and original WPF application qualification have not been run by this batch.

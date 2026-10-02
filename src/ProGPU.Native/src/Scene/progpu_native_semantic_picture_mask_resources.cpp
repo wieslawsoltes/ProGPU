@@ -538,7 +538,23 @@ static bool create_semantic_picture_binding(
             child->semantic_scene_snapshot.size() == picture.stream_size &&
             std::memcmp(child->semantic_scene_snapshot.data(), nested_scene,
                 picture.stream_size) == 0;
+        const auto previous_resource_scope = child->semantic_resource_scope;
         if (!exact_child_snapshot) {
+            progpu_native_scene_header capture_header{};
+            std::memcpy(&capture_header, nested_scene, sizeof(capture_header));
+            if (!child->semantic_scene_snapshot.empty() &&
+                semantic::picture_capture_changes_resource_scope(child->semantic_scene_snapshot.data(),
+                    child->semantic_scene_header, nested_scene, capture_header)) {
+                if (previous_resource_scope == std::numeric_limits<std::uint64_t>::max()) {
+                    cleanup();
+                    return false;
+                }
+                // Replacing an independent capture can legally reuse public
+                // resource ids/versions with different bytes. Retire only this
+                // child's compiled-family identity, through normal page rebuild
+                // and upload paths; do not clear shared/intrinsic raster caches.
+                child->semantic_resource_scope = previous_resource_scope + 1U;
+            }
             child->semantic_scene_id = 0U;
             child->semantic_scene_generation = 0U;
         }
@@ -551,6 +567,7 @@ static bool create_semantic_picture_binding(
             : bind_status;
         if (bind_status != PROGPU_NATIVE_STATUS_SUCCESS ||
             update_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            child->semantic_resource_scope = previous_resource_scope;
             if (trace_picture) {
                 std::fprintf(stderr,
                     "ProGPU native picture mask child update failed: bind=%u, update=%u, error=%s\n",

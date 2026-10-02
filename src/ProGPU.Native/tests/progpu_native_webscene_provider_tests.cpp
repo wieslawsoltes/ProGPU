@@ -12,6 +12,7 @@
 #include "progpu_native_picture_axis_fixture.hpp"
 #include "progpu_native_shader_effect_pixel_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
+#include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "progpu_native_webscene_state_mask_fixture.hpp"
@@ -3543,10 +3544,12 @@ int main(int argc, char** argv) {
             api.destroy_canvas(provider, picture_canvas);
             return pixels;
         };
-    progpu::native::tests::verify_picture_axis_presentation(
+    const auto render_picture =
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
             return render_retained_scene(reference, stream, generation, submissions, 0x9491U, 1U, 1U);
-        }, require);
+        };
+    progpu::native::tests::verify_picture_axis_presentation(render_picture, require);
+    progpu::native::tests::verify_picture_resource_ownership(render_picture, require);
     progpu::native::tests::verify_original_shader_effect_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation,
             progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {

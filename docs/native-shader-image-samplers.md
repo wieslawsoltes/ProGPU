@@ -81,3 +81,13 @@ staging, VM, source application or package qualification has been performed for
 this extension. Fractional or
 cropped input captures, extra sampler registers and unsupported original shader
 instructions retain their existing fail-closed gates.
+
+## Integrated source ancestry
+
+The sampler branch merges arithmetic snapshot
+`0594dbcfebeb79bf2c13dd9c940d5949e986e3dc` and scene-owner picture-cache snapshot
+`b1a0f229910625b19ae392a7f1a9cbcb6b8e5d7f`, retaining their ancestry together with
+the published shader snapshot `e4aec5ab9f79697020e1921eb675a86f6992a86c`.
+The picture owner field, private capture resource scope and both independent
+pixel fixtures coexist. Dawn retains exact BGRA-to-RGBA readback ordering.
+No assertion, submission expectation or application gate is removed by the merge.

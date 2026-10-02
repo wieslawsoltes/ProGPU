@@ -1749,6 +1749,61 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
         mapping_hashes.glyph != original_hashes.glyph;
 }
 
+bool semantic_scene_content_hashes_preserve_scene_ownership() {
+    semantic_scene_builder white(0x9490U, 1U), red(0x91F0U, 1U);
+    const auto record = [](semantic_scene_builder& builder, progpu_native_color color) {
+        std::uint32_t brush{};
+        progpu_native_analytic_primitive rectangle{};
+        rectangle.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;
+        rectangle.width = rectangle.height = 8.0F;
+        rectangle.color = {1, 1, 1, 1};
+        rectangle.transform = semantic_scene_builder::identity_transform();
+        return builder.add_solid_brush(color, 1.0F, brush) &&
+            builder.draw_analytic({&rectangle, 1U}, {&brush, 1U}, {0, 0, 8, 8});
+    };
+    std::vector<std::byte> white_bytes, red_bytes, next_bytes;
+    if (!record(white, {1, 1, 1, 1}) || !record(red, {1, 0, 0, 0.5F}) ||
+        !white.build(white_bytes) || !red.build(red_bytes)) return false;
+    const auto white_header = read<progpu_native_scene_header>(white_bytes, 0U);
+    const auto red_header = read<progpu_native_scene_header>(red_bytes, 0U);
+    if (white_bytes.size() != red_bytes.size() || white_header.scene_id == red_header.scene_id ||
+        white_header.generation != red_header.generation || white_header.resource_count != red_header.resource_count ||
+        std::memcmp(white_bytes.data() + white_header.resource_offset, red_bytes.data() + red_header.resource_offset,
+            red_header.resource_count * red_header.resource_stride) != 0 ||
+        std::memcmp(white_bytes.data() + white_header.command_offset, red_bytes.data() + red_header.command_offset,
+            red_header.command_count * red_header.command_stride) != 0) return false;
+    const auto fields = [](const semantic::semantic_content_hashes& value) {
+        return std::array{value.brush, value.text_style, value.analytic, value.path,
+            value.glyph, value.image, value.three_d, value.hit_test};
+    };
+    const auto white_hashes = fields(semantic::compute_content_hashes(white_bytes.data(), white_header));
+    const auto red_hashes = fields(semantic::compute_content_hashes(red_bytes.data(), red_header));
+    for (std::size_t index = 0U; index < white_hashes.size(); ++index)
+        if (white_hashes[index] == red_hashes[index]) return false;
+    // Resource identity remains independent of the owner's frame generation.
+    if (!red.advance_generation(2U) || !red.build(next_bytes)) return false;
+    const auto next_header = read<progpu_native_scene_header>(next_bytes, 0U);
+    if (fields(semantic::compute_content_hashes(next_bytes.data(), next_header)) != red_hashes ||
+        fields(semantic::compute_content_hashes(red_bytes.data(), red_header)) != red_hashes) return false;
+    if (semantic::picture_capture_changes_resource_scope(red_bytes.data(), red_header, red_bytes.data(), red_header) ||
+        semantic::picture_capture_changes_resource_scope(red_bytes.data(), red_header, next_bytes.data(), next_header) ||
+        !semantic::picture_capture_changes_resource_scope(white_bytes.data(), white_header, red_bytes.data(), red_header)) return false;
+    // Changing payload bytes while retaining one owner's resource generation
+    // is still an invalid public update, not a new cache identity shortcut.
+    std::uint32_t error{};
+    auto same_owner = white_header;
+    same_owner.scene_id = red_header.scene_id;
+    if (scene::generations_do_not_regress(red_bytes.data(), red_header, white_bytes.data(), same_owner, error) ||
+        !semantic::picture_capture_changes_resource_scope(red_bytes.data(), red_header, white_bytes.data(), same_owner))
+        return false;
+    const auto scoped = fields(semantic::compute_content_hashes(white_bytes.data(), same_owner, 1U));
+    for (std::size_t index = 0U; index < scoped.size(); ++index)
+        if (scoped[index] == red_hashes[index]) return false;
+    // Byte-identical warm replay in the private namespace retains every family.
+    return scoped == fields(semantic::compute_content_hashes(white_bytes.data(), same_owner, 1U)) &&
+        scoped != fields(semantic::compute_content_hashes(white_bytes.data(), same_owner, 2U));
+}
+
 bool semantic_scene_content_hashes_normalize_resource_ordinals() {
     const std::array segments{
         progpu_native_path_segment{

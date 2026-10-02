@@ -18,6 +18,15 @@ binding ownership, budgets and final source clipping. No CPU shader fallback or
 identity hit-test annotation is admitted. See docs/native-mil-shader-effects.md;
 the first family is not complete ShaderEffect or application qualification.
 
+Compiled semantic family identities include the exact scene owner as well as
+resource IDs/generations; unrelated same-sized resource1/version1 is not shared
+content. Private picture capture replacement advances only its own resource scope
+when exact retained ownership/bytes reveal an identity collision. Preserve
+byte-identical warm captures, ordinary generation-independent family retention,
+queued resource leases and separate intrinsic glyph raster identity. Never repair
+cross-owner reuse by isolating fixtures or weakening original pixel/counter gates.
+See docs/DIRECT2D_WIN2D_COMPATIBILITY.md, retained picture resource ownership.
+
 Retained picture-image copies own original per-axis presentation in an explicit
 validated suffix, never a DPI ratio or inferred logical extent. Keep the original
 48-byte uniform descriptor and COM slots, exact suffix sizes/flags, whole pixel

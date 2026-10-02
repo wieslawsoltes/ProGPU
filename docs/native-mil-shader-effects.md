@@ -30,6 +30,12 @@ resource and instruction contract, with one actual declared `TEXCOORD0 v#.xy`
 input instead of the shader-model-2 texture register. It does not admit the full
 shader-model-3 register file, instruction set or additional source semantics.
 
+The [bounded arithmetic family](native-shader-arithmetic.md) adds DP2ADD, LOG,
+model-specific SINCOS and explicitly admitted immutable-DEF NRM operands. Its
+367 independent controls are registered with the original 110 translation
+controls. Runtime-valued NRM, RCP, RSQ, EXP and POW remain rejected; this does not
+claim complete arithmetic or floating-point equivalence.
+
 Version 1 admits one untransformed implicit-input brush at opacity one. An
 explicit [version-2 owned ImageBrush sampler](native-shader-image-samplers.md)
 adds static, same-channel owned-bitmap capture without changing version 1. Integer

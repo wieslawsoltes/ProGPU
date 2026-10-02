@@ -2185,9 +2185,11 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 } // namespace
 
 bool run_shader_effect_translation_tests();
+bool run_shader_effect_arithmetic_tests();
 
 int main() {
     require(run_shader_effect_translation_tests());
+    require(run_shader_effect_arithmetic_tests());
     native_texture_copy_staging_uses_portable_d3d12_alignment();
     translated_boolean_programs_split_into_independent_gpu_records();
     clipped_miter_join_uses_the_wpf_three_triangle_wedge();
@@ -2242,6 +2244,8 @@ int main() {
         semantic_scene_builder_records_styled_glyph_runs());
     require(progpu::native::tests::
         semantic_scene_content_hashes_normalize_resource_ordinals());
+    require(progpu::native::tests::
+        semantic_scene_content_hashes_preserve_scene_ownership());
     require(progpu::native::tests::
         semantic_scene_builder_shares_glyph_segments_across_raster_sizes());
     require(progpu::native::tests::
