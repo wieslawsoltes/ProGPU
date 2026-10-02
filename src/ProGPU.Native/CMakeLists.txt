@@ -785,6 +785,7 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_shader_capture_frame.hpp
     src/Scene/progpu_native_shader_sample_frame.hpp
     src/Scene/progpu_native_shader_affine_frame.hpp
+    src/Scene/progpu_native_source_transform_primitive.hpp
     src/Scene/progpu_native_shader_effect_uniforms.hpp
     src/Scene/progpu_native_semantic_image_blur_resources.cpp
     src/Scene/progpu_native_semantic_image_resources.hpp
