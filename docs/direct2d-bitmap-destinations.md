@@ -51,3 +51,13 @@ permission to swallow errors or broaden source bounds silently.
 Implementation and all fixtures are committed before focused checks. No local
 native library, GPU, Windows/VM execution or runtime staging has occurred.
 Hosted source/Windows/provider/package qualification remains required.
+
+Post-commit source checks passed with Apple Clang 21.0.0, C++20,
+`-Wall -Wextra -Wpedantic -Wshadow -Werror -fsyntax-only` and a 45-second bound
+per process: the complete Direct2D target implementation, complete portable
+compatibility test translation unit and an explicit instantiation of the shared
+pixel fixture. The memory ownership source guard passed with 93 owned fields and
+seven non-owning identities excluded; `git diff --check` passed. These checks
+produce no object/library and execute no native provider or GPU. The Windows-only
+translation unit, original HRESULT/tag observations, recorded native contracts
+and pixel/submission assertions remain pending hosted execution.
