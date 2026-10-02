@@ -9,6 +9,7 @@
 #include "../Scene/progpu_native_semantic_budget.hpp"
 #include "../Scene/progpu_native_shader_effect.hpp"
 #include "../Scene/progpu_native_shader_capture_frame.hpp"
+#include "../Scene/progpu_native_shader_sample_frame.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -2413,6 +2414,7 @@ struct scene_compile_context {
     std::uint32_t visual_brush_depth{};
     std::uint64_t scene_id{};
     std::uint64_t cache_brush_scope{};
+    bool shader_sample_capture{};
 
     bool is_visual_brush() const noexcept {
         return visual_brush_depth != 0U ||
@@ -2830,6 +2832,12 @@ struct channel::implementation {
         float shader_source_offset_x{};
         float shader_source_offset_y{};
         bool shader_source_transform_proven{};
+        // Original physical rectangle-clip history is separate from the
+        // generic logical float clip used by legacy rendering.
+        std::array<float, 4U> shader_source_clip{};
+        bool shader_source_has_clip{};
+        bool shader_source_clip_proven{true};
+        bool shader_source_vector_mask_proven{};
         double opacity{1.0};
         progpu_native_image_rect clip_rect{};
         bool has_clip{};
@@ -11733,7 +11741,7 @@ struct channel::implementation {
         std::vector<progpu_native_scene_clip_path>& clip_paths,
         std::vector<progpu_native_path_segment>& clip_segments,
         std::vector<progpu_native_scene_path_boolean_node>&
-            clip_boolean_nodes) const {
+            clip_boolean_nodes, bool shader_source_frame_proven = false) const {
         clip_paths.resize(state.clip_path_count);
         clip_segments.resize(state.clip_segment_count);
         clip_boolean_nodes.resize(state.clip_boolean_node_count);
@@ -11861,6 +11869,8 @@ struct channel::implementation {
         state.clip_path_count = clip_paths.size();
         state.clip_segment_count = clip_segments.size();
         state.clip_boolean_node_count = clip_boolean_nodes.size();
+        state.shader_source_vector_mask_proven = shader_source_frame_proven &&
+            (state.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX || state.shader_source_vector_mask_proven);
         state.mask_resource_index = mask_resource_index;
         return status::success;
     }
@@ -12938,6 +12948,7 @@ struct channel::implementation {
             destination.clip_path_count = clip_paths.size();
             destination.clip_segment_count = clip_segments.size();
             destination.clip_boolean_node_count = clip_boolean_nodes.size();
+            destination.shader_source_vector_mask_proven = false;
             destination.mask_resource_index = mask_resource_index;
             return status::success;
         };
@@ -19103,6 +19114,7 @@ struct channel::implementation {
     static void intersect_scope_clip(
         render_scope_state& state,
         const progpu_native_image_rect& clip) noexcept {
+        state.shader_source_clip_proven = false;
         if (!state.has_clip) {
             state.clip_rect = clip;
             state.has_clip = true;
@@ -19884,7 +19896,35 @@ struct channel::implementation {
                 clip)) {
             return status::invalid_graph;
         }
+        const bool prior_clip_proven = state.shader_source_clip_proven;
         intersect_scope_clip(state, clip);
+        affine_2d_double source_local{};
+        if (prior_clip_proven && state.shader_source_transform_proven &&
+            resolve_shader_source_transform(resolved_geometry.transform_handle, source_local) &&
+            source_local.m12 == 0.0 && source_local.m21 == 0.0 && source_local.m11 > 0.0 && source_local.m22 > 0.0) {
+            const auto source_transform = compose_shader_source_affine(source_local, state.shader_source_transform);
+            using native::shader_effect::source_product;
+            using native::shader_effect::source_sum;
+            const auto edge = [](float value, double scale, double offset) {
+                return source_sum(source_product(value, static_cast<float>(scale)), static_cast<float>(offset));
+            };
+            const std::array<float, 4U> physical{
+                edge(static_cast<float>(resolved_geometry.first), source_transform.m11, source_transform.m31),
+                edge(static_cast<float>(resolved_geometry.second), source_transform.m22, source_transform.m32),
+                edge(static_cast<float>(resolved_geometry.first + resolved_geometry.third), source_transform.m11, source_transform.m31),
+                edge(static_cast<float>(resolved_geometry.second + resolved_geometry.fourth), source_transform.m22, source_transform.m32)};
+            if (std::all_of(physical.begin(), physical.end(), [](float value) { return std::isfinite(value); })) {
+                if (!state.shader_source_has_clip) state.shader_source_clip = physical;
+                else {
+                    state.shader_source_clip[0] = std::max(state.shader_source_clip[0], physical[0]);
+                    state.shader_source_clip[1] = std::max(state.shader_source_clip[1], physical[1]);
+                    state.shader_source_clip[2] = std::max(state.shader_source_clip[0], std::min(state.shader_source_clip[2], physical[2]));
+                    state.shader_source_clip[3] = std::max(state.shader_source_clip[1], std::min(state.shader_source_clip[3], physical[3]));
+                }
+                state.shader_source_has_clip = true;
+                state.shader_source_clip_proven = true;
+            }
+        }
         return status::success;
     }
 
@@ -21094,6 +21134,202 @@ struct channel::implementation {
         return coverage.build(scene) ? status::success : status::invalid_graph;
     }
 
+    status add_shader_input_picture(std::uint32_t visual_handle,
+        const native::shader_effect::sample_frame& sample,
+        const render_scope_state& source_state, native::semantic_scene_builder& builder,
+        std::uint32_t& picture_index, const mask_replay_context& context) const {
+        picture_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (context.frame == nullptr || context.depth >= maximum_visual_depth) return status::unsupported_command;
+        const auto visual = visuals.find(visual_handle);
+        if (visual == visuals.end()) return status::invalid_handle;
+        if (!require_resource(visual_handle, type_visual)) return status::unsupported_command;
+        auto request = context.frame->request;
+        request.dpi_scale_x = request.dpi_scale_y = 1.0;
+        // This is actual content, not a VisualBrush or a hit-test substitute.
+        // The same render-data/glyph/resource compiler retains all identities.
+        scene_compile_context frame{request, context.frame->current_time_milliseconds,
+            false, context.frame->visual_brush_depth};
+        std::uint64_t identity = builder.scene_id();
+        constexpr std::uint32_t input_domain = 0x53494E50U;
+        append_fnv1a64(identity, input_domain); append_fnv1a64(identity, visual_handle);
+        append_fnv1a64(identity, sample.capture.x); append_fnv1a64(identity, sample.capture.y);
+        append_fnv1a64(identity, sample.capture.width); append_fnv1a64(identity, sample.capture.height);
+        append_fnv1a64(identity, sample.source_scale.x); append_fnv1a64(identity, sample.source_scale.y);
+        frame.scene_id = finish_nonzero_hash(identity);
+        frame.cache_brush_scope = context.frame->cache_brush_scope;
+        frame.shader_sample_capture = true;
+        native::semantic_scene_builder capture(frame.scene_id, builder.generation());
+        auto content = source_state;
+        content.transform = {sample.source_scale.x, 0.0, 0.0, sample.source_scale.y,
+            -static_cast<double>(sample.capture.x), -static_cast<double>(sample.capture.y)};
+        // A real private capture establishes a new device frame from the proven
+        // source scale and exact integer origin, not from the generic aggregate.
+        content.shader_source_transform = content.transform;
+        content.shader_source_transform_proven = true;
+        content.has_clip = false; content.shader_source_has_clip = false;
+        content.shader_source_clip_proven = true;
+        content.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        content.clip_path_count = content.clip_segment_count = content.clip_boolean_node_count = 0U;
+        content.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        content.per_point_guidelines = false;
+        content.opacity = 1.0;
+        content.subpixel_text_disabled = true;
+        const auto guidelines = apply_static_guidelines(visual->second.guidelines_x,
+            visual->second.guidelines_y, content, capture, false);
+        if (guidelines != status::success) return guidelines;
+        auto state = native::semantic_scene_builder::identity_state();
+        if (!try_to_native_affine(content.transform, state.transform)) return status::invalid_graph;
+        if (content.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+            state.flags |= PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+            state.guideline_resource_index = content.guideline_resource_index;
+        }
+        std::uint32_t state_index{};
+        if (!capture.add_state(state, state_index) || !capture.save(state_index)) return status::invalid_graph;
+        const bool isolated_opacity = source_state.opacity != 1.0;
+        if (isolated_opacity) {
+            progpu_native_scene_layer layer{};
+            layer.struct_size = sizeof(layer);
+            layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+            layer.opacity = static_cast<float>(source_state.opacity);
+            layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!capture.push_layer(layer)) return status::invalid_graph;
+        }
+        std::unordered_map<std::uint32_t, std::uint32_t> brushes, images;
+        std::unordered_map<std::uint64_t, glyph_scene_resource> glyphs;
+        std::vector<progpu_native_scene_clip_path> paths;
+        std::vector<progpu_native_path_segment> segments;
+        std::vector<progpu_native_scene_path_boolean_node> nodes;
+        status result = status::success;
+        if (visual->second.content_handle != 0U)
+            result = append_render_data(visual->second.content_handle, content, capture, brushes, images, glyphs,
+                &frame, context.active_resources, paths, segments, nodes, context.metrics);
+        for (const auto child : visual->second.children) {
+            if (result != status::success) break;
+            result = append_visual(child, content, context.depth + 1U, frame.scene_id, capture,
+                brushes, images, glyphs, &frame, context.active_resources, paths, segments, nodes, context.metrics);
+        }
+        if (result != status::success) return result;
+        if (isolated_opacity && !capture.pop_layer()) return status::invalid_graph;
+        if (!capture.restore()) return status::invalid_graph;
+        std::vector<std::byte> scene;
+        if (!capture.build(scene)) return status::invalid_graph;
+        context.frame->needs_more_cycles |= frame.needs_more_cycles;
+        progpu_native_scene_picture_image picture{};
+        picture.struct_size = sizeof(picture); picture.dpi_scale = 1.0F;
+        picture.width = sample.capture.width; picture.height = sample.capture.height;
+        return builder.add_picture_image(picture, scene, picture_index) ? status::success : status::invalid_graph;
+    }
+
+    status add_shader_final_sample_layer(std::uint32_t visual_handle,
+        const render_scope_state& state, native::semantic_scene_builder& builder,
+        const mask_replay_context& context, std::uint32_t& pushed_count) const {
+        const auto visual = visuals.find(visual_handle);
+        if (visual == visuals.end() || visual->second.effect_handle == 0U || context.frame == nullptr ||
+            !visual->second.has_cache_bounds || visual->second.cache_mode_handle != 0U ||
+            context.frame->is_visual_brush() || context.frame->records_hit_test_owners() ||
+            !state.shader_source_transform_proven ||
+            (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX && !state.shader_source_vector_mask_proven) ||
+            (state.has_clip && (!state.shader_source_clip_proven || !state.shader_source_has_clip)))
+            return status::unsupported_command;
+        const auto& original = state.shader_source_transform;
+        if (original.m12 != 0.0 || original.m21 != 0.0 || original.m11 <= 0.0 || original.m22 <= 0.0)
+            return status::unsupported_command;
+        // Spatial visual masks keep their existing separate contract.
+        if (visual->second.alpha_mask_handle != 0U &&
+            (gradient_brushes.contains(visual->second.alpha_mask_handle) || is_sampled_brush(visual->second.alpha_mask_handle)))
+            return status::unsupported_command;
+        effect_state effect{};
+        const auto resolved = resolve_effect(visual->second.effect_handle, effect);
+        if (resolved != status::success) return resolved;
+        if (effect.type != effect_state::kind::shader) return status::unsupported_command;
+        progpu_native_scene_shader_effect_samples wire{};
+        wire.struct_size = sizeof(wire); wire.version = 5U;
+        wire.input_resource_index = wire.sampler_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        wire.derivative_register = effect.derivative_register;
+        auto& f = wire.frame;
+        f.local_left = static_cast<float>(visual->second.cache_bounds_x) - static_cast<float>(effect.shader_padding[2]);
+        f.local_top = static_cast<float>(visual->second.cache_bounds_y) - static_cast<float>(effect.shader_padding[0]);
+        f.local_right = static_cast<float>(visual->second.cache_bounds_x + visual->second.cache_bounds_width) + static_cast<float>(effect.shader_padding[3]);
+        f.local_bottom = static_cast<float>(visual->second.cache_bounds_y + visual->second.cache_bounds_height) + static_cast<float>(effect.shader_padding[1]);
+        f.source_scale_x = static_cast<float>(original.m11); f.source_scale_y = static_cast<float>(original.m22);
+        f.source_offset_x = static_cast<float>(original.m31); f.source_offset_y = static_cast<float>(original.m32);
+        f.source_dpi_x = context.frame->request.dpi_scale_x; f.source_dpi_y = context.frame->request.dpi_scale_y;
+        native::shader_effect::sample_frame sample{};
+        if (!native::shader_effect::create_sample_frame(native::shader_effect::sample_request(f), sample) ||
+            !native::shader_effect::complete_sample_frame(f)) return status::unsupported_command;
+        // Precomputed output bounds have a distinct own-local -> offset ->
+        // ancestor history. Do not replace it with total-matrix multiplication.
+        const auto edge = [](float value, double local_scale, double local_offset,
+            float offset, double parent_scale, double parent_offset) {
+            using native::shader_effect::source_product; using native::shader_effect::source_sum;
+            return source_sum(source_product(source_sum(source_sum(source_product(value,
+                static_cast<float>(local_scale)), static_cast<float>(local_offset)), offset),
+                static_cast<float>(parent_scale)), static_cast<float>(parent_offset));
+        };
+        const auto& local = state.shader_source_local_transform;
+        const auto& parent = state.shader_source_parent_transform;
+        std::array<float, 4U> clip{
+            edge(f.local_left, local.m11, local.m31, state.shader_source_offset_x, parent.m11, parent.m31),
+            edge(f.local_top, local.m22, local.m32, state.shader_source_offset_y, parent.m22, parent.m32),
+            edge(f.local_right, local.m11, local.m31, state.shader_source_offset_x, parent.m11, parent.m31),
+            edge(f.local_bottom, local.m22, local.m32, state.shader_source_offset_y, parent.m22, parent.m32)};
+        if (!state.edge_aliased) {
+            // Original output AA expands the conservative clip by one pixel
+            // and integralizes it. The final shader quad itself remains an
+            // ordinary single-sample hardware draw, not an analytic AA mask.
+            using native::shader_effect::source_sum;
+            clip[0] = std::floor(source_sum(clip[0], -1.0F));
+            clip[1] = std::floor(source_sum(clip[1], -1.0F));
+            clip[2] = std::ceil(source_sum(clip[2], 1.0F));
+            clip[3] = std::ceil(source_sum(clip[3], 1.0F));
+            f.clip_antialias = 1U;
+        }
+        if (state.shader_source_has_clip) {
+            clip[0] = std::max(clip[0], state.shader_source_clip[0]);
+            clip[1] = std::max(clip[1], state.shader_source_clip[1]);
+            clip[2] = std::max(clip[0], std::min(clip[2], state.shader_source_clip[2]));
+            clip[3] = std::max(clip[1], std::min(clip[3], state.shader_source_clip[3]));
+        }
+        if (std::any_of(clip.begin(), clip.end(), [](float value) {
+                return !std::isfinite(value) || std::abs(value) > static_cast<float>(1U << 24U); }))
+            return status::unsupported_command;
+        f.clip_left = static_cast<float>(native::shader_effect::aliased_capture_edge(clip[0]));
+        f.clip_top = static_cast<float>(native::shader_effect::aliased_capture_edge(clip[1]));
+        f.clip_right = static_cast<float>(native::shader_effect::aliased_capture_edge(clip[2]));
+        f.clip_bottom = static_cast<float>(native::shader_effect::aliased_capture_edge(clip[3]));
+        std::uint64_t revision = 14695981039346656037ULL;
+        std::unordered_set<std::uint32_t> active;
+        const auto revision_status = append_cache_resource_revision(visual->second.effect_handle, active, revision);
+        if (revision_status != status::success) return revision_status;
+        wire.program = effect.shader;
+        wire.program.revision = static_cast<std::uint32_t>(revision ^ (revision >> 32U));
+        if (wire.program.revision == 0U) wire.program.revision = 1U;
+        const auto& bytecode = pixel_shaders.at(effect.pixel_shader_handle).bytecode;
+        wire.program.bytecode_size = static_cast<std::uint32_t>(bytecode.size());
+        const auto captured = add_shader_input_picture(visual_handle, sample, state, builder, wire.input_resource_index, context);
+        if (captured != status::success) return captured;
+        if (require_resource(effect.input_brush_handle, type_image_brush)) {
+            const auto sampler = add_shader_sampler_picture(effect.input_brush_handle, f.capture_width,
+                f.capture_height, state, builder, wire.sampler_resource_index, context);
+            if (sampler != status::success) return sampler;
+        }
+        std::uint32_t effect_index{};
+        if (!builder.add_shader_effect(wire, bytecode, effect_index)) return status::invalid_graph;
+        progpu_native_scene_layer layer{};
+        layer.struct_size = sizeof(layer); layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+        layer.opacity = 1.0F; layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+        layer.mask_resource_index = state.mask_resource_index; layer.effect_resource_index = effect_index;
+        layer.content_revision = layer.composite_revision = finish_nonzero_hash(revision);
+        // Bounds retain original logical metadata only; v5 allocation and
+        // final placement consume the physical frame, never this divided value.
+        layer.bounds = {static_cast<float>(f.output_x / f.source_dpi_x), static_cast<float>(f.output_y / f.source_dpi_y),
+            static_cast<float>(f.output_width / f.source_dpi_x), static_cast<float>(f.output_height / f.source_dpi_y)};
+        if (!builder.push_layer(layer)) return status::invalid_graph;
+        ++pushed_count;
+        return status::success;
+    }
+
     status add_shader_sampler_picture(std::uint32_t brush_handle, std::uint32_t width,
         std::uint32_t height, const render_scope_state& source_state,
         native::semantic_scene_builder& builder, std::uint32_t& picture_index,
@@ -21814,6 +22050,11 @@ struct channel::implementation {
         }
         const bool record_hit_owner = compile_context != nullptr &&
             compile_context->records_hit_test_owners();
+        if (compile_context != nullptr && compile_context->shader_sample_capture &&
+            require_resource(handle, type_viewport3d_visual)) {
+            active_visuals.erase(handle);
+            return status::unsupported_command;
+        }
         bool zero_scale_source_cache = false;
         if (record_hit_owner && visual->second.cache_mode_handle != 0U) {
             const auto cache = bitmap_caches.find(visual->second.cache_mode_handle);
@@ -21925,6 +22166,16 @@ struct channel::implementation {
                 current.shader_source_offset_y = static_cast<float>(offset_y);
             }
         }
+        if (compile_context != nullptr && compile_context->shader_sample_capture) {
+            if (!current.shader_source_transform_proven) {
+                active_visuals.erase(handle);
+                return status::unsupported_command;
+            }
+            // Captured descendants continue the independently retained original
+            // float pushes in this physical target. Do not return to the old
+            // double aggregate after establishing scale-only source storage.
+            current.transform = current.shader_source_transform;
+        }
         // WPF Visual content never inherits the parent's guideline frame.
         current.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         current.per_point_guidelines = false;
@@ -21997,10 +22248,21 @@ struct channel::implementation {
                 visual->second.clip_geometry_handle,
                 current);
             if (clip_status == status::unsupported_command) {
+                // Preserve the existing exact source paths and Boolean tree.
+                // Its logical-to-device basis must agree with the independent
+                // original-float witness before v5 can consume this mask. This
+                // proof composes through every ancestor clip; render-data masks
+                // without that provenance do not acquire source admission.
+                const bool source_mask_frame = compile_context != nullptr && current.shader_source_transform_proven &&
+                    current.transform.m11 * compile_context->request.dpi_scale_x == current.shader_source_transform.m11 &&
+                    current.transform.m12 == 0.0 && current.transform.m21 == 0.0 &&
+                    current.transform.m22 * compile_context->request.dpi_scale_y == current.shader_source_transform.m22 &&
+                    current.transform.m31 * compile_context->request.dpi_scale_x == current.shader_source_transform.m31 &&
+                    current.transform.m32 * compile_context->request.dpi_scale_y == current.shader_source_transform.m32;
                 clip_status = append_geometry_clip(
                     visual->second.clip_geometry_handle,
                     current.transform, current, builder,
-                    clip_paths, clip_segments, clip_boolean_nodes);
+                    clip_paths, clip_segments, clip_boolean_nodes, source_mask_frame);
             }
             if (clip_status != status::success) {
                 active_visuals.erase(handle);
@@ -22107,7 +22369,25 @@ struct channel::implementation {
         }
 
         std::uint32_t effect_layer_count = 0U;
-        status effect_status = add_visual_effect_layer(
+        bool sampled_effect_content = false;
+        const auto source_effect = effects.find(visual->second.effect_handle);
+        const bool source_shader = source_effect != effects.end() && source_effect->second.type == effect_state::kind::shader;
+        const auto fractional = [](double value) { return value != std::floor(value); };
+        const bool requires_final_samples = source_shader && current.shader_source_transform_proven &&
+            (current.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+             !native::shader_effect::exact_capture_scale(static_cast<float>(current.shader_source_transform.m11)) ||
+             !native::shader_effect::exact_capture_scale(static_cast<float>(current.shader_source_transform.m22)) ||
+             fractional(current.shader_source_transform.m31) || fractional(current.shader_source_transform.m32) ||
+             (current.shader_source_has_clip && std::any_of(current.shader_source_clip.begin(),
+                 current.shader_source_clip.end(), fractional)) ||
+             (compile_context != nullptr &&
+                (current.transform.m11 * compile_context->request.dpi_scale_x != current.shader_source_transform.m11 ||
+                 current.transform.m22 * compile_context->request.dpi_scale_y != current.shader_source_transform.m22 ||
+                 current.transform.m31 * compile_context->request.dpi_scale_x != current.shader_source_transform.m31 ||
+                 current.transform.m32 * compile_context->request.dpi_scale_y != current.shader_source_transform.m32)));
+        status effect_status = requires_final_samples
+            ? add_shader_final_sample_layer(handle, current, builder, mask_context, effect_layer_count)
+            : add_visual_effect_layer(
             handle,
             visual->second.effect_handle,
             current,
@@ -22116,6 +22396,15 @@ struct channel::implementation {
             builder,
             mask_context,
             effect_layer_count);
+        sampled_effect_content = requires_final_samples && effect_status == status::success;
+        if (effect_status == status::unsupported_command && effect_layer_count == 0U &&
+            visual->second.effect_handle != 0U && !requires_final_samples) {
+            // Old successful v1-v4 streams stay unchanged. An unsupported
+            // capture may use the explicit owned v5 contract; no earlier
+            // source draw or layer has been emitted by that rejected branch.
+            effect_status = add_shader_final_sample_layer(handle, current, builder, mask_context, effect_layer_count);
+            sampled_effect_content = effect_status == status::success;
+        }
         if (effect_status == status::success && isolate_viewport_clip) {
             // Mesh shaders retain their depth-tested rendering contract.
             // Clip the completed 3D image with the shared layer-mask path;
@@ -22263,10 +22552,10 @@ struct channel::implementation {
             }
             point_scope = true;
         }
-        if (!skip_cached_content && is_viewport3d) {
+        if (!skip_cached_content && !sampled_effect_content && is_viewport3d) {
             result = append_viewport3d_content(handle, content_scope, builder);
         }
-        if (!skip_cached_content && visual->second.content_handle != 0U) {
+        if (!skip_cached_content && !sampled_effect_content && visual->second.content_handle != 0U) {
             if (result == status::success) {
                 result = append_render_data(
                     visual->second.content_handle,
@@ -22288,7 +22577,7 @@ struct channel::implementation {
         if (record_hit_owner && !builder.set_hit_test_owner(std::nullopt) && result == status::success) {
             result = status::capacity_exceeded;
         }
-        if (!skip_cached_content && result == status::success) {
+        if (!skip_cached_content && !sampled_effect_content && result == status::success) {
             for (const auto child : visual->second.children) {
                 result = append_visual(
                     child,
@@ -23364,8 +23653,8 @@ status channel::build_scene_core(
              target->second.rendering_enabled)) {
             implementation::render_scope_state root_scope{};
             if (request != nullptr && !compile_context.is_visual_brush() &&
-                request->dpi_scale_x == static_cast<float>(request->dpi_scale_x) &&
-                request->dpi_scale_y == static_cast<float>(request->dpi_scale_y)) {
+                std::isfinite(static_cast<float>(request->dpi_scale_x)) && static_cast<float>(request->dpi_scale_x) > 0.0F &&
+                std::isfinite(static_cast<float>(request->dpi_scale_y)) && static_cast<float>(request->dpi_scale_y) > 0.0F) {
                 root_scope.shader_source_transform = {static_cast<float>(request->dpi_scale_x), 0.0, 0.0,
                     static_cast<float>(request->dpi_scale_y), 0.0, 0.0};
                 root_scope.shader_source_transform_proven = true;

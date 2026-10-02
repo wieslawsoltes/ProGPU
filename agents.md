@@ -1,5 +1,17 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Version-5 native ShaderEffect output evaluates original bytecode on the actual
+parent target's device samples, retaining the full homogeneous source residual,
+target-dependent projection and independent complete input capture. Never filter
+an evaluated effect image as a fractional-placement substitute. Exact typed
+source vector clips retain their curves, Boolean topology and inherited frame;
+the shared rasterizer's retained coverage is loaded at the same final device
+pixel and applied once after shader evaluation. Preserve span/submission-owned
+mask leases, masked program identity and the unmasked lazy path. Unproven source
+mapping or a different mask family is not an envelope/opacity fallback. Keep
+original wires and final SDK/source/provider qualification separate; see
+docs/native-shader-final-sample-frame.md.
+
 Version-4 native ShaderEffect captures retain original local float edges and a
 traversal-owned root-DPI/per-push float witness. Allocate floor(min)/ceil(max) in
 scale space, preserving complete UV/derivative extent and integral residual

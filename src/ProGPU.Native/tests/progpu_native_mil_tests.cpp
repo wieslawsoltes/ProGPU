@@ -22128,29 +22128,47 @@ bool original_shader_local_frame_owns_proven_history_and_rejects_invalid_wire() 
         PROGPU_REQUIRE(shader_local_legacy_wire(old));
         PROGPU_REQUIRE(progpu::native::scene::validate(old.data(), old.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
     }
-    // Real source histories, not caller-supplied metadata, own admission.
-    // Unchanged output is required even after the source update was accepted.
-    const auto before = scene;
+    // Real source histories now select the explicit v5 contract. All preceding
+    // malformed and downgraded legacy-wire controls remain unchanged.
+    const auto require_sample_frame = [&](const std::vector<std::byte>& bytes) {
+        progpu_native_scene_header header{}; std::memcpy(&header, bytes.data(), sizeof(header));
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            progpu_native_scene_resource resource{};
+            std::memcpy(&resource, bytes.data() + header.resource_offset + i * header.resource_stride, sizeof(resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) continue;
+            if (resource.payload_size != sizeof(progpu_native_scene_shader_effect_samples)) return false;
+            progpu_native_scene_shader_effect_samples source{};
+            std::memcpy(&source, bytes.data() + resource.payload_offset, sizeof(source));
+            if (source.version != 5U || source.input_resource_index >= i ||
+                !validate_sample_frame(source.frame)) return false;
+            progpu_native_scene_resource input{};
+            std::memcpy(&input, bytes.data() + header.resource_offset + source.input_resource_index * header.resource_stride, sizeof(input));
+            return input.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE &&
+                (input.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U && input.auxiliary_size != 0U &&
+                progpu::native::scene::validate(bytes.data(), bytes.size()).status == PROGPU_NATIVE_STATUS_SUCCESS;
+        }
+        return false;
+    };
     auto control = shader_local_cases[1U];
-    PROGPU_REQUIRE(build_shader_local_scene(raw, 30U, control, scene, false, 2.25, 3.5) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
-    PROGPU_REQUIRE(scene == before);
+    PROGPU_REQUIRE(build_shader_local_scene(raw, 30U, control, scene, false, 2.25, 3.5) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(require_sample_frame(scene));
     control.history = shader_local_history::separately_narrowed;
-    PROGPU_REQUIRE(build_shader_local_scene(raw, 31U, control, scene) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
-    PROGPU_REQUIRE(scene == before);
+    PROGPU_REQUIRE(build_shader_local_scene(raw, 31U, control, scene) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(require_sample_frame(scene));
     control.history = shader_local_history::intermediate_bounds_rounding;
-    PROGPU_REQUIRE(build_shader_local_scene(raw, 34U, control, scene) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
-    PROGPU_REQUIRE(scene == before);
+    PROGPU_REQUIRE(build_shader_local_scene(raw, 34U, control, scene) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(require_sample_frame(scene));
     control.history = shader_local_history::flat;
-    PROGPU_REQUIRE(build_shader_local_scene(raw, 32U, control, scene, false, 2.0, 3.0, 1.5) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
-    PROGPU_REQUIRE(scene == before);
+    PROGPU_REQUIRE(build_shader_local_scene(raw, 32U, control, scene, false, 2.0, 3.0, 1.5) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(require_sample_frame(scene));
     control.dpi = 1.25F;
-    PROGPU_REQUIRE(build_shader_local_scene(raw, 35U, control, scene, false, 2.0, 3.0, .8, .8) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
-    PROGPU_REQUIRE(scene == before);
+    PROGPU_REQUIRE(build_shader_local_scene(raw, 35U, control, scene, false, 2.0, 3.0, .8, .8) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(require_sample_frame(scene));
     control.dpi = 1.0F;
     for (const bool ancestor : {false, true}) {
         PROGPU_REQUIRE(build_shader_local_scene(raw, 36U, shader_local_cases[12U], scene,
-            false, 2.0, 3.0, 1.0, 1.0, .75, ancestor) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
-        PROGPU_REQUIRE(scene == before);
+            false, 2.0, 3.0, 1.0, 1.0, .75, ancestor) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(require_sample_frame(scene));
     }
     // Rejection cannot poison the next proven generation or earlier immutable ownership.
     PROGPU_REQUIRE(build_shader_local_scene(raw, 33U, control, scene) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
