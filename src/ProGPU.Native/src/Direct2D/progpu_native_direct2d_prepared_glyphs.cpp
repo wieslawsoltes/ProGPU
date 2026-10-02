@@ -1,5 +1,6 @@
 #include "progpu_native_direct2d_prepared_glyphs.hpp"
 #include "progpu_native_direct2d_cff_source.hpp"
+#include "progpu_native_direct2d_vertical_metrics.hpp"
 #include "progpu_native_text.hpp"
 
 #include <algorithm>
@@ -331,6 +332,46 @@ struct varied_outline_storage final {
         (value.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE || place_point(value.p2, scale, x, y, horizontal_origin)) &&
         (value.kind != PROGPU_NATIVE_PATH_SEGMENT_CUBIC || place_point(value.p3, scale, x, y, horizontal_origin));
 }
+
+// A sideways glyph rotates left in the untransformed screen frame about its
+// vertical origin. Exchange the two design lanes before the same subtract /
+// multiply / add sequence used above. Do not rotate the run's pen or offsets.
+[[nodiscard]] bool place_sideways_point(progpu_native_point& value, float scale, float x, float y,
+    float origin_x, float origin_y) noexcept
+{
+    value = {-(value.y - origin_y) * scale + x, -(value.x - origin_x) * scale + y};
+    return std::isfinite(value.x) && std::isfinite(value.y);
+}
+
+[[nodiscard]] bool place_sideways_segment(progpu_native_path_segment& value, float scale, float x, float y,
+    float origin_x, float origin_y) noexcept
+{
+    if (value.kind > PROGPU_NATIVE_PATH_SEGMENT_CUBIC) return false;
+    alignas(16) float points[4]{value.p0.y, value.p0.x, value.p1.y, value.p1.x};
+    alignas(16) const float scales[4]{-scale, -scale, -scale, -scale};
+    alignas(16) const float origins[4]{x, y, x, y};
+    alignas(16) const float design_origins[4]{origin_y, origin_x, origin_y, origin_x};
+#if defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64)
+    vst1q_f32(points, vaddq_f32(vmulq_f32(vsubq_f32(vld1q_f32(points), vld1q_f32(design_origins)),
+        vld1q_f32(scales)), vld1q_f32(origins)));
+#elif defined(__SSE2__) || defined(_M_X64)
+    _mm_store_ps(points, _mm_add_ps(_mm_mul_ps(_mm_sub_ps(_mm_load_ps(points), _mm_load_ps(design_origins)),
+        _mm_load_ps(scales)), _mm_load_ps(origins)));
+#elif defined(__wasm_simd128__)
+    wasm_v128_store(points, wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_sub(wasm_v128_load(points),
+        wasm_v128_load(design_origins)), wasm_v128_load(scales)), wasm_v128_load(origins)));
+#else
+    for (std::size_t lane = 0U; lane < 4U; ++lane)
+        points[lane] = (points[lane] - design_origins[lane]) * scales[lane] + origins[lane];
+#endif
+    value.p0 = {points[0], points[1]}; value.p1 = {points[2], points[3]};
+    return std::isfinite(points[0]) && std::isfinite(points[1]) &&
+        std::isfinite(points[2]) && std::isfinite(points[3]) &&
+        (value.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE ||
+            place_sideways_point(value.p2, scale, x, y, origin_x, origin_y)) &&
+        (value.kind != PROGPU_NATIVE_PATH_SEGMENT_CUBIC ||
+            place_sideways_point(value.p3, scale, x, y, origin_x, origin_y));
+}
 } // namespace
 
 struct prepared_original_font::state final {
@@ -344,6 +385,7 @@ struct prepared_original_font::state final {
     std::vector<std::int16_t> normalized_coordinates;
     std::vector<float> region_scalars;
     text::sfnt_horizontal_metrics_variation_instance variation{};
+    std::shared_ptr<const retained_original_vertical_metrics> vertical_metrics;
     varied_outline_storage varied_scratch;
     std::mutex mutex;
     std::unordered_map<std::uint16_t, std::shared_ptr<const decoded_original_glyph>> cache;
@@ -458,12 +500,17 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
 {
     if (!request || request->font != state_->source) return com::invalid_argument;
     // Genuine source OUTLINE selects design contours, not any modern raster
-    // profile or the internal historical RGB box model. Sideways and GDI
-    // metrics remain separate original placement contracts. Absent advances
-    // use the owned unhinted horizontal metrics, never hinted device widths.
+    // profile or the internal historical RGB box model. GDI metrics remain a
+    // separate original contract. Absent advances use the selected original
+    // unhinted horizontal/vertical metrics, never hinted device widths.
     if (!request->rendering.supplied || request->rendering.rendering_mode != 6U ||
-        request->sideways != 0 ||
         request->measuring != compat::measuring_mode::natural)
+        return compat::not_implemented;
+    const bool sideways = request->sideways != 0;
+    // The combined sideways/RTL source contract and variable vertical origin
+    // rounding are separate work; never borrow the horizontal RTL placement or
+    // apply unvaried vertical values to a variable outline.
+    if (sideways && ((request->bidi_level & 1U) != 0U || !state_->normalized_coordinates.empty()))
         return compat::not_implemented;
     try {
         const std::lock_guard lock(state_->mutex);
@@ -472,6 +519,14 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
         const auto& original = *candidate->request_;
         const float scale = original.em_size / static_cast<float>(state_->units_per_em);
         if (!std::isfinite(scale) || scale <= 0.0F) return com::invalid_argument;
+        auto vertical_metrics = state_->vertical_metrics;
+        if (sideways) {
+            if (!vertical_metrics) {
+                const auto status = retained_original_vertical_metrics::create(state_->source, vertical_metrics);
+                if (com::failed(status)) return status;
+            }
+            if (!vertical_metrics->has_metrics()) return compat::not_implemented;
+        }
         std::unordered_map<std::uint16_t, std::shared_ptr<const decoded_original_glyph>> additions;
         std::vector<std::shared_ptr<const decoded_original_glyph>> occurrences;
         occurrences.reserve(original.glyphs.count());
@@ -505,9 +560,18 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
         for (std::uint32_t index = 0U; index < original.glyphs.count(); ++index) {
             // Keep logical source order and captured null-pointer identity.
             // Explicit advances, including zero/negative values, always win.
+            original_vertical_glyph_metrics vertical{};
+            if (sideways) {
+                const auto status = vertical_metrics->read_base(original.glyphs.indices()[index], vertical);
+                if (com::failed(status)) return status;
+                if (!occurrences[index]->segments.empty() && !vertical.has_origin)
+                    return compat::not_implemented;
+            }
+            const float design_advance = sideways ? static_cast<float>(vertical.advance_height)
+                : occurrences[index]->horizontal_advance;
             const float advance = original.glyphs.advances() != nullptr
                 ? original.glyphs.advances()[index]
-                : static_cast<float>(occurrences[index]->horizontal_advance) * scale;
+                : design_advance * scale;
             const float next_pen = pen + advance;
             if (!std::isfinite(next_pen)) return com::invalid_argument;
             const auto offset = original.glyphs.offsets() == nullptr ? compat::glyph_offset{} : original.glyphs.offsets()[index];
@@ -520,8 +584,14 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
             const float x = original.target.baseline.x + glyph_pen + advance_offset;
             const float y = original.target.baseline.y - offset.ascender_offset;
             if (!std::isfinite(x) || !std::isfinite(y)) return com::invalid_argument;
+            const float vertical_origin_x = occurrences[index]->horizontal_origin +
+                occurrences[index]->horizontal_advance * 0.5F;
             for (auto segment : occurrences[index]->segments) {
-                if (!place_segment(segment, scale, x, y, occurrences[index]->horizontal_origin))
+                const bool placed = sideways
+                    ? place_sideways_segment(segment, scale, x, y, vertical_origin_x,
+                        static_cast<float>(vertical.top_origin))
+                    : place_segment(segment, scale, x, y, occurrences[index]->horizontal_origin);
+                if (!placed)
                     return com::invalid_argument;
                 candidate->segments_.push_back(segment);
             }
@@ -533,6 +603,7 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
         state_->cache.reserve(state_->cache.size() + additions.size());
         state_->cache.merge(additions);
         state_->cached_segments += added_segments;
+        if (sideways) state_->vertical_metrics = std::move(vertical_metrics);
         output = std::move(candidate);
         return com::ok;
     } catch (const std::bad_alloc&) { return com::out_of_memory; }
