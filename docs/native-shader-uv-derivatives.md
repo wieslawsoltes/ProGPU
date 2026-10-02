@@ -65,3 +65,12 @@ picture-ownership and original shader pixel controls remain intact.
 No native renderer build, execution of these new fixtures, GPU, VM, runtime
 staging, application or package qualification has been performed. No expanded
 source mapping or full ShaderEffect parity is claimed.
+
+At implementation/fixture snapshot `b24e578a9e832e6a8a880b28d62d3a5a21d0e3fe`,
+the complete native contract verifier passed: 143 commands/141 packet layouts,
+MIL ledger 109/25/7, all generated C#/Unicode contracts, three inline-array
+controls and the 93-field/seven-excluded-identity ownership guard. Strict
+AppleClang C++20 `-Wall -Wextra -Wpedantic -Werror -fsyntax-only` passed for the
+MIL producer/tests, raw scene reader, typed layer builder, new uniform controls,
+internal registry and instantiated paired pixel fixture. These are source and
+ABI checks, not execution of the native renderer or the new behavioral fixtures.
