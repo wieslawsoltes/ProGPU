@@ -1795,6 +1795,7 @@ bool semantic_mapped_layers_preserve_bounded_copy_contract() {
     constexpr std::array<semantic::scissor, 4U> expected{{
         {5U, 11U, 10U, 12U, true}, {7U, 14U, 4U, 6U, true},
         {5U, 11U, 10U, 12U, true}, {0U, 0U, 32U, 32U, true}}};
+    if (header.command_count != expected.size()) return false;
     for (std::uint32_t index = 0U; index < expected.size(); ++index) {
         const auto command = read<progpu_native_scene_command>(stream, header.command_offset + index * header.command_stride);
         const auto actual = cursor.advance(command);

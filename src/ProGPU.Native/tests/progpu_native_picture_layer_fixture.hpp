@@ -193,7 +193,8 @@ void verify_picture_layer_presentation(Render render, Require require) {
             picture.clear_color = {64.0F / 255.0F, 64.0F / 255.0F, 64.0F / 255.0F, 1.0F};
             // Keep the shader raster basis fixed and independent of both axes.
             picture.dpi_scale = physical_reference ? 1.0F : 2.0F;
-            picture.flags = physical_reference ? 0U : PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION;
+            picture.flags = physical_reference ? 0U :
+                static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION);
             const progpu_native_scene_presentation presentation{sizeof(presentation), 0U, 0U, 16U, 16U,
                 static_cast<float>(axes[0]), static_cast<float>(axes[1]), 0U};
             require(parent.add_picture_image(picture, physical_reference ? nullptr : &presentation,

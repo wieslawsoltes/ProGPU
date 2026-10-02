@@ -5210,5 +5210,7 @@ local cache, composite state, backdrop, effect, layer mask, advanced blend and
 picture rendering with no encoded command or submission and an unchanged engine
 submission timeline. These controls do not treat an invalid test stream as proof
 of the renderer's admission gate. Strict post-commit C++20 syntax checks passed
-the shared state implementation, complete builder-test unit and positive fixture
-template; no provider GPU test has been run locally.
+the shared state implementation, complete builder-test unit and the fully
+instantiated positive/negative fixture template. The memory inventory guard
+still covers 92 owned fields and excludes seven non-owning identities; no
+provider GPU test has been run locally.
