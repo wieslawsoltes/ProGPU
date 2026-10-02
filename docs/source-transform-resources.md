@@ -46,3 +46,26 @@ controls. These are authored counts, not execution results.
 
 No tests, builds or reference captures are executed at this intermediate tip.
 Producer qualification and paired source pins remain final-union requirements.
+
+## Independent construction arithmetic
+
+`progpu_native_source_transform_primitive.hpp` now separates the proven original
+double-modulo → float-narrow → single float radians product from trigonometric
+evaluation. Finite double angles are reduced before narrowing; overflow of an
+unreduced diagnostic metadata field is not a source construction rejection.
+The centering helper reuses the original ProGPU-owned ordered float matrix
+products and is connected to the existing v6 Scale path. Generic transforms and
+v1–v5 arithmetic are unchanged. Named source Rotate/Skew remain unadmitted.
+
+The authored controls retain original-SDK quarter-turn/large-angle radians,
+signed zero, scale centering, independently observed core-as-input centering and
+atomic nonfinite/overflow rejection. These controls have not been executed.
+The quarter-turn matrix is a centering input, never a product trig table.
+
+Approximation work is clean-room: only mathematical specifications and owned
+black-box observations may inform it. Coefficients must be independently derived
+from analytic sine/cosine and an explicit minimax objective, not copied from SDK
+implementation/tables or fitted to observed output samples. Degree alone does
+not prove interval, constraints, range reduction, evaluation order or bit parity.
+Numerical analysis of those independent approximants is separate from deferred
+product validation and does not widen the current source gate.

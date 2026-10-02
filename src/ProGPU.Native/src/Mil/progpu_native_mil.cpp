@@ -11,6 +11,7 @@
 #include "../Scene/progpu_native_shader_capture_frame.hpp"
 #include "../Scene/progpu_native_shader_sample_frame.hpp"
 #include "../Scene/progpu_native_shader_affine_frame.hpp"
+#include "../Scene/progpu_native_source_transform_primitive.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -3925,10 +3926,11 @@ struct channel::implementation {
             }
             // Original center translation -> narrowed scale -> center restore.
             // Do not reuse the generic multiply's possible fused arithmetic.
-            const affine_2d_double before{1,0,0,1,-static_cast<float>(values[2]),-static_cast<float>(values[3])};
-            const affine_2d_double scale{static_cast<float>(values[0]),0,0,static_cast<float>(values[1]),0,0};
-            const affine_2d_double after{1,0,0,1,static_cast<float>(values[2]),static_cast<float>(values[3])};
-            matrix = compose_shader_source_full_affine(compose_shader_source_full_affine(before,scale),after);
+            shader_effect::axis_matrix centered{};
+            if (!shader_effect::center_source_primitive(
+                    {static_cast<float>(values[0]),static_cast<float>(values[1])},
+                    static_cast<float>(values[2]),static_cast<float>(values[3]),centered)) return false;
+            matrix = {centered.x,centered.xy,centered.yx,centered.y,centered.tx,centered.ty};
         } else {
             // Named Rotate/Skew constructors still need their independent
             // original primitive arithmetic, not host libm substitution.
