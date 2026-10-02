@@ -20,10 +20,16 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        if (!OperatingSystem.IsWindows() || args.Length != 3 ||
+        if (!OperatingSystem.IsWindows() || args.Length != 4 ||
             !string.Equals(args[1], RuntimeInformation.ProcessArchitecture.ToString(), StringComparison.OrdinalIgnoreCase) ||
             args[2].Length != 40 || !args[2].All(Uri.IsHexDigit))
-            throw new ArgumentException("Expected receipt path, actual Windows architecture and exact source commit.");
+            throw new ArgumentException("Expected receipt path, actual Windows architecture, exact source commit and explicit capture mode.");
+        bool unavailableControl = args[3] switch
+        {
+            "shader-pixels" => false,
+            "unsupported-software-control" => true,
+            _ => throw new ArgumentException("Unknown original capture mode.")
+        };
         Assembly presentation = typeof(ShaderEffect).Assembly;
         if (Convert.ToHexString(presentation.GetName().GetPublicKeyToken() ?? []) != "31BF3856AD364E35")
             throw new InvalidOperationException("Only original Microsoft PresentationCore is a reference.");
@@ -44,9 +50,17 @@ internal static class Program
         using (var capabilityOutput = new FileStream(Path.Combine(directory, "capabilities.json"), FileMode.CreateNew))
             JsonSerializer.Serialize(capabilityOutput, capabilities, new JsonSerializerOptions { WriteIndented = true });
         Console.WriteLine(JsonSerializer.Serialize(capabilities));
+        if (unavailableControl)
+        {
+            if (RuntimeInformation.ProcessArchitecture != Architecture.Arm64 || capabilities.SoftwarePixelShader20 || capabilities.Sse2)
+                throw new InvalidOperationException("The explicit native ARM64 unavailable-software control no longer applies.");
+        }
+        else if (!capabilities.SoftwarePixelShader20)
+            throw new InvalidOperationException("Original software shader pixels are unavailable; no reference may be qualified.");
         PixelShader.InvalidPixelShaderEncountered += OnInvalidShader;
         var timer = Stopwatch.StartNew();
         var observations = new List<object>();
+        int unmatchedShaderCases = 0;
         try
         {
             foreach (OriginalCase input in Cases())
@@ -77,7 +91,8 @@ internal static class Program
                         using var image = new FileStream(Path.Combine(directory, input.Name + ".png"), FileMode.CreateNew);
                         encoder.Save(image);
                     }
-                    AssertPixels(input, pixels);
+                    if (unavailableControl) AssertUnavailableSoftwarePixels(input.Name, pixels);
+                    else AssertPixels(input, pixels);
                     if (first != null && !first.AsSpan().SequenceEqual(pixels))
                         throw new InvalidOperationException($"{input.Name}: cold/warm/independent pixels changed.");
                     if (first == null)
@@ -85,11 +100,15 @@ internal static class Program
                         first = pixels;
                     }
                 }
+                bool matchesShader = MatchesShaderPixels(input, first!);
+                if (!matchesShader) ++unmatchedShaderCases;
                 observations.Add(new { input.Name, input.Words, input.Constants, input.ExpectedRgb,
                     Replays = 3, PixelWidth = 64, PixelHeight = 64, PixelFormat = "Pbgra32", Pixels = first,
-                    PixelSha256 = Convert.ToHexString(SHA256.HashData(first!)) });
+                    MatchesShaderPixels = matchesShader, PixelSha256 = Convert.ToHexString(SHA256.HashData(first!)) });
             }
             if (observations.Count != ExpectedCases) throw new InvalidOperationException("Original shader inventory is incomplete.");
+            if (unmatchedShaderCases != (unavailableControl ? 24 : 0))
+                throw new InvalidOperationException("Original reference/control outcome inventory changed.");
             var modules = Process.GetCurrentProcess().Modules.Cast<ProcessModule>()
                 .Where(module => string.Equals(module.ModuleName, "wpfgfx_cor3.dll", StringComparison.OrdinalIgnoreCase))
                 .Select(module => FileIdentity(module.FileName)).ToArray();
@@ -102,13 +121,17 @@ internal static class Program
                 PresentationIdentity = presentation.FullName, PresentationCore = FileIdentity(presentation.Location),
                 Producer = FileIdentity(Assembly.GetExecutingAssembly().Location), NativeModules = modules,
                 ShaderModel = "ps_2_0", ShaderRenderMode = "SoftwareOnly", InvalidShaders = invalidShaders,
+                CaptureMode = args[3], QualifiedShaderCases = unavailableControl ? 0 : observations.Count,
+                UnmatchedShaderCases = unmatchedShaderCases,
                 Capabilities = capabilities,
                 ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds,
-                Qualification = "Original Microsoft WPF software-reference pixels only; not ps_3_0, native provider, package or application qualification."
+                Qualification = unavailableControl
+                    ? "Original ARM64 software shader unavailability control only; zero shader pixel cases qualified. Native ARM64 GPU pixel gates remain required."
+                    : "Original Microsoft WPF software-reference pixels only; not ps_3_0, native provider, package or application qualification."
             };
             using var stream = new FileStream(output, FileMode.CreateNew, FileAccess.Write, FileShare.None);
             JsonSerializer.Serialize(stream, receipt, new JsonSerializerOptions { WriteIndented = true });
-            Console.WriteLine($"Original WPF shader reference: {observations.Count} cases, 75 replays, 0 skipped; {args[1]}.");
+            Console.WriteLine($"Original WPF {args[3]}: {observations.Count} cases, 75 replays, 0 skipped, {(unavailableControl ? 0 : observations.Count)} shader cases qualified; {args[1]}.");
         }
         finally { PixelShader.InvalidPixelShaderEncountered -= OnInvalidShader; }
     }
@@ -151,6 +174,33 @@ internal static class Program
                 if (actual != expected)
                     throw new InvalidOperationException($"{input.Name}: ({x},{y}) BGRA[{channel}]={actual}, expected {expected}.");
             }
+        }
+    }
+
+    private static bool MatchesShaderPixels(OriginalCase input, byte[] pixels)
+    {
+        for (int y = 0; y < 64; ++y)
+        for (int x = 0; x < 64; ++x)
+        for (int channel = 0; channel < 4; ++channel)
+        {
+            bool inside = x >= 16 && x < 32 && y >= 12 && y < 28;
+            byte expected = channel == 3 ? (byte)255 : inside ? input.ExpectedRgb[2 - channel] : (byte)0;
+            if (pixels[(y * 64 + x) * 4 + channel] != expected) return false;
+        }
+        return true;
+    }
+
+    private static void AssertUnavailableSoftwarePixels(string name, byte[] pixels)
+    {
+        // This is a separate negative source-capability control, never an
+        // alternative successful shader oracle. Every original case remains.
+        for (int y = 0; y < 64; ++y)
+        for (int x = 0; x < 64; ++x)
+        for (int channel = 0; channel < 4; ++channel)
+        {
+            byte expected = channel == 3 || (x >= 16 && x < 32 && y >= 12 && y < 28) ? (byte)255 : (byte)0;
+            if (pixels[(y * 64 + x) * 4 + channel] != expected)
+                throw new InvalidOperationException($"{name}: unavailable software path did not preserve original input at ({x},{y}) BGRA[{channel}].");
         }
     }
 

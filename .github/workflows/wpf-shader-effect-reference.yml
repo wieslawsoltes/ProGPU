@@ -12,15 +12,21 @@ permissions:
 
 jobs:
   reference:
-    name: Original WPF shaders (${{ matrix.arch }})
+    name: Original WPF ${{ matrix.mode }} (${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-2025
             arch: X64
+            mode: shader-pixels
+            qualified: 25
+            unmatched: 0
           - os: windows-11-arm
             arch: Arm64
+            mode: unsupported-software-control
+            qualified: 0
+            unmatched: 24
     runs-on: ${{ matrix.os }}
     timeout-minutes: 8
     env:
@@ -47,7 +53,7 @@ jobs:
           $receipt = Join-Path $evidence 'reference.json'
           $stdout = Join-Path $evidence 'stdout.log'
           $stderr = Join-Path $evidence 'stderr.log'
-          $arguments = @($dll, $receipt, '${{ matrix.arch }}', $env:REFERENCE_COMMIT) | ForEach-Object { '"' + $_ + '"' }
+          $arguments = @($dll, $receipt, '${{ matrix.arch }}', $env:REFERENCE_COMMIT, '${{ matrix.mode }}') | ForEach-Object { '"' + $_ + '"' }
           $child = Start-Process (Get-Command dotnet).Source -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           try {
             if (!$child.WaitForExit(90000)) { throw 'Original shader reference exceeded 90 seconds.' }
@@ -55,6 +61,7 @@ jobs:
             if ((Get-Item -LiteralPath $receipt).Length -gt 2MB) { throw 'Original receipt exceeds its bound.' }
             $value = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
             if ($value.SourceCommit -ne $env:REFERENCE_COMMIT -or $value.CaseCount -ne 25 -or $value.Cases.Count -ne 25 -or $value.Architecture -ne '${{ matrix.arch }}' -or $value.InvalidShaders -ne 0 -or $value.ShaderModel -ne 'ps_2_0' -or $value.ShaderRenderMode -ne 'SoftwareOnly') { throw 'Incomplete or wrong-identity reference.' }
+            if ($value.CaptureMode -ne '${{ matrix.mode }}' -or $value.QualifiedShaderCases -ne ${{ matrix.qualified }} -or $value.UnmatchedShaderCases -ne ${{ matrix.unmatched }}) { throw 'Source capability control was confused with shader qualification.' }
             Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
           } finally {
             if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
