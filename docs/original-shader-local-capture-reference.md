@@ -90,7 +90,9 @@ disagree, not a reason to alter the generic traversal.
 Two further original-only controls place the final quad at fractional offset
 (2.25,3.5): constant output and original ps_2_0 `t0.xy*t0.xy`. A separately drawn
 ordinary opaque rectangle supplies an independently checked binary aliased
-coverage control, never inferred capture bounds. UV-squared colors use the known
+coverage control, never inferred capture bounds. That colored baseline must
+independently contain the exact requested color, including on the ARM64 negative
+lane; two blank results cannot qualify either deferred control. UV-squared colors use the known
 software integer-origin coordinates on that authored frame. These inputs expose
 the deferred final-device-sample contract; neither is a native candidate. A
 future GPU implementation could use an output intermediate only if the shader

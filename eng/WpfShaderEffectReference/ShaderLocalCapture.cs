@@ -90,6 +90,7 @@ internal static partial class Program
                 var frame = new LocalCaptureVisualState();
                 frame.PrepareFrameBaseline(input);
                 frameBaseline = CaptureLocalBitmap(frame.Root,input,directory,input.Name + ".frame",timer);
+                AssertOriginalColoredFrame(frameBaseline);
                 ++baselineCount;
             }
             byte[]? first = null;
@@ -190,6 +191,20 @@ internal static partial class Program
             hasWhite |= value == 255;
         }
         if (!hasWhite) throw new InvalidOperationException("Original positive-size plain input rendered no white pixels.");
+    }
+
+    private static void AssertOriginalColoredFrame(byte[] pixels)
+    {
+        bool hasColor = false;
+        for (int offset = 0; offset < pixels.Length; offset += 4)
+        {
+            bool colored = pixels[offset + 2] == 64;
+            if (pixels[offset] != (colored ? 191 : 0) || pixels[offset + 1] != (colored ? 128 : 0) ||
+                pixels[offset + 2] != (colored ? 64 : 0) || pixels[offset + 3] != 255)
+                throw new InvalidOperationException("Original final-frame baseline was not the requested binary opaque colored drawing.");
+            hasColor |= colored;
+        }
+        if (!hasColor) throw new InvalidOperationException("Original positive-size final frame rendered no colored pixels.");
     }
 
     private static byte ExpectedDeferredLocalCapture(LocalCaptureCase input,int x,int y,int channel,byte[]? frame)
