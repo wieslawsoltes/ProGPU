@@ -466,7 +466,8 @@ std::vector<std::uint8_t> render_progpu(
     const gpu_context& gpu,
     d2d::scene_render_target_native* scene_target,
     std::uint64_t expected_draws = 9U,
-    std::uint64_t expected_commands = 9U)
+    std::uint64_t expected_commands = 9U,
+    std::uint64_t expected_submissions = 1U)
 {
     progpu_native_dawn_engine_options options{};
     options.struct_size = sizeof(options);
@@ -523,7 +524,7 @@ std::vector<std::uint8_t> render_progpu(
         diagnostics.stage == d2d::scene_submission_stage::none &&
         scene_metrics.draw_count == expected_draws &&
         frame_metrics.command_count == expected_commands &&
-        frame_metrics.submission_count == 1U,
+        frame_metrics.submission_count == expected_submissions,
         "ProGPU D3D12 Direct2D render failed");
 
     WGPUBufferDescriptor buffer_descriptor = WGPU_BUFFER_DESCRIPTOR_INIT;
