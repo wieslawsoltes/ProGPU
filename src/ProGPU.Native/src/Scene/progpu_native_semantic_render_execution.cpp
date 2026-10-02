@@ -365,6 +365,7 @@ progpu_native_status render_scene(
     std::uint32_t semantic_backdrop_layer_count = 0U;
     std::uint32_t semantic_effected_backdrop_layer_count = 0U;
     std::uint32_t semantic_advanced_layer_count = 0U;
+    bool semantic_needs_layer_coverage = false;
     std::uint32_t semantic_advanced_source_width = 0U;
     std::uint32_t semantic_advanced_source_height = 0U;
     std::uint32_t semantic_effect_node_count = 0U;
@@ -640,6 +641,8 @@ progpu_native_status render_scene(
                     "The semantic isolated-layer pass count exceeds its bounded compilation budget.");
             }
             semantic_materialized_layer_count += materialized ? 1U : 0U;
+            semantic_needs_layer_coverage |=
+                (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U;
             const bool backdrop = materialized &&
                 (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
                     PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) != 0U;
@@ -1785,7 +1788,7 @@ progpu_native_status render_scene(
             !texture_bytes(
                 std::max(semantic_advanced_source_width, 1U),
                 std::max(semantic_advanced_source_height, 1U),
-                1U,
+                semantic_needs_layer_coverage ? 2U : 1U,
                 semantic_advanced_source_bytes)) ||
         semantic_destination_frame_bytes >
             PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES ||
@@ -4083,6 +4086,7 @@ progpu_native_status render_scene(
                 std::max(semantic_advanced_source_width, 1U),
                 std::max(semantic_advanced_source_height, 1U),
                 semantic_advanced_layer_count,
+                semantic_needs_layer_coverage,
                 frame->dpi_scale,
                 advanced_uniform_upload_bytes)) {
             discard_encoder();
@@ -4973,7 +4977,9 @@ progpu_native_status render_scene(
                                 *engine,
                                 bytes,
                                 resource,
-                                target_extent,
+                                // New coverage resolves into source-local scratch,
+                                // not directly into the parent attachment.
+                                operation.initialized_background ? source_extent : target_extent,
                                 frame->dpi_scale,
                                 deform_mask_with_composite_guidelines
                                     ? &state_cursor

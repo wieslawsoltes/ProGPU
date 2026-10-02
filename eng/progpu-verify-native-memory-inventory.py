@@ -46,6 +46,10 @@ def fields(text, name):
 
 
 collector = source(root / "Backend/progpu_native_engine_memory.hpp")
+# Independent layer coverage owns an R32Float attachment, not an alias of the
+# old UNORM advanced-source scratch. Keep its slot in actual handle accounting.
+if not re.search(r"collect_memory\(inventory, engine\.semantic_layer_coverage_slot\)", collector):
+    raise ValueError("Independent layer coverage ownership is missing from memory inventory")
 # Shader bindings retain picture backings even after the optional picture cache
 # evicts them. Enumerating only the cache misses these in-flight owned textures.
 shader_binding = source(root / "Scene/progpu_native_shader_effect_execution.hpp")

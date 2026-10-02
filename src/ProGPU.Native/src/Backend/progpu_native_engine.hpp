@@ -528,6 +528,7 @@ struct progpu_native_engine {
         semantic_cached_layer_identities{};
     semantic_layer_slot semantic_root_slot{};
     semantic_layer_slot semantic_advanced_source_slot{};
+    semantic_layer_slot semantic_layer_coverage_slot{};
     semantic_layer_slot semantic_advanced_output_slot{};
     WGPUBuffer semantic_layer_vertex_buffer = nullptr;
     std::uint64_t semantic_layer_vertex_buffer_size = 0U;
@@ -1425,6 +1426,7 @@ struct progpu_native_engine {
         }
         release_slot(semantic_root_slot);
         release_slot(semantic_advanced_source_slot);
+        release_slot(semantic_layer_coverage_slot);
         release_slot(semantic_advanced_output_slot);
         if (semantic_effect_uniform_buffer != nullptr) {
             wgpuBufferDestroy(semantic_effect_uniform_buffer);
@@ -1576,6 +1578,7 @@ struct progpu_native_engine {
         };
         release_slot(semantic_root_slot);
         release_slot(semantic_advanced_source_slot);
+        release_slot(semantic_layer_coverage_slot);
         release_slot(semantic_advanced_output_slot);
     }
 
@@ -1593,6 +1596,7 @@ struct progpu_native_engine {
         }
         release_slot(semantic_root_slot);
         release_slot(semantic_advanced_source_slot);
+        release_slot(semantic_layer_coverage_slot);
         release_slot(semantic_advanced_output_slot);
     }
 

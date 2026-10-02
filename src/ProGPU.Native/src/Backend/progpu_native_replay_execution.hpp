@@ -69,6 +69,7 @@ bool prepare_semantic_advanced_blend_resources(
     std::uint32_t source_width,
     std::uint32_t source_height,
     std::uint32_t operation_count,
+    bool needs_layer_coverage,
     float dpi_scale,
     std::uint64_t& uploaded_uniform_bytes);
 

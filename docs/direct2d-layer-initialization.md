@@ -14,7 +14,14 @@ is unchanged. New initialization excludes effects, caches, mapped-picture frames
 and composite-state relocation until those separate ownership contracts connect.
 
 The common Texture/AdvancedBlend shaders implement the coverage resolve and
-destination-aware replacement for both native providers. No CPU pixel evaluation,
+destination-aware replacement for both native providers. Independent coverage
+uses an owned R32Float render attachment and textureLoad: the previous UNORM color
+scratch would quantize half opacity to 128/255 before interpolation and change an
+opposite opaque channel from 128 to 127. The original color/ROP scratch remains
+unchanged. The new attachment participates in the original byte budget and live
+memory inventory and retires with the semantic pool. Its mask binding uses the
+actual source-local resolve frame, independently of the final parent frame.
+No CPU pixel evaluation,
 readback or extra submission supplies layer contents. Pipeline caches belong to
 the engine and retire with it; immutable replay spans retain initialization.
 

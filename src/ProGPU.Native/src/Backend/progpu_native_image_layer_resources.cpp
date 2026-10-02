@@ -799,9 +799,11 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
         return nullptr;
     }
     WGPUColorTargetState target{};
-    target.format = engine.target_format;
-    target.blend = &blend;
-    target.writeMask = channels == layer_write_channels::alpha ? WGPUColorWriteMask_Alpha
+    const bool floating_coverage = coverage_only && channels == layer_write_channels::all;
+    target.format = floating_coverage ? WGPUTextureFormat_R32Float : engine.target_format;
+    target.blend = floating_coverage ? nullptr : &blend;
+    target.writeMask = floating_coverage ? WGPUColorWriteMask_Red
+        : channels == layer_write_channels::alpha ? WGPUColorWriteMask_Alpha
         : channels == layer_write_channels::rgb
             ? WGPUColorWriteMask_Red | WGPUColorWriteMask_Green | WGPUColorWriteMask_Blue
             : WGPUColorWriteMask_All;
