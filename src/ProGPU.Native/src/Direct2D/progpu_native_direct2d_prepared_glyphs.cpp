@@ -19,6 +19,7 @@ constexpr std::size_t maximum_points = 1U << 20U;
 
 struct decoded_original_glyph final {
     std::vector<progpu_native_path_segment> segments;
+    float horizontal_origin = 0.0F;
 };
 
 [[nodiscard]] com::result decode_glyph(const text::sfnt_font_view& font, std::uint16_t glyph,
@@ -29,6 +30,15 @@ struct decoded_original_glyph final {
     if (requirements.path_segment_count > remaining || requirements.point_count > maximum_points ||
         requirements.simple_point_scratch_count > maximum_points) return com::out_of_memory;
     auto candidate = std::make_shared<decoded_original_glyph>();
+    text::sfnt_horizontal_glyph_metrics metrics{};
+    text::sfnt_glyph_data_view original{};
+    if (!font.try_get_horizontal_glyph_metrics(glyph, metrics) || !font.try_get_glyph_data(glyph, original))
+        return com::invalid_argument;
+    // OpenType hmtx defines the unhinted left phantom point as xMin - lsb.
+    // Stored contour coordinates are not necessarily relative to that origin.
+    // Empty glyphs have no xMin/ink, but their supplied advance still participates.
+    if (!original.empty()) candidate->horizontal_origin = static_cast<float>(
+        static_cast<std::int32_t>(original.x_min) - static_cast<std::int32_t>(metrics.left_side_bearing));
     candidate->segments.resize(requirements.path_segment_count);
     std::vector<std::uint16_t> contours(requirements.simple_contour_scratch_count);
     std::vector<text::sfnt_outline_point> scratch(requirements.simple_point_scratch_count);
@@ -41,33 +51,40 @@ struct decoded_original_glyph final {
     return com::ok;
 }
 
-[[nodiscard]] bool place_point(progpu_native_point& value, float scale, float x, float y) noexcept
+[[nodiscard]] bool place_point(progpu_native_point& value, float scale, float x, float y,
+    float horizontal_origin) noexcept
 {
-    value = {value.x * scale + x, -value.y * scale + y};
+    value = {(value.x - horizontal_origin) * scale + x, -value.y * scale + y};
     return std::isfinite(value.x) && std::isfinite(value.y);
 }
 
 // Source coordinate conversion, not raster coverage: two independent XY points
 // use intrinsic lanes; a quadratic's third point is the fixed scalar tail.
-[[nodiscard]] bool place_segment(progpu_native_path_segment& value, float scale, float x, float y) noexcept
+[[nodiscard]] bool place_segment(progpu_native_path_segment& value, float scale, float x, float y,
+    float horizontal_origin) noexcept
 {
     if (value.kind > PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) return false;
     alignas(16) float points[4]{value.p0.x, value.p0.y, value.p1.x, value.p1.y};
     alignas(16) const float scales[4]{scale, -scale, scale, -scale};
     alignas(16) const float origins[4]{x, y, x, y};
+    alignas(16) const float design_origins[4]{horizontal_origin, 0, horizontal_origin, 0};
 #if defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64)
-    vst1q_f32(points, vaddq_f32(vmulq_f32(vld1q_f32(points), vld1q_f32(scales)), vld1q_f32(origins)));
+    vst1q_f32(points, vaddq_f32(vmulq_f32(vsubq_f32(vld1q_f32(points), vld1q_f32(design_origins)),
+        vld1q_f32(scales)), vld1q_f32(origins)));
 #elif defined(__SSE2__) || defined(_M_X64)
-    _mm_store_ps(points, _mm_add_ps(_mm_mul_ps(_mm_load_ps(points), _mm_load_ps(scales)), _mm_load_ps(origins)));
+    _mm_store_ps(points, _mm_add_ps(_mm_mul_ps(_mm_sub_ps(_mm_load_ps(points), _mm_load_ps(design_origins)),
+        _mm_load_ps(scales)), _mm_load_ps(origins)));
 #elif defined(__wasm_simd128__)
-    wasm_v128_store(points, wasm_f32x4_add(wasm_f32x4_mul(wasm_v128_load(points), wasm_v128_load(scales)), wasm_v128_load(origins)));
+    wasm_v128_store(points, wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_sub(wasm_v128_load(points),
+        wasm_v128_load(design_origins)), wasm_v128_load(scales)), wasm_v128_load(origins)));
 #else
-    for (std::size_t lane = 0U; lane < 4U; ++lane) points[lane] = points[lane] * scales[lane] + origins[lane];
+    for (std::size_t lane = 0U; lane < 4U; ++lane)
+        points[lane] = (points[lane] - design_origins[lane]) * scales[lane] + origins[lane];
 #endif
     value.p0 = {points[0], points[1]}; value.p1 = {points[2], points[3]};
     return std::isfinite(points[0]) && std::isfinite(points[1]) &&
         std::isfinite(points[2]) && std::isfinite(points[3]) &&
-        (value.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE || place_point(value.p2, scale, x, y));
+        (value.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE || place_point(value.p2, scale, x, y, horizontal_origin));
 }
 } // namespace
 
@@ -112,6 +129,18 @@ com::result prepared_original_font::create(std::shared_ptr<const original_font_c
         text::sfnt_header_metrics header{};
         if (!candidate->font.try_get_glyph_count(glyphs) || glyphs != candidate->source->glyph_count ||
             !candidate->font.try_get_header_metrics(header) || header.units_per_em == 0U)
+            return com::invalid_argument;
+        // The shared raw metric reader permits an absent bearing as zero for
+        // legacy callers. This original-source capability must own every real
+        // hmtx bearing, including the compact repeated-advance tail.
+        text::sfnt_horizontal_header_metrics horizontal{};
+        text::sfnt_table_view hmtx{};
+        if (!candidate->font.try_get_horizontal_header_metrics(horizontal) ||
+            horizontal.number_of_horizontal_metrics == 0U || horizontal.number_of_horizontal_metrics > glyphs ||
+            !candidate->font.try_get_table(text::open_type_tag::from_chars('h', 'm', 't', 'x'), hmtx))
+            return com::invalid_argument;
+        const auto metric_count = static_cast<std::size_t>(horizontal.number_of_horizontal_metrics);
+        if (hmtx.bytes.size() < metric_count * 4U + (static_cast<std::size_t>(glyphs) - metric_count) * 2U)
             return com::invalid_argument;
         text::sfnt_table_view variation{};
         if (candidate->font.try_get_table(text::open_type_tag::from_chars('f', 'v', 'a', 'r'), variation))
@@ -175,7 +204,7 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
             const float y = original.target.baseline.y - offset.ascender_offset;
             if (!std::isfinite(x) || !std::isfinite(y)) return com::invalid_argument;
             for (auto segment : occurrences[index]->segments) {
-                if (!place_segment(segment, scale, x, y))
+                if (!place_segment(segment, scale, x, y, occurrences[index]->horizontal_origin))
                     return com::invalid_argument;
                 candidate->segments_.push_back(segment);
             }
