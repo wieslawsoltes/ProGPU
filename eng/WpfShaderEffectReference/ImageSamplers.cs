@@ -16,6 +16,7 @@ internal static partial class Program
     private static void CaptureImageSamplers(string directory, string commit, bool unavailable, Stopwatch timer)
     {
         double startedMilliseconds = timer.Elapsed.TotalMilliseconds;
+        int softwareArithmeticControls = SoftwareSamplerOracle.VerifyArithmeticControls();
         var observations = new List<object>();
         var originals = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         var failures = new List<string>();
@@ -105,6 +106,7 @@ internal static partial class Program
             CaptureMode = unavailable ? "unsupported-software-control" : "shader-pixels",
             QualifiedShaderCases = unavailable || failures.Count != 0 ? 0 : observations.Count,
             IndependentColorCases = independentColors, EquivalentViewboxPairs = equivalentPairs,
+            SoftwareArithmeticControls = softwareArithmeticControls,
             Failures = failures,
             ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds - startedMilliseconds,
             Qualification = unavailable
@@ -291,18 +293,18 @@ internal static partial class Program
                 // behavior qualifies shader execution on that architecture.
                 if (!unavailable && inside && input.TwoAxisCheckerboard)
                 {
-                    // Independent bilinear interpolation of a two-by-two XOR
-                    // checkerboard. Address each original neighbour before
-                    // interpolation; do not filter a pre-enlarged tile page.
-                    double u = (x + .5 - input.Bounds.X - input.TranslationX)
-                        / (input.Bounds.Width * input.Viewport.Width) * input.Width - .5;
-                    double v = (y + .5 - input.Bounds.Y)
-                        / (input.Bounds.Height * input.Viewport.Height) * input.Height - .5;
-                    double horizontal = CheckerboardAxis(u, input.Tile is TileMode.FlipX or TileMode.FlipXY);
-                    double vertical = CheckerboardAxis(v, input.Tile is TileMode.FlipY or TileMode.FlipXY);
-                    double green = horizontal * (1 - vertical) + (1 - horizontal) * vertical;
-                    double component = channel == 1 ? green : channel == 2 ? 1 - green : 0;
-                    expected = checked((byte)Math.Round(component * 255 * input.Opacity, MidpointRounding.ToEven));
+                    // The original SOFTWARE color source quantizes affine
+                    // coefficients and fractions, emits bytes, then applies
+                    // fixed-point opacity. This is not a GPU-filter oracle.
+                    float sx = (float)(input.Width / (input.Bounds.Width * input.Viewport.Width));
+                    float sy = (float)(input.Height / (input.Bounds.Height * input.Viewport.Height));
+                    long u = SoftwareSamplerOracle.Coordinate(sx, (float)input.TranslationX, x - (int)input.Bounds.X);
+                    long v = SoftwareSamplerOracle.Coordinate(sy, 0, y - (int)input.Bounds.Y);
+                    if (channel != 0)
+                        expected = SoftwareSamplerOracle.Checkerboard(u, v,
+                            input.Tile is TileMode.FlipX or TileMode.FlipXY,
+                            input.Tile is TileMode.FlipY or TileMode.FlipXY,
+                            channel == 1, SoftwareSamplerOracle.Coefficient((float)input.Opacity));
                 }
                 else if (!unavailable && inside && input.NativeVariant >= 0 && (input.VisualNearest || input.ParentVisualNearest))
                 {
@@ -338,19 +340,6 @@ internal static partial class Program
         }
         if (!unavailable && input.NativeVariant < 0 && changed == 0)
             throw new InvalidOperationException($"{input.Name}: sampler capture is blank or unmodified, not an opacity-bearing shader result.");
-    }
-
-    private static double CheckerboardAxis(double coordinate, bool mirror)
-    {
-        int lower = checked((int)Math.Floor(coordinate));
-        double fraction = coordinate - lower;
-        static int Address(int index, bool mirrored)
-        {
-            int period = mirrored ? 4 : 2;
-            int wrapped = (index % period + period) % period;
-            return mirrored ? (wrapped is 1 or 2 ? 1 : 0) : wrapped;
-        }
-        return Address(lower, mirror) * (1 - fraction) + Address(lower + 1, mirror) * fraction;
     }
 
     private static void SaveSamplerBitmap(string directory, string name, BitmapSource bitmap, byte[] pixels)

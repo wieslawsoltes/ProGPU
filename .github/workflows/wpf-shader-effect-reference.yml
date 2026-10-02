@@ -65,6 +65,7 @@ jobs:
             $samplerReceipt = Join-Path $evidence 'image-samplers.json'
             if ((Get-Item -LiteralPath $samplerReceipt).Length -gt 2MB) { throw 'Original sampler receipt exceeds its bound.' }
             $samplers = Get-Content -LiteralPath $samplerReceipt -Raw | ConvertFrom-Json
+            if ($samplers.SoftwareArithmeticControls -ne 19) { throw 'Original software arithmetic controls did not run.' }
             $qualifiedSamplers = if ('${{ matrix.mode }}' -eq 'shader-pixels') { 28 } else { 0 }
             if ($samplers.SourceCommit -ne $env:REFERENCE_COMMIT -or $samplers.Architecture -ne '${{ matrix.arch }}' -or $samplers.CaseCount -ne 28 -or $samplers.Cases.Count -ne 28 -or $samplers.Replays -ne 84 -or $samplers.IndependentColorCases -ne 22 -or $samplers.EquivalentViewboxPairs -ne 5 -or $samplers.Failures.Count -ne 0 -or $samplers.CaptureMode -ne '${{ matrix.mode }}' -or $samplers.QualifiedShaderCases -ne $qualifiedSamplers) { throw 'Incomplete or wrong-identity ImageBrush reference.' }
             Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
