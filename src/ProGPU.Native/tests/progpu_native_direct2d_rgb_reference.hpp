@@ -9,6 +9,7 @@
 #include <locale>
 #include <sstream>
 #include <string>
+#include "../src/Direct2D/progpu_native_direct2d_font_capture.hpp"
 
 namespace progpu::native::direct2d::tests {
 
@@ -17,6 +18,15 @@ void capture_original_rgb_parameters(ID2D1DeviceContext* source, IDWriteFactory*
     IDWriteFontFace* face, std::uint16_t first_glyph, Require&& require)
 {
     using Microsoft::WRL::ComPtr;
+    com::pointer<compat::font_face> typed_face;
+    void* original_face_interface = nullptr;
+    require(face->QueryInterface(compat::font_face_interface_id, &original_face_interface) == S_OK,
+        "original typed font-face query failed");
+    typed_face.attach(static_cast<compat::font_face*>(original_face_interface));
+    std::shared_ptr<const original_font_capture> captured_font;
+    require(capture_original_font(typed_face.get(), captured_font) == S_OK && captured_font &&
+        captured_font->face_index == face->GetIndex() && captured_font->face_type == face->GetType() &&
+        captured_font->simulations == face->GetSimulations(), "owned original font capture failed");
     constexpr std::uint32_t width = 32U, height = 24U, stride = width * 4U;
     struct policy final { float gamma, contrast, level; DWRITE_PIXEL_GEOMETRY geometry; DWRITE_RENDERING_MODE mode; };
     constexpr std::array policies{
@@ -85,6 +95,8 @@ void capture_original_rgb_parameters(ID2D1DeviceContext* source, IDWriteFactory*
     UINT32 file_count = 0U;
     require(face->GetFiles(&file_count, nullptr) == S_OK && file_count > 0U && file_count <= 4U,
         "original RGB face file inventory failed");
+    require(captured_font->files.size() == file_count,
+        "owned original font file count differs from independent source inventory");
     std::array<IDWriteFontFile*, 4U> files{};
     const auto expected_count = file_count;
     require(face->GetFiles(&file_count, files.data()) == S_OK && file_count == expected_count,
@@ -109,6 +121,9 @@ void capture_original_rgb_parameters(ID2D1DeviceContext* source, IDWriteFactory*
         const auto name = "font-" + std::to_string(index) + ".bin";
         write_new(std::wstring(name.begin(), name.end()), bytes, static_cast<std::size_t>(size));
         const auto sha256 = digest(bytes, static_cast<std::size_t>(size));
+        require(index < captured_font->files.size() && captured_font->files[index].size() == size &&
+            std::memcmp(bytes, captured_font->files[index].data(), static_cast<std::size_t>(size)) == 0,
+            "owned original font differs from independent original file bytes");
         stream->ReleaseFileFragment(owner);
         if (index != 0U) manifest << ',';
         manifest << "{\"file\":\"" << name << "\",\"bytes\":" << size << ",\"sha256\":\"" << sha256 << "\"}";
@@ -175,6 +190,11 @@ void capture_original_rgb_parameters(ID2D1DeviceContext* source, IDWriteFactory*
         require(parameters->GetGamma() == selected.gamma && parameters->GetEnhancedContrast() == selected.contrast &&
             parameters->GetClearTypeLevel() == selected.level && parameters->GetPixelGeometry() == selected.geometry &&
             parameters->GetRenderingMode() == selected.mode, "original RGB parameter readback changed");
+        com::pointer<compat::rendering_parameters> typed_parameters;
+        void* original_parameter_interface = nullptr;
+        require(parameters->QueryInterface(compat::rendering_parameters_interface_id, &original_parameter_interface) == S_OK,
+            "original typed rendering-parameters query failed");
+        typed_parameters.attach(static_cast<compat::rendering_parameters*>(original_parameter_interface));
         for (const auto& color : colors) for (const auto phase : phases) {
             ComPtr<ID2D1SolidColorBrush> brush;
             require(context->CreateSolidColorBrush(&color, nullptr, brush.GetAddressOf()) == S_OK,
@@ -188,6 +208,56 @@ void capture_original_rgb_parameters(ID2D1DeviceContext* source, IDWriteFactory*
             context->Clear(D2D1::ColorF(D2D1::ColorF::White));
             context->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
             context->SetTextRenderingParams(parameters.Get());
+            // Capture the actual original target and typed source request before
+            // drawing. This test owns one observation generation per case; it is
+            // not an engine/device generation or proof of modern RGB replay.
+            original_glyph_target captured_target;
+            captured_target.identity = com::pointer<com::unknown>(context.Get());
+            captured_target.generation = static_cast<std::uint64_t>(case_id) + 1U;
+            D2D1_MATRIX_3X2_F original_transform{};
+            context->GetTransform(&original_transform);
+            captured_target.transform = {original_transform._11, original_transform._12,
+                original_transform._21, original_transform._22, original_transform._31, original_transform._32};
+            captured_target.baseline = {baseline.x, baseline.y};
+            const auto original_pixels = target->GetPixelSize();
+            captured_target.pixels = {original_pixels.width, original_pixels.height};
+            context->GetDpi(&captured_target.dpi_x, &captured_target.dpi_y);
+            const auto original_format = target->GetPixelFormat();
+            captured_target.format = {static_cast<std::uint32_t>(original_format.format),
+                static_cast<compat::alpha_mode>(original_format.alphaMode)};
+            captured_target.antialias = static_cast<compat::text_antialias_mode>(context->GetTextAntialiasMode());
+            D2D1_TAG tag1 = 0U, tag2 = 0U;
+            context->GetTags(&tag1, &tag2);
+            captured_target.tag1 = tag1; captured_target.tag2 = tag2;
+            captured_target.units = static_cast<compat::unit_mode>(context->GetUnitMode());
+            captured_target.blend = static_cast<compat::primitive_blend>(context->GetPrimitiveBlend());
+            const compat::glyph_offset original_offset{offset.advanceOffset, offset.ascenderOffset};
+            const compat::glyph_run original_run{typed_face.get(), run.fontEmSize, run.glyphCount,
+                run.glyphIndices, run.glyphAdvances, &original_offset, run.isSideways, run.bidiLevel};
+            std::shared_ptr<const original_glyph_request> captured_request;
+            require(capture_original_glyph_request(captured_font, original_run, compat::measuring_mode::natural,
+                typed_parameters.get(), captured_target, captured_request) == S_OK && captured_request &&
+                captured_request->font == captured_font && captured_request->glyphs.count() == 1U &&
+                captured_request->glyphs.indices()[0] == first_glyph && captured_request->glyphs.advances()[0] == advance &&
+                captured_request->glyphs.offsets()[0].advance_offset == offset.advanceOffset &&
+                captured_request->glyphs.offsets()[0].ascender_offset == offset.ascenderOffset &&
+                captured_request->em_size == run.fontEmSize && captured_request->sideways == run.isSideways &&
+                captured_request->bidi_level == run.bidiLevel &&
+                captured_request->target.identity.get() == static_cast<IUnknown*>(context.Get()) &&
+                captured_request->target.baseline.x == baseline.x && captured_request->target.baseline.y == baseline.y &&
+                captured_request->target.dpi_x == 96 && captured_request->target.dpi_y == 96 &&
+                captured_request->target.pixels.width == original_pixels.width &&
+                captured_request->target.pixels.height == original_pixels.height &&
+                captured_request->target.format.format == static_cast<std::uint32_t>(original_format.format) &&
+                captured_request->target.format.alpha == static_cast<compat::alpha_mode>(original_format.alphaMode) &&
+                captured_request->target.units == static_cast<compat::unit_mode>(context->GetUnitMode()) &&
+                captured_request->target.blend == static_cast<compat::primitive_blend>(context->GetPrimitiveBlend()) &&
+                captured_request->rendering.supplied && captured_request->rendering.gamma == selected.gamma &&
+                captured_request->rendering.enhanced_contrast == selected.contrast &&
+                captured_request->rendering.cleartype_level == selected.level &&
+                captured_request->rendering.pixel_geometry == static_cast<std::uint32_t>(selected.geometry) &&
+                captured_request->rendering.rendering_mode == static_cast<std::uint32_t>(selected.mode),
+                "owned original glyph request changed source identity or policy");
             context->DrawGlyphRun(baseline, &run, brush.Get(), DWRITE_MEASURING_MODE_NATURAL);
             require(context->EndDraw() == S_OK, "original RGB direct glyph draw failed");
             const auto direct = copy_pixels();
