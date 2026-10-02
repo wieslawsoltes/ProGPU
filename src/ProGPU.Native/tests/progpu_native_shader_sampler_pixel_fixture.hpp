@@ -3,6 +3,7 @@
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 namespace progpu::native::tests {
@@ -96,7 +97,17 @@ void verify_original_shader_sampler_pixels(Render render, Require require) {
                 expected[stripe == 1U ? 1U : variant == 3U ? 2U : 0U] = variant == 3U ? 255U : 128U;
             }
             const auto* actual = images[0].data() + (y * 64U + x) * 4U;
-            require(std::equal(expected.begin(), expected.end(), actual),
+            const bool matches = std::equal(expected.begin(), expected.end(), actual);
+            if (!matches) {
+                std::fprintf(stderr,
+                    "Original shader sampler variant=%u pixel=(%u,%u) actual=(%u,%u,%u,%u) expected=(%u,%u,%u,%u)\n",
+                    variant, x, y,
+                    static_cast<unsigned>(actual[0]), static_cast<unsigned>(actual[1]),
+                    static_cast<unsigned>(actual[2]), static_cast<unsigned>(actual[3]),
+                    static_cast<unsigned>(expected[0]), static_cast<unsigned>(expected[1]),
+                    static_cast<unsigned>(expected[2]), static_cast<unsigned>(expected[3]));
+            }
+            require(matches,
                 "original sampler color/opacity/physical normalization/tile transform/final clip differs");
         }
     }
