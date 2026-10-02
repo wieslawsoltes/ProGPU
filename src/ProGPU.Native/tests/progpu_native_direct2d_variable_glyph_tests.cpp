@@ -8,6 +8,7 @@
 namespace {
 using namespace progpu::native::direct2d::tests;
 namespace d2d = progpu::native::direct2d;
+namespace compat = d2d::compat;
 namespace com = progpu::native::com;
 namespace text = progpu::native::text;
 
@@ -53,7 +54,7 @@ bool axis_and_table_admission()
     if (!check(original.capture(source) == com::ok && d2d::prepared_original_font::create(source, font) == com::ok,
         "real capture followed by paired variable preparation")) return false;
     const auto retained = font;
-    for (unsigned fault = 0U; fault < 14U; ++fault) {
+    for (unsigned fault = 0U; fault < 16U; ++fault) {
         auto bad = std::make_shared<d2d::original_font_capture>(*source);
         if (fault == 0U) bad->axis_values_available = false;
         if (fault == 1U) bad->has_variations = false;
@@ -70,6 +71,8 @@ bool axis_and_table_admission()
         if (fault == 11U) variable_font_wire::put32(bytes, table_offset(bytes, 0x48564152U) + 12U, 0xFFFFFFF0U);
         if (fault == 12U) variable_font_wire::put16(bytes, table_offset(bytes, 0x67766172U) + 4U, 2U);
         if (fault == 13U) variable_font_wire::put16(bytes, table_offset(bytes, 0x66766172U) + 8U, 0U);
+        if (fault == 14U) variable_font_wire::put16(bytes, table_offset(bytes, 0x67766172U), 2U);
+        if (fault == 15U) variable_font_wire::put16(bytes, table_offset(bytes, 0x67766172U) + 14U, 2U);
         if (!check(com::failed(d2d::prepared_original_font::create(bad, font)) && font == retained &&
             font->cached_glyph_count() == 0U, "later source/table rejection preserves original prepared owner/cache")) return false;
     }
