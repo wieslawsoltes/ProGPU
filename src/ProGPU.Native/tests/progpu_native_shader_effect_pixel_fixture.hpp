@@ -15,8 +15,10 @@ template<class Render, class Require>
 void verify_original_shader_effect_pixels(Render render, Require require) {
     constexpr std::array coefficients{1.0F, 0.5F, 0.5F, 0.25F};
     constexpr std::array<unsigned, 4U> expected_gray{255U, 128U, 255U, 64U};
-    for (std::uint32_t variant = 0U; variant < coefficients.size(); ++variant) {
-        const bool model_three = variant >= 2U;
+    for (std::uint32_t variant = 0U; variant < 10U; ++variant) {
+        const bool cross_product = variant >= coefficients.size();
+        const auto cross_axis = cross_product ? (variant - 4U) % 3U : 0U;
+        const bool model_three = cross_product ? variant >= 7U : variant >= 2U;
         std::vector<std::uint32_t> program{
             model_three ? 0xFFFF0300U : 0xFFFF0200U,
             0x0200001FU, model_three ? 0x80000005U : 0x80000000U,
@@ -24,7 +26,16 @@ void verify_original_shader_effect_pixels(Render render, Require require) {
             0x0200001FU, 0x90000000U, 0xA00F0800U,
             0x03000042U, 0x800F0000U,
             model_three ? 0x90E40000U : 0xB0E40000U, 0xA0E40800U};
-        if (variant == 2U) // Same uniforms, different original bytecode.
+        if (cross_product) {
+            // Actual source texels participate in the vector. CRS writes XYZ
+            // into another initialized register, leaving original alpha intact.
+            program.insert(program.end(), {
+                0x02000001U, 0x800F0001U, 0x80E40000U,
+                0x03000005U, 0x800F0000U, 0x80E40000U, 0xA0E40000U,
+                0x03000021U, model_three ? 0x80170001U : 0x80070001U,
+                0x80E40000U, model_three ? 0xA1E40001U : 0xA0E40001U,
+                0x02000001U, 0x800F0800U, 0x80E40001U});
+        } else if (variant == 2U) // Same uniforms, different original bytecode.
             program.insert(program.end(), {0x02000001U, 0x800F0800U, 0x80E40000U});
         else
             program.insert(program.end(), {0x03000005U, 0x800F0800U, 0x80E40000U, 0xA0E40000U});
@@ -36,7 +47,13 @@ void verify_original_shader_effect_pixels(Render render, Require require) {
         shader.bytecode_size = static_cast<std::uint32_t>(program.size() * sizeof(std::uint32_t));
         shader.revision = static_cast<std::uint32_t>(generation);
         shader.sampling_mode = variant & 1U;
-        for (std::size_t i = 0U; i < 4U; ++i) shader.constants[i] = coefficients[variant];
+        if (cross_product) {
+            shader.constants[(cross_axis + 1U) % 3U] = 1.0F;
+            shader.constants[3U] = 1.0F;
+            shader.constants[4U + (cross_axis + 2U) % 3U] = model_three ? -1.0F : 1.0F;
+        } else {
+            for (std::size_t i = 0U; i < 4U; ++i) shader.constants[i] = coefficients[variant];
+        }
         std::uint32_t effect{}, brush{}, clip{};
         require(builder.add_shader_effect(shader, std::as_bytes(std::span(program)), effect),
             "original bytecode pixel resource rejected");
@@ -78,9 +95,13 @@ void verify_original_shader_effect_pixels(Render render, Require require) {
         require(images[0] == images[1] && images[0] == images[2] && images[0].size() == 64U * 64U * 4U,
             "shader cold/warm/independent pixels differ");
         for (unsigned y = 0U; y < 64U; ++y) for (unsigned x = 0U; x < 64U; ++x) {
-            const auto expected = x >= 16U && x < 32U && y >= 12U && y < 28U ? expected_gray[variant] : 0U;
+            std::array<unsigned, 3U> expected{};
+            if (x >= 16U && x < 32U && y >= 12U && y < 28U) {
+                if (cross_product) expected[cross_axis] = 255U;
+                else expected.fill(expected_gray[variant]);
+            }
             const auto* pixel = images[0].data() + (y * 64U + x) * 4U;
-            require(pixel[0] == expected && pixel[1] == expected && pixel[2] == expected && pixel[3] == 255U,
+            require(pixel[0] == expected[0] && pixel[1] == expected[1] && pixel[2] == expected[2] && pixel[3] == 255U,
                 "original bytecode result, alpha, capture frame or final clip differs");
         }
     }
