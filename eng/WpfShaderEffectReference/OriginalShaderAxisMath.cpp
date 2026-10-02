@@ -149,3 +149,51 @@ extern "C" __declspec(dllexport) int __cdecl OriginalShaderAffineMath(
     std::memcpy(output,candidate.data(),sizeof(candidate)); std::memcpy(traits,identity.data(),sizeof(identity));
     return 1;
 }
+
+// Original resource construction only, called through installed SDK APIs.
+// kind: 0 translate, 1 scale, 2 rotate, 3 skew. Four original parameters
+// follow (first, second, centerX, centerY); rotation's second must be zero.
+// No copied SDK trigonometric implementation and no ProGPU linkage.
+extern "C" __declspec(dllexport) int __cdecl OriginalTransformPrimitiveMath(
+    const double* input, std::uint32_t inputs, float* output, std::uint32_t outputs,
+    std::uint32_t* traits, std::uint32_t traits_size) noexcept {
+    if (!input || !output || !traits || inputs != 5U || outputs != 40U || traits_size != trait_count) return 0;
+    for (std::uint32_t i=0;i<inputs;++i) if (!std::isfinite(input[i])) return 0;
+    if (input[0] != 0 && input[0] != 1 && input[0] != 2 && input[0] != 3) return 0;
+    if ((input[0] == 2 && input[2] != 0) || (input[0] == 0 && (input[3] != 0 || input[4] != 0))) return 0;
+    using namespace DirectX;
+    std::array<float,40U> candidate{};
+    for (std::size_t i=0;i<4;++i) candidate[i]=static_cast<float>(input[1+i]);
+    candidate[4]=candidate[0]; candidate[5]=candidate[1];
+    auto core=XMMatrixIdentity();
+    if (input[0] == 0) core=XMMatrixTranslation(candidate[0],candidate[1],0);
+    else if (input[0] == 1) core=XMMatrixScaling(candidate[0],candidate[1],1);
+    else {
+        candidate[4]=static_cast<float>(std::fmod(input[1],360.0));
+        candidate[5]=static_cast<float>(std::fmod(input[2],360.0));
+        candidate[6]=XMConvertToRadians(candidate[4]); candidate[7]=XMConvertToRadians(candidate[5]);
+        if (input[0] == 2) core=XMMatrixRotationZ(candidate[6]);
+        else core=XMMatrixSet(1,static_cast<float>(std::tan(candidate[7])),0,0,
+            static_cast<float>(std::tan(candidate[6])),1,0,0,0,0,1,0,0,0,0,1);
+    }
+    const auto centered=XMMatrixMultiply(XMMatrixMultiply(
+        XMMatrixTranslation(static_cast<float>(-input[3]),static_cast<float>(-input[4]),0),core),
+        XMMatrixTranslation(candidate[2],candidate[3],0));
+    XMFLOAT4X4 matrix{}; XMStoreFloat4x4(&matrix,core); std::memcpy(candidate.data()+8,&matrix,sizeof(matrix));
+    XMStoreFloat4x4(&matrix,centered); std::memcpy(candidate.data()+24,&matrix,sizeof(matrix));
+    for (float value:candidate) if (!std::isfinite(value)) return 0;
+    const std::array<std::uint32_t,trait_count> identity{_MSC_FULL_VER,DIRECTX_MATH_VERSION,
+#if defined(_M_ARM64)
+        0xAA64U,2U,
+#else
+        0x8664U,1U,
+#endif
+#if defined(_XM_FMA3_INTRINSICS_)
+        1U
+#else
+        0U
+#endif
+    };
+    std::memcpy(output,candidate.data(),sizeof(candidate)); std::memcpy(traits,identity.data(),sizeof(identity));
+    return 1;
+}

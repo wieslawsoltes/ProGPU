@@ -1649,6 +1649,8 @@ public sealed partial class NativeMilBatchBuilder
     public void SetTransformGroup(uint handle, ReadOnlySpan<uint> children)
     {
         ValidateHandle(handle);
+        if (children.Length > (1 << 20))
+            throw new ArgumentOutOfRangeException(nameof(children));
         int childrenSize = checked(children.Length * sizeof(uint));
         // A late invalid child must not append a partial packet to this writer.
         // Preserve duplicates and original ordering; graph cycles are channel
