@@ -1,13 +1,14 @@
-# Original positive-axis decomposition draft
+# Original positive-axis decomposition reference
 
-This unexecuted authoring checkpoint is based on original-reference `e611aae3f`.
-Implementation priorities changed before workflow wiring or validation. The new
-capture method is deliberately not called by Program, and no compiler/workflow
-step builds or stages its private SDK companion. Existing reference cases and
-their workflow are unchanged. No arithmetic, software pixels, native rendering
-or source admission is newly qualified by this checkpoint.
+This original-only reference extends the source inventory in `e611aae3f` and
+the unexecuted arithmetic draft `390dada4`. Program now invokes the axis family
+after every existing family, and the Windows workflow prepares its private SDK
+companion on each native architecture. Existing assertions, the shared 60-second
+capture deadline, external 90-second process deadline and eight-minute job limit
+are unchanged. Implementation uses skipped-CI draft commits; no new build,
+arithmetic, pixel, source or hardware qualification has been executed.
 
-## Files and intended evidence
+## Files and evidence contract
 
 `eng/WpfShaderEffectReference/OriginalShaderAxisMath.cpp` calls the installed
 original DirectXMath API, without copying its implementation or linking ProGPU.
@@ -15,8 +16,15 @@ Its private synchronous ABI accepts14 doubles and atomically publishes128 floats
 plus5 compiler/architecture traits. The seven full16-float matrices are world,
 scale, inverse scale, residual, final capture transform, normalized sampling
 transform and its full inverse. Additional slots retain allocation, padded local
-edges, extracted scales, determinant and actual float root DPI. Intended hosted
-provenance must additionally hash the compiler, DLL and actual SDK headers.
+edges, extracted scales, determinant and actual float root DPI. Hosted
+provenance hashes the compiler, its front/back-end DLLs, output DLL, companion
+source and every actual include reported by the compiler. Required DirectXMath
+headers must each occur exactly once. `BuildOriginalAxisMath.ps1` uses installed
+Microsoft C++ tools in strict C++20/float mode, performs no install/download,
+requires the exact checkout and native host architecture, inspects the resulting
+PE machine, and refuses to overwrite previous outputs. It does not execute the
+companion. The managed loader checks the exact commit, architecture, PE machine
+and DLL hash against the receipt before calling its private synchronous API.
 The installed SDK's version is not interchangeable with the installed wpfgfx DLL's
 unknown build-header provenance.
 
@@ -71,7 +79,14 @@ SDK10.0.26100.0. The Microsoft-owned SDK header snapshot inspected is
 division; ARM32's estimate/refinement must not be substituted. This snapshot is
 research provenance, not proof of the headers compiled into wpfgfx or any runner.
 
-Remaining authoring work, if this reference is resumed: install-free hosted SDK
-companion build with exact architecture/header/compiler provenance, explicit
-capture invocation and receipt guard, then final-tip validation under the original
-unchanged deadlines. No workflow execution, local native build or staging occurred.
+The workflow requires each of the ten math identities and each of the forty
+source/output identities exactly once, complete replay hashes and original
+baselines, the original arithmetic/rejection inventories and separate qualification
+counters. UV, input and derivative captures remain observations; neither SDK
+math nor software constant pixels qualify original hardware output or ProGPU.
+
+Only the final integrated tip will execute this reference. A failed arithmetic
+prediction or original constant-coverage assertion must be investigated; do not
+weaken it into an observation to obtain a passing receipt. Final native-provider,
+package and actual application comparisons remain required. The companion calls
+public installed SDK APIs; no SDK or WPF implementation text is copied into it.
