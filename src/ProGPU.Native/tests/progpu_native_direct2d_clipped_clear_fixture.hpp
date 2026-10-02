@@ -72,7 +72,8 @@ inline bool clipped_clear_contract(std::span<const std::byte> bytes, bool null_c
     const float extent = fractional ? 11.0F : 12.0F;
     progpu_native_scene_layer layer{};
     if (!read_scene_value(bytes, commands[3].payload_offset, layer) ||
-        layer.struct_size != sizeof(layer) || layer.flags != PROGPU_NATIVE_SCENE_LAYER_BOUNDS ||
+        layer.struct_size != sizeof(layer) || layer.flags != (PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) ||
         layer.bounds.x != left || layer.bounds.y != top || layer.bounds.width != extent || layer.bounds.height != extent ||
         layer.opacity != 1 || layer.blend_mode != PROGPU_NATIVE_BLEND_SRC ||
         layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||

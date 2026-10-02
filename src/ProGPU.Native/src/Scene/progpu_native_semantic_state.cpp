@@ -755,6 +755,32 @@ scissor resolve_semantic_target_scissor(const progpu_native_scene_state& state,
     return clipped;
 }
 
+scissor resolve_semantic_aliased_composite_scissor(const progpu_native_image_rect& bounds,
+    const scissor& target, const progpu_native_scene_presentation& presentation) noexcept {
+    // Pixel i is covered iff left <= i + 0.5 < right, hence both ends of
+    // the integer half-open interval are ceil(edge - 0.5). Keep the original
+    // float projection; double subtraction avoids rounding an adjacent float
+    // back onto the exact midpoint. No epsilon or allocation-bound inference.
+    const auto edges = presentation_clip_edges(bounds, presentation);
+    const auto pixel_boundary = [](float edge) noexcept {
+        return static_cast<std::uint32_t>(std::clamp(std::ceil(static_cast<double>(edge) - 0.5),
+            0.0, static_cast<double>(std::numeric_limits<std::uint32_t>::max())));
+    };
+    const auto left = pixel_boundary(edges[0]);
+    const auto top = pixel_boundary(edges[1]);
+    const auto right = pixel_boundary(edges[2]);
+    const auto bottom = pixel_boundary(edges[3]);
+    if (right <= left || bottom <= top) return {0U, 0U, 0U, 0U, false};
+    auto clipped = intersect_semantic_scissors({left, top, right - left, bottom - top, true},
+        {presentation.viewport_x, presentation.viewport_y,
+            presentation.viewport_width, presentation.viewport_height, true});
+    clipped = intersect_semantic_scissors(clipped, target);
+    if (!clipped.drawable) return {0U, 0U, 0U, 0U, false};
+    clipped.x -= target.x;
+    clipped.y -= target.y;
+    return clipped;
+}
+
 void localize_semantic_point(float& x, float& y, const scissor& target,
     const progpu_native_scene_presentation& presentation, float raster_dpi) noexcept {
     if (presentation.dpi_scale_x == raster_dpi && presentation.dpi_scale_y == raster_dpi &&
@@ -853,8 +879,16 @@ bool try_resolve_semantic_mask_uv(const progpu_native_affine_2d& transform,
 
 bool supports_mapped_semantic_layer(const progpu_native_scene_layer& layer) noexcept {
     constexpr std::uint32_t supported_flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
-        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+        PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS;
+    const bool aliased_composite =
+        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) != 0U;
     return (layer.flags & ~supported_flags) == 0U &&
+        (!aliased_composite || (layer.flags == (PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+                PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) &&
+            layer.blend_mode == PROGPU_NATIVE_BLEND_SRC && layer.opacity == 1.0F &&
+            layer.content_revision == 0U && layer.composite_revision == 0U &&
+            layer.reserved0 == 0U && layer.reserved1 == 0U)) &&
         (layer.blend_mode == PROGPU_NATIVE_BLEND_SRC ||
             layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) &&
         layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&

@@ -30,10 +30,12 @@ IGNORE targets instead retain alpha one. An empty intersection appends no draw.
 This is retained drawing, not a history reset: the portable retained draw count
 includes its primitive and preserves the existing mixed-DPI-history rejection.
 Windows translated draw counts still describe original draw callbacks, not the
-new internal clear primitive. There is no new public ABI, readback, CPU compositor
+new internal clear primitive. The layer record layout is unchanged; the explicit
+`ALIASED_COMPOSITE_BOUNDS` flag adds final binary replacement coverage. No readback, CPU compositor
 or transfer of resource ownership. Both native providers use their existing shared
 layer execution. Ordinary uniform-DPI picture capture uses that same execution;
-this admission does not enable mapped/nonuniform picture-layer combinations.
+the final bound uses that capture's actual per-axis presentation when mapped.
+Other mapped layer/cache/effect/mask restrictions remain unchanged.
 
 Antialiased clips (including an aliased child beneath one) and source layers remain
 explicitly unsupported for Clear. Invalid colors and earlier recording failures
@@ -120,3 +122,47 @@ complete COM fixture and instantiated shared pixel fixture. The full native
 contract verifier passed, including all generated schemas and its two inline-array
 controls; whitespace checks passed. No native linking, GPU or VM execution was
 performed locally, and no runtime was staged from either failed Build.
+
+## Fractional replacement bounds
+
+After the owner dependency, exact `e7fd0fa3c3732dbd2c99da8de7451ee814bbc071`
+[Build 37006840556](https://github.com/wieslawsoltes/ProGPU/actions/runs/37006840556)
+passed the four integral variants and reached fractional variant 4. Linux x64
+job `110837003833`, MSVC `110837003805` and Windows x64 `110837003949` reported
+red `0`, expected `255`, at `(12,14)`. Cold and warm agreed. The captured clip
+was `[12.75,23.75) × [14.75,25.75)` but its required texture allocation was
+`[12,24) × [14,26)`. SRC correctly replaces transparent source pixels, so
+compositing the entire allocation erased preceding red outside the source clip.
+
+The native producer now explicitly declares aliased final composition bounds.
+The shared validator admits this flag only with BOUNDS, SRC, opacity one, no
+effect/mask/cache/backdrop/composite state, and zero revisions/reserved fields.
+The managed raw scene builder has the same admission, using a generated flag
+constant from the C header. Original float bounds and the 64-byte layer record
+remain unchanged, as do all existing flag values and ordinary layer behavior.
+
+The shared native renderer maps the original four float edges through the actual
+per-axis DPI and viewport, using the existing intrinsic four-lane projection.
+For physical edge `e`, the half-open integer pixel-center boundary is
+`ceil(double(e) - 0.5)`: `left <= i + 0.5 < right`. It intersects that interval
+with the actual presentation and parent target, then subtracts the parent target
+origin. The double subtraction preserves adjacent-float midpoint distinctions;
+there is no epsilon, identity inverse, alpha-mask inference or source rounding.
+The outward allocation, texture UVs, source primitive and GPU blend operation
+stay unchanged. Only the final scissor changes. This is O(1) work and storage per
+materialized layer, no new pipeline/pass/submission/readback or pixel loop.
+
+Both native providers execute this shared pop-layer path. The separate managed
+renderer does not deserialize this native layer wire contract: its public scene
+and Canvas recording paths remain unchanged; the managed *native-wire producer*
+is paired above. The cross-engine design references earlier in this document
+still apply, with no text/font/cache lifecycle changes or performance claims.
+
+Authored native controls retain original serialized bounds, reject unsupported
+flag/resource/state forms without changing prior scene bytes, distinguish final
+coverage from allocation, and cover exact/adjacent midpoints, empty/subpixel and
+negative clips, nonzero viewport, per-axis DPI and nested target origins.
+Managed raw-builder controls match valid wire identity and atomic rejections.
+The original eight cold/warm GPU variants and original Windows differential,
+all binary/exterior pixels, nonbinary one-byte allowance and counters remain
+unchanged. This implementation still requires successful hosted execution.

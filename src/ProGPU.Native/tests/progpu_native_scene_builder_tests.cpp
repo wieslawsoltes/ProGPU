@@ -1808,6 +1808,95 @@ bool semantic_mapped_layers_preserve_bounded_copy_contract() {
     return true;
 }
 
+bool semantic_aliased_composite_bounds_preserve_pixel_centers() {
+    auto layer = semantic::semantic_default_layer();
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS;
+    layer.bounds = {12.75F, 14.75F, 11.0F, 11.0F};
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC;
+    if (!semantic::is_valid_semantic_layer(layer) || !semantic::supports_mapped_semantic_layer(layer)) return false;
+    semantic_scene_builder builder(0x94F7U, 1U);
+    std::vector<std::byte> bytes;
+    if (!builder.push_layer(layer) || !builder.pop_layer() || !builder.build(bytes)) return false;
+    const auto validated = scene::validate(bytes.data(), bytes.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    const auto command = read<progpu_native_scene_command>(bytes, validated.header.command_offset);
+    const auto retained = read<progpu_native_scene_layer>(bytes, command.payload_offset);
+    if (std::memcmp(&retained, &layer, sizeof(layer)) != 0) return false;
+    const auto rejects = [&](const progpu_native_scene_layer& invalid, bool check_builder = true) {
+        if (semantic::is_valid_semantic_layer(invalid) || semantic::supports_mapped_semantic_layer(invalid)) return false;
+        auto changed = bytes;
+        std::memcpy(changed.data() + command.payload_offset, &invalid, sizeof(invalid));
+        if (scene::validate(changed.data(), changed.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+        // Builder normalizes its reserved fields, while the raw wire validator
+        // must reject them. Other rejected calls may not alter earlier bytes.
+        if (check_builder && builder.push_layer(invalid)) return false;
+        std::vector<std::byte> after;
+        return builder.build(after) && after == bytes;
+    };
+    for (const auto flag : std::array<std::uint32_t, 10U>{PROGPU_NATIVE_SCENE_LAYER_BACKDROP,
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION, PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT,
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE, PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST,
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT, PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE,
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE, PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED, 0x80000000U}) {
+        auto invalid = layer;
+        invalid.flags |= flag;
+        if (!rejects(invalid)) return false;
+    }
+    auto invalid = layer;
+    invalid.flags &= ~PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+    if (!rejects(invalid)) return false;
+    for (const auto blend : {PROGPU_NATIVE_BLEND_SRC_OVER, PROGPU_NATIVE_BLEND_CLEAR, PROGPU_NATIVE_BLEND_MULTIPLY}) {
+        invalid = layer; invalid.blend_mode = blend;
+        if (!rejects(invalid)) return false;
+    }
+    for (const auto opacity : {0.0F, 0.5F}) {
+        invalid = layer; invalid.opacity = opacity;
+        if (!rejects(invalid)) return false;
+    }
+    invalid = layer; invalid.mask_resource_index = 0U;
+    if (!rejects(invalid)) return false;
+    invalid = layer; invalid.effect_resource_index = 0U;
+    if (!rejects(invalid)) return false;
+    invalid = layer; invalid.content_revision = 1U;
+    if (!rejects(invalid)) return false;
+    invalid = layer; invalid.composite_revision = 1U;
+    if (!rejects(invalid)) return false;
+    invalid = layer; invalid.reserved0 = 1U;
+    if (!rejects(invalid, false)) return false;
+    invalid = layer; invalid.reserved1 = 1U;
+    if (!rejects(invalid, false)) return false;
+
+    const progpu_native_scene_presentation unit{sizeof(unit), 0U, 0U, 64U, 64U, 1.0F, 1.0F, 0U};
+    const semantic::scissor full{0U, 0U, 64U, 64U, true};
+    const auto equal = [](const semantic::scissor& actual, const semantic::scissor& expected) {
+        return actual.x == expected.x && actual.y == expected.y && actual.width == expected.width &&
+            actual.height == expected.height && actual.drawable == expected.drawable;
+    };
+    const auto covers = [&](progpu_native_image_rect bounds, semantic::scissor expected) {
+        return equal(semantic::resolve_semantic_aliased_composite_scissor(bounds, full, unit), expected);
+    };
+    // Allocation remains outward rounded. The new final scissor alone excludes
+    // the transparent border that previously erased the prior red pixel.
+    if (!equal(semantic::resolve_semantic_layer_scissor(layer, 64U, 64U, unit), {12U, 14U, 12U, 12U, true}) ||
+        !covers(layer.bounds, {13U, 15U, 11U, 11U, true}) ||
+        !covers({12, 14, 12, 12}, {12U, 14U, 12U, 12U, true}) ||
+        !covers({0.5F, 0.5F, 1, 1}, {0U, 0U, 1U, 1U, true}) ||
+        !covers({-2.75F, -1.25F, 4, 3}, {0U, 0U, 1U, 2U, true}) ||
+        !covers({0.75F, 0.75F, 0.125F, 0.125F}, {0U, 0U, 0U, 0U, false}) ||
+        !covers({64.5F, 2, 3, 3}, {0U, 0U, 0U, 0U, false})) return false;
+    const float below = std::nextafter(0.5F, 0.0F), above = std::nextafter(0.5F, 1.0F);
+    if (!covers({below, below, 0.25F, 0.25F}, {0U, 0U, 1U, 1U, true}) ||
+        !covers({above, above, 0.25F, 0.25F}, {0U, 0U, 0U, 0U, false}) ||
+        !covers({0, 0, below, below}, {0U, 0U, 0U, 0U, false}) ||
+        !covers({0, 0, above, above}, {0U, 0U, 1U, 1U, true})) return false;
+    const progpu_native_scene_presentation mapped{sizeof(mapped), 3U, 5U, 24U, 24U, 2.0F, 3.0F, 0U};
+    const semantic::scissor nested{5U, 9U, 7U, 8U, true};
+    return equal(semantic::resolve_semantic_aliased_composite_scissor({1.375F, 2.25F, 5, 4}, nested, mapped),
+        {1U, 3U, 6U, 5U, true}) &&
+        equal(semantic::resolve_semantic_aliased_composite_scissor({-100, -100, 200, 200}, full, mapped),
+            {3U, 5U, 24U, 24U, true});
+}
+
 bool semantic_scene_content_hashes_preserve_scene_ownership() {
     semantic_scene_builder white(0x9490U, 1U), red(0x91F0U, 1U);
     const auto record = [](semantic_scene_builder& builder, progpu_native_color color) {

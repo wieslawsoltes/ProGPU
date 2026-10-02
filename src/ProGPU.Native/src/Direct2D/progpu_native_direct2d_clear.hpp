@@ -18,7 +18,8 @@ inline bool append_clipped_clear(
     recorded = false;
     if (bounds.width == 0.0F || bounds.height == 0.0F) return true;
     const progpu_native_scene_layer layer{
-        sizeof(progpu_native_scene_layer), PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
+        sizeof(progpu_native_scene_layer), PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS,
         bounds, 1.0F, PROGPU_NATIVE_BLEND_SRC,
         PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
         0U, 0U, 0U, 0U};

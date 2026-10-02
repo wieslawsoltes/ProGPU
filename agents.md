@@ -105,6 +105,13 @@ Keep fractional physical coverage, retained DPI-history accounting and both nati
 producers paired; antialiased clips, source layers and failed recordings still reject.
 See docs/direct2d-full-target-clear.md; metadata fixtures are not pixel qualification.
 
+Aliased clipped SRC replacement carries explicit final composite bounds, distinct
+from outward-rounded layer storage. Preserve original float edges, actual per-axis
+DPI/viewport, half-open pixel-center coverage and parent-target localization.
+Never infer replacement coverage from source alpha or erase transparent allocation
+margins. Keep the flag bounded to transient SRC without masks/effects/cache/state,
+paired native/managed wire validation and unchanged strict Windows/GPU pixels.
+
 Direct2D ordinary scene copies require explicit immutable pixel-format admission
 through the separate formatted factory capability. Keep legacy UNKNOWN targets
 formatless and preserve both original factory vtables. Capture source commands
