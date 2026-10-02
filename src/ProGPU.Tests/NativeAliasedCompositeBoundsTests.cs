@@ -79,11 +79,14 @@ public class NativeAliasedCompositeBoundsTests
         var valid = new NativeSceneLayer(blendMode: GpuBlendMode.Src, flags: Required, bounds: new(1, 2, 3, 4));
         Assert.True(builder.TryPushLayer(1, in valid));
         Assert.True(builder.TryPopLayer(2));
-        Assert.True(builder.TryBuild(out _));
         byte[] before = (byte[])bytes.Clone();
         Assert.False(builder.TryPushLayer(3, in invalid));
         Assert.Equal(before, bytes);
-        Assert.True(builder.TryBuild(out _));
-        Assert.Equal(before, bytes);
+        // Prove rejection did not finalize the builder, consume the command ID
+        // or publish a scope. Finalization itself is deliberately one-shot.
+        Assert.True(builder.TryPushLayer(3, in valid));
+        Assert.True(builder.TryPopLayer(4));
+        Assert.True(builder.TryBuild(out var stream));
+        Assert.Equal(4U, MemoryMarshal.Read<NativeMethods.SceneHeader>(stream).CommandCount);
     }
 }
