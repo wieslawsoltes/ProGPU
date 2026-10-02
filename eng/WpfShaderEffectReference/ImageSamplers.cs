@@ -68,7 +68,7 @@ internal static partial class Program
                     failures.Add($"{input.Name}: cold/warm/independent sampler pixels changed.");
                 first ??= pixels;
             }
-            if (input.NativeVariant >= 0 || input.ExactCenteredCrop) ++independentColors;
+            if (input.NativeVariant >= 0 || input.ExactViewboxMapping) ++independentColors;
             if (input.EquivalentTo != null)
             {
                 if (!originals.TryGetValue(input.EquivalentTo, out var prior) || !prior.AsSpan().SequenceEqual(first))
@@ -80,7 +80,7 @@ internal static partial class Program
             {
                 input.Name, Input = description, Replays = 3, Pixels = first,
                 PixelSha256 = Convert.ToHexString(SHA256.HashData(first!)),
-                IndependentColorOracle = input.NativeVariant >= 0 || input.ExactCenteredCrop,
+                IndependentColorOracle = input.NativeVariant >= 0 || input.ExactViewboxMapping,
                 input.EquivalentTo
             });
         }
@@ -131,7 +131,7 @@ internal static partial class Program
         public double TranslationX { get; init; }
         public bool Blue { get; init; }
         public int NativeVariant { get; init; } = -1;
-        public bool ExactCenteredCrop { get; init; }
+        public bool ExactViewboxMapping { get; init; }
         public bool ParentNearest { get; init; }
         public string? EquivalentTo { get; init; }
     }
@@ -163,7 +163,7 @@ internal static partial class Program
                 DpiY = fractional ? 183.456789012345 : 384, Opacity = .25,
                 Bounds = new(8, 10, 100, 100), Clip = new(8, 10, 100, 100),
                 Viewbox = new(.25, .2, .5, .4), AbsoluteViewbox = true, Stretch = Stretch.None,
-                Sampling = sampling, ExactCenteredCrop = !fractional
+                Sampling = sampling, ExactViewboxMapping = !fractional
             };
             yield return input;
             yield return input with { Name = name + "-relative", AbsoluteViewbox = false, EquivalentTo = input.Name };
@@ -232,7 +232,7 @@ internal static partial class Program
                 byte actual = pixels[at + channel];
                 if (inside && actual != 0 && actual != 255) ++changed;
                 byte expected = 0;
-                bool exact = unavailable || !inside || input.NativeVariant >= 0 || input.ExactCenteredCrop;
+                bool exact = unavailable || !inside || input.NativeVariant >= 0 || input.ExactViewboxMapping;
                 // On native ARM64 the unavailable software ImageBrush shader
                 // contributes no color, unlike the separate implicit-input
                 // controls that retain their original white input. Neither
@@ -240,11 +240,23 @@ internal static partial class Program
                 if (!unavailable && inside && input.NativeVariant >= 0)
                 {
                     int variant = input.NativeVariant;
-                    int stripe = ((x - 8 + 32 - (variant == 2 ? 8 : 0)) / (variant == 0 ? 16 : 8)) & 1;
-                    int color = stripe == 1 ? 1 : variant == 3 ? 0 : 2;
-                    if (channel == color) expected = variant == 3 ? (byte)255 : (byte)128;
+                    // Independent two-texel linear realization at pixel centers.
+                    // This is the observed original SOFTWARE capture policy even
+                    // with nearest options on the effect visual or its parent;
+                    // it does not select a native/GPU filtering default.
+                    double coordinate = (x - 8 + .5 - input.TranslationX) / (variant == 0 ? 16 : 8) - .5;
+                    int left = (int)Math.Floor(coordinate);
+                    double fraction = coordinate - left;
+                    int first = variant == 0 ? Math.Clamp(left, 0, 1) : ((left % 2) + 2) % 2;
+                    int second = variant == 0 ? Math.Clamp(left + 1, 0, 1) : (((left + 1) % 2) + 2) % 2;
+                    double green = (first == 1 ? 1 - fraction : 0) + (second == 1 ? fraction : 0);
+                    double component = channel == 1 ? green : channel == (input.Blue ? 0 : 2) ? 1 - green : 0;
+                    expected = checked((byte)Math.Round(component * 255 * input.Opacity, MidpointRounding.ToEven));
                 }
-                else if (!unavailable && inside && input.ExactCenteredCrop && y >= 50 && y < 70)
+                // Stretch=None maps the selected 100x20 viewbox to (0,40),
+                // subtracting its (50,10) origin. TileMode.None preserves the
+                // full source 200x50 extent: output y=10+(40-10)..+50.
+                else if (!unavailable && inside && input.ExactViewboxMapping && y >= 40 && y < 90)
                     expected = channel == (x < 58 ? 2 : 1) ? (byte)64 : (byte)0;
                 if (exact && actual != expected)
                     throw new InvalidOperationException($"{input.Name}: ({x},{y}) BGRA[{channel}]={actual}, expected {expected}.");

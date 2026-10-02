@@ -125,3 +125,23 @@ continues to report zero qualified shader cases. All input/PNG/raw artifacts and
 the failed initial white-input assumption remain recorded. This architecture's
 negative outcome must never become a product pixel expectation or replace the
 positive x64 or native ARM64 GPU gates.
+
+The completed x64 diagnostic receipt from the same run has SHA256
+`17f013af6e4936e2f36bbc753635712a5bbc088e41d9cfcf8ed43bdc98d6a356`.
+Both parent-Nearest cases are byte-identical to their effect-visual counterparts;
+the evidence therefore does **not** support an incoming-options-only product fix.
+The original software pixel expectation now uses an independent two-texel linear
+interpolation formula, pixel centers, clamp/repeat addressing and exact UNORM
+rounding. It does not replace original inputs, embed captured pixel arrays or
+introduce a tolerance. Whether hardware capture has the same realization policy
+remains a distinct requirement before changing native/GPU defaults.
+
+The integral source viewbox also selects a mapping, not an image crop for
+TileMode.None. Its Stretch=None mapping places the 100x20 viewbox at (0,40) in
+the 100x100 input, subtracting source origin (50,10). The complete 200x50-DIP
+image thus occupies input y=30..80, or final y=40..90 after the visual origin;
+every observed colored row is 40..89, not the initially predicted50..69.
+The independent expected frame now preserves that full source overflow and
+checks every pixel. All original input cases, failed receipts and exact
+absolute/relative comparisons are retained. These observations expose missing
+source/native qualification rather than establish product parity.
