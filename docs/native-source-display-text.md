@@ -208,7 +208,16 @@ within-cluster original/native occurrence order, so its shaped comparisons stay
 rejected rather than reordered. Float-product midpoint edges, complete RTL
 source mapping and actual source/renderer import remain qualification gates.
 
-This implementation-first checkpoint has no new native, font, renderer, GPU,
+After the source-policy implementation commit, a two-translation-unit CPU-only
+executable (`progpu_native_hinted_source_policy.cpp` plus its arithmetic fixture)
+passed 1160 controls under an explicit ten-second timeout. Strict Apple Clang
+C++20 `-Wall -Wextra -Wpedantic -Werror` syntax checks also passed the source
+producer, fitting, frame and authored PairPos fixtures. No native dependency
+graph, font fixture, renderer or GPU build/execution was performed for this
+producer. The separately identified qualified-603 experiment is not execution
+of the new source generation.
+
+This implementation-first checkpoint has no new producer font, renderer, GPU,
 source-app or package execution evidence. Display activation stays guarded until
 the complete source producer/consumer path and original independent comparisons
 are connected. Existing qualified runtime artifacts and dependency pins are
