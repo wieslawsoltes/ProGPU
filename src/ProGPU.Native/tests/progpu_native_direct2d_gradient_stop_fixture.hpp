@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 
 namespace progpu::native::direct2d::tests {
@@ -85,6 +86,19 @@ inline std::array<std::uint8_t, 4U> gradient_stop_expected(unsigned variant, uns
     const auto level = static_cast<std::uint8_t>(variant < 6U ? 255 : 128);
     return t < 0.5 ? std::array<std::uint8_t, 4U>{level, 0, 0, 255}
         : std::array<std::uint8_t, 4U>{0, 0, level, 255};
+}
+
+inline void report_gradient_pixel_mismatch(const char* comparison, unsigned variant, bool ordered,
+    unsigned x, unsigned y, const std::uint8_t* expected, const std::uint8_t* actual) {
+    std::fprintf(stderr,
+        "gradient pixel mismatch: %s variant=%u ordered=%u xy=(%u,%u) "
+        "expected=(%u,%u,%u,%u) actual=(%u,%u,%u,%u)\n",
+        comparison, variant, ordered ? 1U : 0U, x, y,
+        static_cast<unsigned>(expected[0]), static_cast<unsigned>(expected[1]),
+        static_cast<unsigned>(expected[2]), static_cast<unsigned>(expected[3]),
+        static_cast<unsigned>(actual[0]), static_cast<unsigned>(actual[1]),
+        static_cast<unsigned>(actual[2]), static_cast<unsigned>(actual[3]));
+    std::fflush(stderr);
 }
 
 inline std::uint32_t gradient_stop_spread(unsigned variant) {
@@ -268,8 +282,11 @@ void verify_gradient_stop_pixels(Render render, Require require) {
                 pixels == render(true, stream, properties.generation), "gradient cold/warm/independent pixels");
             for (unsigned y = 0; y < 64U; ++y) for (unsigned x = 0; x < 64U; ++x) {
                 const auto expected = gradient_stop_expected(variant, x, y);
-                require(std::equal(expected.begin(), expected.end(), pixels.data() + (y * 64U + x) * 4U),
-                    "gradient absolute hard-edge pixels");
+                const auto* actual = pixels.data() + (y * 64U + x) * 4U;
+                const bool equal = std::equal(expected.begin(), expected.end(), actual);
+                if (!equal) report_gradient_pixel_mismatch("absolute RGBA", variant, ordered,
+                    x, y, expected.data(), actual);
+                require(equal, "gradient absolute hard-edge pixels");
             }
             if (!ordered) unordered = pixels;
             else require(unordered == pixels, "unordered versus explicit stable input pixels");

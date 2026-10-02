@@ -1092,13 +1092,29 @@ int wmain(int argc, wchar_t** argv)
             const auto original = render_system_direct2d(false, false, static_cast<int>(variant), ordered);
             progpu::native::direct2d::tests::record_gradient_stop_order(scene.target.get(), variant, ordered, require);
             const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U);
+            if (original.size() == width * height * 4U && actual.size() == original.size() && actual != original) {
+                for (std::size_t pixel = 0U; pixel < original.size() / 4U; ++pixel) {
+                    const auto* expected_pixel = original.data() + pixel * 4U;
+                    const auto* actual_pixel = actual.data() + pixel * 4U;
+                    if (!std::equal(expected_pixel, expected_pixel + 4U, actual_pixel)) {
+                        progpu::native::direct2d::tests::report_gradient_pixel_mismatch(
+                            "Windows/ProGPU BGRA", variant, ordered,
+                            static_cast<unsigned>(pixel % width), static_cast<unsigned>(pixel / width),
+                            expected_pixel, actual_pixel);
+                        break;
+                    }
+                }
+            }
             require(original.size() == width * height * 4U && actual == original,
                 "gradient stop order/range differs from original Windows D2D/WIC");
             for (unsigned y = 0U; y < height; ++y) for (unsigned x = 0U; x < width; ++x) {
                 auto expected = progpu::native::direct2d::tests::gradient_stop_expected(variant, x, y);
                 std::swap(expected[0], expected[2]);
-                require(std::equal(expected.begin(), expected.end(), original.data() + (y * width + x) * 4U),
-                    "original gradient absolute hard-edge pixels");
+                const auto* actual_pixel = original.data() + (y * width + x) * 4U;
+                const bool equal = std::equal(expected.begin(), expected.end(), actual_pixel);
+                if (!equal) progpu::native::direct2d::tests::report_gradient_pixel_mismatch(
+                    "Windows absolute BGRA", variant, ordered, x, y, expected.data(), actual_pixel);
+                require(equal, "original gradient absolute hard-edge pixels");
             }
             if (!ordered) unordered_original = original;
             else require(unordered_original == original, "original unordered and stable-order pixels differ");
