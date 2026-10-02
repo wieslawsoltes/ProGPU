@@ -1,4 +1,5 @@
 #include "progpu_native_hinted_paragraph_glyph_frame.hpp"
+#include "progpu_native_hinted_source_fitting.hpp"
 #include "progpu_native_owned_allocation_internal.hpp"
 
 #include <algorithm>
@@ -75,6 +76,8 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
             static_cast<float>(paragraph.source_maximum_width) != paragraph.layout.maximum_width ||
             static_cast<float>(paragraph.source_line_height) != paragraph.layout.line_height ||
             paragraph.layout.alignment == PROGPU_NATIVE_TEXT_ALIGNMENT_JUSTIFY) return false;
+        if (logical_count != 0U && (paragraph.source_fitting == nullptr ||
+            !validate_hinted_source_fitting(paragraph, *paragraph.source_fitting))) return false;
     } else if (!paragraph.source_style_metrics.empty() || !paragraph.source_item_metrics.empty() ||
         !paragraph.source_logical_metrics.empty() || !paragraph.source_glyphs.empty() || !paragraph.source_lines.empty()) return false;
     std::uint64_t source_end = 0U;
@@ -178,11 +181,9 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
                     const auto projected = paragraph.source_logical_metrics[logical];
                     const auto source_item = paragraph.source_item_metrics[logical];
                     const auto source_style = paragraph.source_style_metrics[run.style_index];
-                    const double dpi = paragraph.source_styles[run.style_index].pixels_per_dip;
-                    if (projected.advance_x != (static_cast<double>(glyph.advance_x) / 64.0) / dpi ||
-                        projected.advance_y != (static_cast<double>(glyph.advance_y) / 64.0) / dpi ||
-                        projected.offset_x != (static_cast<double>(glyph.offset_x) / 64.0) / dpi ||
-                        projected.offset_y != (static_cast<double>(glyph.offset_y) / 64.0) / dpi ||
+                    const auto expected = paragraph.source_fitting->metrics[logical];
+                    if (projected.advance_x != expected.advance_x || projected.advance_y != expected.advance_y ||
+                        projected.offset_x != expected.offset_x || projected.offset_y != expected.offset_y ||
                         source_item.ascent != source_style.ascent || source_item.descent != source_style.descent) return false;
                 }
             }

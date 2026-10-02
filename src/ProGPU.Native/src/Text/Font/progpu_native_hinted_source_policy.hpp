@@ -1,6 +1,7 @@
 #pragma once
 
 #include "progpu_native_text.hpp"
+#include "../progpu_native_text_layout_source_internal.hpp"
 
 #include <cstdint>
 
@@ -44,5 +45,10 @@ bool resolve_hinted_source_device(const hinted_source_style& source,
 // separate required contracts; this helper does not admit either one.
 bool project_hinted_source_advance(const shaping_glyph& original,
     hinted_source_advance_policy policy, shaping_glyph& result) noexcept;
+
+// Exact device-to-original-source division, after policy and wire-Y selection.
+// Neither a float metric nor a rounded reciprocal is an input to this operation.
+bool project_hinted_source_geometry(const shaping_glyph& fitting, double pixels_per_dip,
+    text_source_glyph_metrics& result) noexcept;
 
 } // namespace progpu::native::text

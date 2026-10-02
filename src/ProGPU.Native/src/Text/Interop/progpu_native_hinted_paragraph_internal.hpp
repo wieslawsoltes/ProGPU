@@ -8,6 +8,7 @@
 #include "../progpu_native_text_layout_source_internal.hpp"
 
 namespace progpu::native::text {
+struct hinted_source_fitting;
 
 // Explicit device size and conversion, not inferred from the source style scale.
 // The borrowed axes are used synchronously and copied into the owned generation.
@@ -90,6 +91,7 @@ struct hinted_paragraph_generation final {
     std::vector<text_source_glyph_metrics> source_logical_metrics{};
     std::vector<text_source_glyph_position> source_glyphs{};
     std::vector<text_source_line_metrics> source_lines{};
+    std::shared_ptr<const hinted_source_fitting> source_fitting{};
     std::vector<hinted_paragraph_run> runs{};
     std::vector<shaping_glyph> logical_glyphs{}; // Physical 26.6, wire Y-down.
     std::vector<std::int8_t> logical_bidi_levels{};

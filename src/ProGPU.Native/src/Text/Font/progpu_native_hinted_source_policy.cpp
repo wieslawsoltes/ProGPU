@@ -2,6 +2,11 @@
 
 #include <cmath>
 #include <limits>
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#elif defined(__SSE2__) || defined(_M_X64)
+#include <emmintrin.h>
+#endif
 
 namespace progpu::native::text {
 
@@ -63,6 +68,30 @@ bool project_hinted_source_advance(const shaping_glyph& original,
         return false;
     }
     result = candidate;
+    return true;
+}
+
+bool project_hinted_source_geometry(const shaping_glyph& glyph, double dpi, text_source_glyph_metrics& result) noexcept {
+    if (!std::isfinite(dpi) || dpi <= 0.0) return false;
+    double projected[4]{};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const double advances[2]{static_cast<double>(glyph.advance_x), static_cast<double>(glyph.advance_y)};
+    const double offsets[2]{static_cast<double>(glyph.offset_x), static_cast<double>(glyph.offset_y)};
+    vst1q_f64(projected, vdivq_f64(vmulq_n_f64(vld1q_f64(advances), 1.0 / 64.0), vdupq_n_f64(dpi)));
+    vst1q_f64(projected + 2U, vdivq_f64(vmulq_n_f64(vld1q_f64(offsets), 1.0 / 64.0), vdupq_n_f64(dpi)));
+#elif defined(__SSE2__) || defined(_M_X64)
+    const auto divisor = _mm_set1_pd(dpi), scale = _mm_set1_pd(1.0 / 64.0);
+    _mm_storeu_pd(projected, _mm_div_pd(_mm_mul_pd(_mm_set_pd(glyph.advance_y, glyph.advance_x), scale), divisor));
+    _mm_storeu_pd(projected + 2U, _mm_div_pd(_mm_mul_pd(_mm_set_pd(glyph.offset_y, glyph.offset_x), scale), divisor));
+#else
+    projected[0] = (static_cast<double>(glyph.advance_x) / 64.0) / dpi;
+    projected[1] = (static_cast<double>(glyph.advance_y) / 64.0) / dpi;
+    projected[2] = (static_cast<double>(glyph.offset_x) / 64.0) / dpi;
+    projected[3] = (static_cast<double>(glyph.offset_y) / 64.0) / dpi;
+#endif
+    for (const double value : projected)
+        if (!std::isfinite(value) || std::abs(value) > std::numeric_limits<float>::max()) return false;
+    result = {projected[0], projected[1], projected[2], projected[3]};
     return true;
 }
 
