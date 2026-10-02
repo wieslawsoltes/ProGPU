@@ -68,6 +68,14 @@ Raw source controls inspect every original image address bit, source extent,
 negative translation and absence of an enlarged page. Cropped and padded cases
 explicitly retain that page; nearest source cases retain their old outputs.
 Major implementation and fixtures are committed before bounded source checks.
+Post-commit strict Clang syntax checks passed for the actual MIL compiler, MIL
+test translation unit and an instantiated twenty-case shared provider fixture.
+The complete native contract verifier's checks passed using the existing cached
+generator binaries, including all three inline-array controls; no generator or
+native build was needed. The independent integer reference matched every one of
+the 16,384 original BGRA bytes in each of `sampler-native-1/2/3` from the successful
+x64 receipt above. This is an offline reference check, not execution of the new
+native implementation or its GPU fixture.
 Hosted native/provider execution, Windows hardware, package closure and actual
 source application qualification remain pending. No local native/GPU build,
 runtime staging or VM is part of this change.
