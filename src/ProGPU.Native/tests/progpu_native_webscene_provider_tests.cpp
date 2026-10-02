@@ -26,6 +26,9 @@
 #include "webscene_gpu_provider.h"
 
 #include <webgpu.h>
+#define PROGPU_SAMPLER_REFERENCE_DAWN
+#include "progpu_native_shader_sampler_gpu_reference.hpp"
+#undef PROGPU_SAMPLER_REFERENCE_DAWN
 
 #include <IOSurface/IOSurface.h>
 #include <dlfcn.h>
@@ -3600,28 +3603,82 @@ int main(int argc, char** argv) {
             progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {
             return render_retained_scene(reference, stream, generation, 1U, 0x9493U, 1U, 3U, &layers, &frame);
         }, require);
+    {
+    std::array<std::array<progpu_native_engine*, 2U>, 2U> sampler_engines{};
+    std::array<progpu_native_engine*, 2U> capture_engines{};
+    const auto create_sampler_engine = [&](bool four_load, bool capture) {
+        auto options = engine_options;
+        options.flags = four_load ? PROGPU_NATIVE_ENGINE_IMAGE_EXPLICIT_SHADER_SAMPLING : 0U;
+        if (capture) options.target_format = PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM;
+        progpu_native_engine* selected{};
+        require(progpu_native_dawn_engine_create(&options, &selected) == PROGPU_NATIVE_STATUS_SUCCESS && selected,
+            "sampler policy Dawn engine creation failed");
+        return selected;
+    };
+    const progpu::native::tests::sampler_reference_api reference_api{
+#define PROGPU_LOAD_SAMPLER_PROC(name) resolve<WGPUProc##name>(api, provider, "wgpu" #name),
+        PROGPU_SAMPLER_REFERENCE_PROCS(PROGPU_LOAD_SAMPLER_PROC)
+#undef PROGPU_LOAD_SAMPLER_PROC
+    };
+    progpu::native::tests::shader_sampler_gpu_reference raw_sampler(reference_api, device, queue);
+    const auto sampler_readback = [&](WGPUBuffer buffer, std::size_t size) {
+        struct mapping_request {
+            std::mutex mutex;
+            std::condition_variable changed;
+            bool complete{};
+            WGPUMapAsyncStatus status{};
+        } mapped;
+        WGPUBufferMapCallbackInfo callback = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+        callback.mode = WGPUCallbackMode_AllowSpontaneous;
+        callback.userdata1 = &mapped;
+        callback.callback = [](WGPUMapAsyncStatus status, WGPUStringView, void* userdata1, void*) {
+            auto* request = static_cast<mapping_request*>(userdata1);
+            {
+                std::lock_guard lock(request->mutex);
+                request->status = status;
+                request->complete = true;
+                request->changed.notify_one();
+            }
+        };
+        resolve<WGPUProcBufferMapAsync>(api, provider, "wgpuBufferMapAsync")(
+            buffer, WGPUMapMode_Read, 0U, size, callback);
+        wait_for_request(mapped, "native sampler Dawn readback mapping timed out");
+        require(mapped.status == WGPUMapAsyncStatus_Success, "native sampler Dawn readback mapping failed");
+        const auto* bytes = static_cast<const std::uint8_t*>(
+            resolve<WGPUProcBufferGetConstMappedRange>(api, provider, "wgpuBufferGetConstMappedRange")(buffer, 0U, size));
+        require(bytes != nullptr, "native sampler Dawn readback range unavailable");
+        std::vector<std::uint8_t> result(bytes, bytes + size);
+        resolve<WGPUProcBufferUnmap>(api, provider, "wgpuBufferUnmap")(buffer);
+        return result;
+    };
     progpu::native::tests::verify_original_shader_sampler_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions,
             std::uint32_t commands, std::uint32_t target_extent,
-            progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {
+            progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame, bool four_load) {
+            progpu_native_engine* selected{};
+            if (generation >= 14U) {
+                auto*& retained = sampler_engines[four_load ? 1U : 0U][reference ? 1U : 0U];
+                if (!retained) retained = create_sampler_engine(four_load, false);
+                selected = retained;
+            }
             return render_retained_scene(reference, stream, generation, submissions, 0x9494U, 1U, commands,
-                &layers, &frame, 1.0F, nullptr, PROGPU_NATIVE_STATUS_SUCCESS, false, target_extent);
-        }, require, [&](const auto& stream, const progpu_native_scene_header& header,
+                &layers, &frame, 1.0F, nullptr, PROGPU_NATIVE_STATUS_SUCCESS, false, target_extent, nullptr, selected);
+        }, require, [&](bool four_load, const auto& stream, const progpu_native_scene_header& header,
             const progpu_native_scene_picture_image& picture) {
-            progpu_native_engine* diagnostic_engine{};
-            require(progpu_native_dawn_engine_create(&engine_options, &diagnostic_engine) ==
-                PROGPU_NATIVE_STATUS_SUCCESS && diagnostic_engine != nullptr,
-                "sampler diagnostic Dawn engine creation failed");
-            std::fprintf(stderr, "Sampler direct Dawn diagnostic engine flags=%llu\n",
-                static_cast<unsigned long long>(engine_options.flags));
+            auto*& capture_engine = capture_engines[four_load ? 1U : 0U];
+            if (!capture_engine) capture_engine = create_sampler_engine(four_load, true);
             std::array<std::vector<std::uint8_t>, 2U> pixels;
             for (auto& replay : pixels)
-                replay = render_retained_scene(false, stream, header.generation, 1U, header.scene_id,
-                    1U, header.command_count, nullptr, nullptr, picture.dpi_scale, nullptr,
-                    PROGPU_NATIVE_STATUS_SUCCESS, false, 64U, &picture, diagnostic_engine);
-            progpu_native_engine_destroy(diagnostic_engine);
+                replay = raw_sampler.capture([&](WGPUTextureView target_view) {
+                    progpu::native::tests::replay_original_shader_sampler_capture(capture_engine,
+                        reinterpret_cast<std::uintptr_t>(target_view), stream, header, picture, require);
+                }, sampler_readback, require);
             return pixels;
-        });
+        }, [&](std::uint32_t variant) { return raw_sampler.render(variant, sampler_readback, require); });
+    for (auto& policy : sampler_engines)
+        for (auto* selected : policy) if (selected) progpu_native_engine_destroy(selected);
+    for (auto* selected : capture_engines) if (selected) progpu_native_engine_destroy(selected);
+    }
     progpu::native::tests::verify_original_shader_derivative_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation,
             const progpu::native::tests::shader_derivative_frame_case& test,

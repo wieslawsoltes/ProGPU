@@ -201,8 +201,75 @@ void diagnose_original_shader_sampler_capture(const std::vector<std::byte>& scen
     require(pictures == 1U, "sampler diagnostic requires the one actual retained capture");
 }
 
-template<class Render, class Require, class Diagnose>
-void verify_original_shader_sampler_pixels(Render render, Require require, Diagnose diagnose) {
+// This reader selects actual retained capture ownership only. Expected native
+// pixels are produced separately, from the original variant, never this wire.
+template<class Require>
+void replay_original_shader_sampler_capture(progpu_native_engine* engine, std::uintptr_t target_view,
+    const std::vector<std::byte>& scene, const progpu_native_scene_header& header,
+    const progpu_native_scene_picture_image& picture, Require require) {
+    progpu_native_scene_metrics update{};
+    update.struct_size = sizeof(update);
+    require(progpu_native_engine_update_scene(engine, scene.data(), scene.size(), &update) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && update.draw_count == 1U,
+        "sampler capture immutable scene update failed");
+    progpu_native_scene_frame frame{};
+    frame.struct_size = sizeof(frame);
+    frame.width = picture.width;
+    frame.height = picture.height;
+    frame.dpi_scale = picture.dpi_scale;
+    frame.clear_color = picture.clear_color;
+    frame.target_view = target_view;
+    frame.scene_id = header.scene_id;
+    frame.generation = header.generation;
+    progpu_native_scene_frame_metrics metrics{};
+    metrics.struct_size = sizeof(metrics);
+    require(progpu_native_engine_render_scene(engine, &frame, &metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        metrics.command_count == header.command_count && metrics.submission_count == 1U,
+        "sampler capture draw/command/submission count differs");
+}
+
+template<class Capture, class Require>
+auto capture_original_shader_sampler(const std::vector<std::byte>& scene,
+    bool four_load, Capture capture, Require require) {
+    const auto read = [&scene, &require]<class T>(std::size_t offset, T& value) {
+        require(offset <= scene.size() && sizeof(T) <= scene.size() - offset,
+            "sampler capture record is outside its retained scene");
+        std::memcpy(&value, scene.data() + offset, sizeof(T));
+    };
+    progpu_native_scene_header outer{};
+    read(0U, outer);
+    std::array<std::vector<std::uint8_t>, 2U> result;
+    std::uint32_t pictures = 0U;
+    for (std::uint32_t i = 0U; i < outer.resource_count; ++i) {
+        progpu_native_scene_resource resource{};
+        read(outer.resource_offset + static_cast<std::size_t>(i) * outer.resource_stride, resource);
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+            (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U) continue;
+        require(++pictures == 1U, "sampler capture has more than one retained picture");
+        progpu_native_scene_picture_image picture{};
+        read(resource.payload_offset, picture);
+        require(picture.flags == 0U && picture.width == 32U && picture.height == 24U &&
+            picture.dpi_scale == 1.0F && picture.clear_color.r == 0.0F &&
+            picture.clear_color.g == 0.0F && picture.clear_color.b == 0.0F && picture.clear_color.a == 0.0F,
+            "sampler capture changed its original physical frame or clear color");
+        require(resource.auxiliary_offset <= scene.size() &&
+            resource.auxiliary_size <= scene.size() - resource.auxiliary_offset,
+            "sampler capture bytes are outside their retained scene");
+        const std::vector<std::byte> nested(scene.begin() + resource.auxiliary_offset,
+            scene.begin() + resource.auxiliary_offset + resource.auxiliary_size);
+        progpu_native_scene_header header{};
+        require(nested.size() >= sizeof(header), "sampler capture header missing");
+        std::memcpy(&header, nested.data(), sizeof(header));
+        result = capture(four_load, nested, header, picture);
+    }
+    require(pictures == 1U && result[0].size() == 32U * 24U * 4U && result[0] == result[1],
+        "sampler capture cold/warm size or pixels differ");
+    return result[0];
+}
+
+template<class Render, class Require, class Capture, class NativeReference>
+void verify_original_shader_sampler_pixels(Render render, Require require,
+    Capture capture, NativeReference native_reference) {
     std::array<std::vector<std::byte>, 20U> scenes;
     {
         progpu_native_mil_channel* raw{};
@@ -219,7 +286,12 @@ void verify_original_shader_sampler_pixels(Render render, Require require, Diagn
     // All immutable captures outlive the channel and caller-owned bitmap bytes.
     std::vector<std::uint8_t> absolute_viewbox_pixels;
     std::vector<std::uint8_t> before_reset_pixels;
-    for (std::uint32_t variant = 0U; variant < scenes.size(); ++variant) {
+    // Default/native retains cases 0–12 verbatim. Cases 13–19 additionally run
+    // the exact original rational oracle on explicitly selected four-load
+    // engines; no native result is used to fit that arithmetic expectation.
+    for (std::uint32_t policy = 0U; policy < 2U; ++policy) {
+    const bool four_load = policy == 1U;
+    for (std::uint32_t variant = four_load ? 13U : 0U; variant < scenes.size(); ++variant) {
         const auto image_extent = variant == 11U || variant == 12U ? 128U : 64U;
         const auto& scene = scenes[variant];
         progpu_native_scene_header header{};
@@ -231,7 +303,7 @@ void verify_original_shader_sampler_pixels(Render render, Require require, Diagn
             progpu_native_scene_frame_metrics frame{}; frame.struct_size = sizeof(frame);
             const auto submissions = replay == 1U ? 1U : 2U;
             images[replay] = render(replay == 2U, scene, variant + 1U, submissions,
-                header.command_count, image_extent, layers, frame);
+                header.command_count, image_extent, layers, frame, four_load);
             require(frame.submission_count == submissions && frame.command_count == header.command_count,
                 "owned sampler capture submission or source command count differs");
             require(layers.effect_kind == PROGPU_NATIVE_GROUP_EFFECT_WPF_SHADER && layers.effect_count == 1U &&
@@ -246,6 +318,22 @@ void verify_original_shader_sampler_pixels(Render render, Require require, Diagn
         if (variant == 11U) absolute_viewbox_pixels = images[0];
         if (variant == 12U) require(images[0] == absolute_viewbox_pixels,
             "owned sampler absolute/relative full-source viewbox pixels differ");
+        std::vector<std::uint8_t> native_pixels;
+        if (variant >= 13U && !four_load) {
+            native_pixels = native_reference(variant);
+            require(native_pixels.size() == 32U * 24U * 4U,
+                "independent native sampler reference size differs");
+            const auto captured = capture_original_shader_sampler(scene, false, capture, require);
+            for (std::size_t i = 0U; i < captured.size(); i += 4U) {
+                const bool same = std::equal(captured.data() + i, captured.data() + i + 4U, native_pixels.data() + i);
+                if (!same) std::fprintf(stderr,
+                    "Native sampler capture variant=%u pixel=(%zu,%zu) product=(%u,%u,%u,%u) raw=(%u,%u,%u,%u)\n",
+                    variant, (i / 4U) % 32U, (i / 4U) / 32U,
+                    captured[i], captured[i + 1U], captured[i + 2U], captured[i + 3U],
+                    native_pixels[i], native_pixels[i + 1U], native_pixels[i + 2U], native_pixels[i + 3U]);
+                require(same, "native sampler capture differs from independent raw GPU filtering");
+            }
+        }
         for (unsigned y = 0U; y < image_extent; ++y) for (unsigned x = 0U; x < image_extent; ++x) {
             std::array<std::uint8_t, 4U> expected{0U, 0U, 0U, 255U};
             if (variant == 11U || variant == 12U) {
@@ -285,6 +373,10 @@ void verify_original_shader_sampler_pixels(Render render, Require require, Diagn
                     const int denominator = 384 * opacity_divisor;
                     expected[1] = static_cast<std::uint8_t>((green * 255 + denominator / 2) / denominator);
                     expected[variant == 15U ? 2U : 0U] = static_cast<std::uint8_t>(((384 - green) * 255 + denominator / 2) / denominator);
+                    if (!four_load) {
+                        const auto at = ((y - 10U) * 32U + x - 8U) * 4U;
+                        std::copy_n(native_pixels.data() + at, 3U, expected.data());
+                    }
                 } else if (variant == 4U) {
                     // Two texel centers, clamped at the source image edge.
                     // Work in exact thirty-second-texel numerators; opacity is
@@ -301,18 +393,24 @@ void verify_original_shader_sampler_pixels(Render render, Require require, Diagn
             const bool matches = std::equal(expected.begin(), expected.end(), actual);
             if (!matches) {
                 std::fprintf(stderr,
-                    "Original shader sampler variant=%u pixel=(%u,%u) actual=(%u,%u,%u,%u) expected=(%u,%u,%u,%u)\n",
-                    variant, x, y,
+                    "Original shader sampler policy=%s variant=%u pixel=(%u,%u) actual=(%u,%u,%u,%u) expected=(%u,%u,%u,%u)\n",
+                    four_load ? "explicit-four-load" : "native", variant, x, y,
                     static_cast<unsigned>(actual[0]), static_cast<unsigned>(actual[1]),
                     static_cast<unsigned>(actual[2]), static_cast<unsigned>(actual[3]),
                     static_cast<unsigned>(expected[0]), static_cast<unsigned>(expected[1]),
                     static_cast<unsigned>(expected[2]), static_cast<unsigned>(expected[3]));
                 if (variant >= 13U && variant <= 19U)
-                    diagnose_original_shader_sampler_capture(scene, variant, x, y, expected, images[0], diagnose, require);
+                    diagnose_original_shader_sampler_capture(scene, variant, x, y, expected, images[0],
+                        [&](const auto& nested, const auto& capture_header, const auto& picture) {
+                            return capture(four_load, nested, capture_header, picture);
+                        }, require);
             }
             require(matches,
                 "original sampler color/opacity/physical normalization/tile transform/final clip differs");
         }
     }
+    }
+    std::fprintf(stderr,
+        "Original shader samplers passed: 13 unchanged cases, 7 native-reference cases, 7 strict four-load cases; 81 effect replays\n");
 }
 } // namespace progpu::native::tests

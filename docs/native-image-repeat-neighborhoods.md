@@ -139,3 +139,47 @@ callback. Provider test translation-unit compilation and actual GPU execution
 remain hosted checks. The failure mapper validates the complete final image and
 does not index the capture for leaked pixels outside its receiving frame; such
 pixels still reach the unchanged original fatal assertion.
+
+## Paired native-filter and strict four-load controls
+
+Diagnostic Build `37023286983` at `bb7a24ef8` isolates both failures before
+the effect. Linux ARM64 Vulkan job `110891509309` captures `(0,143,111,255)`
+at variant 15 `(16,12)`, exactly matching the effect's RGB. Windows x64 job
+`110891508715` and ARM64 job `110891508816`, both D3D12 Microsoft Basic Render
+Driver, capture `(32,96,0,128)` at variant 16 `(19,13)`; the final opaque
+image is `(32,96,0,255)`. In all three jobs every RGB byte in the original
+clip agrees between direct capture and effect. This rules out the downstream
+effect as the source of these differences; it does not distinguish hardware
+filter precision, coordinate interpolation, blending and format conversion.
+
+The paired fixture now separates two contracts without a tolerance:
+
+- All original cases 0–12 keep their existing default engines, exact pixels,
+  retained source updates and cold/warm/independent counters.
+- Cases 13–19 under zero engine flags compare every RGBA byte of the 32x24
+  actual retained capture with an independent raw WebGPU render on that device.
+  A test-only shader takes original 2x1/2x2 opaque input texels, unwrapped
+  fragment-center UVs and native Repeat/MirrorRepeat samplers. It imports no
+  compiled scene, production shader/address helper or observed output.
+  Straight source-alpha blending into transparent RGBA8 matches the real
+  capture contract; opacity is not pre-multiplied in the reference shader.
+  Every final 64x64 effect byte is checked against that independent capture,
+  including the original final clip and opaque black exterior.
+- The same seven original scenes also execute with the explicit four-load
+  engine flag. Every original strict integer-rational expected byte and all
+  original cold-2/warm-1/independent-2 submission and effect-cache assertions
+  remain executable. Native precision is not a reason to skip, relax or fit
+  those separate controls.
+
+There are 81 effect replays: the original 60 plus 21 explicit controls. One
+lazy raw reference pipeline and bounded policy/capture engines are reused per
+provider. Capture readback uses actual RGBA8 on both providers, not a BGRA
+presentation conversion; ordinary Dawn final-image readback retains its original
+BGRA-to-RGBA swizzle. Buffers are unmapped only after the actual callback, before
+their next use or release. The original provider wait budgets are unchanged.
+No product defaults, RequireNative behavior, shader or renderer is modified.
+
+This source checkpoint is not qualification. Both providers, Windows package
+paths and all exact four-load controls still require hosted execution. Even
+explicit sampling is not presumed to guarantee final UNORM arithmetic merely
+because its four loads are authored; any strict failure remains a failure.
