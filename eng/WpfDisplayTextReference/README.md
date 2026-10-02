@@ -35,10 +35,11 @@ implementation is incorporated.
 
 ## Independent midpoint and positioned-run receipt
 
-The optional fifth argument `midpoint-positioned-v2` produces a separate schema-2
-receipt, not an extension/replacement of the original schema-1 192 cases. The
+The optional arguments `midpoint-rtl-positioned-v3 <pinned-rtl-font-directory>`
+produce a separate schema-3 receipt, not an extension/replacement of the
+original schema-1 192 cases. The
 four-argument invocation keeps its original inventory and output fields. Neither
-new producer hashes nor schema-2 receipts are admitted by the paired native
+new producer hashes nor schema-3 receipts are admitted by the paired native
 consumer's existing strict hash whitelist. Qualification requires the complete
 successful exact producer run on each original Windows architecture; these
 authored cases are not observations until that run succeeds.
@@ -52,19 +53,55 @@ records source em, DPI and physical-em double bits, alongside the actual source
 values. WPF may quantize those inputs internally: the probe reports its output
 unchanged and never requires neighbouring inputs to produce different output.
 
-Plain `Hello`, mark-positioning `x\u0301 m\u0302 A\u0308 `, and an otherwise
-identical Unicode RLO/PDF-wrapped text are independent case kinds. The original
-UTF-16 remains intact. A Latin run in an RTL paragraph is not assumed to be an
-RTL GlyphRun. Every positioned case must actually report a nonzero original
-offset, and every override case an odd-direction original run, or the capture
-fails explicitly before receipt publication. This checks coverage, not any
-expected offset or advance value. The no-control counterpart remains present.
+Plain `Hello` and mark-positioning `x\u0301 m\u0302 A\u0308 ` retain exactly
+their prior Inter inputs. The new `RtlPositioned` kind uses original strong
+Hebrew and niqqud text `\u05E9\u05B8\u05C1\u05DC\u05D5\u05B9\u05DD ` with
+a separate exact Noto Sans Hebrew Regular physical face. Each input identifies
+its font key; each original run still records the actual physical FontUri,
+nominal design advances, source characters and all original double metrics.
+There is no source rewriting, implicit fallback or offset conversion. Every
+positioned case must actually report nonzero offsets, and the Hebrew case must
+observe nonzero offsets **in an actual odd-direction run**, not in a separate
+even run. Coverage failure prevents receipt publication, without prescribing
+any expected offset or advance value. Paragraph direction alone is not evidence
+of run direction; both original paragraph directions remain in the inventory.
+
+The former `midpoint-positioned-v2` RLO/PDF hypothesis is unqualified. Both
+architectures of original workflow 36996659823 rejected its first RLO case:
+U+202E selected Segoe UI with zero advance/empty ink, while visible Inter
+`x\u0301 ` reported BidiLevel 0 and a nonzero offset. The strict font guard
+correctly rejected this; neither fallback nor odd-run coverage is relaxed.
+`CreateLegacy` and its paired no-control tests retain those exact failed inputs.
+v3 explicitly changes the RTL source and physical font, not its labels or
+expected output. The four old argument invocation and all 192 original cases
+remain independent and unchanged; every midpoint axis and ordinal is retained.
+
+### Pinned test-only RTL font
+
+`rtl-font.json` is the common workflow/embedded producer manifest. CI downloads
+the unmodified 26,900-byte static Noto Sans Hebrew Regular 3.000 from
+[notofonts/noto-fonts at ffebf8c1ee449e544955a7e813c54f9b73848eac](https://github.com/notofonts/noto-fonts/blob/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansHebrew/NotoSansHebrew-Regular.ttf).
+Its SHA-256 is `a7fa16fffb27bedb060a0866267c29e9859aeb9c21cc33f5b3aaf6eb062eca85`.
+The original [SIL Open Font License 1.1 and notice](https://github.com/notofonts/noto-fonts/blob/ffebf8c1ee449e544955a7e813c54f9b73848eac/LICENSE)
+is retained beside it (`OFL.txt`, 4,377 bytes, SHA-256
+`0dab92d0544f7b233403f14b84a663bdbfa746982eda629e7f4f9ffe1b036feb`).
+The font also carries its own original copyright in its name table. Both files
+are hash/length checked before use and after capture, accompany the evidence
+artifact, and have separate receipt identities. No font is installed, modified,
+added to product packages or accepted from an ambient Windows fallback. The
+producer's existing exact-path check applies independently to every run of the
+chosen face, including any zero-ink runs. Download failure is a hard failure,
+with each request bounded to 30 seconds; the original 192-case process runs first.
+
+Read-only original table inspection establishes glyph coverage for every chosen
+Hebrew letter, mark and space, and presence of GPOS; that is not a WPF shaping
+observation. Actual odd-run/positioning coverage remains a hosted Windows gate.
 
 `Original` retains every existing line, glyph, physical font, nominal design
 advance, source cluster, offset, caret distance, selection and ink field using
 the original public double values. No float narrowing, rounding, guessed
 26.6-to-source offset conversion or expected-output baseline is applied. The
-same exact Inter physical-face check, Microsoft strong-name/module provenance,
+same exact selected physical-face check, Microsoft strong-name/module provenance,
 32-line/caret traversal bounds, 60-second observation and 90-second process
 bounds apply. CI captures each family in a fresh process, within the unchanged
 eight-minute job limit, with distinct CreateNew receipt/log paths.
@@ -75,11 +112,13 @@ coverage; they neither execute WPF nor generate qualified oracle receipts. This
 change affects the reference only: managed/native renderers, shaping policies,
 source Display admission and runtime packages are unchanged.
 
-After the substantive source commit, the Windows reference project compiled
+Before the RTL fixture correction, the Windows reference project compiled
 against cached reference assemblies with zero warnings/errors; all 13 device-free
 input/coverage tests passed with zero skips. Workflow YAML and all three PowerShell
 blocks parsed without executing those blocks. The complete original capture and
 source helper methods remain byte-identical, and the original 192-case loop is
-unchanged apart from indentation. No new original Windows observation, native
-text execution, GPU run or runtime staging was performed. Actual Inter mark/RTL
-coverage and midpoint observations remain pending both hosted Windows captures.
+unchanged apart from indentation. Those 13 controls and the original 192 cases
+also passed in both hosted Windows jobs; their failed v2 expansion is described
+above. The v3 RTL corpus and added tests are authored, not yet executed at this
+commit. No native text execution, GPU run or runtime staging is part of this
+reference change. All 288 v3 observations remain pending both hosted captures.

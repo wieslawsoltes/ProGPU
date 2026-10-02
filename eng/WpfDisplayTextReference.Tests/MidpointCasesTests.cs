@@ -39,7 +39,9 @@ public sealed class MidpointCasesTests
     [Fact]
     public void RtlOverrideHasOriginalNoControlCounterpartForEveryInput()
     {
-        MidpointInput[] cases = MidpointCases.Create().ToArray();
+        // Keep the exact unsuccessful v2 inputs testable; they are not v3 RTL
+        // evidence and are never admitted by relaxing Capture's font guard.
+        MidpointInput[] cases = MidpointCases.CreateLegacy().ToArray();
         foreach (MidpointInput input in cases.Where(value => value.TextKind == "RtlOverride"))
         {
             MidpointInput paired = Assert.Single(cases, value => value.TextKind == "Positioned"
@@ -56,7 +58,7 @@ public sealed class MidpointCasesTests
     {
         MidpointInput input = Input("RtlOverride");
         MidpointCoverage coverage = MidpointCases.Observe(input, Observation(input, [[-0.25, 0.5]], 1));
-        Assert.Equal(new MidpointCoverage(1, 1, 1, 1), coverage);
+        Assert.Equal(new MidpointCoverage(1, 1, 1, 1, 1), coverage);
         Assert.Throws<InvalidOperationException>(() => MidpointCases.Observe(input, Observation(input, [[0, 0]], 1)));
         Assert.Throws<InvalidOperationException>(() => MidpointCases.Observe(input, Observation(input, [[-0.25, 0.5]], 0)));
     }
@@ -109,7 +111,74 @@ public sealed class MidpointCasesTests
         Assert.Throws<InvalidOperationException>(() => MidpointCases.Observe(input, JsonSerializer.SerializeToElement(original)));
     }
 
-    private static MidpointInput Input(string kind) => MidpointCases.Create().First(value => value.TextKind == kind);
+    [Fact]
+    public void GenuineRtlInputsKeepAllAxesAndInterInputsOfTheUnqualifiedInventory()
+    {
+        Assert.NotEqual(MidpointCases.LegacyFamily, MidpointCases.Family);
+        MidpointInput[] old = MidpointCases.CreateLegacy().ToArray();
+        foreach (MidpointInput input in MidpointCases.Create())
+        {
+            MidpointInput prior = old[input.Ordinal];
+            if (input.TextKind != "RtlPositioned")
+            {
+                Assert.Equal(prior, input);
+                Assert.Equal("InterRegular", input.FontKey);
+                continue;
+            }
+            Assert.Equal(prior with { TextKind = "RtlPositioned", Text = MidpointCases.RtlPositionedText }, input);
+            Assert.Equal("NotoSansHebrewRegular", input.FontKey);
+            Assert.Contains('\u05E9', input.Text);
+            Assert.Contains('\u05B8', input.Text);
+            Assert.Contains('\u05C1', input.Text);
+            Assert.DoesNotContain('\u202E', input.Text);
+            Assert.DoesNotContain('\u202C', input.Text);
+        }
+    }
+
+    [Fact]
+    public void RtlRequiresNonzeroPositioningInTheActualOddRun()
+    {
+        MidpointInput input = Input("RtlPositioned");
+        Assert.Equal(new MidpointCoverage(1, 1, 1, 1, 1),
+            MidpointCases.Observe(input, Observation(input, [[-0.25, 0.5]], 1)));
+        Assert.Throws<InvalidOperationException>(() => MidpointCases.Observe(input, Observation(input, [[0, 0]], 1)));
+        Assert.Throws<InvalidOperationException>(() => MidpointCases.Observe(input, Observation(input, [[-0.25, 0.5]], 0)));
+        var split = JsonSerializer.SerializeToNode(Observation(input, [[-0.25, 0.5]], 0))!;
+        var unpositionedOdd = JsonSerializer.SerializeToNode(Observation(input, [[0, 0]], 1))!;
+        split["Lines"]![0]!["Runs"]!.AsArray().Add(unpositionedOdd["Lines"]![0]!["Runs"]![0]!.DeepClone());
+        Assert.Throws<InvalidOperationException>(() => MidpointCases.Observe(input, JsonSerializer.SerializeToElement(split)));
+    }
+
+    [Fact]
+    public void FontAndNoticePinOwnTheExactImmutableUpstreamPayloads()
+    {
+        ReferenceFontPin pin = ReferenceFontPin.Load();
+        Assert.Equal("https://github.com/notofonts/noto-fonts", pin.Repository);
+        Assert.Equal("ffebf8c1ee449e544955a7e813c54f9b73848eac", pin.Commit);
+        Assert.Equal("Noto Sans Hebrew", pin.FamilyName);
+        Assert.Equal("hinted/ttf/NotoSansHebrew/NotoSansHebrew-Regular.ttf", pin.FontPath);
+        Assert.Equal("NotoSansHebrew-Regular.ttf", pin.FontFileName);
+        Assert.Equal(26900, pin.FontLength);
+        Assert.Equal("A7FA16FFFB27BEDB060A0866267C29E9859AEB9C21CC33F5B3AAF6EB062ECA85", pin.FontSha256);
+        Assert.Equal("LICENSE", pin.LicensePath);
+        Assert.Equal("OFL.txt", pin.LicenseFileName);
+        Assert.Equal(4377, pin.LicenseLength);
+        Assert.Equal("0DAB92D0544F7B233403F14B84A663BDBFA746982EDA629E7F4F9FFE1B036FEB", pin.LicenseSha256);
+    }
+
+    [Fact]
+    public void PayloadAdmissionRejectsChangedBytesLengthAndMissingLicense()
+    {
+        byte[] payload = [1, 2, 3];
+        string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(payload));
+        ReferenceFontPin.VerifyPayload(payload, 3, hash);
+        Assert.Throws<InvalidOperationException>(() => ReferenceFontPin.VerifyPayload([1, 2, 4], 3, hash));
+        Assert.Throws<InvalidOperationException>(() => ReferenceFontPin.VerifyPayload(payload, 2, hash));
+        Assert.Throws<InvalidOperationException>(() => ReferenceFontPin.VerifyPayload([], 4377, ReferenceFontPin.Load().LicenseSha256));
+    }
+
+    private static MidpointInput Input(string kind) => (kind == "RtlOverride" ? MidpointCases.CreateLegacy() : MidpointCases.Create())
+        .First(value => value.TextKind == kind);
 
     // Synthetic parser/coverage input only. These values are never an oracle
     // receipt, font observation, portable metric baseline or runtime evidence.

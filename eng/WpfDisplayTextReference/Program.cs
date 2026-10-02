@@ -14,11 +14,11 @@ internal static partial class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        if (!OperatingSystem.IsWindows() || args.Length is not (4 or 5) ||
+        if (!OperatingSystem.IsWindows() || args.Length is not (4 or 6) ||
             !string.Equals(RuntimeInformation.ProcessArchitecture.ToString(), args[2], StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Expected Windows, font path, CreateNew receipt path, actual architecture and source commit.");
         if (args[3].Length != 40 || !args[3].All(Uri.IsHexDigit)) throw new ArgumentException("Exact source commit required.");
-        bool midpointCases = args.Length == 5;
+        bool midpointCases = args.Length == 6;
         if (midpointCases && args[4] != MidpointCases.Family)
             throw new ArgumentException("Unknown original reference case family.");
         Assembly presentation = typeof(TextFormatter).Assembly;
@@ -29,9 +29,19 @@ internal static partial class Program
         var family = new FontFamily(new Uri(Path.GetDirectoryName(font)! + Path.DirectorySeparatorChar), "./#Inter");
         var cases = new List<object>();
         var timer = Stopwatch.StartNew();
+        object? rtlFontIdentity = null;
         if (midpointCases)
         {
-            CaptureMidpointCases(font, family, timer, cases);
+            ReferenceFontPin pin = ReferenceFontPin.Load();
+            string directory = Path.GetFullPath(args[5]);
+            pin.Verify(directory);
+            string rtlFont = Path.Combine(directory, pin.FontFileName);
+            var rtlFamily = new FontFamily(new Uri(directory + Path.DirectorySeparatorChar), "./#" + pin.FamilyName);
+            CaptureMidpointCases(font, family, rtlFont, rtlFamily, timer, cases);
+            // Verify again after capture, before any receipt is published.
+            pin.Verify(directory);
+            rtlFontIdentity = new { Pin = pin, Font = FileIdentity(rtlFont),
+                License = FileIdentity(Path.Combine(directory, pin.LicenseFileName)) };
         }
         else
         {
@@ -56,7 +66,7 @@ internal static partial class Program
             throw new InvalidOperationException("Original DirectWrite module identity was not observed.");
         var receipt = new
         {
-            Schema = midpointCases ? 2 : 1, SourceCommit = args[3], Cases = cases, CaseCount = cases.Count,
+            Schema = midpointCases ? 3 : 1, SourceCommit = args[3], Cases = cases, CaseCount = cases.Count,
             Font = FileIdentity(font), Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
             PresentationCore = FileIdentity(presentation.Location), PresentationIdentity = presentation.FullName,
             OperatingSystem = RuntimeInformation.OSDescription, OsVersion = Environment.OSVersion.VersionString,
@@ -72,6 +82,7 @@ internal static partial class Program
         {
             var expanded = JsonSerializer.SerializeToNode(receipt)!;
             expanded["CaseFamily"] = MidpointCases.Family;
+            expanded["RtlFont"] = JsonSerializer.SerializeToNode(rtlFontIdentity);
             serialized = expanded;
         }
         using var output = new FileStream(args[1], FileMode.CreateNew, FileAccess.Write, FileShare.None);

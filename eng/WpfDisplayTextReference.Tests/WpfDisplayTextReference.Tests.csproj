@@ -11,5 +11,7 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <Compile Include="../WpfDisplayTextReference/MidpointCases.cs" Link="MidpointCases.cs" />
+    <Compile Include="../WpfDisplayTextReference/ReferenceFontPin.cs" Link="ReferenceFontPin.cs" />
+    <EmbeddedResource Include="../WpfDisplayTextReference/rtl-font.json" LogicalName="rtl-font.json" />
   </ItemGroup>
 </Project>

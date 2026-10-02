@@ -6,23 +6,27 @@ using System.Windows.Media.TextFormatting;
 
 internal static partial class Program
 {
-    private static void CaptureMidpointCases(string font, FontFamily family, Stopwatch timer, List<object> cases)
+    private static void CaptureMidpointCases(string font, FontFamily family, string rtlFont, FontFamily rtlFamily,
+        Stopwatch timer, List<object> cases)
     {
         foreach (MidpointInput input in MidpointCases.Create())
         {
             if (timer.Elapsed > TimeSpan.FromSeconds(60))
                 throw new TimeoutException("Original reference exceeded 60 seconds.");
             JsonElement original;
+            bool rtl = input.FontKey == "NotoSansHebrewRegular";
+            string selectedFont = rtl ? rtlFont : font;
+            FontFamily selectedFamily = rtl ? rtlFamily : family;
             try
             {
-                original = JsonSerializer.SerializeToElement(Capture(font, family, input.Text,
+                original = JsonSerializer.SerializeToElement(Capture(selectedFont, selectedFamily, input.Text,
                     Enum.Parse<TextFormattingMode>(input.Mode), Enum.Parse<FlowDirection>(input.Direction),
                     input.Dpi, input.Em, input.Width));
             }
             catch
             {
                 Console.Error.WriteLine($"Original midpoint input rejected: {JsonSerializer.Serialize(input)}");
-                try { ReportOriginalFontSelection(family, input); }
+                try { ReportOriginalFontSelection(selectedFamily, input); }
                 catch (Exception diagnostic) { Console.Error.WriteLine($"Font-selection diagnostic failed: {diagnostic.Message}"); }
                 throw;
             }
