@@ -69,8 +69,34 @@ Independent original Windows reference authoring follows this major implementati
 checkpoint in a separate reference-only branch; no Windows pixel result is yet
 claimed.
 
-This branch is a source-only union of PR271 `225fb995c2b7e879e2bb85f1328c7ed1fbae5820`
+This branch is a source-only union of PR271 `e542bf215b5884dce75920d11313ee0520a423b2`
 and PR267 `7085fdbae78d6e8cb682c746b082e0baf5a409cb`. Neither dependency is qualified
 by this merge. No native/GPU/full-graph build, runtime staging or VM is part of this
 checkpoint. Actual native/Windows/provider/package execution and the complete
 source dependency union remain required before WPF integration or parity claims.
+
+## Bounded post-commit source checks
+
+After implementation commit `8a14271e4`, strict Clang C++20 syntax checks passed
+for the actual MIL implementation, actual MIL test translation unit and fully
+instantiated shared padding GPU fixture. This checks the shared callback contract,
+not either provider's execution. The two changed C# files also parsed without
+syntax errors.
+
+A separate cached-dependency host compiled the actual current MIL builder, DTOs
+and unchanged xUnit fixtures plus the new padding controls: **62 passed, 0 failed**
+in 0.752 seconds including compilation. It used .NET SDK 10.0.301 and reference
+pack 10.0.9, with existing managed Backend/Backend.Native and xUnit dependencies.
+Duplicate-type/framework-reference warnings were suppressed only in that isolated
+source host, as in the earlier transport check. No project graph, analyzer,
+native/provider or renderer qualification is inferred. Cached dependency SHA256:
+
+- Backend: `664098b4b9385a3c8fec5f80bd58c591cb281d1f1a431f322ec47a20032a7371`.
+- Backend.Native: `8289bd47098c888c8d34c8b30111940d0034e19d05c9b5fcf59e2da044b3cc89`.
+
+The MIL coverage ledger was regenerated (only its decoder digest changed).
+All native-contract script checks passed using already-built generators whose
+source is unchanged from the cached build: protocol/coverage freshness, memory
+inventory, three inline-array tests, both Unicode checks and all seven generated
+C# contracts. Whitespace checks passed. These source receipts do not resolve the
+parent PR271 Windows GPU crash or replace the pending original padding captures.
