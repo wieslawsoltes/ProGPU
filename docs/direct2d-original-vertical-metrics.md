@@ -28,6 +28,17 @@ rounding, hinting or source placement. Existing horizontal/advance APIs retain
 their behavior. Caller-owned scratch and the original selected font lease remain
 required.
 
+The authored raw controls retain complete independent static TrueType/CFF and
+variable TrueType fonts. They cover full and compact metrics, default/override
+VORG, empty glyphs, source mutation after capture, absent versus malformed tables,
+duplicate and out-of-range directory entries, reserved header bits, untouched
+outputs and unchanged horizontal preparation. The paired phantom controls use
+five positive/default/negative source instances with deliberately different X
+and Y phantom deltas, exact caller scratch and rejection of malformed present
+gvar, wrong item counts and invalid normalized-coordinate vectors. They are
+registered in the existing portable Direct2D compatibility executable, without
+changing its timeout or any prior control.
+
 Primary source contracts:
 
 - [OpenType vhea](https://learn.microsoft.com/en-us/typography/opentype/spec/vhea)

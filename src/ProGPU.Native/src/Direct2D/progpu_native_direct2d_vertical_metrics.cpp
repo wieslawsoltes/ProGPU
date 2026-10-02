@@ -156,6 +156,7 @@ com::result retained_original_vertical_metrics::read_base(std::uint16_t glyph,
         text::sfnt_glyph_data_view original{};
         if (!state_->font.try_get_glyph_data(glyph, original)) return com::invalid_argument;
         if (!original.empty()) {
+            if (original.y_min > original.y_max || original.x_min > original.x_max) return com::invalid_argument;
             candidate.top_origin = static_cast<std::int32_t>(original.y_max) + candidate.top_side_bearing;
             candidate.has_origin = true;
             candidate.origin_kind = original_vertical_origin_kind::true_type_bounds;
