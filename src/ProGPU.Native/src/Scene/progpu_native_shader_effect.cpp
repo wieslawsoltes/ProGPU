@@ -124,12 +124,16 @@ bool translate(std::span<const std::byte> bytecode,
                 continue;
             }
             executable = true;
+            const bool matrix = opcode >= 20U && opcode <= 24U;
+            const auto matrix_columns = opcode <= 21U ? 4U : 3U;
+            const auto matrix_rows = opcode == 20U || opcode == 22U ? 4U : opcode == 24U ? 2U : 3U;
             std::uint32_t sources = 0U;
             switch (opcode) {
             case 1U: case 15U: case 19U: case 35U: case 36U:
                 sources = 1U; break; // mov/log/frc/abs/bounded nrm
             case 37U: sources = shader_model_three ? 1U : 3U; break; // sincos
             case 2U: case 3U: case 5U: case 8U: case 9U: case 10U: case 11U:
+            case 20U: case 21U: case 22U: case 23U: case 24U:
             case 33U: case 66U: sources = 2U; break; // add/sub/mul/dp3/dp4/min/max/crs/texld
             case 4U: case 18U: case 88U: case 90U: sources = 3U; break; // mad/lrp/cmp/dp2add
             // RCP/RSQ require infinity at zero. EXP/POW also need an overflow
@@ -154,15 +158,32 @@ bool translate(std::span<const std::byte> bytecode,
             if (opcode == 33U && (destination_type != 0U || (mask & 8U) != 0U))
                 return false; // CRS writes only selected XYZ temporary lanes; W is not defined.
             if (opcode == 37U && mask > 3U) return false;
-            std::array<std::string, 3U> operands;
+            if (matrix && mask != (1U << matrix_rows) - 1U) return false;
+            std::array<std::string, 5U> operands;
             std::uint32_t constant_register = 32U;
             std::uint32_t constant_reads = 0U, texture_reads = 0U;
-            for (std::uint32_t index = 0U; index < sources; ++index) {
-                const auto token = word(first + index + 1U);
+            const auto operand_count = matrix ? matrix_rows + 1U : sources;
+            for (std::uint32_t index = 0U; index < operand_count; ++index) {
+                // Matrix bytecode names one starting row. Validate each implied
+                // register without altering the original program or retaining
+                // a second interpreter. Read ports apply to each expanded dot.
+                const auto token = word(first + (matrix && index > 1U ? 2U : index + 1U));
                 const auto type = register_type(token);
-                const auto number = token & 0x7FFU;
+                const auto number = (token & 0x7FFU) + (matrix && index > 0U ? index - 1U : 0U);
                 const auto source_modifier = (token >> 24U) & 15U;
                 if (!parameter(token)) return false;
+                if (matrix) {
+                    if (type == destination_type && number == destination_index) return false;
+                    if (index == 0U) {
+                        if (source_modifier > 1U) return false;
+                    } else {
+                        if ((type != 0U && type != 2U) || source_modifier != 0U ||
+                            ((token >> 16U) & 255U) != 0xE4U) return false;
+                        const auto vector_token = word(first + 1U);
+                        constant_register = register_type(vector_token) == 2U ? vector_token & 0x7FFU : 32U;
+                        constant_reads = constant_register != 32U ? 1U : 0U;
+                    }
+                }
                 if (opcode == 37U && !shader_model_three && index != 0U) {
                     // Live uniform values are not part of the immutable
                     // program cache key. Do not ignore unverified coefficients.
@@ -237,7 +258,8 @@ bool translate(std::span<const std::byte> bytecode,
                 } else return false;
                 const auto cross_required = ((mask & 1U) != 0U ? 6U : 0U) |
                     ((mask & 2U) != 0U ? 5U : 0U) | ((mask & 4U) != 0U ? 3U : 0U);
-                const auto required = scalar ? 1U : opcode == 33U ? cross_required :
+                const auto required = matrix ? (1U << matrix_columns) - 1U :
+                    scalar ? 1U : opcode == 33U ? cross_required :
                     opcode == 36U ? (7U | (mask & 8U)) :
                     opcode == 8U ? 7U : opcode == 9U ? 15U :
                     opcode == 66U || opcode == 90U ? 3U : mask;
@@ -282,6 +304,20 @@ bool translate(std::span<const std::byte> bytecode,
             }
             case 18U: result = a + " * " + b + " + (vec4<f32>(1.0) - " + a + ") * " + c; break;
             case 19U: result = "fract(" + a + ")"; break;
+            case 20U: case 21U: case 22U: case 23U: case 24U: {
+                // At most four independent GPU dot products, in original row
+                // order. Capture the complete result before any destination
+                // write, and do not compute absent rows or a 3-vector's W.
+                const std::string components = matrix_columns == 3U ? ").xyz" : ")";
+                result = "vec4<f32>(";
+                for (std::uint32_t row = 0U; row < 4U; ++row) {
+                    if (row != 0U) result += ", ";
+                    result += row < matrix_rows ? "dot((" + a + components + ", (" +
+                        operands[row + 1U] + components + ")" : "0.0";
+                }
+                result += ")";
+                break;
+            }
             case 33U: {
                 // Evaluate only the source components needed by actual writes.
                 // A masked cross product must not read an undefined third lane

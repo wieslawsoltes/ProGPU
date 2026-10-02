@@ -15,10 +15,14 @@ template<class Render, class Require>
 void verify_original_shader_effect_pixels(Render render, Require require) {
     constexpr std::array coefficients{1.0F, 0.5F, 0.5F, 0.25F};
     constexpr std::array<unsigned, 4U> expected_gray{255U, 128U, 255U, 64U};
-    for (std::uint32_t variant = 0U; variant < 10U; ++variant) {
-        const bool cross_product = variant >= coefficients.size();
+    for (std::uint32_t variant = 0U; variant < 20U; ++variant) {
+        const bool matrix_product = variant >= 10U;
+        const auto matrix_opcode = 20U + (matrix_product ? (variant - 10U) % 5U : 0U);
+        const auto matrix_columns = matrix_opcode <= 21U ? 4U : 3U;
+        const auto matrix_rows = matrix_opcode == 20U || matrix_opcode == 22U ? 4U : matrix_opcode == 24U ? 2U : 3U;
+        const bool cross_product = variant >= coefficients.size() && !matrix_product;
         const auto cross_axis = cross_product ? (variant - 4U) % 3U : 0U;
-        const bool model_three = cross_product ? variant >= 7U : variant >= 2U;
+        const bool model_three = matrix_product ? variant >= 15U : cross_product ? variant >= 7U : variant >= 2U;
         std::vector<std::uint32_t> program{
             model_three ? 0xFFFF0300U : 0xFFFF0200U,
             0x0200001FU, model_three ? 0x80000005U : 0x80000000U,
@@ -26,7 +30,18 @@ void verify_original_shader_effect_pixels(Render render, Require require) {
             0x0200001FU, 0x90000000U, 0xA00F0800U,
             0x03000042U, 0x800F0000U,
             model_three ? 0x90E40000U : 0xB0E40000U, 0xA0E40800U};
-        if (cross_product) {
+        if (matrix_product) {
+            // Preserve unselected destination Z/W from the actual input. The
+            // vector's W and unused matrix W distinguish DP3 from DP4, while
+            // row ordering produces independent exact magenta output.
+            program.insert(program.end(), {
+                0x02000001U, 0x800F0001U, 0x80E40000U,
+                0x03000005U, 0x800F0000U, 0x80E40000U, 0xA0E40000U,
+                0x03000000U | matrix_opcode,
+                0x80000001U | (((1U << matrix_rows) - 1U) << 16U) | (model_three ? 0x00100000U : 0U),
+                model_three ? 0x81E40000U : 0x80E40000U, 0xA0E40001U,
+                0x02000001U, 0x800F0800U, 0x80E40001U});
+        } else if (cross_product) {
             // Actual source texels participate in the vector. CRS writes XYZ
             // into another initialized register, leaving original alpha intact.
             program.insert(program.end(), {
@@ -47,7 +62,14 @@ void verify_original_shader_effect_pixels(Render render, Require require) {
         shader.bytecode_size = static_cast<std::uint32_t>(program.size() * sizeof(std::uint32_t));
         shader.revision = static_cast<std::uint32_t>(generation);
         shader.sampling_mode = variant & 1U;
-        if (cross_product) {
+        if (matrix_product) {
+            shader.constants[0U] = shader.constants[3U] = model_three ? -1.0F : 1.0F;
+            for (std::uint32_t row = 0U; row < matrix_rows; ++row) {
+                const bool zero = row == 1U;
+                shader.constants[4U * (row + 1U)] = matrix_columns == 3U ? (zero ? 0.0F : 1.0F) : (zero ? 1.0F : 0.0F);
+                shader.constants[4U * (row + 1U) + 3U] = matrix_columns == 3U ? (zero ? 1.0F : -1.0F) : (zero ? -1.0F : 1.0F);
+            }
+        } else if (cross_product) {
             shader.constants[(cross_axis + 1U) % 3U] = 1.0F;
             shader.constants[3U] = 1.0F;
             shader.constants[4U + (cross_axis + 2U) % 3U] = model_three ? -1.0F : 1.0F;
@@ -97,7 +119,8 @@ void verify_original_shader_effect_pixels(Render render, Require require) {
         for (unsigned y = 0U; y < 64U; ++y) for (unsigned x = 0U; x < 64U; ++x) {
             std::array<unsigned, 3U> expected{};
             if (x >= 16U && x < 32U && y >= 12U && y < 28U) {
-                if (cross_product) expected[cross_axis] = 255U;
+                if (matrix_product) expected = {255U, 0U, 255U};
+                else if (cross_product) expected[cross_axis] = 255U;
                 else expected.fill(expected_gray[variant]);
             }
             const auto* pixel = images[0].data() + (y * 64U + x) * 4U;
