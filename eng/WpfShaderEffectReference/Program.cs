@@ -114,6 +114,7 @@ internal static partial class Program
                 .Select(module => FileIdentity(module.FileName)).ToArray();
             if (modules.Length != 1) throw new InvalidOperationException("Original native WPF renderer identity is missing or ambiguous.");
             CaptureImageSamplers(directory, args[2], unavailableControl, timer);
+            CaptureShaderPadding(directory, args[2], unavailableControl, timer);
             var receipt = new
             {
                 Schema = 1, SourceCommit = args[2], CaseCount = observations.Count, Cases = observations,
