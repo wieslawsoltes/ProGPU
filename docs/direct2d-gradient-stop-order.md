@@ -162,3 +162,11 @@ SDK-union aggregate-initializer warnings. Those matrix values now use the
 already-established `D2D1::Matrix3x2F` constructor, preserving every coefficient
 and strict snapshot assertion. Windows compilation and all new pixel controls
 remain hosted gates; this checkpoint precedes bounded source checks.
+
+Post-commit checks passed strict C++20 syntax for the instantiated shared gradient
+fixtures and complete portable compatibility test TU, under the existing warning
+flags and separate 45-second bounds. The changed managed test passed Roslyn
+syntax parsing; four offline source guards checked the actual WGSL helper bodies
+against their exact endpoint guard and unchanged remaining formula. These were
+source checks, not managed type/test, shader or GPU execution. `git diff --check`
+passed. No native object, dependency or renderer build was performed.
