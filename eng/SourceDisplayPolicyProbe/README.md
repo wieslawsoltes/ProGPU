@@ -119,5 +119,7 @@ are under `/private/tmp/progpu-display-independent-inputs.swgc8V`.
 
 The old schemas still reject native execution for absent independent metrics.
 Receipt immutability/finite tamper/occurrence-reorder controls are additive.
+After the allowlist/control commit, all 37 controls passed against each paired
+old/new x64/ARM64 schema1/2 and schema3/4 receipt (148 executions, zero skipped).
 This is original Windows input evidence, not a successful native producer Build,
 native comparison, interpreter selection, complete Display or application result.
