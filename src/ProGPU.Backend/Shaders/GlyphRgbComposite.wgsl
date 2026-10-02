@@ -8,10 +8,12 @@ struct RgbGlyphInstance {
     reserved: vec2<u32>,
     foreground: vec4<f32>,
 };
-struct RgbGlyphFrame { extent: vec2<f32>, reserved: vec2<u32>, };
+// Physical target-local masks use the same retained mask helpers as ordinary
+// text. RGB placement has no bounded-pass origin shift, so renderOrigin is zero.
+struct RgbGlyphFrame { extent: vec2<f32>, renderOrigin: vec2<f32>, };
 @group(0) @binding(0) var rgbCoverage: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read> rgbInstances: array<RgbGlyphInstance>;
-@group(0) @binding(2) var<uniform> rgbFrame: RgbGlyphFrame;
+@group(0) @binding(2) var<uniform> uniforms: RgbGlyphFrame;
 
 struct RgbGlyphVertex {
     @builtin(position) position: vec4<f32>,
@@ -27,7 +29,7 @@ fn vs_rgb_composite(@builtin(vertex_index) index: u32,
     if (index == 2u || index == 4u || index == 5u) { corner.y = 1.0; }
     let physical = glyph.targetOrigin + corner * glyph.extent;
     var output: RgbGlyphVertex;
-    output.position = vec4<f32>(physical / rgbFrame.extent * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+    output.position = vec4<f32>(physical / uniforms.extent * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
     output.instanceIndex = instanceIndex;
     return output;
 }
@@ -44,3 +46,20 @@ fn rgb_channel_output(input: RgbGlyphVertex, channel: u32) -> vec4<f32> {
 @fragment fn fs_rgb_red(input: RgbGlyphVertex) -> @location(0) vec4<f32> { return rgb_channel_output(input, 0u); }
 @fragment fn fs_rgb_green(input: RgbGlyphVertex) -> @location(0) vec4<f32> { return rgb_channel_output(input, 1u); }
 @fragment fn fs_rgb_blue(input: RgbGlyphVertex) -> @location(0) vec4<f32> { return rgb_channel_output(input, 2u); }
+
+fn rgb_masked_output(input: RgbGlyphVertex, channel: u32) -> vec4<f32> {
+    let source = rgb_channel_output(input, channel);
+    return vec4<f32>(source.rgb, source.a * sample_mask_alpha(input.position.xy));
+}
+
+fn rgb_mask_chain_output(input: RgbGlyphVertex, channel: u32) -> vec4<f32> {
+    let source = rgb_masked_output(input, channel);
+    return vec4<f32>(source.rgb, source.a * sample_mask_chain_alpha(input.position.xy));
+}
+
+@fragment fn fs_rgb_red_masked(input: RgbGlyphVertex) -> @location(0) vec4<f32> { return rgb_masked_output(input, 0u); }
+@fragment fn fs_rgb_green_masked(input: RgbGlyphVertex) -> @location(0) vec4<f32> { return rgb_masked_output(input, 1u); }
+@fragment fn fs_rgb_blue_masked(input: RgbGlyphVertex) -> @location(0) vec4<f32> { return rgb_masked_output(input, 2u); }
+@fragment fn fs_rgb_red_chain(input: RgbGlyphVertex) -> @location(0) vec4<f32> { return rgb_mask_chain_output(input, 0u); }
+@fragment fn fs_rgb_green_chain(input: RgbGlyphVertex) -> @location(0) vec4<f32> { return rgb_mask_chain_output(input, 1u); }
+@fragment fn fs_rgb_blue_chain(input: RgbGlyphVertex) -> @location(0) vec4<f32> { return rgb_mask_chain_output(input, 2u); }

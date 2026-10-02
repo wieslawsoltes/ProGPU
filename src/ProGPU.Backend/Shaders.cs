@@ -57,7 +57,9 @@ public static class Shaders
             ShaderResource.Load(typeof(Shaders), "GlyphRasterizer.wgsl"), "\n",
             ShaderResource.Load(typeof(Shaders), "GlyphRgbRasterizer.wgsl"));
 
-        internal static readonly string Composite = ShaderResource.Load(typeof(Shaders), "GlyphRgbComposite.wgsl");
+        internal static readonly string Composite = string.Concat(
+            ShaderResource.Load(typeof(Shaders), "TextMaskCommon.wgsl"), "\n",
+            ShaderResource.Load(typeof(Shaders), "GlyphRgbComposite.wgsl"));
     }
 
     public static readonly string PathRasterizerShader = string.Concat(

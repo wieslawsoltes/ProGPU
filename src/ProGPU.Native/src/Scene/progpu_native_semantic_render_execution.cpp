@@ -897,7 +897,7 @@ progpu_native_status render_scene(
                 } else if (command.kind ==
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
                     semantic_has_image_mask_chains = true;
-                } else {
+                } else if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN) {
                     semantic_has_vector_mask_chains = true;
                 }
             }
@@ -1368,7 +1368,7 @@ progpu_native_status render_scene(
                     (engine->engine_flags & (PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
                         PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U) {
                     return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                        "RGB glyph replay requires an actual opaque linear target, exact original DPI, integral translation and unmasked GPU scope.");
+                        "RGB glyph replay requires an actual opaque linear target, exact original DPI, integral translation and an owned GPU scope.");
                 }
                 compiled_vertex_bytes = resource.auxiliary_size + std::uint64_t{draw.glyph_count} *
                     (sizeof(rgb_glyph_tile) + sizeof(gpu_glyph_record) + 256U + 48U);
@@ -5203,6 +5203,7 @@ progpu_native_status render_scene(
                         offset_x, offset_y) || current_target_layer >= engine->semantic_layer_slots.size())
                     return fail_bundle(engine->fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                         "A preflighted RGB glyph scope lost its physical target identity."));
+                semantic_render_bundle_span operation{};
                 try {
                     auto packet = std::make_shared<semantic_rgb_glyph_packet>();
                     packet->policy = {draw.gamma, draw.enhanced_contrast, draw.cleartype_level,
@@ -5227,7 +5228,6 @@ progpu_native_status render_scene(
                             tile.x_start, tile.y_start, tile.scale, tile.subpixel_x, tile.width, tile.height,
                             tile.target_x + offset_x, tile.target_y + offset_y, color});
                     }
-                    semantic_render_bundle_span operation{};
                     operation.kind = semantic_replay_kind::rgb_glyphs;
                     operation.rgb_glyphs = std::move(packet);
                     operation.target_layer = current_target_layer;
@@ -5240,9 +5240,29 @@ progpu_native_status render_scene(
                     operation.clip_width = scissor.width;
                     operation.clip_height = scissor.height;
                     operation.draw_call_count = 3U;
+                    if ((state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
+                        const auto mask_resource = read_resource(state.mask_resource_index);
+                        std::uint64_t mask_texture_upload_bytes = 0U;
+                        const auto mask_begin = trace_encode_checkpoints
+                            ? cpu_clock::now() : cpu_clock::time_point{};
+                        const bool mask_created = create_semantic_layer_mask_binding(*engine, bytes,
+                            mask_resource, target_extent, frame->dpi_scale, nullptr, nullptr,
+                            operation, mask_texture_upload_bytes, target_cursor.current_presentation());
+                        if (trace_encode_checkpoints)
+                            record_mask_profile(mask_resource, mask_begin, mask_created);
+                        if (!mask_created) {
+                            release_mask_resources(operation);
+                            return fail_bundle(engine->fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                                "The original RGB glyph source mask could not be retained."));
+                        }
+                        texture_upload_bytes += mask_texture_upload_bytes;
+                        semantic_layer_mask_uniform_upload_bytes += operation.mask_uniform_upload_bytes;
+                        semantic_layer_uniform_upload_bytes += operation.mask_uniform_upload_bytes;
+                    }
                     compiled_spans.push_back(std::move(operation));
                     note_family(command.kind);
                 } catch (const std::bad_alloc&) {
+                    release_mask_resources(operation);
                     return fail_bundle(engine->fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                         "The immutable RGB glyph replay packet could not be retained."));
                 }
@@ -6133,6 +6153,7 @@ progpu_native_status render_scene(
                 const auto rgb_status = encode_linear_rgb_glyphs(*engine, target_view(operation.target_layer),
                     operation.target_width, operation.target_height, true, packet.policy,
                     {operation.clip_x, operation.clip_y, operation.clip_width, operation.clip_height},
+                    operation.mask_bind_group, operation.mask_chain_bind_group,
                     packet.tiles, packet.segments, rgb_metrics);
                 if (rgb_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                     discard_encoder();

@@ -70,8 +70,8 @@ importing an external implementation:
   research is not a normative formula for all Direct2D versions or parameters.
 
 General rendering-parameter correction, actual modern hint/filter policy,
-original Direct2D source producer integration, nonrectangular source masks and
-managed renderer wiring remain required. Existing legacy `INITIALIZE_FOR_CLEARTYPE`
+original Direct2D source producer integration and managed renderer wiring remain
+required. Existing legacy `INITIALIZE_FOR_CLEARTYPE`
 rejection must not be removed on the strength of this private renderer alone.
 Independent original Windows captures and both-provider full-byte comparisons
 are the final numeric authority. Authored source guards are **unexecuted**;
@@ -107,7 +107,7 @@ by their ordinary composite, not silently dropped from the source stack.
 The original DPI must equal both current presentation axes. Unit source bases
 may translate by exact integral physical pixels; viewport and actual layer
 origin are accounted for without a divide/multiply round trip. Sampling origin,
-scale and phase stay unchanged. Nonunit/fractional mappings, per-draw masks,
+scale and phase stay unchanged. Nonunit/fractional mappings,
 unproven root opacity, sRGB targets and CPU preferences fail before publication.
 Fully clipped draws retain validation but publish no RGB operation. Bounded
 packing accounts for the actual shelf rectangle and aligned staging, not ink
@@ -120,3 +120,29 @@ or performance qualification. Independent full-pixel controls and original
 source producer integration remain required before ordinary ClearType admission.
 The native and managed ownership/atomicity/layout controls are authored only;
 no generation verifier, build, test, GPU or CI execution has run for this change.
+
+## Original per-draw masks
+
+RGB replay now uses the same retained source mask builders and exact
+`TextMaskCommon.wgsl` functions as ordinary text. Rounded masks, analytic chains,
+coverage bitmaps, vector clips, brush/geometry masks, picture masks and composites
+keep their existing physical coordinate transforms, opacity, sample policy and
+source ownership. The RGB frame carries a zero physical render origin because
+its tile positions and mask bindings are already local to the actual target.
+There is no second DPI transform, envelope approximation or shifted grayscale.
+
+Each channel's original coverage times foreground/scope opacity is multiplied
+once by the primary mask and, when present, the existing analytic continuation
+chain. Masking never changes target alpha or discards source draw occurrences.
+Sampled and chain pipelines remain separate, lazy engine-owned families; ordinary
+unmasked draws do not allocate these layouts or bindings. Native and managed
+shader assembly prepend the identical shared mask source, without changing its
+ordinary text bindings or arithmetic.
+
+The replay span owns the original mask buffers/textures and picture lease through
+bundle replacement. Failed preparation releases unpublished mask resources, and
+encoder failure still follows the existing submission retirement contract. Mask
+allocations remain in the original aggregate budget and native memory inventory.
+The independent provider controls are being authored in a stacked child. All
+GPU, original-reference, package and application evidence remains pending at the
+final integrated tip; this is not automatic DirectWrite policy admission.

@@ -53,6 +53,7 @@ progpu_native_status encode_linear_rgb_glyphs(
     std::uint32_t target_width, std::uint32_t target_height,
     bool target_ignores_alpha, const rgb_glyph_policy& policy,
     const rgb_glyph_scissor& scissor,
+    WGPUBindGroup mask_binding, WGPUBindGroup mask_chain_binding,
     std::span<const rgb_glyph_tile> glyphs,
     std::span<const progpu_native_path_segment> segments,
     rgb_glyph_metrics& metrics);

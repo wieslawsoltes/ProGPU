@@ -15,6 +15,40 @@ struct rgb_instance final {
 };
 static_assert(sizeof(rgb_instance) == 48U);
 
+bool create_rgb_composite_pipelines(progpu_native_engine& engine, WGPUPipelineLayout layout,
+    std::array<WGPURenderPipeline, 3U>& pipelines, const std::array<const char*, 3U>& names)
+{
+    constexpr std::array<WGPUColorWriteMask, 3U> masks{
+        WGPUColorWriteMask_Red, WGPUColorWriteMask_Green, WGPUColorWriteMask_Blue};
+    WGPUBlendState blend{};
+    blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_OneMinusSrcAlpha};
+    blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_Zero, WGPUBlendFactor_One};
+    for (std::size_t channel = 0U; channel < names.size(); ++channel) {
+        WGPUColorTargetState target{};
+        target.format = engine.target_format;
+        target.blend = &blend;
+        target.writeMask = masks[channel];
+        WGPUFragmentState stage{};
+        stage.module = engine.rgb_glyph_pipelines.composite_shader;
+        stage.entryPoint = webgpu::string_view(names[channel]);
+        stage.targetCount = 1U;
+        stage.targets = &target;
+        WGPURenderPipelineDescriptor descriptor{};
+        descriptor.layout = layout;
+        descriptor.vertex.module = engine.rgb_glyph_pipelines.composite_shader;
+        descriptor.vertex.entryPoint = webgpu::string_view("vs_rgb_composite");
+        descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        descriptor.primitive.frontFace = WGPUFrontFace_CCW;
+        descriptor.primitive.cullMode = WGPUCullMode_None;
+        descriptor.multisample.count = 1U;
+        descriptor.multisample.mask = 0xFFFFFFFFU;
+        descriptor.fragment = &stage;
+        pipelines[channel] = wgpuDeviceCreateRenderPipeline(engine.device, &descriptor);
+        if (pipelines[channel] == nullptr) return false;
+    }
+    return true;
+}
+
 bool ensure_rgb_pipelines(progpu_native_engine& engine, bool fragment)
 {
     auto& owned = engine.rgb_glyph_pipelines;
@@ -95,7 +129,7 @@ bool ensure_rgb_pipelines(progpu_native_engine& engine, bool fragment)
         composite[1].buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
         composite[1].buffer.minBindingSize = sizeof(rgb_instance);
         composite[2].binding = 2U;
-        composite[2].visibility = WGPUShaderStage_Vertex;
+        composite[2].visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
         composite[2].buffer.type = WGPUBufferBindingType_Uniform;
         composite[2].buffer.minBindingSize = 16U;
         WGPUBindGroupLayoutDescriptor composite_layout{};
@@ -108,38 +142,44 @@ bool ensure_rgb_pipelines(progpu_native_engine& engine, bool fragment)
         composite_pipeline_layout.bindGroupLayouts = &owned.composite_layout;
         owned.composite_pipeline_layout = wgpuDeviceCreatePipelineLayout(engine.device, &composite_pipeline_layout);
         if (owned.composite_pipeline_layout == nullptr) return false;
-        constexpr std::array<const char*, 3U> names{"fs_rgb_red", "fs_rgb_green", "fs_rgb_blue"};
-        constexpr std::array<WGPUColorWriteMask, 3U> masks{
-            WGPUColorWriteMask_Red, WGPUColorWriteMask_Green, WGPUColorWriteMask_Blue};
-        WGPUBlendState blend{};
-        blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_OneMinusSrcAlpha};
-        blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_Zero, WGPUBlendFactor_One};
-        for (std::size_t channel = 0U; channel < names.size(); ++channel) {
-            WGPUColorTargetState target{};
-            target.format = engine.target_format;
-            target.blend = &blend;
-            target.writeMask = masks[channel];
-            WGPUFragmentState stage{};
-            stage.module = owned.composite_shader;
-            stage.entryPoint = webgpu::string_view(names[channel]);
-            stage.targetCount = 1U;
-            stage.targets = &target;
-            WGPURenderPipelineDescriptor descriptor{};
-            descriptor.layout = owned.composite_pipeline_layout;
-            descriptor.vertex.module = owned.composite_shader;
-            descriptor.vertex.entryPoint = webgpu::string_view("vs_rgb_composite");
-            descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-            descriptor.primitive.frontFace = WGPUFrontFace_CCW;
-            descriptor.primitive.cullMode = WGPUCullMode_None;
-            descriptor.multisample.count = 1U;
-            descriptor.multisample.mask = 0xFFFFFFFFU;
-            descriptor.fragment = &stage;
-            owned.composite[channel] = wgpuDeviceCreateRenderPipeline(engine.device, &descriptor);
-            if (owned.composite[channel] == nullptr) return false;
-        }
-        return true;
+        return create_rgb_composite_pipelines(engine, owned.composite_pipeline_layout,
+            owned.composite, {"fs_rgb_red", "fs_rgb_green", "fs_rgb_blue"});
     };
     if (finish()) return true;
+    owned.reset();
+    return false;
+}
+
+bool ensure_rgb_mask_pipelines(progpu_native_engine& engine, bool chained)
+{
+    auto& owned = engine.rgb_glyph_pipelines;
+    const auto index = chained ? 1U : 0U;
+    if (owned.masked_composite[index][2] != nullptr) return true;
+    const auto create = [&]() {
+        if (!(chained ? create_semantic_mask_chain_layout(engine) : create_layer_mask_resources(engine))) return false;
+        if (owned.empty_layout == nullptr) {
+            WGPUBindGroupLayoutDescriptor descriptor{};
+            owned.empty_layout = wgpuDeviceCreateBindGroupLayout(engine.device, &descriptor);
+            if (owned.empty_layout == nullptr) return false;
+        }
+        if (owned.empty_bind_group == nullptr) {
+            WGPUBindGroupDescriptor descriptor{};
+            descriptor.layout = owned.empty_layout;
+            owned.empty_bind_group = wgpuDeviceCreateBindGroup(engine.device, &descriptor);
+            if (owned.empty_bind_group == nullptr) return false;
+        }
+        const std::array<WGPUBindGroupLayout, 3U> layouts{owned.composite_layout, owned.empty_layout,
+            chained ? engine.semantic_mask_chain_layout : engine.layer_mask_layout};
+        WGPUPipelineLayoutDescriptor descriptor{};
+        descriptor.bindGroupLayoutCount = layouts.size();
+        descriptor.bindGroupLayouts = layouts.data();
+        owned.masked_layouts[index] = wgpuDeviceCreatePipelineLayout(engine.device, &descriptor);
+        return owned.masked_layouts[index] != nullptr && create_rgb_composite_pipelines(engine,
+            owned.masked_layouts[index], owned.masked_composite[index], chained
+                ? std::array<const char*, 3U>{"fs_rgb_red_chain", "fs_rgb_green_chain", "fs_rgb_blue_chain"}
+                : std::array<const char*, 3U>{"fs_rgb_red_masked", "fs_rgb_green_masked", "fs_rgb_blue_masked"});
+    };
+    if (create()) return true;
     owned.reset();
     return false;
 }
@@ -151,6 +191,7 @@ progpu_native_status encode_linear_rgb_glyphs(
     std::uint32_t target_width, std::uint32_t target_height,
     bool target_ignores_alpha, const rgb_glyph_policy& policy,
     const rgb_glyph_scissor& scissor,
+    WGPUBindGroup mask_binding, WGPUBindGroup mask_chain_binding,
     std::span<const rgb_glyph_tile> glyphs,
     std::span<const progpu_native_path_segment> segments,
     rgb_glyph_metrics& metrics)
@@ -160,6 +201,7 @@ progpu_native_status encode_linear_rgb_glyphs(
     // No unsupported gamma, contrast, intermediate ClearTypeLevel, sRGB target,
     // translucent background or CPU raster preference is silently normalized.
     if (engine.semantic_encoder == nullptr || target == nullptr || !target_ignores_alpha ||
+        (mask_binding != nullptr && mask_chain_binding != nullptr) ||
         target_width == 0U || target_height == 0U || target_width > native_max_atlas_size ||
         target_height > native_max_atlas_size || glyphs.empty() || glyphs.size() > 65536U || segments.empty() ||
         segments.size() > 1048576U ||
@@ -258,6 +300,10 @@ progpu_native_status encode_linear_rgb_glyphs(
         const bool fragment = (engine.engine_flags & PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK) != 0U;
         if (!ensure_rgb_pipelines(engine, fragment))
             return engine.fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR, "The owned RGB glyph pipelines could not be created.");
+        const bool masked = mask_binding != nullptr || mask_chain_binding != nullptr;
+        const bool chained = mask_chain_binding != nullptr;
+        if (masked && !ensure_rgb_mask_pipelines(engine, chained))
+            return engine.fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR, "The source RGB glyph mask pipelines could not be created.");
         progpu_native_engine::raster_resource_lease lease(engine, true);
         auto& resources = lease.get();
         const auto upload = [&](WGPUBuffer& buffer, const void* data, std::uint64_t bytes,
@@ -382,7 +428,13 @@ progpu_native_status encode_linear_rgb_glyphs(
         wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F, static_cast<float>(target_width), static_cast<float>(target_height), 0.0F, 1.0F);
         wgpuRenderPassEncoderSetScissorRect(pass, scissor.x, scissor.y, scissor.width, scissor.height);
         wgpuRenderPassEncoderSetBindGroup(pass, 0U, resources.rgb_composite, 0U, nullptr);
-        for (auto pipeline : engine.rgb_glyph_pipelines.composite) {
+        const auto& pipelines = masked ? engine.rgb_glyph_pipelines.masked_composite[chained ? 1U : 0U]
+            : engine.rgb_glyph_pipelines.composite;
+        if (masked) {
+            wgpuRenderPassEncoderSetBindGroup(pass, 1U, engine.rgb_glyph_pipelines.empty_bind_group, 0U, nullptr);
+            wgpuRenderPassEncoderSetBindGroup(pass, 2U, chained ? mask_chain_binding : mask_binding, 0U, nullptr);
+        }
+        for (auto pipeline : pipelines) {
             wgpuRenderPassEncoderSetPipeline(pass, pipeline);
             wgpuRenderPassEncoderDraw(pass, 6U, static_cast<std::uint32_t>(instances.size()), 0U, 0U);
         }

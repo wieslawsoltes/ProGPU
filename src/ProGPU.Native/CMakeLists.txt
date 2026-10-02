@@ -322,11 +322,13 @@ add_custom_command(
 add_custom_command(
     OUTPUT "${generated_rgb_glyph_composite_shader}"
     COMMAND "${CMAKE_COMMAND}"
+        "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
         "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRgbComposite.wgsl"
         "-DOUTPUT=${generated_rgb_glyph_composite_shader}"
         "-DSYMBOL=rgb_glyph_composite_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRgbComposite.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     VERBATIM)
 add_custom_command(

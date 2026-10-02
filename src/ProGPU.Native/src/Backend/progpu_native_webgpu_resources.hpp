@@ -17,12 +17,29 @@ struct rgb_glyph_pipeline_resources final {
     WGPUComputePipeline compute = nullptr;
     WGPURenderPipeline fragment = nullptr;
     std::array<WGPURenderPipeline, 3U> composite{};
+    // Ordinary RGB draws never allocate mask pipeline layouts or empty groups.
+    WGPUBindGroupLayout empty_layout = nullptr;
+    WGPUBindGroup empty_bind_group = nullptr;
+    std::array<WGPUPipelineLayout, 2U> masked_layouts{};
+    std::array<std::array<WGPURenderPipeline, 3U>, 2U> masked_composite{};
 
     rgb_glyph_pipeline_resources() = default;
     rgb_glyph_pipeline_resources(const rgb_glyph_pipeline_resources&) = delete;
     rgb_glyph_pipeline_resources& operator=(const rgb_glyph_pipeline_resources&) = delete;
     ~rgb_glyph_pipeline_resources() { reset(); }
     void reset() noexcept {
+        for (auto& family : masked_composite) for (auto& pipeline : family) {
+            if (pipeline != nullptr) wgpuRenderPipelineRelease(pipeline);
+            pipeline = nullptr;
+        }
+        for (auto& layout : masked_layouts) {
+            if (layout != nullptr) wgpuPipelineLayoutRelease(layout);
+            layout = nullptr;
+        }
+        if (empty_bind_group != nullptr) wgpuBindGroupRelease(empty_bind_group);
+        if (empty_layout != nullptr) wgpuBindGroupLayoutRelease(empty_layout);
+        empty_bind_group = nullptr;
+        empty_layout = nullptr;
         for (auto& pipeline : composite) {
             if (pipeline != nullptr) wgpuRenderPipelineRelease(pipeline);
             pipeline = nullptr;
