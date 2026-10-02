@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
+#include <iterator>
 
 namespace progpu::native::shader_effect {
 
