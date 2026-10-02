@@ -51,8 +51,8 @@ provider gates and deadlines are unchanged. These cases are authored; no local
 GPU or VM execution was performed. Additional aliased clipped-clear cases cover
 the captured nested clip, singular later transform, retained prefix/suffix,
 immutable export, empty intersection, null/straight/IGNORE alpha and mixed-DPI
-history. The same eight integral/fractional physical reference variants run cold and warm on both
-native providers, with exactly three semantic draws, nine commands and one
+history. The same eight integral/fractional physical reference variants run cold
+and warm on both native providers, with exactly three semantic draws, nine commands and one
 submission. Windows additionally compares every pixel against the original
 Microsoft WIC render target and exercises original command-list streaming plus
 direct sink callbacks. These are authored acceptance gates, not successful
@@ -62,3 +62,31 @@ Fractional aliased clips preserve their original float bounds while checking
 the independently expected physical sample coverage. Exterior/history pixels,
 binary colors and binary alpha are exact; only nonbinary UNORM8 color conversion
 allows one byte of rounding difference against the original WIC reference.
+
+## Provenance and checkpoint
+
+This is original ProGPU recording logic over the unchanged owned builder and
+compositor at `a1060bc59e601c53619725bf6db2fa590623dc02`:
+`Scene/Builder/progpu_native_scene_builder_layer.cpp`,
+`Scene/Builder/progpu_native_scene_builder_geometry.cpp` and
+`Backend/progpu_native_layer_composite_execution.cpp`, under
+`src/ProGPU.Native/src`. No foreign implementation was imported. The shared
+helper appends O(1) records and uses existing bounded GPU layer composition;
+it adds no CPU pixel path, eager pipeline, per-pixel crossing or cache family.
+
+Microsoft's [Clear contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-clear%28constd2d1_color_f%29)
+defines active-clip restriction and straight/IGNORE alpha. Its
+[clip contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-pushaxisalignedclip%28constd2d1_rect_f__d2d1_antialias_mode%29)
+defines capture under the push-time transform and separate group-edge coverage.
+The existing [cross-engine clip research](direct2d-command-stream-antialiasing.md#primary-research-and-design-decisions)
+still applies: retain scoped resources and demand-driven GPU execution; do not
+add text/font work or change renderer architecture for this ingress operation.
+Native portable and Windows producers share the implementation. Both native
+renderers consume the same existing SRC layer contract; the independent managed
+recording API is neither routed through this helper nor newly advertised.
+
+After the implementation commits, strict Apple Clang C++20 syntax checks passed
+for the portable target, complete portable COM fixture and instantiated shared
+GPU fixture. Source diff checks passed. This does not execute the authored
+controls or qualify Windows compilation, actual GPU pixels, packages, application
+routing or performance; those remain exact-head hosted gates before merge.
