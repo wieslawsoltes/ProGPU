@@ -35,11 +35,34 @@ inline std::array<compat::rectangle_f, 2U> variable_pixel_rectangles(std::size_t
               25.5F - second.y_min * scale}}};
 }
 
+inline std::array<compat::rectangle_f, 2U> variable_rtl_pixel_rectangles(std::size_t case_index, bool nominal)
+{
+    const auto first = expected_variable_glyph(1U, case_index);
+    const auto empty = expected_variable_glyph(0U, case_index);
+    const auto second = expected_variable_glyph(2U, case_index);
+    constexpr float scale = 1.0F / 32.0F;
+    // Authored logical order is 1,0,2. Each RTL left origin includes its own
+    // advance; the no-ink middle glyph retains its signed/varied advance.
+    // The source offset -0.75 moves right, not left, in this run direction.
+    // Keep this oracle independent of decoded contours/prepared placement.
+    const auto first_pen = nominal ? first.advance * scale : 12.0F;
+    const auto second_pen = nominal ? first.advance * scale + empty.advance * scale + second.advance * scale : 29.0F;
+    return {{{(first.x_min - first.horizontal_origin) * scale + 56.0F - first_pen,
+              28.0F - first.y_max * scale,
+              (first.x_max - first.horizontal_origin) * scale + 56.0F - first_pen,
+              28.0F - first.y_min * scale},
+             {(second.x_min - second.horizontal_origin) * scale + 56.0F - second_pen + 0.75F,
+              25.5F - second.y_max * scale,
+              (second.x_max - second.horizontal_origin) * scale + 56.0F - second_pen + 0.75F,
+              25.5F - second.y_min * scale}}};
+}
+
 template<class Require>
 void record_variable_pixel_case(compat::factory* factory, compat::render_target* target,
     const std::shared_ptr<prepared_original_font>& font, compat::rendering_parameters* parameters,
     std::size_t case_index, bool nominal, std::uint32_t variant, variable_pixel_path path,
-    Require require, compat::geometry* prepared_geometry = nullptr, const float* original_design_advances = nullptr)
+    Require require, compat::geometry* prepared_geometry = nullptr, const float* original_design_advances = nullptr,
+    bool right_to_left = false)
 {
     require(case_index < variable_font_cases.size() && variant < 3U, "variable pixel inventory");
     const compat::matrix_3x2_f identity{1, 0, 0, 1, 0, 0};
@@ -65,7 +88,9 @@ void record_variable_pixel_case(compat::factory* factory, compat::render_target*
         require(factory->CreatePathGeometry(geometry.put()) == com::ok && geometry->Open(sink.put()) == com::ok,
             "variable independent geometry creation");
         sink->SetFillMode(compat::fill_mode::winding);
-        for (const auto& rectangle : variable_pixel_rectangles(case_index, nominal)) {
+        const auto rectangles = right_to_left ? variable_rtl_pixel_rectangles(case_index, nominal)
+            : variable_pixel_rectangles(case_index, nominal);
+        for (const auto& rectangle : rectangles) {
             sink->BeginFigure({rectangle.left, rectangle.bottom}, compat::figure_begin::filled);
             sink->AddLine({rectangle.right, rectangle.bottom}); sink->AddLine({rectangle.right, rectangle.top});
             sink->AddLine({rectangle.left, rectangle.top}); sink->EndFigure(compat::figure_end::closed);
@@ -74,18 +99,19 @@ void record_variable_pixel_case(compat::factory* factory, compat::render_target*
         target->FillGeometry(geometry.get(), brush.get(), nullptr);
     } else {
         const std::uint16_t indices[]{1U, 0U, 2U};
-        const float advances[]{12, -3, 9};
+        const float advances[]{12, -3, right_to_left ? 20.0F : 9.0F};
         const compat::glyph_offset offsets[]{{0, 0}, {0, 0}, {-0.75F, 2.5F}};
         const bool design_reference = path == variable_pixel_path::original_design_advances;
         require(!design_reference || (nominal && original_design_advances != nullptr), "genuine variable design advances required");
         const compat::glyph_run run{font->source()->face.get(), 31.25F, 3U, indices,
-            design_reference ? original_design_advances : nominal ? nullptr : advances, offsets, 0, 2U};
+            design_reference ? original_design_advances : nominal ? nullptr : advances, offsets, 0, right_to_left ? 3U : 2U};
+        const compat::point_2f baseline{right_to_left ? 56.0F : 4.0F, 28};
         if (path == variable_pixel_path::original || design_reference) {
-            target->DrawGlyphRun({4, 28}, &run, brush.get(), compat::measuring_mode::natural);
+            target->DrawGlyphRun(baseline, &run, brush.get(), compat::measuring_mode::natural);
         } else {
             com::pointer<prepared_glyph_target> prepared;
             require(target->QueryInterface(prepared_glyph_target_id, reinterpret_cast<void**>(prepared.put())) == com::ok &&
-                prepared->DrawOwnedGlyphRun(font, {4, 28}, &run, brush.get(), compat::measuring_mode::natural) == com::ok,
+                prepared->DrawOwnedGlyphRun(font, baseline, &run, brush.get(), compat::measuring_mode::natural) == com::ok,
                 "actual variable prepared retained draw");
         }
     }
@@ -103,6 +129,9 @@ void verify_variable_glyph_pixels(Render render, Require require)
         factory.as(compat::scene_factory_native_interface_id, scene_factory) == com::ok, "variable source factory");
     rendering_parameters parameters; parameters.mode = compat::rendering_mode::outline;
     std::uint64_t generation = 0U;
+    // Execute the unchanged forty LTR configurations before the additive RTL
+    // inventory. The original provider callback owns all submission counters.
+    for (const bool right_to_left : {false, true}) {
     for (const auto& options : variable_pixel_font_options) {
         for (std::size_t instance = 0U; instance < variable_font_cases.size(); ++instance) {
             font_stream stream; stream.bytes = make_variable_font(options); stream.declared_size = stream.bytes.size();
@@ -131,7 +160,8 @@ void verify_variable_glyph_pixels(Render render, Require require)
                     require(scene_factory->CreateSceneRenderTarget(&properties, target.put()) == com::ok &&
                         target.as(compat::scene_render_target_native_interface_id, scene) == com::ok, "variable source target");
                     record_variable_pixel_case(factory.get(), target.get(), font, &parameters, instance, nominal, variant,
-                        reference == 0U ? variable_pixel_path::prepared : variable_pixel_path::independent_geometry, require);
+                        reference == 0U ? variable_pixel_path::prepared : variable_pixel_path::independent_geometry,
+                        require, nullptr, nullptr, right_to_left);
                     require(export_copy_scene(scene.get(), scenes[reference]) && read_scene_value(scenes[reference], 0U, headers[reference]),
                         "variable immutable scene export");
                 }
@@ -148,12 +178,20 @@ void verify_variable_glyph_pixels(Render render, Require require)
                 }
                 require(has_ink && cold[0] == 0U && cold[1] == 0U && cold[2] == 0U && cold[3] == 255U,
                     "variable nonempty independent ink and untouched corner");
+                if (right_to_left && instance == 0U && !nominal) {
+                    constexpr std::array<std::uint8_t, 4U> black{0, 0, 0, 255}, red{255, 0, 0, 255};
+                    require(std::equal(red.begin(), red.end(), cold.data() + (20U * 64U + 48U) * 4U) &&
+                        std::equal(red.begin(), red.end(), cold.data() + (20U * 64U + 30U) * 4U) &&
+                        std::equal(black.begin(), black.end(), cold.data() + (20U * 64U + 40U) * 4U),
+                        "variable RTL absolute first/last logical ink and signed empty-glyph gap");
+                }
             }
             require(source->axis_values[0].value == variable_font_cases[instance].weight &&
                 stream.reads == reads && face.value_reads == values && face.outline_calls == 0U &&
                 face.table_calls == 0U && face.unused_calls == 0U && font->cached_glyph_count() == 3U,
                 "variable retained generation survives source mutation without source callbacks");
         }
+    }
     }
 }
 } // namespace progpu::native::direct2d::tests

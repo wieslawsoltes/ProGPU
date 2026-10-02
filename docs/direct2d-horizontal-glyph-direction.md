@@ -45,8 +45,9 @@ logical occurrence order, empty-glyph movement, signed offsets, contour winding,
 cache reuse and atomic overflowing RTL origins. Existing unsupported raster,
 sideways, measurement and reentrant-source controls remain.
 
-Variable-font direction-specific original/provider controls are a separate
-stacked follow-up. These changes do not establish original Windows pixels,
+The stacked [variable-font direction controls](direct2d-variable-prepared-glyphs.md#variable-horizontal-rtl-controls-authored-only)
+add forty independent original/provider RTL configurations while preserving all
+forty variable LTR configurations. These changes do not establish original Windows pixels,
 package support, source editor behavior or application parity. All builds,
 tests, source verifiers and GPU/UI runs remain deferred to the final integrated
 tip; no validation was executed for this checkpoint.
