@@ -7,7 +7,7 @@ using ProGPU.Hmi;
 using ProGPU.Scene;
 using ProGPU.WinUI.Hmi;
 using ProGPU.WinUI.Hmi.Designer;
-using Silk.NET.Input;
+using Key = Silk.NET.Input.Key;
 using Xunit;
 
 namespace ProGPU.Hmi.Tests;
