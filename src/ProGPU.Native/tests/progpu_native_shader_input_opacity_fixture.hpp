@@ -157,8 +157,10 @@ void verify_shader_input_opacity(Render render, Require require) {
         }
         const std::vector<std::byte> sentinel{std::byte{0x5A}};
         auto unchanged = sentinel;
-        require(build_shader_input_opacity_scene(raw, 0U, false, unchanged, true) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND &&
-            unchanged == sentinel, "sampled opacity mask silently acquired gradient admission");
+        require(build_shader_input_opacity_scene(raw, 0U, false, unchanged, true) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
+            unchanged != sentinel, "the original sampled-opacity source did not acquire its implemented capture path");
+        // Full spatial/ownership/recursion and paired GPU controls for all three
+        // sampled source families live in shader_sampled_opacity_fixture.hpp.
     } // Retire the real channel, every source brush and all mutable packet data.
     std::vector<std::uint8_t> original;
     for (std::uint32_t variant = 0U; variant < scenes.size(); ++variant) {
