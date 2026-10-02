@@ -70,8 +70,8 @@ void capture_controls() {
         if (invalid == 6U) bad.pixels_per_dip = std::numeric_limits<double>::infinity();
         if (invalid == 7U) bad.pixels_per_dip = std::numeric_limits<double>::quiet_NaN();
         if (invalid == 8U) bad.em_size = std::numeric_limits<double>::max();
-        if (invalid == 9U) bad.em_policy = static_cast<hinted_source_em_policy>(3U);
-        if (invalid == 10U) bad.advance_policy = static_cast<hinted_source_advance_policy>(2U);
+        if (invalid == 9U) bad.em_policy = static_cast<hinted_source_em_policy>(4U);
+        if (invalid == 10U) bad.advance_policy = static_cast<hinted_source_advance_policy>(3U);
         if (invalid == 11U) bad.em_size = 0.125;
         if (invalid == 12U) bad.em_size = static_cast<double>(INT32_MAX) / 64.0;
         selected = {71U, 73.0F};
@@ -110,13 +110,70 @@ void advance_controls() {
         require(!project_hinted_source_advance(input, hinted_source_advance_policy::physical_ties_to_even, output) && same(output, identity));
     }
     auto output = identity;
-    require(!project_hinted_source_advance(identity, static_cast<hinted_source_advance_policy>(2U), output) && same(output, identity));
+    require(!project_hinted_source_advance(identity, static_cast<hinted_source_advance_policy>(3U), output) && same(output, identity));
+}
+
+void original_source_conversion_controls() {
+    for (const double midpoint : {18.5, 20.5}) {
+        for (const double em : {std::nextafter(midpoint, 0.0), midpoint, std::nextafter(midpoint, 100.0)}) {
+            const hinted_source_style source{em, 1.0, hinted_source_em_policy::float_capture_nearest_half_up,
+                hinted_source_advance_policy::source_ideal_units, hinted_source_offset_policy::source_ideal_units};
+            hinted_source_device_selection capture{};
+            require(resolve_hinted_source_device(source, capture) &&
+                capture.pixels_per_em_26_6 == static_cast<std::uint32_t>(std::ceil(midpoint) * 64.0) && source.em_size == em);
+            auto double_capture = source; double_capture.em_policy = hinted_source_em_policy::nearest_half_up;
+            require(resolve_hinted_source_device(double_capture, capture) &&
+                capture.pixels_per_em_26_6 == static_cast<std::uint32_t>(std::floor(em + 0.5) * 64.0));
+        }
+    }
+    const hinted_source_style source{18.5, 1.0, hinted_source_em_policy::float_capture_nearest_half_up,
+        hinted_source_advance_policy::source_ideal_units, hinted_source_offset_policy::source_ideal_units};
+    const shaping_glyph original{71U, 0x0627U, 19, shaping_glyph_flags::unsafe_to_break, 19 * 64, 0, -455, 1};
+    auto wire = original;
+    require(project_hinted_source_advance(original, source.advance_policy, wire) && same(wire, original));
+    text_source_glyph_metrics geometry{};
+    require(project_hinted_source_geometry(wire, source, geometry) && geometry.advance_x == 19.0 && geometry.offset_x == -7.0 &&
+        geometry.offset_y == 0.0); // Source ascender -1/64 rounds to zero, no positive minimum.
+    wire.offset_x = -807; wire.offset_y = -1;
+    require(project_hinted_source_geometry(wire, source, geometry) && geometry.offset_x == -13.0 &&
+        geometry.offset_y == -(1.0 / 300.0)); // Source positive ascender retains its original minimum before Y reflection.
+    struct sample final { std::int32_t raw; double expected; };
+    const std::array samples{sample{-96, -2.0}, sample{-32, -0.0}, sample{-1, -0.0}, sample{0, 0.0},
+        sample{1, 1.0 / 300.0}, sample{31, 1.0 / 300.0}, sample{32, 1.0 / 300.0}, sample{96, 2.0}};
+    for (const auto value : samples) {
+        wire.advance_x = value.raw; wire.offset_x = value.raw;
+        require(project_hinted_source_geometry(wire, source, geometry) && geometry.advance_x == value.expected &&
+            geometry.offset_x == value.expected);
+        if (value.expected == 0.0) require(std::signbit(geometry.advance_x) == std::signbit(value.expected) &&
+            std::signbit(geometry.offset_x) == std::signbit(value.expected));
+    }
+    auto arbitrary_dpi = source; arbitrary_dpi.pixels_per_dip = std::nextafter(1.5, 2.0);
+    wire.advance_x = 8 * 64; wire.offset_x = -455;
+    require(project_hinted_source_geometry(wire, arbitrary_dpi, geometry) &&
+        geometry.advance_x == 8.0 / arbitrary_dpi.pixels_per_dip && geometry.offset_x == -7.0 / arbitrary_dpi.pixels_per_dip &&
+        geometry.advance_x != static_cast<double>(static_cast<float>(geometry.advance_x)));
+    auto advance_only = source; advance_only.offset_policy = hinted_source_offset_policy::unchanged;
+    require(project_hinted_source_geometry(wire, advance_only, geometry) && geometry.offset_x == -455.0 / 64.0 && geometry.advance_x == 8.0);
+    auto offset_only = source; offset_only.advance_policy = hinted_source_advance_policy::unchanged;
+    wire.advance_x = 33;
+    require(project_hinted_source_geometry(wire, offset_only, geometry) && geometry.advance_x == 33.0 / 64.0 && geometry.offset_x == -7.0);
+    for (unsigned int invalid = 0U; invalid < 5U; ++invalid) {
+        auto bad = source;
+        if (invalid == 0U) bad.offset_policy = static_cast<hinted_source_offset_policy>(2U);
+        if (invalid == 1U) bad.advance_policy = static_cast<hinted_source_advance_policy>(3U);
+        if (invalid == 2U) bad.pixels_per_dip = 0.0;
+        if (invalid == 3U) bad.pixels_per_dip = std::numeric_limits<double>::infinity();
+        if (invalid == 4U) { bad.pixels_per_dip = 0.001; wire.offset_x = INT32_MAX; }
+        geometry = {101.0, 102.0, 103.0, 104.0};
+        require(!project_hinted_source_geometry(wire, bad, geometry) && geometry.advance_x == 101.0 && geometry.advance_y == 102.0 &&
+            geometry.offset_x == 103.0 && geometry.offset_y == 104.0);
+    }
 }
 } // namespace
 
 int main() {
     try {
-        capture_controls(); advance_controls();
+        capture_controls(); advance_controls(); original_source_conversion_controls();
         std::cout << checks << " native source capture/advance policy controls passed\n";
         return 0;
     } catch (const std::exception& error) {

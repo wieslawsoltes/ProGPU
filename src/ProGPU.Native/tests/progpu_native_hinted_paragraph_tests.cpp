@@ -843,7 +843,7 @@ void original_source_policy_controls() {
 
 void original_pair_boundary_controls() {
     for (const auto interpreter : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
-        for (const bool rtl : {false, true}) {
+        for (const bool rtl : {false, true}) for (const bool source_ideal : {false, true}) {
             fixture font(true);
             const auto code_point = rtl ? 0x05D0U : static_cast<std::uint32_t>('A');
             const std::array values{code_point, code_point, code_point, code_point};
@@ -855,8 +855,10 @@ void original_pair_boundary_controls() {
             const std::array styles{progpu_native_text_style_run{0U, 4U, 0U, 0.01325F, 0U, 0U, 0U, 0U, 0U, 0U, 0U}};
             const std::array metrics{progpu_native_text_style_metrics{9.25F, 2.5F}};
             const std::array source_metrics{text_source_item_metrics{std::nextafter(9.25, 10.0), 2.5}};
-            const std::array source{hinted_source_style{13.25, 1.5, hinted_source_em_policy::nearest_half_up,
-                hinted_source_advance_policy::physical_ties_to_even}};
+            const std::array source{hinted_source_style{13.25, 1.5,
+                source_ideal ? hinted_source_em_policy::float_capture_nearest_half_up : hinted_source_em_policy::nearest_half_up,
+                source_ideal ? hinted_source_advance_policy::source_ideal_units : hinted_source_advance_policy::physical_ties_to_even,
+                source_ideal ? hinted_source_offset_policy::source_ideal_units : hinted_source_offset_policy::unchanged}};
             const std::array configurations{hinted_paragraph_style_configuration{0U, styles[0].scale,
                 {20U * 64U, 20U * 64U, interpreter, 0U, 0U, {}}, 1.0F / 1.5F}};
             hinted_source_paragraph_layout source_layout{200.0, 0.0, source_metrics, true, true};
