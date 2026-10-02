@@ -67,3 +67,23 @@ callback or additional native crossing. No performance result is claimed.
 
 Builds, source verifiers, CPU tests, original SDK controls and GPU/UI execution
 remain deferred to the final integrated tip unless separately authorized.
+
+## Authored controls, not executed
+
+Thirty-two raw static TT/CFF cases retain full/compact metrics, both nonzero BOOL
+forms, two even bidi levels and explicit/null advances. Independent literal
+rectangles and signed areas check origins, logical order, offsets and contour
+orientation. Horizontal-before/after controls retain the same cached contours.
+A failed last occurrence preserves the earlier run and one-glyph cache, including
+the intervening empty glyph; a valid retry must succeed. Malformed vhea or a
+missing compact bearing rejects only the actual sideways request, preserving
+ordinary horizontal construction and replay.
+
+Both native providers gain24 source configurations: two original font families,
+full/compact metrics, explicit/nominal advances and three source frames. The
+frames include aliasing, fractional grayscale placement, and a right-rotated run
+under a clip and translucent layer. Cold, warm and independently recorded
+geometry compare complete64x64 RGBA frames; absolute ink, gap and background
+samples prevent blank-image success. Existing draw/command/submission counters
+remain enforced by each provider's original scene runner. Original SDK outline,
+design-metric and full-frame companions are a separate required stacked change.

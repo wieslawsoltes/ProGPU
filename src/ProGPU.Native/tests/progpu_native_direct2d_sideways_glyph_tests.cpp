@@ -161,9 +161,51 @@ bool late_sideways_failure()
             "failed sideways metric-owner preparation does not poison retry")) return false;
     return true;
 }
+
+bool vertical_faults_do_not_change_horizontal()
+{
+    original_vertical_source original(true);
+    std::shared_ptr<const d2d::original_font_capture> source;
+    if (d2d::capture_original_font(&original.face, source) != com::ok) return false;
+    com::pointer<compat::factory> factory;
+    if (compat::create_factory(factory.put()) != com::ok) return false;
+    const d2d::original_glyph_target frame{com::pointer<com::unknown>(factory.get()), 1U,
+        {1, 0, 0, 1, 0, 0}, {8, 50}, {128U, 128U}, 96, 96, {}, compat::text_antialias_mode::grayscale};
+    rendering_parameters parameters; parameters.mode = compat::rendering_mode::outline;
+    const std::uint16_t glyph = 1U;
+    for (unsigned fault = 0U; fault < 2U; ++fault) {
+        auto bad = std::make_shared<d2d::original_font_capture>(*source);
+        auto& bytes = bad->files[0]; bool changed = false;
+        using namespace vertical_font_wire;
+        for (std::size_t index = 0U; index < read16(bytes, 4U); ++index) {
+            const auto record = 12U + index * 16U;
+            if (fault == 0U && read32(bytes, record) == 0x766D7478U) {
+                put32(bytes, record + 12U, 6U); changed = true; // Missing compact final bearing.
+            }
+            if (fault == 1U && read32(bytes, record) == 0x76686561U) {
+                put32(bytes, read32(bytes, record + 8U), 0x00020000U); changed = true;
+            }
+        }
+        std::shared_ptr<d2d::prepared_original_font> font;
+        if (!check(changed && d2d::prepared_original_font::create(bad, font) == com::ok,
+                "vertical source metadata is lazy, not a new horizontal creation requirement")) return false;
+        compat::glyph_run run{&original.face, 125, 1U, &glyph, nullptr, nullptr, 0, 2U};
+        std::shared_ptr<const d2d::original_glyph_request> request;
+        std::shared_ptr<const d2d::prepared_original_glyph_run> prepared;
+        if (!check(d2d::capture_original_glyph_request(bad, run, compat::measuring_mode::natural,
+                &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::ok,
+                "malformed unused vertical metadata leaves horizontal replay intact")) return false;
+        const auto retained = prepared; run.is_sideways = 1;
+        if (!check(d2d::capture_original_glyph_request(bad, run, compat::measuring_mode::natural,
+                &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::invalid_argument &&
+                prepared == retained && font->cached_glyph_count() == 1U,
+                "actual sideways source rejects malformed vertical metadata atomically")) return false;
+    }
+    return true;
+}
 } // namespace
 
 bool progpu_native_direct2d_sideways_glyph_tests()
 {
-    return explicit_sideways_placement() && late_sideways_failure();
+    return explicit_sideways_placement() && late_sideways_failure() && vertical_faults_do_not_change_horizontal();
 }
