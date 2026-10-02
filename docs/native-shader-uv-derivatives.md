@@ -45,7 +45,23 @@ already admitted native capture contract; no foreign implementation text or
 matrix algorithm was copied. Original ProGPU baseline is
 `a610659f977d873d8465d60b3c5a8dfa951a4cb1`.
 
-This implementation-first checkpoint has not run a native renderer build, GPU
-fixture, VM, runtime staging, application or package qualification. Focused
-source/raw and paired provider controls follow separately. No expanded source
-mapping or full ShaderEffect parity is claimed.
+Authored source controls retain indices 0/31, reject 32/negative non-sentinel
+indices transactionally, keep original user constants unchanged and carry the
+same metadata with owned ImageBrush pictures and changed source DPI. The native
+uniform fixture covers all unknown flag bits, versions/sizes/reserved words,
+self/forward picture references, old-reader atomic rejection, selected-register
+precedence, unchanged nonselected registers, and zero/unrepresentable dimensions.
+It is registered in the existing internal target beside the 477 bytecode controls.
+
+The paired provider fixture checks every RGBA pixel over cold/warm/independent
+replays. Original authored D3D tokens expose ddx and ddy in separate color
+channels, with DEF-owned opaque alpha. It varies physical width/height, target
+DPI, selected register and equivalent full presentation. The same shader bytes
+cross changed binding generations. Translated viewport, fractional origin,
+fractional physical dimensions and clipped input reject with zero renderer
+submissions; no prior assertion or deadline changes. Existing source sampler,
+picture-ownership and original shader pixel controls remain intact.
+
+No native renderer build, execution of these new fixtures, GPU, VM, runtime
+staging, application or package qualification has been performed. No expanded
+source mapping or full ShaderEffect parity is claimed.

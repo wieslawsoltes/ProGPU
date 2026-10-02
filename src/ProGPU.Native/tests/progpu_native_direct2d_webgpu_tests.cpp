@@ -8,6 +8,7 @@
 #include "progpu_native_picture_axis_fixture.hpp"
 #include "progpu_native_shader_effect_pixel_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
+#include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
@@ -721,7 +722,9 @@ struct portable_scene final {
     std::uint64_t mil_scene_id = 9011U,
     std::uint64_t mil_generation = 1U,
     progpu_native_scene_frame_metrics* observed_metrics = nullptr,
-    float dpi_scale = 1.0F)
+    float dpi_scale = 1.0F,
+    const progpu_native_scene_presentation* presentation = nullptr,
+    progpu_native_status expected_status = PROGPU_NATIVE_STATUS_SUCCESS)
 {
     WGPUTextureDescriptor texture_descriptor{};
     texture_descriptor.label = "ProGPU portable Direct2D target";
@@ -750,10 +753,12 @@ struct portable_scene final {
         reinterpret_cast<std::uintptr_t>(view),
         PROGPU_NATIVE_SCENE_FRAME_NONE};
     progpu_native_status render_status = PROGPU_NATIVE_STATUS_SUCCESS;
+    bool scene_updated = false;
     if (!mil_scene.empty()) {
         render_status = progpu_native_engine_update_scene(
             engine, mil_scene.data(), mil_scene.size(), &scene_metrics);
         if (render_status == PROGPU_NATIVE_STATUS_SUCCESS) {
+            scene_updated = true;
             progpu_native_scene_frame frame{};
             frame.struct_size = sizeof(frame);
             frame.width = width;
@@ -763,6 +768,10 @@ struct portable_scene final {
             frame.clear_color = {0.0F, 0.0F, 0.0F, 1.0F};
             frame.scene_id = mil_scene_id;
             frame.generation = mil_generation;
+            if (presentation != nullptr) {
+                frame.flags |= PROGPU_NATIVE_SCENE_FRAME_PRESENTATION;
+                frame.presentation = *presentation;
+            }
             render_status = progpu_native_engine_render_scene(
                 engine, &frame, &frame_metrics);
         }
@@ -775,6 +784,15 @@ struct portable_scene final {
             &scene_metrics,
             &frame_metrics,
             &diagnostics);
+    }
+    if (expected_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        require(expected_status == PROGPU_NATIVE_STATUS_UNSUPPORTED && scene_updated &&
+            render_status == expected_status && scene_metrics.draw_count == expected_draws &&
+            frame_metrics.submission_count == 0U, "unsupported source frame did not reject before submission");
+        if (observed_metrics != nullptr) *observed_metrics = frame_metrics;
+        wgpuTextureViewRelease(view);
+        wgpuTextureDestroy(texture); wgpuTextureRelease(texture);
+        return {};
     }
     if (render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
         std::array<char, 512U> error{};
@@ -2143,6 +2161,23 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(sampler_reference_engine);
     phase("original ImageBrush shader samplers passed");
+    auto* derivative_reference_engine = create_engine(gpu);
+    progpu::native::tests::verify_original_shader_derivative_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation,
+            const progpu::native::tests::shader_derivative_frame_case& test,
+            progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            auto* selected = reference ? derivative_reference_engine : engine;
+            const progpu_native_scene_presentation presentation{
+                sizeof(presentation), test.viewport_x, 0U, 64U - test.viewport_x, 64U, test.dpi, test.dpi, 0U};
+            auto pixels = render_scene(gpu, selected, nullptr, 1U, 3U, 1U,
+                stream, 0x9495U, generation, &metrics, test.dpi, test.mapped ? &presentation : nullptr, test.expected);
+            if (test.expected == PROGPU_NATIVE_STATUS_SUCCESS)
+                require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                    "derivative layer metrics unavailable");
+            return pixels;
+        }, require);
+    progpu_native_engine_destroy(derivative_reference_engine);
+    phase("original shader UV derivative registers passed");
     auto* glyph_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_semantic_glyph_sharing(
         [&](bool reference, const auto& stream, std::uint64_t generation,

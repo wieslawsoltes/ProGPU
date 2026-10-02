@@ -21600,9 +21600,10 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
         0x03000005U, 0x800F0800U, 0x80E40000U, 0xA0E40000U, 0x0000FFFFU};
     const auto append_effect = [](std::vector<std::byte>& batch,
         float red = 0.25F, std::uint32_t sampler_mode = 2U,
-        double padding = 0.0, std::uint32_t brush = 7U) {
+        double padding = 0.0, std::uint32_t brush = 7U,
+        std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX) {
         append_command(batch, command::shader_effect, 5U,
-            padding, 0.0, 0.0, 0.0, 6U, 0xFFFFFFFFU,
+            padding, 0.0, 0.0, 0.0, 6U, derivative_register,
             std::array<std::uint32_t, 8U>{2U, 16U, 0U, 0U, 0U, 0U, 8U, 4U},
             std::uint16_t{0U}, std::array{red, 0.5F, 0.75F, 1.0F},
             0U, sampler_mode, brush);
@@ -21732,6 +21733,36 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
     request.generation = request.request_serial = 2U;
     const auto after = compile();
     PROGPU_REQUIRE(after != before);
+    const auto derivative_metadata = [](const std::vector<std::byte>& stream) {
+        const auto info = read_value<progpu_native_scene_header>(stream, 0U);
+        progpu_native_scene_shader_effect_derivatives result{};
+        for (std::uint32_t i = 0U; i < info.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(stream,
+                info.resource_offset + i * info.resource_stride);
+            if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT &&
+                resource.payload_size == sizeof(result))
+                result = read_value<progpu_native_scene_shader_effect_derivatives>(stream, resource.payload_offset);
+        }
+        return result;
+    };
+    for (const auto index : {0U, 31U}) {
+        batch.clear(); append_effect(batch, 0.875F, 1U, 0.0, 7U, index);
+        PROGPU_REQUIRE(state.apply(batch) == status::success);
+        const auto source = compile();
+        const auto metadata = derivative_metadata(source);
+        PROGPU_REQUIRE(metadata.version == 3U && metadata.derivative_register == index &&
+            metadata.sampler_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX);
+        PROGPU_REQUIRE(metadata.program.constants[0] == 0.875F && metadata.program.constants[3] == 1.0F);
+        PROGPU_REQUIRE(metadata.program.constants[124] == 0.0F); // no source-side reciprocal patch
+        for (const auto invalid : {32U, 0xFFFFFFFEU}) {
+            const auto generation = state.resource_generation(5U);
+            batch.clear(); append_effect(batch, 0.875F, 1U, 0.0, 7U, invalid);
+            PROGPU_REQUIRE(state.apply(batch) == status::unsupported_command);
+            PROGPU_REQUIRE(state.resource_generation(5U) == generation && compile() == source);
+        }
+    }
+    batch.clear(); append_effect(batch, 0.875F, 1U);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
     request.flags = scene_build_request_flags::hit_test_index;
     std::span<const std::byte> rejected;
     PROGPU_REQUIRE(state.build_scene(request, rejected) != status::success);
@@ -21845,6 +21876,14 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
     image_brush(batch, 0.5, 10U);
     PROGPU_REQUIRE(state.apply(batch) == status::invalid_graph);
     PROGPU_REQUIRE(compile() == before_cycle);
+    batch.clear(); append_effect(batch, 0.875F, 1U, 0.0, 8U, 31U);
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    request.dpi_scale_x = request.dpi_scale_y = 1.5;
+    const auto image_derivatives = derivative_metadata(compile());
+    PROGPU_REQUIRE(image_derivatives.version == 3U && image_derivatives.derivative_register == 31U &&
+        image_derivatives.sampler_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
+        image_derivatives.program.constants[0] == 0.875F && image_derivatives.program.constants[124] == 0.0F);
+    request.dpi_scale_x = request.dpi_scale_y = 1.0;
     batch.clear(); image_brush(batch); append_effect(batch); // detach the sampled source
     PROGPU_REQUIRE(state.apply(batch) == status::success);
     batch.clear(); append_command(batch, command::channel_delete_resource, 8U, 80U);
