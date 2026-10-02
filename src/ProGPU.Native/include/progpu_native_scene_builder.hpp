@@ -353,6 +353,11 @@ public:
         std::span<const std::byte> bytecode,
         std::uint32_t& resource_index) noexcept;
 
+    bool add_shader_effect(
+        const progpu_native_scene_shader_effect_affine& effect,
+        std::span<const std::byte> bytecode,
+        std::uint32_t& resource_index) noexcept;
+
     // Optional source-owned local rectangle replaces input coverage for this
     // complete save/restore scope, including nested render-only content. The
     // selected owner and saved state's transform/clip own that rectangle; this

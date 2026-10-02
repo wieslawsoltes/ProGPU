@@ -46,7 +46,9 @@ inline progpu_native_mil_status build_shader_local_scene(progpu_native_mil_chann
     double extra_scale = 1.0, double extra_scale_y = 1.0,
     double clip_shift_x = 0.0, bool ancestor_clip = false,
     bool aliased = true, std::uint32_t target_width = 96U,
-    double parent_opacity = 1.0) {
+    double parent_opacity = 1.0,
+    const std::array<double,6U>* local_affine = nullptr,
+    const std::array<double,6U>* parent_affine = nullptr) {
     using mil::command;
     using mil_clip_fixture_detail::append;
     using mil_clip_fixture_detail::packet;
@@ -74,8 +76,10 @@ inline progpu_native_mil_status build_shader_local_scene(progpu_native_mil_chann
         test.history == shader_local_history::separately_narrowed ? separate : 1.0;
     const double child_scale = test.history == shader_local_history::nested ? .5 :
         test.history == shader_local_history::separately_narrowed ? separate : 1.0;
-    packet(batch, command::matrix_transform, 13U, parent_scale,0.0,0.0,parent_scale,0.0,0.0,0U);
-    packet(batch, command::matrix_transform, 14U, child_scale * extra_scale,0.0,0.0,child_scale * extra_scale_y,bounds_translation,0.0,0U);
+    if (parent_affine) packet(batch, command::matrix_transform,13U,*parent_affine,0U);
+    else packet(batch, command::matrix_transform, 13U, parent_scale,0.0,0.0,parent_scale,0.0,0.0,0U);
+    if (local_affine) packet(batch, command::matrix_transform,14U,*local_affine,0U);
+    else packet(batch, command::matrix_transform, 14U, child_scale * extra_scale,0.0,0.0,child_scale * extra_scale_y,bounds_translation,0.0,0U);
     packet(batch, command::visual_set_transform, 12U, 13U);
     packet(batch, command::visual_set_transform, 1U, 14U);
     packet(batch, command::visual_set_render_options, 1U, 3U,aliased ? 1U : 0U,0U,3U,0U,0U,0U);

@@ -17,6 +17,7 @@
 #include "progpu_native_rgb_glyph_mask_fixture.hpp"
 #include "progpu_native_shader_local_frame_fixture.hpp"
 #include "progpu_native_shader_final_sample_fixture.hpp"
+#include "progpu_native_shader_affine_fixture.hpp"
 #include "progpu_native_shader_source_mask_fixture.hpp"
 #include "progpu_native_shader_input_opacity_fixture.hpp"
 #include "progpu_native_shader_sampled_opacity_fixture.hpp"
@@ -2397,6 +2398,17 @@ int main(int argc, char** argv)
                 PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, 64U);
             require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
                 "final-sample effect metrics unavailable");
+            return pixels;
+        }, require);
+    progpu::native::tests::verify_shader_affine_frames(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            std::uint32_t submissions, progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            auto* selected = reference ? padding_reference_engine : engine;
+            auto pixels = render_scene(gpu, selected, nullptr, 0U, header.command_count, submissions,
+                stream, header.scene_id, header.generation, &metrics, 1.0F, nullptr,
+                PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, 64U);
+            require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "affine shader metrics unavailable");
             return pixels;
         }, require);
     progpu::native::tests::verify_shader_source_masks(

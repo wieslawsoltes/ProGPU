@@ -117,6 +117,7 @@ internal static partial class Program
             CaptureShaderPadding(directory, args[2], unavailableControl, timer);
             CaptureShaderLocalFrames(directory, args[2], unavailableControl, timer);
             CaptureShaderAxisDecomposition(directory, args[2], unavailableControl, timer);
+            CaptureShaderAffineMath(directory, args[2], timer);
             var receipt = new
             {
                 Schema = 1, SourceCommit = args[2], CaseCount = observations.Count, Cases = observations,

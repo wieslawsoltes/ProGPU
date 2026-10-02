@@ -20,6 +20,9 @@ inline float source_quotient(float numerator, float denominator) noexcept {
 struct axis_matrix final {
     float x{1.0F}, y{1.0F}, z{1.0F}, w{1.0F};
     float tx{}, ty{};
+    // Used only by the additive affine-frame arithmetic. Legacy axis helpers
+    // and their exact operation order remain independent.
+    float xy{}, yx{};
 };
 
 inline bool finite_axis_matrix(const axis_matrix& matrix) noexcept {
@@ -82,6 +85,7 @@ struct sample_frame final {
     axis_matrix unit_to_device;
     axis_matrix device_to_unit;
     sample_lattice output;
+    bool affine{};
 };
 
 struct sample_projection final {

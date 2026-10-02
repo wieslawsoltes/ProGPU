@@ -1145,4 +1145,31 @@ internal static unsafe partial class NativeMethods
         internal SceneShaderSampleFrame Frame;
         internal SceneShaderEffect Program;
     }
+
+    // Native source: progpu_native_scene_shader_affine_frame.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct SceneShaderAffineFrame
+    {
+        internal SceneShaderSampleFrame Placement;
+        internal float SourceM12;
+        internal float SourceM21;
+        internal float QuadM12;
+        internal float QuadM21;
+    }
+
+    // Native source: progpu_native_scene_shader_effect_affine.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct SceneShaderEffectAffine
+    {
+        internal uint StructSize;
+        internal uint Version;
+        internal uint InputResourceIndex;
+        internal uint SamplerResourceIndex;
+        internal uint DerivativeRegister;
+        internal uint Flags;
+        internal uint Reserved0;
+        internal uint Reserved1;
+        internal SceneShaderAffineFrame Frame;
+        internal SceneShaderEffect Program;
+    }
 }

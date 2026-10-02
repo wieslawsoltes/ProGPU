@@ -442,6 +442,19 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the retained final-device WPF bytecode effect template"
     VERBATIM)
+set(generated_wpf_bytecode_affine_effect_shader
+    "${generated_directory}/WpfBytecodeAffineEffectWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_wpf_bytecode_affine_effect_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl"
+        "-DOUTPUT=${generated_wpf_bytecode_affine_effect_shader}"
+        "-DSYMBOL=wpf_bytecode_affine_effect_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the retained affine WPF bytecode effect template"
+    VERBATIM)
 set(generated_texture_gaussian_blur_shader
     "${generated_directory}/TextureGaussianBlurWgsl.generated.hpp")
 add_custom_command(
@@ -681,6 +694,7 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_image_effect_shader}"
         "${generated_wpf_bytecode_effect_shader}"
         "${generated_wpf_bytecode_sample_effect_shader}"
+        "${generated_wpf_bytecode_affine_effect_shader}"
         "${generated_texture_gaussian_blur_shader}"
         "${generated_texture_gaussian_blur_unfilterable_shader}"
         "${generated_clip_compose_shader}"
@@ -770,6 +784,7 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_shader_effect_resource.hpp
     src/Scene/progpu_native_shader_capture_frame.hpp
     src/Scene/progpu_native_shader_sample_frame.hpp
+    src/Scene/progpu_native_shader_affine_frame.hpp
     src/Scene/progpu_native_shader_effect_uniforms.hpp
     src/Scene/progpu_native_semantic_image_blur_resources.cpp
     src/Scene/progpu_native_semantic_image_resources.hpp
