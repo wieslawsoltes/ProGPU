@@ -58,8 +58,9 @@ rejection, immutable bitmap revisions, external-source replacement and guarded
 dependency deletion. Captured bytes remain valid after source disposal.
 
 A shared fixture is wired into both native provider GPU suites. It constructs
-the original source packets and uploaded red/green or blue/green bitmap, then
-disposes the channel before rendering. Four cases cover brush opacity, repeated
+the original source packets and uploaded red/green or blue/green bitmap in one
+live channel, checks that its bitmap and brush generations advance, and retains
+all four immutable scenes before disposing the channel and rendering. Four cases cover brush opacity, repeated
 addressing, an actual brush translation, original shader sampling, final source
 clip and physical normalization. Every RGBA byte is checked independently over
 cold/warm/independent-engine replay, with two cold submissions (sampler capture
@@ -91,3 +92,19 @@ the published shader snapshot `e4aec5ab9f79697020e1921eb675a86f6992a86c`.
 The picture owner field, private capture resource scope and both independent
 pixel fixtures coexist. Dawn retains exact BGRA-to-RGBA readback ordering.
 No assertion, submission expectation or application gate is removed by the merge.
+
+## Hosted sampler revision correction
+
+Build `36993769399`, Linux ARM64 job `110795695545`, passed the first three
+sampler cases but reported red instead of blue at `(24,12)` in the fourth.
+The fixture had recreated a channel for each case while reusing one scene owner:
+the new bitmap had the old channel-local handle/generation, so the normalized
+tile cache correctly retained that declared source revision. Increasing only
+the frame generation does not change a MIL resource revision.
+
+The fixture now updates the original channel and verifies its real bitmap and
+brush revision advances. It still disposes that channel before any GPU replay,
+retains every exact RGBA and cold/warm/independent submission/pass assertion,
+and does not invalidate product caches or substitute a different scene owner.
+The corrected GPU results remain pending hosted CI; this is not pixel or source
+application qualification.

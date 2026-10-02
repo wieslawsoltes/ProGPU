@@ -4381,12 +4381,12 @@ progpu_native_status render_scene(
                 if (sampler_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
                     const auto sampler = read_resource(sampler_index);
                     progpu_native_scene_picture_image picture{};
-                    progpu_native_scene_presentation presentation{};
+                    progpu_native_scene_presentation sampler_presentation{};
                     progpu_native_scene_frame_metrics child_metrics{};
                     semantic_image_draw capture{};
                     const bool captured = semantic::read_semantic_picture_image(bytes + sampler.payload_offset,
-                        sampler.payload_size, picture, presentation) && create_semantic_picture_image(
-                            *engine, picture, presentation, bytes + sampler.auxiliary_offset,
+                        sampler.payload_size, picture, sampler_presentation) && create_semantic_picture_image(
+                            *engine, picture, sampler_presentation, bytes + sampler.auxiliary_offset,
                             sampler.auxiliary_size, capture, child_metrics);
                     sampler_picture = std::move(capture.picture_backing);
                     if (capture.view != nullptr) wgpuTextureViewRelease(capture.view);
