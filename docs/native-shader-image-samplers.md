@@ -108,3 +108,9 @@ retains every exact RGBA and cold/warm/independent submission/pass assertion,
 and does not invalidate product caches or substitute a different scene owner.
 The corrected GPU results remain pending hosted CI; this is not pixel or source
 application qualification.
+
+The later actual-visual-field inheritance correction and additive reference
+controls are recorded in [sampler render options](native-shader-sampler-render-options.md).
+Attached options on a bare DrawingVisual are not equivalent to emitted native
+MIL render options; no default or incoming-only filtering change follows from
+that reference distinction.

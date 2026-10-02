@@ -20943,7 +20943,8 @@ struct channel::implementation {
     static void apply_visual_render_options(
         const visual_state& visual, render_scope_state& current) noexcept {
         if ((visual.render_options_flags &
-                render_option_bitmap_scaling) != 0U) {
+                render_option_bitmap_scaling) != 0U &&
+            visual.bitmap_scaling_mode != 0U) {
             current.image_sampling =
                 visual.bitmap_scaling_mode == 3U
                 ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST

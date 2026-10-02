@@ -3486,9 +3486,13 @@ int main(int argc, char** argv) {
             progpu_native_scene_frame_metrics* observed_frame = nullptr, float dpi = 1.0F,
             const progpu_native_scene_presentation* presentation = nullptr,
             progpu_native_status expected_status = PROGPU_NATIVE_STATUS_SUCCESS,
-            bool expect_picture_rejection = false) {
+            bool expect_picture_rejection = false,
+            std::uint32_t target_extent = 64U) {
+            require(target_extent == 64U || target_extent == 128U,
+                "retained Dawn fixture target extent is unsupported");
+            const auto target_row_bytes = target_extent * 4U;
             auto* picture_engine = picture_engines[reference ? 1U : 0U];
-            auto* picture_canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);
+            auto* picture_canvas = api.create_canvas(provider, &canvas_configuration, target_extent, target_extent);
             require(picture_canvas != nullptr, "axis picture canvas creation failed");
             std::uintptr_t handle{};
             require(api.acquire(provider, picture_canvas, &handle) == WEBSCENE_GPU_STATUS_SUCCESS && handle != 0U,
@@ -3505,7 +3509,7 @@ int main(int argc, char** argv) {
                 "axis picture Dawn snapshot failed");
             progpu_native_scene_frame frame{};
             frame.struct_size = sizeof(frame);
-            frame.width = frame.height = 64U;
+            frame.width = frame.height = target_extent;
             frame.dpi_scale = dpi;
             frame.target_view = reinterpret_cast<std::uintptr_t>(picture_view);
             frame.clear_color = {0, 0, 0, 1};
@@ -3559,14 +3563,15 @@ int main(int argc, char** argv) {
                 kIOReturnSuccess, "axis picture IOSurface lock failed");
             const auto* data = static_cast<const std::uint8_t*>(IOSurfaceGetBaseAddress(surface));
             const auto stride = IOSurfaceGetBytesPerRow(surface);
-            require(data != nullptr && IOSurfaceGetWidth(surface) == 64U &&
-                IOSurfaceGetHeight(surface) == 64U && stride >= 256U, "axis picture IOSurface storage is invalid");
+            require(data != nullptr && IOSurfaceGetWidth(surface) == target_extent &&
+                IOSurfaceGetHeight(surface) == target_extent && stride >= target_row_bytes,
+                "axis picture IOSurface storage is invalid");
             // The configured surface is explicitly BGRA8; normalize this
             // readback to the shared fixture's RGBA byte order, without color
             // conversion or changing the actual premultiplied values.
-            std::vector<std::uint8_t> pixels(64U * 256U);
-            for (std::size_t row = 0U; row < 64U; ++row)
-                std::memcpy(pixels.data() + row * 256U, data + row * stride, 256U);
+            std::vector<std::uint8_t> pixels(target_extent * target_row_bytes);
+            for (std::size_t row = 0U; row < target_extent; ++row)
+                std::memcpy(pixels.data() + row * target_row_bytes, data + row * stride, target_row_bytes);
             for (std::size_t i = 0U; i < pixels.size(); i += 4U)
                 std::swap(pixels[i], pixels[i + 2U]);
             require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) == kIOReturnSuccess,
@@ -3590,8 +3595,10 @@ int main(int argc, char** argv) {
         }, require);
     progpu::native::tests::verify_original_shader_sampler_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions,
-            std::uint32_t commands, progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {
-            return render_retained_scene(reference, stream, generation, submissions, 0x9494U, 1U, commands, &layers, &frame);
+            std::uint32_t commands, std::uint32_t target_extent,
+            progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {
+            return render_retained_scene(reference, stream, generation, submissions, 0x9494U, 1U, commands,
+                &layers, &frame, 1.0F, nullptr, PROGPU_NATIVE_STATUS_SUCCESS, false, target_extent);
         }, require);
     progpu::native::tests::verify_original_shader_derivative_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation,
