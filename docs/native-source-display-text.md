@@ -25,6 +25,14 @@ metric borrow. The original raster DPI projection is checked exactly, never roun
 The four managed schema/gate controls are authored but have not been executed
 against a freshly built native producer. No WPF capability is advertised here.
 
+Postcommit checks for this transport batch: strict C++20 syntax-only checks passed
+for the full shaping adapter, source-run helper and both new fixtures; the C
+transport fixture was also parsed with hinting enabled. The generated source
+contract verifier, shell syntax and six-file C# syntax parsing passed. These checks
+did not link or execute native code, compile the managed dependency graph, stage a
+runtime or establish font/render/source qualification. Line-scoped double source
+queries are still needed by the WPF bridge at wrap-boundary duplicate carets.
+
 The application target is unchanged AvalonDock theme startup: menus, tab headers
 and title bars set `TextFormattingMode.Display`, reaching LibreWPF's explicit
 `PortableTextLine.CreateCore` rejection tracked in LibreWPF #184. This work is
