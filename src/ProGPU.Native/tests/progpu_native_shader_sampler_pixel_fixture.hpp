@@ -120,6 +120,8 @@ void diagnose_original_shader_sampler_capture(const std::vector<std::byte>& scen
     std::uint32_t variant, std::uint32_t failed_x, std::uint32_t failed_y,
     const std::array<std::uint8_t, 4U>& expected,
     const std::vector<std::uint8_t>& effected, Diagnose diagnose, Require require) {
+    require(effected.size() == 64U * 64U * 4U && failed_x < 64U && failed_y < 64U,
+        "sampler diagnostic final image is outside the original frame");
     const auto read = [&scene, &require]<class T>(std::size_t offset, T& value) {
         require(offset <= scene.size() && sizeof(T) <= scene.size() - offset,
             "sampler diagnostic record is outside the original scene");
@@ -167,14 +169,23 @@ void diagnose_original_shader_sampler_capture(const std::vector<std::byte>& scen
         const auto direct = diagnose(nested, header, picture);
         require(direct[0] == direct[1] && direct[0].size() == picture.width * picture.height * 4U,
             "sampler direct diagnostic cold/warm pixels differ");
-        const auto* failed_direct = direct[0].data() +
-            ((failed_y - 10U) * picture.width + failed_x - 8U) * 4U;
         const auto* failed_effect = effected.data() + (failed_y * 64U + failed_x) * 4U;
-        std::fprintf(stderr,
-            "Sampler direct failing pixel=(%u,%u) capture=(%u,%u,%u,%u) effect=(%u,%u,%u,%u) expected=(%u,%u,%u,%u)\n",
-            failed_x, failed_y, failed_direct[0], failed_direct[1], failed_direct[2], failed_direct[3],
-            failed_effect[0], failed_effect[1], failed_effect[2], failed_effect[3],
-            expected[0], expected[1], expected[2], expected[3]);
+        if (failed_x >= 8U && failed_x < 40U && failed_y >= 10U && failed_y < 34U) {
+            const auto* failed_direct = direct[0].data() +
+                ((failed_y - 10U) * picture.width + failed_x - 8U) * 4U;
+            std::fprintf(stderr,
+                "Sampler direct failing pixel=(%u,%u) capture=(%u,%u,%u,%u) effect=(%u,%u,%u,%u) expected=(%u,%u,%u,%u)\n",
+                failed_x, failed_y, failed_direct[0], failed_direct[1], failed_direct[2], failed_direct[3],
+                failed_effect[0], failed_effect[1], failed_effect[2], failed_effect[3],
+                expected[0], expected[1], expected[2], expected[3]);
+        } else {
+            // A leaked pixel may be the original failure. It has no sample in
+            // the receiving visual's capture; never underflow that local map.
+            std::fprintf(stderr,
+                "Sampler direct failing pixel=(%u,%u) is outside capture frame; effect=(%u,%u,%u,%u) expected=(%u,%u,%u,%u)\n",
+                failed_x, failed_y, failed_effect[0], failed_effect[1], failed_effect[2], failed_effect[3],
+                expected[0], expected[1], expected[2], expected[3]);
+        }
         bool different = false;
         for (std::uint32_t y = 12U; y < 28U && !different; ++y)
             for (std::uint32_t x = 16U; x < 32U && !different; ++x) {

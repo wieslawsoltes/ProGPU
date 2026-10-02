@@ -122,3 +122,20 @@ first RGB difference within the original clip, and report actual sampler flags.
 This is diagnosis, not a rendering fix or qualification: native-sampler defaults,
 explicit/required-native sampling policy, pixel expectations and tolerances are
 unchanged. Hosted capture-pass evidence remains required before a policy change.
+
+An ideal rational interpolation followed by nearest UNORM conversion is not a
+portable promise of the ordinary hardware sampler. The Vulkan specifications
+separately define [fixed-point conversion](https://docs.vulkan.org/spec/latest/chapters/fundamentals.html#fundamentals-fpfixedconv)
+and [texel-coordinate precision](https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-unnormalized-to-integer).
+The [D3D11.3 functional specification](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm)
+sections 7.18.16 and 3.2.3.6 distinguish filtering precision from final format
+conversion. These allowances are not proof of the pass responsible for either
+observed mismatch. No device-output lookup, tolerance, software-reference
+quantization substitution or automatic explicit-sampling policy is introduced.
+
+Post-commit strict Clang C++20 syntax passes for the actual MIL fixture and the
+fully instantiated shared twenty-case provider fixture, including its diagnostic
+callback. Provider test translation-unit compilation and actual GPU execution
+remain hosted checks. The failure mapper validates the complete final image and
+does not index the capture for leaked pixels outside its receiving frame; such
+pixels still reach the unchanged original fatal assertion.
