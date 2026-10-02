@@ -8277,7 +8277,8 @@ private:
 
     [[nodiscard]] bool set_gradient_coordinate_transform(
         brush* source,
-        progpu_native_scene_brush& destination) noexcept
+        progpu_native_scene_brush& destination,
+        bool analytic_local_coordinates) noexcept
     {
         matrix_3x2_f brush_transform{};
         source->GetTransform(&brush_transform);
@@ -8289,8 +8290,12 @@ private:
             latch(com::invalid_argument);
             return false;
         }
-        const matrix_3x2_f coordinate =
-            compose_transform(inverse_draw, inverse_brush);
+        // Analytic rectangles/ellipses retain original center + local SDF
+        // coordinates even when their vertices carry the draw transform.
+        // Paths/geometry instead supply target coordinates. Keep the existing
+        // transform validity gate in both cases; remove no native admission.
+        const matrix_3x2_f coordinate = analytic_local_coordinates
+            ? inverse_brush : compose_transform(inverse_draw, inverse_brush);
         if (!core::valid_transform(&coordinate)) {
             latch(com::invalid_argument);
             return false;
@@ -8308,7 +8313,8 @@ private:
         brush* source,
         gradient_stop_collection* collection,
         progpu_native_scene_brush& native,
-        std::vector<progpu_native_scene_gradient_stop>& native_stops) noexcept
+        std::vector<progpu_native_scene_gradient_stop>& native_stops,
+        bool analytic_local_coordinates = false) noexcept
     {
         if (collection == nullptr) {
             latch(com::invalid_argument);
@@ -8393,7 +8399,7 @@ private:
                     native.offsets1[index - 4U] = native_stops[index].offset;
                 }
             }
-            if (!set_gradient_coordinate_transform(source, native)) {
+            if (!set_gradient_coordinate_transform(source, native, analytic_local_coordinates)) {
                 return false;
             }
             return true;
@@ -8410,11 +8416,12 @@ private:
         brush* source,
         gradient_stop_collection* collection,
         progpu_native_scene_brush& native,
-        std::uint32_t& brush_index) noexcept
+        std::uint32_t& brush_index,
+        bool analytic_local_coordinates) noexcept
     {
         std::vector<progpu_native_scene_gradient_stop> native_stops;
         if (!translate_gradient_brush(
-                source, collection, native, native_stops)) {
+                source, collection, native, native_stops, analytic_local_coordinates)) {
             return false;
         }
         if (!builder_.add_brush(native, native_stops, brush_index)) {
@@ -8426,7 +8433,8 @@ private:
 
     [[nodiscard]] bool add_brush(
         brush* brush_value,
-        std::uint32_t& brush_index) noexcept
+        std::uint32_t& brush_index,
+        bool analytic_local_coordinates = false) noexcept
     {
         if (brush_value == nullptr) {
             latch(com::invalid_argument);
@@ -8466,7 +8474,7 @@ private:
             native.start_point = {start.x, start.y};
             native.end_point = {end.x, end.y};
             return add_gradient_brush(
-                linear.get(), collection.get(), native, brush_index);
+                linear.get(), collection.get(), native, brush_index, analytic_local_coordinates);
         }
 
         radial_gradient_brush* raw_radial = nullptr;
@@ -8503,7 +8511,7 @@ private:
             native.radius = radius_x;
             native.radius_y = radius_y;
             return add_gradient_brush(
-                radial.get(), collection.get(), native, brush_index);
+                radial.get(), collection.get(), native, brush_index, analytic_local_coordinates);
         }
 
         solid_color_brush* raw_solid = nullptr;
@@ -8655,7 +8663,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
@@ -8833,7 +8841,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
@@ -8934,7 +8942,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);

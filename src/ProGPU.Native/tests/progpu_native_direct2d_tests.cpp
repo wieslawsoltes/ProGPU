@@ -238,7 +238,8 @@ void gradient_stop_order_regressions(ID2D1DeviceContext* source_context)
     require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
         "gradient order context creation");
     for (const bool streamed : {false, true}) for (const bool radial : {false, true})
-    for (const bool clamp : {false, true}) {
+    for (const bool clamp : {false, true})
+    for (unsigned coordinate_case = 0U; coordinate_case <= fixture::gradient_coordinate_cases.size(); ++coordinate_case) {
         std::array<D2D1_GRADIENT_STOP, 6U> stops{};
         for (std::size_t i = 0; i < stops.size(); ++i) {
             const auto& source = fixture::unordered_gradient_stops[i];
@@ -268,6 +269,13 @@ void gradient_stop_order_regressions(ID2D1DeviceContext* source_context)
                 linear_brush.GetAddressOf()) == S_OK, "gradient order linear source");
             brush = linear_brush.Get();
         }
+        D2D1_MATRIX_3X2_F draw_transform{1, 0, 0, 1, 0, 0};
+        if (coordinate_case != 0U) {
+            const D2D1_MATRIX_3X2_F brush_transform{1, 0, 0, 1, 4, 0};
+            brush->SetTransform(&brush_transform);
+            const auto& input = fixture::gradient_coordinate_cases[coordinate_case - 1U].draw;
+            draw_transform = {input.m11, input.m12, input.m21, input.m22, input.m31, input.m32};
+        }
         progpu_native_direct2d_scene_recorder* recorder{};
         int32_t hr = E_FAIL;
         require(progpu_native_direct2d_scene_recorder_create(7103U, 1U, nullptr, &recorder, &hr) ==
@@ -281,12 +289,22 @@ void gradient_stop_order_regressions(ID2D1DeviceContext* source_context)
         const D2D1_RECT_F rectangle{0, 0, 32, 32};
         if (streamed) {
             require(context->CreateCommandList(list.GetAddressOf()) == S_OK, "gradient order command list");
-            context->SetTarget(list.Get()); context->BeginDraw(); context->FillRectangle(&rectangle, brush);
+            context->SetTarget(list.Get()); context->BeginDraw(); context->SetTransform(draw_transform);
+            context->FillRectangle(&rectangle, brush);
+            if (coordinate_case != 0U) {
+                context->DrawLine({0, 0}, {32, 32}, brush, 2, nullptr);
+                context->FillRectangle(&rectangle, brush);
+            }
             require(context->EndDraw() == S_OK && list->Close() == S_OK, "gradient order source recording");
             context->SetTarget(nullptr);
             require(list->Stream(sink.Get()) == S_OK, "gradient order actual command stream");
-        } else require(sink->BeginDraw() == S_OK && sink->FillRectangle(&rectangle, brush) == S_OK &&
-            sink->EndDraw() == S_OK, "gradient order direct callback translation");
+        } else {
+            require(sink->BeginDraw() == S_OK && sink->SetTransform(&draw_transform) == S_OK &&
+                sink->FillRectangle(&rectangle, brush) == S_OK, "gradient order direct callback translation");
+            if (coordinate_case != 0U) require(sink->DrawLine({0, 0}, {32, 32}, brush, 2, nullptr) == S_OK &&
+                sink->FillRectangle(&rectangle, brush) == S_OK, "gradient mixed-frame direct callbacks");
+            require(sink->EndDraw() == S_OK, "gradient order direct callback completion");
+        }
         collection->GetGradientStops1(returned.data(), static_cast<UINT32>(returned.size()));
         require(std::memcmp(stops.data(), returned.data(), sizeof(stops)) == 0,
             "command translation modified original source collection");
@@ -294,13 +312,20 @@ void gradient_stop_order_regressions(ID2D1DeviceContext* source_context)
         progpu_native_direct2d_scene_stream_result result{};
         result.struct_size = sizeof(result);
         require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
-            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER && result.translated_draw_count == 1U,
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER && result.translated_draw_count == (coordinate_case == 0U ? 1U : 3U),
             "gradient order stream measurement");
         std::vector<std::uint8_t> bytes(static_cast<std::size_t>(result.required_bytes));
         require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
-            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::gradient_stop_snapshot(std::as_bytes(std::span(bytes)),
-                clamp ? PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL : PROGPU_NATIVE_SCENE_GRADIENT_REFLECT),
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "gradient order snapshot publication");
+        if (coordinate_case == 0U) require(fixture::gradient_stop_snapshot(std::as_bytes(std::span(bytes)),
+            clamp ? PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL : PROGPU_NATIVE_SCENE_GRADIENT_REFLECT),
             "GetGradientStops1 canonical stable snapshot/ownership");
+        else {
+            const std::array<bool, 3U> local_coordinates{true, false, true};
+            require(fixture::gradient_coordinate_snapshot(std::as_bytes(std::span(bytes)), local_coordinates,
+                fixture::gradient_coordinate_cases[coordinate_case - 1U], true),
+                "original brush cache mixed local/target coordinate identity");
+        }
         sink.Reset(); progpu_native_direct2d_scene_recorder_destroy(recorder);
     }
 }

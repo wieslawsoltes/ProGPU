@@ -6821,6 +6821,7 @@ private:
         float opacity = 0.0F;
         uint32_t type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
         uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        bool analytic_local_coordinates = false;
     };
 
     struct command_scene_stroke_style {
@@ -6869,6 +6870,7 @@ private:
         return left.identity.Get() == right.identity.Get() &&
             left.gradient_collection_identity.Get() == right.gradient_collection_identity.Get() &&
             left.type == right.type && left.opacity == right.opacity &&
+            left.analytic_local_coordinates == right.analytic_local_coordinates &&
             same_transform(left.draw_transform, right.draw_transform) &&
             same_transform(left.brush_transform, right.brush_transform) &&
             left.color.r == right.color.r && left.color.g == right.color.g &&
@@ -7158,7 +7160,8 @@ private:
 
     bool try_set_gradient_coordinate_transform(
         ID2D1Brush* source,
-        progpu_native_scene_brush& destination) const noexcept
+        progpu_native_scene_brush& destination,
+        bool analytic_local_coordinates) const noexcept
     {
         D2D1_MATRIX_3X2_F brush_transform{};
         source->GetTransform(&brush_transform);
@@ -7171,8 +7174,10 @@ private:
             !try_invert_transform(brush_transform, inverse_brush)) {
             return false;
         }
-        const D2D1_MATRIX_3X2_F coordinate =
-            compose_transform(inverse_draw, inverse_brush);
+        // The analytic rectangle evaluator consumes its original local
+        // center/SDF frame, unlike the target-coordinate path evaluator.
+        const D2D1_MATRIX_3X2_F coordinate = analytic_local_coordinates
+            ? inverse_brush : compose_transform(inverse_draw, inverse_brush);
         if (!finite_transform(coordinate)) {
             return false;
         }
@@ -7209,7 +7214,8 @@ private:
         ID2D1Brush* source,
         ID2D1GradientStopCollection* source_collection,
         progpu_native_scene_brush& brush,
-        std::vector<progpu_native_scene_gradient_stop>& native_stops) noexcept
+        std::vector<progpu_native_scene_gradient_stop>& native_stops,
+        bool analytic_local_coordinates = false) noexcept
     {
         if (source_collection == nullptr) {
             return fail_invalid_value();
@@ -7269,7 +7275,7 @@ private:
                     !uniform_alpha)) {
                 return fail_unsupported_state();
             }
-            if (!try_set_gradient_coordinate_transform(source, brush)) {
+            if (!try_set_gradient_coordinate_transform(source, brush, analytic_local_coordinates)) {
                 return fail_unsupported_state();
             }
             brush.stop_count = stop_count;
@@ -7300,14 +7306,16 @@ private:
         ID2D1Brush* source,
         ID2D1GradientStopCollection* source_collection,
         progpu_native_scene_brush& brush,
-        uint32_t& brush_index) noexcept
+        uint32_t& brush_index,
+        bool analytic_local_coordinates) noexcept
     {
         std::vector<progpu_native_scene_gradient_stop> native_stops;
         const HRESULT hr = translate_gradient_brush(
             source,
             source_collection,
             brush,
-            native_stops);
+            native_stops,
+            analytic_local_coordinates);
         if (FAILED(hr)) {
             return hr;
         }
@@ -7320,7 +7328,8 @@ private:
 
     HRESULT add_linear_gradient_brush(
         ID2D1LinearGradientBrush* source,
-        uint32_t& brush_index) noexcept
+        uint32_t& brush_index,
+        bool analytic_local_coordinates) noexcept
     {
         const D2D1_POINT_2F start = source->GetStartPoint();
         const D2D1_POINT_2F end = source->GetEndPoint();
@@ -7337,12 +7346,13 @@ private:
         brush.start_point = {start.x, start.y};
         brush.end_point = {end.x, end.y};
         return add_gradient_brush(
-            source, collection.Get(), brush, brush_index);
+            source, collection.Get(), brush, brush_index, analytic_local_coordinates);
     }
 
     HRESULT add_radial_gradient_brush(
         ID2D1RadialGradientBrush* source,
-        uint32_t& brush_index) noexcept
+        uint32_t& brush_index,
+        bool analytic_local_coordinates) noexcept
     {
         const D2D1_POINT_2F center = source->GetCenter();
         const D2D1_POINT_2F offset = source->GetGradientOriginOffset();
@@ -7369,12 +7379,13 @@ private:
         brush.radius = radius_x;
         brush.radius_y = radius_y;
         return add_gradient_brush(
-            source, collection.Get(), brush, brush_index);
+            source, collection.Get(), brush, brush_index, analytic_local_coordinates);
     }
 
     HRESULT add_brush(
         ID2D1Brush* brush,
-        uint32_t& brush_index) noexcept
+        uint32_t& brush_index,
+        bool analytic_local_coordinates = false) noexcept
     {
         brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (brush == nullptr) {
@@ -7414,6 +7425,7 @@ private:
             return fail_unsupported_resource();
         }
         if (!solid) {
+            snapshot.analytic_local_coordinates = analytic_local_coordinates;
             brush->GetTransform(&snapshot.brush_transform);
             if (!collection || FAILED(collection->QueryInterface(
                     IID_PPV_ARGS(&snapshot.gradient_collection_identity)))) {
@@ -7431,9 +7443,9 @@ private:
         if (solid) {
             result = add_solid_brush(solid.Get(), brush_index);
         } else if (linear) {
-            result = add_linear_gradient_brush(linear.Get(), brush_index);
+            result = add_linear_gradient_brush(linear.Get(), brush_index, analytic_local_coordinates);
         } else {
-            result = add_radial_gradient_brush(radial.Get(), brush_index);
+            result = add_radial_gradient_brush(radial.Get(), brush_index, analytic_local_coordinates);
         }
         if (FAILED(result)) {
             return result;
@@ -7482,7 +7494,7 @@ private:
         float stroke_width) noexcept
     {
         uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        HRESULT hr = add_brush(brush, brush_index);
+        HRESULT hr = add_brush(brush, brush_index, true);
         if (FAILED(hr)) {
             return hr;
         }

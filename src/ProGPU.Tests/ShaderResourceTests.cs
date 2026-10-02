@@ -15,6 +15,26 @@ namespace ProGPU.Tests;
 public class ShaderResourceTests
 {
     [Fact]
+    public void RegisteredGradientConsumersIncludeUnitIntervalPad()
+    {
+        string common = ShaderResource.Load(typeof(Shaders), "RegisteredMaterialCommon.wgsl");
+        Assert.Contains("if (spreadMethod == 4u)", common, StringComparison.Ordinal);
+        Assert.Contains("return clamp(t, 0.0, 1.0);", common, StringComparison.Ordinal);
+        foreach (string shader in new[] { Shaders.VectorShader, Shaders.HintedGlyphPaintShader })
+        {
+            Assert.Contains(common, shader, StringComparison.Ordinal);
+            Assert.Single(Regex.Matches(shader, "fn apply_gradient_spread\\("));
+        }
+
+        string cmake = File.ReadAllText(Path.Combine(FindRepositoryRoot().FullName,
+            "src", "ProGPU.Native", "CMakeLists.txt"));
+        Assert.Contains("-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl",
+            cmake, StringComparison.Ordinal);
+        Assert.Contains("-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl",
+            cmake, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TextureAndNativeMaskCompositionShareSampledMaskContract()
     {
         string common = ShaderResource.Load(typeof(Shaders), "SampledMaskCommon.wgsl");

@@ -78,3 +78,40 @@ excluded identities and `git diff --check` passed. No native object/library,
 provider, shader pipeline or GPU work was built or executed. The eight original
 Windows direct/streamed linear/radial clamp/mirror cases explicitly require the
 new/unchanged serialized mode as well as every original stop.
+
+## Hosted failure diagnosis and correction
+
+Build 37039004155 at `5de5fa787` reported the same first mismatch in the
+Linux ARM and GCC lanes: radial variant 1, original unordered input, pixel
+(29,16), expected RGBA (255,0,0,255), observed (0,0,255,255). The analytic
+rectangle carries its draw transform in positioned vertices but evaluates paint
+from original local center plus local SDF coordinates. Direct2D had also put
+inverse draw translation into that local brush snapshot, removing the fixture's
+two-pixel Y translation twice. The original horizontal linear case could not
+observe that Y error. This is a coordinate-contract defect, not a tolerance,
+duplicate sorting, opacity or gamma adjustment.
+
+Portable rectangle/ellipse/equal-radius rounded-rectangle gradients now explicitly
+use the analytic local frame (inverse brush only); paths, line geometry, unequal
+rounded-rectangle fallback and layer masks retain target-frame translation.
+Both draw and brush transforms still pass the original inverse/finite gate.
+The real Windows command sink uses the same analytic-rectangle distinction and
+includes it in immutable brush-cache identity, so a rectangle/line/rectangle
+sequence cannot reuse the wrong frame. No public brush/readback is changed.
+
+The authoritative `RegisteredMaterialCommon.wgsl` prefix, used by managed and
+both native Vector/hinted-material shaders, also now consumes mode4. The prior
+change reached Hatch/3D consumers but missed this shared 2D prefix. All four
+spread helpers and paired native-builder/native-validator/managed-validator paths
+are accounted for; legacy PAD and illegal mode/kind/flag gates remain unchanged.
+An embedded-resource/CMake guard checks that actual registered consumers retain
+this prefix. The existing [-1,1] absolute/legacy-PAD differential remains strict.
+
+Every original twelve-variant input and exact pixel assertion is retained. A
+thirteenth vertical linear case, also original-Windows paired, independently
+observes the draw-Y transform. New source controls inspect all three analytic
+families against line and unequal-radius path fallbacks under translation,
+nonuniform scale and shear. The eight original Windows collection observations
+remain, with 24 additional direct/streamed mixed-frame cache cases. These fixes
+and controls are committed before focused source checks. Hosted original
+Windows/provider execution, not this source diagnosis, remains the final judge.

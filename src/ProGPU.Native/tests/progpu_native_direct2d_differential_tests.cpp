@@ -948,7 +948,7 @@ std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     if (finite_layer) record_finite_affine_layer(target.get(), opacity_mask);
-    if (gradient_variant == 12) progpu::native::direct2d::tests::record_gradient_interval_pad(
+    if (gradient_variant == static_cast<int>(progpu::native::direct2d::tests::gradient_stop_variant_count)) progpu::native::direct2d::tests::record_gradient_interval_pad(
         reinterpret_cast<d2d::render_target*>(target.get()), require);
     else if (gradient_variant >= 0) progpu::native::direct2d::tests::record_gradient_stop_order(
         reinterpret_cast<d2d::render_target*>(target.get()), static_cast<unsigned>(gradient_variant), ordered, require);
@@ -1086,7 +1086,7 @@ int wmain(int argc, wchar_t** argv)
             affine_progpu[center + 3U] >= 158U && affine_progpu[center + 3U] <= 161U,
             "finite affine layer opacity or visible coverage is missing");
     }
-    for (unsigned variant = 0U; variant < 12U; ++variant) {
+    for (unsigned variant = 0U; variant < progpu::native::direct2d::tests::gradient_stop_variant_count; ++variant) {
         std::vector<std::uint8_t> unordered_original;
         for (const bool ordered : {false, true}) {
             const auto original = render_system_direct2d(false, false, static_cast<int>(variant), ordered);
@@ -1121,7 +1121,8 @@ int wmain(int argc, wchar_t** argv)
         }
     }
     {
-        const auto original = render_system_direct2d(false, false, 12);
+        const auto original = render_system_direct2d(false, false,
+            static_cast<int>(progpu::native::direct2d::tests::gradient_stop_variant_count));
         progpu::native::direct2d::tests::record_gradient_interval_pad(scene.target.get(), require);
         const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U);
         require(original.size() == width * height * 4U && actual == original,

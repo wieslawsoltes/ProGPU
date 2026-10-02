@@ -17,6 +17,7 @@ inline constexpr std::array<compat::gradient_stop, 6U> unordered_gradient_stops{
     {2, {0, 0, 1, 1}}, {0.5F, {1, 0, 0, 1}}, {-1, {1, 0, 0, 1}},
     {0.5F, {0, 0, 1, 1}}, {0, {1, 0, 0, 1}}, {1, {0, 0, 1, 1}}}};
 inline constexpr std::array<std::size_t, 6U> ordered_gradient_indices{2, 4, 1, 3, 5, 0};
+inline constexpr unsigned gradient_stop_variant_count = 13U;
 
 inline bool same_gradient_stop(const compat::gradient_stop& left, const compat::gradient_stop& right) {
     return left.position == right.position && left.color.red == right.color.red &&
@@ -27,12 +28,13 @@ inline bool same_gradient_stop(const compat::gradient_stop& left, const compat::
 template<class Require>
 void record_gradient_stop_order(compat::render_target* target, unsigned variant, bool ordered, Require require) {
     namespace d2d = compat;
-    require(variant < 12U, "gradient order variant");
+    require(variant < gradient_stop_variant_count, "gradient order variant");
     auto source = unordered_gradient_stops;
     if (ordered) for (std::size_t i = 0; i < source.size(); ++i)
         source[i] = unordered_gradient_stops[ordered_gradient_indices[i]];
     const auto original = source;
-    const auto gamma = variant < 6U ? d2d::gamma::gamma_2_2 : d2d::gamma::gamma_1_0;
+    const bool full_opacity_srgb = variant < 6U || variant == 12U;
+    const auto gamma = full_opacity_srgb ? d2d::gamma::gamma_2_2 : d2d::gamma::gamma_1_0;
     const auto spread = static_cast<d2d::extend_mode>((variant / 2U) % 3U);
     com::pointer<d2d::gradient_stop_collection> collection;
     require(target->CreateGradientStopCollection(source.data(), static_cast<std::uint32_t>(source.size()),
@@ -44,12 +46,14 @@ void record_gradient_stop_order(compat::render_target* target, unsigned variant,
         collection->GetColorInterpolationGamma() == gamma && collection->GetExtendMode() == spread &&
         std::equal(original.begin(), original.end(), returned.begin(), same_gradient_stop),
         "original collection readback/order/ownership changed");
-    const d2d::brush_properties properties{variant < 6U ? 1.0F : 0.5F, {1, 0, 0, 1, 4, 0}};
+    const d2d::brush_properties properties{full_opacity_srgb ? 1.0F : 0.5F, {1, 0, 0, 1, 4, 0}};
     com::pointer<d2d::linear_gradient_brush> linear;
     com::pointer<d2d::radial_gradient_brush> radial;
     d2d::brush* brush{};
     if ((variant & 1U) == 0U) {
-        const d2d::linear_gradient_brush_properties axis{{4, 0}, {20, 0}};
+        const d2d::linear_gradient_brush_properties axis = variant == 12U
+            ? d2d::linear_gradient_brush_properties{{0, 4}, {0, 20}}
+            : d2d::linear_gradient_brush_properties{{4, 0}, {20, 0}};
         require(target->CreateLinearGradientBrush(&axis, &properties, collection.get(), linear.put()) == com::ok,
             "unordered linear brush");
         brush = linear.get();
@@ -78,12 +82,13 @@ inline std::array<std::uint8_t, 4U> gradient_stop_expected(unsigned variant, uns
     if (x < 4U || x >= 60U || y < 4U || y >= 44U) return {0, 0, 0, 255};
     const double dx = x + 0.5 - 32.0, dy = y + 0.5 - 24.0;
     double t = (variant & 1U) == 0U ? (x + 0.5 - 8.0) / 16.0 : std::sqrt(dx * dx + dy * dy) / 16.0;
+    if (variant == 12U) t = (y + 0.5 - 6.0) / 16.0;
     switch ((variant / 2U) % 3U) {
     case 0U: t = std::clamp(t, 0.0, 1.0); break;
     case 1U: t -= std::floor(t); break;
     default: t = std::abs(t); t = std::fmod(t, 2.0); if (t > 1.0) t = 2.0 - t; break;
     }
-    const auto level = static_cast<std::uint8_t>(variant < 6U ? 255 : 128);
+    const auto level = static_cast<std::uint8_t>(variant < 6U || variant == 12U ? 255 : 128);
     return t < 0.5 ? std::array<std::uint8_t, 4U>{level, 0, 0, 255}
         : std::array<std::uint8_t, 4U>{0, 0, level, 255};
 }
@@ -135,6 +140,86 @@ inline bool gradient_stop_snapshot(std::span<const std::byte> bytes, std::uint32
             actual.reserved0 != 0U || actual.reserved1 != 0U || actual.reserved2 != 0U ||
             (i < 4U ? brush.offsets0[i] : brush.offsets1[i - 4U]) != actual.offset ||
             brush.colors[i].r != actual.color.r || brush.colors[i].b != actual.color.b) return false;
+    }
+    return true;
+}
+
+struct gradient_coordinate_case {
+    compat::matrix_3x2_f draw;
+    std::array<float, 4U> target_row0;
+    std::array<float, 4U> target_row1;
+};
+
+// Brush translation is always (4,0). These are independently written inverse
+// target-to-brush rows, not computed by the production composition helper.
+inline constexpr std::array<gradient_coordinate_case, 3U> gradient_coordinate_cases{{
+    {{1, 0, 0, 1, 0, 2}, {1, 0, -4, 0}, {0, 1, -2, 0}},
+    {{2, 0, 0, 4, 6, 8}, {0.5F, 0, -7, 0}, {0, 0.25F, -2, 0}},
+    {{1, 0, 1, 1, 0, 2}, {1, -1, -2, 0}, {0, 1, -2, 0}}}};
+
+inline bool gradient_coordinate_snapshot(std::span<const std::byte> bytes,
+    std::span<const bool> local_coordinates, const gradient_coordinate_case& test, bool require_reuse = false) {
+    progpu_native_scene_header header{};
+    if (!read_scene_value(bytes, 0U, header) || header.command_count != local_coordinates.size()) return false;
+    std::uint32_t first_index{};
+    for (std::size_t i = 0; i < local_coordinates.size(); ++i) {
+        progpu_native_scene_command command{};
+        progpu_native_scene_draw_brushes draw{};
+        progpu_native_scene_resource table{};
+        progpu_native_scene_brush brush{};
+        std::uint32_t index{};
+        if (!read_scene_value(bytes, header.command_offset + i * header.command_stride, command) ||
+            (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) != local_coordinates[i] ||
+            !read_scene_value(bytes, command.payload_offset, draw) || draw.brush_count == 0U ||
+            !read_scene_value(bytes, command.payload_offset + sizeof(draw), index) ||
+            !read_scene_value(bytes, header.resource_offset +
+                std::uint64_t{draw.brush_resource_index} * header.resource_stride, table) ||
+            !read_scene_value(bytes, table.payload_offset + std::uint64_t{index} * sizeof(brush), brush)) return false;
+        const std::array<float, 4U> local_row0{1, 0, -4, 0}, local_row1{0, 1, 0, 0};
+        const auto& row0 = local_coordinates[i] ? local_row0 : test.target_row0;
+        const auto& row1 = local_coordinates[i] ? local_row1 : test.target_row1;
+        if (!std::equal(row0.begin(), row0.end(), std::begin(brush.coordinate_transform0)) ||
+            !std::equal(row1.begin(), row1.end(), std::begin(brush.coordinate_transform1))) return false;
+        if (i == 0U) first_index = index;
+        if (require_reuse && i + 1U == local_coordinates.size() && index != first_index) return false;
+    }
+    return true;
+}
+
+inline bool gradient_coordinate_contract(compat::scene_factory_native* factory) {
+    namespace d2d = compat;
+    const d2d::scene_render_target_properties properties{64, 64, 96, 96, 0x95CCU, 1};
+    com::pointer<d2d::render_target> target;
+    com::pointer<d2d::scene_render_target_native> scene;
+    if (factory->CreateSceneRenderTarget(&properties, target.put()) != com::ok ||
+        target.as(d2d::scene_render_target_native_interface_id, scene) != com::ok) return false;
+    com::pointer<d2d::gradient_stop_collection> collection;
+    com::pointer<d2d::linear_gradient_brush> linear;
+    com::pointer<d2d::radial_gradient_brush> radial;
+    const d2d::brush_properties brush_properties{1, {1, 0, 0, 1, 4, 0}};
+    const d2d::linear_gradient_brush_properties axis{{0, 4}, {0, 20}};
+    const d2d::radial_gradient_brush_properties ellipse{{28, 22}, {0, 0}, 16, 16};
+    if (target->CreateGradientStopCollection(unordered_gradient_stops.data(), 6U, d2d::gamma::gamma_2_2,
+            d2d::extend_mode::clamp, collection.put()) != com::ok ||
+        target->CreateLinearGradientBrush(&axis, &brush_properties, collection.get(), linear.put()) != com::ok ||
+        target->CreateRadialGradientBrush(&ellipse, &brush_properties, collection.get(), radial.put()) != com::ok) return false;
+    const d2d::rectangle_f rectangle{4, 2, 60, 42};
+    const d2d::rounded_rectangle rounded{rectangle, 4, 4}, unequal{rectangle, 4, 8};
+    const d2d::ellipse oval{{32, 22}, 20, 12};
+    const std::array<bool, 6U> local{true, true, true, false, false, true};
+    for (d2d::brush* brush : {static_cast<d2d::brush*>(linear.get()), static_cast<d2d::brush*>(radial.get())}) {
+        for (const auto& test : gradient_coordinate_cases) {
+            target->BeginDraw(); target->Clear(nullptr); target->SetTransform(&test.draw);
+            target->FillRectangle(&rectangle, brush);
+            target->FillRoundedRectangle(&rounded, brush);
+            target->FillEllipse(&oval, brush);
+            target->DrawLine({4, 2}, {60, 42}, brush, 2, nullptr);
+            target->FillRoundedRectangle(&unequal, brush);
+            target->FillRectangle(&rectangle, brush);
+            std::vector<std::byte> bytes;
+            if (target->EndDraw(nullptr, nullptr) != com::ok || !export_copy_scene(scene.get(), bytes) ||
+                !gradient_coordinate_snapshot(bytes, local, test)) return false;
+        }
     }
     return true;
 }
@@ -263,7 +348,7 @@ void verify_gradient_stop_pixels(Render render, Require require) {
     com::pointer<compat::scene_factory_native> factory;
     require(compat::create_factory(owner.put()) == com::ok &&
         owner.as(compat::scene_factory_native_interface_id, factory) == com::ok, "gradient order factory");
-    for (unsigned variant = 0U; variant < 12U; ++variant) {
+    for (unsigned variant = 0U; variant < gradient_stop_variant_count; ++variant) {
         std::vector<std::uint8_t> unordered;
         for (const bool ordered : {false, true}) {
             const compat::scene_render_target_properties properties{64, 64, 96, 96, 0x95C5U,
@@ -295,14 +380,14 @@ void verify_gradient_stop_pixels(Render render, Require require) {
 }
 
 inline bool gradient_stop_contract(compat::scene_factory_native* factory) {
-    if (!gradient_spread_admission_contract()) return false;
+    if (!gradient_spread_admission_contract() || !gradient_coordinate_contract(factory)) return false;
     const compat::scene_render_target_properties properties{64, 64, 96, 96, 0x95C6U, 1};
     com::pointer<compat::render_target> target;
     com::pointer<compat::scene_render_target_native> scene;
     if (factory->CreateSceneRenderTarget(&properties, target.put()) != com::ok ||
         target.as(compat::scene_render_target_native_interface_id, scene) != com::ok) return false;
     bool valid = true;
-    for (unsigned variant = 0; variant < 12U; ++variant) {
+    for (unsigned variant = 0; variant < gradient_stop_variant_count; ++variant) {
         record_gradient_stop_order(target.get(), variant, false, [&](bool result, const char*) { valid &= result; });
         std::vector<std::byte> before, after;
         if (!valid || !export_copy_scene(scene.get(), before) ||
