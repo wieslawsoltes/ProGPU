@@ -12,6 +12,53 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+function Get-OriginalSdkToolchain([string] $Installation, [string] $VCToolsDirectory, [string] $Architecture) {
+    if ($Architecture -cnotin @('X64', 'Arm64') -or [string]::IsNullOrWhiteSpace($VCToolsDirectory) -or
+        -not [System.IO.Path]::IsPathFullyQualified($VCToolsDirectory)) {
+        throw 'The selected native C++ toolchain directory or architecture is unavailable.'
+    }
+    $SelectedRoot = [System.IO.Path]::GetFullPath((Join-Path $Installation 'VC/Tools/MSVC')) +
+        [System.IO.Path]::DirectorySeparatorChar
+    $ToolsDirectory = [System.IO.Path]::GetFullPath($VCToolsDirectory)
+    if (-not $ToolsDirectory.StartsWith($SelectedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'The selected C++ toolchain does not belong to the selected Visual Studio installation.'
+    }
+    $Target = $Architecture.ToLowerInvariant()
+    $Directory = Join-Path $ToolsDirectory "bin/Host$Target/$Target"
+    $Compiler = Join-Path $Directory 'cl.exe'
+    $Linker = Join-Path $Directory 'link.exe'
+    foreach ($Tool in @($Compiler, $Linker)) {
+        if (-not (Test-Path -LiteralPath $Tool -PathType Leaf)) {
+            throw "Missing selected native C++ tool: $Tool"
+        }
+    }
+    # Exactly one executable of each kind from the selected native host/target
+    # directory, regardless of other architectures or commands on PATH.
+    [pscustomobject]@{
+        Directory = [System.IO.Path]::GetFullPath($Directory)
+        Compiler = (Get-Item -LiteralPath $Compiler).FullName
+        Linker = (Get-Item -LiteralPath $Linker).FullName
+    }
+}
+
+function Get-OriginalSdkHeaders([string[]] $Includes) {
+    $Headers = @($Includes | Where-Object {
+        [System.IO.Path]::GetFileName($_).StartsWith('DirectXMath', [StringComparison]::OrdinalIgnoreCase)
+    })
+    foreach ($Required in @('DirectXMath.h', 'DirectXMathMatrix.inl', 'DirectXMathVector.inl')) {
+        # MSVC sourceDependencies can normalize actual Windows paths to lowercase.
+        # Case-insensitive filenames still require exactly one consumed path:
+        # two SDK roots with the same filename remain an ambiguity, not a match.
+        if (@($Headers | Where-Object {
+            [string]::Equals([System.IO.Path]::GetFileName($_), $Required, [StringComparison]::OrdinalIgnoreCase)
+        }).Count -ne 1) {
+            throw "Missing or ambiguous consumed SDK header: $Required"
+        }
+    }
+    $Headers
+}
+
 if (-not $IsWindows) { throw 'The original SDK companion requires Windows.' }
 if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString() -cne $Architecture) {
     throw 'The original SDK companion requires a native, matching-architecture tool host.'
@@ -41,17 +88,23 @@ if ($DiscoveryExit -ne 0 -or -not $Installation -or -not (Test-Path -LiteralPath
 }
 Import-Module (Join-Path $Installation 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
 Enter-VsDevShell -VsInstallPath $Installation -SkipAutomaticLocation -DevCmdArguments "-arch=$Target -host_arch=$Target" | Out-Null
-$Compiler = (Get-Command cl.exe -CommandType Application).Source
+$Toolchain = Get-OriginalSdkToolchain $Installation $env:VCToolsInstallDir $Architecture
+$Compiler = $Toolchain.Compiler
+$Linker = $Toolchain.Linker
 $Source = Join-Path $PSScriptRoot 'OriginalShaderAxisMath.cpp'
+$Object = Join-Path $BuildDirectory 'OriginalShaderAxisMath.obj'
 $Library = Join-Path $BuildDirectory 'OriginalShaderAxisMath.dll'
 $Dependencies = Join-Path $BuildDirectory 'dependencies.json'
-$Arguments = @('/nologo', '/std:c++20', '/permissive-', '/W4', '/WX', '/O2', '/fp:strict', '/EHsc', '/MD', '/LD',
-    '/sourceDependencies', $Dependencies, "/Fo$(Join-Path $BuildDirectory 'OriginalShaderAxisMath.obj')",
-    "/Fe$Library", $Source, '/link', "/IMPLIB:$(Join-Path $BuildDirectory 'OriginalShaderAxisMath.lib')")
+$Arguments = @('/nologo', '/std:c++20', '/permissive-', '/W4', '/WX', '/O2', '/fp:strict', '/EHsc', '/MD', '/c',
+    '/sourceDependencies', $Dependencies, "/Fo$Object", $Source)
+$LinkerArguments = @('/NOLOGO', '/DLL', '/INCREMENTAL:NO', "/MACHINE:$Target", "/OUT:$Library",
+    "/IMPLIB:$(Join-Path $BuildDirectory 'OriginalShaderAxisMath.lib')", $Object)
 Push-Location $BuildDirectory
 try {
     & $Compiler @Arguments
     if ($LASTEXITCODE -ne 0) { throw 'Original SDK companion compilation failed.' }
+    & $Linker @LinkerArguments
+    if ($LASTEXITCODE -ne 0) { throw 'Original SDK companion linking failed.' }
 } finally { Pop-Location }
 
 function Get-Identity([string] $Path) {
@@ -83,18 +136,15 @@ if ([System.IO.Path]::GetFullPath($DependencyData.Data.Source) -ine [System.IO.P
 }
 $Includes = @($DependencyData.Data.Includes | Sort-Object -Unique)
 if ($Includes.Count -lt 1 -or $Includes.Count -gt 1024) { throw 'Compiler include inventory is outside its bound.' }
-$Headers = @($Includes | Where-Object { [System.IO.Path]::GetFileName($_) -like 'DirectXMath*' })
-foreach ($Required in @('DirectXMath.h', 'DirectXMathMatrix.inl', 'DirectXMathVector.inl')) {
-    if (@($Headers | Where-Object { [System.IO.Path]::GetFileName($_) -ceq $Required }).Count -ne 1) {
-        throw "Missing or ambiguous consumed SDK header: $Required"
-    }
-}
+$Headers = @(Get-OriginalSdkHeaders $Includes)
 $NativeBackends = @('c1xx.dll', 'c2.dll') | ForEach-Object { Get-Identity (Join-Path (Split-Path -Parent $Compiler) $_) }
 $Receipt = [ordered]@{
     Schema = 1; SourceCommit = $SourceCommit; Architecture = $Architecture; PeMachine = $Machine
     Source = Get-Identity $Source; Binary = Get-Identity $Library
     Compiler = Get-Identity $Compiler; CompilerVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Compiler).FileVersion
     CompilerBackends = @($NativeBackends); Arguments = $Arguments
+    Linker = Get-Identity $Linker; LinkerArguments = $LinkerArguments
+    SelectedToolDirectory = $Toolchain.Directory
     DirectXHeaders = @($Headers | ForEach-Object { Get-Identity $_ })
     AllIncludedHeaders = @($Includes | ForEach-Object { Get-Identity $_ })
     DependencyReport = Get-Identity $Dependencies
