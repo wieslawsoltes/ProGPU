@@ -15,7 +15,7 @@ inline bool build_original_shader_sampler_scene(progpu_native_mil_channel* chann
     using mil::command;
     using mil_clip_fixture_detail::append;
     using mil_clip_fixture_detail::packet;
-    if (variant >= 22U) return false;
+    if (variant >= 23U) return false;
     const auto source_variant = variant < 4U ? variant
         : variant >= 13U ? variant <= 15U ? variant - 12U : 1U
         : variant == 6U || variant == 9U || variant == 10U ? 1U : 0U;
@@ -97,7 +97,8 @@ inline bool build_original_shader_sampler_scene(progpu_native_mil_channel* chann
     if (progpu_native_mil_channel_apply(channel, batch.data(), batch.size(), nullptr) != PROGPU_NATIVE_MIL_STATUS_SUCCESS ||
         progpu_native_mil_channel_set_visual_cache_bounds(channel, 1U, 8, 10, extent, input_height) != PROGPU_NATIVE_MIL_STATUS_SUCCESS ||
         progpu_native_mil_channel_set_bitmap_source_rgba8_with_dpi(channel, 3U, bitmap_width, bitmap_height, bitmap_width * 4U,
-            pixels.data(), pixels.size(), full_source ? 192.0 : 144.0, full_source ? 384.0 : 192.0) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
+            pixels.data(), pixels.size(), full_source ? 192.0 : variant == 22U ? 123.456789012345 : 144.0,
+            full_source ? 384.0 : variant == 22U ? 183.456789012345 : 192.0) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
     if (progpu_native_mil_channel_get_resource_generation(channel, 3U) <= old_bitmap_generation ||
         progpu_native_mil_channel_get_resource_generation(channel, 5U) <= old_brush_generation) return false;
     const progpu_native_mil_scene_build_request request{

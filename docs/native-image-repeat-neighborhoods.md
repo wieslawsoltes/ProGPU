@@ -6,8 +6,13 @@ first enlarges a source-clamped bitmap into a viewport-sized page, then filters
 that page's repeats. Those two operations have different texel neighborhoods at
 seams, even for a two-pixel source.
 
-Admission requires an owned bitmap, complete original viewbox, exact equality
-between mapped source extent and viewport, and positive-axis brush mapping.
+Admission requires an owned bitmap, complete original viewbox, exact full-viewport
+mapping and positive-axis brush mapping. Stretch.Fill establishes that mapping
+semantically; other stretches require exact computed extent and origin equality.
+Do not test Fill through cancellation of a source-DPI scale product: ARM fused
+arithmetic can preserve a double residue although the full-source Fill contract
+still maps exactly onto its viewport. No epsilon or altered general transform is
+used to admit this identity.
 The world/paint transform and original clips remain on the existing image path.
 Tile, FlipX, FlipY and FlipXY select the existing independent U/V address flags;
 negative source coordinates retain their original periodic neighborhood.
@@ -67,6 +72,9 @@ existing image-address contract, not yet a separately captured Windows case.
 Raw source controls inspect every original image address bit, source extent,
 negative translation and absence of an enlarged page. Cropped and padded cases
 explicitly retain that page; nearest source cases retain their old outputs.
+The original 144/192-DPI full-source cases and an additional asymmetric fractional
+123.456789012345/183.456789012345-DPI raw case must select addressed original
+texels independently of the compiler's multiply/add contraction policy.
 Major implementation and fixtures are committed before bounded source checks.
 Post-commit strict Clang syntax checks passed for the actual MIL compiler, MIL
 test translation unit and an instantiated twenty-case shared provider fixture.

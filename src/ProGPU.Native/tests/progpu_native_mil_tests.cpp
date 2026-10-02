@@ -21899,7 +21899,7 @@ bool original_shader_sampler_inherits_actual_visual_options() {
     progpu_native_mil_channel* raw{};
     PROGPU_REQUIRE(progpu_native_mil_channel_create(&raw) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
     progpu::native::tests::mil_clip_channel owner(raw);
-    for (std::uint32_t variant = 0U; variant < 22U; ++variant) {
+    for (std::uint32_t variant = 0U; variant < 23U; ++variant) {
         std::vector<std::byte> stream;
         PROGPU_REQUIRE(progpu::native::tests::build_original_shader_sampler_scene(raw, variant, stream));
         PROGPU_REQUIRE(progpu::native::scene::validate(stream.data(), stream.size()).status ==
@@ -21927,8 +21927,9 @@ bool original_shader_sampler_inherits_actual_visual_options() {
                 ++images;
                 const auto image = read_value<progpu_native_scene_image_draw>(stream,
                     resource.auxiliary_offset + record.payload_offset);
-                PROGPU_REQUIRE(image.sampling == (variant == 4U || variant >= 11U
-                    ? PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR : PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST));
+                const std::uint32_t expected_sampling = variant == 4U || variant >= 11U
+                    ? PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR : PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+                PROGPU_REQUIRE(image.sampling == expected_sampling);
                 if (variant == 11U || variant == 12U) {
                     PROGPU_REQUIRE(image.image_width == 400U && image.image_height == 200U);
                     PROGPU_REQUIRE(image.source_rect.x == 0.0F && image.source_rect.y == 0.0F &&
@@ -21938,15 +21939,20 @@ bool original_shader_sampler_inherits_actual_visual_options() {
                     PROGPU_REQUIRE(image.transform.m11 == 1.0F && image.transform.m22 == 1.0F &&
                         image.transform.m31 == -50.0F && image.transform.m32 == 30.0F);
                 }
-                if (variant >= 13U && variant <= 19U) {
+                if ((variant >= 13U && variant <= 19U) || variant == 22U) {
                     const std::uint32_t expected_u = variant == 16U || variant == 18U || variant == 19U
                         ? PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT : PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT;
                     const std::uint32_t expected_v = variant == 17U || variant == 18U
                         ? PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT : PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT;
-                    PROGPU_REQUIRE(image.flags == (PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT |
+                    const std::uint32_t expected_flags = PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT |
                         (expected_u << PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT) |
-                        (expected_v << PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT)));
-                    PROGPU_REQUIRE(image.image_width == 2U && image.image_height == (variant >= 16U ? 2U : 1U));
+                        (expected_v << PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT);
+                    if (image.flags != expected_flags)
+                        std::fprintf(stderr, "Full-source repeat variant=%u flags=%u expected=%u\n",
+                            variant, image.flags, expected_flags);
+                    PROGPU_REQUIRE(image.flags == expected_flags);
+                    PROGPU_REQUIRE(image.image_width == 2U &&
+                        image.image_height == (variant >= 16U && variant <= 19U ? 2U : 1U));
                     PROGPU_REQUIRE(image.source_rect.width == 4.0F &&
                         image.source_rect.height == static_cast<float>(image.image_height));
                     PROGPU_REQUIRE(image.source_rect.x == (variant == 14U || variant == 19U ? -1.0F : 0.0F));
@@ -21955,7 +21961,7 @@ bool original_shader_sampler_inherits_actual_visual_options() {
                 }
             }
             PROGPU_REQUIRE(images == 1U);
-            if (variant >= 13U) PROGPU_REQUIRE(tile_pages == (variant >= 20U ? 1U : 0U));
+            if (variant >= 13U) PROGPU_REQUIRE(tile_pages == (variant == 20U || variant == 21U ? 1U : 0U));
         }
         PROGPU_REQUIRE(pictures == 1U);
     }

@@ -15723,13 +15723,20 @@ struct channel::implementation {
             clipped.transform = content_to_target;
             clipped.opacity *= opacity;
             const auto owned_bitmap = bitmap_sources.find(brush.source_handle);
+            // Full-source Fill maps exactly onto the viewport by definition.
+            // Do not re-prove that identity through a cancelled scale product:
+            // contracted multiply/subtract may retain a nonzero double residue
+            // for original nonbinary source DPI (for example 2px at 144 DPI).
+            // Other stretch modes still require their exact computed mapping.
+            const bool full_viewport_mapping = brush.stretch == 1U ||
+                (content_to_viewport.m31 == viewport.x && content_to_viewport.m32 == viewport.y &&
+                 content_width * scale_x == viewport.width && content_height * scale_y == viewport.height);
             if (repeated && !vector_source && !state.per_point_guidelines &&
                 state.image_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
                 owned_bitmap != bitmap_sources.end() && !owned_bitmap->second.external_image &&
                 viewbox.x == 0.0 && viewbox.y == 0.0 &&
                 viewbox.width == content_width && viewbox.height == content_height &&
-                content_to_viewport.m31 == viewport.x && content_to_viewport.m32 == viewport.y &&
-                content_width * scale_x == viewport.width && content_height * scale_y == viewport.height &&
+                full_viewport_mapping &&
                 brush_transform.m12 == 0.0 && brush_transform.m21 == 0.0 &&
                 brush_transform.m11 > 0.0 && brush_transform.m22 > 0.0) {
                 // A full source exactly fills this tile: sample its original
