@@ -8739,7 +8739,7 @@ int run_tests()
             return 288;
         upload_target->BeginDraw();
         const compat::rectangle_f clip{0.0F, 0.0F, 2.0F, 2.0F};
-        upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::aliased);
+        upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::per_primitive);
         if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != compat::wrong_state) return 288;
         upload_target->PopAxisAlignedClip();
         if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok ||

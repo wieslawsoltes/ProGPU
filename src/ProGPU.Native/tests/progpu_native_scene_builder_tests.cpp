@@ -49,6 +49,73 @@ T read(const std::vector<std::byte>& bytes, std::uint32_t offset) noexcept {
 
 } // namespace
 
+bool semantic_scene_builder_copies_outside_clips_atomically() {
+    const std::array pixels{std::byte{0}, std::byte{0}, std::byte{255}, std::byte{255}};
+    progpu_native_scene_image_draw image{};
+    image.image_width = image.image_height = 1U; image.row_bytes = 4U;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    image.source_rect = image.destination_rect = {0, 0, 1, 1};
+    image.transform = semantic_scene_builder::identity_transform();
+    image.opacity = 1.0F; image.max_anisotropy = 1U;
+    const auto prepare = [&](semantic_scene_builder& builder, unsigned int kind) {
+        auto clip = semantic_scene_builder::identity_state();
+        clip.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+        clip.clip_rect = {8, 8, 16, 16};
+        std::uint32_t index{};
+        if (!builder.add_state(clip, index) || !builder.save(index)) return false;
+        clip.clip_rect = {12, 10, 8, 8};
+        if (kind == 1U) { clip.flags |= PROGPU_NATIVE_SCENE_STATE_TRANSFORM; clip.transform.m31 = 2.0F; }
+        if (kind == 2U) { clip.flags |= PROGPU_NATIVE_SCENE_STATE_OPACITY; clip.opacity = 0.5F; }
+        return builder.add_state(clip, index) && builder.save(index, nullptr, false, kind == 3U, kind == 4U);
+    };
+    const auto finish = [](semantic_scene_builder& builder, std::vector<std::byte>& bytes) {
+        return builder.restore() && builder.restore() && builder.build(bytes) &&
+            scene::validate(bytes.data(), bytes.size()).status == PROGPU_NATIVE_STATUS_SUCCESS;
+    };
+    for (unsigned int kind = 0U; kind < 5U; ++kind) {
+        semantic_scene_builder actual(0x95A0U, 1U), expected(0x95A0U, 1U);
+        if (!prepare(actual, kind) || !prepare(expected, kind)) return false;
+        auto rejected = image;
+        // Fail after scope suspension/upload/layer append, not only preflight.
+        if (kind == 0U) rejected.flags = PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+        if (actual.copy_image_from_memory_outside_clips(rejected, 0U, pixels)) return false;
+        std::vector<std::byte> original, after;
+        if (!finish(expected, original) || !finish(actual, after) || after != original) return false;
+    }
+    semantic_scene_builder builder(0x95A1U, 1U);
+    if (!prepare(builder, 0U) || builder.copy_image_from_memory(image, 0U, pixels) ||
+        !builder.copy_image_from_memory_outside_clips(image, 0U, pixels)) return false;
+    std::uint32_t image_index{};
+    if (!builder.add_rgba8_image(1U, 1U, 4U, pixels, image_index) ||
+        !builder.draw_image(image_index, image, image.destination_rect)) return false;
+    std::vector<std::byte> bytes;
+    if (!finish(builder, bytes)) return false;
+    const auto header = read<progpu_native_scene_header>(bytes, 0U);
+    semantic::semantic_state_cursor cursor(bytes.data(), header);
+    std::uint32_t draws = 0U;
+    for (std::uint32_t i = 0U; i < header.command_count; ++i) {
+        const auto command = read<progpu_native_scene_command>(bytes,
+            header.command_offset + i * header.command_stride);
+        const auto state = cursor.advance(command);
+        if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) continue;
+        if (draws == 0U && (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) return false;
+        if (draws == 1U && ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U ||
+            state.clip_rect.x != 12.0F || state.clip_rect.y != 10.0F ||
+            state.clip_rect.width != 8.0F || state.clip_rect.height != 8.0F)) return false;
+        ++draws;
+    }
+    if (draws != 2U) return false;
+    semantic_scene_builder layered(0x95A2U, 1U), untouched(0x95A2U, 1U);
+    progpu_native_scene_layer layer{};
+    layer.opacity = 0.5F; layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!layered.push_layer(layer) || !untouched.push_layer(layer) ||
+        layered.copy_image_from_memory_outside_clips(image, 0U, pixels) ||
+        !layered.pop_layer() || !untouched.pop_layer()) return false;
+    std::vector<std::byte> before, after;
+    return layered.build(after) && untouched.build(before) && before == after;
+}
+
 bool semantic_scene_builder_append_capacity_is_amortized_and_atomic() {
     using allocator = append_test_allocator<std::uint32_t>;
     using scene_builder_detail::reserve_append;
