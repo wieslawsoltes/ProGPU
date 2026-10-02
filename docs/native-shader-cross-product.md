@@ -30,8 +30,12 @@ unchanged alpha are independent of translator output. Actual source texels feed
 the vector multiplication, and cold/warm/independent-engine replay keeps the
 existing submission, pass and uniform-upload assertions and deadlines.
 
-This implementation is committed before validation. Focused source/unit checks,
-both provider GPU runs, Windows, package/NativeAOT and application qualification
-remain required; passing a translator control is not rendering parity. General
+Implementation commit `a462cbbef` preceded validation. The bounded standalone
+C++20 warnings-as-errors check then passed the unchanged 110 translation and
+367 arithmetic controls plus 406 additional cross-product controls. Strict
+syntax checking of the instantiated shared pixel fixture and the diff check
+also passed. No renderer/native library build, GPU, VM or runtime staging was
+performed. Both provider GPU runs, Windows, package/NativeAOT and application
+qualification remain required; passing a translator control is not rendering parity. General
 matrix operations, predicate/control flow and the separately documented numeric
 domain gaps are not admitted by this addition.
