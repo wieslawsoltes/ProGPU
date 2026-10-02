@@ -34,3 +34,11 @@ main `e444b383d72ecc4252d1554a35096ecf4bb24be7`, independent of #278 and #275.
 The implementation and authored controls are committed before bounded source
 checks. Original Windows, both GPU providers and complete package qualification
 remain pending hosted execution; no local native/full build or GPU/VM was run.
+
+Post-commit checks: Apple Clang C++20 `-fsyntax-only -Wall -Wextra -Wpedantic
+-Wshadow -Werror` passed the complete changed portable target, existing portable
+compatibility test TU and an explicitly instantiated shared pixel fixture, with
+a 45-second timeout per process. `git diff --check` passed. No objects/libraries
+were produced and no test executable, GPU pipeline or Windows oracle was run.
+The Windows-only differential TU and provider entrypoints still require hosted
+type compilation/execution; the shared fixture's syntax check is not that proof.
