@@ -25,6 +25,9 @@ inline constexpr std::array shader_final_sample_cases{
     shader_final_sample_case{{shader_padding_output::constant,2,{.25,1.25,.5,1.5},{},shader_local_history::flat,true},2,3,1,1,true,false,.75},
     shader_final_sample_case{{shader_padding_output::constant,2,{.25,1.25,.5,1.5},{},shader_local_history::flat,true},2,3,1,1,true,true,.75},
     shader_final_sample_case{{shader_padding_output::constant,1.3F,{},{}},2.25,3.5},
+    shader_final_sample_case{{shader_padding_output::input,1,{2,6.25,4,11.5},{}},2.25,3.5},
+    shader_final_sample_case{{shader_padding_output::image,1,{2,6.25,4,11.5},{}},2.25,3.5},
+    shader_final_sample_case{{shader_padding_output::derivatives,1,{2,6.25,4,11.5},{}},2.25,3.5},
     shader_final_sample_case{{shader_padding_output::constant,1,{},{}},2.25,3.5,1,1,true,false,0,.25},
     shader_final_sample_case{{shader_padding_output::uv_squared,1,{2,6.25,4,11.5},{}},2.25,3.5,1,1,true,false,0,.25},
     shader_final_sample_case{{shader_padding_output::constant,1,{},{}},200.25,3.5,1,1,true,false,0,.25},
@@ -56,7 +59,10 @@ void verify_original_shader_final_samples(Render render, Require require) {
                 progpu_native_scene_shader_effect_samples value{};
                 std::memcpy(&value,scenes[i].data()+resource.payload_offset,sizeof(value));
                 require(value.version==5U && value.input_resource_index<resource_index &&
-                    value.sampler_resource_index==PROGPU_NATIVE_SCENE_NO_INDEX &&
+                    (test.source.output==shader_padding_output::image
+                        ? value.sampler_resource_index<resource_index && value.sampler_resource_index!=value.input_resource_index
+                        : value.sampler_resource_index==PROGPU_NATIVE_SCENE_NO_INDEX) &&
+                    value.derivative_register==(test.source.output==shader_padding_output::derivatives?0U:PROGPU_NATIVE_SCENE_NO_INDEX) &&
                     value.frame.clip_antialias==(test.aliased?0U:1U),"final-sample owned source identity differs");
                 selected=true;
             }
@@ -88,7 +94,7 @@ void verify_original_shader_final_samples(Render render, Require require) {
             progpu_native_layer_metrics layers{}; layers.struct_size=sizeof(layers);
             progpu_native_scene_frame_metrics frame{}; frame.struct_size=sizeof(frame);
             const bool outside=test.x==200.25;
-            const auto submissions=replay==1U || outside?1U:2U;
+            const auto submissions=replay==1U || outside?1U:test.source.output==shader_padding_output::image?3U:2U;
             images[replay]=render(replay==2U,scenes[variant],header,test.source,submissions,layers,frame);
             require(frame.command_count==header.command_count && frame.submission_count==submissions &&
                 frame.draw_call_count==(outside?1U:test.parent_opacity==1.0?1U:2U) &&
@@ -139,11 +145,26 @@ void verify_original_shader_final_samples(Render render, Require require) {
                 y+.5>=16+test.y && y+.5<24+test.y;
             if(covered) {
                 if(test.source.output==shader_padding_output::constant) expected={64,128,191,255};
-                else {
+                else if(test.source.output==shader_padding_output::uv_squared) {
                     const double u=(x+.5-(12+test.x))/32.0;
                     const double v=(y+.5-(14+test.y))/16.0;
                     expected={static_cast<std::uint8_t>(std::floor(u*u*255+.5)),
                         static_cast<std::uint8_t>(std::floor(v*v*255+.5)),0,255};
+                } else if(test.source.output==shader_padding_output::derivatives) {
+                    // Exact dyadic inverse of the complete 32x16 input frame.
+                    expected={8,16,0,255};
+                } else {
+                    const auto source_x=static_cast<std::int32_t>(std::floor(x+.5-(12+test.x)));
+                    const auto source_y=static_cast<std::int32_t>(std::floor(y+.5-(14+test.y)));
+                    if(test.source.output==shader_padding_output::image) {
+                        expected[source_x<16?0U:1U]=255U;
+                    } else {
+                        // The original aliased white rectangle occupies these
+                        // integer texels in the complete padded input. Sample
+                        // nearest only AFTER the final fractional placement.
+                        const bool ink=source_x>=5 && source_x<20 && source_y>=2 && source_y<10;
+                        if(ink) expected={255,255,255,255};
+                    }
                 }
                 if(test.parent_opacity!=1.0) {
                     // The original completed shader is stored in its parent's

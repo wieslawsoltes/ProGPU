@@ -82,12 +82,16 @@ before intersecting the current clip (`dirtyregion.cpp` 96–109,
 surface conversion. There is no extra analytic AA factor. Source AA mode is
 retained as provenance, not used to invent fractional clip coverage.
 
-Both provider fixtures now author thirteen actual C-source cases with three
+Both provider fixtures now author sixteen actual C-source cases with three
 replays each: non-dyadic DPI/scale, fractional final placement, a nonlinear
 UV-squared shader, original source/ancestor rectangle clips, AA output-bound
 inflation with ordinary quad coverage, and genuine nested visual-opacity
 targets. The nested cases retain nonzero target origins and non-power-of-two
 viewport extents, draw the shader inside that parent, then apply parent opacity.
+Separate padded-input, original ImageBrush and selected derivative-register
+cases check full capture texels and dimensions before final fractional placement.
+Input and secondary sampler ownership are distinct; their cold submissions are
+counted separately, with one ordinary retained submission on warm replay.
 They check every pixel, independent-engine replay, original channel retirement,
 input ownership, exact submissions and effect uploads/passes. These controls
 are authored only; no execution or result is claimed.
