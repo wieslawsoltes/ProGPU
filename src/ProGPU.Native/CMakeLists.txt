@@ -2291,6 +2291,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(progpu_native_tests
         tests/progpu_native_tests.cpp
         src/Scene/progpu_native_scene.cpp
+        src/Scene/progpu_native_shader_effect.cpp
         src/Scene/progpu_native_scene.hpp
         src/Scene/progpu_native_semantic_brush.cpp
         src/Scene/progpu_native_semantic_brush.hpp
