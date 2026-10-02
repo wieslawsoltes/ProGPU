@@ -1,5 +1,113 @@
 # Original WPF shader reference
 
+## Additive original padding companion
+
+`ShaderPadding.cs` adds a separate `shader-padding.json` receipt without changing
+the original 25 arithmetic cases, 28 ImageBrush cases / 84 replays or their 19
+software arithmetic controls. Thirteen padding inputs execute 39 actual original
+Microsoft WPF captures under the same shared 60-second stopwatch, unchanged
+90-second process and 8-minute job limits. They use public/protected original
+`ShaderEffect` padding, constant and sampler properties, actual protected visual
+bitmap-scaling state, `DrawingVisual` and `RenderTargetBitmap`, not ProGPU or
+LibreWPF renderer assemblies. Every original input and all three PNG/raw replays
+use fresh `CreateNew` files. A pixel mismatch preserves the full new inventory in
+`shader-padding.failed.json`, qualifies zero new cases and still fails execution.
+
+Ten inputs correspond to the native fixture's admitted variants 0–8 and 11 at
+`8a14271e42aa2ed6f884f98b6b556fa60f1725dd`,
+`src/ProGPU.Native/tests/progpu_native_shader_padding_fixture.hpp`. The source
+reference is independently authored: source content is a white 16×8 physical
+rectangle at (16,16), final clipping is (14,12,28,20), and asymmetric padding
+produces the complete physical frame (12,14,32,16), or (14,12,32,16) after shifting
+its origin at equal extent. Constant output must paint the transparent border;
+implicit input must remain at its original source position. UV and selected c0
+derivative output normalize against that complete frame, including source DPI1/2,
+not the original content, final clip or spare allocation. Original user c0 values
+are deliberately non-derivative values, preserving selected-register precedence.
+The owned two-texel ImageBrush retains independent 144/192 source DPI and fills
+the complete expanded frame with strict red/green stripes, through actual nearest
+visual state rather than inert attached properties on bare visuals.
+
+Three further consecutive inputs mutate only padding on the same actual constant
+effect and receiving visual: zero → asymmetric → zero. Complete original reset
+pixels must match, and successful software expansion must visibly change the
+border. A source mutation ordinal is diagnostic input metadata, not an invented
+native resource-generation counter. Cold/retained, warm and newly constructed
+independent visual/bitmap captures compare every one of 64×64 premultiplied BGRA
+pixels, including alpha and final clipping, without tolerance.
+
+The source contract was read at immutable LibreWPF `381194e1`:
+`WpfGfx/core/resources/ShaderEffect.cpp:172–179` projects the four public doubles
+to local float edges; `WpfGfx/core/uce/drawingcontext.cpp:4912–4923` expands the
+original inner effect frame before isolation. The test retains each original
+double's exact bits, including `2 + 2^-25`, without rewriting it to its float
+projection. Its device-free expected-frame/color file has 38 independently
+authored controls, not copied original/native renderer implementation.
+This reference-only addition changes no rendering architecture; both native
+providers retain their separately authored strict fixture and admission gates.
+
+Native fractional-physical and cropped-frame rejection variants 9/10 are
+deliberately not labeled supported source inputs. The original ARM64 software
+unavailability gate remains explicit: all new inputs still execute, implicit-input
+effects must preserve white input, ImageBrush effects must contribute no color,
+and the receipt qualifies zero shader cases. New original Windows execution is
+pending hosted CI. No original software result qualifies native hardware,
+fractional/cropped source integration, package or application behavior.
+
+Post-commit checks at `4928f3a6536dc25f629a43311d58f65de7616f29`:
+the three changed C# files passed SDK Roslyn syntax parsing; a bounded CPU-only
+executable compiled the two actual pure oracle files with warnings as errors and
+passed all 19 unchanged sampler plus 31 padding controls (50 total). Workflow YAML
+parsing, preservation of every original workflow line/deadline, unchanged original
+sampler files and `git diff --check` also passed. These checks did not compile the
+WPF project, load WPF/native providers or execute shader pixels. The temporary
+driver is `/private/tmp/progpu-padding-oracle-check.z33L0NDS/Program.cs`; compilation
+had a 30-second process bound and its pure arithmetic execution a 10-second bound.
+Actual original x64/ARM64 capture and eventual exact-head whole-Build checks remain
+required; no native producer is staged by this reference companion.
+
+### Original software UV phase evidence
+
+Reference run `37036089882` at `30d13f64554dcf38445b90a5338f7e69c48a3493`
+captured all 13 inputs / 39 replays on both architectures. The ARM64 negative
+control passed with zero qualified shaders. X64 failed only the three UV replays:
+the original software shader emitted red 16 / green 0 at (14,14), whereas the
+initial oracle incorrectly expected red 20 / green 8 from a half-pixel phase.
+The immutable failed receipt is SHA-256
+`e478aa6a6094c6be4a4c10bce3fd1ae8f1cf00beba53348797008b1a10a711fa`;
+all three UV raw images are independently identical at SHA-256
+`4253e64e4503710269fd0ae1017d12d5ffb5ad1b7d9cfa36cf57969df0585073`.
+Downloaded evidence is preserved under
+`/private/tmp/progpu-padding-original-evidence.xQ32Rpy0`.
+
+This distinction follows the original software contract, not fitted capture
+bounds: immutable `381194e1` `ShaderEffect.cpp:1136–1174` starts the inverse
+normalized-frame evaluation at device (0,0), and
+`fxjit/PixelShader/pshader.cpp:286–306` advances integer scan X/Y with integer lane
+positions. Independently applying `(x - frame.Left) / frame.Width` and
+`(y - frame.Top) / frame.Height` matches every BGRA byte in each saved 64×64 UV
+image; a half-pixel offset mismatches 896 channels in each. Frame, source bounds,
+clip, original doubles and shader input bytes are unchanged. Seven added pure
+controls require integer-origin first/adjacent/middle/last values, retain clip
+rejection and explicitly reject the half-pixel hypothesis.
+
+Only the explicitly `SoftwareOnly` reference oracle uses this phase. The native
+GPU pixel-center fixture is unchanged, and a successful software UV receipt does
+not establish hardware/native UV equivalence or complete padding parity. A fresh
+hosted original reference is still required after this correction; the prior
+failed receipt remains failed.
+
+Post-commit checks at `9c808c157d5b70bbe06e61b5059182e47ceea779` passed
+all 19 unchanged sampler and 38 padding arithmetic controls (57 total). The same
+bounded CPU-only driver verified both immutable receipt hashes and every raw
+image hash, then compared all 1,277,952 saved BGRA bytes (13 cases × 3 replays ×
+2 architectures) against the corrected software/explicit-negative expectations,
+with zero differences. This re-reads saved evidence; it is not a new original WPF
+execution and does not relabel the failed producer as passed. Both changed C#
+files passed syntax parsing, workflow YAML parsed, and its only guard change
+requires seven additional controls; original main/sampler source is unchanged.
+Whitespace checks passed. No product renderer, native fixture or runtime changed.
+
 This Windows-only, source-only executable references original Microsoft WPF,
 never LibreWPF or a ProGPU runtime. It captures the committed matrix/cross-product
 family through real `PixelShader`, `ShaderEffect`, `Point4D` constant registers and

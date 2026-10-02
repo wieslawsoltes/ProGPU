@@ -68,6 +68,11 @@ jobs:
             if ($samplers.SoftwareArithmeticControls -ne 19) { throw 'Original software arithmetic controls did not run.' }
             $qualifiedSamplers = if ('${{ matrix.mode }}' -eq 'shader-pixels') { 28 } else { 0 }
             if ($samplers.SourceCommit -ne $env:REFERENCE_COMMIT -or $samplers.Architecture -ne '${{ matrix.arch }}' -or $samplers.CaseCount -ne 28 -or $samplers.Cases.Count -ne 28 -or $samplers.Replays -ne 84 -or $samplers.IndependentColorCases -ne 22 -or $samplers.EquivalentViewboxPairs -ne 5 -or $samplers.Failures.Count -ne 0 -or $samplers.CaptureMode -ne '${{ matrix.mode }}' -or $samplers.QualifiedShaderCases -ne $qualifiedSamplers) { throw 'Incomplete or wrong-identity ImageBrush reference.' }
+            $paddingReceipt = Join-Path $evidence 'shader-padding.json'
+            if ((Get-Item -LiteralPath $paddingReceipt).Length -gt 2MB) { throw 'Original padding receipt exceeds its bound.' }
+            $padding = Get-Content -LiteralPath $paddingReceipt -Raw | ConvertFrom-Json
+            $qualifiedPadding = if ('${{ matrix.mode }}' -eq 'shader-pixels') { 13 } else { 0 }
+            if ($padding.SourceCommit -ne $env:REFERENCE_COMMIT -or $padding.Architecture -ne '${{ matrix.arch }}' -or $padding.CaseCount -ne 13 -or $padding.Cases.Count -ne 13 -or $padding.Replays -ne 39 -or $padding.NativeAdmittedCases -ne 10 -or $padding.ArithmeticControls -ne 38 -or $padding.MutationChecks -ne 4 -or $padding.InvalidShaders -ne 0 -or $padding.Failures.Count -ne 0 -or $padding.CaptureMode -ne '${{ matrix.mode }}' -or $padding.QualifiedShaderCases -ne $qualifiedPadding) { throw 'Incomplete or wrong-identity original padding reference.' }
             Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
           } finally {
             if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
