@@ -14,6 +14,7 @@
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
+#include "progpu_native_shader_local_frame_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
@@ -3493,11 +3494,14 @@ int main(int argc, char** argv) {
             bool expect_picture_rejection = false,
             std::uint32_t target_extent = 64U,
             const progpu_native_scene_picture_image* capture_frame = nullptr,
-            progpu_native_engine* diagnostic_engine = nullptr) {
-            require(target_extent == 64U || target_extent == 128U,
+            progpu_native_engine* diagnostic_engine = nullptr,
+            std::uint32_t rectangular_height = 0U) {
+            require((rectangular_height == 0U && (target_extent == 64U || target_extent == 128U)) ||
+                (capture_frame == nullptr && target_extent == 96U && rectangular_height == 64U),
                 "retained Dawn fixture target extent is unsupported");
             const auto target_width = capture_frame != nullptr ? capture_frame->width : target_extent;
-            const auto target_height = capture_frame != nullptr ? capture_frame->height : target_extent;
+            const auto target_height = capture_frame != nullptr ? capture_frame->height :
+                rectangular_height != 0U ? rectangular_height : target_extent;
             require(capture_frame == nullptr || (target_width == 32U && target_height == 24U),
                 "sampler Dawn diagnostic physical frame is unsupported");
             const auto target_row_bytes = target_width * 4U;
@@ -3696,6 +3700,15 @@ int main(int argc, char** argv) {
             progpu_native_scene_frame_metrics& metrics) {
             return render_retained_scene(reference, stream, generation, submissions, 0x9496U, 1U, commands,
                 &layers, &metrics, test.dpi, nullptr, test.expected);
+        }, require);
+    progpu::native::tests::verify_original_shader_local_frame_pixels(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            const progpu::native::tests::shader_local_case& test, std::uint32_t submissions,
+            progpu_native_status expected_status, progpu_native_layer_metrics& layers,
+            progpu_native_scene_frame_metrics& metrics) {
+            return render_retained_scene(reference, stream, header.generation, submissions, header.scene_id,
+                1U, header.command_count, &layers, &metrics, test.dpi, nullptr, expected_status,
+                false, 96U, nullptr, nullptr, 64U);
         }, require);
     for (auto* picture_engine : picture_engines) progpu_native_engine_destroy(picture_engine);
     progpu::native::tests::verify_path_pixel_mapping(

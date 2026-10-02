@@ -27,7 +27,7 @@ inline constexpr std::array shader_padding_cases{
     shader_padding_case{{2, 6, 4, 12}, shader_padding_output::image, 1, PROGPU_NATIVE_STATUS_SUCCESS},
     shader_padding_case{{4, 4, 2, 14}, shader_padding_output::image, 1, PROGPU_NATIVE_STATUS_SUCCESS},
     shader_padding_case{{0, 0, 0, 0}, shader_padding_output::input, 1, PROGPU_NATIVE_STATUS_SUCCESS},
-    shader_padding_case{{0.25, 6, 4, 12}, shader_padding_output::input, 1, PROGPU_NATIVE_STATUS_UNSUPPORTED},
+    shader_padding_case{{0.25, 6, 4, 12}, shader_padding_output::input, 1, PROGPU_NATIVE_STATUS_SUCCESS},
     shader_padding_case{{2, 6, 32, 12}, shader_padding_output::input, 1, PROGPU_NATIVE_STATUS_UNSUPPORTED},
     shader_padding_case{{2.0 + 0x1p-25, 6, 4, 12}, shader_padding_output::input, 1, PROGPU_NATIVE_STATUS_SUCCESS}
 };
