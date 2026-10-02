@@ -82,7 +82,7 @@ before intersecting the current clip (`dirtyregion.cpp` 96–109,
 surface conversion. There is no extra analytic AA factor. Source AA mode is
 retained as provenance, not used to invent fractional clip coverage.
 
-Both provider fixtures now author eleven actual C-source cases with three
+Both provider fixtures now author thirteen actual C-source cases with three
 replays each: non-dyadic DPI/scale, fractional final placement, a nonlinear
 UV-squared shader, original source/ancestor rectangle clips, AA output-bound
 inflation with ordinary quad coverage, and genuine nested visual-opacity
@@ -91,6 +91,13 @@ viewport extents, draw the shader inside that parent, then apply parent opacity.
 They check every pixel, independent-engine replay, original channel retirement,
 input ownership, exact submissions and effect uploads/passes. These controls
 are authored only; no execution or result is claimed.
+
+Completely clipped parent/output extents retain the validated v5 command
+identity without an invented one-pixel shader viewport or unused input capture.
+The empty wrapper remains balanced and a later visible source generation
+acquires the real input and binding. The fixture moves one live source outside
+the target and back, retaining exact no-effect-pass/no-uniform-upload controls
+for the hidden generation and ordinary cold/warm controls after restoration.
 
 Remaining implementation in this branch: nonrectangular source-mask contracts
 and final source/SDK/package qualification. No missing contract is redefined

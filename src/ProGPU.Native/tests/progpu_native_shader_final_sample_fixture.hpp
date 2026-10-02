@@ -26,7 +26,9 @@ inline constexpr std::array shader_final_sample_cases{
     shader_final_sample_case{{shader_padding_output::constant,2,{.25,1.25,.5,1.5},{},shader_local_history::flat,true},2,3,1,1,true,true,.75},
     shader_final_sample_case{{shader_padding_output::constant,1.3F,{},{}},2.25,3.5},
     shader_final_sample_case{{shader_padding_output::constant,1,{},{}},2.25,3.5,1,1,true,false,0,.25},
-    shader_final_sample_case{{shader_padding_output::uv_squared,1,{2,6.25,4,11.5},{}},2.25,3.5,1,1,true,false,0,.25}
+    shader_final_sample_case{{shader_padding_output::uv_squared,1,{2,6.25,4,11.5},{}},2.25,3.5,1,1,true,false,0,.25},
+    shader_final_sample_case{{shader_padding_output::constant,1,{},{}},200.25,3.5,1,1,true,false,0,.25},
+    shader_final_sample_case{{shader_padding_output::constant,1,{},{}},2.25,3.5,1,1,true,false,0,.25}
 };
 
 template<class Render, class Require>
@@ -85,13 +87,15 @@ void verify_original_shader_final_samples(Render render, Require require) {
         for(std::uint32_t replay=0U;replay<3U;++replay) {
             progpu_native_layer_metrics layers{}; layers.struct_size=sizeof(layers);
             progpu_native_scene_frame_metrics frame{}; frame.struct_size=sizeof(frame);
-            const auto submissions=replay==1U?1U:2U;
+            const bool outside=test.x==200.25;
+            const auto submissions=replay==1U || outside?1U:2U;
             images[replay]=render(replay==2U,scenes[variant],header,test.source,submissions,layers,frame);
             require(frame.command_count==header.command_count && frame.submission_count==submissions &&
+                frame.draw_call_count==(outside?1U:test.parent_opacity==1.0?1U:2U) &&
                 layers.effect_count==1U && layers.effect_kind==PROGPU_NATIVE_GROUP_EFFECT_WPF_SHADER &&
-                layers.effect_pass_count==1U && layers.effect_cache_hit==0U &&
+                layers.effect_pass_count==(outside?0U:1U) && layers.effect_cache_hit==0U &&
                 layers.content_pass_count==(test.parent_opacity==1.0?0U:1U) &&
-                layers.effect_uniform_upload_bytes==(replay==1U?0U:592U),
+                layers.effect_uniform_upload_bytes==(replay==1U || outside?0U:592U),
                 "final-target source retention/pass/upload counters differ");
         }
         require(images[0]==images[1] && images[0]==images[2] && images[0].size()==128U*64U*4U,

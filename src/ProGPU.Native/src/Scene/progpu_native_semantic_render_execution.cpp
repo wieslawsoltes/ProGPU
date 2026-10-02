@@ -4458,6 +4458,18 @@ progpu_native_status render_scene(
                 if (capture_frame.capture_width != 0U &&
                     (capture_frame.capture_width != source_extent.width ||
                      capture_frame.capture_height != source_extent.height)) return false;
+                operation.final_sample_shader = input_index != PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (operation.final_sample_shader &&
+                    (!parent_extent.drawable || !source_extent.drawable)) {
+                    // Whole-scene resource/program/frame validation already
+                    // succeeded. A clipped parent cannot supply a viewport;
+                    // retain the empty wrapper identity without inventing one
+                    // or capturing unused input on the GPU. A later visible
+                    // generation obtains its real input and binding normally.
+                    operation.effect_count = 1U;
+                    operation.composite_drawable = false;
+                    return true;
+                }
                 std::shared_ptr<semantic_picture_backing> sampler_picture;
                 std::shared_ptr<semantic_picture_backing> input_picture;
                 const auto capture_picture = [&](std::uint32_t index,
@@ -4985,10 +4997,13 @@ progpu_native_status render_scene(
                             operation.operation_id;
                         push_operation.effect_count =
                             operation.effect_count;
-                        if (operation.shader_effect && operation.shader_effect->final_sample_program)
+                        if (operation.final_sample_shader) {
+                            push_operation.final_sample_shader = true;
                             push_operation.shader_effect = operation.shader_effect;
+                            composite_drawable = operation.composite_drawable;
+                        }
                         push_operation.can_skip_content_on_effect_cache =
-                            !operation.shader_effect || !operation.shader_effect->final_sample_program;
+                            !operation.final_sample_shader;
                     }
                     if (cached) {
                         auto& push_operation = compiled_spans[
@@ -5872,7 +5887,7 @@ progpu_native_status render_scene(
                 }
             }
             if (operation.kind == semantic_replay_kind::push_layer) {
-                if (operation.shader_effect && operation.shader_effect->final_sample_program) {
+                if (operation.final_sample_shader) {
                     // V5's complete input is a separate owned picture. Its
                     // validated empty wrapper has no content pass to clear.
                     continue;
@@ -5928,10 +5943,13 @@ progpu_native_status render_scene(
                 continue;
             }
             if (operation.kind == semantic_replay_kind::pop_layer) {
-                if (operation.shader_effect && operation.shader_effect->final_sample_program) {
+                if (operation.final_sample_shader) {
                     // Evaluate bytecode on the actual current parent target,
                     // using its original target-dependent projection. No
                     // evaluated texture is cached or filtered for placement.
+                    if (!operation.composite_drawable) continue;
+                    if (!operation.shader_effect)
+                        return fail_replay("A visible final-device WPF shader binding is absent.");
                     ++semantic_effect_operation_count;
                     finish_pass();
                     if (!begin_pass(operation.target_layer, WGPULoadOp_Load, false) ||
