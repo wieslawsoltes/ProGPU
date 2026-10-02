@@ -3421,8 +3421,17 @@ static progpu_native_status paragraph_layout_core(
                         shape_status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
                     else {
                         shape_result.glyph_count = static_cast<std::uint32_t>(retained_run->glyphs.size());
-                        for (std::size_t i = 0U; i < retained_run->glyphs.size(); ++i)
-                            copy_hinted_run_glyph(retained_run->glyphs[i], run_glyphs[i]);
+                        for (std::size_t i = 0U; i < retained_run->glyphs.size(); ++i) {
+                            auto fitting_glyph = retained_run->glyphs[i];
+                            if (!hinted->generation->source_styles.empty() &&
+                                !project_hinted_source_advance(retained_run->glyphs[i],
+                                    hinted->generation->source_styles[fallback_run_index].advance_policy,
+                                    fitting_glyph)) {
+                                shape_status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+                                break;
+                            }
+                            copy_hinted_run_glyph(fitting_glyph, run_glyphs[i]);
+                        }
                     }
                 }
                 // Source scale remains identity; it never reprojects device metrics.
@@ -4102,7 +4111,8 @@ bool hinted_paragraph_aliases(const hinted_paragraph_generation& value,
         vector_aliases(value.normalized_coordinates) || vector_aliases(value.shaping_input) ||
         vector_aliases(value.scalar_levels) || vector_aliases(value.script_runs) || vector_aliases(value.graphemes) ||
         vector_aliases(value.fallback_runs) || vector_aliases(value.font_sources) || vector_aliases(value.styles) ||
-        vector_aliases(value.source_metrics) || vector_aliases(value.device_styles) || vector_aliases(value.runs) ||
+        vector_aliases(value.source_metrics) || vector_aliases(value.device_styles) || vector_aliases(value.source_styles) ||
+        vector_aliases(value.runs) ||
         vector_aliases(value.logical_glyphs) || vector_aliases(value.logical_bidi_levels) ||
         vector_aliases(value.logical_font_indices) || vector_aliases(value.logical_source_scales) ||
         vector_aliases(value.glyph_scales) || vector_aliases(value.logical_owners) ||
@@ -4201,7 +4211,8 @@ progpu_native_status try_layout_context_hinted_paragraph(
     std::span<const progpu_native_text_style_metrics> source_metrics,
     std::span<const hinted_paragraph_style_configuration> device_styles,
     std::shared_ptr<const hinted_paragraph_generation>& result,
-    progpu_native_text_paragraph_result& diagnostic) noexcept {
+    progpu_native_text_paragraph_result& diagnostic,
+    std::span<const hinted_source_style> source_styles) noexcept {
     // Validate address arithmetic before following any borrowed arrays. An alias
     // failure cannot write even the diagnostic or publication shared_ptr object.
     const auto valid_bytes = [](const void* data, std::size_t count) noexcept {
@@ -4213,10 +4224,11 @@ progpu_native_status try_layout_context_hinted_paragraph(
         !valid_hinted_buffer(&layout, 1U) || !valid_bytes(&shaping, shaping.struct_size) ||
         !valid_bytes(&layout, layout.struct_size) || !valid_bytes(shaping.font_data, shaping.font_size) ||
         !valid_bytes(shaping.normalization_data, shaping.normalization_data_size) || styles.size() > UINT32_MAX ||
-        source_metrics.size() > UINT32_MAX || device_styles.size() > UINT32_MAX ||
+        source_metrics.size() > UINT32_MAX || device_styles.size() > UINT32_MAX || source_styles.size() > UINT32_MAX ||
         !valid_hinted_buffer(styles.data(), static_cast<std::uint32_t>(styles.size())) ||
         !valid_hinted_buffer(source_metrics.data(), static_cast<std::uint32_t>(source_metrics.size())) ||
         !valid_hinted_buffer(device_styles.data(), static_cast<std::uint32_t>(device_styles.size())) ||
+        !valid_hinted_buffer(source_styles.data(), static_cast<std::uint32_t>(source_styles.size())) ||
         !valid_hinted_buffer(shaping.input, shaping.input_count) ||
         !valid_hinted_buffer(shaping.pre_context, shaping.pre_context_count) ||
         !valid_hinted_buffer(shaping.post_context, shaping.post_context_count) ||
@@ -4232,6 +4244,7 @@ progpu_native_status try_layout_context_hinted_paragraph(
             overlaps(&layout, std::max<std::size_t>(sizeof(layout), layout.struct_size)) ||
             overlaps(styles.data(), styles.size_bytes()) || overlaps(source_metrics.data(), source_metrics.size_bytes()) ||
             overlaps(device_styles.data(), device_styles.size_bytes()) ||
+            overlaps(source_styles.data(), source_styles.size_bytes()) ||
             overlaps(shaping.input, static_cast<std::uint64_t>(shaping.input_count) * sizeof(*shaping.input)) ||
             overlaps(shaping.pre_context, static_cast<std::uint64_t>(shaping.pre_context_count) * sizeof(*shaping.pre_context)) ||
             overlaps(shaping.post_context, static_cast<std::uint64_t>(shaping.post_context_count) * sizeof(*shaping.post_context)) ||
@@ -4257,6 +4270,7 @@ progpu_native_status try_layout_context_hinted_paragraph(
         shaping.normalization_data != nullptr || shaping.normalization_data_size != 0U ||
         shaping.direction > PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT || layout.trimming != 0U ||
         styles.size() != source_metrics.size() || styles.size() != device_styles.size() ||
+        (!source_styles.empty() && source_styles.size() != styles.size()) ||
         (shaping.input_count != 0U && styles.empty()) || (shaping.input_count == 0U && !styles.empty()) ||
         !valid_style_runs(*context, shaping, styles.data(), static_cast<std::uint32_t>(styles.size()))) return fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     const inline_flow_policy source_policy{source_metrics.data(), nullptr, 0U};
@@ -4281,6 +4295,18 @@ progpu_native_status try_layout_context_hinted_paragraph(
             !std::isfinite(device.logical_units_per_physical_pixel) || device.logical_units_per_physical_pixel <= 0.0F ||
             !std::isfinite(scale) || scale <= 0.0F ||
             !valid_hinted_shape_inputs(&request, hint.variation_coordinates_16_16.data(), &shaping)) return fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        if (!source_styles.empty()) {
+            hinted_source_device_selection selected{};
+            const auto* font = context->font_at(styles[i].font_index);
+            sfnt_header_metrics header{};
+            if (!resolve_hinted_source_device(source_styles[i], selected) || font == nullptr ||
+                !font->try_get_header_metrics(header) || header.units_per_em == 0U ||
+                static_cast<float>(source_styles[i].em_size) / static_cast<float>(header.units_per_em) != styles[i].scale ||
+                selected.pixels_per_em_26_6 != hint.x_pixels_per_em_26_6 ||
+                selected.pixels_per_em_26_6 != hint.y_pixels_per_em_26_6 ||
+                selected.logical_units_per_physical_pixel != device.logical_units_per_physical_pixel)
+                return fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        }
     }
 #if !defined(PROGPU_NATIVE_FONT_HINTING)
     return fail(PROGPU_NATIVE_STATUS_UNSUPPORTED, font_error::none);
@@ -4304,6 +4330,7 @@ progpu_native_status try_layout_context_hinted_paragraph(
         candidate->layout = layout;
         candidate->styles.assign(styles.begin(), styles.end());
         candidate->source_metrics.assign(source_metrics.begin(), source_metrics.end());
+        candidate->source_styles.assign(source_styles.begin(), source_styles.end());
         for (std::size_t i = 0U; i < context->font_count(); ++i) candidate->font_sources.push_back(context->source_at(i));
         for (const auto& device : device_styles) {
             const auto& hint = device.hinting;
@@ -4393,6 +4420,7 @@ hinted_paragraph_reflow_result reflow_hinted_paragraph(
         candidate->styles = source.styles;
         candidate->source_metrics = source.source_metrics;
         candidate->device_styles = source.device_styles;
+        candidate->source_styles = source.source_styles;
         candidate->runs = source.runs;
         candidate->logical_glyphs = source.logical_glyphs;
         candidate->logical_bidi_levels = source.logical_bidi_levels;

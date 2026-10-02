@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Font/progpu_native_hinted_shaper.hpp"
+#include "../Font/progpu_native_hinted_source_policy.hpp"
 #include "progpu_native_text_styles.h"
 #include "progpu_native_text_flow.h"
 #include "../progpu_native_text_layout_retained_internal.hpp"
@@ -69,6 +70,10 @@ struct hinted_paragraph_generation final {
     std::vector<progpu_native_text_style_run> styles{};
     std::vector<progpu_native_text_style_metrics> source_metrics{};
     std::vector<hinted_paragraph_owned_style_configuration> device_styles{};
+    // Empty for the original raw API. Otherwise these are the original source
+    // doubles and explicit capture/advance policy, never reconstructed from the
+    // selected device frame. Raw run generations remain independently retained.
+    std::vector<hinted_source_style> source_styles{};
     std::vector<hinted_paragraph_run> runs{};
     std::vector<shaping_glyph> logical_glyphs{}; // Physical 26.6, wire Y-down.
     std::vector<std::int8_t> logical_bidi_levels{};
@@ -119,7 +124,8 @@ progpu_native_status try_layout_context_hinted_paragraph(
     std::span<const progpu_native_text_style_metrics> source_metrics,
     std::span<const hinted_paragraph_style_configuration> device_styles,
     std::shared_ptr<const hinted_paragraph_generation>& result,
-    progpu_native_text_paragraph_result& diagnostic) noexcept;
+    progpu_native_text_paragraph_result& diagnostic,
+    std::span<const hinted_source_style> source_styles = {}) noexcept;
 
 struct hinted_paragraph_reflow_result final {
     progpu_native_status status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;

@@ -838,6 +838,7 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_edit_word_boundaries.cpp
     "${generated_unicode_normalization_source}"
     src/Text/Font/progpu_native_hinted_transport.cpp
+    src/Text/Font/progpu_native_hinted_source_policy.cpp
     src/Text/Font/progpu_native_hinted_text_layout.cpp
     src/Text/Font/progpu_native_hinted_outline.cpp
     src/Text/Font/progpu_native_hinted_glyph_frame.cpp
