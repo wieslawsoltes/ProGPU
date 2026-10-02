@@ -27,6 +27,11 @@ struct device_shape_run_services final {
     bool (*shape_fragment)(void*, const sfnt_font_view&, std::span<const unicode_scalar>,
         const open_type_shape_run_options&, std::span<shaping_glyph>, open_type_shape_run_scratch,
         std::uint32_t&, font_error*, const open_type_shape_plan*) noexcept = nullptr;
+    // Optional original prepared-state capture. Invoked only for the explicitly
+    // bounded horizontal, non-mark/non-stretch placement family. The receiver
+    // owns copied records; neither this frame nor font/plan pointers may escape.
+    bool (*capture_positioning)(void*, const sfnt_font_view&, const open_type_shape_run_options&,
+        std::span<const shaping_glyph>, font_error*) noexcept = nullptr;
 };
 
 bool try_shape_device_open_type_run(const sfnt_font_view&, std::span<const unicode_scalar>,

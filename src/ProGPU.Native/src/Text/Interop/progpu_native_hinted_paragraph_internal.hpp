@@ -1,11 +1,14 @@
 #pragma once
 
 #include "../Font/progpu_native_hinted_shaper.hpp"
+#include "../Font/progpu_native_hinted_source_policy.hpp"
 #include "progpu_native_text_styles.h"
 #include "progpu_native_text_flow.h"
 #include "../progpu_native_text_layout_retained_internal.hpp"
+#include "../progpu_native_text_layout_source_internal.hpp"
 
 namespace progpu::native::text {
+struct hinted_source_fitting;
 
 // Explicit device size and conversion, not inferred from the source style scale.
 // The borrowed axes are used synchronously and copied into the owned generation.
@@ -43,6 +46,16 @@ struct hinted_paragraph_run final {
     float logical_units_per_physical_pixel = 0.0F;
 };
 
+// Source doubles are authoritative; the original float options/metrics remain
+// validated raster shadows. This private opt-in does not select WPF rounding or
+// admit unsafe shaping boundaries. Offset projection remains raw device 26.6.
+struct hinted_source_paragraph_layout final {
+    double maximum_width = 0.0, line_height = 0.0;
+    std::span<const text_source_item_metrics> style_metrics{};
+    bool allow_emergency_break = true;
+    bool measure_intrinsic_widths = false;
+};
+
 // Original paragraph producer metadata, retained at its actual production sites.
 // No borrowed context, style, request, scratch or callback survives publication.
 struct hinted_paragraph_generation final {
@@ -69,6 +82,19 @@ struct hinted_paragraph_generation final {
     std::vector<progpu_native_text_style_run> styles{};
     std::vector<progpu_native_text_style_metrics> source_metrics{};
     std::vector<hinted_paragraph_owned_style_configuration> device_styles{};
+    // Empty for the original raw API. Otherwise these are the original source
+    // doubles and explicit capture/advance policy, never reconstructed from the
+    // selected device frame. Raw run generations remain independently retained.
+    std::vector<hinted_source_style> source_styles{};
+    bool has_source_geometry = false, source_allow_emergency_break = true;
+    double source_maximum_width = 0.0, source_line_height = 0.0;
+    bool has_source_intrinsic_widths = false;
+    double source_minimum_intrinsic_width = 0.0, source_maximum_intrinsic_width = 0.0;
+    std::vector<text_source_item_metrics> source_style_metrics{}, source_item_metrics{};
+    std::vector<text_source_glyph_metrics> source_logical_metrics{};
+    std::vector<text_source_glyph_position> source_glyphs{};
+    std::vector<text_source_line_metrics> source_lines{};
+    std::shared_ptr<const hinted_source_fitting> source_fitting{};
     std::vector<hinted_paragraph_run> runs{};
     std::vector<shaping_glyph> logical_glyphs{}; // Physical 26.6, wire Y-down.
     std::vector<std::int8_t> logical_bidi_levels{};
@@ -119,7 +145,9 @@ progpu_native_status try_layout_context_hinted_paragraph(
     std::span<const progpu_native_text_style_metrics> source_metrics,
     std::span<const hinted_paragraph_style_configuration> device_styles,
     std::shared_ptr<const hinted_paragraph_generation>& result,
-    progpu_native_text_paragraph_result& diagnostic) noexcept;
+    progpu_native_text_paragraph_result& diagnostic,
+    std::span<const hinted_source_style> source_styles = {},
+    const hinted_source_paragraph_layout* source_layout = nullptr) noexcept;
 
 struct hinted_paragraph_reflow_result final {
     progpu_native_status status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
@@ -134,5 +162,11 @@ struct hinted_paragraph_reflow_result final {
 hinted_paragraph_reflow_result reflow_hinted_paragraph(
     const hinted_paragraph_generation& paragraph, std::int32_t input_start,
     float maximum_width) noexcept;
+
+// Only an already-owned double-metric generation may use this entrypoint. The
+// original paragraph and raw run generations survive unchanged across reflow.
+hinted_paragraph_reflow_result reflow_hinted_source_paragraph(
+    const hinted_paragraph_generation& paragraph, std::int32_t input_start,
+    double maximum_width) noexcept;
 
 } // namespace progpu::native::text
