@@ -173,3 +173,17 @@ formula. The first sixteen inputs, their actual unspecified visual fields,
 independent linear/viewbox formulas, and historical failures remain intact.
 This gives 24 sampler cases, 72 replays, 18 independent color cases and five
 complete-pixel equivalence pairs, still within the shared 60-second deadline.
+
+The exact source `5e13e5863053f9e5836fda323fdd52be6fe8a70b` completed hosted
+workflow `37013264907` successfully on both Windows architectures. The x64 job
+`110857864291` qualified all 24 sampler inputs and 72 replays, with all eighteen
+independent color controls and five complete-pixel pairs passing. Its sampler
+receipt SHA256 is
+`d90dbd21d70869d1b42da5145e89e976c365d0134d015d38335f7efc151821b0`.
+The ARM64 job `110857864140` passed the unavailable-software controls with zero
+qualified sampler shaders; its receipt SHA256 is
+`14bf8daed4e49f07f8734976287a22c2184d4a05026d1424265ba297c559517c`.
+Both receipts retain the original PresentationCore identity, actual visual-field
+state, all pixels and independent replays. The unchanged 25 arithmetic inputs
+also passed their architecture-specific controls. This establishes the original
+reference, not a native renderer, source-host or package qualification.
