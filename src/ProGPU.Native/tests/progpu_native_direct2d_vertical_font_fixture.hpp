@@ -13,6 +13,19 @@ struct vertical_font_options final {
     bool origin_map = false;
     bool vorg = false;
 };
+inline constexpr std::array<float,5U> vertical_font_weights{400,650,900,250,100};
+inline std::size_t vertical_font_case_count(vertical_font_options options)
+{
+    return options.kind == vertical_font_kind::truetype_variable || options.kind == vertical_font_kind::cff2_variable ? 5U : 1U;
+}
+struct vertical_phantom_expectation final { float top, bottom; };
+inline vertical_phantom_expectation expected_vertical_phantoms(std::size_t instance, std::uint16_t glyph)
+{
+    static constexpr std::array<std::array<vertical_phantom_expectation,3U>,5U> values{{
+        {{{0,0},{0,0},{0,0}}}, {{{12,-20},{40,-8},{16,-48}}},
+        {{{24,-40},{80,-16},{32,-96}}}, {{{-6,10},{-20,4},{-8,24}}}, {{{-12,20},{-40,8},{-16,48}}}};
+    return values.at(instance).at(glyph);
+}
 struct vertical_glyph_expectation final {
     std::array<progpu_native_path_segment, 4U> segments{};
     std::uint32_t count = 0U;
@@ -27,17 +40,40 @@ inline vertical_glyph_expectation expected_vertical_glyph(vertical_font_options 
     std::size_t instance, std::uint16_t glyph)
 {
     const bool cff = options.kind == vertical_font_kind::cff;
-    if ((options.kind != vertical_font_kind::truetype && !cff) || instance != 0U || glyph >= 3U)
+    const bool variable = options.kind == vertical_font_kind::truetype_variable;
+    if ((options.kind != vertical_font_kind::truetype && !cff && !variable) ||
+        instance >= vertical_font_case_count(options) || glyph >= 3U)
         throw std::out_of_range("authored static vertical glyph inventory");
     // Literal independent metrics. Empty TT has a real advance and vmtx TSB,
     // but no glyf bbox: do not invent its top/bottom phantom origins.
     vertical_glyph_expectation result{};
-    if (glyph == 0U) {
+    if (variable) {
+        struct row final { float x0,y0,x1,y1,h_origin,h_advance,v_origin,v_advance,top,bottom; };
+        static constexpr std::array<std::array<row,3U>,5U> values{{
+            {{{0,0,0,0,0,480,0,900,700,0},{20,-40,300,360,0,600,500,1000,140,460},{-30,20,170,520,0,700,600,1100,80,520}}},
+            {{{0,0,0,0,0,496,0,932,712,0},{28,-34,332,390,4,624,540,1048,150,474},{-42,10,182,542,-6,716,616,1164,74,558}}},
+            {{{0,0,0,0,0,512,0,964,724,0},{36,-28,364,420,8,648,580,1096,160,488},{-54,0,194,564,-12,732,632,1228,68,596}}},
+            {{{0,0,0,0,0,472,0,884,694,0},{16,-43,284,345,-2,588,480,976,135,453},{-24,25,164,509,3,692,592,1068,83,501}}},
+            {{{0,0,0,0,0,464,0,868,688,0},{12,-46,268,330,-4,576,460,952,130,446},{-18,30,158,498,6,684,584,1036,86,482}}}
+        }};
+        const auto& value = values.at(instance).at(glyph);
+        result.x_min=value.x0; result.y_min=value.y0; result.x_max=value.x1; result.y_max=value.y1;
+        result.horizontal_origin=value.h_origin; result.horizontal_advance=value.h_advance;
+        result.vertical_origin=value.v_origin; result.vertical_advance=value.v_advance;
+        result.top_side_bearing=value.top; result.bottom_side_bearing=value.bottom;
+        if (glyph == 0U) return result;
+        if (options.compact_metrics) {
+            const float original_shared_advance_difference = glyph == 1U ? 100.0F : 200.0F;
+            result.vertical_advance -= original_shared_advance_difference;
+            result.bottom_side_bearing -= original_shared_advance_difference;
+        }
+    }
+    else if (glyph == 0U) {
         result.horizontal_advance = 480; result.vertical_advance = 900; result.top_side_bearing = 700;
         if (cff && options.vorg) { result.vertical_origin = 700; result.has_vertical_origin = true; result.bottom_side_bearing = 200; }
         return result;
     }
-    if (glyph == 1U) {
+    else if (glyph == 1U) {
         result.x_min = 20; result.y_min = -40; result.x_max = 300; result.y_max = 360;
         result.horizontal_origin = cff ? 0 : 8; result.horizontal_advance = 600;
         result.vertical_origin = cff ? 700 : 500; result.vertical_advance = options.compact_metrics ? 900 : 1000;
@@ -181,6 +217,60 @@ inline bytes cff_contours()
     append(result,{std::byte{0},std::byte{0},std::byte{34},std::byte{0},std::byte{35}});
     const auto relocated = prefix(); std::copy(relocated.begin(),relocated.end(),result.begin()); return result;
 }
+
+inline bytes glyph_variations(unsigned glyph)
+{
+    constexpr std::array<std::array<std::int16_t,8U>,3U> xs{{
+        {{4,36,0,0,0,0,0,0}},{{16,64,64,16,8,56,0,0}},{{-24,24,24,-24,-12,20,0,0}}}};
+    constexpr std::array<std::array<std::int16_t,8U>,3U> ys{{
+        {{0,0,24,-40,0,0,0,0}},{{12,12,60,60,0,0,80,-16}},{{-20,-20,44,44,0,0,32,-96}}}};
+    const std::size_t points = glyph == 0U ? 4U : 8U;
+    bytes result(16U); put16(result,0U,2U); put16(result,2U,16U);
+    for (unsigned tuple = 0U; tuple < 2U; ++tuple) {
+        const auto start = result.size(); result.push_back(std::byte{0}); // all points, including all four phantoms
+        for (const auto* axis : {&xs[glyph],&ys[glyph]}) {
+            result.push_back(static_cast<std::byte>(points-1U));
+            for (std::size_t point = 0U; point < points; ++point) {
+                const auto delta = tuple == 0U ? (*axis)[point] : -(*axis)[point]/2;
+                result.push_back(static_cast<std::byte>(static_cast<std::uint8_t>(delta)));
+            }
+        }
+        const auto at = 4U+tuple*6U;
+        put16(result,at,static_cast<std::uint16_t>(result.size()-start)); put16(result,at+2U,0xA000U);
+        put16(result,at+4U,tuple == 0U ? 0x4000U : 0xC000U);
+    }
+    return result;
+}
+
+inline bytes vertical_variations(bool maps)
+{
+    // Two independent regions and advance / optional TSB / optional BSB rows.
+    // With explicit maps, advance rows are deliberately permuted (2,0,1).
+    // This makes accidentally using implicit glyph indices observable.
+    constexpr std::array<std::int16_t,9U> deltas{64,96,128,24,20,-12,40,28,76};
+    const std::uint16_t rows = maps ? 9U : 3U;
+    bytes result(24U+28U+10U+static_cast<std::size_t>(rows)*4U);
+    put16(result,0U,1U); put32(result,4U,24U);
+    put16(result,24U,1U); put32(result,26U,12U); put16(result,30U,1U); put32(result,32U,28U);
+    put16(result,36U,1U); put16(result,38U,2U);
+    put16(result,42U,0x4000U); put16(result,44U,0x4000U);
+    put16(result,46U,0xC000U); put16(result,48U,0xC000U);
+    put16(result,52U,rows); put16(result,54U,2U); put16(result,56U,2U); put16(result,60U,1U);
+    for (std::size_t row = 0U; row < rows; ++row) {
+        const auto source = maps && row < 3U ? (row+2U)%3U : row;
+        put16(result,62U+row*4U,static_cast<std::uint16_t>(deltas[source]));
+        put16(result,64U+row*4U,static_cast<std::uint16_t>(-deltas[source]/2));
+    }
+    if (maps) {
+        for (unsigned map = 0U; map < 3U; ++map) {
+            const auto at = result.size(); result.resize(at+7U); put32(result,8U+map*4U,static_cast<std::uint32_t>(at));
+            result[at+1U]=std::byte{3}; put16(result,at+2U,3U);
+            for (unsigned glyph = 0U; glyph < 3U; ++glyph)
+                result[at+4U+glyph]=static_cast<std::byte>(map == 0U ? (glyph+1U)%3U : map*3U+glyph);
+        }
+    }
+    return result;
+}
 } // namespace vertical_font_wire
 
 // Source-owned font construction from the public OpenType glyf/loca/vhea/vmtx
@@ -190,13 +280,14 @@ inline std::vector<std::byte> make_vertical_font(vertical_font_options options =
 {
     using namespace vertical_font_wire;
     const bool cff = options.kind == vertical_font_kind::cff;
-    if ((options.kind != vertical_font_kind::truetype && !cff) || options.vvar || options.side_bearing_maps ||
-        options.origin_map || options.vorg != cff)
+    const bool variable = options.kind == vertical_font_kind::truetype_variable;
+    if ((options.kind != vertical_font_kind::truetype && !cff && !variable) || (options.vvar && !variable) ||
+        (options.side_bearing_maps && !options.vvar) || options.origin_map || options.vorg != cff)
         throw std::invalid_argument("vertical fixture family not yet authored");
     auto tables = original_tables(cff ? make_cff_font(cff_font_kind::cff1_default) : make_variable_font());
-    std::erase_if(tables,[](const table& entry) {
-        return entry.tag == 0x66766172U || entry.tag == 0x61766172U || entry.tag == 0x67766172U ||
-            entry.tag == 0x48564152U || entry.tag == 0x53544154U || entry.tag == 0x6670676DU ||
+    std::erase_if(tables,[&](const table& entry) {
+        return (!variable && (entry.tag == 0x66766172U || entry.tag == 0x53544154U)) ||
+            entry.tag == 0x61766172U || entry.tag == 0x67766172U || entry.tag == 0x48564152U || entry.tag == 0x6670676DU ||
             entry.tag == 0x70726570U || entry.tag == 0x63767420U;
     });
     if (cff) {
@@ -212,18 +303,28 @@ inline std::vector<std::byte> make_vertical_font(vertical_font_options options =
         put16(maxp,8U,1U); put16(maxp,14U,1U); set(tables,0x6D617870U,std::move(maxp));
     }
     bytes hmtx(12U);
-    put16(hmtx,0U,480U); put16(hmtx,4U,600U); put16(hmtx,6U,cff ? 20U : 12U);
-    put16(hmtx,8U,700U); put16(hmtx,10U,static_cast<std::uint16_t>(cff ? -30 : -44)); set(tables,0x686D7478U,std::move(hmtx));
+    put16(hmtx,0U,480U); put16(hmtx,4U,600U); put16(hmtx,6U,cff || variable ? 20U : 12U);
+    put16(hmtx,8U,700U); put16(hmtx,10U,static_cast<std::uint16_t>(cff || variable ? -30 : -44)); set(tables,0x686D7478U,std::move(hmtx));
     for (auto& entry : tables) {
         if (entry.tag == 0x68656164U) {
-            put16(entry.data,16U,0U); put16(entry.data,36U,static_cast<std::uint16_t>(-30));
+            put16(entry.data,16U,variable ? 2U : 0U); put16(entry.data,36U,static_cast<std::uint16_t>(-30));
             put16(entry.data,38U,static_cast<std::uint16_t>(-40)); put16(entry.data,40U,300U); put16(entry.data,42U,520U);
         } else if (entry.tag == 0x68686561U) {
-            put16(entry.data,10U,700U); put16(entry.data,12U,static_cast<std::uint16_t>(cff ? -30 : -44));
-            put16(entry.data,14U,cff ? 300U : 308U); put16(entry.data,16U,cff ? 300U : 292U); put16(entry.data,34U,3U);
+            put16(entry.data,10U,700U); put16(entry.data,12U,static_cast<std::uint16_t>(cff || variable ? -30 : -44));
+            put16(entry.data,14U,cff || variable ? 300U : 308U); put16(entry.data,16U,cff || variable ? 300U : 292U); put16(entry.data,34U,3U);
         }
     }
     set(tables,0x76686561U,header(options.compact_metrics,cff)); set(tables,0x766D7478U,metrics(options.compact_metrics,cff));
+    if (variable) {
+        bytes gvar(36U); put16(gvar,0U,1U); put16(gvar,4U,1U); put32(gvar,8U,36U);
+        put16(gvar,12U,3U); put16(gvar,14U,1U); put32(gvar,16U,36U);
+        for (unsigned glyph = 0U; glyph < 3U; ++glyph) {
+            put32(gvar,20U+glyph*4U,static_cast<std::uint32_t>(gvar.size()-36U));
+            const auto data = glyph_variations(glyph); gvar.insert(gvar.end(),data.begin(),data.end());
+        }
+        put32(gvar,32U,static_cast<std::uint32_t>(gvar.size()-36U)); set(tables,0x67766172U,std::move(gvar));
+        if (options.vvar) set(tables,0x56564152U,vertical_variations(options.side_bearing_maps));
+    }
     return assemble(std::move(tables),cff ? 0x4F54544FU : 0x00010000U);
 }
 } // namespace progpu::native::direct2d::tests
