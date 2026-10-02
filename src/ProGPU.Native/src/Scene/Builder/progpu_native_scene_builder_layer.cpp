@@ -15,6 +15,16 @@
 namespace progpu::native {
 using scene_builder_detail::copy_bytes;
 
+bool semantic_scene_builder::add_axis_aligned_clip_mask(
+    progpu_native_image_rect bounds, std::uint32_t& resource_index) noexcept {
+    progpu_native_scene_layer_mask mask{};
+    mask.bounds = bounds;
+    mask.transform = identity_transform();
+    mask.opacity = 1.0F;
+    mask.flags = PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA;
+    return add_rounded_rectangle_mask(mask, resource_index);
+}
+
 bool semantic_scene_builder::add_rounded_rectangle_mask(
     const progpu_native_scene_layer_mask& source,
     std::uint32_t& resource_index) noexcept {
@@ -22,7 +32,7 @@ bool semantic_scene_builder::add_rounded_rectangle_mask(
     progpu_native_scene_layer_mask mask = source;
     mask.struct_size = sizeof(mask);
     mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE;
-    mask.flags = 0U;
+    mask.flags &= PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA;
     mask.reserved = 0U;
     mask.reserved0 = 0U;
     mask.reserved1 = 0U;
@@ -282,7 +292,7 @@ bool semantic_scene_builder::add_analytic_mask_chain(
         auto mask = masks[index];
         mask.struct_size = sizeof(mask);
         mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE;
-        mask.flags = 0U;
+        mask.flags &= PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA;
         mask.reserved = 0U;
         mask.reserved0 = 0U;
         mask.reserved1 = 0U;
@@ -1052,7 +1062,8 @@ bool semantic_scene_builder::prepare_antialiased_clear_layers(
         std::memcpy(&mask, resource.payload.data(), sizeof(mask));
         const auto identity = identity_transform();
         if (mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE ||
-            mask.opacity != 1.0F || mask.flags != 0U ||
+            mask.opacity != 1.0F ||
+            (mask.flags & ~PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA) != 0U ||
             std::memcmp(&mask.transform, &identity, sizeof(identity)) != 0 ||
             std::memcmp(&mask.bounds, &layer.bounds, sizeof(layer.bounds)) != 0 ||
             !std::all_of(std::begin(mask.corner_radii_x), std::end(mask.corner_radii_x),
