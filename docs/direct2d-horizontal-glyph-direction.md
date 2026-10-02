@@ -4,6 +4,9 @@ The private prepared-original-font path now retains all horizontal bidi levels.
 Parity selects the advance direction; it does not reorder source glyphs, reverse
 their contours, re-resolve bidi or shape replacement text. Sideways/vertical
 metrics, GDI measurement and unsupported raster modes remain separate contracts.
+The explicit static-metric sideways family is implemented separately in
+[sideways glyph placement](direct2d-sideways-glyph-placement.md); it does not
+borrow the horizontal RTL arithmetic or admit combined sideways/odd bidi.
 
 The original request owns its logical IDs, explicit-or-null advances, offsets
 and baseline. A left-to-right outline uses the accumulated advance. A
