@@ -45,6 +45,8 @@ public sealed class NativeHintedSourceTransportContractTests
     {
         Assert.NotNull(typeof(NativeHintedSourceParagraph).GetMethod(nameof(NativeHintedSourceParagraph.HitTest), [typeof(double), typeof(double)]));
         Assert.NotNull(typeof(NativeHintedSourceParagraph).GetMethod(nameof(NativeHintedSourceParagraph.Reflow), [typeof(int), typeof(double)]));
+        Assert.NotNull(typeof(NativeHintedSourceParagraph).GetMethod(nameof(NativeHintedSourceParagraph.HitTestLine), [typeof(int), typeof(double)]));
+        Assert.NotNull(typeof(NativeHintedSourceParagraph).GetMethod(nameof(NativeHintedSourceParagraph.GetLineCaret), [typeof(int), typeof(int), typeof(bool)]));
         Assert.Null(typeof(NativeHintedSourceParagraph).GetProperty("IntrinsicWidths", BindingFlags.Instance | BindingFlags.Public));
         Assert.Equal(typeof(NativeHintedSourceRunFrame), typeof(NativeHintedGlyphResourceReadLease)
             .GetMethod(nameof(NativeHintedGlyphResourceReadLease.ValidateSourceRun))!.ReturnType);

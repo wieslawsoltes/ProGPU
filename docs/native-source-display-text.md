@@ -30,8 +30,13 @@ for the full shaping adapter, source-run helper and both new fixtures; the C
 transport fixture was also parsed with hinting enabled. The generated source
 contract verifier, shell syntax and six-file C# syntax parsing passed. These checks
 did not link or execute native code, compile the managed dependency graph, stage a
-runtime or establish font/render/source qualification. Line-scoped double source
-queries are still needed by the WPF bridge at wrap-boundary duplicate carets.
+runtime or establish font/render/source qualification.
+
+Line-scoped double source queries now select generation-owned native box/caret
+ranges. They preserve separate line identity and affinity at shared soft-wrap
+positions; the ordinary whole-paragraph queries remain unchanged. Invalid line
+indices leave caller results untouched. Authored C controls cover actual wrapped
+paragraph queries and invalid-line atomicity; execution remains pending.
 
 The application target is unchanged AvalonDock theme startup: menus, tab headers
 and title bars set `TextFormattingMode.Display`, reaching LibreWPF's explicit

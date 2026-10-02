@@ -207,6 +207,18 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_get
     const progpu_native_hinted_paragraph* paragraph, int32_t input_start, int32_t input_end,
     progpu_native_hinted_source_rectangle* rectangles, uint32_t capacity, uint32_t* written);
 
+/* Line-scoped variants select retained native ranges, preserving separate
+ * affinities at a shared soft-wrap source boundary. Invalid lines fail atomically. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_hit_test_line(
+    const progpu_native_hinted_paragraph* paragraph, uint32_t line_index, double x,
+    progpu_native_hinted_source_hit* hit);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_get_line_caret(
+    const progpu_native_hinted_paragraph* paragraph, uint32_t line_index, int32_t input_position, uint32_t trailing,
+    progpu_native_hinted_source_caret_stop* caret);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_get_line_selection(
+    const progpu_native_hinted_paragraph* paragraph, uint32_t line_index, int32_t input_start, int32_t input_end,
+    progpu_native_hinted_source_rectangle* rectangles, uint32_t capacity, uint32_t* written);
+
 /* Source GlyphRun nominal-offset convention remains independent from the raw
  * logical device offsets. Copy derives it from owned DOUBLE writer positions,
  * original hmtx/UPM/em arithmetic and selected occurrence order. Binding checks

@@ -96,6 +96,34 @@ void controls() {
     progpu_native_hinted_source_paragraph_view continued{};
     require(progpu_native_hinted_source_paragraph_borrow(reflow.value, &continued) == PROGPU_NATIVE_STATUS_SUCCESS &&
         continued.options.maximum_width == 100.0 / 1.5 && continued.options.pixels_per_dip == 1.5 && continued.styles[0].em_size == 10.0);
+    paragraph_owner wrapped;
+    require(progpu_native_hinted_source_paragraph_reflow(paragraph.value, 0, 1.0, &wrapped.value) == PROGPU_NATIVE_STATUS_SUCCESS);
+    progpu_native_hinted_source_paragraph_view wrapped_view{};
+    require(progpu_native_hinted_source_paragraph_borrow(wrapped.value, &wrapped_view) == PROGPU_NATIVE_STATUS_SUCCESS && wrapped_view.line_count >= 2U);
+    bool shared_boundary = false;
+    for (std::uint32_t i = 0U; i < wrapped_view.caret_count; ++i) {
+        const auto c = wrapped_view.carets[i];
+        require(progpu_native_hinted_source_paragraph_get_line_caret(wrapped.value, c.line_index, c.input_position, c.trailing, &caret) ==
+            PROGPU_NATIVE_STATUS_SUCCESS && caret.line_index == c.line_index && caret.x == c.x && caret.y == c.y);
+        for (std::uint32_t j = 0U; j < i; ++j)
+            if (wrapped_view.carets[j].input_position == c.input_position && wrapped_view.carets[j].line_index != c.line_index)
+                shared_boundary = true;
+    }
+    require(shared_boundary);
+    for (std::uint32_t line = 0U; line < wrapped_view.line_count; ++line) {
+        require(progpu_native_hinted_source_paragraph_hit_test_line(wrapped.value, line, 0.0, &hit) ==
+            PROGPU_NATIVE_STATUS_SUCCESS && hit.line_index == line);
+        require(progpu_native_hinted_source_paragraph_get_line_selection(wrapped.value, line, 0, 3, rectangles.data(), 8U, &written) ==
+            PROGPU_NATIVE_STATUS_SUCCESS);
+        for (std::uint32_t i = 0U; i < written; ++i) require(rectangles[i].y == wrapped_view.line_metrics[line].top);
+    }
+    const auto line_caret = caret; const auto line_hit = hit; const auto line_rectangles = rectangles; const auto line_written = written;
+    require(progpu_native_hinted_source_paragraph_get_line_caret(wrapped.value, UINT32_MAX, 0, 0U, &caret) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && std::memcmp(&caret, &line_caret, sizeof(caret)) == 0);
+    require(progpu_native_hinted_source_paragraph_hit_test_line(wrapped.value, UINT32_MAX, 0.0, &hit) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && std::memcmp(&hit, &line_hit, sizeof(hit)) == 0);
+    require(progpu_native_hinted_source_paragraph_get_line_selection(wrapped.value, UINT32_MAX, 0, 3, rectangles.data(), 8U, &written) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && written == line_written && std::memcmp(rectangles.data(), line_rectangles.data(), sizeof(rectangles)) == 0);
     resource_owner resource;
     progpu_native_hinted_glyph_resource_request request{PROGPU_NATIVE_ABI_VERSION, sizeof(request), 1.5F,
         PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE, PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR, 0U};

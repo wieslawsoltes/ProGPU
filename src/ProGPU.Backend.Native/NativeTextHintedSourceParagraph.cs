@@ -101,6 +101,33 @@ public sealed unsafe class NativeHintedSourceParagraph : IDisposable
         return caret;
     }
 
+    public NativeHintedSourceHit HitTestLine(int lineIndex, double distance)
+    {
+        using var use = _paragraph.AcquireSourceUse();
+        NativeHintedSourceHit hit = default;
+        NativeHintedParagraph.ThrowForStatus(NativeMethods.HitTestHintedSourceLine(use.Handle, checked((uint)lineIndex), distance, &hit), "source line hit test");
+        return hit;
+    }
+
+    public NativeHintedSourceCaretStop GetLineCaret(int lineIndex, int inputPosition, bool trailing)
+    {
+        using var use = _paragraph.AcquireSourceUse();
+        NativeHintedSourceCaretStop caret = default;
+        NativeHintedParagraph.ThrowForStatus(NativeMethods.GetHintedSourceLineCaret(use.Handle, checked((uint)lineIndex), inputPosition,
+            trailing ? 1U : 0U, &caret), "source line caret");
+        return caret;
+    }
+
+    public int GetLineSelection(int lineIndex, int start, int end, Span<NativeHintedSourceRectangle> rectangles)
+    {
+        using var use = _paragraph.AcquireSourceUse();
+        uint written = 0;
+        fixed (NativeHintedSourceRectangle* output = rectangles)
+            NativeHintedParagraph.ThrowForStatus(NativeMethods.GetHintedSourceLineSelection(use.Handle, checked((uint)lineIndex), start, end,
+                output, checked((uint)rectangles.Length), &written), "source line selection");
+        return checked((int)written);
+    }
+
     public int GetSelection(int start, int end, Span<NativeHintedSourceRectangle> rectangles)
     {
         using var use = _paragraph.AcquireSourceUse();
@@ -218,5 +245,15 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_hinted_source_paragraph_get_selection")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus GetHintedSourceSelection(nint paragraph, int start, int end,
+        NativeHintedSourceRectangle* rectangles, uint capacity, uint* written);
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_hinted_source_paragraph_hit_test_line")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus HitTestHintedSourceLine(nint paragraph, uint lineIndex, double distance, NativeHintedSourceHit* hit);
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_hinted_source_paragraph_get_line_caret")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetHintedSourceLineCaret(nint paragraph, uint lineIndex, int position, uint trailing, NativeHintedSourceCaretStop* caret);
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_hinted_source_paragraph_get_line_selection")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetHintedSourceLineSelection(nint paragraph, uint lineIndex, int start, int end,
         NativeHintedSourceRectangle* rectangles, uint capacity, uint* written);
 }

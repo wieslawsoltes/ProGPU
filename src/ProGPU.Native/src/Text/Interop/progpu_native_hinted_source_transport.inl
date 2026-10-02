@@ -225,6 +225,55 @@ progpu_native_status progpu_native_hinted_glyph_resource_copy_source_metrics(
         {advances, advance_capacity}, {offsets, offset_capacity});
 }
 
+progpu_native_status progpu_native_hinted_source_paragraph_hit_test_line(
+    const progpu_native_hinted_paragraph* paragraph, std::uint32_t line_index, double x, progpu_native_hinted_source_hit* hit) {
+    if (!valid_hinted_paragraph(paragraph) || !valid_hinted_buffer(hit, 1U) ||
+        hinted_paragraph_handle_aliases(*paragraph, hit, sizeof(*hit))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (!has_hinted_source(*paragraph)) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    hinted_source_hit result{}; font_error error = font_error::none;
+    if (!paragraph->interaction->hit_test_source_line(line_index, x, result, &error)) return status_from_error(error);
+    *hit = {result.input_position, result.line_index,
+        {result.bounds.x, result.bounds.y, result.bounds.width, result.bounds.height}, result.bidi_level,
+        static_cast<std::uint8_t>(result.trailing ? 1U : 0U), static_cast<std::uint8_t>(result.inside ? 1U : 0U), 0U};
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_hinted_source_paragraph_get_line_caret(
+    const progpu_native_hinted_paragraph* paragraph, std::uint32_t line_index, std::int32_t input_position, std::uint32_t trailing,
+    progpu_native_hinted_source_caret_stop* caret) {
+    if (!valid_hinted_paragraph(paragraph) || !valid_hinted_buffer(caret, 1U) || trailing > 1U ||
+        hinted_paragraph_handle_aliases(*paragraph, caret, sizeof(*caret))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (!has_hinted_source(*paragraph)) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    hinted_source_caret_stop result{}; font_error error = font_error::none;
+    if (!paragraph->interaction->source_line_caret(line_index, input_position, trailing != 0U, result, &error)) return status_from_error(error);
+    *caret = source_wire_caret(result);
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_hinted_source_paragraph_get_line_selection(
+    const progpu_native_hinted_paragraph* paragraph, std::uint32_t line_index, std::int32_t input_start, std::int32_t input_end,
+    progpu_native_hinted_source_rectangle* rectangles, std::uint32_t capacity, std::uint32_t* written) {
+    const auto bytes = static_cast<std::uint64_t>(capacity) * sizeof(*rectangles);
+    if (!valid_hinted_paragraph(paragraph) || !valid_hinted_buffer(rectangles, capacity) || !valid_hinted_buffer(written, 1U) ||
+        byte_ranges_overlap(rectangles, bytes, written, sizeof(*written)) ||
+        hinted_paragraph_handle_aliases(*paragraph, rectangles, bytes) ||
+        hinted_paragraph_handle_aliases(*paragraph, written, sizeof(*written))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (!has_hinted_source(*paragraph)) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    if (line_index >= paragraph->source->lines.size()) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    try {
+        std::vector<hinted_source_rectangle> candidate(std::min<std::size_t>(capacity, paragraph->source->boxes.size()));
+        std::uint32_t count = 0U; font_error error = font_error::none;
+        if (!paragraph->interaction->source_line_selection(line_index, input_start, input_end, candidate, count, &error))
+            return status_from_error(error);
+        if (count > candidate.size()) return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+        for (std::size_t i = 0U; i < count; ++i)
+            rectangles[i] = {candidate[i].x, candidate[i].y, candidate[i].width, candidate[i].height};
+        *written = count;
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) { return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
+    catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
+}
+
 progpu_native_status progpu_native_hinted_glyph_resource_validate_source_run(
     const progpu_native_hinted_glyph_resource* resource, const std::uint32_t* positioned_indices, std::uint32_t glyph_count,
     double source_em_size, double source_pixels_per_dip, progpu_native_hinted_source_glyph_offset source_baseline_origin,
