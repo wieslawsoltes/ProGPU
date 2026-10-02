@@ -859,7 +859,7 @@ void original_pair_boundary_controls() {
                 hinted_source_advance_policy::physical_ties_to_even}};
             const std::array configurations{hinted_paragraph_style_configuration{0U, styles[0].scale,
                 {20U * 64U, 20U * 64U, interpreter, 0U, 0U, {}}, 1.0F / 1.5F}};
-            hinted_source_paragraph_layout source_layout{200.0, 0.0, source_metrics, true};
+            hinted_source_paragraph_layout source_layout{200.0, 0.0, source_metrics, true, true};
             std::shared_ptr<const hinted_paragraph_generation> original;
             progpu_native_text_paragraph_result diagnostic{};
             require(try_layout_context_hinted_paragraph(font.context.value, shaping, layout, styles, metrics, configurations,
@@ -873,6 +873,9 @@ void original_pair_boundary_controls() {
             require(advance > 128 && advance % 64 == 0);
             const double single = (static_cast<double>(advance) / 64.0) / 1.5;
             const double paired = (static_cast<double>(advance - 128) / 64.0) / 1.5;
+            require(original->has_source_intrinsic_widths &&
+                original->source_minimum_intrinsic_width == original->source_lines[0].width &&
+                original->source_maximum_intrinsic_width == original->source_lines[0].width);
             for (std::size_t i = 0U; i < 4U; ++i) {
                 require(prepared[i].advance_x == advance && prepared[i].offset_x == 0 &&
                     (static_cast<std::uint32_t>(prepared[i].flags) & 1U) == 0U);
@@ -892,7 +895,9 @@ void original_pair_boundary_controls() {
             const auto verify = [&](const std::shared_ptr<const hinted_paragraph_generation>& owner, std::uint32_t per_line) {
                 require(owner->source_fitting != nullptr && validate_hinted_source_fitting(*owner, *owner->source_fitting) &&
                     owner->logical_owners == original->logical_owners && owner->source_styles[0].em_size == 13.25 &&
-                    owner->source_styles[0].pixels_per_dip == 1.5);
+                    owner->source_styles[0].pixels_per_dip == 1.5 && owner->has_source_intrinsic_widths &&
+                    owner->source_minimum_intrinsic_width == original->source_minimum_intrinsic_width &&
+                    owner->source_maximum_intrinsic_width == original->source_maximum_intrinsic_width);
                 for (std::size_t i = 0U; i < 4U; ++i) require(equal_glyph(owner->logical_glyphs[i], original_wire[i]));
                 for (const auto& line : owner->source_lines) {
                     require(line.glyph_count == per_line && line.width == (per_line == 1U ? single : paired + single));
@@ -934,6 +939,25 @@ void original_pair_boundary_controls() {
             require(try_layout_context_hinted_paragraph(font.context.value, shaping, layout, styles, metrics, configurations,
                 whole_word, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS && whole_word->lines.size() == 1U &&
                 whole_word->source_lines[0].width == original->source_lines[0].width);
+            const std::array spaced_values{code_point, static_cast<std::uint32_t>(' '), code_point, static_cast<std::uint32_t>(' ')};
+            const auto spaced_input = scalars(spaced_values);
+            auto spaced_shaping = shape_request(spaced_input, features); spaced_shaping.direction = shaping.direction;
+            std::shared_ptr<const hinted_paragraph_generation> spaced;
+            require(try_layout_context_hinted_paragraph(font.context.value, spaced_shaping, layout, styles, metrics, configurations,
+                spaced, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS && spaced->has_source_intrinsic_widths);
+            require(spaced->source_minimum_intrinsic_width == paired &&
+                spaced->source_maximum_intrinsic_width == paired + paired + paired &&
+                spaced->source_maximum_intrinsic_width < spaced->source_lines[0].width);
+            hinted_source_intrinsic_widths untouched_widths{123.0, 456.0};
+            hinted_paragraph_generation invalid_measurement;
+            invalid_measurement.has_source_geometry = true;
+            invalid_measurement.styles = original->styles; invalid_measurement.source_styles = original->source_styles;
+            invalid_measurement.runs = original->runs; invalid_measurement.logical_glyphs = original->logical_glyphs;
+            invalid_measurement.logical_owners = original->logical_owners; invalid_measurement.breaks_after = original->breaks_after;
+            invalid_measurement.source_input = original->source_input;
+            invalid_measurement.source_input.back().input_index += 1U;
+            require(measure_hinted_source_intrinsic_widths(invalid_measurement, untouched_widths) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                untouched_widths.minimum == 123.0 && untouched_widths.maximum == 456.0);
             progpu_native_text_context_destroy(font.context.value); font.context.value = nullptr;
             const auto narrow = reflow_hinted_source_paragraph(*fitted, fitted->lines.front().input_start, single);
             require(narrow.status == PROGPU_NATIVE_STATUS_SUCCESS && narrow.generation->lines.size() == 4U &&
