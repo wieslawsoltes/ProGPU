@@ -756,7 +756,7 @@ enum class sampler_engine_policy { original, native, four_load };
     std::uint32_t rectangular_height = 0U)
 {
     require((rectangular_height == 0U && (target_extent == 64U || target_extent == 128U)) ||
-        (capture_frame == nullptr && target_extent == 96U && rectangular_height == 64U),
+        (capture_frame == nullptr && (target_extent == 96U || target_extent == 128U) && rectangular_height == 64U),
         "retained fixture target extent is unsupported");
     const auto target_width = capture_frame != nullptr ? capture_frame->width : target_extent;
     const auto target_height = capture_frame != nullptr ? capture_frame->height :
