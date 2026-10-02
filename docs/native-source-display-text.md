@@ -267,6 +267,24 @@ within-cluster original/native occurrence order, so its shaped comparisons stay
 rejected rather than reordered. Float-product midpoint edges, complete RTL
 source mapping and actual source/renderer import remain qualification gates.
 
+### Owned source resource transport
+
+An explicit version-2 resource input pairs the unchanged flat font/outline view
+with the source double view, original raw and effective placement records,
+prepared-run state, fitted slices/partitions and original break-kind bytes.
+The producer caches every witness before publishing the resource; a later borrow
+allocates nothing and remains under the original destruction-excluding lease.
+Reachable-output alias checks include every added cache allocation. Raw original
+records are not replaced with effective fitting values.
+
+The additive MIL apply route admits mixed raw/source inputs in one transaction.
+It validates all wrappers and imports before the same existing staged canonical
+graph update/binding path publishes, preserving original indices and exact font
+association. A source failure cannot trigger an old-route fallback, a partially
+published raw batch, or foreign native-handle reuse. Original raw API layouts,
+calls and defaults remain unchanged. The paired strict source importer and
+source-host binding route are required before any rendering admission.
+
 After the source-policy implementation commit, a two-translation-unit CPU-only
 executable (`progpu_native_hinted_source_policy.cpp` plus its arithmetic fixture)
 passed 1160 controls under an explicit ten-second timeout. Strict Apple Clang
