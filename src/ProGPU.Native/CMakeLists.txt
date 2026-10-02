@@ -1137,6 +1137,8 @@ add_library(progpu_native_direct2d_core STATIC
     src/Direct2D/progpu_native_direct2d_prepared_glyphs.cpp
     src/Direct2D/progpu_native_direct2d_prepared_glyphs.hpp
     src/Direct2D/progpu_native_direct2d_cff_source.hpp
+    src/Direct2D/progpu_native_direct2d_vertical_metrics.cpp
+    src/Direct2D/progpu_native_direct2d_vertical_metrics.hpp
     src/Direct2D/progpu_native_direct2d_ellipse.cpp
     src/Direct2D/progpu_native_direct2d_ellipse.hpp
     src/Direct2D/progpu_native_direct2d_geometry_group.cpp
@@ -1772,7 +1774,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         tests/progpu_native_direct2d_compat_tests.cpp
         tests/progpu_native_direct2d_font_capture_tests.cpp
         tests/progpu_native_direct2d_variable_glyph_tests.cpp
-        tests/progpu_native_direct2d_cff_glyph_tests.cpp)
+        tests/progpu_native_direct2d_cff_glyph_tests.cpp
+        tests/progpu_native_direct2d_sideways_glyph_tests.cpp)
     target_compile_features(
         progpu_native_direct2d_compat_tests PRIVATE cxx_std_20)
     target_link_libraries(
