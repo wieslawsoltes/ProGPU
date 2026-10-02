@@ -386,6 +386,13 @@ public:
     // closed child scopes participate in the capacity preflight; no command is
     // changed on failure. Ordinary layers remain eligible for elision until used.
     bool isolate_current_layer() noexcept;
+    // Source-proven AA clip scopes, counted inward of the nearest ordinary
+    // source layer, need their original parent pixels before storage Clear.
+    // SAVE scopes do not own storage. Atomically initialize these clips from
+    // background and isolate the ordinary owner, when present; never promote
+    // older AA scopes across that owner. Closed and open child peaks count.
+    bool prepare_antialiased_clear_layers(std::uint32_t antialiased_layer_count,
+        bool has_ordinary_owner) noexcept;
 
     bool draw_analytic(
         std::span<const progpu_native_analytic_primitive> primitives,

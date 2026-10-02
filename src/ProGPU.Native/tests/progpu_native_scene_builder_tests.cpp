@@ -158,6 +158,142 @@ bool semantic_scene_builder_rgb_transport_is_owned_and_atomic() {
         semantic::compute_content_hashes(changed.data(), valid.header).glyph != original_hash;
 }
 
+bool semantic_scene_builder_clear_prepares_exact_aa_owner_chain() {
+    const auto push_clip = [](semantic_scene_builder& builder, bool background) {
+        progpu_native_scene_layer_mask mask{};
+        mask.bounds = {2.25F, 3.75F, 30.5F, 40.25F};
+        mask.transform = semantic_scene_builder::identity_transform();
+        mask.opacity = 1.0F;
+        std::uint32_t index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_rounded_rectangle_mask(mask, index)) return false;
+        auto layer = isolation_test_layer();
+        layer.bounds = mask.bounds;
+        layer.content_revision = layer.composite_revision = 0U;
+        layer.mask_resource_index = index;
+        if (background) layer.flags |= PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND;
+        return builder.push_layer(layer);
+    };
+    for (const bool owner : {false, true}) {
+        for (const std::uint32_t clips : {0U, 1U, 3U}) {
+            if (!owner && clips == 0U) continue;
+            semantic_scene_builder actual(0x9640U, 1U), expected(0x9640U, 1U);
+            // An outer AA clip must not become background-initialized across
+            // an ordinary owner: Clear changes only that owner's storage.
+            if (!push_clip(actual, false) || !push_clip(expected, !owner) ||
+                !actual.save() || !expected.save()) return false;
+            if (owner && (!actual.push_layer(isolation_test_layer()) ||
+                !expected.push_layer(isolation_test_layer(true)))) return false;
+            for (std::uint32_t i = 0U; i < clips; ++i)
+                if (!push_clip(actual, false) || !push_clip(expected, true) ||
+                    !actual.save() || !expected.save()) return false;
+            const auto count = clips + (owner ? 0U : 1U);
+            for (std::uint32_t repeat = 0U; repeat < 3U; ++repeat)
+                if (!actual.prepare_antialiased_clear_layers(count, owner)) return false;
+            for (auto* builder : {&actual, &expected}) {
+                if (!draw_isolation_test(*builder)) return false;
+                for (std::uint32_t i = 0U; i < clips; ++i)
+                    if (!builder->restore() || !builder->pop_layer()) return false;
+                if (owner && !builder->pop_layer()) return false;
+                if (!builder->restore() || !builder->pop_layer()) return false;
+            }
+            if (!equal_closed_isolation_builders(actual, expected)) return false;
+        }
+    }
+    return true;
+}
+
+bool semantic_scene_builder_clear_rejects_nonclip_chain_atomically() {
+    for (std::uint32_t defect = 0U; defect < 8U; ++defect) {
+        semantic_scene_builder actual(0x9641U, 2U), expected(0x9641U, 2U);
+        for (auto* builder : {&actual, &expected}) {
+            for (std::uint32_t i = 0U; i < 2U; ++i) {
+                progpu_native_scene_layer_mask mask{};
+                mask.bounds = {2.25F, 3.75F, 30.5F, 40.25F};
+                mask.transform = semantic_scene_builder::identity_transform();
+                mask.opacity = 1.0F;
+                if (i == 0U && defect == 0U) mask.corner_radii_x[0] = 0.5F;
+                if (i == 0U && defect == 1U) mask.opacity = 0.5F;
+                if (i == 0U && defect == 3U) mask.transform.m31 = 1.0F;
+                std::uint32_t index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!builder->add_rounded_rectangle_mask(mask, index)) return false;
+                auto layer = isolation_test_layer();
+                layer.bounds = mask.bounds;
+                layer.content_revision = layer.composite_revision = 0U;
+                layer.mask_resource_index = index;
+                if (i == 0U && defect == 2U) layer.bounds.width += 1.0F;
+                if (i == 0U && defect == 4U) layer.opacity = 0.5F;
+                if (i == 0U && defect == 5U) layer.blend_mode = PROGPU_NATIVE_BLEND_SRC;
+                if (i == 0U && defect == 6U) layer.flags |= PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+                if (i == 0U && defect == 7U) layer.content_revision = 1U;
+                if (!builder->push_layer(layer) || !builder->save()) return false;
+            }
+        }
+        if (actual.prepare_antialiased_clear_layers(2U, false) ||
+            actual.last_error() != scene_build_error::invalid_argument) return false;
+        for (auto* builder : {&actual, &expected}) {
+            if (!draw_isolation_test(*builder) || !builder->restore() || !builder->pop_layer() ||
+                !builder->restore() || !builder->pop_layer()) return false;
+        }
+        if (!equal_closed_isolation_builders(actual, expected)) return false;
+    }
+    return true;
+}
+
+bool semantic_scene_builder_clear_counts_open_and_historical_children() {
+    for (const std::uint32_t ancestors : {0U, 2U}) {
+        for (const bool at_limit : {false, true}) {
+            const auto children = PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS - ancestors - (at_limit ? 0U : 1U);
+            for (const std::uint32_t open_clips : {1U, children}) {
+                semantic_scene_builder actual(0x9642U, 3U), expected(0x9642U, 3U);
+                for (std::uint32_t i = 0U; i < ancestors; ++i)
+                    if (!actual.push_layer(isolation_test_layer(true)) ||
+                        !expected.push_layer(isolation_test_layer(true))) return false;
+                if (!actual.push_layer(isolation_test_layer()) ||
+                    !expected.push_layer(isolation_test_layer(!at_limit))) return false;
+                // A closed child can exhaust the historical depth even when
+                // the AA scopes currently open below that owner are shallow.
+                for (auto* builder : {&actual, &expected}) {
+                    for (std::uint32_t i = 0U; i < children; ++i)
+                        if (!builder->push_layer(isolation_test_layer(true))) return false;
+                    if (!draw_isolation_test(*builder)) return false;
+                    for (std::uint32_t i = 0U; i < children; ++i)
+                        if (!builder->pop_layer()) return false;
+                    for (std::uint32_t i = 0U; i < open_clips; ++i) {
+                        progpu_native_scene_layer_mask mask{};
+                        mask.bounds = {1.25F, 2.25F, 30.0F, 30.0F};
+                        mask.transform = semantic_scene_builder::identity_transform();
+                        mask.opacity = 1.0F;
+                        std::uint32_t index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                        if (!builder->add_rounded_rectangle_mask(mask, index)) return false;
+                        auto layer = isolation_test_layer();
+                        layer.bounds = mask.bounds;
+                        layer.content_revision = layer.composite_revision = 0U;
+                        layer.mask_resource_index = index;
+                        if (builder == &expected && !at_limit)
+                            layer.flags |= PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND;
+                        if (!builder->push_layer(layer) || !builder->save()) return false;
+                    }
+                }
+                if (at_limit) {
+                    if (actual.prepare_antialiased_clear_layers(open_clips, true) ||
+                        actual.last_error() != scene_build_error::capacity_exceeded) return false;
+                } else if (!actual.prepare_antialiased_clear_layers(open_clips, true) ||
+                    !actual.prepare_antialiased_clear_layers(open_clips, true)) return false;
+                for (auto* builder : {&actual, &expected}) {
+                    if (!draw_isolation_test(*builder)) return false;
+                    for (std::uint32_t i = 0U; i < open_clips; ++i)
+                        if (!builder->restore() || !builder->pop_layer()) return false;
+                    if (!builder->pop_layer()) return false;
+                    for (std::uint32_t i = 0U; i < ancestors; ++i)
+                        if (!builder->pop_layer()) return false;
+                }
+                if (!equal_closed_isolation_builders(actual, expected)) return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool semantic_scene_builder_isolation_rejects_missing_layer_atomically() {
     for (const std::uint32_t saves : {0U, 1U, 3U}) {
         semantic_scene_builder actual(0x9600U, 1U), expected(0x9600U, 1U);

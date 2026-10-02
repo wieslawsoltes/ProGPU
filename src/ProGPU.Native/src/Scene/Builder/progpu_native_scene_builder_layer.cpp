@@ -996,54 +996,133 @@ bool semantic_scene_builder::push_layer(
 }
 
 bool semantic_scene_builder::isolate_current_layer() noexcept {
-    auto& state = *implementation_;
-    std::uint32_t scope = state.stack_depth;
-    while (scope != 0U && state.stack_kinds[scope - 1U] == 1U) --scope;
-    if (scope == 0U || (state.stack_kinds[scope - 1U] != 2U &&
-        state.stack_kinds[scope - 1U] != 3U))
-        return state.fail(scene_build_error::unbalanced_stack);
-    if (state.stack_kinds[scope - 1U] == 3U) {
-        state.error = scene_build_error::none;
-        return true;
-    }
-    const auto command_index = state.layer_command_indices[scope - 1U];
-    if (command_index >= state.commands.size() ||
-        state.commands[command_index].record.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
-        state.commands[command_index].payload.size() != sizeof(progpu_native_scene_layer))
-        return state.fail(scene_build_error::invalid_state);
+    return prepare_antialiased_clear_layers(0U, true);
+}
 
-    // One scan on first promotion. A child may already have closed after using
-    // the maximum materialized depth, so checking only the current live depth
-    // would admit an invalid historical stream. O(C) time, O(S) bounded stack;
-    // repeated Clear calls and already isolated layers take the O(S) fast path.
-    std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> children{};
-    std::uint32_t depth = 0U, live = 0U, peak = 0U;
-    for (std::size_t index = command_index + 1U; index < state.commands.size(); ++index) {
-        const auto& command = state.commands[index];
-        if (command.record.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
-            if (depth == children.size() || command.payload.size() != sizeof(progpu_native_scene_layer))
-                return state.fail(scene_build_error::invalid_state);
-            progpu_native_scene_layer child{};
-            std::memcpy(&child, command.payload.data(), sizeof(child));
-            const bool materialized = scene::layer_requires_materialization(child);
-            children[depth++] = materialized;
-            live += materialized ? 1U : 0U;
-            peak = std::max(peak, live);
-        } else if (command.record.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
-            if (depth == 0U) return state.fail(scene_build_error::invalid_state);
-            live -= children[--depth] ? 1U : 0U;
-        }
+bool semantic_scene_builder::prepare_antialiased_clear_layers(
+    std::uint32_t antialiased_layer_count, bool has_ordinary_owner) noexcept {
+    auto& state = *implementation_;
+    if (antialiased_layer_count > PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH ||
+        (antialiased_layer_count == 0U && !has_ordinary_owner))
+        return state.fail(scene_build_error::invalid_argument);
+    struct pending_layer final {
+        std::uint32_t scope{};
+        std::size_t command_index{};
+        progpu_native_scene_layer value{};
+    };
+    std::array<pending_layer, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> pending{};
+    const std::uint32_t count = antialiased_layer_count + (has_ordinary_owner ? 1U : 0U);
+    if (count > pending.size()) return state.fail(scene_build_error::unbalanced_stack);
+    std::uint32_t scope = state.stack_depth;
+    for (std::uint32_t i = 0U; i < count; ++i) {
+        while (scope != 0U && state.stack_kinds[scope - 1U] == 1U) --scope;
+        if (scope == 0U || (state.stack_kinds[scope - 1U] != 2U &&
+            state.stack_kinds[scope - 1U] != 3U))
+            return state.fail(scene_build_error::unbalanced_stack);
+        auto& item = pending[i];
+        item.scope = --scope;
+        item.command_index = state.layer_command_indices[scope];
+        if (item.command_index >= state.commands.size())
+            return state.fail(scene_build_error::invalid_state);
+        const auto& command = state.commands[item.command_index];
+        if (command.record.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
+            command.payload.size() != sizeof(progpu_native_scene_layer))
+            return state.fail(scene_build_error::invalid_state);
+        std::memcpy(&item.value, command.payload.data(), sizeof(item.value));
+        if (i >= antialiased_layer_count) continue;
+        // Only the exact clip family emitted by the source hosts is eligible.
+        // A regular opacity/effect/mask group is never guessed to be an AA clip.
+        const auto& layer = item.value;
+        constexpr auto allowed = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND;
+        if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U ||
+            (layer.flags & ~allowed) != 0U || layer.opacity != 1.0F ||
+            layer.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
+            layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            layer.mask_resource_index >= state.resources.size() ||
+            layer.content_revision != 0U || layer.composite_revision != 0U ||
+            layer.reserved0 != 0U || layer.reserved1 != 0U ||
+            state.stack_kinds[scope] != 3U)
+            return state.fail(scene_build_error::invalid_argument);
+        const auto& resource = state.resources[layer.mask_resource_index];
+        if (resource.record.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+            resource.payload.size() != sizeof(progpu_native_scene_layer_mask))
+            return state.fail(scene_build_error::invalid_argument);
+        progpu_native_scene_layer_mask mask{};
+        std::memcpy(&mask, resource.payload.data(), sizeof(mask));
+        const auto identity = identity_transform();
+        if (mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE ||
+            mask.opacity != 1.0F || mask.flags != 0U ||
+            std::memcmp(&mask.transform, &identity, sizeof(identity)) != 0 ||
+            std::memcmp(&mask.bounds, &layer.bounds, sizeof(layer.bounds)) != 0 ||
+            !std::all_of(std::begin(mask.corner_radii_x), std::end(mask.corner_radii_x),
+                [](float value) { return value == 0.0F; }) ||
+            !std::all_of(std::begin(mask.corner_radii_y), std::end(mask.corner_radii_y),
+                [](float value) { return value == 0.0F; }))
+            return state.fail(scene_build_error::invalid_argument);
+        for (const auto& hit_layer : state.source_geometry_hit_layers)
+            if (hit_layer.command_index == item.command_index)
+                return state.fail(scene_build_error::invalid_argument);
     }
-    if (depth != 0U || live != 0U) return state.fail(scene_build_error::invalid_state);
-    if (state.materialized_layer_depth + 1U + peak > PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS)
-        return state.fail(scene_build_error::capacity_exceeded);
-    auto& command = state.commands[command_index];
-    progpu_native_scene_layer layer{};
-    std::memcpy(&layer, command.payload.data(), sizeof(layer));
-    layer.flags |= PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
-    std::memcpy(command.payload.data(), &layer, sizeof(layer));
-    state.stack_kinds[scope - 1U] = 3U;
-    ++state.materialized_layer_depth;
+    if (!has_ordinary_owner) {
+        while (scope != 0U && state.stack_kinds[scope - 1U] == 1U) --scope;
+        if (scope != 0U) return state.fail(scene_build_error::unbalanced_stack);
+    }
+    const bool promote_owner = has_ordinary_owner &&
+        state.stack_kinds[pending[antialiased_layer_count].scope] == 2U;
+
+    if (promote_owner) {
+        const auto& owner = pending[antialiased_layer_count];
+        // Count only ancestors before the promoted owner. Open AA children are
+        // already included in the historical peak; adding live depth would
+        // count them twice. Closed child peaks remain equally authoritative.
+        std::uint32_t ancestors = 0U;
+        for (std::uint32_t i = 0U; i < owner.scope; ++i)
+            ancestors += state.stack_kinds[i] == 3U ? 1U : 0U;
+        std::array<std::size_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> children{};
+        std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> materialized_children{};
+        std::uint32_t depth = 0U, live = 0U, peak = 0U;
+        for (std::size_t index = owner.command_index + 1U; index < state.commands.size(); ++index) {
+            const auto& command = state.commands[index];
+            if (command.record.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
+                if (depth == children.size() || command.payload.size() != sizeof(progpu_native_scene_layer))
+                    return state.fail(scene_build_error::invalid_state);
+                progpu_native_scene_layer child{};
+                std::memcpy(&child, command.payload.data(), sizeof(child));
+                const bool materialized = scene::layer_requires_materialization(child);
+                children[depth] = index;
+                materialized_children[depth++] = materialized;
+                live += materialized ? 1U : 0U;
+                peak = std::max(peak, live);
+            } else if (command.record.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+                if (depth == 0U) return state.fail(scene_build_error::invalid_state);
+                live -= materialized_children[--depth] ? 1U : 0U;
+            }
+        }
+        std::uint32_t open_child = 0U;
+        for (std::uint32_t i = owner.scope + 1U; i < state.stack_depth; ++i) {
+            if (state.stack_kinds[i] == 1U) continue;
+            if (open_child >= depth || children[open_child++] != state.layer_command_indices[i])
+                return state.fail(scene_build_error::invalid_state);
+        }
+        if (open_child != depth) return state.fail(scene_build_error::invalid_state);
+        if (ancestors + 1U + peak > PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS)
+            return state.fail(scene_build_error::capacity_exceeded);
+    }
+    // Publication is allocation-free and begins only after every original
+    // scope and historical depth has been checked. No partial background flag.
+    for (std::uint32_t i = 0U; i < antialiased_layer_count; ++i) {
+        auto& item = pending[i];
+        item.value.flags |= PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND;
+        std::memcpy(state.commands[item.command_index].payload.data(), &item.value, sizeof(item.value));
+    }
+    if (promote_owner) {
+        auto& owner = pending[antialiased_layer_count];
+        owner.value.flags |= PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+        std::memcpy(state.commands[owner.command_index].payload.data(), &owner.value, sizeof(owner.value));
+        state.stack_kinds[owner.scope] = 3U;
+        ++state.materialized_layer_depth;
+    }
     state.error = scene_build_error::none;
     return true;
 }

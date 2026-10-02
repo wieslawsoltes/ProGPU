@@ -2225,6 +2225,12 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_isolation_rejects_missing_layer_atomically());
     require(progpu::native::tests::
+        semantic_scene_builder_clear_prepares_exact_aa_owner_chain());
+    require(progpu::native::tests::
+        semantic_scene_builder_clear_rejects_nonclip_chain_atomically());
+    require(progpu::native::tests::
+        semantic_scene_builder_clear_counts_open_and_historical_children());
+    require(progpu::native::tests::
         semantic_scene_builder_isolation_promotes_nearest_layer());
     require(progpu::native::tests::
         semantic_scene_builder_isolation_preserves_materialized_layers());

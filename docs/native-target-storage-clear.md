@@ -19,8 +19,24 @@ existing submission-retired raster-resource lease; no target handle escapes,
 and the encoder neither submits, waits nor reads back. Complexity is O(covered
 pixels) GPU work and O(1) command/uniform storage per clear.
 
-This first private encoder does not yet connect a scene command or either
-Direct2D source host. Those connections and independent original Windows/full
-provider controls are required before antialiased Clear admission. No validation
-has been executed for this implementation stack; qualify only the final
-integrated tips, retaining the existing pixel, lifetime, package and UI gates.
+The builder now prepares only the source-declared AA clip chain inward of the
+nearest ordinary layer. Each exact unit-opacity rectangular clip reuses existing
+`INITIALIZE_FROM_BACKGROUND` composition. The ordinary owner, if elided, becomes
+isolated without changing its own opacity, masks or initialization policy.
+Older AA scopes outside that owner are unchanged. SAVE frames are not storage.
+The atomic preflight retains exact original mask/bounds identity, rejects other
+group families, and counts both historical closed child peaks and currently open
+children without double-counting their live materialized depth. Publication is
+allocation-free; ordinary draw-only layers remain eligible for elision. Existing
+nearest-layer isolation uses this same depth accounting.
+
+Authored builder controls compare full retained streams against independently
+declared background/isolation flags, including idempotence, SAVE scopes, a source
+owner inside an outer AA clip, eight non-clip rejection families, and exact open
+and historical capacity limits. They have not been executed.
+
+The encoder and preparation primitive still require the scene command and both
+Direct2D source connections, plus independent original Windows/full provider
+controls before AA Clear admission. No validation has been executed for this
+implementation stack; qualify only the final integrated tips, retaining the
+existing pixel, lifetime, package and UI gates.
