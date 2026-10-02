@@ -1133,7 +1133,7 @@ static bool layout_measured_core(
         if constexpr (std::is_same_v<Number, double>) return source->line_height;
         else return options.line_height;
     }();
-    const auto source_advance = [&](std::size_t index, Number width) noexcept -> Number {
+    const auto source_advance = [&](std::size_t index, [[maybe_unused]] Number width) noexcept -> Number {
         if constexpr (std::is_same_v<Number, double>) return source->logical_metrics[index].advance_x;
         else return layout_advance(logical_glyphs[index], scale_at(glyph_scales, index, options), width, tabs);
     };
