@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Compiled semantic family identities include the exact scene owner as well as
+resource IDs/generations; unrelated same-sized resource1/version1 is not shared
+content. Private picture capture replacement advances only its own resource scope
+when exact retained ownership/bytes reveal an identity collision. Preserve
+byte-identical warm captures, ordinary generation-independent family retention,
+queued resource leases and separate intrinsic glyph raster identity. Never repair
+cross-owner reuse by isolating fixtures or weakening original pixel/counter gates.
+See docs/DIRECT2D_WIN2D_COMPATIBILITY.md, retained picture resource ownership.
+
 Owned Direct2D upload bitmaps may retain immutable scene-copy storage without
 changing public bitmap/COM identity, raw upload bytes or shared-view format/DPI.
 Keep copies in physical pixels, capture before destination locking, and preserve

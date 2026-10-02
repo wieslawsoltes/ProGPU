@@ -433,6 +433,9 @@ struct progpu_native_engine {
     std::vector<std::byte> semantic_scene_snapshot;
     std::uint64_t semantic_scene_id = 0U;
     std::uint64_t semantic_scene_generation = 0U;
+    // Only private picture capture replacement advances this namespace. Public
+    // scene resource generations remain authoritative and are never rewritten.
+    std::uint64_t semantic_resource_scope = 0U;
     std::uint64_t semantic_scene_hash = 0U;
     progpu::native::semantic::semantic_content_hashes
         semantic_hashes{};

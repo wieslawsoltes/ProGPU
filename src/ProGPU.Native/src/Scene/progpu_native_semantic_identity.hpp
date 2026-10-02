@@ -9,12 +9,13 @@
 namespace progpu::native::semantic {
 
 // Content identities deliberately exclude scene generation and resource
-// payload offsets. Stable resource id/generation pairs are the retained
-// ownership boundary. Each compiled draw-family identity includes only that
+// payload offsets. Scene owner plus stable resource id/generation pairs are the
+// retained ownership boundary. Each compiled draw-family identity includes only that
 // family's draw records/payloads plus the effective state and active layers at
 // its draws. Closed and trailing scopes do not affect unrelated retained
 // pages. Full-scene replay ordering remains owned by the independent immutable
-// stream hash.
+// stream hash. Intrinsic glyph/outline byte identities are a separate raster
+// cache contract, independent of this positioned scene-owner namespace.
 struct semantic_content_hashes final {
     std::uint64_t brush = 0U;
     std::uint64_t text_style = 0U;
@@ -29,6 +30,17 @@ struct semantic_content_hashes final {
 semantic_content_hashes compute_content_hashes(
     const std::byte* bytes,
     const progpu_native_scene_header& header) noexcept;
+
+// A private picture engine may install independent captures that reuse one
+// public owner/version. Its scoped epoch changes only at an actual ownership or
+// resource-generation collision; public scene identity and wire remain intact.
+semantic_content_hashes compute_content_hashes(
+    const std::byte* bytes, const progpu_native_scene_header& header,
+    std::uint64_t resource_scope) noexcept;
+
+bool picture_capture_changes_resource_scope(const std::byte* previous,
+    const progpu_native_scene_header& previous_header, const std::byte* current,
+    const progpu_native_scene_header& current_header) noexcept;
 
 // Device-dependent identity; preserve the established full/uniform fast path.
 // Logical resource, brush and text-style identities remain unchanged.
