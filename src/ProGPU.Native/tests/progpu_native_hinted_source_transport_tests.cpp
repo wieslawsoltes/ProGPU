@@ -1,4 +1,4 @@
-#include "progpu_native_text_source.h"
+#include "progpu_native_text_source_resource.h"
 #include "progpu_native_hinted_shape_fixture.hpp"
 #include "../src/Text/Interop/progpu_native_hinted_paragraph_transport_internal.hpp"
 #include <array>
@@ -171,7 +171,46 @@ void controls() {
         PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE, PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR, 0U};
     require(progpu_native_hinted_paragraph_prepare_glyph_resource_with_nominal_metrics(paragraph.value, &request, &resource.value) ==
         PROGPU_NATIVE_STATUS_SUCCESS);
+    progpu_native_hinted_glyph_resource_view raster{};
+    progpu_native_hinted_source_glyph_resource_view source_resource{};
+    require(progpu_native_hinted_glyph_resource_borrow(resource.value, &raster) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        progpu_native_hinted_glyph_resource_borrow_source(resource.value, &source_resource) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(source_resource.abi_version == PROGPU_NATIVE_ABI_VERSION && source_resource.struct_size == sizeof(source_resource) &&
+        source_resource.version == 2U && source_resource.flags == 0U && source_resource.reserved == 0U &&
+        source_resource.source.style_count == raster.counts.style_count && source_resource.source.logical_count == raster.counts.logical_glyph_count &&
+        source_resource.source.glyph_count == raster.counts.positioned_glyph_count && source_resource.source.line_count == raster.counts.line_count &&
+        raster.counts.cluster_box_count == 0U && raster.counts.caret_stop_count == 0U &&
+        source_resource.source.box_count == view.box_count && source_resource.source.caret_count == view.caret_count &&
+        source_resource.source.options.em_size == 10.0 && source_resource.source.options.pixels_per_dip == 1.5 &&
+        source_resource.first_logical_glyph == 0U && source_resource.intrinsic_widths.minimum == widths.minimum &&
+        source_resource.intrinsic_widths.maximum == widths.maximum);
+    for (std::uint32_t i = 0U; i < source_resource.source.logical_count; ++i) {
+        require(source_resource.raw_logical_glyphs[i].glyph_id == raster.logical_glyphs[i].glyph_id &&
+            source_resource.raw_logical_glyphs[i].cluster == raster.logical_glyphs[i].cluster &&
+            source_resource.effective_logical_glyphs[i].glyph_id == raster.logical_glyphs[i].glyph_id &&
+            source_resource.breaks_after[i] <= 2U);
+    }
+    std::uint32_t partition_end = 0U;
+    for (std::uint32_t i = 0U; i < source_resource.source.line_count; ++i) {
+        const auto& line = source_resource.fitted_lines[i];
+        require(line.glyph_start == partition_end && line.glyph_count != 0U && line.reserved == 0U &&
+            line.width == source_resource.source.line_metrics[i].width);
+        partition_end += line.glyph_count;
+    }
+    require(partition_end == source_resource.source.logical_count);
+    const auto original_raw = source_resource.raw_logical_glyphs[0];
+    require(progpu_native_hinted_glyph_resource_borrow_source(resource.value,
+        reinterpret_cast<progpu_native_hinted_source_glyph_resource_view*>(
+            const_cast<progpu_native_text_shaping_glyph*>(source_resource.raw_logical_glyphs))) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        std::memcmp(&original_raw, source_resource.raw_logical_glyphs, sizeof(original_raw)) == 0);
+    const auto saved_source_resource = source_resource;
+    require(progpu_native_hinted_glyph_resource_borrow_source(nullptr, &source_resource) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        std::memcmp(&source_resource, &saved_source_resource, sizeof(source_resource)) == 0);
     progpu_native_hinted_paragraph_destroy(paragraph.value); paragraph.value = nullptr;
+    progpu_native_text_context_destroy(context.value); context.value = nullptr;
+    require(progpu_native_hinted_glyph_resource_borrow_source(resource.value, &source_resource) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        std::memcmp(&source_resource, &saved_source_resource, sizeof(source_resource)) == 0 &&
+        source_resource.source.styles[0].em_size == 10.0 && source_resource.raw_logical_glyphs[0].glyph_id == original_raw.glyph_id);
     const std::uint32_t index = 0U; std::array<double, 2U> advances{71.0, 72.0};
     std::array<progpu_native_hinted_source_glyph_offset, 2U> offsets{{{81, 82}, {83, 84}}};
     require(progpu_native_hinted_glyph_resource_copy_source_metrics(resource.value, &index, 1U, 10.0, 1.5,
