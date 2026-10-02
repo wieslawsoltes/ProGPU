@@ -2,7 +2,9 @@
 #include "../src/Scene/progpu_native_scene.hpp"
 #include "../src/Scene/progpu_native_shader_effect_resource.hpp"
 #include "../src/Scene/progpu_native_shader_effect_uniforms.hpp"
+#include "../src/Scene/progpu_native_shader_sample_frame.hpp"
 
+#include <bit>
 #include <cstring>
 #include <iostream>
 
@@ -12,10 +14,56 @@ bool check(bool value, int line) {
     return value;
 }
 #define UV_REQUIRE(value) do { if (!check((value), __LINE__)) return false; } while (false)
+
+bool source_sample_frame_arithmetic() {
+    using namespace progpu::native::shader_effect;
+    const auto bits = [](float value) { return std::bit_cast<std::uint32_t>(value); };
+    axis_matrix inverse{};
+    UV_REQUIRE(inverse_axis_matrix({1.25F, 1.25F}, inverse));
+    UV_REQUIRE(bits(inverse.x) == 0x3F4CCCCCU && bits(1.0F / 1.25F) == 0x3F4CCCCDU);
+    UV_REQUIRE(bits(source_product(inverse.x, 1.25F)) == 0x3F7FFFFFU);
+    UV_REQUIRE(inverse_axis_matrix({1.25F, 1.5F}, inverse));
+    UV_REQUIRE(bits(source_product(inverse.x, 1.25F)) == 0x3F800001U);
+    UV_REQUIRE(inverse_axis_matrix({std::nextafter(1.25F, 2.0F), 1.25F}, inverse));
+    UV_REQUIRE(bits(inverse.w) == 0x3F7FFFFFU);
+    sample_frame result{};
+    sample_frame_request request{16.75F, 16.25F, 32.25F, 23.75F, {1, 1, 1, 1, 2, 3}};
+    UV_REQUIRE(create_sample_frame(request, result));
+    UV_REQUIRE((result.capture == sample_lattice{16, 16, 17, 8}));
+    UV_REQUIRE((result.output == sample_lattice{18, 19, 17, 8}));
+    UV_REQUIRE(result.unit_to_device.x == 17 && result.unit_to_device.y == 8 &&
+        result.unit_to_device.tx == 18 && result.unit_to_device.ty == 19 && result.unit_to_device.w == 1);
+    request.source_to_device.tx = 2.25F; request.source_to_device.ty = 3.5F;
+    UV_REQUIRE(create_sample_frame(request, result));
+    UV_REQUIRE((result.capture == sample_lattice{16, 16, 17, 8}));
+    UV_REQUIRE((result.output == sample_lattice{18, 19, 18, 9}));
+    UV_REQUIRE(result.unit_to_device.tx == 18.25F && result.unit_to_device.ty == 19.5F);
+    request.source_to_device = {1.25F, 1.25F, 1, 1, 2.5F, 3.75F};
+    UV_REQUIRE(create_sample_frame(request, result));
+    UV_REQUIRE((result.capture == sample_lattice{20, 20, 21, 10}));
+    UV_REQUIRE(bits(result.residual.x) == 0x3F7FFFFFU && result.residual.w == 1.0F);
+    // No out-of-band source or output mutation on a later invalid frame.
+    const auto before = result;
+    for (std::uint32_t variant = 0U; variant < 8U; ++variant) {
+        auto invalid = request;
+        if (variant == 0U) invalid.source_to_device.x = 0.0F;
+        if (variant == 1U) invalid.source_to_device.y = -1.0F;
+        if (variant == 2U) invalid.source_to_device.w = .5F;
+        if (variant == 3U) invalid.local_left = std::numeric_limits<float>::quiet_NaN();
+        if (variant == 4U) invalid.local_right = invalid.local_left;
+        if (variant == 5U) invalid.local_right = 20'000.0F;
+        if (variant == 6U) invalid.source_to_device.tx = std::numeric_limits<float>::infinity();
+        if (variant == 7U) invalid.source_to_device.x = std::numeric_limits<float>::max();
+        UV_REQUIRE(!create_sample_frame(invalid, result));
+        UV_REQUIRE(std::memcmp(&result, &before, sizeof(result)) == 0);
+    }
+    return true;
+}
 }
 
 bool run_shader_effect_uniform_tests() {
     using namespace progpu::native;
+    UV_REQUIRE(source_sample_frame_arithmetic());
     static_assert(sizeof(progpu_native_scene_shader_effect) == 544U);
     static_assert(sizeof(progpu_native_scene_shader_effect_picture) == 560U);
     static_assert(sizeof(progpu_native_scene_shader_effect_derivatives) == 576U);

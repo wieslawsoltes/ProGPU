@@ -2,6 +2,7 @@
 #include "progpu_native_shader_effect_execution.hpp"
 #include "progpu_native_shader_effect_uniforms.hpp"
 #include "WpfBytecodeEffectWgsl.generated.hpp"
+#include "WpfBytecodeSampleEffectWgsl.generated.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,11 +27,19 @@ struct effect_uniforms {
     float extent[4];
 };
 static_assert(sizeof(effect_uniforms) == 528U);
+struct sample_effect_uniforms {
+    effect_uniforms source;
+    float quad_scale_offset[4];
+    float output_lattice[4];
+    float homogeneous[4];
+};
+static_assert(sizeof(sample_effect_uniforms) == 576U);
 
 std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engine,
-    const progpu_native_scene_shader_effect& descriptor, std::span<const std::byte> bytecode) {
+    const progpu_native_scene_shader_effect& descriptor, std::span<const std::byte> bytecode,
+    bool final_sample_program = false) {
     for (const auto& program : engine.semantic_shader_programs) {
-        if (program->source_sampler == descriptor.source_sampler &&
+        if (program->source_sampler == descriptor.source_sampler && program->final_sample_program == final_sample_program &&
             std::ranges::equal(program->bytecode, bytecode)) return program;
     }
     std::string body;
@@ -46,8 +55,10 @@ std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engin
     auto program = std::make_shared<semantic_shader_program>();
     program->bytecode.assign(bytecode.begin(), bytecode.end());
     program->source_sampler = descriptor.source_sampler;
-    std::string source(reinterpret_cast<const char*>(generated::wpf_bytecode_effect_wgsl),
-        generated::wpf_bytecode_effect_wgsl_size);
+    program->final_sample_program = final_sample_program;
+    const auto* source_bytes = final_sample_program ? generated::wpf_bytecode_sample_effect_wgsl : generated::wpf_bytecode_effect_wgsl;
+    const auto source_size = final_sample_program ? generated::wpf_bytecode_sample_effect_wgsl_size : generated::wpf_bytecode_effect_wgsl_size;
+    std::string source(reinterpret_cast<const char*>(source_bytes), source_size);
     constexpr std::string_view marker = "// PROGPU_VALIDATED_BYTECODE_BODY";
     const auto position = source.find(marker);
     if (position == std::string::npos) return {};
@@ -60,8 +71,9 @@ std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engin
     if (program->module == nullptr) return {};
     std::array<WGPUBindGroupLayoutEntry, 3U> entries{};
     entries[0].binding = 0U; entries[0].visibility = WGPUShaderStage_Fragment;
+    if (final_sample_program) entries[0].visibility |= WGPUShaderStage_Vertex;
     entries[0].buffer.type = WGPUBufferBindingType_Uniform;
-    entries[0].buffer.minBindingSize = sizeof(effect_uniforms);
+    entries[0].buffer.minBindingSize = final_sample_program ? sizeof(sample_effect_uniforms) : sizeof(effect_uniforms);
     entries[1].binding = 1U; entries[1].visibility = WGPUShaderStage_Fragment;
     entries[1].sampler.type = WGPUSamplerBindingType_Filtering;
     entries[2].binding = 2U; entries[2].visibility = WGPUShaderStage_Fragment;
@@ -141,6 +153,62 @@ std::shared_ptr<semantic_shader_binding> create_semantic_shader_binding(
     return binding->bind_group != nullptr ? binding : nullptr;
 }
 
+std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
+    progpu_native_engine& engine, const progpu_native_scene_shader_effect& descriptor,
+    std::span<const std::byte> bytecode, const shader_effect::sample_frame& frame,
+    std::shared_ptr<semantic_picture_backing> source_picture, std::uint32_t derivative_register) {
+    if (!shader_effect::validate(descriptor, bytecode) || !source_picture || source_picture->owner != &engine ||
+        source_picture->view == nullptr || source_picture->descriptor.width != frame.capture.width ||
+        source_picture->descriptor.height != frame.capture.height || frame.capture.width == 0U || frame.capture.height == 0U ||
+        frame.output.width == 0U || frame.output.height == 0U || frame.output.width > 16'384U || frame.output.height > 16'384U ||
+        !shader_effect::finite_axis_matrix(frame.unit_to_device) || !shader_effect::finite_axis_matrix(frame.device_to_unit) ||
+        frame.unit_to_device.w <= 0.0F ||
+        (derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX && derivative_register >= 32U)) return {};
+    auto program = program_for(engine, descriptor, bytecode, true);
+    if (!program) return {};
+    sample_effect_uniforms uniforms{};
+    std::copy(std::begin(descriptor.constants), std::end(descriptor.constants), uniforms.source.constants.begin());
+    if (derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX) {
+        const auto offset = derivative_register * 4U;
+        uniforms.source.constants[offset] = frame.device_to_unit.x;
+        uniforms.source.constants[offset + 1U] = 0.0F;
+        uniforms.source.constants[offset + 2U] = 0.0F;
+        uniforms.source.constants[offset + 3U] = frame.device_to_unit.y;
+    }
+    uniforms.source.extent[0] = static_cast<float>(frame.capture.width);
+    uniforms.source.extent[1] = static_cast<float>(frame.capture.height);
+    uniforms.source.extent[2] = static_cast<float>(source_picture->descriptor.width);
+    uniforms.source.extent[3] = static_cast<float>(source_picture->descriptor.height);
+    uniforms.quad_scale_offset[0] = frame.unit_to_device.x;
+    uniforms.quad_scale_offset[1] = frame.unit_to_device.y;
+    uniforms.quad_scale_offset[2] = frame.unit_to_device.tx;
+    uniforms.quad_scale_offset[3] = frame.unit_to_device.ty;
+    uniforms.output_lattice[0] = static_cast<float>(frame.output.x);
+    uniforms.output_lattice[1] = static_cast<float>(frame.output.y);
+    uniforms.output_lattice[2] = static_cast<float>(frame.output.width);
+    uniforms.output_lattice[3] = static_cast<float>(frame.output.height);
+    uniforms.homogeneous[0] = frame.unit_to_device.w;
+    auto binding = std::make_shared<semantic_shader_binding>();
+    binding->program = std::move(program); binding->sampler_picture = std::move(source_picture);
+    binding->width = frame.output.width; binding->height = frame.output.height;
+    binding->final_sample_program = true;
+    WGPUBufferDescriptor buffer{};
+    buffer.label = webgpu::string_view("ProGPU retained final-device shader frame");
+    buffer.size = sizeof(uniforms); buffer.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+    binding->uniforms = wgpuDeviceCreateBuffer(engine.device, &buffer);
+    if (binding->uniforms == nullptr) return {};
+    wgpuQueueWriteBuffer(engine.queue, binding->uniforms, 0U, &uniforms, sizeof(uniforms));
+    std::array<WGPUBindGroupEntry, 3U> entries{};
+    entries[0].binding = 0U; entries[0].buffer = binding->uniforms; entries[0].size = sizeof(uniforms);
+    entries[1].binding = 1U; entries[1].sampler = descriptor.sampling_mode == 0U
+        ? engine.image_nearest_sampler : engine.image_linear_sampler;
+    entries[2].binding = 2U; entries[2].textureView = binding->sampler_picture->view;
+    WGPUBindGroupDescriptor group{};
+    group.layout = binding->program->layout; group.entryCount = entries.size(); group.entries = entries.data();
+    binding->bind_group = wgpuDeviceCreateBindGroup(engine.device, &group);
+    return binding->bind_group != nullptr ? binding : nullptr;
+}
+
 bool encode_semantic_shader_effect(progpu_native_engine&, WGPUCommandEncoder encoder,
     const semantic_shader_binding& binding, const semantic_layer_slot& slot, std::uint32_t& pass_count) {
     if (!binding.program || binding.program->pipeline == nullptr || binding.bind_group == nullptr ||
@@ -159,7 +227,7 @@ bool encode_semantic_shader_effect(progpu_native_engine&, WGPUCommandEncoder enc
     wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F, static_cast<float>(binding.width),
         static_cast<float>(binding.height), 0.0F, 1.0F);
     wgpuRenderPassEncoderSetScissorRect(pass, 0U, 0U, binding.width, binding.height);
-    wgpuRenderPassEncoderDraw(pass, 3U, 1U, 0U, 0U);
+    wgpuRenderPassEncoderDraw(pass, binding.final_sample_program ? 6U : 3U, 1U, 0U, 0U);
     wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
     ++pass_count;
     return true;

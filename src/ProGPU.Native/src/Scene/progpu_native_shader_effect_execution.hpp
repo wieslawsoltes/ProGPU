@@ -1,6 +1,7 @@
 #pragma once
 
 #include "progpu_native_shader_effect.hpp"
+#include "progpu_native_shader_sample_frame.hpp"
 
 #include <memory>
 #include <vector>
@@ -17,6 +18,7 @@ struct semantic_shader_program {
     semantic_shader_program& operator=(const semantic_shader_program&) = delete;
     std::vector<std::byte> bytecode;
     std::uint32_t source_sampler = 0U;
+    bool final_sample_program = false;
     WGPUBindGroupLayout layout = nullptr;
     WGPUShaderModule module = nullptr;
     WGPURenderPipeline pipeline = nullptr;
@@ -35,6 +37,7 @@ struct semantic_shader_binding {
     WGPUBindGroup bind_group = nullptr;
     std::uint32_t width = 0U;
     std::uint32_t height = 0U;
+    bool final_sample_program = false;
     ~semantic_shader_binding();
 };
 
@@ -46,6 +49,15 @@ std::shared_ptr<semantic_shader_binding> create_semantic_shader_binding(
     const semantic_layer_slot& slot,
     std::uint32_t width, std::uint32_t height,
     std::shared_ptr<semantic_picture_backing> sampler_picture = {},
+    std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX);
+
+// The existing retained-picture path owns the complete scale-space input.
+// Output uses a separate final device lattice, never a resized old shader result.
+std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
+    progpu_native_engine& engine, const progpu_native_scene_shader_effect& descriptor,
+    std::span<const std::byte> bytecode,
+    const shader_effect::sample_frame& frame,
+    std::shared_ptr<semantic_picture_backing> source_picture,
     std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX);
 
 bool encode_semantic_shader_effect(progpu_native_engine& engine,
