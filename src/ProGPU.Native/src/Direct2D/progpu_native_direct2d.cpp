@@ -6606,7 +6606,11 @@ public:
             parameters->maskAntialiasMode != D2D1_ANTIALIAS_MODE_ALIASED) {
             return fail_invalid_value();
         }
-        if (parameters->layerOptions != D2D1_LAYER_OPTIONS1_NONE) {
+        const auto options = static_cast<std::uint32_t>(parameters->layerOptions);
+        if ((options & ~3U) != 0U) {
+            return fail_invalid_value();
+        }
+        if ((options & D2D1_LAYER_OPTIONS1_IGNORE_ALPHA) != 0U) {
             return fail_unsupported_state();
         }
         if (scope_depth_ == scope_stack_.size()) {
@@ -6671,7 +6675,9 @@ public:
             parameters->geometricMask != nullptr;
         const progpu_native_scene_layer layer{
             sizeof(progpu_native_scene_layer),
-            has_bounds ? PROGPU_NATIVE_SCENE_LAYER_BOUNDS : 0U,
+            (has_bounds ? PROGPU_NATIVE_SCENE_LAYER_BOUNDS : 0U) |
+                ((options & D2D1_LAYER_OPTIONS1_INITIALIZE_FROM_BACKGROUND) != 0U
+                    ? PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND : 0U),
             bounds,
             parameters->opacity,
             PROGPU_NATIVE_BLEND_SRC_OVER,

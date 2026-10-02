@@ -641,12 +641,14 @@ progpu_native_status render_scene(
             }
             semantic_materialized_layer_count += materialized ? 1U : 0U;
             const bool backdrop = materialized &&
-                (layer.flags & PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
+                (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+                    PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) != 0U;
             semantic_backdrop_layer_count += backdrop ? 1U : 0U;
             semantic_effected_backdrop_layer_count +=
                 backdrop && effected ? 1U : 0U;
             if (materialized &&
-                is_advanced_group_blend(layer.blend_mode)) {
+                (is_advanced_group_blend(layer.blend_mode) ||
+                    (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U)) {
                 ++semantic_advanced_layer_count;
                 semantic_advanced_source_width = std::max(
                     semantic_advanced_source_width,
@@ -4675,7 +4677,8 @@ progpu_native_status render_scene(
                         semantic::presentation_content_hash(layer.content_revision, *frame, presentation);
                     operation.backdrop =
                         (layer.flags &
-                            PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
+                            (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+                                PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) != 0U;
                     if (operation.backdrop) {
                         operation.source_width = target_extent.width;
                         operation.source_height = target_extent.height;
@@ -4902,6 +4905,8 @@ progpu_native_status render_scene(
                     operation.backdrop =
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
+                    operation.initialized_background =
+                        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U;
                     operation.cache_content = cached;
                     operation.cache_identity = layer.composite_revision;
                     operation.cache_content_revision =
@@ -4919,7 +4924,8 @@ progpu_native_status render_scene(
                         operation.clip_height = composite_scissor.height;
                     }
                     const bool advanced_blend =
-                        is_advanced_group_blend(layer.blend_mode);
+                        is_advanced_group_blend(layer.blend_mode) ||
+                        operation.initialized_background;
                     if (!operation.backdrop) {
                         if (!append_effect_program(
                             layer.effect_resource_index,
@@ -5052,6 +5058,7 @@ progpu_native_status render_scene(
                         sampling.source_extent[1] =
                             static_cast<float>(source_extent.height);
                         sampling.blend_mode = layer.blend_mode;
+                        sampling.operation_kind = operation.initialized_background ? 2U : 0U;
                         WGPUTextureView destination_view =
                             operation.target_layer ==
                                 PROGPU_NATIVE_SCENE_NO_INDEX
@@ -5877,7 +5884,8 @@ progpu_native_status render_scene(
                     cached_layer_replay[operation.source_layer] = false;
                 }
                 const bool advanced_blend =
-                    is_advanced_group_blend(operation.blend_mode);
+                    is_advanced_group_blend(operation.blend_mode) ||
+                    operation.initialized_background;
                 if (!content_cached || advanced_blend ||
                     active_pass_uses_depth) {
                     finish_pass();

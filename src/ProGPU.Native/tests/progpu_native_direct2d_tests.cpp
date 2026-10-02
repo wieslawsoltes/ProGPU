@@ -4,6 +4,7 @@
 #include "progpu_native_direct2d_brush_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
+#include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
 #include "progpu_native.h"
@@ -98,10 +99,88 @@ void require(bool condition, const char* message)
     }
 }
 
+void layer_background_regressions(ID2D1DeviceContext* source_context)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    ComPtr<ID2D1Device> device;
+    source_context->GetDevice(device.GetAddressOf());
+    ComPtr<ID2D1DeviceContext> context;
+    require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
+        "layer background original context failed");
+    context->SetDpi(96, 96);
+    ComPtr<ID2D1Factory> factory;
+    context->GetFactory(factory.GetAddressOf());
+    const auto target_properties = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96, 96);
+    const auto read_properties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        target_properties.pixelFormat, 96, 96);
+    ComPtr<ID2D1Bitmap1> target, readback;
+    require(context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &target_properties, target.GetAddressOf()) == S_OK &&
+        context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &read_properties, readback.GetAddressOf()) == S_OK,
+        "layer background original target/readback failed");
+    for (std::uint32_t variant = 0U; variant < 8U; ++variant) {
+        const auto record = [&] {
+            return fixture::record_layer_background(reinterpret_cast<compat::render_target*>(context.Get()),
+                reinterpret_cast<compat::factory*>(factory.Get()), variant,
+                [&](const compat::layer_parameters1& parameters) {
+                    const D2D1_LAYER_PARAMETERS1 original{
+                        {parameters.content_bounds.left, parameters.content_bounds.top,
+                            parameters.content_bounds.right, parameters.content_bounds.bottom},
+                        reinterpret_cast<ID2D1Geometry*>(parameters.geometric_mask), D2D1_ANTIALIAS_MODE_ALIASED,
+                        D2D1::Matrix3x2F::Identity(), parameters.opacity, nullptr,
+                        D2D1_LAYER_OPTIONS1_INITIALIZE_FROM_BACKGROUND};
+                    context->PushLayer(&original, nullptr);
+                });
+        };
+        context->SetTarget(target.Get());
+        require(record() == S_OK, "layer background original Windows draw failed");
+        context->SetTarget(nullptr);
+        require(readback->CopyFromBitmap(nullptr, target.Get(), nullptr) == S_OK,
+            "layer background original pixel copy failed");
+        D2D1_MAPPED_RECT mapped{};
+        require(readback->Map(D2D1_MAP_OPTIONS_READ, &mapped) == S_OK,
+            "layer background original pixel map failed");
+        std::vector<std::uint8_t> pixels(64U * 256U);
+        for (std::size_t row = 0U; row < 64U; ++row)
+            std::memcpy(pixels.data() + row * 256U, mapped.bits + row * mapped.pitch, 256U);
+        require(readback->Unmap() == S_OK && fixture::layer_background_pixels(pixels, 64U, variant, true),
+            "layer background original Windows full bytes differ from independent expected pixels");
+
+        ComPtr<ID2D1CommandList> list;
+        require(context->CreateCommandList(list.GetAddressOf()) == S_OK,
+            "layer background original command list failed");
+        context->SetTarget(list.Get());
+        require(record() == S_OK && list->Close() == S_OK, "layer background original list recording failed");
+        context->SetTarget(nullptr);
+        progpu_native_direct2d_scene_recorder* recorder = nullptr;
+        std::int32_t hr = E_FAIL;
+        require(progpu_native_direct2d_scene_recorder_create(0xBC00U + variant, 1U, nullptr, &recorder, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "layer background recorder failed");
+        void* raw_sink = nullptr;
+        require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "layer background sink failed");
+        ComPtr<ID2D1CommandSink1> sink;
+        sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+        require(list->Stream(sink.Get()) == S_OK, "layer background original stream translation failed");
+        progpu_native_direct2d_scene_stream_result result{};
+        result.struct_size = sizeof(result);
+        require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "layer background stream measurement failed");
+        std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
+        require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::layer_background_contract(bytes),
+            "layer background original stream lost typed initialization metadata");
+        sink.Reset();
+        progpu_native_direct2d_scene_recorder_destroy(recorder);
+    }
+}
+
 void full_target_clear_regressions(
     progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
 {
     namespace fixture = progpu::native::direct2d::tests;
+    layer_background_regressions(source_context);
     ComPtr<ID2D1Device> device;
     source_context->GetDevice(device.GetAddressOf());
     ComPtr<ID2D1DeviceContext> context;
@@ -6791,13 +6870,10 @@ int main()
             0U,
             &background_layer_scene,
             &native_hresult) ==
-                PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
-            native_hresult == E_NOTIMPL &&
-            background_layer_scene.failure_reason ==
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE &&
-            background_layer_scene.failure_callback_index != 0U &&
-            background_layer_scene.written_bytes == 0U,
-        "Direct2D background-initialized layer did not fail closed");
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            background_layer_scene.failure_callback_index == 0U &&
+            background_layer_scene.written_bytes == 0U && background_layer_scene.required_bytes != 0U,
+        "Direct2D background-initialized layer translation failed");
 
     for (const bool with_opacity : {false, true}) {
         void* aliased_mask_layer_list_value = nullptr;

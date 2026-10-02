@@ -37,6 +37,7 @@ using ::progpu_native_scene_shader_effect_picture;
 using ::progpu_native_scene_shader_effect_derivatives;
 using ::progpu_native_scene_shader_effect_capture;
 using ::PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+using ::PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND;
 using ::PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT;
 using ::PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
 using ::PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED;

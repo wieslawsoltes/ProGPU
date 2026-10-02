@@ -3649,6 +3649,7 @@ private:
 class portable_scene_render_target final :
     public bitmap_render_target,
     public scene_render_target_native,
+    public scene_layer_options_native,
     public scene_bitmap_native {
 public:
     portable_scene_render_target(
@@ -3692,6 +3693,9 @@ public:
         } else if (com::guid_equal(
                 interface_id, scene_render_target_native_interface_id)) {
             *value = static_cast<scene_render_target_native*>(this);
+        } else if (com::guid_equal(
+                interface_id, scene_layer_options_native_interface_id)) {
+            *value = static_cast<scene_layer_options_native*>(this);
         } else {
             return com::no_interface;
         }
@@ -5523,6 +5527,28 @@ public:
         const layer_parameters* parameters,
         layer* layer_value) noexcept override
     {
+        push_layer(parameters, layer_value, 0U, false);
+    }
+
+    void PROGPU_NATIVE_COM_CALL PushLayer1(
+        const layer_parameters1* parameters,
+        layer* layer_value) noexcept override
+    {
+        if (parameters == nullptr) {
+            push_layer(nullptr, layer_value, 0U, true);
+            return;
+        }
+        const layer_parameters legacy{
+            parameters->content_bounds, parameters->geometric_mask,
+            parameters->mask_antialias_mode, parameters->mask_transform,
+            parameters->opacity, parameters->opacity_brush, layer_options::none};
+        push_layer(&legacy, layer_value,
+            static_cast<std::uint32_t>(parameters->options), true);
+    }
+
+    void push_layer(const layer_parameters* parameters, layer* layer_value,
+        std::uint32_t options1, bool uses_options1) noexcept
+    {
         const std::lock_guard lock(mutex_);
         if (!can_draw()) {
             return;
@@ -5549,6 +5575,18 @@ public:
             latch(not_implemented);
             return;
         }
+        if (uses_options1 && (options1 & ~3U) != 0U) {
+            latch(com::invalid_argument);
+            return;
+        }
+        // Ignore-alpha requires a separate intermediate alpha-write policy;
+        // do not reinterpret it as ordinary transparent storage.
+        if ((options1 & 2U) != 0U) {
+            latch(not_implemented);
+            return;
+        }
+        const std::uint32_t initialization_flags = (options1 & 1U) != 0U
+            ? PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND : 0U;
         const bool full_target = infinite_rectangle(
             parameters->content_bounds);
         rectangle_f mask_content_bounds = parameters->content_bounds;
@@ -5656,10 +5694,10 @@ public:
         }
         const progpu_native_scene_layer native_layer{
             sizeof(progpu_native_scene_layer),
-            has_bounds
+            (has_bounds
                 ? static_cast<std::uint32_t>(
                     PROGPU_NATIVE_SCENE_LAYER_BOUNDS)
-                : 0U,
+                : 0U) | initialization_flags,
             bounds,
             parameters->opacity,
             PROGPU_NATIVE_BLEND_SRC_OVER,

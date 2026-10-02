@@ -109,7 +109,8 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     progpu_native_engine& engine,
     std::uint32_t blend_mode,
     bool masked,
-    bool& cache_hit);
+    bool& cache_hit,
+    bool coverage_only = false);
 
 bool ensure_advanced_group_blend_source(
     progpu_native_engine& engine,

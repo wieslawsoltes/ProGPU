@@ -4,6 +4,7 @@
 #include "progpu_native_direct2d_brush_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
+#include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
@@ -6432,6 +6433,7 @@ int run_tests()
     if (!progpu::native::direct2d::tests::formatted_scene_copy_contract(factory.get(), second_factory.get())) return 403;
     if (!progpu::native::direct2d::tests::owned_bitmap_scene_copy_contract(factory.get(), second_factory.get())) return 404;
     if (!progpu::native::direct2d::tests::scoped_source_copy_contract(factory.get())) return 405;
+    if (!progpu::native::direct2d::tests::layer_background_source_contract(factory.get())) return 406;
     if (!owned_bitmap_wic_read_boundary(factory.get())) return 405;
     const compat::scene_render_target_properties target_properties{
         640U, 480U, 96.0F, 96.0F, 7001U, 11U};

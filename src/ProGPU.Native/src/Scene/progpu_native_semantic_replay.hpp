@@ -336,6 +336,7 @@ struct semantic_render_bundle_span {
     std::uint64_t cache_content_revision = 0U;
     bool uses_depth = false;
     bool backdrop = false;
+    bool initialized_background = false;
     bool can_skip_content_on_effect_cache = false;
     bool cache_content = false;
     bool mask_uses_alpha_channel = false;

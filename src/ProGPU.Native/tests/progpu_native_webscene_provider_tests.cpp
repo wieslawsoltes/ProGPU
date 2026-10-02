@@ -1,6 +1,7 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
+#include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
@@ -3847,6 +3848,25 @@ int main(int argc, char** argv) {
                         "clipped Clear Dawn submission changed structure or submission count");
                 });
             // IOSurface is BGRA; the common physical reference is RGBA.
+            for (std::size_t i = 0U; i < pixels.size(); i += 4U) std::swap(pixels[i], pixels[i + 2U]);
+            return pixels;
+        }, require);
+    progpu::native::direct2d::tests::verify_layer_background(
+        [&](d2d::scene_render_target_native* target) {
+            auto pixels = render_retained_fixture(api, provider, canvas_configuration, engine,
+                [&](progpu_native_engine* retained_engine, std::uintptr_t view) {
+                    std::vector<std::byte> scratch(static_cast<std::size_t>(target->GetRequiredSceneSize()));
+                    progpu_native_scene_metrics update{};
+                    update.struct_size = sizeof(update);
+                    progpu_native_scene_frame_metrics metrics{};
+                    metrics.struct_size = sizeof(metrics);
+                    d2d::scene_submission_diagnostics diagnostics{};
+                    require(d2d::render_scene_target(target, retained_engine, {view, 0U}, scratch,
+                            &update, &metrics, &diagnostics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                        diagnostics.stage == d2d::scene_submission_stage::none && update.draw_count == 2U &&
+                        metrics.command_count == 4U && metrics.submission_count == 1U,
+                        "background layer Dawn submission changed structure or submission count");
+                });
             for (std::size_t i = 0U; i < pixels.size(); i += 4U) std::swap(pixels[i], pixels[i + 2U]);
             return pixels;
         }, require);

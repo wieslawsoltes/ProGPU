@@ -713,8 +713,12 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     progpu_native_engine& engine,
     std::uint32_t blend_mode,
     bool masked,
-    bool& cache_hit) {
-    if (blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) {
+    bool& cache_hit,
+    bool coverage_only) {
+    if (coverage_only && blend_mode != PROGPU_NATIVE_BLEND_SRC) {
+        return nullptr;
+    }
+    if (!coverage_only && blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) {
         cache_hit = true;
         return masked
             ? engine.layer_mask_pipeline
@@ -727,9 +731,12 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     auto& pipelines = masked
         ? engine.layer_mask_blend_pipelines
         : engine.layer_blend_pipelines;
-    if (pipelines[blend_mode] != nullptr) {
+    auto& pipeline = coverage_only
+        ? engine.layer_coverage_pipelines[masked ? 1U : 0U]
+        : pipelines[blend_mode];
+    if (pipeline != nullptr) {
         cache_hit = true;
-        return pipelines[blend_mode];
+        return pipeline;
     }
     cache_hit = false;
     if (!create_layer_resources(engine) ||
@@ -796,7 +803,9 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     WGPUFragmentState fragment{};
     fragment.module = engine.image_shader;
     fragment.entryPoint = progpu::native::webgpu::string_view(
-        masked ? "fs_main" : "fs_main_unmasked");
+        coverage_only
+            ? (masked ? "fs_layer_coverage" : "fs_layer_coverage_unmasked")
+            : (masked ? "fs_main" : "fs_main_unmasked"));
     fragment.targetCount = 1U;
     fragment.targets = &target;
     WGPURenderPipelineDescriptor descriptor{};
@@ -810,11 +819,11 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     descriptor.multisample.count = 1U;
     descriptor.multisample.mask = 0xFFFFFFFFU;
     descriptor.fragment = &fragment;
-    pipelines[blend_mode] = wgpuDeviceCreateRenderPipeline(
+    pipeline = wgpuDeviceCreateRenderPipeline(
         engine.device,
         &descriptor);
     wgpuPipelineLayoutRelease(pipeline_layout);
-    return pipelines[blend_mode];
+    return pipeline;
 }
 
 bool create_advanced_group_blend_resources(progpu_native_engine& engine) {

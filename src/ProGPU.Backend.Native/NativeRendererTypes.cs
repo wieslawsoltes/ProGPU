@@ -925,7 +925,14 @@ public enum NativeSceneLayerFlags : uint
     /// bounds, independently of texture allocation. Requires exactly Bounds
     /// plus this flag, opacity one, no mask/effect, and zero revisions.
     /// </summary>
-    AliasedCompositeBounds = (uint)NativeMethods.SceneLayerAliasedCompositeBounds
+    AliasedCompositeBounds = (uint)NativeMethods.SceneLayerAliasedCompositeBounds,
+
+    /// <summary>
+    /// Initializes transient storage from the parent and interpolates completed
+    /// contents by independent opacity/mask coverage, not by their alpha.
+    /// Distinct from Backdrop; excludes effects, cache and composite state.
+    /// </summary>
+    InitializeFromBackground = 1 << 11
 }
 
 public enum NativeSceneValidationError : uint

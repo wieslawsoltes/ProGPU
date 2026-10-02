@@ -284,7 +284,9 @@ bool create_semantic_advanced_blend_binding(
     if (destination_view == nullptr ||
         engine.semantic_advanced_source_slot.view == nullptr ||
         engine.semantic_advanced_blend_uniform_buffer == nullptr ||
-        engine.semantic_advanced_blend_layout == nullptr) {
+        engine.semantic_advanced_blend_layout == nullptr ||
+        (operation.initialized_background &&
+            operation.source_layer >= engine.semantic_layer_slots.size())) {
         return false;
     }
     const std::uint64_t offset = operation.advanced_uniform_offset;
@@ -298,10 +300,12 @@ bool create_semantic_advanced_blend_binding(
         offset,
         &uniforms,
         sizeof(uniforms));
+    const WGPUTextureView source_view = operation.initialized_background
+        ? engine.semantic_layer_slots[operation.source_layer].view
+        : engine.semantic_advanced_source_slot.view;
     const std::array<WGPUBindGroupEntry, 4U> entries{{
         {nullptr, 0U, nullptr, 0U, 0U, nullptr, destination_view},
-        {nullptr, 1U, nullptr, 0U, 0U, nullptr,
-            engine.semantic_advanced_source_slot.view},
+        {nullptr, 1U, nullptr, 0U, 0U, nullptr, source_view},
         {nullptr, 2U, nullptr, 0U, 0U, nullptr,
             engine.semantic_advanced_source_slot.view},
         {nullptr, 3U, engine.semantic_advanced_blend_uniform_buffer,
@@ -346,7 +350,8 @@ bool encode_semantic_advanced_blend(
             engine,
             PROGPU_NATIVE_BLEND_SRC,
             masked,
-            ignored_cache_hit);
+            ignored_cache_hit,
+            operation.initialized_background);
     WGPURenderPassEncoder pass = begin_pass(
         encoder,
         engine.semantic_advanced_source_slot.view,

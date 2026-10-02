@@ -507,7 +507,10 @@ bool is_valid_semantic_layer(
         PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE |
         PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE |
         PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED |
-        PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS;
+        PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND;
+    const bool initialized_background =
+        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U;
     const bool aliased_composite =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) != 0U;
     const bool local_cache =
@@ -518,7 +521,8 @@ bool is_valid_semantic_layer(
     const bool materialized =
         (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
                 PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
-                PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U ||
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+                PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) != 0U ||
         layer.opacity != 1.0F ||
         layer.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
         layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
@@ -542,6 +546,13 @@ bool is_valid_semantic_layer(
                     PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) &&
                 layer.blend_mode == PROGPU_NATIVE_BLEND_SRC && layer.opacity == 1.0F &&
                 layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+                layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+                layer.content_revision == 0U && layer.composite_revision == 0U)) &&
+        (!initialized_background ||
+            ((layer.flags & ~(PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+                    PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+                    PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) == 0U &&
+                layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER &&
                 layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
                 layer.content_revision == 0U && layer.composite_revision == 0U)) &&
         (!explicit_composite_state || (!local_cache && materialized)) &&

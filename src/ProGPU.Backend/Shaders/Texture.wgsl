@@ -565,3 +565,18 @@ fn fs_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
     // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
     return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
+
+// Layer coverage is NOT source alpha. A copied background or transparent Clear
+// must not change the opacity/geometric-mask weight of the final replacement.
+@fragment
+fn fs_layer_coverage(input: VertexOutput) -> @location(0) vec4<f32> {
+    let fragmentOrigin = select(
+        vec2<f32>(0.0), uniforms.canvasSize, uniforms.boundedSourcePass > 0.5);
+    return vec4<f32>(abs(input.color.a) *
+        sample_mask_alpha(input.position.xy + fragmentOrigin));
+}
+
+@fragment
+fn fs_layer_coverage_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(abs(input.color.a));
+}
