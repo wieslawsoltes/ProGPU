@@ -17,6 +17,13 @@ public enum PortableShaderSamplingMode
     Auto = 2
 }
 
+public enum PortableShaderRenderMode
+{
+    Auto = 0,
+    SoftwareOnly = 1,
+    HardwareOnly = 2
+}
+
 public enum PortableShaderSamplerKind
 {
     Brush = 0,
@@ -49,6 +56,12 @@ public sealed class PortablePixelShader
     public short MajorVersion { get; }
 
     public short MinorVersion { get; }
+
+    /// <summary>Null means the source did not publish its execution intent.</summary>
+    public PortableShaderRenderMode? RenderMode { get; init; }
+
+    /// <summary>The original source identity, never a substitute for captured bytecode.</summary>
+    public IPortablePixelShaderSource? Source { get; init; }
 }
 
 public sealed class PortableShaderSampler
@@ -101,6 +114,25 @@ public sealed class PortableShaderSampler
             registerIndex,
             PortableShaderSamplerKind.ImageSource,
             brush: null,
+            imageSource,
+            samplingMode);
+    }
+
+    /// <summary>
+    /// Retains the actual source ImageBrush as well as its image. Native MIL
+    /// requires its original opacity, mapping and transform state; an image
+    /// alone cannot describe that source sampler.
+    /// </summary>
+    public static PortableShaderSampler Image(
+        int registerIndex,
+        object? imageSource,
+        PortableShaderSamplingMode samplingMode,
+        object brush)
+    {
+        return new PortableShaderSampler(
+            registerIndex,
+            PortableShaderSamplerKind.ImageSource,
+            brush ?? throw new ArgumentNullException(nameof(brush)),
             imageSource,
             samplingMode);
     }

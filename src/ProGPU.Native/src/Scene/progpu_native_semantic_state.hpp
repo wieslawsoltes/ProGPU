@@ -284,6 +284,12 @@ scissor resolve_semantic_target_scissor(const progpu_native_scene_state& state,
     const scissor& target, std::uint32_t frame_width, std::uint32_t frame_height,
     const progpu_native_scene_presentation& presentation) noexcept;
 
+// Final binary replacement coverage, not storage allocation: select precisely
+// the half-open interval of physical pixel centers inside the original bounds.
+// Returns a target-local scissor after actual presentation/target intersection.
+scissor resolve_semantic_aliased_composite_scissor(const progpu_native_image_rect& bounds,
+    const scissor& target, const progpu_native_scene_presentation& presentation) noexcept;
+
 // The final family projection multiplies this coordinate basis by raster_dpi
 // exactly once. Clip and guideline metadata stay logical and resolve separately.
 progpu_native_scene_state localize_semantic_state(progpu_native_scene_state state,

@@ -1612,6 +1612,20 @@ jobs:
           dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
           dotnet build src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
 
+      # The package-consumer preflight above builds Backend.Native but not Text.
+      # Reuse the actual library outputs from Build tests, without rebuilding
+      # their graph or executing the probe against an unqualified native runtime.
+      - name: Compile source Display comparison probe
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s src/ProGPU.Backend.Native/bin/Release/net10.0/ProGPU.Backend.Native.dll
+          test -s src/ProGPU.Text/bin/Release/net10.0/ProGPU.Text.dll
+          dotnet build eng/SourceDisplayPolicyProbe/SourceDisplayPolicyProbe.csproj \
+            --configuration Release --runtime '${{ matrix.rid }}' \
+            -p:BuildProjectReferences=false -p:ContinuousIntegrationBuild=true
+
       - name: Run owned Cocoa popup lifecycle contracts
         run: >-
           dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj

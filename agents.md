@@ -1,5 +1,22 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Version-4 native ShaderEffect captures retain original local float edges and a
+traversal-owned root-DPI/per-push float witness. Allocate floor(min)/ceil(max) in
+scale space, preserving complete UV/derivative extent and integral residual
+placement. Never infer source history from a final aggregate, discard the new
+frame in an older reader, round a residual into admission or substitute managed
+ceil(extent) sizing. The initial exact bounded diagonal-inverse proof is internal;
+general non-dyadic decomposition and fractional final placement remain required
+implementation contracts. Keep v1-v3 gates/bytes and source/pixel qualification
+separate. See docs/native-shader-local-capture-frame.md.
+
+Native ShaderEffect padding retains original packet doubles, inflates local float
+edges before the admitted positive-axis transform, and leaves zero-padding
+arithmetic unchanged. Preserve complete capture/UV/derivative and final-clip
+ownership; do not turn outward allocation rounding into fractional admission.
+See docs/native-shader-capture-padding.md; source and pixel qualification remain
+separate from packet acceptance.
+
 Flagged native visual BitmapScalingMode Unspecified preserves inherited sampling;
 only a genuinely unspecified ancestry uses the Linear default. Preserve actual
 visual-field propagation and same-owner reset semantics: an attached property on
@@ -8,6 +25,22 @@ Keep shader sampling separate from ImageBrush realization, original independent
 reference inputs and paired cold/warm ownership controls. See
 docs/native-shader-sampler-render-options.md; SoftwareOnly reference evidence does
 not qualify hardware filtering or repeated-source addressing.
+
+Effect input sizing shares the pure Scene EffectCaptureFrame with source sampler
+adapters. Preserve original float padded bounds separately from minimum-one
+logical extent, float multiplication before physical ceiling, and fractional
+raster-padding overrides. Keep actual DPI explicit and invalid/overflow output
+atomic; no texture/device ownership or native capture admission belongs here.
+See docs/effect-capture-frame.md; arithmetic checks are not shader pixel parity.
+
+Compatible-target bitmap memory copies may suspend only captured aliased
+axis-aligned clip SAVE scopes. Storage replacement ignores the drawing transform;
+subsequent draws retain original capture-time clips, transform and tags. Preserve
+balanced original-state restoration, atomic appended-tail rollback and full-write
+history replacement; geometric/AA/opacity/input scopes remain rejected. Ordinary
+owned-bitmap storage and other copy APIs keep their own admission. Require paired
+provider pixels and actual Windows active-copy observations before qualification.
+See docs/direct2d-scoped-memory-copies.md.
 
 ShaderEffect UV derivative registers use explicit version-3 metadata while
 preserving v1/v2 layouts. The native binding writes the selected register after
@@ -110,6 +143,15 @@ half-open shared edges and derivatives before discard. Both renderers must use
 the matching vertex count. Folded/near-singular edges, multisampling and complete
 provider/package pixels remain explicit gates; shader compilation is not parity.
 
+Source Display capture retains original double em/DPI separately from explicit
+physical-em and advance policies. Preserve immutable raw post-GPOS generations,
+source/descriptor/bidi identity and unsafe flags while deriving fitting metrics.
+One matching advance corpus does not establish midpoint, offset, wrapping or
+caret policy. Precise source geometry must come from the original native writer,
+not float promotion or source-side division/snapping. Keep public raw ABIs and
+Display activation unchanged until the complete paired source contract qualifies.
+See docs/native-source-display-text.md.
+
 Paired Display probes preserve original Microsoft glyph/run receipts and separate
 raw signed hinted slots from full source-context shaping and positioned output.
 Keep exact source DPI and original 26.6 values beside float render projections;
@@ -145,8 +187,18 @@ subsequent drawing state and independent exported snapshots. Preserve cumulative
 Windows translated-draw/callback/failure accounting; retained scene counts describe
 only surviving content. Keep public clear RGBA straight, honor actual IGNORE alpha,
 and premultiply once at ordinary scene submission. Compatible picture conversion
-remains independent. Scoped Clear and failed recordings remain explicit rejection.
+remains independent. An all-aliased clip stack records bounded SRC replacement in
+its captured target frame, preserving history and ignoring the later transform.
+Keep fractional physical coverage, retained DPI-history accounting and both native
+producers paired; antialiased clips, source layers and failed recordings still reject.
 See docs/direct2d-full-target-clear.md; metadata fixtures are not pixel qualification.
+
+Aliased clipped SRC replacement carries explicit final composite bounds, distinct
+from outward-rounded layer storage. Preserve original float edges, actual per-axis
+DPI/viewport, half-open pixel-center coverage and parent-target localization.
+Never infer replacement coverage from source alpha or erase transparent allocation
+margins. Keep the flag bounded to transient SRC without masks/effects/cache/state,
+paired native/managed wire validation and unchanged strict Windows/GPU pixels.
 
 Direct2D ordinary scene copies require explicit immutable pixel-format admission
 through the separate formatted factory capability. Keep legacy UNKNOWN targets

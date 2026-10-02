@@ -209,6 +209,13 @@ bool prepare(void* value, const sfnt_font_view& font, const open_type_shape_run_
     return false;
 }
 
+bool capture_positioning(void* value, const sfnt_font_view& font, const open_type_shape_run_options& options,
+    std::span<const shaping_glyph> prepared, font_error* error) noexcept {
+    auto& owner = *static_cast<run_owner*>(value);
+    if (owner.run->positioning != nullptr) { if (error != nullptr) *error = font_error::invalid_argument; return false; }
+    return try_capture_hinted_positioning(font, options, prepared, owner.policy, owner.run->positioning, error);
+}
+
 bool shape_fragment(void* value, const sfnt_font_view& font, std::span<const unicode_scalar> input,
     const open_type_shape_run_options& options, std::span<shaping_glyph> glyphs,
     open_type_shape_run_scratch scratch, std::uint32_t& count, font_error* error,
@@ -282,7 +289,7 @@ struct scratch_owner final {
 bool try_shape_context_hinted(progpu_native_text_context* context, std::uint32_t font_index,
     const hinted_font_configuration& configuration, std::span<const unicode_scalar> input,
     const open_type_shape_run_options& options, std::shared_ptr<const hinted_shaped_run>& result,
-    hinted_shape_error& error, hinted_projection_policy policy, const open_type_shape_plan* plan) noexcept {
+    hinted_shape_error& error, hinted_projection_policy policy, const open_type_shape_plan* plan, bool retain_positioning) noexcept {
     error = {};
     try {
         if (!valid_borrows(input, options, configuration)) { error.shaping = font_error::invalid_argument; return false; }
@@ -308,7 +315,7 @@ bool try_shape_context_hinted(progpu_native_text_context* context, std::uint32_t
         owner.run->glyphs.resize(capacity); owner.run->descriptor_indices.resize(capacity); owner.widths.resize(capacity);
         scratch_owner storage;
         const auto scratch = storage.initialize(needs, capacity);
-        const detail::device_shape_run_services services{&owner, &prepare, &shape_fragment};
+        const detail::device_shape_run_services services{&owner, &prepare, &shape_fragment, retain_positioning ? &capture_positioning : nullptr};
         std::uint32_t count = 0U;
         const bool success = detail::try_shape_device_open_type_run(font, owner.run->shaping_input, owned_options,
             owner.run->glyphs, scratch, services, count, &owner.failure.shaping, plan);
@@ -323,6 +330,10 @@ bool try_shape_context_hinted(progpu_native_text_context* context, std::uint32_t
                 error.shaping = font_error::invalid_argument; return false;
             }
         owner.run->glyphs.resize(count); owner.run->descriptor_indices.resize(count);
+        if (owner.run->positioning != nullptr && count != 0U) {
+            std::shared_ptr<const hinted_positioned_slice> verified;
+            if (!try_recompose_hinted_positioning(owner.run, 0U, count, verified, &error.shaping)) return false;
+        }
         result = std::move(owner.run);
         error = {};
         return true;

@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_render_target.hpp"
+#include "progpu_native_direct2d_clear.hpp"
 
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
@@ -5880,7 +5881,26 @@ public:
             return;
         }
         if (scope_depth_ != 0U) {
-            latch(not_implemented);
+            if (clip_depth_ != scope_depth_ ||
+                !std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                    [](std::uint8_t scope) { return scope == scope_axis_aligned_clip; })) {
+                latch(not_implemented);
+                return;
+            }
+            if (draw_count_ == std::numeric_limits<std::uint32_t>::max()) {
+                latch(com::out_of_memory);
+                return;
+            }
+            const float alpha = pixel_format_.alpha == alpha_mode::ignore ? 1.0F : value.alpha;
+            bool recorded = false;
+            if (!direct2d::append_clipped_clear(builder_, clip_stack_[clip_depth_ - 1U],
+                    {value.red, value.green, value.blue, alpha}, recorded)) {
+                latch(builder_failure());
+                return;
+            }
+            // Retained draw content participates in the existing DPI-history
+            // guard, without changing leading-clear metadata or prior resources.
+            if (recorded) ++draw_count_;
             return;
         }
         // Full-target Clear replaces the recorded scene for ordinary targets
@@ -6128,9 +6148,9 @@ public:
         if (!compatible_) return not_implemented;
         if (com::failed(failure_)) return failure_;
         // Copy is in physical pixels and ignores the target's drawing transform.
-        // Scoped recording needs a future suspend/resume transport; never apply
-        // its current clip or opacity to a bitmap storage operation.
-        if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
+        // Storage replacement suspends only actual aliased clip scopes. Layers
+        // own intermediate contents and require a distinct flush contract.
+        if (!can_copy_outside_clips_locked()) return wrong_state;
         const rectangle_u rectangle = destination == nullptr
             ? rectangle_u{0U, 0U, pixel_width_, pixel_height_} : *destination;
         if (!valid_rectangle(rectangle) || rectangle.right > pixel_width_ ||
@@ -6169,7 +6189,7 @@ public:
         const std::uint32_t storage_flags = alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_R8
             : pixel_format_.format == dxgi_format_b8g8r8a8_unorm ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U;
         return record_bitmap_copy_locked(replace_contents, [&](semantic_scene_builder& recording) {
-            return recording.copy_image_from_memory(image, storage_flags,
+            return recording.copy_image_from_memory_outside_clips(image, storage_flags,
                 {static_cast<const std::byte*>(source), static_cast<std::size_t>(required_bytes)},
                 alpha_only ? &alpha_matrix : nullptr);
         });
@@ -6227,6 +6247,13 @@ public:
     }
 
 private:
+    bool can_copy_outside_clips_locked() const noexcept
+    {
+        return scope_depth_ == clip_depth_ &&
+            std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                [](auto scope) { return scope == scope_axis_aligned_clip; });
+    }
+
     template<typename RecordCopy>
     com::result record_bitmap_copy_locked(bool replace_contents, RecordCopy&& record) noexcept
     {
@@ -6241,6 +6268,19 @@ private:
             semantic_scene_builder replacement(scene_id_, generation_);
             if (!record(replacement)) return replacement.last_error() == scene_build_error::out_of_memory
                 ? com::out_of_memory : failure;
+            // Full replacement discards old pixels/history, not the caller's
+            // active drawing scopes. Recreate the original capture-time clip
+            // rectangles before publishing the independently built replacement.
+            for (std::size_t i = 0U; i < scope_depth_; ++i) {
+                if (scope_stack_[i] != scope_axis_aligned_clip || i >= clip_depth_) return wrong_state;
+                auto state = semantic_scene_builder::identity_state();
+                state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+                state.clip_rect = clip_stack_[i];
+                std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!replacement.add_state(state, state_index) || !replacement.save(state_index))
+                    return replacement.last_error() == scene_build_error::out_of_memory
+                        ? com::out_of_memory : failure;
+            }
             builder_ = std::move(replacement);
             bitmap_resources_.clear();
             picture_bitmap_sources_.clear();
@@ -6303,7 +6343,7 @@ private:
             const std::lock_guard lock(mutex_);
             if (!compatible_) return not_implemented;
             if (com::failed(failure_)) return failure_;
-            if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
+            if (!can_copy_outside_clips_locked()) return wrong_state;
             const auto source_rect = rectangle == nullptr
                 ? rectangle_u{0U, 0U, snapshot.width, snapshot.height} : *rectangle;
             const auto point = destination == nullptr ? point_2u{0U, 0U} : *destination;
@@ -6342,7 +6382,7 @@ private:
             const auto matrix = bitmap_alpha_matrix(snapshot.picture_image);
             if (alpha_only) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
             return record_bitmap_copy_locked(replace_contents, [&](semantic_scene_builder& recording) {
-                return recording.copy_image_from_builder(std::move(captured), resource_index, image,
+                return recording.copy_image_from_builder_outside_clips(std::move(captured), resource_index, image,
                     alpha_only ? &matrix : nullptr);
             });
         } catch (const std::bad_alloc&) {

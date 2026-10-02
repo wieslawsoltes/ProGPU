@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d.h"
 #include "progpu_native_com.hpp"
 #include "progpu_native_direct2d_core.hpp"
+#include "progpu_native_direct2d_clear.hpp"
 #include "progpu_native_direct2d_drawing_state.hpp"
 #include "progpu_native_direct2d_path.hpp"
 #include "progpu_native_direct2d_rectangle.hpp"
@@ -6267,14 +6268,25 @@ public:
         if (!can_record()) {
             return fail_drawing_state();
         }
-        if (scope_depth_ != 0U) {
-            return fail_unsupported_operation();
-        }
         const D2D1_COLOR_F value = color == nullptr
             ? D2D1_COLOR_F{0.0F, 0.0F, 0.0F, 0.0F}
             : *color;
         if (!finite_color(value)) {
             return fail_invalid_value();
+        }
+        if (scope_depth_ != 0U) {
+            if (clip_depth_ != scope_depth_ ||
+                !std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                    [](uint8_t scope) { return scope == scope_axis_aligned_clip; }))
+                return fail_unsupported_operation();
+            bool recorded = false;
+            if (!progpu::native::direct2d::append_clipped_clear(builder_, clip_stack_[clip_depth_ - 1U],
+                    {value.r, value.g, value.b, value.a}, recorded)) return fail_builder();
+            has_aliased_primitives_ |= recorded;
+            has_opacity_layers_ |= recorded;
+            // Original stream Clear is not a draw callback: keep its existing
+            // translated-draw accounting independent of the retained primitive.
+            return S_OK;
         }
         // Same full-target replacement as the portable render target. A
         // leading clear plus the surviving suffix describes the final scene;

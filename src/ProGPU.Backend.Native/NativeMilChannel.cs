@@ -213,6 +213,41 @@ public sealed unsafe class NativeMilChannel : IDisposable
     }
 
     /// <summary>
+    /// Imports one mixed raw/source-double batch atomically through the additive
+    /// source capability. Original resource indices and owners remain unchanged.
+    /// A missing capability fails explicitly; this never retries through raw apply.
+    /// </summary>
+    public void ApplyWithSourceGlyphResources(ReadOnlySpan<byte> batch,
+        ReadOnlySpan<NativeHintedGlyphResource> resources, ReadOnlySpan<NativeMilHintedGlyphBinding> bindings,
+        ReadOnlySpan<uint> positionedIndices)
+        => _ = ApplySourceGlyphResourcesCore(batch, resources, bindings, positionedIndices, captureMetrics: false);
+
+    /// <summary>Performs the same single source-resource transaction and reads its actual canonical counters.</summary>
+    public NativeMilBatchMetrics ApplyWithSourceGlyphResourcesWithMetrics(ReadOnlySpan<byte> batch,
+        ReadOnlySpan<NativeHintedGlyphResource> resources, ReadOnlySpan<NativeMilHintedGlyphBinding> bindings,
+        ReadOnlySpan<uint> positionedIndices)
+        => ApplySourceGlyphResourcesCore(batch, resources, bindings, positionedIndices, captureMetrics: true);
+
+    private NativeMilBatchMetrics ApplySourceGlyphResourcesCore(ReadOnlySpan<byte> batch,
+        ReadOnlySpan<NativeHintedGlyphResource> resources, ReadOnlySpan<NativeMilHintedGlyphBinding> bindings,
+        ReadOnlySpan<uint> positionedIndices, bool captureMetrics)
+    {
+        nint channel = GetChannel();
+        if (_backend is not (NativeMilBackend.WgpuNative or NativeMilBackend.Dawn))
+            throw new NotSupportedException("Source glyph import requires an exact supported native provider.");
+        if (captureMetrics && !_hintedBatchMetricsAvailable)
+        {
+            _ = ReadHintedBatchMetrics(channel);
+            _hintedBatchMetricsAvailable = true;
+        }
+        NativeMilStatus status = NativeHintedSourceResourceImport.Apply(channel, batch, resources, bindings, positionedIndices,
+            _backend == NativeMilBackend.Dawn ? NativeMilDawnMethods.ApplyWithSourceGlyphResources : NativeMilMethods.ApplyWithSourceGlyphResources);
+        if (status != NativeMilStatus.Success)
+            throw new NativeMilException(status, $"The atomic source glyph MIL update was rejected with {status}.");
+        return captureMetrics ? ReadHintedBatchMetrics(channel) : default;
+    }
+
+    /// <summary>
     /// Copies straight-alpha RGBA8 pixels into the portable sideband for a
     /// canonical WPF <see cref="NativeMilResourceType.BitmapSource"/> handle.
     /// </summary>

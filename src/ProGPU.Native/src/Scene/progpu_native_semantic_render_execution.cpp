@@ -492,34 +492,82 @@ progpu_native_status render_scene(
                 const auto effect_resource = read_resource(
                     layer.effect_resource_index);
                 if (effect_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
-                    // Every version retains an exact, completely captured input.
-                    // Fractional/cropped source frames and backdrop/custom
-                    // mappings need a separate sampling contract, not UV repair.
-                    const auto source_presentation = layer_budget_cursor.current_presentation();
-                    const double left = static_cast<double>(layer.bounds.x) * source_presentation.dpi_scale_x + source_presentation.viewport_x;
-                    const double top = static_cast<double>(layer.bounds.y) * source_presentation.dpi_scale_y + source_presentation.viewport_y;
-                    const double width = static_cast<double>(layer.bounds.width) * source_presentation.dpi_scale_x;
-                    const double height = static_cast<double>(layer.bounds.height) * source_presentation.dpi_scale_y;
-                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U ||
-                        (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP | PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U ||
-                        left != target_extent.x || top != target_extent.y ||
-                        width != target_extent.width || height != target_extent.height ||
-                        width <= 0.0 || height <= 0.0 ||
-                        semantic_effect_node_count == semantic_max_effect_passes ||
-                        semantic_effect_pass_count == semantic_max_effect_passes)
-                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                            "WPF bytecode effects require a complete integral physical source capture.");
-                    ++semantic_effect_node_count;
-                    ++semantic_effect_pass_count;
-                    ++semantic_shader_effect_count;
                     progpu_native_scene_shader_effect shader{};
+                    progpu_native_scene_shader_capture_frame capture_frame{};
                     std::uint32_t sampler_picture = PROGPU_NATIVE_SCENE_NO_INDEX;
                     std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX;
                     if (!shader_effect::read_resource(
                             std::span(bytes + effect_resource.payload_offset, effect_resource.payload_size),
                             std::span(bytes + effect_resource.auxiliary_offset, effect_resource.auxiliary_size),
-                            shader, sampler_picture, derivative_register)) return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
-                                "A retained WPF shader descriptor is invalid.");
+                            shader, sampler_picture, derivative_register, capture_frame))
+                        return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                            "A retained WPF shader descriptor is invalid.");
+                    // Old versions keep their exact integral-domain gate. V4
+                    // independently proves original local allocation and final
+                    // integer placement, never a cropped input or UV repair.
+                    const auto source_presentation = layer_budget_cursor.current_presentation();
+                    const double left = static_cast<double>(layer.bounds.x) * source_presentation.dpi_scale_x + source_presentation.viewport_x;
+                    const double top = static_cast<double>(layer.bounds.y) * source_presentation.dpi_scale_y + source_presentation.viewport_y;
+                    const double width = static_cast<double>(layer.bounds.width) * source_presentation.dpi_scale_x;
+                    const double height = static_cast<double>(layer.bounds.height) * source_presentation.dpi_scale_y;
+                    bool complete_frame = left == target_extent.x && top == target_extent.y &&
+                        width == target_extent.width && height == target_extent.height;
+                    if (capture_frame.capture_width != 0U) {
+                        const auto& f = capture_frame;
+                        const auto mapped_edge = [](float value, float scale, float offset) {
+                            return shader_effect::source_sum(shader_effect::source_product(value, scale), offset);
+                        };
+                        const double expected_left = mapped_edge(f.local_left, f.source_scale_x, f.source_offset_x);
+                        const double expected_top = mapped_edge(f.local_top, f.source_scale_y, f.source_offset_y);
+                        const double expected_right = mapped_edge(f.local_right, f.source_scale_x, f.source_offset_x);
+                        const double expected_bottom = mapped_edge(f.local_bottom, f.source_scale_y, f.source_offset_y);
+                        complete_frame = f.source_dpi_x == source_presentation.dpi_scale_x &&
+                            f.source_dpi_y == source_presentation.dpi_scale_y &&
+                            left == expected_left + source_presentation.viewport_x &&
+                            top == expected_top + source_presentation.viewport_y &&
+                            width == expected_right - expected_left && height == expected_bottom - expected_top &&
+                            static_cast<std::int64_t>(f.final_x) + source_presentation.viewport_x == static_cast<std::int64_t>(target_extent.x) &&
+                            static_cast<std::int64_t>(f.final_y) + source_presentation.viewport_y == static_cast<std::int64_t>(target_extent.y) &&
+                            f.capture_width == target_extent.width && f.capture_height == target_extent.height &&
+                            layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+                            (layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U &&
+                            std::none_of(active_cache_owners.begin(), active_cache_owners.begin() + cache_scope_depth,
+                                [](std::uint64_t owner) { return owner != 0U; });
+                        if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U) {
+                            progpu_native_scene_state final_state{};
+                            const auto final_state_resource = read_resource(layer.reserved0);
+                            std::memcpy(&final_state, bytes + final_state_resource.payload_offset, sizeof(final_state));
+                            const auto& m = final_state.transform;
+                            const auto coverage = shader_effect::output_coverage(f);
+                            const auto& clip = final_state.clip_rect;
+                            const auto integral_edge = [](float edge, double dpi) {
+                                const double physical = static_cast<double>(edge) * dpi;
+                                return std::isfinite(physical) && physical == std::floor(physical);
+                            };
+                            complete_frame = complete_frame &&
+                                final_state.flags == PROGPU_NATIVE_SCENE_STATE_CLIP_RECT &&
+                                m.m11 == 1.0F && m.m12 == 0.0F && m.m21 == 0.0F && m.m22 == 1.0F &&
+                                m.m31 == 0.0F && m.m32 == 0.0F && final_state.opacity == 1.0F &&
+                                static_cast<double>(clip.x) * f.source_dpi_x >= coverage.left &&
+                                static_cast<double>(clip.y) * f.source_dpi_y >= coverage.top &&
+                                static_cast<double>(clip.x + clip.width) * f.source_dpi_x <= coverage.right &&
+                                static_cast<double>(clip.y + clip.height) * f.source_dpi_y <= coverage.bottom &&
+                                integral_edge(clip.x, f.source_dpi_x) && integral_edge(clip.y, f.source_dpi_y) &&
+                                integral_edge(clip.x + clip.width, f.source_dpi_x) &&
+                                integral_edge(clip.y + clip.height, f.source_dpi_y);
+                        }
+                    }
+                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U ||
+                        (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP | PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U ||
+                        !complete_frame ||
+                        width <= 0.0 || height <= 0.0 ||
+                        semantic_effect_node_count == semantic_max_effect_passes ||
+                        semantic_effect_pass_count == semantic_max_effect_passes)
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "WPF bytecode effects require a complete proven physical capture and integral final placement.");
+                    ++semantic_effect_node_count;
+                    ++semantic_effect_pass_count;
+                    ++semantic_shader_effect_count;
                     if (sampler_picture != PROGPU_NATIVE_SCENE_NO_INDEX) {
                         const auto sampler = read_resource(sampler_picture);
                         progpu_native_scene_picture_image picture{};
@@ -4371,12 +4419,16 @@ progpu_native_status render_scene(
             if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
                 if (operation.source_layer >= engine->semantic_layer_slots.size()) return false;
                 progpu_native_scene_shader_effect shader{};
+                progpu_native_scene_shader_capture_frame capture_frame{};
                 std::uint32_t sampler_index = PROGPU_NATIVE_SCENE_NO_INDEX;
                 std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX;
                 if (!shader_effect::read_resource(
                         std::span(bytes + resource.payload_offset, resource.payload_size),
                         std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
-                        shader, sampler_index, derivative_register)) return false;
+                        shader, sampler_index, derivative_register, capture_frame)) return false;
+                if (capture_frame.capture_width != 0U &&
+                    (capture_frame.capture_width != source_extent.width ||
+                     capture_frame.capture_height != source_extent.height)) return false;
                 std::shared_ptr<semantic_picture_backing> sampler_picture;
                 if (sampler_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
                     const auto sampler = read_resource(sampler_index);
@@ -4714,6 +4766,12 @@ progpu_native_status render_scene(
                                     target_cursor.current_presentation());
                             composite_drawable = composite_scissor.drawable;
                         }
+                    }
+                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) != 0U) {
+                        composite_scissor = intersect_semantic_scissors(composite_scissor,
+                            semantic::resolve_semantic_aliased_composite_scissor(layer.bounds,
+                                target_extent, target_cursor.current_presentation()));
+                        composite_drawable = composite_scissor.drawable;
                     }
                     if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U) {
                         const auto resource = read_resource(layer.reserved1);
