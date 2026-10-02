@@ -5153,3 +5153,10 @@ patches; cold two-submit, warm one-submit and every-pixel checks are unchanged.
 These corrections do not change product admission or qualify the failed Build.
 Bounded inline-array generator controls now run in the existing required
 contract-verification and generation CI jobs as well as locally.
+
+The diagnostic Build `36939214247` confirmed the predicted stale brush on Linux
+ARM64 (job `110626536423`): pixel (0,0) was white `(255,255,255,255)` in both
+the retained prefix and incremental replay, while independent full replay was
+red `(128,0,0,255)`. All buffers retained 16,384 bytes and the original counters
+passed. This identifies the cache-owner collision; successful execution of the
+corrected exact head remains required before claiming the fix runtime-qualified.
