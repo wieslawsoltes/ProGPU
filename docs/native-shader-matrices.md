@@ -80,3 +80,12 @@ Cold, warm and independent-engine replay still checks every RGBA pixel, the
 final clip, exact pass/cache/uniform-upload counts and one queue submission.
 No deadline or assertion is relaxed. GPU, Windows original references, complete
 package/NativeAOT and application qualification remain required.
+
+The normal merge of cross-product fix `da613656f` preserves every matrix operand,
+row, write-mask and read-port check. It removes only the parent CRS scalar-through-
+swizzle-view form rejected by Dawn's Metal lowering; matrix dot emission is
+unchanged. After merge commit `b6ed61865`, the bounded C++20 warnings-as-errors CPU
+translator run passed 110 translation, 367 arithmetic, 406 original cross-product,
+728 matrix and 232 scalar-source controls. The fifty paired GPU programs and all
+pixel/counter assertions remain unchanged. This local CPU check does not qualify
+the pending replacement whole Build or its Metal provider execution.
