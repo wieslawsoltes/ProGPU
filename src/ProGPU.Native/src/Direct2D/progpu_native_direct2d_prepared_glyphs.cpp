@@ -584,8 +584,8 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
             const float x = original.target.baseline.x + glyph_pen + advance_offset;
             const float y = original.target.baseline.y - offset.ascender_offset;
             if (!std::isfinite(x) || !std::isfinite(y)) return com::invalid_argument;
-            const float vertical_origin_x = occurrences[index]->horizontal_origin +
-                occurrences[index]->horizontal_advance * 0.5F;
+            const float vertical_origin_x = sideways ? occurrences[index]->horizontal_origin +
+                occurrences[index]->horizontal_advance * 0.5F : 0.0F;
             for (auto segment : occurrences[index]->segments) {
                 const bool placed = sideways
                     ? place_sideways_segment(segment, scale, x, y, vertical_origin_x,
