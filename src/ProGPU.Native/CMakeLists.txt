@@ -845,6 +845,7 @@ add_library(progpu_native_text STATIC
     src/Text/Font/progpu_native_hinted_glyph_frame.cpp
     src/Text/Interop/progpu_native_hinted_paragraph_interaction.cpp
     src/Text/Interop/progpu_native_hinted_source_fitting.cpp
+    src/Text/Interop/progpu_native_hinted_source_resource_cache.cpp
     src/Text/Interop/progpu_native_hinted_paragraph_glyph_frame.cpp
     src/Text/Interop/progpu_native_hinted_nominal_metrics.cpp
     src/Text/Interop/progpu_native_hinted_source_frame.cpp

@@ -78,6 +78,9 @@ typedef struct progpu_native_hinted_source_glyph_resource_view {
     const uint32_t* slice_indices;
     /* PROGPU_CSHARP_TYPE: nuint */
     const progpu_native_hinted_source_fitted_line* fitted_lines;
+    /* Original break-kind bytes (0..2), logical_count entries. */
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const uint8_t* breaks_after;
 } progpu_native_hinted_source_glyph_resource_view;
 
 /* Version 2 batch input. raster is mandatory; source is NULL only for the old
