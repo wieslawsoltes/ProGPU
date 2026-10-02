@@ -13,12 +13,12 @@
 namespace progpu::native::text {
 namespace {
 constexpr auto gpos_tag = open_type_tag::from_chars('G', 'P', 'O', 'S');
-constexpr auto gdef_tag = open_type_tag::from_chars('G', 'D', 'E', 'F');
 constexpr auto kern_tag = open_type_tag::from_chars('k', 'e', 'r', 'n');
 constexpr auto distance_tag = open_type_tag::from_chars('d', 'i', 's', 't');
 void set_error(font_error* error, font_error value) noexcept { if (error != nullptr) *error = value; }
 
 #if defined(PROGPU_NATIVE_FONT_HINTING)
+constexpr auto gdef_tag = open_type_tag::from_chars('G', 'D', 'E', 'F');
 bool same_glyph(const shaping_glyph& a, const shaping_glyph& b) noexcept {
     return a.glyph_id == b.glyph_id && a.code_point == b.code_point && a.cluster == b.cluster && a.flags == b.flags &&
         a.advance_x == b.advance_x && a.advance_y == b.advance_y && a.offset_x == b.offset_x && a.offset_y == b.offset_y;
