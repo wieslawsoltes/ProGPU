@@ -35,8 +35,33 @@ declared background/isolation flags, including idempotence, SAVE scopes, a sourc
 owner inside an outer AA clip, eight non-clip rejection families, and exact open
 and historical capacity limits. They have not been executed.
 
-The encoder and preparation primitive still require the scene command and both
-Direct2D source connections, plus independent original Windows/full provider
-controls before AA Clear admission. No validation has been executed for this
+The additive required `CLEAR_TARGET` command (kind 5) now retains the original
+16-byte straight color without a geometry resource. Native and managed writers
+pair atomic byte validation. Older readers reject the unknown required command.
+Actual replay splits the prior bundle, uses the current attachment's dimensions
+and alpha policy, and retains source order across ordinary draws and nested
+pictures. This is not a regular geometry draw family and emits no source hit
+primitive. Each executed occurrence reports one draw and a 16-byte upload,
+including warm replay. Per-draw masks reject before publication.
+
+Binary SAVE clips use the original physical pixel-center boundary
+`ceil(double(edge) - 0.5)`, with actual independent-axis DPI, viewport and target
+localization. AA layer allocation remains outward-rounded; it is never replaced
+by this binary clip calculation. No-op clips encode no draw.
+
+Both actual Direct2D recorders now use this retained operation when an AA
+`PushAxisAlignedClip` scope is active. Later transforms, even singular ones,
+cannot move Clear. The nearest ordinary source layer keeps its alpha/opacity
+identity, while AA descendants preserve background and resolve coverage once
+at pop. A bounded AA child supplies its own current storage extent; without
+that child an unbounded target-independent ordinary owner still requires its
+existing explicit target metrics. Leading/full-target and all-aliased Clear
+keep their original paths. Empty source intersections add no draw or isolation;
+portable DPI-history and Windows original callback counts remain distinct.
+
+Raw/managed command, source-order, nested-picture, exact fractional clip and
+provider controls are authored, with independent original Windows/source AA
+controls following in the stack. No validation has been executed for this
 implementation stack; qualify only the final integrated tips, retaining the
-existing pixel, lifetime, package and UI gates.
+existing pixel, lifetime, package and UI gates. This does not advertise managed
+Canvas routing, general device-context operations or desktop UI parity.
