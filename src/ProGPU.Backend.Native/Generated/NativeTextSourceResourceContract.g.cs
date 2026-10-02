@@ -63,6 +63,7 @@ internal static unsafe partial class NativeMethods
         internal nuint Slices;
         internal nuint SliceIndices;
         internal nuint FittedLines;
+        internal nuint BreaksAfter;
     }
 
     // Native source: progpu_native_hinted_glyph_resource_input.
