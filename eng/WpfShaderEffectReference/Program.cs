@@ -12,7 +12,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 
-internal static class Program
+internal static partial class Program
 {
     private const int ExpectedCases = 25;
     private static int invalidShaders;
@@ -113,6 +113,7 @@ internal static class Program
                 .Where(module => string.Equals(module.ModuleName, "wpfgfx_cor3.dll", StringComparison.OrdinalIgnoreCase))
                 .Select(module => FileIdentity(module.FileName)).ToArray();
             if (modules.Length != 1) throw new InvalidOperationException("Original native WPF renderer identity is missing or ambiguous.");
+            CaptureImageSamplers(directory, args[2], unavailableControl);
             var receipt = new
             {
                 Schema = 1, SourceCommit = args[2], CaseCount = observations.Count, Cases = observations,

@@ -58,3 +58,33 @@ Windows-targeted project compiled from the existing cached reference pack in
 1.42 seconds, with zero warnings/errors and no ProGPU renderer dependency.
 Windows execution is delegated to the hosted reference workflow; this local
 compile does not constitute a reference capture or pixel qualification.
+
+## Original ImageBrush sampler frames
+
+An additive, separate `image-samplers.json` receipt keeps every original arithmetic
+case unchanged and captures 14 original ImageBrush cases, each cold, warm and with
+an independently recreated visual and bitmap. Four inputs match the original
+ProGPU-owned sampler fixture at `b044a8cee25ea32be4842253e013381882c3d023`,
+`src/ProGPU.Native/tests/progpu_native_shader_sampler_pixel_fixture.hpp`: source
+bitmap DPI (144,192), brush opacity, repeated addressing, translation, independent
+shader sampling and final source clip. Every output byte has an independent stripe
+expectation; the source bitmap and complete original brush input are saved too.
+
+The other ten inputs use a 400x200 bitmap with independent source DPI axes,
+absolute/relative equivalent viewboxes, Stretch=None in a 100x100 effect input,
+nearest/bilinear shader sampling, and translated FlipX tiles. The integral
+(192,384)-DPI crop retains a 100x20-DIP source frame, so its four plain cases
+must letterbox to exactly 20 centered rows with quarter-opacity red/green pixels.
+Fractional DPI (123.456789012345,183.456789012345) and mirrored cases retain
+every original pixel without inventing an idealized float-to-DIP oracle. Five
+absolute/relative pairs must match completely, preserve final clipping/opaque
+alpha, and have actual opacity-bearing output rather than blank or unchanged
+white. Those pairs are not labeled independent color-oracle cases.
+
+Inputs use public original `BitmapSource.Width/Height` for absolute viewboxes,
+not a replacement double DPI formula. PixelShader sampler registration and actual
+ImageBrush realization remain Microsoft WPF. This adds no production renderer,
+native shader, CPU fallback or source admission. ARM64 executes all inputs as
+the existing explicit unavailable-software control, reporting zero qualified
+sampler shader cases. All previous deadlines, color assertions and native/package
+gates remain; a reference mismatch fails rather than removing its case.

@@ -62,6 +62,11 @@ jobs:
             $value = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
             if ($value.SourceCommit -ne $env:REFERENCE_COMMIT -or $value.CaseCount -ne 25 -or $value.Cases.Count -ne 25 -or $value.Architecture -ne '${{ matrix.arch }}' -or $value.InvalidShaders -ne 0 -or $value.ShaderModel -ne 'ps_2_0' -or $value.ShaderRenderMode -ne 'SoftwareOnly') { throw 'Incomplete or wrong-identity reference.' }
             if ($value.CaptureMode -ne '${{ matrix.mode }}' -or $value.QualifiedShaderCases -ne ${{ matrix.qualified }} -or $value.UnmatchedShaderCases -ne ${{ matrix.unmatched }}) { throw 'Source capability control was confused with shader qualification.' }
+            $samplerReceipt = Join-Path $evidence 'image-samplers.json'
+            if ((Get-Item -LiteralPath $samplerReceipt).Length -gt 2MB) { throw 'Original sampler receipt exceeds its bound.' }
+            $samplers = Get-Content -LiteralPath $samplerReceipt -Raw | ConvertFrom-Json
+            $qualifiedSamplers = if ('${{ matrix.mode }}' -eq 'shader-pixels') { 14 } else { 0 }
+            if ($samplers.SourceCommit -ne $env:REFERENCE_COMMIT -or $samplers.Architecture -ne '${{ matrix.arch }}' -or $samplers.CaseCount -ne 14 -or $samplers.Cases.Count -ne 14 -or $samplers.Replays -ne 42 -or $samplers.IndependentColorCases -ne 8 -or $samplers.EquivalentViewboxPairs -ne 5 -or $samplers.CaptureMode -ne '${{ matrix.mode }}' -or $samplers.QualifiedShaderCases -ne $qualifiedSamplers) { throw 'Incomplete or wrong-identity ImageBrush reference.' }
             Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
           } finally {
             if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
