@@ -143,7 +143,11 @@ bool valid_brush_input(
         !finite_point(brush.end_point) || !finite_point(brush.center) ||
         !std::isfinite(brush.radius) || !std::isfinite(brush.radius_y) ||
         (brush.type != PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN_SET &&
-            spread > PROGPU_NATIVE_SCENE_GRADIENT_DECAL) ||
+            spread > PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL) ||
+        (brush.type != PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN_SET &&
+            spread == PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL &&
+            brush.type != PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT &&
+            brush.type != PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT) ||
         brush.color_interpolation_mode >
             PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SCRGB ||
         (conical_outside_color && brush.type !=

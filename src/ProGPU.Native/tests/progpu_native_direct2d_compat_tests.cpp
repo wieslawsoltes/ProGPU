@@ -2,12 +2,15 @@
 #include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native_direct2d_clip_fixture.hpp"
 #include "progpu_native_direct2d_brush_fixture.hpp"
+#include "progpu_native_direct2d_gradient_stop_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
+#include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
+#include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -6435,6 +6438,9 @@ int run_tests()
     if (!progpu::native::direct2d::tests::scoped_source_copy_contract(factory.get())) return 405;
     if (!progpu::native::direct2d::tests::layer_background_source_contract(factory.get())) return 406;
     if (!owned_bitmap_wic_read_boundary(factory.get())) return 405;
+    if (!progpu::native::direct2d::tests::bitmap_destination_contract(factory.get(), second_factory.get())) return 406;
+    if (!progpu::native::direct2d::tests::gradient_stop_contract(scene_factory.get())) return 406;
+    if (!progpu::native::direct2d::tests::compatible_dpi_contract(scene_factory.get())) return 406;
     const compat::scene_render_target_properties target_properties{
         640U, 480U, 96.0F, 96.0F, 7001U, 11U};
     compat::render_target* raw_target = nullptr;
@@ -6578,7 +6584,7 @@ int run_tests()
     }
     compat::gradient_stop invalid_gradient_stops[]{
         {0.75F, {1.0F, 0.0F, 0.0F, 1.0F}},
-        {0.25F, {0.0F, 0.0F, 1.0F, 1.0F}}};
+        {std::numeric_limits<float>::quiet_NaN(), {0.0F, 0.0F, 1.0F, 1.0F}}};
     raw_gradient_stops = reinterpret_cast<compat::gradient_stop_collection*>(
         static_cast<std::uintptr_t>(1U));
     if (target->CreateGradientStopCollection(

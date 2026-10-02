@@ -184,7 +184,9 @@ typedef enum progpu_native_scene_gradient_spread {
     PROGPU_NATIVE_SCENE_GRADIENT_PAD = 0,
     PROGPU_NATIVE_SCENE_GRADIENT_REFLECT = 1,
     PROGPU_NATIVE_SCENE_GRADIENT_REPEAT = 2,
-    PROGPU_NATIVE_SCENE_GRADIENT_DECAL = 3
+    PROGPU_NATIVE_SCENE_GRADIENT_DECAL = 3,
+    /* Direct2D linear/radial content clamps its parameter, not stop offsets. */
+    PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL = 4
 } progpu_native_scene_gradient_spread;
 
 enum {

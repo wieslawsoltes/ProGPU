@@ -72,6 +72,7 @@ using ::PROGPU_NATIVE_SCENE_IMAGE_PATCH_TEXTURE;
 using ::PROGPU_NATIVE_SCENE_IMAGE_PATCH_FIXED_COLOR;
 using ::PROGPU_NATIVE_SCENE_IMAGE_PATCH_ATLAS_COLOR;
 using ::PROGPU_NATIVE_SCENE_NO_INDEX;
+using ::PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL;
 using ::progpu_native_float_4;
 using ::progpu_native_matrix_4x4;
 using ::progpu_native_hit_test_primitive;

@@ -4210,17 +4210,13 @@ public:
                 extend_mode_value != extend_mode::mirror)) {
             return com::invalid_argument;
         }
-        float previous = -std::numeric_limits<float>::infinity();
         for (std::uint32_t index = 0U;
              index < gradient_stop_count;
              ++index) {
             const gradient_stop& stop = gradient_stops[index];
-            if (!std::isfinite(stop.position) || stop.position < 0.0F ||
-                stop.position > 1.0F || stop.position < previous ||
-                !valid_color(stop.color)) {
+            if (!std::isfinite(stop.position) || !valid_color(stop.color)) {
                 return com::invalid_argument;
             }
-            previous = stop.position;
         }
         try {
             std::vector<gradient_stop> stops(
@@ -4375,10 +4371,10 @@ public:
         if (desired_pixel_size != nullptr) {
             pixel_size = *desired_pixel_size;
         } else if (desired_size != nullptr) {
-            const double width = std::ceil(
-                static_cast<double>(desired_size->width) * dpi_x / 96.0);
-            const double height = std::ceil(
-                static_cast<double>(desired_size->height) * dpi_y / 96.0);
+            const double requested_width = static_cast<double>(desired_size->width) * dpi_x / 96.0;
+            const double requested_height = static_cast<double>(desired_size->height) * dpi_y / 96.0;
+            const double width = std::ceil(requested_width);
+            const double height = std::ceil(requested_height);
             if (width < 1.0 || height < 1.0 || width > 16384.0 ||
                 height > 16384.0) {
                 return com::invalid_argument;
@@ -4386,6 +4382,12 @@ public:
             pixel_size = {
                 static_cast<std::uint32_t>(width),
                 static_cast<std::uint32_t>(height)};
+            // Preserve an integral axis's exact parent DPI. Only a rounded-up
+            // axis needs denser storage so the requested DIP corner still maps
+            // to the actual physical corner, independently on X and Y.
+            if (width != requested_width) dpi_x = static_cast<float>(width * 96.0 / desired_size->width);
+            if (height != requested_height) dpi_y = static_cast<float>(height * 96.0 / desired_size->height);
+            if (!valid_dpi(dpi_x, dpi_y)) return com::invalid_argument;
         }
         if (desired_size != nullptr && desired_pixel_size != nullptr) {
             dpi_x = static_cast<float>(
@@ -5106,13 +5108,21 @@ public:
             0.0F,
             static_cast<float>(snapshot.width) * 96.0F / snapshot.dpi_x,
             static_cast<float>(snapshot.height) * 96.0F / snapshot.dpi_y};
-        const rectangle_f destination_rectangle = destination == nullptr
-            ? bitmap_dips
-            : *destination;
         const rectangle_f source_rectangle = source == nullptr
             ? bitmap_dips
             : *source;
-        if (!valid_rectangle(destination_rectangle) ||
+        const rectangle_f destination_rectangle = destination == nullptr
+            ? rectangle_f{0.0F, 0.0F,
+                source_rectangle.right - source_rectangle.left,
+                source_rectangle.bottom - source_rectangle.top}
+            : *destination;
+        // A missing destination retains the selected source's DIP extent at
+        // the target origin, not the complete bitmap size. Validate original
+        // resource/source/nonfinite errors before the finite inverted no-op.
+        if (!std::isfinite(destination_rectangle.left) ||
+            !std::isfinite(destination_rectangle.top) ||
+            !std::isfinite(destination_rectangle.right) ||
+            !std::isfinite(destination_rectangle.bottom) ||
             !valid_rectangle(source_rectangle) ||
             source_rectangle.left < 0.0F || source_rectangle.top < 0.0F ||
             source_rectangle.right > bitmap_dips.right ||
@@ -5120,6 +5130,10 @@ public:
             latch(com::invalid_argument);
             return;
         }
+        // Direct2D explicitly leaves the target usable for a destination whose
+        // finite edges are not well-ordered. This is not a mirrored image draw.
+        if (destination_rectangle.left > destination_rectangle.right ||
+            destination_rectangle.top > destination_rectangle.bottom) return;
         progpu_native_scene_image_draw image{};
         image.image_width = snapshot.width;
         image.image_height = snapshot.height;
@@ -8359,7 +8373,8 @@ private:
 
     [[nodiscard]] bool set_gradient_coordinate_transform(
         brush* source,
-        progpu_native_scene_brush& destination) noexcept
+        progpu_native_scene_brush& destination,
+        bool analytic_local_coordinates) noexcept
     {
         matrix_3x2_f brush_transform{};
         source->GetTransform(&brush_transform);
@@ -8371,8 +8386,12 @@ private:
             latch(com::invalid_argument);
             return false;
         }
-        const matrix_3x2_f coordinate =
-            compose_transform(inverse_draw, inverse_brush);
+        // Analytic rectangles/ellipses retain original center + local SDF
+        // coordinates even when their vertices carry the draw transform.
+        // Paths/geometry instead supply target coordinates. Keep the existing
+        // transform validity gate in both cases; remove no native admission.
+        const matrix_3x2_f coordinate = analytic_local_coordinates
+            ? inverse_brush : compose_transform(inverse_draw, inverse_brush);
         if (!core::valid_transform(&coordinate)) {
             latch(com::invalid_argument);
             return false;
@@ -8390,7 +8409,8 @@ private:
         brush* source,
         gradient_stop_collection* collection,
         progpu_native_scene_brush& native,
-        std::vector<progpu_native_scene_gradient_stop>& native_stops) noexcept
+        std::vector<progpu_native_scene_gradient_stop>& native_stops,
+        bool analytic_local_coordinates = false) noexcept
     {
         if (collection == nullptr) {
             latch(com::invalid_argument);
@@ -8442,11 +8462,8 @@ private:
             collection->GetGradientStops(stops.data(), stop_count);
             native_stops.clear();
             native_stops.reserve(stop_count);
-            float previous = -std::numeric_limits<float>::infinity();
             for (const gradient_stop& stop : stops) {
-                if (!std::isfinite(stop.position) || stop.position < 0.0F ||
-                    stop.position > 1.0F || stop.position < previous ||
-                    !valid_color(stop.color)) {
+                if (!std::isfinite(stop.position) || !valid_color(stop.color)) {
                     latch(com::invalid_argument);
                     return false;
                 }
@@ -8457,7 +8474,15 @@ private:
                     0U,
                     0U,
                     0U});
-                previous = stop.position;
+            }
+            // The public collection retains original order/values. Only its
+            // owned rendering snapshot is sorted: equal-position stops must
+            // retain caller order, including the low/high sides of a hard edge.
+            std::stable_sort(native_stops.begin(), native_stops.end(),
+                [](const auto& left, const auto& right) { return left.offset < right.offset; });
+            if (native.spread_method == PROGPU_NATIVE_SCENE_GRADIENT_PAD &&
+                (native_stops.front().offset < 0.0F || native_stops.back().offset > 1.0F)) {
+                native.spread_method = PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL;
             }
             native.stop_count = stop_count;
             const std::size_t inline_count = std::min<std::size_t>(
@@ -8470,7 +8495,7 @@ private:
                     native.offsets1[index - 4U] = native_stops[index].offset;
                 }
             }
-            if (!set_gradient_coordinate_transform(source, native)) {
+            if (!set_gradient_coordinate_transform(source, native, analytic_local_coordinates)) {
                 return false;
             }
             return true;
@@ -8487,11 +8512,12 @@ private:
         brush* source,
         gradient_stop_collection* collection,
         progpu_native_scene_brush& native,
-        std::uint32_t& brush_index) noexcept
+        std::uint32_t& brush_index,
+        bool analytic_local_coordinates) noexcept
     {
         std::vector<progpu_native_scene_gradient_stop> native_stops;
         if (!translate_gradient_brush(
-                source, collection, native, native_stops)) {
+                source, collection, native, native_stops, analytic_local_coordinates)) {
             return false;
         }
         if (!builder_.add_brush(native, native_stops, brush_index)) {
@@ -8503,7 +8529,8 @@ private:
 
     [[nodiscard]] bool add_brush(
         brush* brush_value,
-        std::uint32_t& brush_index) noexcept
+        std::uint32_t& brush_index,
+        bool analytic_local_coordinates = false) noexcept
     {
         if (brush_value == nullptr) {
             latch(com::invalid_argument);
@@ -8543,7 +8570,7 @@ private:
             native.start_point = {start.x, start.y};
             native.end_point = {end.x, end.y};
             return add_gradient_brush(
-                linear.get(), collection.get(), native, brush_index);
+                linear.get(), collection.get(), native, brush_index, analytic_local_coordinates);
         }
 
         radial_gradient_brush* raw_radial = nullptr;
@@ -8580,7 +8607,7 @@ private:
             native.radius = radius_x;
             native.radius_y = radius_y;
             return add_gradient_brush(
-                radial.get(), collection.get(), native, brush_index);
+                radial.get(), collection.get(), native, brush_index, analytic_local_coordinates);
         }
 
         solid_color_brush* raw_solid = nullptr;
@@ -8732,7 +8759,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
@@ -8910,7 +8937,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
@@ -9011,7 +9038,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);

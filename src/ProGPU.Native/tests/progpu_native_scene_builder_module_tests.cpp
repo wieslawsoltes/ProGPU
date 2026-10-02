@@ -6,6 +6,7 @@
 import progpu.native.scene_builder;
 
 int main() {
+    static_assert(progpu::native::PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL == 4U);
     {
         progpu::native::semantic_scene_builder shader_builder(9840U, 1U);
         progpu::native::progpu_native_scene_shader_effect shader{};
