@@ -70,7 +70,7 @@ earlier same-scene retained picture. Generated bindings describe the same layout
 
 Shared preflight independently verifies the retained arithmetic, actual layer
 bounds/presentation, full uncropped physical extent and final state. It permits
-only identity final composite state with an optional rectangle clip. Masks,
+only identity final composite state with the proven rectangle clip. Masks,
 cache ancestors/local cache, backdrop, custom mapping, rotation/reflection and
 unsupported source opacity isolation remain closed for this new family. The
 ordinary old-version preflight remains unchanged. Both providers consume the
@@ -105,7 +105,11 @@ visibility distinction; its original inputs remain unchanged.
 The independent public Microsoft WPF companion is PR280, immutable
 `7b0695136ebdb206922a40e57e6a2975926cf7bc`: 21 source cases, including eighteen
 integral-final candidates, two deferred final-translation cases and one original
-separately narrowed history. Actual Windows execution remains its separate gate.
+separately narrowed history. Its source-derived output-clip correction is
+`e611aae3fdf3366085475094d11156676f4141a3`; original Windows reference workflow
+[37045784511](https://github.com/wieslawsoltes/ProGPU/actions/runs/37045784511)
+passed on x64, with the separate ARM64 unavailable/negative control passing.
+This is original source evidence, not execution of these native fixtures.
 SoftwareOnly's integer UV phase is not substituted for original hardware's
 pixel-center convention.
 
@@ -129,3 +133,27 @@ This branch starts from PR277 source union `41a5cba0570497babf2230b44c4f541f3aca
 which includes unqualified source dependencies PR267/270/271. This commit is
 authored implementation and fixtures before focused checks; no native build,
 GPU/VM execution, runtime staging or WPF source repin has been performed.
+
+## Bounded post-commit checks
+
+Major implementation `f9e2e414c5d50f5e15072a7b4dea43f74e3564b0` was committed before
+checks. Read-only peer review identified two additional clip-transport boundaries:
+`d594623f6` proves original-DPI round trips and `12fad81a8` proves the final
+intersection still has integral physical edges. `ab6d0c1da` adds a raw fractional
+subset-clip rejection to both provider fixtures. None changes generic old clips.
+
+Strict Clang C++20 syntax with warnings as errors passed for the actual MIL
+implementation/tests, actual scene validator and builder, shared renderer under
+the existing cached Dawn ABI header, and a fully instantiated new GPU fixture.
+The generated C# contract also parsed without errors (not managed type compilation).
+Protocol/coverage freshness, native ownership inventory, all seven generated C#
+contracts, both Unicode verifiers and three inline-array generator tests passed.
+The existing cached generator source exactly matches this tree (Program.cs SHA256
+`32ea7debdc2bd3a864bc6440a45e4f34d19bffaa27bebddfbbd559bf286f021a`).
+Whitespace checks passed. No native library/test executable was built or run.
+
+These are source/layout checks only. Native CPU and both-provider GPU fixtures,
+Windows/package execution and the exact whole producer Build remain required.
+Non-dyadic/full inverse, fractional final placement, fractional source clips,
+anti-aliased output coverage and actual WPF source integration remain explicit
+implementation/qualification gates; this first family does not redefine them.
