@@ -69,3 +69,25 @@ implementation/tables or fitted to observed output samples. Degree alone does
 not prove interval, constraints, range reduction, evaluation order or bit parity.
 Numerical analysis of those independent approximants is separate from deferred
 product validation and does not widen the current source gate.
+
+## Actual typed source-effect controls
+
+The shared provider fixture now authors four real typed source graphs, using a
+centered Scale(-1,1,3.25,-4.5) and Translate(2,3): Scale alone, Scale→Translate,
+Translate→Scale, and nested Group(Translate→Scale) followed by the same original
+Translate child twice. Their independently literal six-component matrices retain
+translations (6.5,0), (8.5,3), (4.5,3), and (8.5,9), respectively. Reversing order
+and deduplicating repeated identity therefore have observable consequences.
+
+Each actual source graph and its separate literal MatrixTransform reference
+produces an owned scene. The fixture compares complete raw affine-frame fields,
+then retires the original channel before cold, warm and independent-engine replay
+in both providers. All 128×64 RGBA bytes are compared against the literal scene
+and independent dyadic UV-squared/28.4 clip equations, with explicit nonempty
+coverage and unchanged per-replay submission/draw/uniform-upload expectations.
+No expected frame or pixel uses the product centering helper.
+
+The prior seven MatrixTransform cases and both Rotate/Skew rejection controls are
+unchanged. These four new cases are authored only: no compilation, test, syntax,
+GPU, VM or CI execution occurred at this intermediate stacked tip. Original SDK
+and final complete source/provider qualification remain separate requirements.
