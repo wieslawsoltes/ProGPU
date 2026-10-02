@@ -32,6 +32,14 @@ struct rgb_glyph_tile final {
     std::int32_t target_y;
     progpu_native_color foreground;
 };
+struct rgb_glyph_scissor final {
+    std::uint32_t x, y, width, height;
+};
+struct rgb_glyph_metrics final {
+    std::uint64_t vertex_upload_bytes = 0U;
+    std::uint64_t uniform_upload_bytes = 0U;
+    std::uint32_t draw_calls = 0U;
+};
 
 // Encode into the current owned semantic encoder, borrowing its live target.
 // Target opacity and physical integral placement must already be source-proven.
@@ -44,7 +52,9 @@ progpu_native_status encode_linear_rgb_glyphs(
     progpu_native_engine& engine, WGPUTextureView target,
     std::uint32_t target_width, std::uint32_t target_height,
     bool target_ignores_alpha, const rgb_glyph_policy& policy,
+    const rgb_glyph_scissor& scissor,
     std::span<const rgb_glyph_tile> glyphs,
-    std::span<const progpu_native_path_segment> segments);
+    std::span<const progpu_native_path_segment> segments,
+    rgb_glyph_metrics& metrics);
 
 } // namespace progpu::native::execution

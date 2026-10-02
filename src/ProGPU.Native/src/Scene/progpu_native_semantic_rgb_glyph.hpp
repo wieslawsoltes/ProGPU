@@ -1,6 +1,7 @@
 #pragma once
 
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_semantic_state.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,6 +10,30 @@
 #include <span>
 
 namespace progpu::native::semantic {
+
+// Fixed original sampling coordinates may move by integral physical pixels,
+// never be reprojected, phase-rounded or rescaled after coverage selection.
+// Source state is logical; subtract the actual integer target origin only
+// after projecting translation, avoiding a divide/multiply origin round trip.
+inline bool try_resolve_rgb_glyph_translation(const progpu_native_scene_rgb_glyph_draw& draw,
+    const progpu_native_scene_state& state, const scissor& target,
+    const progpu_native_scene_presentation& presentation, bool ignores_alpha,
+    std::int32_t& offset_x, std::int32_t& offset_y) noexcept {
+    if (!ignores_alpha || (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U ||
+        state.transform.m11 != 1.0F || state.transform.m12 != 0.0F ||
+        state.transform.m21 != 0.0F || state.transform.m22 != 1.0F ||
+        draw.dpi_scale != presentation.dpi_scale_x || draw.dpi_scale != presentation.dpi_scale_y)
+        return false;
+    const double x = static_cast<double>(state.transform.m31 * draw.dpi_scale) +
+        presentation.viewport_x - static_cast<double>(target.x);
+    const double y = static_cast<double>(state.transform.m32 * draw.dpi_scale) +
+        presentation.viewport_y - static_cast<double>(target.y);
+    if (!std::isfinite(x) || !std::isfinite(y) || x != std::floor(x) || y != std::floor(y) ||
+        x < -8192.0 || x > 8192.0 || y < -8192.0 || y > 8192.0) return false;
+    offset_x = static_cast<std::int32_t>(x);
+    offset_y = static_cast<std::int32_t>(y);
+    return true;
+}
 
 inline bool valid_rgb_glyph_descriptor(const progpu_native_scene_rgb_glyph_draw& draw) noexcept {
     return draw.struct_size == sizeof(draw) && draw.glyph_count != 0U && draw.glyph_count <= 65536U &&
