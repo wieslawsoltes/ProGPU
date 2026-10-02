@@ -35,6 +35,15 @@ this does not claim new numeric equivalence for previously unqualified frames
 or broaden native sampled-mask admission. The WPF adapter opt-in is a separate
 source child, with the qualified producer pin unchanged until final integration.
 
+Authored controls run the same managed compositor family on native and Dawn
+contexts: explicit/default ordering, zero root opacity, zero mask alpha,
+constant output with padding and output clipping, ordinary/cached input,
+gradient-input comparison against ordinary drawing, same-owner mask replacement
+and restoration, warm and independent-compositor replay, and zero-opacity
+ancestor exclusion. Cache metadata controls require default false, retained
+parameter identity, equal same-policy keys and distinct source/default keys.
+These are unexecuted controls, not results.
+
 Implementation and controls carry `[skip ci]`. No tests, builds, verifiers or
 GPU/VM execution are run at this intermediate checkpoint; complete source,
 provider, package and application qualification belongs to the final tip.

@@ -9,6 +9,21 @@ namespace ProGPU.Tests;
 public class WpfShaderEffectParamsTests
 {
     [Fact]
+    public void OriginalSourceOpacityOrderingIsExplicitImmutableCacheMetadata()
+    {
+        var parameters = new WpfShaderEffectParams();
+        var generic = new WpfShaderEffect(parameters);
+        var source = new WpfShaderEffect(parameters) { CaptureSourceVisualOpacity = true };
+        var sameSource = new WpfShaderEffect(parameters) { CaptureSourceVisualOpacity = true };
+
+        Assert.False(generic.CaptureSourceVisualOpacity);
+        Assert.True(source.CaptureSourceVisualOpacity);
+        Assert.Same(parameters, source.Parameters);
+        Assert.NotEqual(GetRenderCacheKey(generic), GetRenderCacheKey(source));
+        Assert.Equal(GetRenderCacheKey(source), GetRenderCacheKey(sameSource));
+    }
+
+    [Fact]
     public void CopiesConstantsAndTextureMetadataToUniformLayout()
     {
         var constants = Enumerable.Range(0, WpfShaderEffectParams.ConstantFloatCount + 8)
