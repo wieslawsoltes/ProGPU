@@ -96,3 +96,21 @@ it installed no SDK and loaded no WPF renderer or ProGPU native runtime. Actual
 Windows source capture remains the hosted workflow's responsibility. The new
 sampler phase shares the original process-wide 60-second stopwatch rather than
 resetting the capture deadline.
+
+The first hosted original x64 run `37010052606` (job `110847365474`) passed the
+25 arithmetic inputs but contradicted the existing native fixture's hard stripe
+expectation. `sampler-native-0` returned a linear red/green ramp at x=16..31:
+BGRA `(0,4,124,255)` through `(0,124,4,255)`, despite nearest options on the effect
+visual and its ImageBrush. These failed original PNG/raw/input artifacts are
+retained; no native parity claim or passing sampler receipt follows from them.
+
+Two additive parent-Nearest controls isolate incoming render-state inheritance
+from options on the effect visual itself, bringing the inventory to 16 inputs,
+48 replays and 10 independent color controls. Pixel failures now accumulate so
+all original inputs and equivalence pairs are observed in one bounded run. Any
+failure writes only `image-samplers.failed.json`, reports zero qualified cases
+and fails the workflow after capture. None of the pixel assertions, original
+cases or capability checks is weakened. The producer behavior being investigated
+is documented in the original WPF `ShaderEffect.cpp` secondary-input capture:
+its fresh capture context inherits the incoming render state. This observation
+does not establish the effective render-option ordering by itself.

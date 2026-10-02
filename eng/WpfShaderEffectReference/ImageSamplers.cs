@@ -18,6 +18,7 @@ internal static partial class Program
         double startedMilliseconds = timer.Elapsed.TotalMilliseconds;
         var observations = new List<object>();
         var originals = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var failures = new List<string>();
         int independentColors = 0, equivalentPairs = 0;
         foreach (SamplerCase input in SamplerCases())
         {
@@ -35,7 +36,8 @@ internal static partial class Program
                 SourcePixelSha256 = Convert.ToHexString(SHA256.HashData(sourcePixels)),
                 SourcePixelFormat = "Pbgra32", ShaderWords = SamplerWords,
                 SamplerRegister = 0, ShaderRenderMode = "SoftwareOnly", AlignmentX = "Center", AlignmentY = "Center",
-                BitmapScalingMode = "NearestNeighbor", EffectInputBounds = input.Bounds,
+                BitmapScalingMode = "NearestNeighbor", ParentBitmapScalingMode = input.ParentNearest ? "NearestNeighbor" : "Unspecified",
+                EffectInputBounds = input.Bounds,
                 Meaning = "Original source bitmap metadata and complete ImageBrush before shader rendering."
             };
             using (var file = new FileStream(Path.Combine(directory, input.Name + ".input.json"), FileMode.CreateNew))
@@ -58,16 +60,19 @@ internal static partial class Program
                 var pixels = new byte[input.Size * input.Size * 4];
                 bitmap.CopyPixels(pixels, input.Size * 4, 0);
                 if (replay == 0) SaveSamplerBitmap(directory, input.Name, bitmap, pixels);
-                AssertSamplerPixels(input, pixels, unavailable);
+                // Retain the entire original inventory after a pixel mismatch,
+                // but never publish a successful receipt for those observations.
+                try { AssertSamplerPixels(input, pixels, unavailable); }
+                catch (InvalidOperationException error) { failures.Add($"Replay {replay}: {error.Message}"); }
                 if (first != null && !first.AsSpan().SequenceEqual(pixels))
-                    throw new InvalidOperationException($"{input.Name}: cold/warm/independent sampler pixels changed.");
+                    failures.Add($"{input.Name}: cold/warm/independent sampler pixels changed.");
                 first ??= pixels;
             }
             if (input.NativeVariant >= 0 || input.ExactCenteredCrop) ++independentColors;
             if (input.EquivalentTo != null)
             {
                 if (!originals.TryGetValue(input.EquivalentTo, out var prior) || !prior.AsSpan().SequenceEqual(first))
-                    throw new InvalidOperationException($"{input.Name}: equivalent original absolute/relative viewboxes differ.");
+                    failures.Add($"{input.Name}: equivalent original absolute/relative viewboxes differ.");
                 ++equivalentPairs;
             }
             originals.Add(input.Name, first!);
@@ -79,7 +84,7 @@ internal static partial class Program
                 input.EquivalentTo
             });
         }
-        if (observations.Count != 14 || independentColors != 8 || equivalentPairs != 5)
+        if (observations.Count != 16 || independentColors != 10 || equivalentPairs != 5)
             throw new InvalidOperationException("Original ImageBrush inventory is incomplete.");
         var receipt = new
         {
@@ -87,18 +92,20 @@ internal static partial class Program
             PresentationIdentity = typeof(ShaderEffect).Assembly.FullName,
             PresentationCore = FileIdentity(typeof(ShaderEffect).Assembly.Location),
             Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
-            CaseCount = observations.Count, Cases = observations, Replays = 42,
+            CaseCount = observations.Count, Cases = observations, Replays = 48,
             CaptureMode = unavailable ? "unsupported-software-control" : "shader-pixels",
-            QualifiedShaderCases = unavailable ? 0 : observations.Count,
+            QualifiedShaderCases = unavailable || failures.Count != 0 ? 0 : observations.Count,
             IndependentColorCases = independentColors, EquivalentViewboxPairs = equivalentPairs,
+            Failures = failures,
             ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds - startedMilliseconds,
             Qualification = unavailable
                 ? "Original ARM64 unavailable-software control; no sampler shader pixels qualified."
-                : "Original Microsoft WPF ImageBrush pixels. Eight independent color cases and five complete-pixel equivalence pairs; not native/source-host/package parity."
+                : "Original Microsoft WPF ImageBrush observations. Ten independent color controls and five complete-pixel equivalence pairs; failures disqualify the entire capture. Not native/source-host/package parity."
         };
-        using var output = new FileStream(Path.Combine(directory, "image-samplers.json"), FileMode.CreateNew);
-        JsonSerializer.Serialize(output, receipt, new JsonSerializerOptions { WriteIndented = true });
-        Console.WriteLine($"Original ImageBrush: 14 cases / 42 replays / 5 viewbox pairs; {(unavailable ? 0 : 14)} source shader cases qualified.");
+        using (var output = new FileStream(Path.Combine(directory, failures.Count == 0 ? "image-samplers.json" : "image-samplers.failed.json"), FileMode.CreateNew))
+            JsonSerializer.Serialize(output, receipt, new JsonSerializerOptions { WriteIndented = true });
+        if (failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
+        Console.WriteLine($"Original ImageBrush: 16 cases / 48 replays / 5 viewbox pairs; {(unavailable ? 0 : 16)} source shader cases qualified.");
     }
 
     private static readonly uint[] SamplerWords = [0xFFFF0200, 0x0200001F, 0x80000000, 0xB0030000,
@@ -125,6 +132,7 @@ internal static partial class Program
         public bool Blue { get; init; }
         public int NativeVariant { get; init; } = -1;
         public bool ExactCenteredCrop { get; init; }
+        public bool ParentNearest { get; init; }
         public string? EquivalentTo { get; init; }
     }
 
@@ -137,6 +145,13 @@ internal static partial class Program
                 Viewport = new(0, 0, variant == 0 ? 1 : .5, 1), Tile = variant == 0 ? TileMode.None : TileMode.Tile,
                 TranslationX = variant == 2 ? 8 : 0,
                 Sampling = (variant & 1) == 0 ? SamplingMode.NearestNeighbor : SamplingMode.Bilinear
+            };
+        for (int variant = 0; variant < 2; ++variant)
+            yield return new($"sampler-parent-nearest-{variant}")
+            {
+                NativeVariant = variant, ParentNearest = true,
+                Viewport = new(0, 0, variant == 0 ? 1 : .5, 1), Tile = variant == 0 ? TileMode.None : TileMode.Tile,
+                Sampling = variant == 0 ? SamplingMode.NearestNeighbor : SamplingMode.Bilinear
             };
         foreach (bool fractional in new[] { false, true })
         foreach (SamplingMode sampling in new[] { SamplingMode.NearestNeighbor, SamplingMode.Bilinear })
@@ -194,6 +209,7 @@ internal static partial class Program
         using (var drawing = background.RenderOpen()) drawing.DrawRectangle(Brushes.Black, null, new(0, 0, input.Size, input.Size));
         root.Children.Add(background);
         var clip = new ContainerVisual { Clip = new RectangleGeometry(input.Clip) };
+        if (input.ParentNearest) RenderOptions.SetBitmapScalingMode(clip, BitmapScalingMode.NearestNeighbor);
         var source = new DrawingVisual { Effect = new SamplerEffect(brush, input.Sampling) };
         RenderOptions.SetBitmapScalingMode(source, BitmapScalingMode.NearestNeighbor);
         using (var drawing = source.RenderOpen()) drawing.DrawRectangle(Brushes.White, null, input.Bounds);
