@@ -946,6 +946,19 @@ bool create_semantic_layer_mask_binding(
     const auto create_uniforms_for = [&](
         const progpu_native_scene_layer_mask& source,
         gpu_mask_sampling_uniforms& uniforms) noexcept {
+        if ((source.flags & PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA) != 0U) {
+            std::array<float, 4U> bounds{};
+            if (!semantic::try_resolve_semantic_axis_clip_pixel_bounds(
+                    source.bounds, target_extent, presentation, bounds)) return false;
+            // Source identity is wire-validated. Keep exact projected physical
+            // edges and unit pixels: never divide by DPI then multiply back.
+            uniforms.coordinate0[0] = 1.0F;
+            uniforms.coordinate1[1] = 1.0F;
+            std::copy(bounds.begin(), bounds.end(), uniforms.bounds);
+            uniforms.options[0] = 5.0F;
+            uniforms.options[1] = 1.0F;
+            return true;
+        }
         progpu_native_group_mask mask{};
         mask.struct_size = sizeof(mask);
         mask.kind = PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
@@ -956,16 +969,7 @@ bool create_semantic_layer_mask_binding(
         std::copy_n(source.corner_radii_y, 4U, mask.corner_radii_y);
         mask.opacity = source.opacity;
         normalize_group_mask_radii(mask);
-        if (!create_rounded_group_mask_uniforms(mask, dpi_scale, uniforms)) return false;
-        if ((source.flags & PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA) != 0U) {
-            // Source identity plus the actual per-axis presentation is still
-            // diagonal after target localization. One fragment is one physical
-            // pixel; its inverse local dimensions are these two coefficients.
-            if (uniforms.coordinate0[1] != 0.0F || uniforms.coordinate1[0] != 0.0F ||
-                !(uniforms.coordinate0[0] > 0.0F) || !(uniforms.coordinate1[1] > 0.0F)) return false;
-            uniforms.options[0] = 5.0F;
-        }
-        return true;
+        return create_rounded_group_mask_uniforms(mask, dpi_scale, uniforms);
     };
     const bool chained = parsed.kind ==
         PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN;
