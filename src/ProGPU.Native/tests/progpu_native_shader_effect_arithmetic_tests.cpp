@@ -408,6 +408,22 @@ void cross_scalar_sources(controls& test, bool three) {
                             "CRS scalar modifier or ABSNEG order changed");
                     }
             }
+    for (const auto modifier : {0U, 1U, 11U, 12U}) {
+        auto program = prefix(three);
+        definition(program, 31U, {-0.0F, 0.0F, -0.0F, 0.0F});
+        instruction(program, 1U, dst(0U, 1U), {src(0U, 0U)});
+        instruction(program, 33U, dst(0U, 1U, 1U),
+            {src(0U, 0U), src(2U, 31U, 0xE4U, modifier)});
+        finish(program, src(0U, 1U));
+        const auto body = test.accept(program);
+        require(body.find("c[31] = vec4<f32>(bitcast<f32>(2147483648u), bitcast<f32>(0u), "
+            "bitcast<f32>(2147483648u), bitcast<f32>(0u));") != std::string::npos,
+            "CRS scalar emission canonicalized original signed-zero DEF bits");
+        const std::array expected{"c[31].z", "(-c[31].z)", "abs(c[31].z)", "(-abs(c[31].z))"};
+        const auto index = modifier == 0U ? 0U : modifier == 1U ? 1U : modifier == 11U ? 2U : 3U;
+        require(body.find(std::string("r[0].y * ") + expected[index]) != std::string::npos,
+            "CRS changed the modifier operation on a signed-zero source");
+    }
 }
 } // namespace shader_arithmetic_controls
 

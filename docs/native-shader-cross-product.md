@@ -60,8 +60,10 @@ original bytecode, pipeline/cache identity, resource budgets and provider choice
 are unchanged. No upstream compiler code or flags are patched.
 
 The original 110 translation, 367 arithmetic and 406 CRS controls remain, with
-an additional 224 scalar-source programs spanning both models, every XYZ mask and
-all pairs of admitted source modifiers. All ten original paired GPU programs,
+an additional 232 scalar-source programs spanning both models, every XYZ mask and
+all pairs of admitted source modifiers, plus exact original signed-zero DEF bits
+and their modifier operations. This is emission/bit-retention coverage, not a new
+claim about WGSL floating-point propagation. All ten original paired GPU programs,
 pixels, cold/warm/independent counts and deadlines are unchanged. The emission
 fix must still pass the exact hosted Dawn/Metal lane; no local renderer/GPU run
 or pixel qualification is inferred from these source controls.
