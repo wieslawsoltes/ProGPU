@@ -10,6 +10,7 @@ template<class Require>
 void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
     IDWriteFactory* write_factory, Require require)
 {
+    for (std::uint32_t origins = 0U; origins < 3U; ++origins) {
     using Microsoft::WRL::ComPtr;
     ComPtr<IDWriteFactory5> extended_factory;
     require(SUCCEEDED(write_factory->QueryInterface(IID_PPV_ARGS(extended_factory.GetAddressOf()))),
@@ -23,7 +24,7 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
         Require& check;
         ~unregister_loader() { check(factory->UnregisterFontFileLoader(loader) == S_OK, "original font loader retirement"); }
     } registered{write_factory, loader.Get(), require};
-    const auto bytes = progpu::native::tests::make_hint_fault_font();
+    const auto bytes = prepared_pixel_font(origins);
     ComPtr<IDWriteFontFile> file;
     // Null owner makes the original SDK copy these authored bytes. Its loader
     // registration outlives the face, every capture and each prepared context.
@@ -87,7 +88,7 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
         const compat::glyph_run run{typed_face.get(), 62.5F, 3U, indices, advances, offsets, 0, 2U};
         original_glyph_target frame;
         frame.identity = com::pointer<com::unknown>(typed_target.get());
-        frame.generation = variant + 1U; // Test-owned original observation, not a native renderer generation.
+        frame.generation = origins * 4U + variant + 1U; // Test-owned observation, not a native renderer generation.
         frame.baseline = {3.1875F, 30.8125F}; frame.pixels = {64U, 64U}; frame.dpi_x = 96; frame.dpi_y = 96;
         frame.transform = prepared_pixel_transform(variant); frame.format = {87U, compat::alpha_mode::premultiplied};
         frame.antialias = (variant & 1U) != 0U ? compat::text_antialias_mode::grayscale : compat::text_antialias_mode::aliased;
@@ -118,11 +119,12 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
         for (std::size_t index = 0U; index < paths.size(); ++index) {
             context->SetTarget(target.Get());
             record_prepared_pixel_case(typed_factory.get(), typed_target.get(), prepared, typed_parameters.get(),
-                variant, paths[index], require, geometry.get());
+                variant, paths[index], require, geometry.get(), origins);
             pixels[index] = copy_pixels();
         }
         require(pixels[0] == pixels[1] && pixels[0] == pixels[2],
             "original DrawGlyphRun differs from independent or prepared full-byte placement");
+    }
     }
 }
 } // namespace progpu::native::direct2d::tests
