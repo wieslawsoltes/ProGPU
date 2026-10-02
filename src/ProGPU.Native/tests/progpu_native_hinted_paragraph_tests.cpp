@@ -677,6 +677,77 @@ void original_source_policy_controls() {
             const auto geometry = create_hinted_paragraph_glyph_resource(rounded, 1.5F,
                 hinted_projection_policy::scalar_reference, hinted_outline_coverage::nonzero_vector);
             require(geometry.status == PROGPU_NATIVE_STATUS_SUCCESS && geometry.generation != nullptr);
+            // Same original paragraph/capture with a genuine double source
+            // frame. These values deliberately do not round-trip through float.
+            std::array<text_source_item_metrics, 2U> source_metrics{{
+                {std::nextafter(static_cast<double>(request.metrics[0].ascent), 100.0),
+                    std::nextafter(static_cast<double>(request.metrics[0].descent), 100.0)},
+                {std::nextafter(static_cast<double>(request.metrics[1].ascent), 100.0),
+                    std::nextafter(static_cast<double>(request.metrics[1].descent), 100.0)}}};
+            const auto original_metrics = source_metrics;
+            hinted_source_paragraph_layout source_layout{
+                std::nextafter(static_cast<double>(request.layout.maximum_width), 10000.0),
+                std::nextafter(static_cast<double>(request.layout.line_height), 10000.0), source_metrics, true};
+            std::shared_ptr<const hinted_paragraph_generation> precise;
+            require(try_layout_context_hinted_paragraph(font.context.value, request.shaping, request.layout,
+                request.styles, request.metrics, request.configurations, precise, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS);
+            const auto verify_precise = [&](const hinted_paragraph_generation& value) {
+                require(value.has_source_geometry && value.source_glyphs.size() == value.glyphs.size() &&
+                    value.source_lines.size() == value.lines.size() && value.logical_owners == rounded->logical_owners);
+                bool non_float_metric = false;
+                for (std::size_t i = 0U; i < value.logical_glyphs.size(); ++i) {
+                    require(equal_glyph(value.logical_glyphs[i], rounded->logical_glyphs[i]));
+                    const auto& logical = value.logical_glyphs[i];
+                    const auto& actual = value.source_logical_metrics[i];
+                    const auto style = value.runs[value.logical_owners[i].run_index].style_index;
+                    const double dpi = original_source[style].pixels_per_dip;
+                    require(actual.advance_x == (static_cast<double>(logical.advance_x) / 64.0) / dpi &&
+                        actual.advance_y == (static_cast<double>(logical.advance_y) / 64.0) / dpi &&
+                        actual.offset_x == (static_cast<double>(logical.offset_x) / 64.0) / dpi &&
+                        actual.offset_y == (static_cast<double>(logical.offset_y) / 64.0) / dpi &&
+                        value.source_item_metrics[i].ascent == original_metrics[style].ascent &&
+                        value.source_item_metrics[i].descent == original_metrics[style].descent);
+                    non_float_metric |= actual.advance_x != static_cast<double>(static_cast<float>(actual.advance_x));
+                }
+                require(non_float_metric);
+                double top = 0.0;
+                for (std::size_t line_index = 0U; line_index < value.lines.size(); ++line_index) {
+                    const auto& line = value.lines[line_index];
+                    const auto& frame = value.source_lines[line_index];
+                    double ascent = 0.0, descent = 0.0, cursor = frame.origin_x;
+                    for (std::size_t i = line.glyph_start; i < line.glyph_start + line.glyph_count; ++i) {
+                        const auto& positioned = value.source_glyphs[i];
+                        const auto logical = value.glyphs[i].glyph_index;
+                        const auto metric = value.source_logical_metrics[logical];
+                        ascent = std::max(ascent, value.source_item_metrics[logical].ascent);
+                        descent = std::max(descent, value.source_item_metrics[logical].descent);
+                        require(positioned.x == cursor + metric.offset_x && positioned.y == frame.baseline_y + metric.offset_y &&
+                            positioned.advance_x == metric.advance_x && positioned.advance_y == metric.advance_y &&
+                            value.glyphs[i].x == static_cast<float>(positioned.x) && value.glyphs[i].y == static_cast<float>(positioned.y) &&
+                            value.glyphs[i].advance_x == static_cast<float>(positioned.advance_x));
+                        cursor += metric.advance_x;
+                    }
+                    require(frame.top == top && frame.baseline_offset == ascent && frame.baseline_y == top + ascent &&
+                        frame.height == std::max(value.source_line_height, ascent + descent) &&
+                        line.baseline_y == static_cast<float>(frame.baseline_y) && line.width == static_cast<float>(frame.width));
+                    top += frame.height;
+                }
+            };
+            verify_precise(*precise);
+            require(create_hinted_paragraph_glyph_resource(precise, 1.5F,
+                hinted_projection_policy::scalar_reference, hinted_outline_coverage::nonzero_vector).status == PROGPU_NATIVE_STATUS_SUCCESS);
+            require(reflow_hinted_paragraph(*precise, precise->lines.front().input_start, 80.0F).status == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+            const auto stable_precise = precise;
+            source_metrics[1].ascent = std::numeric_limits<double>::quiet_NaN();
+            require(try_layout_context_hinted_paragraph(font.context.value, request.shaping, request.layout,
+                request.styles, request.metrics, request.configurations, precise, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                precise == stable_precise);
+            source_metrics = original_metrics;
+            source_layout.maximum_width = -1.0;
+            require(try_layout_context_hinted_paragraph(font.context.value, request.shaping, request.layout,
+                request.styles, request.metrics, request.configurations, precise, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                precise == stable_precise);
+            source_metrics.fill({});
             const auto previous = rounded;
             source[1].em_size = 19.0;
             require(try_layout_context_hinted_paragraph(font.context.value, request.shaping, request.layout,
@@ -706,6 +777,16 @@ void original_source_policy_controls() {
             for (std::size_t i = 0U; i < rounded->runs.size(); ++i)
                 require(reflow.generation->runs[i].generation == rounded->runs[i].generation);
             verify_writer(*reflow.generation); verify_interaction(reflow.generation);
+            const double new_width = std::nextafter(80.0, 81.0);
+            const auto precise_reflow = reflow_hinted_source_paragraph(*precise, precise->lines.front().input_start, new_width);
+            require(precise_reflow.status == PROGPU_NATIVE_STATUS_SUCCESS && precise_reflow.generation != nullptr &&
+                precise_reflow.generation->source_maximum_width == new_width &&
+                precise_reflow.generation->source_maximum_width != static_cast<double>(precise_reflow.generation->layout.maximum_width));
+            for (std::size_t i = 0U; i < precise->runs.size(); ++i)
+                require(precise_reflow.generation->runs[i].generation == precise->runs[i].generation);
+            verify_precise(*precise_reflow.generation);
+            require(create_hinted_paragraph_glyph_resource(precise_reflow.generation, 1.5F,
+                hinted_projection_policy::scalar_reference, hinted_outline_coverage::nonzero_vector).status == PROGPU_NATIVE_STATUS_SUCCESS);
         }
     }
 }
