@@ -305,6 +305,30 @@ add_custom_command(
     VERBATIM)
 set(generated_text_shader
     "${generated_directory}/TextWgsl.generated.hpp")
+set(generated_rgb_glyph_rasterizer_shader "${generated_directory}/GlyphRgbRasterizerWgsl.generated.hpp")
+set(generated_rgb_glyph_composite_shader "${generated_directory}/GlyphRgbCompositeWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_rgb_glyph_rasterizer_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DPREFIX_INPUT=${PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRgbRasterizer.wgsl"
+        "-DOUTPUT=${generated_rgb_glyph_rasterizer_shader}"
+        "-DSYMBOL=rgb_glyph_rasterizer_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRgbRasterizer.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    VERBATIM)
+add_custom_command(
+    OUTPUT "${generated_rgb_glyph_composite_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRgbComposite.wgsl"
+        "-DOUTPUT=${generated_rgb_glyph_composite_shader}"
+        "-DSYMBOL=rgb_glyph_composite_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRgbComposite.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    VERBATIM)
 add_custom_command(
     OUTPUT "${generated_text_shader}"
     COMMAND "${CMAKE_COMMAND}"
@@ -622,6 +646,8 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_path_signed_winding_evaluate_shader}"
         "${generated_path_signed_winding_coverage_shader}"
         "${generated_glyph_rasterizer_shader}"
+        "${generated_rgb_glyph_rasterizer_shader}"
+        "${generated_rgb_glyph_composite_shader}"
         "${generated_text_shader}"
         "${generated_hinted_glyph_paint_shader}"
         "${generated_texture_shader}"
@@ -640,6 +666,7 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_hit_test_readback_shader}")
 
 set(PROGPU_NATIVE_BACKEND_SOURCES
+    src/Backend/progpu_native_rgb_glyph_execution.cpp
     src/Backend/progpu_native_geometry_utility.cpp
     src/Backend/progpu_native_advanced_blend_execution.cpp
     src/Backend/progpu_native_backdrop_execution.cpp
