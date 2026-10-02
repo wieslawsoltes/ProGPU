@@ -100,6 +100,16 @@ fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUn
     let local = vec2<f32>(
         dot(vec3<f32>(position, 1.0), sampling.coordinate0.xyz),
         dot(vec3<f32>(position, 1.0), sampling.coordinate1.xyz));
+    if (sampling.options.x == 5.0) {
+        // Explicit target-axis source clip only: exact rectangular pixel area.
+        // The CPU retains projected physical edges and the unit-pixel frame.
+        // O(1), no derivatives, samples, epsilon or rounded-distance corner.
+        let pixel = vec2<f32>(sampling.coordinate0.x, sampling.coordinate1.y);
+        let overlap = max(min(local + 0.5 * pixel, sampling.bounds.zw) -
+            max(local - 0.5 * pixel, sampling.bounds.xy), vec2<f32>(0.0));
+        let coverage = clamp(overlap / pixel, vec2<f32>(0.0), vec2<f32>(1.0));
+        return coverage.x * coverage.y;
+    }
     let outerAlpha = rounded_mask_alpha_local(local, sampling.bounds, sampling.cornerRadiiX, sampling.cornerRadiiY);
     if (sampling.options.x < 2.5) {
         return outerAlpha;

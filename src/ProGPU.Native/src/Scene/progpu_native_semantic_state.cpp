@@ -756,6 +756,25 @@ scissor resolve_semantic_target_scissor(const progpu_native_scene_state& state,
     return clipped;
 }
 
+bool try_resolve_semantic_axis_clip_pixel_bounds(const progpu_native_image_rect& bounds,
+    const scissor& target, const progpu_native_scene_presentation& presentation,
+    std::array<float, 4U>& result) noexcept {
+    if (!std::isfinite(presentation.dpi_scale_x) || presentation.dpi_scale_x <= 0.0F ||
+        !std::isfinite(presentation.dpi_scale_y) || presentation.dpi_scale_y <= 0.0F ||
+        !std::isfinite(bounds.x) || !std::isfinite(bounds.y) ||
+        !std::isfinite(bounds.width) || bounds.width < 0.0F ||
+        !std::isfinite(bounds.height) || bounds.height < 0.0F) return false;
+    auto projected = presentation_clip_edges(bounds, presentation);
+    for (std::size_t index = 0U; index < projected.size(); ++index) {
+        const double local = static_cast<double>(projected[index]) -
+            (index % 2U == 0U ? target.x : target.y);
+        if (!std::isfinite(local) || std::abs(local) > std::numeric_limits<float>::max()) return false;
+        projected[index] = static_cast<float>(local);
+    }
+    result = projected;
+    return true;
+}
+
 scissor resolve_semantic_aliased_composite_scissor(const progpu_native_image_rect& bounds,
     const scissor& target, const progpu_native_scene_presentation& presentation) noexcept {
     // Pixel i is covered iff left <= i + 0.5 < right, hence both ends of
