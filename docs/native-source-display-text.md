@@ -66,6 +66,28 @@ original offset policy, shaping-boundary fitting/recomposition and paired option
 source binding/transport. No source-local division,
 snapping, prefix shaping, unsafe-flag stripping or Ideal fallback is permitted.
 
+## Placement recomposition ownership
+
+Source-geometry captures now optionally retain the actual post-GSUB, prepared
+device-metric state before GPOS. The original shaper invokes this observation
+only for the bounded horizontal non-mark/non-stretch family. The recipe owns
+original glyphs, features, coordinates and selected single/pair GPOS lookup IDs;
+neither a context nor borrowed plan survives. Negative-only original-glyph
+digests may omit impossible lookups; positive digests never admit another opcode.
+Extension lookups require all contained subtables to be single/pair positioning.
+Legacy kerning uses the same shared original feature policy.
+
+The native recomposition operation borrows the retained original font/capture,
+copies a proven pre-positioning cluster range and replays only its placement
+program. Both edges must be safe in the original **pre-positioning** dependency
+metadata. It never clears final raw unsafe flags or reruns GSUB on a source prefix.
+Each resulting occurrence retains its original raw glyph/descriptor index, and
+the complete recipe must reproduce the full original raw run exactly before
+publication. Unknown placement families remain explicitly unavailable. This
+checkpoint establishes the owned replay operation, not fitting admission: native
+candidate selection, fitted-generation provenance, bounded retries and common
+writer connection are still required before emergency wrapping is enabled.
+
 ## Revalidated diagnostic evidence
 
 The earlier immutable receipt `device-em-source-rounding-hypotheses.json` was

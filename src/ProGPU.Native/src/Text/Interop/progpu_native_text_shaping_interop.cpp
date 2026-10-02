@@ -788,6 +788,7 @@ bool hinted_run_output_aliases(const progpu_native_hinted_run& handle,
     const auto& run = *handle.generation;
     if (overlaps(&run, sizeof(run)) || vector_aliases(run.shaping_input) || vector_aliases(run.glyphs) ||
         vector_aliases(run.descriptor_indices) || vector_aliases(run.normalized_coordinates) ||
+        (run.positioning != nullptr && run.positioning->allocation_aliases(output, static_cast<std::size_t>(bytes))) ||
         run.batch == nullptr) return true;
     const auto& batch = *run.batch;
     if (overlaps(&batch, sizeof(batch)) || vector_aliases(batch.glyphs) || batch.identity == nullptr) return true;
@@ -1607,9 +1608,9 @@ progpu_native_status shape_core(
 progpu_native_status shape_hinted_request_generation(
     progpu_native_text_context* context, const progpu_native_hinted_font_request& hint,
     const std::int32_t* variation_coordinates, const progpu_native_text_shape_request& request,
-    std::shared_ptr<const hinted_shaped_run>& generation) {
+    std::shared_ptr<const hinted_shaped_run>& generation, bool retain_positioning = false) {
 #if !defined(PROGPU_NATIVE_FONT_HINTING)
-    (void)context; (void)hint; (void)variation_coordinates; (void)request; (void)generation;
+    (void)context; (void)hint; (void)variation_coordinates; (void)request; (void)generation; (void)retain_positioning;
     return PROGPU_NATIVE_STATUS_UNSUPPORTED;
 #else
     const auto& font = *context->font_at(hint.font_index);
@@ -1645,7 +1646,7 @@ progpu_native_status shape_hinted_request_generation(
     std::shared_ptr<const hinted_shaped_run> candidate{};
     hinted_shape_error failure{};
     if (!try_shape_context_hinted(context, hint.font_index, hinted_configuration, input, configuration.options,
-        candidate, failure, hinted_projection_policy::automatic, plan)) {
+        candidate, failure, hinted_projection_policy::automatic, plan, retain_positioning)) {
         if (failure.resource_exhausted) return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
         if (failure.capture != hinted_font_error::none) return hinted_status(failure.capture);
         if (failure.projection == hinted_projection_error::unsupported_policy ||
@@ -3415,7 +3416,7 @@ static progpu_native_status paragraph_layout_core(
                     static_cast<std::uint32_t>(device.policy), device.x_phase_26_6, device.y_phase_26_6,
                     static_cast<std::uint32_t>(device.variation_coordinates_16_16.size()), 0U};
                 shape_status = shape_hinted_request_generation(context, hint_request,
-                    device.variation_coordinates_16_16.data(), run_request, retained_run);
+                    device.variation_coordinates_16_16.data(), run_request, retained_run, hinted->generation->has_source_geometry);
                 if (shape_status == PROGPU_NATIVE_STATUS_SUCCESS) {
                     if (retained_run->glyphs.size() > run_glyphs.size())
                         shape_status = PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;

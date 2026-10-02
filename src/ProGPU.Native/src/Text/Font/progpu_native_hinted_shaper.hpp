@@ -1,6 +1,7 @@
 #pragma once
 
 #include "progpu_native_hinted_font.hpp"
+#include "progpu_native_hinted_positioning.hpp"
 #include "progpu_native_text.hpp"
 #include "progpu_native.h"
 #include "progpu_native_text_hinting.h"
@@ -21,6 +22,7 @@ struct hinted_shaped_run final {
     std::size_t punctuation_descriptor_start = 0U;
     std::size_t punctuation_descriptor_count = 0U;
     shaping_direction direction = shaping_direction::unspecified;
+    std::shared_ptr<const hinted_positioning_recipe> positioning{};
 };
 
 struct hinted_shape_error final {
@@ -41,7 +43,7 @@ bool try_shape_context_hinted(progpu_native_text_context* context,
     std::span<const unicode_scalar> input, const open_type_shape_run_options& options,
     std::shared_ptr<const hinted_shaped_run>& result, hinted_shape_error& error,
     hinted_projection_policy policy = hinted_projection_policy::automatic,
-    const open_type_shape_plan* plan = nullptr) noexcept;
+    const open_type_shape_plan* plan = nullptr, bool retain_positioning = false) noexcept;
 
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 // Private consumers retain this exact generation under their existing handle

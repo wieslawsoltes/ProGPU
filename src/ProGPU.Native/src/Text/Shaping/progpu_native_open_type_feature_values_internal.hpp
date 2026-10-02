@@ -9,6 +9,8 @@
 
 namespace progpu::native::text::feature_detail {
 
+bool is_run_feature_enabled(const open_type_shape_run_options& options, open_type_tag tag) noexcept;
+
 enum class fraction_feature_kind : std::uint8_t {
     none,
     fraction,
