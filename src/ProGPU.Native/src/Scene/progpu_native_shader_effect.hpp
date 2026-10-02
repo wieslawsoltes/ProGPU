@@ -3,6 +3,7 @@
 #include "progpu_native.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <string>
 

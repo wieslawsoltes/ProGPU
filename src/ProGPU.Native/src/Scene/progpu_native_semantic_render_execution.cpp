@@ -387,6 +387,11 @@ progpu_native_status render_scene(
             }
             const bool materialized =
                 progpu::native::scene::layer_requires_materialization(layer);
+            if (mapped_presentation && materialized &&
+                !semantic::supports_mapped_semantic_layer(layer)) {
+                return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                    "Mapped semantic layers require transient SRC or SRC_OVER composition without cache, backdrop, effects or layer masks.");
+            }
             const bool cached =
                 (layer.flags &
                     PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
@@ -518,11 +523,11 @@ progpu_native_status render_scene(
                     if (sampler_picture != PROGPU_NATIVE_SCENE_NO_INDEX) {
                         const auto sampler = read_resource(sampler_picture);
                         progpu_native_scene_picture_image picture{};
-                        progpu_native_scene_presentation presentation{};
+                        progpu_native_scene_presentation sampler_presentation{};
                         if (!semantic::read_semantic_picture_image(bytes + sampler.payload_offset,
-                                sampler.payload_size, picture, presentation) ||
+                                sampler.payload_size, picture, sampler_presentation) ||
                             picture.width != target_extent.width || picture.height != target_extent.height ||
-                            presentation.dpi_scale_x != 1.0F || presentation.dpi_scale_y != 1.0F)
+                            sampler_presentation.dpi_scale_x != 1.0F || sampler_presentation.dpi_scale_y != 1.0F)
                             return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
                                 "A WPF shader sampler must own the complete normalized physical source extent.");
                         const std::uint64_t cost = static_cast<std::uint64_t>(picture.width) * picture.height * 4U;
@@ -1656,13 +1661,13 @@ progpu_native_status render_scene(
         ++semantic_draw_count;
     }
 
-    // Flat retained 2D families have complete presentation projection. Keep
-    // the still-unqualified depth and offscreen-composite combinations
-    // explicit until their independent-axis GPU oracles are connected.
-    if (mapped_presentation &&
-        (semantic_3d_draw_count != 0U || semantic_has_materialized_layers)) {
+    // Transient 2D layer extents and draw clips are projected by their own
+    // presentation axes. Composition consumes those physical extents in the
+    // unchanged raster basis, not a second application of either DPI axis.
+    // Other layer families fail in preflight above; depth remains separate.
+    if (mapped_presentation && semantic_3d_draw_count != 0U) {
         return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
-            "Mapped semantic presentation currently requires a flat 2D scene.");
+            "Mapped semantic presentation does not support retained 3D draws.");
     }
 
     const std::uint64_t semantic_effect_uniform_bytes =

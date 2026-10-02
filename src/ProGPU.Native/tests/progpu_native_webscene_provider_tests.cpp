@@ -13,6 +13,7 @@
 #include "progpu_native_shader_effect_pixel_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
+#include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
@@ -3484,7 +3485,8 @@ int main(int argc, char** argv) {
             progpu_native_layer_metrics* layers = nullptr,
             progpu_native_scene_frame_metrics* observed_frame = nullptr, float dpi = 1.0F,
             const progpu_native_scene_presentation* presentation = nullptr,
-            progpu_native_status expected_status = PROGPU_NATIVE_STATUS_SUCCESS) {
+            progpu_native_status expected_status = PROGPU_NATIVE_STATUS_SUCCESS,
+            bool expect_picture_rejection = false) {
             auto* picture_engine = picture_engines[reference ? 1U : 0U];
             auto* picture_canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);
             require(picture_canvas != nullptr, "axis picture canvas creation failed");
@@ -3515,10 +3517,23 @@ int main(int argc, char** argv) {
             }
             progpu_native_scene_frame_metrics metrics{};
             metrics.struct_size = sizeof(metrics);
+            std::uint64_t before{};
+            require(progpu_native_engine_get_last_submission(picture_engine, &before) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "retained Dawn submission query failed");
             const auto rendered = progpu_native_engine_render_scene(picture_engine, &frame, &metrics);
-            if (expected_status != PROGPU_NATIVE_STATUS_SUCCESS) {
-                require(expected_status == PROGPU_NATIVE_STATUS_UNSUPPORTED && rendered == expected_status &&
-                    metrics.submission_count == 0U, "unsupported derivative Dawn frame did not reject before submission");
+            if (expected_status != PROGPU_NATIVE_STATUS_SUCCESS || expect_picture_rejection) {
+                std::uint64_t after{};
+                require(progpu_native_engine_get_last_submission(picture_engine, &after) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                    before == after, "rejected Dawn frame changed the original submission timeline");
+                if (expect_picture_rejection) {
+                    require(expected_status == PROGPU_NATIVE_STATUS_SUCCESS &&
+                        rendered == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && update.draw_count == 1U &&
+                        metrics.command_count == 0U && metrics.submission_count == 0U,
+                        "mapped prohibited Dawn picture contract was rendered or submitted");
+                } else {
+                    require(expected_status == PROGPU_NATIVE_STATUS_UNSUPPORTED && rendered == expected_status &&
+                        metrics.submission_count == 0U, "unsupported derivative Dawn frame did not reject before submission");
+                }
                 if (observed_frame != nullptr) *observed_frame = metrics;
                 resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(picture_view);
                 resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(picture_texture);
@@ -3562,10 +3577,12 @@ int main(int argc, char** argv) {
         };
     const auto render_picture =
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
-            return render_retained_scene(reference, stream, generation, submissions, 0x9491U, 1U, 1U);
+            return render_retained_scene(reference, stream, generation, submissions, 0x9491U, 1U, 1U,
+                nullptr, nullptr, 1.0F, nullptr, PROGPU_NATIVE_STATUS_SUCCESS, submissions == 0U);
         };
     progpu::native::tests::verify_picture_axis_presentation(render_picture, require);
     progpu::native::tests::verify_picture_resource_ownership(render_picture, require);
+    progpu::native::tests::verify_picture_layer_presentation(render_picture, require);
     progpu::native::tests::verify_original_shader_effect_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation,
             progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {

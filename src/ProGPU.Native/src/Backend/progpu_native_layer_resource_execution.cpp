@@ -781,6 +781,9 @@ void append_semantic_layer_quad(
     std::uint32_t source_texture_height,
     float dpi_scale,
     float opacity) {
+    // Source/target are already physical extents from each presentation axis.
+    // The shared scalar is only the shader's raster coordinate basis: applying
+    // presentation DPI again here would stretch an isolated layer twice.
     const float x0 = static_cast<float>(source.x - target.x) / dpi_scale;
     const float y0 = static_cast<float>(source.y - target.y) / dpi_scale;
     const float x1 = x0 + static_cast<float>(source.width) / dpi_scale;

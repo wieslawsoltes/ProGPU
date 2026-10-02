@@ -1749,6 +1749,65 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
         mapping_hashes.glyph != original_hashes.glyph;
 }
 
+bool semantic_mapped_layers_preserve_bounded_copy_contract() {
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    layer.bounds = {1, 2, 5, 4};
+    for (const auto blend : {PROGPU_NATIVE_BLEND_SRC, PROGPU_NATIVE_BLEND_SRC_OVER}) {
+        layer.blend_mode = blend;
+        for (const float opacity : {0.0F, 0.5F, 1.0F}) {
+            layer.opacity = opacity;
+            if (!semantic::supports_mapped_semantic_layer(layer)) return false;
+        }
+    }
+    const auto original = layer;
+    for (const auto flag : std::array<std::uint32_t, 7U>{PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT,
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE, PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE,
+            PROGPU_NATIVE_SCENE_LAYER_BACKDROP, PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED,
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE, 0x80000000U}) {
+        layer = original;
+        layer.flags |= static_cast<std::uint32_t>(flag);
+        if (semantic::supports_mapped_semantic_layer(layer)) return false;
+    }
+    layer = original;
+    layer.mask_resource_index = 0U;
+    if (semantic::supports_mapped_semantic_layer(layer)) return false;
+    layer = original;
+    layer.effect_resource_index = 0U;
+    if (semantic::supports_mapped_semantic_layer(layer)) return false;
+    layer = original;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_MULTIPLY;
+    if (semantic::supports_mapped_semantic_layer(layer)) return false;
+
+    semantic_scene_builder builder(0x94B9U, 1U);
+    layer = original;
+    if (!builder.push_layer(layer)) return false;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC;
+    layer.bounds = {2, 3, 2, 2};
+    if (!builder.push_layer(layer) || !builder.pop_layer() || !builder.pop_layer()) return false;
+    std::vector<std::byte> stream;
+    if (!builder.build(stream)) return false;
+    const auto header = read<progpu_native_scene_header>(stream, 0U);
+    const progpu_native_scene_presentation presentation{sizeof(presentation), 3U, 5U, 24U, 24U, 2.0F, 3.0F, 0U};
+    semantic::semantic_layer_target_cursor cursor(stream.data(), 32U, 32U, presentation);
+    constexpr std::array<semantic::scissor, 4U> expected{{
+        {5U, 11U, 10U, 12U, true}, {7U, 14U, 4U, 6U, true},
+        {5U, 11U, 10U, 12U, true}, {0U, 0U, 32U, 32U, true}}};
+    if (header.command_count != expected.size()) return false;
+    for (std::uint32_t index = 0U; index < expected.size(); ++index) {
+        const auto command = read<progpu_native_scene_command>(stream, header.command_offset + index * header.command_stride);
+        const auto actual = cursor.advance(command);
+        const auto& want = expected[index];
+        if (actual.x != want.x || actual.y != want.y || actual.width != want.width ||
+            actual.height != want.height || actual.drawable != want.drawable) return false;
+        const auto current_presentation = cursor.current_presentation();
+        if (std::memcmp(&current_presentation, &presentation, sizeof(presentation)) != 0) return false;
+    }
+    return true;
+}
+
 bool semantic_scene_content_hashes_preserve_scene_ownership() {
     semantic_scene_builder white(0x9490U, 1U), red(0x91F0U, 1U);
     const auto record = [](semantic_scene_builder& builder, progpu_native_color color) {
