@@ -143,6 +143,11 @@ failed the unchanged header-height test with 122 pixels. Removing that extra
 row and making real overflow navigation explicit corrects the layout, rather
 than relaxing the original assertion or hiding commands outside the viewport.
 
+The fixed-header and pointer-route implementation is committed but not yet
+runtime-qualified. Per the current integration policy, its intermediate PR stays
+draft and skips CI; the final integrated stack tip must execute the unchanged
+source tests and all native palette/pointer checks before release.
+
 Public primary sources reviewed for workflow and presentation intent:
 
 - [ABB System 800xA Operator Workplace](https://new.abb.com/control-systems/system-800xa/800xa-dcs/operator-interfaces-hmi/workplace-process-graphics): configurable operator workplaces, graphics and embedded trends.
