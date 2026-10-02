@@ -38,7 +38,7 @@ struct decoded_original_glyph final {
     candidate->horizontal_advance = metrics.advance_width;
     // OpenType hmtx defines the unhinted left phantom point as xMin - lsb.
     // Stored contour coordinates are not necessarily relative to that origin.
-    // Empty glyphs have no xMin/ink, but their supplied advance still participates.
+    // Empty glyphs have no xMin/ink; supplied or nominal advances still participate.
     if (!original.empty()) candidate->horizontal_origin = static_cast<float>(
         static_cast<std::int32_t>(original.x_min) - static_cast<std::int32_t>(metrics.left_side_bearing));
     candidate->segments.resize(requirements.path_segment_count);

@@ -141,6 +141,15 @@ asserts the authored design metrics and compares genuine null-advance
 and prepared outlines through the original rasterizer. This is authored
 acceptance coverage, not an executed Windows result or modern-mode admission.
 
+Additional source controls reject missing/one-byte nominal widths, invalid later
+glyph IDs and unrepresentable nominal placement without changing an earlier
+request, prepared result or cache. The overflow case contains only uncached
+no-ink occurrences, so it exercises pen accumulation rather than overflowing
+contour coordinates; it also passes through the actual recorder and requires no
+published draw. A positive em whose divided scale underflows is rejected, not
+snapped upward. Successful recovery, complete/compact cached widths, null-offset
+identity and explicit zero/negative precedence are retained independently.
+
 No validation is executed at this checkpoint: all compile, source, original
 Windows, GPU, package and platform gates remain deferred to the final integrated
 tip. This is a reusable source ownership/recording connection, not an application
