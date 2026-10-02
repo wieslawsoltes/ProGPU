@@ -74,3 +74,22 @@ PROGPU_SOURCE_DISPLAY_REFERENCE=/absolute/original/reference.json \
 These parser/comparison controls are not original Windows observations, native
 execution or ordinary Display activation. Managed/native renderer behavior is
 unchanged; both consumers use the same future qualified native text producer.
+
+## Preparation checks
+
+After the substantive capture/probe commits, all 31 device-free controls passed
+against each unchanged original x64 and ARM64 receipt from both the 192-case
+source-input-era producer and the 288-case midpoint/Hebrew producer (124 test
+executions, zero skipped). The unchanged raw probe's 64 controls and midpoint
+inventory's 17 controls also passed. All six changed/new executable C# files
+parsed, and the workflow YAML and all four PowerShell blocks parsed without
+executing those blocks. `git diff --check` passed.
+
+The original Windows-targeted reference project compiled against cached reference
+assemblies with zero warnings/errors after adding the missing explicit System.IO
+import. This was a source-only compile, not WPF execution on the local host.
+The new native-linked probe has not been type-built against the pending producer
+package or executed. No native graph/renderer build, GPU/VM execution or runtime
+staging occurred. Genuine independent input capture still requires the hosted
+original Windows jobs, followed by exact receipt-hash review; the new allowlist
+remains empty and ordinary Display stays unadvertised.
