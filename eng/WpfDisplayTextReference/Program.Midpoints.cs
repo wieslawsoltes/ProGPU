@@ -14,6 +14,7 @@ internal static partial class Program
             if (timer.Elapsed > TimeSpan.FromSeconds(60))
                 throw new TimeoutException("Original reference exceeded 60 seconds.");
             JsonElement original;
+            MidpointCoverage coverage;
             bool rtl = input.FontKey == "NotoSansHebrewRegular";
             string selectedFont = rtl ? rtlFont : font;
             FontFamily selectedFamily = rtl ? rtlFamily : family;
@@ -22,6 +23,10 @@ internal static partial class Program
                 original = JsonSerializer.SerializeToElement(Capture(selectedFont, selectedFamily, input.Text,
                     Enum.Parse<TextFormattingMode>(input.Mode), Enum.Parse<FlowDirection>(input.Direction),
                     input.Dpi, input.Em, input.Width));
+                // A label is not evidence of mark positioning or RTL shaping.
+                // Include original input/font diagnostics on coverage failure
+                // as well as Capture failure; neither can publish a receipt.
+                coverage = MidpointCases.Observe(input, original);
             }
             catch
             {
@@ -30,10 +35,6 @@ internal static partial class Program
                 catch (Exception diagnostic) { Console.Error.WriteLine($"Font-selection diagnostic failed: {diagnostic.Message}"); }
                 throw;
             }
-            // A label is not evidence of mark positioning or RTL shaping. Fail
-            // before receipt publication if this physical font did not provide
-            // the requested observable coverage. Never synthesize an offset.
-            MidpointCoverage coverage = MidpointCases.Observe(input, original);
             cases.Add(new { Input = input, Original = original, Coverage = coverage });
         }
         if (cases.Count != MidpointCases.Count)

@@ -119,6 +119,16 @@ blocks parsed without executing those blocks. The complete original capture and
 source helper methods remain byte-identical, and the original 192-case loop is
 unchanged apart from indentation. Those 13 controls and the original 192 cases
 also passed in both hosted Windows jobs; their failed v2 expansion is described
-above. The v3 RTL corpus and added tests are authored, not yet executed at this
-commit. No native text execution, GPU run or runtime staging is part of this
-reference change. All 288 v3 observations remain pending both hosted captures.
+above. The v3 RTL corpus and added tests are authored; its actual WPF execution
+is separate from the bounded checks below. No native text execution, GPU run or
+runtime staging is part of this reference change. All 288 v3 observations remain
+pending both hosted captures.
+
+After the substantive v3 commit, all 17 device-free controls passed with zero
+skips. A source-only Windows-targeted compile using cached reference assemblies
+reported zero warnings/errors; this did not execute WPF on the local host.
+Workflow YAML and all three PowerShell blocks parsed without execution. A byte
+comparison against 6d8ff192180f4e763e88cec2cffb7ea55075224f confirms `Capture`
+and every source helper are unchanged. Font/notice hashes and chosen cmap
+coverage were inspected independently; none of these checks qualify a v3
+Microsoft metric receipt or any native Display policy.
