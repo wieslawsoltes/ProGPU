@@ -15,6 +15,16 @@ transport/source-run controls are wired into CTest; execution and hosted package
 qualification remain pending. No provider advertises Display, and native intrinsic
 widths remain unavailable.
 
+`NativeTextShapingContext.LayoutHintedSourceParagraph` now has a distinct managed
+`NativeHintedSourceParagraph` owner. UTF-16 uses the existing whole-paragraph
+scalar/style mapper; snapshots are copied before native ownership transfers.
+Queries and double-width reflow acquire the original destruction-excluding lease.
+Prepared resource readers expose separate `HasSourceMetrics`, `CopySourceMetrics`
+and `ValidateSourceRun` operations; they do not impersonate the old float nominal
+metric borrow. The original raster DPI projection is checked exactly, never rounded.
+The four managed schema/gate controls are authored but have not been executed
+against a freshly built native producer. No WPF capability is advertised here.
+
 The application target is unchanged AvalonDock theme startup: menus, tab headers
 and title bars set `TextFormattingMode.Display`, reaching LibreWPF's explicit
 `PortableTextLine.CreateCore` rejection tracked in LibreWPF #184. This work is
