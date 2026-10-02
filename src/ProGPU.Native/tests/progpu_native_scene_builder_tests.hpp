@@ -5,6 +5,12 @@ namespace progpu::native::tests {
 
 bool semantic_scene_builder_is_deterministic_and_valid();
 bool semantic_scene_builder_append_capacity_is_amortized_and_atomic();
+bool semantic_scene_builder_isolation_rejects_missing_layer_atomically();
+bool semantic_scene_builder_isolation_promotes_nearest_layer();
+bool semantic_scene_builder_isolation_preserves_materialized_layers();
+bool semantic_scene_builder_isolation_preserves_ordinary_elision();
+bool semantic_scene_builder_isolation_tracks_depth_across_pop_and_reset();
+bool semantic_scene_builder_isolation_rejects_historical_depth_atomically();
 bool semantic_scene_builder_copies_outside_clips_atomically();
 bool semantic_scene_builder_moves_sources_outside_clips_atomically();
 bool semantic_scene_builder_bounds_composite_only_guidelines();
