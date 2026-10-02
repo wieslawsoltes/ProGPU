@@ -62,19 +62,25 @@ compile does not constitute a reference capture or pixel qualification.
 ## Original ImageBrush sampler frames
 
 An additive, separate `image-samplers.json` receipt keeps every original arithmetic
-case unchanged and captures 14 original ImageBrush cases, each cold, warm and with
-an independently recreated visual and bitmap. Four inputs match the original
-ProGPU-owned sampler fixture at `b044a8cee25ea32be4842253e013381882c3d023`,
-`src/ProGPU.Native/tests/progpu_native_shader_sampler_pixel_fixture.hpp`: source
-bitmap DPI (144,192), brush opacity, repeated addressing, translation, independent
-shader sampling and final source clip. Every output byte has an independent stripe
-expectation; the source bitmap and complete original brush input are saved too.
+case unchanged and captures 24 original ImageBrush cases, each cold, warm and with
+an independently recreated visual and bitmap. Eight inputs set actual protected
+visual options, including two same-visual resets to inherited options after the
+first capture. Four of those inputs match the original ProGPU-owned sampler
+fixture at `b044a8cee25ea32be4842253e013381882c3d023`,
+`src/ProGPU.Native/tests/progpu_native_shader_sampler_pixel_fixture.hpp`.
+Six earlier inputs deliberately retain attached properties on bare visuals;
+those do not set the actual visual options and keep their linear expectations.
+Source bitmap DPI (144,192), brush opacity, addressing, translation, independent
+shader sampling and final source clip all remain observable. Every output byte
+in these fourteen small inputs has an independent nearest or linear expectation;
+the source bitmap and complete original brush input are saved too.
 
 The other ten inputs use a 400x200 bitmap with independent source DPI axes,
 absolute/relative equivalent viewboxes, Stretch=None in a 100x100 effect input,
 nearest/bilinear shader sampling, and translated FlipX tiles. The integral
-(192,384)-DPI crop retains a 100x20-DIP source frame, so its four plain cases
-must letterbox to exactly 20 centered rows with quarter-opacity red/green pixels.
+(192,384)-DPI viewbox retains a 100x20-DIP mapping within a full 200x50-DIP
+source image. Its four plain cases must preserve all 50 source rows after mapping,
+with quarter-opacity red/green pixels rather than clipping to the viewbox.
 Fractional DPI (123.456789012345,183.456789012345) and mirrored cases retain
 every original pixel without inventing an idealized float-to-DIP oracle. Five
 absolute/relative pairs must match completely, preserve final clipping/opaque
@@ -145,3 +151,25 @@ The independent expected frame now preserves that full source overflow and
 checks every pixel. All original input cases, failed receipts and exact
 absolute/relative comparisons are retained. These observations expose missing
 source/native qualification rather than establish product parity.
+
+## Actual visual options versus attached properties
+
+Original `RenderOptions.cs` registers the BitmapScalingMode attached property
+without a changed callback for bare visuals. Original `UIElement.cs` overrides
+its metadata and propagates into `Visual.VisualBitmapScalingMode`; `Visual.cs`
+serializes that separate protected state into MIL. DrawingGroup has its own
+property serialization. Consequently, the earlier bare DrawingVisual/ContainerVisual
+inputs never emitted nearest options. Their linear output does not imply that
+the native renderer must ignore valid nearest options or change its default.
+
+The additional eight controls use small derived DrawingVisual/ContainerVisual
+types to set and read the original protected property directly, without private
+reflection or foreign implementation. Four set nearest on the receiving effect
+visual; two inherit from a nearest parent; two capture that same nearest parent
+and receiving visual, then reset the already-captured receiving visual to
+Unspecified before its next capture. Independent visual replay uses the final
+inherited state too. The nearest oracle remains the original strict stripe
+formula. The first sixteen inputs, their actual unspecified visual fields,
+independent linear/viewbox formulas, and historical failures remain intact.
+This gives 24 sampler cases, 72 replays, 18 independent color cases and five
+complete-pixel equivalence pairs, still within the shared 60-second deadline.

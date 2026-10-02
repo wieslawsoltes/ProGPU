@@ -37,6 +37,8 @@ internal static partial class Program
                 SourcePixelFormat = "Pbgra32", ShaderWords = SamplerWords,
                 SamplerRegister = 0, ShaderRenderMode = "SoftwareOnly", AlignmentX = "Center", AlignmentY = "Center",
                 BitmapScalingMode = "NearestNeighbor", ParentBitmapScalingMode = input.ParentNearest ? "NearestNeighbor" : "Unspecified",
+                VisualFieldScalingMode = input.VisualNearest ? "NearestNeighbor" : "Unspecified",
+                ParentVisualFieldScalingMode = input.ParentVisualNearest ? "NearestNeighbor" : "Unspecified",
                 EffectInputBounds = input.Bounds,
                 Meaning = "Original source bitmap metadata and complete ImageBrush before shader rendering."
             };
@@ -53,6 +55,13 @@ internal static partial class Program
                 {
                     var independent = CreateSamplerBitmap(input, out _);
                     visual = CreateSamplerVisual(input, independent, viewbox);
+                }
+                if (input.ResetVisualOptions && replay != 0)
+                {
+                    var receivingVisual = (SamplerDrawingVisual)((ContainerVisual)visual.Children[1]).Children[0];
+                    receivingVisual.ResetScalingMode();
+                    if (receivingVisual.EmittedScalingMode != BitmapScalingMode.Unspecified)
+                        throw new InvalidOperationException("Original receiving visual did not reset its actual options.");
                 }
                 bitmap.Render(visual);
                 Dispatcher.CurrentDispatcher.Invoke(static () => { }, DispatcherPriority.ApplicationIdle);
@@ -84,7 +93,7 @@ internal static partial class Program
                 input.EquivalentTo
             });
         }
-        if (observations.Count != 16 || independentColors != 10 || equivalentPairs != 5)
+        if (observations.Count != 24 || independentColors != 18 || equivalentPairs != 5)
             throw new InvalidOperationException("Original ImageBrush inventory is incomplete.");
         var receipt = new
         {
@@ -92,7 +101,7 @@ internal static partial class Program
             PresentationIdentity = typeof(ShaderEffect).Assembly.FullName,
             PresentationCore = FileIdentity(typeof(ShaderEffect).Assembly.Location),
             Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
-            CaseCount = observations.Count, Cases = observations, Replays = 48,
+            CaseCount = observations.Count, Cases = observations, Replays = 72,
             CaptureMode = unavailable ? "unsupported-software-control" : "shader-pixels",
             QualifiedShaderCases = unavailable || failures.Count != 0 ? 0 : observations.Count,
             IndependentColorCases = independentColors, EquivalentViewboxPairs = equivalentPairs,
@@ -100,12 +109,12 @@ internal static partial class Program
             ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds - startedMilliseconds,
             Qualification = unavailable
                 ? "Original ARM64 unavailable-software control; no sampler shader pixels qualified."
-                : "Original Microsoft WPF ImageBrush observations. Ten independent color controls and five complete-pixel equivalence pairs; failures disqualify the entire capture. Not native/source-host/package parity."
+                : "Original Microsoft WPF ImageBrush observations. Eighteen independent color controls and five complete-pixel equivalence pairs; failures disqualify the entire capture. Not native/source-host/package parity."
         };
         using (var output = new FileStream(Path.Combine(directory, failures.Count == 0 ? "image-samplers.json" : "image-samplers.failed.json"), FileMode.CreateNew))
             JsonSerializer.Serialize(output, receipt, new JsonSerializerOptions { WriteIndented = true });
         if (failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
-        Console.WriteLine($"Original ImageBrush: 16 cases / 48 replays / 5 viewbox pairs; {(unavailable ? 0 : 16)} source shader cases qualified.");
+        Console.WriteLine($"Original ImageBrush: 24 cases / 72 replays / 5 viewbox pairs; {(unavailable ? 0 : 24)} source shader cases qualified.");
     }
 
     private static readonly uint[] SamplerWords = [0xFFFF0200, 0x0200001F, 0x80000000, 0xB0030000,
@@ -133,6 +142,9 @@ internal static partial class Program
         public int NativeVariant { get; init; } = -1;
         public bool ExactViewboxMapping { get; init; }
         public bool ParentNearest { get; init; }
+        public bool VisualNearest { get; init; }
+        public bool ParentVisualNearest { get; init; }
+        public bool ResetVisualOptions { get; init; }
         public string? EquivalentTo { get; init; }
     }
 
@@ -177,6 +189,31 @@ internal static partial class Program
         };
         yield return mirrored;
         yield return mirrored with { Name = "sampler-flip-translated-relative", AbsoluteViewbox = false, EquivalentTo = mirrored.Name };
+        // Preserve the original sixteen inputs above. These eight additional
+        // cases set the actual protected visual state serialized into MIL;
+        // attached DPs on bare Visuals are not equivalent emitted options.
+        for (int variant = 0; variant < 4; ++variant)
+            yield return new($"sampler-visual-options-{variant}")
+            {
+                NativeVariant = variant, VisualNearest = true, Blue = variant == 3, Opacity = variant == 3 ? 1 : .5,
+                Viewport = new(0, 0, variant == 0 ? 1 : .5, 1), Tile = variant == 0 ? TileMode.None : TileMode.Tile,
+                TranslationX = variant == 2 ? 8 : 0,
+                Sampling = (variant & 1) == 0 ? SamplingMode.NearestNeighbor : SamplingMode.Bilinear
+            };
+        for (int variant = 0; variant < 2; ++variant)
+            yield return new($"sampler-parent-visual-options-{variant}")
+            {
+                NativeVariant = variant, ParentVisualNearest = true,
+                Viewport = new(0, 0, variant == 0 ? 1 : .5, 1), Tile = variant == 0 ? TileMode.None : TileMode.Tile,
+                Sampling = variant == 0 ? SamplingMode.NearestNeighbor : SamplingMode.Bilinear
+            };
+        for (int variant = 0; variant < 2; ++variant)
+            yield return new($"sampler-reset-to-inherited-options-{variant}")
+            {
+                NativeVariant = variant, ParentVisualNearest = true, VisualNearest = true, ResetVisualOptions = true,
+                Viewport = new(0, 0, variant == 0 ? 1 : .5, 1), Tile = variant == 0 ? TileMode.None : TileMode.Tile,
+                Sampling = variant == 0 ? SamplingMode.NearestNeighbor : SamplingMode.Bilinear
+            };
     }
 
     private static BitmapSource CreateSamplerBitmap(SamplerCase input, out byte[] pixels)
@@ -208,10 +245,13 @@ internal static partial class Program
         var background = new DrawingVisual();
         using (var drawing = background.RenderOpen()) drawing.DrawRectangle(Brushes.Black, null, new(0, 0, input.Size, input.Size));
         root.Children.Add(background);
-        var clip = new ContainerVisual { Clip = new RectangleGeometry(input.Clip) };
+        var clip = new SamplerContainerVisual(input.ParentVisualNearest) { Clip = new RectangleGeometry(input.Clip) };
         if (input.ParentNearest) RenderOptions.SetBitmapScalingMode(clip, BitmapScalingMode.NearestNeighbor);
-        var source = new DrawingVisual { Effect = new SamplerEffect(brush, input.Sampling) };
+        var source = new SamplerDrawingVisual(input.VisualNearest) { Effect = new SamplerEffect(brush, input.Sampling) };
         RenderOptions.SetBitmapScalingMode(source, BitmapScalingMode.NearestNeighbor);
+        if (source.EmittedScalingMode != (input.VisualNearest ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.Unspecified) ||
+            clip.EmittedScalingMode != (input.ParentVisualNearest ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.Unspecified))
+            throw new InvalidOperationException($"{input.Name}: actual visual state does not match the emitted-option contract.");
         using (var drawing = source.RenderOpen()) drawing.DrawRectangle(Brushes.White, null, input.Bounds);
         clip.Children.Add(source);
         root.Children.Add(clip);
@@ -237,13 +277,20 @@ internal static partial class Program
                 // contributes no color, unlike the separate implicit-input
                 // controls that retain their original white input. Neither
                 // behavior qualifies shader execution on that architecture.
-                if (!unavailable && inside && input.NativeVariant >= 0)
+                if (!unavailable && inside && input.NativeVariant >= 0 && (input.VisualNearest || input.ParentVisualNearest))
+                {
+                    int variant = input.NativeVariant;
+                    int stripe = ((x - 8 + 32 - (variant == 2 ? 8 : 0)) / (variant == 0 ? 16 : 8)) & 1;
+                    int color = stripe == 1 ? 1 : input.Blue ? 0 : 2;
+                    if (channel == color) expected = input.Blue ? (byte)255 : (byte)128;
+                }
+                else if (!unavailable && inside && input.NativeVariant >= 0)
                 {
                     int variant = input.NativeVariant;
                     // Independent two-texel linear realization at pixel centers.
-                    // This is the observed original SOFTWARE capture policy even
-                    // with nearest options on the effect visual or its parent;
-                    // it does not select a native/GPU filtering default.
+                    // The attached nearest DP on a bare Visual does not change
+                    // its actual visual field, so these cases emit Unspecified.
+                    // Actual visual-option cases retain their nearest oracle.
                     double coordinate = (x - 8 + .5 - input.TranslationX) / (variant == 0 ? 16 : 8) - .5;
                     int left = (int)Math.Floor(coordinate);
                     double fraction = coordinate - left;
@@ -273,6 +320,21 @@ internal static partial class Program
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var image = new FileStream(Path.Combine(directory, name + ".png"), FileMode.CreateNew);
         encoder.Save(image);
+    }
+
+    private sealed class SamplerDrawingVisual : DrawingVisual
+    {
+        public SamplerDrawingVisual(bool nearest)
+        { if (nearest) VisualBitmapScalingMode = BitmapScalingMode.NearestNeighbor; }
+        public BitmapScalingMode EmittedScalingMode => VisualBitmapScalingMode;
+        public void ResetScalingMode() => VisualBitmapScalingMode = BitmapScalingMode.Unspecified;
+    }
+
+    private sealed class SamplerContainerVisual : ContainerVisual
+    {
+        public SamplerContainerVisual(bool nearest)
+        { if (nearest) VisualBitmapScalingMode = BitmapScalingMode.NearestNeighbor; }
+        public BitmapScalingMode EmittedScalingMode => VisualBitmapScalingMode;
     }
 
     private sealed class SamplerEffect : ShaderEffect

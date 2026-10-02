@@ -65,8 +65,8 @@ jobs:
             $samplerReceipt = Join-Path $evidence 'image-samplers.json'
             if ((Get-Item -LiteralPath $samplerReceipt).Length -gt 2MB) { throw 'Original sampler receipt exceeds its bound.' }
             $samplers = Get-Content -LiteralPath $samplerReceipt -Raw | ConvertFrom-Json
-            $qualifiedSamplers = if ('${{ matrix.mode }}' -eq 'shader-pixels') { 16 } else { 0 }
-            if ($samplers.SourceCommit -ne $env:REFERENCE_COMMIT -or $samplers.Architecture -ne '${{ matrix.arch }}' -or $samplers.CaseCount -ne 16 -or $samplers.Cases.Count -ne 16 -or $samplers.Replays -ne 48 -or $samplers.IndependentColorCases -ne 10 -or $samplers.EquivalentViewboxPairs -ne 5 -or $samplers.Failures.Count -ne 0 -or $samplers.CaptureMode -ne '${{ matrix.mode }}' -or $samplers.QualifiedShaderCases -ne $qualifiedSamplers) { throw 'Incomplete or wrong-identity ImageBrush reference.' }
+            $qualifiedSamplers = if ('${{ matrix.mode }}' -eq 'shader-pixels') { 24 } else { 0 }
+            if ($samplers.SourceCommit -ne $env:REFERENCE_COMMIT -or $samplers.Architecture -ne '${{ matrix.arch }}' -or $samplers.CaseCount -ne 24 -or $samplers.Cases.Count -ne 24 -or $samplers.Replays -ne 72 -or $samplers.IndependentColorCases -ne 18 -or $samplers.EquivalentViewboxPairs -ne 5 -or $samplers.Failures.Count -ne 0 -or $samplers.CaptureMode -ne '${{ matrix.mode }}' -or $samplers.QualifiedShaderCases -ne $qualifiedSamplers) { throw 'Incomplete or wrong-identity ImageBrush reference.' }
             Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
           } finally {
             if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
