@@ -1,10 +1,74 @@
 #include "progpu_native_direct2d_font_capture.hpp"
 
 #include <array>
+#include <bit>
 #include <cstring>
+#include <unordered_set>
 
 namespace progpu::native::direct2d {
 namespace {
+
+struct font_capture_scope;
+thread_local const font_capture_scope* active_capture = nullptr;
+
+struct font_capture_scope final {
+    compat::font_face* face;
+    const font_capture_scope* previous;
+    com::unknown* identity = nullptr;
+    explicit font_capture_scope(compat::font_face* value) noexcept
+        : face(value), previous(active_capture) { active_capture = this; }
+    ~font_capture_scope() { active_capture = previous; }
+};
+
+[[nodiscard]] com::result original_identity(com::unknown* source, com::pointer<com::unknown>& output) noexcept
+{
+    void* value = nullptr;
+    const auto status = source->QueryInterface(com::unknown_interface_id(), &value);
+    com::pointer<com::unknown> identity;
+    identity.attach(static_cast<com::unknown*>(value));
+    if (com::failed(status)) return status;
+    if (status != com::ok || !identity) return com::pointer_error;
+    output = std::move(identity);
+    return com::ok;
+}
+
+[[nodiscard]] com::result read_axis_values(original_font_face5* face,
+    std::vector<original_font_axis_value>& values, bool& variations)
+{
+    const auto count = face->GetFontAxisValueCount();
+    if (count > original_font_capture::maximum_axes) return com::invalid_argument;
+    const bool variable = face->HasVariations() != 0;
+    if (variable && count == 0U) return com::invalid_argument;
+    std::vector<original_font_axis_value> candidate(count);
+    original_font_axis_value empty{};
+    const auto status = face->GetFontAxisValues(candidate.empty() ? &empty : candidate.data(), count);
+    if (com::failed(status)) return status;
+    if (status != com::ok || face->GetFontAxisValueCount() != count || (face->HasVariations() != 0) != variable)
+        return com::invalid_argument;
+    std::unordered_set<std::uint32_t> tags;
+    tags.reserve(count);
+    for (const auto& axis : candidate) {
+        if (!std::isfinite(axis.value)) return com::invalid_argument;
+        for (unsigned shift = 0U; shift < 32U; shift += 8U) {
+            const auto character = (axis.tag >> shift) & 255U;
+            if (character < 32U || character > 126U) return com::invalid_argument;
+        }
+        if (!tags.insert(axis.tag).second) return com::invalid_argument;
+    }
+    values = std::move(candidate);
+    variations = variable;
+    return com::ok;
+}
+
+[[nodiscard]] bool same_axes(const std::vector<original_font_axis_value>& first,
+    const std::vector<original_font_axis_value>& second) noexcept
+{
+    if (first.size() != second.size()) return false;
+    for (std::size_t index = 0U; index < first.size(); ++index)
+        if (first[index].tag != second[index].tag ||
+            std::bit_cast<std::uint32_t>(first[index].value) != std::bit_cast<std::uint32_t>(second[index].value)) return false;
+    return true;
+}
 
 // GetFiles owns each returned reference, even when a later file fails. Keep the
 // complete fixed-capacity array under a guard before the source fills it.
@@ -93,9 +157,35 @@ com::result capture_original_font(compat::font_face* face,
     std::shared_ptr<const original_font_capture>& output) noexcept
 {
     if (face == nullptr) return com::pointer_error;
+    for (auto* current = active_capture; current != nullptr; current = current->previous)
+        if (current->face == face) return compat::wrong_state;
+    font_capture_scope capture_scope(face);
     try {
         auto candidate = std::make_shared<original_font_capture>();
         candidate->face = com::pointer<compat::font_face>(face);
+        com::pointer<original_font_face5> axis_face;
+        com::pointer<com::unknown> source_identity;
+        void* queried = nullptr;
+        auto status = face->QueryInterface(original_font_face5_id, &queried);
+        axis_face.attach(static_cast<original_font_face5*>(queried));
+        if (status == com::no_interface) {
+            if (axis_face) return com::invalid_argument;
+        } else {
+            if (com::failed(status)) return status;
+            if (status != com::ok || !axis_face) return com::pointer_error;
+            status = original_identity(face, source_identity);
+            if (com::failed(status)) return status;
+            com::pointer<com::unknown> axis_identity;
+            status = original_identity(axis_face.get(), axis_identity);
+            if (com::failed(status)) return status;
+            if (axis_identity.get() != source_identity.get()) return com::invalid_argument;
+            for (auto* current = capture_scope.previous; current != nullptr; current = current->previous)
+                if (current->identity == source_identity.get()) return compat::wrong_state;
+            capture_scope.identity = source_identity.get();
+            status = read_axis_values(axis_face.get(), candidate->axis_values, candidate->has_variations);
+            if (com::failed(status)) return status;
+            candidate->axis_values_available = true;
+        }
         candidate->face_type = face->GetType();
         candidate->face_index = face->GetIndex();
         candidate->simulations = face->GetSimulations();
@@ -104,7 +194,7 @@ com::result capture_original_font(compat::font_face* face,
         // All these are source identities, not coverage capabilities. Preserve
         // unknown future type/simulation values instead of mapping to defaults.
         std::uint32_t count = 0U;
-        auto status = face->GetFiles(&count, nullptr);
+        status = face->GetFiles(&count, nullptr);
         if (com::failed(status)) return status;
         if (count == 0U || count > original_font_capture::maximum_files)
             return com::invalid_argument;
@@ -119,6 +209,23 @@ com::result capture_original_font(compat::font_face* face,
             status = capture_file(files.values[index], remaining, candidate->files[index]);
             if (com::failed(status)) return status;
             remaining -= candidate->files[index].size();
+        }
+        if (axis_face) {
+            // Font faces are immutable. Reject a fake/mutating provider instead
+            // of combining earlier axis coordinates with later source files.
+            std::vector<original_font_axis_value> observed;
+            bool variations = false;
+            status = read_axis_values(axis_face.get(), observed, variations);
+            if (com::failed(status)) return status;
+            if (variations != candidate->has_variations || !same_axes(observed, candidate->axis_values))
+                return com::invalid_argument;
+            com::pointer<com::unknown> final_source, final_axes;
+            status = original_identity(face, final_source);
+            if (com::failed(status)) return status;
+            status = original_identity(axis_face.get(), final_axes);
+            if (com::failed(status)) return status;
+            if (source_identity.get() != final_source.get() || source_identity.get() != final_axes.get())
+                return com::invalid_argument;
         }
         output = std::move(candidate);
         return com::ok;
