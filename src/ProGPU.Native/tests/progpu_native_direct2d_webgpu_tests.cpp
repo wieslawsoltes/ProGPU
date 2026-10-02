@@ -1,5 +1,6 @@
 #include "progpu_native.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
@@ -2352,6 +2353,8 @@ int main(int argc, char** argv)
     verify_formatted_scene_copies(gpu, engine);
     verify_owned_bitmap_scene_copies(gpu, engine);
     verify_full_target_clear(gpu, engine);
+    progpu::native::direct2d::tests::verify_clipped_clear(
+        [&](d2d::scene_render_target_native* target) { return render_scene(gpu, engine, target, 3U, 9U, 1U); }, require);
     portable_scene scene = record_scene();
     const std::vector<std::uint8_t> pixels = render_scene(
         gpu, engine, scene.scene_target.get());

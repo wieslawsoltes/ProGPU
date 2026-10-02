@@ -9,6 +9,8 @@ namespace ProGPU.Backend.Native;
 
 internal static unsafe partial class NativeMethods
 {
+    // Native source: PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS.
+    internal const ulong SceneLayerAliasedCompositeBounds = 1024UL;
     // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_NONE.
     internal const ulong EditWordBoundaryNone = 0UL;
     // Native source: PROGPU_NATIVE_EDIT_WORD_BOUNDARY_INVALID_ENCODING.

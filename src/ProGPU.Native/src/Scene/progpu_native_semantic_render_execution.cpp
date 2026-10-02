@@ -4767,6 +4767,12 @@ progpu_native_status render_scene(
                             composite_drawable = composite_scissor.drawable;
                         }
                     }
+                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) != 0U) {
+                        composite_scissor = intersect_semantic_scissors(composite_scissor,
+                            semantic::resolve_semantic_aliased_composite_scissor(layer.bounds,
+                                target_extent, target_cursor.current_presentation()));
+                        composite_drawable = composite_scissor.drawable;
+                    }
                     if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U) {
                         const auto resource = read_resource(layer.reserved1);
                         progpu_native_scene_tile_composite tile{};

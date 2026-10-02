@@ -3445,7 +3445,9 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneLayerFlags.CacheNearest |
             NativeSceneLayerFlags.CacheFant |
             NativeSceneLayerFlags.CompositeState | NativeSceneLayerFlags.CacheTile |
-            NativeSceneLayerFlags.CacheShared;
+            NativeSceneLayerFlags.CacheShared | NativeSceneLayerFlags.AliasedCompositeBounds;
+        bool aliasedComposite =
+            (layer.Flags & NativeSceneLayerFlags.AliasedCompositeBounds) != 0;
         bool localCache =
             (layer.Flags & NativeSceneLayerFlags.CacheLocalSpace) != 0;
         bool explicitCompositeState =
@@ -3461,6 +3463,12 @@ public ref struct NativeSceneStreamBuilder
             float.IsFinite(layer.Opacity) &&
             layer.Opacity is >= 0f and <= 1f &&
             (uint)layer.BlendMode <= (uint)GpuBlendMode.Modulate &&
+            (!aliasedComposite ||
+                (layer.Flags == (NativeSceneLayerFlags.Bounds | NativeSceneLayerFlags.AliasedCompositeBounds) &&
+                    layer.BlendMode == GpuBlendMode.Src && layer.Opacity == 1f &&
+                    layer.MaskResourceIndex == NativeMethods.SceneNoIndex &&
+                    layer.EffectResourceIndex == NativeMethods.SceneNoIndex &&
+                    layer.ContentRevision == 0 && layer.CompositeRevision == 0)) &&
             (!explicitCompositeState ||
                 (!localCache && RequiresMaterialization(layer))) &&
             ((layer.Flags & NativeSceneLayerFlags.CacheShared) == 0 || localCache) &&
