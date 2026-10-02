@@ -9,6 +9,7 @@
 #include "progpu_native_shader_effect_pixel_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
+#include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
@@ -2274,6 +2275,22 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(derivative_reference_engine);
     phase("original shader UV derivative registers passed");
+    auto* padding_reference_engine = create_engine(gpu);
+    progpu::native::tests::verify_original_shader_padding_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation,
+            const progpu::native::tests::shader_padding_case& test, std::uint32_t commands,
+            std::uint32_t submissions, progpu_native_layer_metrics& layers,
+            progpu_native_scene_frame_metrics& metrics) {
+            auto* selected = reference ? padding_reference_engine : engine;
+            auto pixels = render_scene(gpu, selected, nullptr, 1U, commands, submissions,
+                stream, 0x9496U, generation, &metrics, test.dpi, nullptr, test.expected);
+            if (test.expected == PROGPU_NATIVE_STATUS_SUCCESS)
+                require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                    "padding effect layer metrics unavailable");
+            return pixels;
+        }, require);
+    progpu_native_engine_destroy(padding_reference_engine);
+    phase("original shader padded captures passed");
     auto* glyph_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_semantic_glyph_sharing(
         [&](bool reference, const auto& stream, std::uint64_t generation,

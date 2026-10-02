@@ -13,6 +13,7 @@
 #include "progpu_native_shader_effect_pixel_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
+#include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
@@ -3687,6 +3688,14 @@ int main(int argc, char** argv) {
                 sizeof(presentation), test.viewport_x, 0U, 64U - test.viewport_x, 64U, test.dpi, test.dpi, 0U};
             return render_retained_scene(reference, stream, generation, 1U, 0x9495U, 1U, 3U, &layers, &metrics,
                 test.dpi, test.mapped ? &presentation : nullptr, test.expected);
+        }, require);
+    progpu::native::tests::verify_original_shader_padding_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation,
+            const progpu::native::tests::shader_padding_case& test, std::uint32_t commands,
+            std::uint32_t submissions, progpu_native_layer_metrics& layers,
+            progpu_native_scene_frame_metrics& metrics) {
+            return render_retained_scene(reference, stream, generation, submissions, 0x9496U, 1U, commands,
+                &layers, &metrics, test.dpi, nullptr, test.expected);
         }, require);
     for (auto* picture_engine : picture_engines) progpu_native_engine_destroy(picture_engine);
     progpu::native::tests::verify_path_pixel_mapping(

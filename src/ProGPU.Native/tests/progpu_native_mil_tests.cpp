@@ -8,6 +8,7 @@
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
+#include "progpu_native_shader_padding_fixture.hpp"
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
 #include "../src/Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../src/Scene/progpu_native_semantic_state.hpp"
@@ -21704,7 +21705,7 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
         batch.clear();
         if (variant == 0U) append_effect(batch, 0.9F, 3U);
         if (variant == 1U) append_effect(batch, std::numeric_limits<float>::quiet_NaN());
-        if (variant == 2U) append_effect(batch, 0.9F, 2U, 1.0);
+        if (variant == 2U) append_effect(batch, 0.9F, 2U, -1.0);
         if (variant == 3U) append_effect(batch, 0.9F, 2U, 0.0, 4U);
         if (variant == 4U) {
             append_effect(batch, 0.9F);
@@ -21964,6 +21965,82 @@ bool original_shader_sampler_inherits_actual_visual_options() {
             if (variant >= 13U) PROGPU_REQUIRE(tile_pages == (variant == 20U || variant == 21U ? 1U : 0U));
         }
         PROGPU_REQUIRE(pictures == 1U);
+    }
+    return true;
+}
+
+bool original_shader_padding_retains_local_bounds_and_atomic_updates() {
+    using namespace progpu::native::tests;
+    progpu_native_mil_channel* raw{};
+    PROGPU_REQUIRE(progpu_native_mil_channel_create(&raw) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    mil_clip_channel owner(raw);
+    constexpr std::array expected_bounds{
+        progpu_native_image_rect{16, 16, 16, 8}, progpu_native_image_rect{12, 14, 32, 16},
+        progpu_native_image_rect{12, 14, 32, 16}, progpu_native_image_rect{12, 14, 32, 16},
+        progpu_native_image_rect{12, 14, 32, 16}, progpu_native_image_rect{6, 7, 16, 8},
+        progpu_native_image_rect{12, 14, 32, 16}, progpu_native_image_rect{14, 12, 32, 16},
+        progpu_native_image_rect{16, 16, 16, 8}, progpu_native_image_rect{12, 15.75F, 32, 14.25F},
+        progpu_native_image_rect{-16, 14, 60, 16}, progpu_native_image_rect{12, 14, 32, 16}};
+    std::vector<std::byte> original, last_scene;
+    for (std::uint32_t variant = 0U; variant < shader_padding_cases.size(); ++variant) {
+        std::vector<std::byte> scene;
+        PROGPU_REQUIRE(build_shader_padding_scene(raw, variant, scene));
+        PROGPU_REQUIRE(progpu::native::scene::validate(scene.data(), scene.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
+        const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+        std::uint32_t effect_layers = 0U, sampler_pictures = 0U;
+        for (std::uint32_t i = 0U; i < header.command_count; ++i) {
+            const auto command_record = read_value<progpu_native_scene_command>(scene,
+                header.command_offset + i * sizeof(progpu_native_scene_command));
+            if (command_record.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) continue;
+            const auto layer = read_value<progpu_native_scene_layer>(scene, command_record.payload_offset);
+            if (layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) continue;
+            ++effect_layers;
+            const auto expected = expected_bounds[variant];
+            PROGPU_REQUIRE(std::memcmp(&layer.bounds, &expected, sizeof(expected)) == 0);
+            PROGPU_REQUIRE((layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U);
+            const auto state_resource = read_value<progpu_native_scene_resource>(scene,
+                header.resource_offset + layer.reserved0 * header.resource_stride);
+            const auto final_clip = read_value<progpu_native_scene_state>(scene, state_resource.payload_offset);
+            const float dpi = shader_padding_cases[variant].dpi;
+            PROGPU_REQUIRE(final_clip.clip_rect.x == 14.0F / dpi && final_clip.clip_rect.y == 12.0F / dpi &&
+                final_clip.clip_rect.width == 28.0F / dpi && final_clip.clip_rect.height == 20.0F / dpi);
+        }
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(scene, header.resource_offset + i * header.resource_stride);
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+                (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U) continue;
+            const auto picture = read_value<progpu_native_scene_picture_image>(scene, resource.payload_offset);
+            PROGPU_REQUIRE(picture.width == 32U && picture.height == 16U && picture.dpi_scale == 1.0F);
+            ++sampler_pictures;
+        }
+        PROGPU_REQUIRE(effect_layers == 1U && sampler_pictures ==
+            (shader_padding_cases[variant].output == shader_padding_output::image ? 1U : 0U));
+        if (variant == 0U) original = scene;
+        // Even after later updates, the caller owns the complete old snapshot.
+        PROGPU_REQUIRE(progpu::native::scene::validate(original.data(), original.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
+        last_scene = scene;
+    }
+    const auto before_generation = progpu_native_mil_channel_get_resource_generation(raw, 5U);
+    for (std::uint32_t axis = 0U; axis < 4U; ++axis) {
+        for (const double bad : {-1.0, std::numeric_limits<double>::quiet_NaN(),
+                std::numeric_limits<double>::infinity(), std::numeric_limits<double>::max()}) {
+            auto padding = shader_padding_cases.back().padding;
+            padding[axis] = bad;
+            std::vector<std::byte> batch;
+            append_shader_padding_effect(batch, {1.0, 1.0, 1.0, 1.0}, shader_padding_output::input);
+            append_shader_padding_effect(batch, padding, shader_padding_output::input);
+            PROGPU_REQUIRE(progpu_native_mil_channel_apply(raw, batch.data(), batch.size(), nullptr) ==
+                PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
+            PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw, 5U) == before_generation);
+            const progpu_native_mil_scene_build_request request{
+                sizeof(request), 0U, 3U, 0U, 0x9496U, 12U, 1.0, 1.0, 0U, 12U};
+            progpu_native_mil_scene_build_result result{}; result.struct_size = sizeof(result);
+            std::size_t written{};
+            std::vector<std::byte> after(last_scene.size());
+            PROGPU_REQUIRE(progpu_native_mil_channel_build_scene_with_request(raw, &request,
+                after.data(), after.size(), &written, nullptr, &result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+            PROGPU_REQUIRE(written == last_scene.size() && after == last_scene);
+        }
     }
     return true;
 }
@@ -22268,6 +22345,7 @@ bool c_abi_is_typed_and_size_versioned() {
 int main() {
     PROGPU_REQUIRE(original_shader_effect_resources_compile_and_reject_atomically());
     PROGPU_REQUIRE(original_shader_sampler_inherits_actual_visual_options());
+    PROGPU_REQUIRE(original_shader_padding_retains_local_bounds_and_atomic_updates());
     const auto capture_hits = [](progpu::native::semantic_scene_builder& builder,
         progpu::native::scene_hit_test_opacity_mode opacity_mode =
             progpu::native::scene_hit_test_opacity_mode::rendered_visibility) {
