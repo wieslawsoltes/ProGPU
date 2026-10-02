@@ -53,6 +53,7 @@ internal static partial class Program
                 TransformOrder = "source * inner * placement * original RTB DPI root",
                 input.History, AuthoredScaleSpaceAllocation = input.Allocation,
                 AuthoredFinalFrame = new { X = input.FinalLeft,Y = input.FinalTop,input.Allocation.Width,input.Allocation.Height },
+                AuthoredAliasedOutputClip = ShaderLocalCaptureOracle.OutputClip(input),
                 FinalSourceClip = retained.Clip.Clip!.Bounds, input.NativeCandidate,
                 NativeExclusion = !input.IntegralPlacement ? "fractional-final-device-placement"
                     : input.History == LocalCaptureHistory.SeparatelyNarrowed ? "double-aggregate-differs-from-original-float-history" : null,
@@ -121,7 +122,7 @@ internal static partial class Program
                 ReplaySha256 = hashes, PlainInputSha256 = Convert.ToHexString(SHA256.HashData(inputBaseline)),
                 FinalQuadSha256 = frameBaseline == null ? null : Convert.ToHexString(SHA256.HashData(frameBaseline)) });
         }
-        if (observations.Count != 21 || baselineCount != 23 || mutationChecks != 4 || arithmeticControls != 70)
+        if (observations.Count != 21 || baselineCount != 23 || mutationChecks != 4 || arithmeticControls != 88)
             throw new InvalidOperationException("Original fractional local-frame inventory is incomplete.");
         var modules = Process.GetCurrentProcess().Modules.Cast<ProcessModule>()
             .Where(module => string.Equals(module.ModuleName,"wpfgfx_cor3.dll",StringComparison.OrdinalIgnoreCase))
@@ -217,7 +218,12 @@ internal static partial class Program
         if (frame[offset] != (inside ? 191 : 0) || frame[offset + 1] != (inside ? 128 : 0) ||
             frame[offset + 2] != (inside ? 64 : 0) || frame[offset + 3] != 255)
             throw new InvalidOperationException("The original final-quad control was not a binary aliased opaque drawing.");
-        return !input.SquareUv ? frame[offset + channel]
+        // PreSubgraph also pushes the original padded visual bounds as an
+        // aliased output clip. It does not shrink the intermediate/UV frame or
+        // the independent ordinary final-quad baseline above.
+        inside &= ShaderLocalCaptureOracle.OutputClip(input).Contains(x,y);
+        return !inside ? channel == 3 ? (byte)255 : (byte)0
+            : !input.SquareUv ? frame[offset + channel]
             : inside ? ShaderLocalCaptureOracle.SquaredUv(input,x,y,channel)
             : channel == 3 ? (byte)255 : (byte)0;
     }

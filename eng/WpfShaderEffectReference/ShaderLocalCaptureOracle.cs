@@ -20,6 +20,30 @@ internal static class ShaderLocalCaptureOracle
     internal const double ContentX = 16.75, ContentY = 16.25, ContentWidth = 15.5, ContentHeight = 7.5;
     internal const double SeparateScale = 1 + 1.0 / (1 << 24);
 
+    // Original aliased visual bounds are an OUTPUT clip, distinct from the
+    // outward allocation. WPF first rounds to 28.4 (halves up), then applies
+    // its top/left-inclusive half rule. Keep these two operations explicit.
+    internal static int AliasedOutputEdge(float edge)
+    {
+        int fixedEdge = checked((int)Math.Floor((double)(edge * 16f) + .5));
+        return checked(fixedEdge + 7) >> 4;
+    }
+
+    internal static PaddingFrame OutputClip(LocalCaptureCase input)
+    {
+        // Every authored history has unit original FLOAT local scale. The
+        // separately narrowed double-history control also has float scale1.
+        float l = ((float)ContentX - (float)input.Left) * (float)input.Dpi + (float)input.DeviceX;
+        float t = ((float)ContentY - (float)input.Top) * (float)input.Dpi + (float)input.DeviceY;
+        float r = ((float)(ContentX + ContentWidth) + (float)input.Right) * (float)input.Dpi + (float)input.DeviceX;
+        float b = ((float)(ContentY + ContentHeight) + (float)input.Bottom) * (float)input.Dpi + (float)input.DeviceY;
+        int left = Math.Max(input.Clip.Left,AliasedOutputEdge(l));
+        int top = Math.Max(input.Clip.Top,AliasedOutputEdge(t));
+        int right = Math.Min(input.Clip.Left + input.Clip.Width,AliasedOutputEdge(r));
+        int bottom = Math.Min(input.Clip.Top + input.Clip.Height,AliasedOutputEdge(b));
+        return new(left,top,Math.Max(0,right - left),Math.Max(0,bottom - top));
+    }
+
     internal static LocalCaptureCase[] Cases() =>
     [
         new("local-input-zero-dpi1", PaddingOutput.Input, 1, 0, 0, 0, 0, new(16,16,17,8)),
@@ -52,7 +76,7 @@ internal static class ShaderLocalCaptureOracle
         if (input.Output == PaddingOutput.Input || !input.IntegralPlacement)
             throw new ArgumentException("This case requires its separately captured original drawing baseline.");
         if (channel == 3) return 255;
-        if (!input.Clip.Contains(x,y) || x < input.FinalLeft || y < input.FinalTop ||
+        if (!OutputClip(input).Contains(x,y) || x < input.FinalLeft || y < input.FinalTop ||
             x >= input.FinalLeft + input.Allocation.Width || y >= input.FinalTop + input.Allocation.Height) return 0;
         return input.Output switch
         {
@@ -118,11 +142,11 @@ internal static class ShaderLocalCaptureOracle
         Require((float)SeparateScale == 1 && (float)(SeparateScale * SeparateScale) != 1);
         Require((float)SeparateScale * (float)SeparateScale == 1);
         Require(2 * .5 == 1 && 2 * 2 != 2); // scale cancellation does not permit translating in the wrong order
-        Require(Expected(cases[1],18,19,2) == 64 && Expected(cases[1],34,26,2) == 64);
+        Require(Expected(cases[1],19,19,2) == 64 && Expected(cases[1],33,26,2) == 64);
         Require(Expected(cases[1],17,19,2) == 0 && Expected(cases[1],35,19,2) == 0);
         Require(Expected(cases[3],35,27,0) == 191 && Expected(cases[1],35,27,0) == 0);
         Require(Expected(cases[4],14,17,2) == 0 && Expected(cases[4],15,17,2) == 8);
-        Require(Expected(cases[4],14,18,1) == 16 && Expected(cases[4],30,25,2) == 128);
+        Require(Expected(cases[4],15,18,1) == 16 && Expected(cases[4],30,25,2) == 128);
         Require(Expected(cases[9],35,35,2) == 0 && Expected(cases[9],36,36,1) == 16);
         Require(Expected(cases[4],14,17,2) != Quantize(.5 / 32));
         Require(Expected(cases[5],20,20,2) == 14 && Expected(cases[5],20,20,1) == 28);
@@ -137,6 +161,24 @@ internal static class ShaderLocalCaptureOracle
         Require(!cases[19].NativeCandidate && cases[19].Allocation == cases[1].Allocation);
         Require(cases[20].SquareUv && !cases[20].NativeCandidate && SquaredUv(cases[20],20,20,2) == 3);
         Require(SquaredUv(cases[20],20,20,1) == 1 && SquaredUv(cases[20],30,24,2) == 122);
+        Require(AliasedOutputEdge(.5f) == 0 && AliasedOutputEdge(-.5f) == -1);
+        Require(AliasedOutputEdge(17f / 32) == 1 && AliasedOutputEdge(-15f / 32) == 0);
+        Require(AliasedOutputEdge(MathF.BitDecrement(17f / 32)) == 0);
+        Require(AliasedOutputEdge(MathF.BitDecrement(-15f / 32)) == -1);
+        Require(AliasedOutputEdge(18.5f) == 18 && AliasedOutputEdge(18.53125f) == 19);
+        Require(AliasedOutputEdge(-18.5f) == -19 && AliasedOutputEdge(-18.46875f) == -18);
+        Require(OutputClip(cases[1]) == new PaddingFrame(19,19,15,8));
+        Require(OutputClip(cases[3]) == new PaddingFrame(18,19,18,9));
+        Require(OutputClip(cases[8]) == new PaddingFrame(34,35,35,18));
+        Require(OutputClip(cases[9]) == new PaddingFrame(35,35,31,15));
+        Require(OutputClip(cases[12]) == cases[12].Clip);
+        Require(OutputClip(cases[16]) == new PaddingFrame(19,20,15,7));
+        Require(OutputClip(cases[17]) == OutputClip(cases[1]) && OutputClip(cases[19]) == OutputClip(cases[1]));
+        Require(Expected(cases[1],18,19,2) == 0 && Expected(cases[1],34,26,2) == 0);
+        Require(Expected(cases[4],14,18,1) == 0 && Expected(cases[4],15,18,1) == 16);
+        Require(Expected(cases[9],66,35,2) == 0 && Expected(cases[9],65,35,2) == 239);
+        Require(Expected(cases[8],69,35,0) == 0 && Expected(cases[8],68,35,0) == 191);
+        Require(Expected(cases[10],68,35,2) == 7 && Expected(cases[10],69,35,2) == 0);
         return count;
     }
 }

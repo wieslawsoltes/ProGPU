@@ -33,6 +33,17 @@ The source inspected is LibreWPF
 - `resources/Effect.cpp:37–50` retains the whole effect input independently of
   final clipping. `ShaderEffect.cpp:798–838` realizes an ImageBrush over the full
   zero-origin physical intermediate extent, not the original content/viewbox.
+- `uce/precompctx.cpp:563–596` separately inflates local visual bounds, applies
+  the visual's own float transform and then its offset. Those outer bounds pass
+  through the current ancestor transform in `drawingcontext.cpp:1522–1559`.
+  With the authored Aliased state there is no AA inflation. `4842–4847` pushes
+  these bounds as a final output clip, independently of intermediate allocation.
+  `targets/BaseRT.cpp:229–239` and `common/rtutils.cpp:55–110` resolve it through
+  `RasterizerConvertRealToInteger` (`rtutils.h:109–126`). This uses 28.4
+  half-up conversion followed by the inclusive-top/left integer rule:
+  `q = floor(double(float(edge * 16)) + .5)`, then `floor((q + 7) / 16)`.
+  `fix.h:133–174` and `common/shared/real.h:467–490` establish both operations.
+  It is not the allocation's floor/ceil or a generic pixel-center test.
 
 The admitted native proposal therefore needs a retained original float-history
 witness, scale-space allocation origin/extent, and an exact integral final-frame
@@ -60,13 +71,15 @@ state so both input and final composition have an explicit source contract.
 Twenty-one cases execute cold/warm/independently rebuilt captures, totaling63
 shader replays and23 separate original ordinary-drawing baselines. Input cases
 must equal a separately rendered no-effect original drawing byte-for-byte;
-constant output must fill the authored complete allocation, including its border.
+constant output fills the authored allocation only inside that independent final
+output clip. The capture border is not by itself permission to draw outside the
+original padded visual bounds.
 Every ordinary-input baseline must independently contain visible white pixels,
 only binary black/white RGB and opaque alpha; two empty results cannot qualify
 input preservation.
 Derivative output uses the full18×9 or36×18 frame after overriding original user
-c0. Two-texel ImageBrush output retains actual144/192 bitmap DPI and fills the
-entire capture. A separate final clip changes only output. Consecutive zero →
+c0. Two-texel ImageBrush output retains actual144/192 bitmap DPI and realizes over
+the entire capture before output clipping. A separate final clip changes only output. Consecutive zero →
 asymmetric → zero captures preserve the same effect, source visual and drawing;
 reset must restore every pixel and expansion must change visible border pixels.
 
@@ -90,7 +103,9 @@ disagree, not a reason to alter the generic traversal.
 Two further original-only controls place the final quad at fractional offset
 (2.25,3.5): constant output and original ps_2_0 `t0.xy*t0.xy`. A separately drawn
 ordinary opaque rectangle supplies an independently checked binary aliased
-coverage control, never inferred capture bounds. That colored baseline must
+quad-coverage control, never inferred capture bounds. The shader's expectation
+also intersects the independently computed original visual output clip, without
+changing that ordinary baseline's drawing. That colored baseline must
 independently contain the exact requested color, including on the ARM64 negative
 lane; two blank results cannot qualify either deferred control. UV-squared colors use the known
 software integer-origin coordinates on that authored frame. These inputs expose
@@ -104,7 +119,7 @@ placement, not by filtering results evaluated on the source lattice.
 All new input JSON, original padding bits and transform histories, source bitmap,
 baseline PNG/BGRA, all63 shader PNG/BGRA and complete receipt use `CreateNew`.
 Pixel failures accumulate across the new inventory, write a failed receipt,
-qualify zero new cases and fail the process. There are70 device-free independent
+qualify zero new cases and fail the process. There are88 device-free independent
 controls. Original ARM64 unavailable-software behavior remains a strict negative
 control: non-image effects equal the ordinary original input; ImageBrush effects
 contribute no color. It qualifies zero software shaders, never native ARM64 pixels.
@@ -139,3 +154,27 @@ original sampler files and the original arithmetic case definitions are unchange
 `git diff --check` passed. These checks provide no original Windows pixels,
 hardware/native qualification, staged runtime or source-host admission. Actual
 exact-head Windows capture is the next required gate.
+
+## First hosted failure: allocation is not visible output
+
+Original workflow `37043651256` at `7b0695136ebdb206922a40e57e6a2975926cf7bc`
+passed the old25 shaders,28 sampler cases and13 padding cases. All21 new inputs
+and63 replays were captured; x64 job `110959609012` correctly failed the incomplete
+allocation-only output oracle. ARM64 job `110959610317` passed only its explicit
+software-unavailability controls, qualifying zero shaders.
+
+The preserved x64 failed receipt SHA256 is
+`5d79182c2e2a91acf20d8add42fabb27b1286b16f67b3d2a5accbd1375ab29e3`, artifact
+`11243251934`, locally `/private/tmp/progpu-local-capture-failed-x64.YRCGTq62`.
+For zero padding at DPI1, the final allocation is `[18,35) × [19,27)`, while
+the original aliased output clip is `[19,34) × [19,27)`. With asymmetric padding
+at DPI2, allocation right70 remains the UV/derivative basis, but output right69
+clips its final column. This matches the immutable source's distinct bound path
+above; no allocation, source input, padding, shader bytecode, UV phase, pixel
+tolerance or original failed artifact changes are justified.
+
+The corrected oracle adds18 independent clip controls, including signed half
+ties and the actual `17/32` next-integer transition, plus controls distinguishing
+allocation, output clip and unchanged normalized frame. Existing counts and
+deadlines remain strict; fresh hosted original execution is still required.
+This correction establishes no original hardware or native provider parity.
