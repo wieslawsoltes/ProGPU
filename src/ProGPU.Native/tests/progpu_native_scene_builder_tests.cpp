@@ -2834,7 +2834,9 @@ bool semantic_scene_builder_records_retained_3d_families() {
     const auto build_material_variant = [&](bool insert_unrelated_state,
                                             std::uint64_t brush_generation,
                                             std::vector<std::byte>& output) {
-        semantic_scene_builder variant(716U, 1U);
+        // Ordinal normalization compares resources within the same scene owner.
+        // A distinct owner intentionally has a distinct compiled-family key.
+        semantic_scene_builder variant(715U, 1U);
         const std::uint32_t resource_shift =
             insert_unrelated_state ? 1U : 0U;
         if (insert_unrelated_state) {
@@ -2883,9 +2885,14 @@ bool semantic_scene_builder_records_retained_3d_families() {
         shifted_material_stream.data(), shifted_material_validation.header);
     const auto changed_material_hashes = semantic::compute_content_hashes(
         changed_material_stream.data(), changed_material_validation.header);
+    auto other_owner_header = material_validation.header;
+    other_owner_header.scene_id = 716U;
+    const auto other_owner_hashes = semantic::compute_content_hashes(
+        material_stream.data(), other_owner_header);
     const bool material_hash_contract =
         material_hashes.three_d == shifted_material_hashes.three_d &&
-        material_hashes.three_d != changed_material_hashes.three_d;
+        material_hashes.three_d != changed_material_hashes.three_d &&
+        material_hashes.three_d != other_owner_hashes.three_d;
 
     return material_contract && material_hash_contract &&
         line_resource.kind ==
