@@ -33,10 +33,116 @@ struct original_font_file : com::unknown {
     virtual com::result PROGPU_NATIVE_COM_CALL GetLoader(original_font_loader** loader) noexcept = 0;
 };
 
+// Published IDWriteFontFace5 identity and its complete inherited ABI. The
+// existing portable font_face prefix stays unchanged. This interface is usable
+// only after this exact IID succeeds; never cast the prefix to an undeclared
+// tail. Pointer-only records/interfaces below stay opaque because capture never
+// invokes those methods. Method suffixes distinguish original overloaded slots.
+inline constexpr com::guid original_font_face5_id{
+    0x98EFF3A5U, 0xB667U, 0x479AU, {0xB1U, 0x45U, 0xE2U, 0xFAU, 0x5BU, 0x9FU, 0xDCU, 0x29U}};
+struct original_font_metrics;
+struct original_font_metrics1;
+struct original_glyph_metrics;
+struct original_caret_metrics;
+struct original_unicode_range;
+union original_panose;
+struct original_glyph_image_data;
+struct original_face_reference;
+struct original_localized_strings;
+struct original_font_resource;
+
+struct original_font_axis_value final {
+    // DWRITE_FONT_AXIS_TAG byte order, NOT the native big-endian OpenType tag
+    // integer. Preserve source order, tag case and exact user-coordinate bits.
+    std::uint32_t tag = 0U;
+    float value = 0.0F;
+};
+static_assert(sizeof(original_font_axis_value) == 8U);
+static_assert(offsetof(original_font_axis_value, value) == 4U);
+
+struct original_font_face5 : compat::font_face {
+    // Remaining IDWriteFontFace slots, after GetGlyphRunOutline.
+    virtual com::result PROGPU_NATIVE_COM_CALL GetRecommendedRenderingMode(float, float,
+        compat::measuring_mode, compat::rendering_parameters*, compat::rendering_mode*) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetGdiCompatibleMetrics(float, float,
+        const compat::matrix_3x2_f*, original_font_metrics*) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetGdiCompatibleGlyphMetrics(float, float,
+        const compat::matrix_3x2_f*, std::int32_t, const std::uint16_t*, std::uint32_t,
+        original_glyph_metrics*, std::int32_t) noexcept = 0;
+    // IDWriteFontFace1.
+    virtual void PROGPU_NATIVE_COM_CALL GetMetrics1(original_font_metrics1*) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetGdiCompatibleMetrics1(float, float,
+        const compat::matrix_3x2_f*, original_font_metrics1*) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetCaretMetrics(original_caret_metrics*) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetUnicodeRanges(std::uint32_t,
+        original_unicode_range*, std::uint32_t*) noexcept = 0;
+    virtual std::int32_t PROGPU_NATIVE_COM_CALL IsMonospacedFont() noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetDesignGlyphAdvances(std::uint32_t,
+        const std::uint16_t*, std::int32_t*, std::int32_t) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetGdiCompatibleGlyphAdvances(float, float,
+        const compat::matrix_3x2_f*, std::int32_t, std::int32_t, std::uint32_t,
+        const std::uint16_t*, std::int32_t*) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetKerningPairAdjustments(std::uint32_t,
+        const std::uint16_t*, std::int32_t*) noexcept = 0;
+    virtual std::int32_t PROGPU_NATIVE_COM_CALL HasKerningPairs() noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetRecommendedRenderingMode1(float, float, float,
+        const compat::matrix_3x2_f*, std::int32_t, std::uint32_t, compat::measuring_mode,
+        compat::rendering_mode*) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetVerticalGlyphVariants(std::uint32_t,
+        const std::uint16_t*, std::uint16_t*) noexcept = 0;
+    virtual std::int32_t PROGPU_NATIVE_COM_CALL HasVerticalGlyphVariants() noexcept = 0;
+    // IDWriteFontFace2.
+    virtual std::int32_t PROGPU_NATIVE_COM_CALL IsColorFont() noexcept = 0;
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetColorPaletteCount() noexcept = 0;
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetPaletteEntryCount() noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetPaletteEntries(std::uint32_t, std::uint32_t,
+        std::uint32_t, compat::color_f*) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetRecommendedRenderingMode2(float, float, float,
+        const compat::matrix_3x2_f*, std::int32_t, std::uint32_t, compat::measuring_mode,
+        compat::rendering_parameters*, compat::rendering_mode*, std::uint32_t*) noexcept = 0;
+    // IDWriteFontFace3.
+    virtual com::result PROGPU_NATIVE_COM_CALL GetFontFaceReference(original_face_reference**) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL GetPanose(original_panose*) noexcept = 0;
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetWeight() noexcept = 0;
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetStretch() noexcept = 0;
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetStyle() noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetFamilyNames(original_localized_strings**) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetFaceNames(original_localized_strings**) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetInformationalStrings(std::uint32_t,
+        original_localized_strings**, std::int32_t*) noexcept = 0;
+    virtual std::int32_t PROGPU_NATIVE_COM_CALL HasCharacter(std::uint32_t) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetRecommendedRenderingMode3(float, float, float,
+        const compat::matrix_3x2_f*, std::int32_t, std::uint32_t, compat::measuring_mode,
+        compat::rendering_parameters*, std::uint32_t*, std::uint32_t*) noexcept = 0;
+    virtual std::int32_t PROGPU_NATIVE_COM_CALL IsCharacterLocal(std::uint32_t) noexcept = 0;
+    virtual std::int32_t PROGPU_NATIVE_COM_CALL IsGlyphLocal(std::uint16_t) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL AreCharactersLocal(const char16_t*, std::uint32_t,
+        std::int32_t, std::int32_t*) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL AreGlyphsLocal(const std::uint16_t*, std::uint32_t,
+        std::int32_t, std::int32_t*) noexcept = 0;
+    // IDWriteFontFace4.
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetGlyphImageFormats() noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetGlyphImageFormatsForRange(std::uint16_t,
+        std::uint32_t, std::uint32_t, std::uint32_t*) noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetGlyphImageData(std::uint16_t, std::uint32_t,
+        std::uint32_t, original_glyph_image_data*, void**) noexcept = 0;
+    virtual void PROGPU_NATIVE_COM_CALL ReleaseGlyphImageData(void*) noexcept = 0;
+    // IDWriteFontFace5.
+    virtual std::uint32_t PROGPU_NATIVE_COM_CALL GetFontAxisValueCount() noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetFontAxisValues(original_font_axis_value*, std::uint32_t) noexcept = 0;
+    virtual std::int32_t PROGPU_NATIVE_COM_CALL HasVariations() noexcept = 0;
+    virtual com::result PROGPU_NATIVE_COM_CALL GetFontResource(original_font_resource**) noexcept = 0;
+    virtual std::int32_t PROGPU_NATIVE_COM_CALL Equals(compat::font_face*) noexcept = 0;
+};
+
 struct original_font_capture final {
     static constexpr std::uint32_t maximum_files = 16U;
     static constexpr std::uint32_t maximum_key_bytes = 65536U;
     static constexpr std::uint64_t maximum_total_bytes = 64U * 1024U * 1024U;
+    // Bounded capture storage: native fvar has a uint16 axis domain and Face5
+    // can additionally expose five standard static design attributes. This is
+    // not a fabricated fvar inventory; never equate these two counts.
+    static constexpr std::uint32_t maximum_axes = 65535U + 5U;
 
     // This retained original face is also the instance identity. File/index
     // metadata alone does NOT prove variable-axis or raster-mode equivalence.
@@ -46,12 +152,16 @@ struct original_font_capture final {
     std::uint32_t simulations = 0U;
     std::int32_t symbol_font = 0;
     std::uint16_t glyph_count = 0U;
+    bool axis_values_available = false;
+    bool has_variations = false;
+    std::vector<original_font_axis_value> axis_values;
     std::vector<std::vector<std::byte>> files;
 };
 
 // Explicit generation preparation, not a draw-time read/cache keyed by a COM
 // address. Owns complete original files in returned order; never reconstructs a
-// font from table reads. O(B + F) time/storage, B <= 64 MiB, F <= 16.
+// font from table reads. O(B + F + A) expected time/storage for original bytes,
+// files and axis values; B <= 64 MiB, F <= 16, A <= 65535 + 5.
 // On any failure output is unchanged, including original source HRESULTs.
 [[nodiscard]] com::result capture_original_font(
     compat::font_face* face,
