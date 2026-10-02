@@ -112,6 +112,112 @@ std::int16_t round_mapped_coordinate(float value) noexcept {
         16384.0F));
 }
 
+bool apply_avar_coordinate(const sfnt_font_view& font, std::uint16_t axis_count,
+    std::uint16_t axis_index, std::int16_t coordinate, bool strict,
+    std::int16_t& result, font_error* error) noexcept {
+    sfnt_table_view avar{};
+    if (!font.try_get_table(avar_tag, avar)) {
+        result = coordinate;
+        set_error(error, font_error::none);
+        return true;
+    }
+    if (!can_read(avar.bytes, 0U, 8U)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    if (strict && read_u32(avar.bytes, 0U) != 0x00010000U) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    const auto avar_axis_count = read_u16(avar.bytes, 6U);
+    if (avar_axis_count != axis_count) {
+        if (strict) { set_error(error, font_error::invalid_face); return false; }
+        result = coordinate;
+        set_error(error, font_error::none);
+        return true;
+    }
+
+    std::size_t offset = 8U;
+    std::int16_t mapped = coordinate;
+    for (std::uint16_t current_axis = 0U;
+         current_axis < avar_axis_count;
+         ++current_axis) {
+        if (!can_read(avar.bytes, offset, 2U)) {
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+        const auto map_count = read_u16(avar.bytes, offset);
+        offset += 2U;
+        if (!can_read(
+                avar.bytes,
+                offset,
+                static_cast<std::size_t>(map_count) * 4U)) {
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+        if (strict) {
+            bool has_zero = false;
+            if (map_count < 3U || read_i16(avar.bytes, offset) != -16384 ||
+                read_i16(avar.bytes, offset + 2U) != -16384 ||
+                read_i16(avar.bytes, offset + (map_count - 1U) * 4U) != 16384 ||
+                read_i16(avar.bytes, offset + (map_count - 1U) * 4U + 2U) != 16384) {
+                set_error(error, font_error::invalid_face); return false;
+            }
+            std::int16_t previous = -16384;
+            for (std::uint16_t pair_index = 0U; pair_index < map_count; ++pair_index) {
+                const auto pair_offset = offset + static_cast<std::size_t>(pair_index) * 4U;
+                const auto from = read_i16(avar.bytes, pair_offset);
+                const auto to = read_i16(avar.bytes, pair_offset + 2U);
+                if ((pair_index != 0U && from <= previous) || from < -16384 || from > 16384 ||
+                    to < -16384 || to > 16384 || (from == 0 && to != 0)) {
+                    set_error(error, font_error::invalid_face); return false;
+                }
+                has_zero = has_zero || from == 0;
+                previous = from;
+            }
+            if (!has_zero) { set_error(error, font_error::invalid_face); return false; }
+        }
+        if (current_axis == axis_index && map_count >= 2U) {
+            auto previous_from = read_i16(avar.bytes, offset);
+            auto previous_to = read_i16(avar.bytes, offset + 2U);
+            mapped = previous_to;
+            for (std::uint16_t map_index = 0U;
+                 map_index < map_count;
+                 ++map_index) {
+                const auto pair = offset +
+                    static_cast<std::size_t>(map_index) * 4U;
+                const auto current_from = read_i16(avar.bytes, pair);
+                const auto current_to = read_i16(avar.bytes, pair + 2U);
+                if (coordinate <= current_from) {
+                    if (coordinate == current_from || map_index == 0U) {
+                        mapped = current_to;
+                    } else {
+                        const auto denominator = static_cast<float>(
+                            current_from - previous_from);
+                        if (denominator == 0.0F) {
+                            set_error(error, font_error::invalid_face);
+                            return false;
+                        }
+                        const auto ratio = static_cast<float>(
+                            coordinate - previous_from) / denominator;
+                        mapped = round_mapped_coordinate(
+                            previous_to + ratio *
+                                static_cast<float>(current_to - previous_to));
+                    }
+                    break;
+                }
+                previous_from = current_from;
+                previous_to = current_to;
+                mapped = current_to;
+            }
+        }
+        offset += static_cast<std::size_t>(map_count) * 4U;
+    }
+    result = mapped;
+    set_error(error, font_error::none);
+    return true;
+}
+
 } // namespace
 
 float sfnt_variation_axis::minimum() const noexcept {
@@ -261,79 +367,35 @@ bool sfnt_font_view::try_normalize_variation_coordinate(
     }
     const auto coordinate = normalize_fvar_coordinate(axis, user_fixed);
 
-    sfnt_table_view avar{};
-    if (!try_get_table(avar_tag, avar)) {
-        result = coordinate;
-        set_error(error, font_error::none);
-        return true;
-    }
-    if (!can_read(avar.bytes, 0U, 8U)) {
-        set_error(error, font_error::invalid_face);
+    return apply_avar_coordinate(*this, axis_count, axis_index, coordinate, false, result, error);
+}
+
+bool sfnt_font_view::try_normalize_variation_design_coordinate(
+    std::uint16_t axis_index,
+    float user_coordinate,
+    std::int16_t& result,
+    font_error* error) const noexcept {
+    if (!std::isfinite(user_coordinate)) {
+        set_error(error, font_error::invalid_argument);
         return false;
     }
-    const auto avar_axis_count = read_u16(avar.bytes, 6U);
-    if (avar_axis_count != axis_count) {
-        result = coordinate;
-        set_error(error, font_error::none);
-        return true;
-    }
-
-    std::size_t offset = 8U;
-    std::int16_t mapped = coordinate;
-    for (std::uint16_t current_axis = 0U;
-         current_axis < avar_axis_count;
-         ++current_axis) {
-        if (!can_read(avar.bytes, offset, 2U)) {
-            set_error(error, font_error::invalid_face);
-            return false;
-        }
-        const auto map_count = read_u16(avar.bytes, offset);
-        offset += 2U;
-        if (!can_read(
-                avar.bytes,
-                offset,
-                static_cast<std::size_t>(map_count) * 4U)) {
-            set_error(error, font_error::invalid_face);
-            return false;
-        }
-        if (current_axis == axis_index && map_count >= 2U) {
-            auto previous_from = read_i16(avar.bytes, offset);
-            auto previous_to = read_i16(avar.bytes, offset + 2U);
-            mapped = previous_to;
-            for (std::uint16_t map_index = 0U;
-                 map_index < map_count;
-                 ++map_index) {
-                const auto pair = offset +
-                    static_cast<std::size_t>(map_index) * 4U;
-                const auto current_from = read_i16(avar.bytes, pair);
-                const auto current_to = read_i16(avar.bytes, pair + 2U);
-                if (coordinate <= current_from) {
-                    if (coordinate == current_from || map_index == 0U) {
-                        mapped = current_to;
-                    } else {
-                        const auto denominator = static_cast<float>(
-                            current_from - previous_from);
-                        if (denominator == 0.0F) {
-                            set_error(error, font_error::invalid_face);
-                            return false;
-                        }
-                        const auto ratio = static_cast<float>(
-                            coordinate - previous_from) / denominator;
-                        mapped = round_mapped_coordinate(
-                            previous_to + ratio *
-                                static_cast<float>(current_to - previous_to));
-                    }
-                    break;
-                }
-                previous_from = current_from;
-                previous_to = current_to;
-                mapped = current_to;
-            }
-        }
-        offset += static_cast<std::size_t>(map_count) * 4U;
-    }
-    result = mapped;
-    set_error(error, font_error::none);
+    std::uint16_t count = 0U;
+    sfnt_variation_axis axis{};
+    if (!try_get_variation_axis_count(count, error) ||
+        !try_get_variation_axis(axis_index, axis, error)) return false;
+    // Float promotion is exact. Subtraction/division are performed against
+    // the original fixed endpoints, never a float-to-16.16 conversion.
+    const auto minimum = static_cast<double>(axis.minimum_fixed) / 65536.0;
+    const auto normal = static_cast<double>(axis.default_fixed) / 65536.0;
+    const auto maximum = static_cast<double>(axis.maximum_fixed) / 65536.0;
+    const auto value = std::clamp(static_cast<double>(user_coordinate), minimum, maximum);
+    const auto normalized = value < normal ? (value - normal) / (normal - minimum) :
+        value > normal ? (value - normal) / (maximum - normal) : 0.0;
+    const auto coordinate = static_cast<std::int16_t>(
+        std::clamp(std::round(normalized * 16384.0), -16384.0, 16384.0));
+    std::int16_t candidate = 0;
+    if (!apply_avar_coordinate(*this, count, axis_index, coordinate, true, candidate, error)) return false;
+    result = candidate;
     return true;
 }
 

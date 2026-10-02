@@ -2,6 +2,8 @@
 
 #include "progpu_native_font_bytes.hpp"
 
+#include <cmath>
+
 // Direct native port provenance: ProGPU-owned
 // OpenTypeVariationData HVAR advance lookup at checkpoint 38b2b05f.
 namespace progpu::native::text {
@@ -169,6 +171,63 @@ bool sfnt_font_view::try_prepare_horizontal_advance_variation(
     result.region_scalars = region_scalars.first(store.region_count);
     result.uses_hvar = true;
     result.has_advance_map = has_map;
+    return true;
+}
+
+bool sfnt_font_view::try_prepare_horizontal_metrics_variation(
+    std::span<const std::int16_t> normalized_coordinates,
+    std::span<float> region_scalars,
+    sfnt_horizontal_metrics_variation_instance& result,
+    font_error* error) const noexcept {
+    sfnt_horizontal_metrics_variation_instance candidate{};
+    sfnt_table_view hvar{};
+    if (try_get_table(hvar_tag, hvar)) {
+        // The new source-bearing contract needs the complete HVAR 1.0 header.
+        // Preserve the legacy advance-only reader's existing admission.
+        if (!can_read(hvar.bytes, 0U, 20U) || read_u32(hvar.bytes, 0U) != 0x00010000U ||
+            read_u32(hvar.bytes, 4U) == 0U) {
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+        const auto offset = read_u32(hvar.bytes, 12U);
+        if (offset != 0U) {
+            if (!sfnt_item_variation_data::try_get_delta_set_index_map(
+                    hvar.bytes, offset, candidate.left_side_bearing_map, error)) return false;
+            candidate.has_left_side_bearing_map = true;
+        }
+    }
+    if (!try_prepare_horizontal_advance_variation(normalized_coordinates,
+            region_scalars, candidate.advance, error)) return false;
+    result = candidate;
+    return true;
+}
+
+bool sfnt_font_view::try_get_horizontal_left_side_bearing_variation(
+    std::uint16_t glyph_index,
+    const sfnt_horizontal_metrics_variation_instance& variation,
+    float& result,
+    bool& has_mapping,
+    font_error* error) const noexcept {
+    float candidate = 0.0F;
+    if (variation.has_left_side_bearing_map) {
+        if (!variation.advance.uses_hvar ||
+            variation.advance.region_scalars.size() != variation.advance.store.region_count) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+        std::uint16_t outer = 0U, inner = 0U;
+        sfnt_item_variation_data::get_delta_set_index(
+            variation.left_side_bearing_map, glyph_index, outer, inner);
+        if (!sfnt_item_variation_data::try_get_delta(variation.advance.store,
+                variation.advance.region_scalars, outer, inner, candidate, error)) return false;
+        if (!std::isfinite(candidate)) {
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+    }
+    result = candidate;
+    has_mapping = variation.has_left_side_bearing_map;
+    set_error(error, font_error::none);
     return true;
 }
 
