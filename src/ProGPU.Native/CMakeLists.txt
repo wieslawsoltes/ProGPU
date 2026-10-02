@@ -712,6 +712,7 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_shader_effect_execution.cpp
     src/Scene/progpu_native_shader_effect_execution.hpp
     src/Scene/progpu_native_shader_effect_resource.hpp
+    src/Scene/progpu_native_shader_effect_uniforms.hpp
     src/Scene/progpu_native_semantic_image_blur_resources.cpp
     src/Scene/progpu_native_semantic_image_resources.hpp
     src/Scene/progpu_native_semantic_identity.cpp

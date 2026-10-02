@@ -38,8 +38,10 @@ claim complete arithmetic or floating-point equivalence.
 
 Version 1 admits one untransformed implicit-input brush at opacity one. An
 explicit [version-2 owned ImageBrush sampler](native-shader-image-samplers.md)
-adds static, same-channel owned-bitmap capture without changing version 1. Integer
-and Boolean registers, derivative registers, additional/external samplers,
+adds static, same-channel owned-bitmap capture without changing version 1.
+[Version-3 UV derivatives](native-shader-uv-derivatives.md) retain the original
+selected float register and populate it from the actual native capture basis.
+Integer and Boolean registers, additional/external samplers,
 nonzero padding, software-only mode, brush animation and transformed input remain
 unsupported. The effect requires explicit positive source bounds, a positive
 axis-aligned source basis and a complete integral physical capture. Clipped,

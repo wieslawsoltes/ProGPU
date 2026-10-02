@@ -34,6 +34,7 @@ using ::progpu_native_scene_tile_composite;
 using ::progpu_native_scene_layer;
 using ::progpu_native_scene_shader_effect;
 using ::progpu_native_scene_shader_effect_picture;
+using ::progpu_native_scene_shader_effect_derivatives;
 using ::PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
 using ::PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT;
 using ::PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;

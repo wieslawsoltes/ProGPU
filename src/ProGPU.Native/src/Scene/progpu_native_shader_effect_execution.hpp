@@ -45,7 +45,8 @@ std::shared_ptr<semantic_shader_binding> create_semantic_shader_binding(
     std::span<const std::byte> bytecode,
     const semantic_layer_slot& slot,
     std::uint32_t width, std::uint32_t height,
-    std::shared_ptr<semantic_picture_backing> sampler_picture = {});
+    std::shared_ptr<semantic_picture_backing> sampler_picture = {},
+    std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX);
 
 bool encode_semantic_shader_effect(progpu_native_engine& engine,
     WGPUCommandEncoder encoder, const semantic_shader_binding& binding,

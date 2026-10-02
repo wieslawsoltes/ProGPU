@@ -2813,6 +2813,25 @@ typedef struct progpu_native_scene_shader_effect_picture {
     progpu_native_scene_shader_effect program;
 } progpu_native_scene_shader_effect_picture;
 
+/* Version 3 selects an original UV-derivative float constant register. The
+ * native binding writes it after user constants from the actual admitted
+ * capture-to-device basis. NO_INDEX sampler selects implicit input; otherwise
+ * the same earlier IMAGE/IMAGE_PICTURE ownership contract as version 2 applies.
+ * derivative_register is 0..31; flags/reserved must be zero. Versions 1/2 and
+ * the nested version-1 program keep their original byte layouts.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderEffectDerivatives */
+typedef struct progpu_native_scene_shader_effect_derivatives {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t sampler_resource_index;
+    uint32_t derivative_register;
+    uint32_t flags;
+    uint32_t reserved[3];
+    /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
+    progpu_native_scene_shader_effect program;
+} progpu_native_scene_shader_effect_derivatives;
+
 /*
  * A bounded linear retained effect chain. Effects are evaluated in array
  * order, so effects[1] consumes effects[0]'s output. The engine copies all
