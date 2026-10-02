@@ -104,6 +104,26 @@ typedef struct progpu_native_hinted_source_caret_stop {
     uint8_t reserved1;
 } progpu_native_hinted_source_caret_stop;
 
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceRectangle */
+typedef struct progpu_native_hinted_source_rectangle {
+    double x;
+    double y;
+    double width;
+    double height;
+} progpu_native_hinted_source_rectangle;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceHit */
+typedef struct progpu_native_hinted_source_hit {
+    int32_t input_position;
+    uint32_t line_index;
+    /* PROGPU_CSHARP_TYPE: NativeHintedSourceRectangle */
+    progpu_native_hinted_source_rectangle bounds;
+    int8_t bidi_level;
+    uint8_t trailing;
+    uint8_t inside;
+    uint8_t reserved;
+} progpu_native_hinted_source_hit;
+
 /* Borrow only under the existing paragraph's destruction-excluding use lease.
  * All pointers refer to one immutable generation owned by that exact handle.
  * Counts match the ordinary source/logical/positioned snapshot. No imported
@@ -111,6 +131,7 @@ typedef struct progpu_native_hinted_source_caret_stop {
  * not a substitute for these records and is not populated for this lane. */
 /* PROGPU_CSHARP_STRUCT: NativeMethods.HintedSourceParagraphView */
 typedef struct progpu_native_hinted_source_paragraph_view {
+    /* PROGPU_CSHARP_TYPE: NativeHintedSourceOptions */
     progpu_native_hinted_source_options options;
     uint32_t style_count;
     uint32_t logical_count;
@@ -141,7 +162,9 @@ typedef struct progpu_native_hinted_source_run_frame {
     int32_t bidi_level;
     uint32_t reserved;
     double paragraph_baseline_y;
+    /* PROGPU_CSHARP_TYPE: NativeHintedSourceGlyphOffset */
     progpu_native_hinted_source_glyph_offset source_baseline_origin;
+    /* PROGPU_CSHARP_TYPE: NativeHintedSourceGlyphOffset */
     progpu_native_hinted_source_glyph_offset paragraph_origin;
     progpu_native_point raster_paragraph_origin;
 } progpu_native_hinted_source_run_frame;
@@ -170,6 +193,19 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_bor
 PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_reflow(
     const progpu_native_hinted_paragraph* paragraph, int32_t input_start,
     double maximum_width, progpu_native_hinted_paragraph** reflowed);
+
+/* Same retained double interaction, never raster shadows or managed rebuilds.
+ * Entire output capacities must be disjoint from owned allocations. Failure,
+ * including insufficient selection capacity, leaves all outputs untouched. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_hit_test(
+    const progpu_native_hinted_paragraph* paragraph, double x, double y,
+    progpu_native_hinted_source_hit* hit);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_get_caret(
+    const progpu_native_hinted_paragraph* paragraph, int32_t input_position, uint32_t trailing,
+    progpu_native_hinted_source_caret_stop* caret);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_get_selection(
+    const progpu_native_hinted_paragraph* paragraph, int32_t input_start, int32_t input_end,
+    progpu_native_hinted_source_rectangle* rectangles, uint32_t capacity, uint32_t* written);
 
 /* Source GlyphRun nominal-offset convention remains independent from the raw
  * logical device offsets. Copy derives it from owned DOUBLE writer positions,

@@ -1,5 +1,20 @@
 # Original source Display text
 
+The additive C transport retains original-double options and styles in an
+immutable shared cache. Snapshots, native double hit/caret/selection queries and
+double-width continuation use the same producer generation. Glyph resources keep
+that cache independently of paragraph destruction. Nominal source-run copying and
+binding use original double writer positions and advances, never promoted raster
+shadows. Old float source-frame and reflow APIs reject this lane. Whole-capacity
+alias preflight and private staging preserve every output and unused tail on failure.
+
+Source-run binding requires one original run, font, full bidi level and line,
+exact original em/DPI, captured hmtx metrics and an exactly representable raster
+translation. This does not establish the outstanding WPF offset policy. Authored
+transport/source-run controls are wired into CTest; execution and hosted package
+qualification remain pending. No provider advertises Display, and native intrinsic
+widths remain unavailable.
+
 The application target is unchanged AvalonDock theme startup: menus, tab headers
 and title bars set `TextFormattingMode.Display`, reaching LibreWPF's explicit
 `PortableTextLine.CreateCore` rejection tracked in LibreWPF #184. This work is

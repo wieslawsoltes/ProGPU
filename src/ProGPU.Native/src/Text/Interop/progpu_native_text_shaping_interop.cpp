@@ -1,6 +1,7 @@
 #include "progpu_native.h"
 #include "progpu_native_text_styles.h"
 #include "progpu_native_text_flow.h"
+#include "progpu_native_text_source.h"
 #include "progpu_native_text.hpp"
 #include "progpu_native_text_font_source.hpp"
 #include "../progpu_native_text_cluster_breaks_internal.hpp"
@@ -51,9 +52,22 @@ struct progpu_native_hinted_run final {
     std::shared_ptr<const progpu::native::text::hinted_shaped_run> generation{};
 };
 
+// Immutable fieldwise C snapshot. Glyph resources share this exact owner,
+// never pointers into the creating paragraph handle.
+struct progpu_native_hinted_source_cache final {
+    progpu_native_hinted_source_options options{};
+    std::vector<progpu_native_hinted_source_style> styles{};
+    std::vector<progpu_native_hinted_source_logical_metrics> logical{};
+    std::vector<progpu_native_hinted_source_glyph_metrics> glyphs{};
+    std::vector<progpu_native_hinted_source_line_metrics> lines{};
+    std::vector<progpu_native_hinted_source_cluster_box> boxes{};
+    std::vector<progpu_native_hinted_source_caret_stop> carets{};
+};
+
 struct progpu_native_hinted_paragraph final {
     std::shared_ptr<const progpu::native::text::hinted_paragraph_generation> generation{};
     std::shared_ptr<const progpu::native::text::hinted_paragraph_interaction> interaction{};
+    std::shared_ptr<const progpu_native_hinted_source_cache> source{};
 };
 
 struct progpu_native_hinted_paragraph_frame final {
@@ -68,6 +82,7 @@ struct progpu_native_hinted_paragraph_frame final {
 struct progpu_native_hinted_glyph_resource final {
     std::shared_ptr<const progpu::native::text::hinted_paragraph_glyph_resource> generation{};
     std::shared_ptr<const progpu::native::text::hinted_paragraph_interaction> interaction{};
+    std::shared_ptr<const progpu_native_hinted_source_cache> source{};
     std::vector<progpu_native_hinted_paragraph_device_style> device_styles{};
     std::vector<std::int32_t> variation_coordinates_16_16{};
     std::vector<progpu_native_hinted_glyph_run_slice> run_slices{};
@@ -4628,6 +4643,15 @@ struct hinted_paragraph_output_range final {
     std::uint64_t bytes = 0U;
 };
 
+bool hinted_source_cache_aliases(const std::shared_ptr<const progpu_native_hinted_source_cache>& source,
+    const void* output, std::size_t bytes) noexcept {
+    if (source == nullptr) return false;
+    const owned_output_range range{output, bytes};
+    return range.overlaps(source.get(), sizeof(*source)) || range.overlaps(source->styles) ||
+        range.overlaps(source->logical) || range.overlaps(source->glyphs) || range.overlaps(source->lines) ||
+        range.overlaps(source->boxes) || range.overlaps(source->carets);
+}
+
 bool valid_hinted_paragraph(const progpu_native_hinted_paragraph* handle) noexcept {
     if (!valid_hinted_buffer(handle, 1U) || handle->generation == nullptr || handle->interaction == nullptr ||
         handle->interaction->paragraph() != handle->generation) return false;
@@ -4657,6 +4681,7 @@ bool valid_hinted_paragraph(const progpu_native_hinted_paragraph* handle) noexce
 bool hinted_paragraph_handle_aliases(const progpu_native_hinted_paragraph& handle,
     const void* output, std::uint64_t bytes) noexcept {
     return byte_ranges_overlap(output, bytes, &handle, sizeof(handle)) ||
+        hinted_source_cache_aliases(handle.source, output, static_cast<std::size_t>(bytes)) ||
         progpu::native::text::hinted_paragraph_aliases(*handle.generation, output, bytes) ||
         handle.interaction->allocation_aliases(output, static_cast<std::size_t>(bytes));
 }
@@ -4874,6 +4899,7 @@ bool hinted_glyph_resource_aliases(const progpu_native_hinted_glyph_resource& ha
     const void* output, std::size_t bytes) noexcept {
     const owned_output_range range{output, bytes};
     return range.overlaps(&handle, sizeof(handle)) || range.overlaps(handle.device_styles) ||
+        hinted_source_cache_aliases(handle.source, output, bytes) ||
         range.overlaps(handle.variation_coordinates_16_16) || range.overlaps(handle.run_slices) ||
         range.overlaps(handle.outline_owners) || range.overlaps(handle.admitted_scalars) ||
         range.overlaps(handle.scalar_levels) || range.overlaps(handle.logical_glyphs) ||
@@ -5124,6 +5150,9 @@ static progpu_native_status prepare_hinted_glyph_resource(
         request->projection_policy > PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE ||
         request->coverage > PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR ||
         !hinted_glyph_resource_format_bounded(*paragraph->generation)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (paragraph->generation->has_source_geometry && (paragraph->source == nullptr ||
+        static_cast<double>(request->dpi_scale) != paragraph->source->options.pixels_per_dip))
+        return PROGPU_NATIVE_STATUS_UNSUPPORTED;
     try {
         auto candidate = std::make_unique<progpu_native_hinted_glyph_resource>();
         const auto prepared = create_hinted_paragraph_glyph_resource(paragraph->generation, request->dpi_scale,
@@ -5131,6 +5160,7 @@ static progpu_native_status prepare_hinted_glyph_resource(
         if (prepared.status != PROGPU_NATIVE_STATUS_SUCCESS) return prepared.status;
         candidate->generation = prepared.generation;
         candidate->interaction = paragraph->interaction;
+        candidate->source = paragraph->source;
         if (candidate->generation == nullptr || candidate->generation->paragraph() != paragraph->generation ||
             !cache_hinted_glyph_resource_view(*candidate) || !valid_hinted_glyph_resource(candidate.get()))
             return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
@@ -5179,6 +5209,7 @@ progpu_native_status progpu_native_hinted_glyph_resource_reflow(
     if (!valid_hinted_glyph_resource(resource) || !valid_hinted_buffer(continuation, 1U) ||
         hinted_glyph_resource_aliases(*resource, continuation, sizeof(*continuation)))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (resource->generation->paragraph()->has_source_geometry) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
     const auto reflow = reflow_hinted_paragraph(*resource->generation->paragraph(), input_start, maximum_width);
     if (reflow.status != PROGPU_NATIVE_STATUS_SUCCESS) return reflow.status;
     const auto interaction = create_hinted_paragraph_interaction(reflow.generation);
@@ -5250,7 +5281,8 @@ progpu_native_status progpu_native_hinted_glyph_resource_copy_source_offsets(
         hinted_glyph_resource_aliases(*resource, offsets, static_cast<std::size_t>(bytes)) ||
         byte_ranges_overlap(offsets, bytes, positioned_indices, static_cast<std::uint64_t>(glyph_count) * sizeof(*positioned_indices)))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-    if (!resource->has_nominal_metrics) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    if (!resource->has_nominal_metrics || resource->generation->paragraph()->has_source_geometry)
+        return PROGPU_NATIVE_STATUS_UNSUPPORTED;
     return progpu::native::text::copy_hinted_source_offsets(resource->view, resource->nominal_metrics,
         {positioned_indices, glyph_count}, source_em_size, {offsets, offset_capacity});
 }
@@ -5301,3 +5333,5 @@ progpu_native_status progpu_native_hinted_paragraph_frame_borrow(const progpu_na
 void progpu_native_hinted_paragraph_frame_destroy(progpu_native_hinted_paragraph_frame* frame) { delete frame; }
 
 } // extern "C"
+
+#include "progpu_native_hinted_source_transport.inl"
