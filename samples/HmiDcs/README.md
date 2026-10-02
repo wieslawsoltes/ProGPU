@@ -6,6 +6,11 @@ Standalone operator and engineering workplaces using ProGPU's WinUI-compatible U
 dotnet run --project samples/HmiDcs/HmiDcs.csproj -c Release
 ```
 
+Startup loads the bundled Inter Regular face before constructing the workplace;
+no installed Arial font, working-directory font file or prior sample launch is
+required. An explicitly supplied host default font is preserved. The same font
+is passed to the operator workplace and its lazily created engineering view.
+
 Use the display tabs or Plant Explorer, then select equipment to open its faceplate. Alarms, events, trends and system diagnostics share the object context. **Simulate** explicitly starts local data; Review and Confirm local are separate actions. No equipment is connected by this workflow.
 
 **Engineering Workplace** opens the full existing designer on demand. Edits, undo and unsaved state are retained when returning to Operator; the updated runtime snapshot starts offline. The engineering connections pane retains explicit Modbus TCP, MQTT and OPC UA commissioning. No permissive external-write authorizer is installed.

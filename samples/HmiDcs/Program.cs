@@ -1,6 +1,5 @@
 using Microsoft.UI.Xaml;
 using ProGPU.Hmi;
-using ProGPU.WinUI.Hmi.Designer;
 
 namespace ProGPU.Hmi.Dcs.Sample;
 
@@ -15,13 +14,14 @@ public sealed class DcsApplication : Application
 {
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        var studio = new HmiDcsStudio { ConnectionFactory = profile => profile.Protocol switch
+        var studio = DcsStartup.CreateStudio();
+        studio.ConnectionFactory = profile => profile.Protocol switch
         {
             HmiConnectionProtocol.ModbusTcp => new Modbus.HmiModbusConnection(profile),
             HmiConnectionProtocol.Mqtt => new Mqtt.HmiMqttConnection(profile),
             HmiConnectionProtocol.OpcUa => new OpcUa.HmiOpcUaConnection(profile),
             _ => throw new NotSupportedException("Protocol not registered.")
-        } };
+        };
         // No endpoint or permissive WriteAuthorizer is installed. Startup is offline.
         var window = new Window { Title = "ProGPU DCS / Northwater", Width = 1600, Height = 1000, Content = studio };
         window.Closed += (_, _) => studio.Dispose();
