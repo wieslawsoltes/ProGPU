@@ -134,7 +134,9 @@ controls require retained curve and Boolean records, while source-float mismatch
 and raw non-unit vector-mask opacity remain rejected before GPU submission.
 These are unexecuted authored controls, not qualification results.
 
-Remaining implementation in this branch: spatial source opacity masks, vector
+Spatial gradient source opacity is connected by the child described in
+`native-shader-input-opacity.md`, inside the input picture before bytecode.
+Remaining implementation: sampled/picture spatial opacity masks, vector
 clips with unproven source-float mapping, and final source/SDK/package qualification.
 No missing contract is redefined
 as a dyadic-only final feature. Original-reference authoring is separately owned
