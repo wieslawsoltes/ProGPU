@@ -947,7 +947,7 @@ void original_pair_boundary_controls() {
                 spaced, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS && spaced->has_source_intrinsic_widths);
             require(spaced->source_minimum_intrinsic_width == paired &&
                 spaced->source_maximum_intrinsic_width == paired + paired + paired &&
-                spaced->source_maximum_intrinsic_width < spaced->source_lines[0].width);
+                spaced->source_maximum_intrinsic_width < paired + paired + paired + single);
             hinted_source_intrinsic_widths untouched_widths{123.0, 456.0};
             hinted_paragraph_generation invalid_measurement;
             invalid_measurement.has_source_geometry = true;
