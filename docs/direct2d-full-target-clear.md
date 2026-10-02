@@ -37,8 +37,11 @@ layer execution. Ordinary uniform-DPI picture capture uses that same execution;
 the final bound uses that capture's actual per-axis presentation when mapped.
 Other mapped layer/cache/effect/mask restrictions remain unchanged.
 
-Antialiased clips (including an aliased child beneath one) and source layers remain
-explicitly unsupported for Clear. Invalid colors and earlier recording failures
+Antialiased clips (including an aliased child beneath one) remain explicitly
+unsupported for Clear. Source layers now use the independently documented
+[captured extent and demand-isolation contract](direct2d-layer-initialization.md),
+including legacy and OPTIONS1_NONE layers. Targetless unbounded layers still
+require actual target metrics. Invalid colors and earlier recording failures
 cannot be revived by a later clear; failed recordings publish no scene bytes.
 This change applies to the native portable COM recorder and Windows command-list
 translator. It does not change the separate managed CanvasDrawingSession or

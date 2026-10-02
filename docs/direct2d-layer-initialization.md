@@ -32,11 +32,21 @@ write after copying, retaining exact copied RGB. Transparent initialization uses
 an opaque-black attachment clear. Reused transient slots take the current replay
 scope's policy, never the last compiled scope's policy.
 
-New OPTIONS1 scopes retain their captured clear extent and alpha policy. Clear
+Legacy and OPTIONS1 scopes retain their captured clear extent and alpha policy. Clear
 appends a real SRC replacement inside that owned scope, ignoring later transforms,
 preserving outside history and applying the layer's mask/opacity only at pop.
-Antialiased clip stacks and legacy uninitialized-layer Clear remain explicit
-unsupported cases. A target-independent command recorder also rejects Clear in
+An ordinary opacity-one layer can otherwise be elided into its parent. The first
+nonempty Clear promotes only that innermost layer to existing FORCE_ISOLATION
+storage, before recording replacement. Existing materialized layers and ordinary
+draw-only layers retain their policies. Promotion preflights the maximum depth
+of already closed child layers, not merely the current open stack; a rejected
+promotion leaves retained command bytes unchanged. Save/clip frames cannot
+redirect replacement into an outer layer. The first promotion costs O(C) over
+the layer's recorded commands with O(S) bounded stack scratch; repeated clears
+reuse the materialized identity without another command scan.
+
+Antialiased clip stacks remain explicit unsupported cases.
+A target-independent command recorder also rejects Clear in
 an unbounded layer unless real target metrics are supplied; it never invents an
 allocation extent. Source setup must keep this boundary explicit.
 
@@ -47,9 +57,35 @@ translation, and atomic invalid-option/flag rejection. Legacy ClearType rejectio
 is retained. These controls are **not executed yet**: validation is deferred to
 the final integrated stack tip.
 
-Remaining implementation: the unbounded/legacy Clear cases above; real ClearType RGB glyph
+Additional authored controls exercise both real legacy ID2D1Layer and OPTIONS1_NONE
+over 32 independent mask/opacity/null/partial-clip combinations, paired native
+provider cold/warm full bytes, exact draw/command/submission counts and original
+Windows pixels/command callbacks. Later singular transforms and source tags
+remain unchanged. Builder controls retain rejection atomicity and historical
+depth accounting. These controls are also unexecuted until the final stack tip.
+
+Remaining implementation: target-independent unbounded Clear requires its explicit
+target-metrics contract; real ClearType RGB glyph
 coverage and corresponding original Windows controls. None is silently admitted
 by the background flag or inferred from scalar glyph outlines.
+
+## Transparent-layer recording provenance
+
+Demand isolation is original ProGPU builder logic over the existing
+`FORCE_ISOLATION` contract at `5a434bd3d`; no foreign implementation was imported.
+[Direct2D layers](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview),
+[Win2D active layers](https://microsoft.github.io/Win2D/WinUI3/html/M_Microsoft_Graphics_Canvas_CanvasDrawingSession_CreateLayer.htm)
+and [Skia saveLayer](https://api.skia.org/classSkCanvas.html) keep grouped content
+separate until composition. We retain that semantic boundary without eagerly
+allocating a target for an ordinary elidable layer. The existing
+[cross-engine recording decisions](direct2d-command-stream-antialiasing.md#primary-research-and-design-decisions)
+remain applicable: WebRender/Vello-style retained descriptions leave visibility,
+worker preparation, batching, demand upload and GPU cache/device-loss ownership
+inside the renderer. Parley/HarfBuzz layout, fallback, variation, glyph caches,
+DPI and hinting are unaffected; recording a Clear must not initialize text or
+pipelines. No new cache family or per-pixel CPU path is introduced. Empty Clear
+adds neither isolation nor draw. This is a correctness change, not a measured
+startup, residency or throughput claim; final exact-head execution remains due.
 
 ## Original glyph source ownership
 

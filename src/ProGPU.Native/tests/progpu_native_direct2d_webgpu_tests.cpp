@@ -2,6 +2,7 @@
 #include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_layer_background_fixture.hpp"
+#include "progpu_native_direct2d_layer_clear_fixture.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
@@ -2392,6 +2393,10 @@ int main(int argc, char** argv)
     verify_formatted_scene_copies(gpu, engine);
     verify_owned_bitmap_scene_copies(gpu, engine);
     verify_full_target_clear(gpu, engine);
+    progpu::native::direct2d::tests::verify_transparent_layer_clear(
+        [&](d2d::scene_render_target_native* target, std::uint32_t variant) {
+            return render_scene(gpu, engine, target, 3U, (variant & 16U) != 0U ? 9U : 7U, 1U);
+        }, require);
     progpu::native::direct2d::tests::verify_layer_background(
         [&](d2d::scene_render_target_native* target, bool cleared) {
             return render_scene(gpu, engine, target, cleared ? 3U : 2U, cleared ? 7U : 4U, 1U);

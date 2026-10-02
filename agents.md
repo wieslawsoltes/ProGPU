@@ -190,8 +190,17 @@ and premultiply once at ordinary scene submission. Compatible picture conversion
 remains independent. An all-aliased clip stack records bounded SRC replacement in
 its captured target frame, preserving history and ignoring the later transform.
 Keep fractional physical coverage, retained DPI-history accounting and both native
-producers paired; antialiased clips, source layers and failed recordings still reject.
+producers paired; antialiased clips and failed recordings still reject.
 See docs/direct2d-full-target-clear.md; metadata fixtures are not pixel qualification.
+
+Direct2D transparent-layer Clear requires actual isolated layer storage before
+its nested SRC replacement. Promote only the innermost live layer and only for
+nonempty replacement, preserving captured bounds, source state and mask/opacity
+at pop. Preflight historical closed-child materialized depth before changing the
+retained push command; ordinary draw-only layers keep their elision. Known target
+metrics remain mandatory for unbounded command-stream layers. Keep legacy and
+OPTIONS1_NONE source paths paired with original Windows and both-provider pixels;
+authored controls do not qualify an unexecuted stack.
 
 Aliased clipped SRC replacement carries explicit final composite bounds, distinct
 from outward-rounded layer storage. Preserve original float edges, actual per-axis

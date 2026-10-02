@@ -6,6 +6,7 @@
 #include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_layer_background_fixture.hpp"
+#include "progpu_native_direct2d_layer_clear_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
@@ -1540,7 +1541,7 @@ bool full_target_clear_regressions(compat::scene_factory_native* scene_factory)
         if (variant == 0U) earlier = bytes;
         else if (!fixture::full_clear_suffix_contract(earlier)) return false;
     }
-    // AA clips (including an aliased descendant) and layers remain gated. Also
+    // AA clips (including an aliased descendant or a containing layer) remain gated. Also
     // preserve the first error if an invalid Clear precedes an otherwise valid one.
     for (unsigned variant = 0U; variant < 4U; ++variant) {
         target->BeginDraw();
@@ -1552,6 +1553,7 @@ bool full_target_clear_regressions(compat::scene_factory_native* scene_factory)
             const compat::layer_parameters layer{rectangle, nullptr, compat::antialias_mode::per_primitive,
                 {1, 0, 0, 1, 0, 0}, 0.5F, nullptr, compat::layer_options::none};
             target->PushLayer(&layer, nullptr);
+            target->PushAxisAlignedClip(&rectangle, compat::antialias_mode::per_primitive);
         } else {
             const compat::color_f invalid{std::numeric_limits<float>::quiet_NaN(), 0, 0, 1};
             target->Clear(&invalid);
@@ -6539,6 +6541,7 @@ int run_tests()
     if (!progpu::native::direct2d::tests::owned_bitmap_scene_copy_contract(factory.get(), second_factory.get())) return 404;
     if (!progpu::native::direct2d::tests::scoped_source_copy_contract(factory.get())) return 405;
     if (!progpu::native::direct2d::tests::layer_background_source_contract(factory.get())) return 406;
+    if (!progpu::native::direct2d::tests::transparent_layer_clear_source_contract(factory.get())) return 407;
     if (!owned_bitmap_wic_read_boundary(factory.get())) return 405;
     if (!progpu::native::direct2d::tests::bitmap_destination_contract(factory.get(), second_factory.get())) return 406;
     if (!progpu::native::direct2d::tests::gradient_stop_contract(scene_factory.get())) return 406;
