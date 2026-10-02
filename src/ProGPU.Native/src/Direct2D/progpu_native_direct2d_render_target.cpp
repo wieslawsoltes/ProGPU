@@ -1,5 +1,6 @@
 #include "progpu_native_direct2d_render_target.hpp"
 #include "progpu_native_direct2d_clear.hpp"
+#include "progpu_native_direct2d_text_capture.hpp"
 
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
@@ -5329,6 +5330,10 @@ public:
         brush* foreground,
         measuring_mode measuring) noexcept override
     {
+        glyph_run retained_run{};
+        direct2d::glyph_run_capture<glyph_offset> captured;
+        com::pointer<rendering_parameters> parameters;
+        std::uint32_t text_sample_grid = 8U;
         {
             const std::lock_guard lock(mutex_);
             if (!can_draw()) {
@@ -5348,27 +5353,37 @@ public:
                 latch(com::invalid_argument);
                 return;
             }
-            if (glyphs->glyph_count > maximum_glyph_count) {
-                latch(com::invalid_argument);
+            const auto capture_result = captured.capture(
+                glyphs->glyph_indices, glyphs->glyph_advances,
+                glyphs->glyph_offsets, glyphs->glyph_count,
+                [](const glyph_offset& offset) noexcept {
+                    return std::isfinite(offset.advance_offset) &&
+                        std::isfinite(offset.ascender_offset);
+                });
+            if (com::failed(capture_result)) {
+                latch(capture_result);
                 return;
             }
-            for (std::uint32_t index = 0U;
-                 index < glyphs->glyph_count;
-                 ++index) {
-                if ((glyphs->glyph_advances != nullptr &&
-                        !std::isfinite(glyphs->glyph_advances[index])) ||
-                    (glyphs->glyph_offsets != nullptr &&
-                        (!std::isfinite(
-                            glyphs->glyph_offsets[index].advance_offset) ||
-                            !std::isfinite(glyphs->glyph_offsets[index]
-                                .ascender_offset)))) {
-                    latch(com::invalid_argument);
-                    return;
-                }
-            }
-            if (glyphs->glyph_count == 0U) {
-                return;
-            }
+            if (glyphs->glyph_count == 0U) return;
+            retained_run = *glyphs;
+            retained_run.glyph_indices = captured.indices();
+            retained_run.glyph_advances = captured.advances();
+            retained_run.glyph_offsets = captured.offsets();
+            parameters = text_rendering_parameters_;
+            text_sample_grid = text_antialias_mode_ == text_antialias_mode::aliased ? 1U : 8U;
+        }
+
+        // Retain original source identities before calling any source getter or
+        // outline callback. Array/scalar ownership above is independent of those
+        // callbacks, including a callback replacing caller-owned run storage.
+        const com::pointer<font_face> retained_face(retained_run.font_face_value);
+        const com::pointer<brush> retained_foreground(foreground);
+        direct2d::text_rendering_values rendering_values{};
+        const auto parameters_result = direct2d::capture_text_rendering_values(
+            parameters.get(), rendering_values);
+        if (com::failed(parameters_result)) {
+            latch_external_draw_failure(parameters_result);
+            return;
         }
 
         path_geometry* raw_path = nullptr;
@@ -5389,14 +5404,14 @@ public:
                 com::failed(result) ? result : failure);
             return;
         }
-        result = glyphs->font_face_value->GetGlyphRunOutline(
-            glyphs->font_em_size,
-            glyphs->glyph_indices,
-            glyphs->glyph_advances,
-            glyphs->glyph_offsets,
-            glyphs->glyph_count,
-            glyphs->is_sideways,
-            (glyphs->bidi_level & 1U) != 0U ? 1 : 0,
+        result = retained_face->GetGlyphRunOutline(
+            retained_run.font_em_size,
+            retained_run.glyph_indices,
+            retained_run.glyph_advances,
+            retained_run.glyph_offsets,
+            retained_run.glyph_count,
+            retained_run.is_sideways,
+            (retained_run.bidi_level & 1U) != 0U ? 1 : 0,
             static_cast<simplified_geometry_sink*>(sink.get()));
         const com::result close_result = sink->Close();
         if (com::succeeded(result)) {
@@ -5424,16 +5439,8 @@ public:
                 com::failed(result) ? result : failure);
             return;
         }
-        std::uint32_t text_sample_grid = 8U;
-        {
-            const std::lock_guard lock(mutex_);
-            text_sample_grid =
-                text_antialias_mode_ == text_antialias_mode::aliased
-                ? 1U
-                : 8U;
-        }
         draw_filled_geometry(
-            transformed.get(), foreground, nullptr, text_sample_grid);
+            transformed.get(), retained_foreground.get(), nullptr, text_sample_grid);
     }
 
     void PROGPU_NATIVE_COM_CALL SetTransform(
@@ -6767,7 +6774,6 @@ private:
         failed
     };
 
-    static constexpr std::uint32_t maximum_glyph_count = 1U << 20U;
     static constexpr std::uint32_t maximum_text_length = 1U << 24U;
 
     [[nodiscard]] static std::uint32_t image_address_flags(

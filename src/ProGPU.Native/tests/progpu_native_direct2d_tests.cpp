@@ -7962,6 +7962,76 @@ int main()
         {0.5F, 0.0F}
     };
 
+    // Original Windows command lists retain the actual face, offsets and
+    // caller-selected outline rendering parameters. This tests the real
+    // DrawGlyphRun callback, not a synthetic FillGeometry replacement.
+    ComPtr<IDWriteRenderingParams> outline_parameters;
+    require(SUCCEEDED(static_cast<IDWriteFactory*>(dwrite_factory.Get())->CreateCustomRenderingParams(
+            2.2F, 0.75F, 0.5F, DWRITE_PIXEL_GEOMETRY_BGR,
+            DWRITE_RENDERING_MODE_OUTLINE, outline_parameters.GetAddressOf())),
+        "original outline rendering parameters failed");
+    for (std::uint32_t variant = 0U; variant < 4U; ++variant) {
+        void* raw_list = nullptr;
+        require(progpu_native_direct2d_surface_create_command_list(surface, &raw_list, &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && native_hresult == S_OK,
+            "outline glyph command-list creation failed");
+        ComPtr<ID2D1CommandList> list;
+        list.Attach(static_cast<ID2D1CommandList*>(raw_list));
+        require(progpu_native_direct2d_surface_begin_command_list_draw(surface, list.Get()) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+            "outline glyph command-list begin failed");
+        const bool aliased = (variant & 1U) != 0U;
+        const DWRITE_GLYPH_OFFSET original_offsets[]{{0.25F, -0.5F}, {-0.25F, 1.0F}};
+        const DWRITE_GLYPH_RUN original_run{font_face.Get(), 24.0F, 2U, glyph_indices,
+            glyph_advances, original_offsets, FALSE, (variant >> 1U)};
+        context->SetTransform(D2D1::Matrix3x2F::Identity());
+        context->SetTextAntialiasMode(aliased ? D2D1_TEXT_ANTIALIAS_MODE_ALIASED : D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+        context->SetTextRenderingParams(outline_parameters.Get());
+        context->DrawGlyphRun({32.0F, 28.0F}, &original_run, solid_brush.Get(), DWRITE_MEASURING_MODE_NATURAL);
+        require(progpu_native_direct2d_surface_end_command_list_draw(surface, &command_tag1,
+                &command_tag2, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && native_hresult == S_OK,
+            "original outline glyph command-list end failed");
+        progpu_native_direct2d_command_stream_summary summary{};
+        summary.struct_size = sizeof(summary);
+        require(progpu_native_direct2d_command_list_get_stream_summary(surface, list.Get(),
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS,
+                &summary, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                native_hresult == S_OK && summary.text_draw_count == 1U &&
+                summary.unsupported_operation_count == 0U &&
+                (summary.flags & PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_TEXT_RENDERING_PARAMETERS) != 0U,
+            "original outline glyph source inventory changed");
+        progpu_native_direct2d_scene_stream_result translated{};
+        translated.struct_size = sizeof(translated);
+        require(progpu_native_direct2d_command_list_build_scene_stream(surface, list.Get(),
+                7116U + variant, 1U, nullptr, 0U, &translated, &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+                translated.failure_reason == PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
+                translated.translated_draw_count == 1U && translated.written_bytes == 0U,
+            "original outline glyph source measure failed");
+        std::vector<std::uint8_t> stream(static_cast<std::size_t>(translated.required_bytes));
+        require(progpu_native_direct2d_command_list_build_scene_stream(surface, list.Get(),
+                7116U + variant, 1U, stream.data(), stream.size(), &translated, &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && native_hresult == S_OK &&
+                translated.written_bytes == stream.size(),
+            "original outline glyph source write failed");
+        progpu_native_scene_header header{};
+        std::memcpy(&header, stream.data(), sizeof(header));
+        bool saw_path = false;
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            progpu_native_scene_resource resource{};
+            std::memcpy(&resource, stream.data() + header.resource_offset + index * header.resource_stride, sizeof(resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) continue;
+            progpu_native_scene_path_fill path{};
+            std::memcpy(&path, stream.data() + resource.payload_offset, sizeof(path));
+            require(path.sample_grid == (aliased ? 1U : 8U) && path.segment_count != 0U,
+                "outline glyph text AA or actual contour capture changed");
+            saw_path = true;
+        }
+        require(saw_path, "outline glyph source published no contour resource");
+    }
+    context->SetTextRenderingParams(nullptr);
+    context->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_DEFAULT);
+
     constexpr char svg_xml[] =
         "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'>"
         "<rect width='16' height='16' fill='#20a0e0'/></svg>";

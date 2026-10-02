@@ -51,6 +51,47 @@ Remaining implementation: the unbounded/legacy Clear cases above; real ClearType
 coverage and corresponding original Windows controls. None is silently admitted
 by the background flag or inferred from scalar glyph outlines.
 
+## Original glyph source ownership
+
+Portable glyph draws now snapshot the complete original index/advance/offset
+arrays and scalar run identity before external font or rendering-parameter
+callbacks. Optional arrays stay absent; the recorder never shapes the run again
+or invents advances. Original face, brush and rendering-parameter COM identities
+remain retained through capture. The shared value snapshot keeps caller gamma,
+contrast, ClearType level, pixel geometry and rendering mode separate from an
+absent parameter object. It does not manufacture OS or monitor defaults.
+
+The Windows command-list reader now translates genuine `DrawGlyphRun` callbacks
+when the caller explicitly selected `DWRITE_RENDERING_MODE_OUTLINE`. That original
+mode bypasses the font rasterizer; one whole-run outline enters the existing
+shared GPU path writer with its original baseline, bidi direction, offsets and
+independent text antialiasing state. Non-outline/default command-list text still
+fails explicitly until its own producer is connected. The portable legacy outline
+route is unchanged in scope; its existing acceptance is not new ClearType proof.
+Both native providers consume the same resulting semantic path resource. No
+managed render/text ABI or ordinary managed glyph policy changes in this source
+adapter checkpoint.
+
+Authored source controls mutate the caller run and replace source parameter/AA
+state from a real parameter callback, then compare the complete retained scene
+to the original capture. They also retain invalid-value atomicity, absent arrays,
+face-call counts and exact parameter destruction. Four actual Windows command-list
+controls cover both directions and aliased/grayscale outline state, leaving the
+original unsupported hinted-parameter control intact. They are unexecuted under
+the final-tip validation policy, and do not establish hinted or RGB pixel parity.
+
+This follows the separation between original positioned text and rendering in
+[DirectWrite](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ne-dwrite-dwrite_rendering_mode)
+and [HarfBuzz](https://harfbuzz.github.io/shaping-concepts.html): already-shaped
+source glyphs must not enter a second shaper. Canvas-style state remains distinct
+from immutable draw inputs ([Skia](https://skia.org/docs/user/api/skcanvas_overview/));
+GPU rasterization remains shared rather than moving to a platform CPU bitmap path
+([Vello architecture](https://github.com/linebender/vello/blob/main/ARCHITECTURE.md)).
+No external implementation source, coefficient tables or shader helper code is
+incorporated. Exact modern DirectWrite hint/filter and alpha-correction behavior
+remain separate from the published historical subpixel-filter model and must not
+be inferred from a shifted, already-quantized scalar atlas.
+
 Original contracts: [OPTIONS1](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_layer_options1),
 [legacy OPTIONS](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_layer_options),
 [layers overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview).
