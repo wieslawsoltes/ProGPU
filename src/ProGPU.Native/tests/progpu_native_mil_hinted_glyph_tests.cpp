@@ -773,7 +773,11 @@ void mixed_source_controls(font_hint_policy policy, bool rtl) {
     // the native recomposed generation, not a raw resource relabeled as Display.
     const auto describe = [&](const progpu_native_hinted_glyph_resource_view& view) {
         expected result;
-        result.outlines.assign(view.outlines, view.outlines + view.outline_count);
+        for (std::uint32_t i = 0U; i < view.outline_count; ++i) {
+            const auto& outline = view.outlines[i];
+            result.outlines.push_back({outline.segment_offset, outline.segment_count, outline.min_x, outline.min_y,
+                outline.max_x, outline.max_y, outline.raster_scale, outline.subpixel_x});
+        }
         result.segments.assign(view.segments, view.segments + view.segment_count);
         for (std::uint32_t i = 0U; i < view.counts.positioned_glyph_count; ++i) {
             const auto& glyph = view.positioned_glyphs[i];
