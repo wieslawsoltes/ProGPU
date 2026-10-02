@@ -47,6 +47,18 @@ positions; the ordinary whole-paragraph queries remain unchanged. Invalid line
 indices leave caller results untouched. Authored C controls cover actual wrapped
 paragraph queries and invalid-line atomicity; execution remains pending.
 
+The version-2 flat source-resource extension has separate generated C# records.
+Managed source resources borrow/cache that extension before ownership publication,
+then lease it together with the unchanged base outline/font view. Explicit
+`ApplyWithSourceGlyphResources` submits every raw/source resource and original
+binding index in one synchronous transaction to the selected native provider.
+Ordinary raw apply is unchanged; missing source borrow/apply capability is never
+retried through it. Both failure and successful return unwind every producer
+lease, retaining teardown errors without replacing the original apply failure.
+Seven authored managed transport/ownership controls cover mixed resources,
+original doubles/indices, later acquisition failure, absent capability and
+teardown faults; they do not execute or qualify native import or rendering.
+
 The application target is unchanged AvalonDock theme startup: menus, tab headers
 and title bars set `TextFormattingMode.Display`, reaching LibreWPF's explicit
 `PortableTextLine.CreateCore` rejection tracked in LibreWPF #184. This work is
