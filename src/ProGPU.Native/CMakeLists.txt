@@ -1134,6 +1134,8 @@ add_library(progpu_native_direct2d_core STATIC
     src/Direct2D/progpu_native_direct2d_drawing_state.hpp
     src/Direct2D/progpu_native_direct2d_font_capture.cpp
     src/Direct2D/progpu_native_direct2d_font_capture.hpp
+    src/Direct2D/progpu_native_direct2d_prepared_glyphs.cpp
+    src/Direct2D/progpu_native_direct2d_prepared_glyphs.hpp
     src/Direct2D/progpu_native_direct2d_ellipse.cpp
     src/Direct2D/progpu_native_direct2d_ellipse.hpp
     src/Direct2D/progpu_native_direct2d_geometry_group.cpp
@@ -1151,7 +1153,8 @@ target_include_directories(progpu_native_direct2d_core PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_link_libraries(progpu_native_direct2d_core PUBLIC
-    progpu_native_scene_builder)
+    progpu_native_scene_builder
+    PRIVATE progpu_native_text)
 if(WIN32)
     target_compile_definitions(progpu_native_direct2d_core PUBLIC
         NOMINMAX

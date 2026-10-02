@@ -1,4 +1,6 @@
 #include "progpu_native_direct2d_render_target.hpp"
+#include "progpu_native_direct2d_prepared_glyphs.hpp"
+#include "progpu_native_direct2d_path.hpp"
 #include "progpu_native_direct2d_clear.hpp"
 #include "progpu_native_direct2d_text_capture.hpp"
 
@@ -3651,7 +3653,8 @@ class portable_scene_render_target final :
     public bitmap_render_target,
     public scene_render_target_native,
     public scene_layer_options_native,
-    public scene_bitmap_native {
+    public scene_bitmap_native,
+    public direct2d::prepared_glyph_target {
 public:
     portable_scene_render_target(
         factory* owner,
@@ -3697,6 +3700,8 @@ public:
         } else if (com::guid_equal(
                 interface_id, scene_layer_options_native_interface_id)) {
             *value = static_cast<scene_layer_options_native*>(this);
+        } else if (com::guid_equal(interface_id, direct2d::prepared_glyph_target_id)) {
+            *value = static_cast<direct2d::prepared_glyph_target*>(this);
         } else {
             return com::no_interface;
         }
@@ -5324,6 +5329,113 @@ public:
         }
     }
 
+    com::result PROGPU_NATIVE_COM_CALL DrawOwnedGlyphRun(
+        const std::shared_ptr<direct2d::prepared_original_font>& source,
+        point_2f baseline, const glyph_run* glyphs, brush* foreground,
+        measuring_mode measuring) noexcept override
+    {
+        const com::pointer<render_target> retained_target(static_cast<render_target*>(this));
+        const auto retained_source = source;
+        if (!retained_source) return com::invalid_argument;
+        glyph_run retained_run{};
+        direct2d::glyph_run_capture<glyph_offset> captured;
+        com::pointer<rendering_parameters> parameters;
+        rendering_parameters* source_parameters = nullptr;
+        direct2d::original_glyph_target target;
+        std::uint64_t capture_id = 0U;
+        {
+            const std::lock_guard lock(mutex_);
+            if (!can_draw()) return failure_;
+            if (glyphs == nullptr || foreground == nullptr || !valid_point(baseline) ||
+                glyphs->font_face_value != retained_source->source()->face.get() ||
+                !std::isfinite(glyphs->font_em_size) || glyphs->font_em_size <= 0.0F ||
+                (glyphs->is_sideways != 0 && glyphs->is_sideways != 1)) {
+                latch(com::invalid_argument);
+                return failure_;
+            }
+            const auto result = captured.capture(glyphs->glyph_indices, glyphs->glyph_advances,
+                glyphs->glyph_offsets, glyphs->glyph_count, [](const glyph_offset& offset) noexcept {
+                    return std::isfinite(offset.advance_offset) && std::isfinite(offset.ascender_offset);
+                });
+            if (com::failed(result)) { latch(result); return failure_; }
+            if (glyphs->glyph_count == 0U) return com::ok;
+            if (glyph_capture_id_ == std::numeric_limits<std::uint64_t>::max()) {
+                latch(com::out_of_memory);
+                return failure_;
+            }
+            retained_run = *glyphs;
+            retained_run.glyph_indices = captured.indices();
+            retained_run.glyph_advances = captured.advances();
+            retained_run.glyph_offsets = captured.offsets();
+            target.generation = generation_;
+            target.transform = transform_;
+            target.baseline = baseline;
+            target.pixels = {pixel_width_, pixel_height_};
+            target.dpi_x = dpi_x_; target.dpi_y = dpi_y_;
+            target.format = pixel_format_;
+            target.antialias = text_antialias_mode_;
+            target.tag1 = tag1_; target.tag2 = tag2_;
+            // The original ID2D1RenderTarget recorder is DIP/SRC_OVER. No
+            // command-list unit/blend capability is inferred here.
+            target.units = unit_mode::dips;
+            target.blend = primitive_blend::source_over;
+            glyph_capture_active_ = true;
+            prepared_glyph_capture_active_ = true;
+            capture_id = ++glyph_capture_id_;
+            target.identity = com::pointer<com::unknown>(static_cast<render_target*>(this));
+            source_parameters = text_rendering_parameters_.get();
+        }
+        struct capture_release final {
+            portable_scene_render_target& target;
+            const std::uint64_t id;
+            ~capture_release() {
+                const std::lock_guard lock(target.mutex_);
+                if (target.glyph_capture_id_ == id) {
+                    target.glyph_capture_active_ = false;
+                    target.prepared_glyph_capture_active_ = false;
+                }
+            }
+        } release_capture{*this, capture_id};
+        // The prepared capture guard forbids replacing this retained source
+        // parameter object until the lease ends, so its external AddRef/getters
+        // run outside the recorder mutex without a lifetime gap.
+        parameters = com::pointer<rendering_parameters>(source_parameters);
+        const com::pointer<brush> retained_foreground(foreground);
+        const auto fail_capture = [&](com::result error) noexcept {
+            latch_external_draw_failure(error, true);
+            const std::lock_guard lock(mutex_);
+            return failure_;
+        };
+        std::shared_ptr<const direct2d::original_glyph_request> request;
+        auto result = direct2d::capture_original_glyph_request(retained_source->source(),
+            retained_run, measuring, parameters.get(), target, request);
+        if (com::failed(result)) return fail_capture(result);
+        {
+            const std::lock_guard lock(mutex_);
+            if (com::failed(failure_)) return failure_;
+        }
+        std::shared_ptr<const direct2d::prepared_original_glyph_run> prepared;
+        result = retained_source->prepare(std::move(request), prepared);
+        if (com::failed(result)) return fail_capture(result);
+        if (prepared->segments().empty()) return com::ok;
+        path_geometry* raw_path = nullptr;
+        result = detail::create_native_fill_geometry(owner_.get(), prepared->segments(), fill_mode::winding, &raw_path);
+        com::pointer<path_geometry> path;
+        path.attach(raw_path);
+        if (com::failed(result) || !path) {
+            result = com::failed(result) ? result : failure;
+            return fail_capture(result);
+        }
+        // The prepared path is in the original baseline-local target DIP frame.
+        // Existing geometry publication applies the captured target transform
+        // and all current clip/layer scopes once under the same generation lease.
+        // No source font callback, nominal advance, font lookup or hinting occurs.
+        draw_filled_geometry(path.get(), retained_foreground.get(), nullptr,
+            target.antialias == text_antialias_mode::aliased ? 1U : 8U, capture_id);
+        const std::lock_guard lock(mutex_);
+        return failure_;
+    }
+
     void PROGPU_NATIVE_COM_CALL DrawGlyphRun(
         point_2f baseline_origin,
         const glyph_run* glyphs,
@@ -5529,6 +5641,10 @@ public:
         rendering_parameters* parameters) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (prepared_glyph_capture_active_) {
+            latch(wrong_state);
+            return;
+        }
         text_rendering_parameters_ =
             com::pointer<rendering_parameters>(parameters);
     }
@@ -9200,6 +9316,7 @@ private:
     bool compatible_ = false;
     bool compatible_history_dpi_valid_ = true;
     bool glyph_capture_active_ = false;
+    bool prepared_glyph_capture_active_ = false;
     std::uint64_t glyph_capture_id_ = 0U;
 };
 
