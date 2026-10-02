@@ -8,6 +8,11 @@
 
 namespace progpu::native::direct2d::tests {
 
+inline compat::layer_options1 layer_background_options(std::uint32_t variant) noexcept
+{
+    return static_cast<compat::layer_options1>(variant < 8U ? 1U : variant < 16U ? 3U : 2U);
+}
+
 // Same original source calls for portable OPTIONS1 and actual Windows device
 // contexts. Only the typed PushLayer1 crossing differs; no legacy enum cast.
 template<class Push>
@@ -30,7 +35,7 @@ com::result record_layer_background(compat::render_target* target,
     const compat::matrix_3x2_f identity{1, 0, 0, 1, 0, 0};
     const compat::layer_parameters1 parameters{{4, 6, 56, 54}, mask.get(),
         compat::antialias_mode::aliased, identity, (variant & 2U) != 0U ? 0.5F : 1.0F,
-        nullptr, compat::layer_options1::initialize_from_background};
+        nullptr, layer_background_options(variant)};
     const compat::rectangle_f rectangle{12, 10, 48, 44}, tail{0, 0, 4, 4};
     target->BeginDraw();
     target->SetTransform(&identity);
@@ -43,7 +48,7 @@ com::result record_layer_background(compat::render_target* target,
     return target->EndDraw(nullptr, nullptr);
 }
 
-inline bool layer_background_contract(std::span<const std::byte> bytes)
+inline bool layer_background_contract(std::span<const std::byte> bytes, std::uint32_t variant)
 {
     progpu_native_scene_header header{};
     progpu_native_scene_command push{};
@@ -53,7 +58,8 @@ inline bool layer_background_contract(std::span<const std::byte> bytes)
         push.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER &&
         read_scene_value(bytes, push.payload_offset, layer) &&
         layer.flags == (PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
-            PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) &&
+            (variant < 16U ? PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND : 0U) |
+            (variant >= 8U ? PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA : 0U)) &&
         layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER &&
         layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX;
 }
@@ -65,14 +71,16 @@ inline bool layer_background_pixels(std::span<const std::uint8_t> pixels,
     const std::uint8_t background_alpha = (variant & 1U) != 0U ? 128U : 255U;
     for (std::uint32_t y = 0U; y < image_height; ++y) {
         for (std::uint32_t x = 0U; x < 64U; ++x) {
-            const bool covered = x >= 12U && x < 48U && y >= 10U && y < 44U &&
+            const bool layer = x >= 4U && x < 56U && y >= 6U && y < 54U &&
                 ((variant & 4U) == 0U || (x >= 16U && x < 40U && y >= 8U && y < 50U));
             std::array<std::uint8_t, 4U> expected{0, 0, background_alpha, background_alpha};
-            if (covered) expected = (variant & 2U) == 0U
-                ? std::array<std::uint8_t, 4U>{255, 0, 0, 255}
-                : std::array<std::uint8_t, 4U>{128, 0,
-                    static_cast<std::uint8_t>(background_alpha == 255U ? 128U : 64U),
-                    static_cast<std::uint8_t>(background_alpha == 255U ? 255U : 192U)};
+            if (layer) {
+                auto child = variant < 16U ? expected : std::array<std::uint8_t, 4U>{0, 0, 0, 255};
+                if (variant >= 8U) child[3] = 255U;
+                if (x >= 12U && x < 48U && y >= 10U && y < 44U) child = {255, 0, 0, 255};
+                for (std::size_t c = 0U; c < 4U; ++c) expected[c] = (variant & 2U) == 0U ? child[c]
+                    : static_cast<std::uint8_t>((static_cast<unsigned>(expected[c]) + child[c] + 1U) / 2U);
+            }
             if (x < 4U && y < 4U) expected = {0, 255, 0, 255};
             for (std::size_t c = 0U; c < 4U; ++c) {
                 const auto actual = pixels[std::size_t{y} * 256U + x * 4U + (bgra && c < 3U ? 2U - c : c)];
@@ -93,7 +101,7 @@ inline bool layer_background_source_contract(compat::factory* factory)
     com::pointer<compat::scene_factory_native> create;
     if (factory->QueryInterface(compat::scene_factory_native_interface_id,
             reinterpret_cast<void**>(create.put())) != com::ok) return false;
-    for (std::uint32_t variant = 0U; variant < 8U; ++variant) {
+    for (std::uint32_t variant = 0U; variant < 24U; ++variant) {
         const compat::scene_render_target_properties properties{64, 64, 96, 96, 0xBD00U + variant, 1U};
         com::pointer<compat::render_target> target;
         com::pointer<compat::scene_layer_options_native> options;
@@ -106,11 +114,11 @@ inline bool layer_background_source_contract(compat::factory* factory)
         std::vector<std::byte> bytes(static_cast<std::size_t>(scene->GetRequiredSceneSize()));
         std::uint64_t written{};
         if (scene->BuildScene(bytes.data(), bytes.size(), &written) != com::ok ||
-            written != bytes.size() || !layer_background_contract(bytes)) return false;
+            written != bytes.size() || !layer_background_contract(bytes, variant)) return false;
         // Unknown OPTIONS1 values cannot publish a scope or a usable scene.
         const compat::layer_parameters1 invalid{{0, 0, 64, 64}, nullptr,
             compat::antialias_mode::aliased, {1, 0, 0, 1, 0, 0}, 1, nullptr,
-            static_cast<compat::layer_options1>(4U << variant)};
+            static_cast<compat::layer_options1>(4U << (variant % 8U))};
         target->BeginDraw();
         target->SetTags(31, 47);
         options->PushLayer1(&invalid, nullptr);
@@ -133,7 +141,7 @@ void verify_layer_background(Render render, Require require)
     com::pointer<compat::scene_factory_native> create;
     require(factory.as(compat::scene_factory_native_interface_id, create) == com::ok,
         "background layer factory interface failed");
-    for (std::uint32_t variant = 0U; variant < 8U; ++variant) {
+    for (std::uint32_t variant = 0U; variant < 24U; ++variant) {
         const compat::scene_render_target_properties properties{64, 64, 96, 96, 0xBA00U + variant, 1U};
         com::pointer<compat::render_target> target;
         require(create->CreateSceneRenderTarget(&properties, target.put()) == com::ok, "background layer target failed");
@@ -148,7 +156,7 @@ void verify_layer_background(Render render, Require require)
         std::vector<std::byte> bytes(static_cast<std::size_t>(scene->GetRequiredSceneSize()));
         std::uint64_t written{};
         require(scene->BuildScene(bytes.data(), bytes.size(), &written) == com::ok &&
-            written == bytes.size() && layer_background_contract(bytes),
+            written == bytes.size() && layer_background_contract(bytes, variant),
             "background layer must retain its own initialization identity");
         const auto cold = render(scene.get());
         const auto warm = render(scene.get());

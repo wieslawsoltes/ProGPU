@@ -5593,14 +5593,9 @@ public:
             latch(com::invalid_argument);
             return;
         }
-        // Ignore-alpha requires a separate intermediate alpha-write policy;
-        // do not reinterpret it as ordinary transparent storage.
-        if ((options1 & 2U) != 0U) {
-            latch(not_implemented);
-            return;
-        }
-        const std::uint32_t initialization_flags = (options1 & 1U) != 0U
-            ? PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND : 0U;
+        const std::uint32_t initialization_flags =
+            ((options1 & 1U) != 0U ? PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND : 0U) |
+            ((options1 & 2U) != 0U ? PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA : 0U);
         const bool full_target = infinite_rectangle(
             parameters->content_bounds);
         rectangle_f mask_content_bounds = parameters->content_bounds;

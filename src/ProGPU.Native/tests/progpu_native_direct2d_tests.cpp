@@ -120,7 +120,7 @@ void layer_background_regressions(ID2D1DeviceContext* source_context)
     require(context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &target_properties, target.GetAddressOf()) == S_OK &&
         context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &read_properties, readback.GetAddressOf()) == S_OK,
         "layer background original target/readback failed");
-    for (std::uint32_t variant = 0U; variant < 8U; ++variant) {
+    for (std::uint32_t variant = 0U; variant < 24U; ++variant) {
         const auto record = [&] {
             return fixture::record_layer_background(reinterpret_cast<compat::render_target*>(context.Get()),
                 reinterpret_cast<compat::factory*>(factory.Get()), variant,
@@ -130,7 +130,7 @@ void layer_background_regressions(ID2D1DeviceContext* source_context)
                             parameters.content_bounds.right, parameters.content_bounds.bottom},
                         reinterpret_cast<ID2D1Geometry*>(parameters.geometric_mask), D2D1_ANTIALIAS_MODE_ALIASED,
                         D2D1::Matrix3x2F::Identity(), parameters.opacity, nullptr,
-                        D2D1_LAYER_OPTIONS1_INITIALIZE_FROM_BACKGROUND};
+                        static_cast<D2D1_LAYER_OPTIONS1>(fixture::layer_background_options(variant))};
                     context->PushLayer(&original, nullptr);
                 });
         };
@@ -170,7 +170,7 @@ void layer_background_regressions(ID2D1DeviceContext* source_context)
             PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "layer background stream measurement failed");
         std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
         require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
-            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::layer_background_contract(bytes),
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::layer_background_contract(bytes, variant),
             "layer background original stream lost typed initialization metadata");
         sink.Reset();
         progpu_native_direct2d_scene_recorder_destroy(recorder);

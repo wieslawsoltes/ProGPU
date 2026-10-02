@@ -357,7 +357,10 @@ enum {
      * and mask coverage interpolate parent and completed layer independently of
      * the completed layer's alpha. This is NOT the existing BACKDROP effect.
      * Requires SRC_OVER, no effects/cache/composite state and zero revisions. */
-    PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND = 1U << 11U
+    PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND = 1U << 11U,
+    /* Transient opaque intermediate: clear alpha one, preserve it through
+     * nested replacements and treat copied background alpha as one. */
+    PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA = 1U << 12U
 };
 
 typedef enum progpu_native_image_sampling {

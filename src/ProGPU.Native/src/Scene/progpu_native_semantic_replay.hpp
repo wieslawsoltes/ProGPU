@@ -337,6 +337,8 @@ struct semantic_render_bundle_span {
     bool uses_depth = false;
     bool backdrop = false;
     bool initialized_background = false;
+    bool ignore_alpha = false;
+    bool target_ignores_alpha = false;
     bool can_skip_content_on_effect_cache = false;
     bool cache_content = false;
     bool mask_uses_alpha_channel = false;

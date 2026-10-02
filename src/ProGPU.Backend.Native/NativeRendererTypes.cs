@@ -934,7 +934,10 @@ public enum NativeSceneLayerFlags : uint
     /// contents by independent opacity/mask coverage, not by their alpha.
     /// Distinct from Backdrop; excludes effects, cache and composite state.
     /// </summary>
-    InitializeFromBackground = 1 << 11
+    InitializeFromBackground = 1 << 11,
+
+    /// <summary>Owns an opaque transient intermediate, including nested replacement.</summary>
+    IgnoreAlpha = 1 << 12
 }
 
 public enum NativeSceneValidationError : uint

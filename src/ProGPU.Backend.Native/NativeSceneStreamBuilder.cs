@@ -3448,9 +3448,9 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneLayerFlags.CacheFant |
             NativeSceneLayerFlags.CompositeState | NativeSceneLayerFlags.CacheTile |
             NativeSceneLayerFlags.CacheShared | NativeSceneLayerFlags.AliasedCompositeBounds |
-            NativeSceneLayerFlags.InitializeFromBackground;
+            NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha;
         bool initializedBackground =
-            (layer.Flags & NativeSceneLayerFlags.InitializeFromBackground) != 0;
+            (layer.Flags & (NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha)) != 0;
         bool aliasedComposite =
             (layer.Flags & NativeSceneLayerFlags.AliasedCompositeBounds) != 0;
         bool localCache =
@@ -3477,7 +3477,7 @@ public ref struct NativeSceneStreamBuilder
             (!initializedBackground ||
                 ((layer.Flags & ~(NativeSceneLayerFlags.Bounds |
                         NativeSceneLayerFlags.ForceIsolation |
-                        NativeSceneLayerFlags.InitializeFromBackground)) == 0 &&
+                        NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha)) == 0 &&
                     layer.BlendMode == GpuBlendMode.SrcOver &&
                     layer.EffectResourceIndex == NativeMethods.SceneNoIndex &&
                     layer.ContentRevision == 0 && layer.CompositeRevision == 0)) &&
@@ -3958,7 +3958,7 @@ public ref struct NativeSceneStreamBuilder
         (layer.Flags & (NativeSceneLayerFlags.Backdrop |
             NativeSceneLayerFlags.ForceIsolation |
             NativeSceneLayerFlags.CacheContent |
-            NativeSceneLayerFlags.InitializeFromBackground)) != 0 ||
+            NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha)) != 0 ||
         layer.Opacity != 1f ||
         layer.BlendMode != GpuBlendMode.SrcOver ||
         layer.MaskResourceIndex != NativeMethods.SceneNoIndex ||

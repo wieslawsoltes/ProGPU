@@ -22,11 +22,12 @@ namespace {
 WGPURenderPassEncoder begin_backdrop_pass(
     WGPUCommandEncoder encoder,
     WGPUTextureView view,
-    const char* label) {
+    const char* label,
+    WGPULoadOp load_op = WGPULoadOp_Clear) {
     WGPURenderPassColorAttachment attachment{};
     webgpu::initialize_color_attachment(attachment);
     attachment.view = view;
-    attachment.loadOp = WGPULoadOp_Clear;
+    attachment.loadOp = load_op;
     attachment.storeOp = WGPUStoreOp_Store;
     attachment.clearValue = {0.0, 0.0, 0.0, 0.0};
     WGPURenderPassDescriptor descriptor{};
@@ -167,6 +168,21 @@ bool encode_semantic_backdrop_capture(
         &source,
         &destination,
         &extent);
+    if (operation.ignore_alpha) {
+        // Preserve copied RGB exactly. Alpha is an intermediate storage policy,
+        // not a modification to sampled source colors or their brush opacity.
+        bool cache_hit = false;
+        const auto pipeline = get_or_create_fixed_group_blend_pipeline(engine,
+            PROGPU_NATIVE_BLEND_SRC, false, cache_hit, true, layer_write_channels::alpha);
+        pass = begin_backdrop_pass(encoder, child.view,
+            "ProGPU opaque background alpha initialization", WGPULoadOp_Load);
+        if (pass == nullptr) return false;
+        const bool initialized = draw_backdrop_quad(engine, pass, pipeline,
+            child.image_uniform_bind_group, parent->bind_group, operation.first_backdrop_resolve_vertex);
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+        if (!initialized) return false;
+    }
     if (operation.effect_count == 0U) {
         return true;
     }

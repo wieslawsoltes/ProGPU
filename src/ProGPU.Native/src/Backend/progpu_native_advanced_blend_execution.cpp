@@ -413,7 +413,9 @@ bool encode_semantic_advanced_blend(
             engine,
             PROGPU_NATIVE_BLEND_SRC,
             false,
-            copy_cache_hit);
+            copy_cache_hit,
+            false,
+            operation.target_ignores_alpha ? layer_write_channels::rgb : layer_write_channels::all);
     pass = begin_pass(
         encoder,
         parent_view,

@@ -9,6 +9,23 @@ namespace ProGPU.Tests;
 public class NativeLayerBackgroundTests
 {
     [Theory]
+    [InlineData(NativeSceneLayerFlags.IgnoreAlpha)]
+    [InlineData(NativeSceneLayerFlags.IgnoreAlpha | NativeSceneLayerFlags.InitializeFromBackground)]
+    public void OpaqueStorageRetainsIndependentInitializationChoice(NativeSceneLayerFlags flags)
+    {
+        Assert.Equal(4096U, (uint)NativeSceneLayerFlags.IgnoreAlpha);
+        byte[] bytes = new byte[2048];
+        var builder = new NativeSceneStreamBuilder(bytes, 0xBA02, 1, commandCapacity: 2, resourceCapacity: 0);
+        var layer = new NativeSceneLayer(flags: flags);
+        Assert.True(builder.TryPushLayer(1, in layer));
+        Assert.True(builder.TryPopLayer(2));
+        Assert.True(builder.TryBuild(out var stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var command = MemoryMarshal.Read<NativeMethods.SceneCommand>(stream[(int)header.CommandOffset..]);
+        Assert.Equal(flags, MemoryMarshal.Read<NativeSceneLayer>(stream[(int)command.PayloadOffset..]).Flags);
+    }
+
+    [Theory]
     [InlineData(0f)]
     [InlineData(0.5f)]
     [InlineData(1f)]

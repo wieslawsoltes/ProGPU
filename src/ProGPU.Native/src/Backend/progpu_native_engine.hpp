@@ -275,7 +275,11 @@ struct progpu_native_engine {
     bool image_gpu_cache_valid = false;
     WGPURenderPipeline layer_composite_pipeline = nullptr;
     WGPURenderPipeline layer_mask_pipeline = nullptr;
-    std::array<WGPURenderPipeline, 2U> layer_coverage_pipelines{};
+    std::array<WGPURenderPipeline, 4U> layer_coverage_pipelines{};
+    std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
+        layer_rgb_blend_pipelines{};
+    std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
+        layer_rgb_mask_blend_pipelines{};
     std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
         layer_blend_pipelines{};
     std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
@@ -1798,6 +1802,12 @@ struct progpu_native_engine {
             if (coverage_pipeline != nullptr) {
                 wgpuRenderPipelineRelease(coverage_pipeline);
             }
+        }
+        for (auto rgb_pipeline : layer_rgb_blend_pipelines) {
+            if (rgb_pipeline != nullptr) wgpuRenderPipelineRelease(rgb_pipeline);
+        }
+        for (auto rgb_pipeline : layer_rgb_mask_blend_pipelines) {
+            if (rgb_pipeline != nullptr) wgpuRenderPipelineRelease(rgb_pipeline);
         }
         for (auto mask_blend_pipeline : layer_mask_blend_pipelines) {
             if (mask_blend_pipeline != nullptr) {

@@ -714,11 +714,13 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     std::uint32_t blend_mode,
     bool masked,
     bool& cache_hit,
-    bool coverage_only) {
-    if (coverage_only && blend_mode != PROGPU_NATIVE_BLEND_SRC) {
+    bool coverage_only,
+    layer_write_channels channels) {
+    if ((coverage_only && (blend_mode != PROGPU_NATIVE_BLEND_SRC || channels == layer_write_channels::rgb)) ||
+        (!coverage_only && channels == layer_write_channels::alpha)) {
         return nullptr;
     }
-    if (!coverage_only && blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) {
+    if (!coverage_only && channels == layer_write_channels::all && blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) {
         cache_hit = true;
         return masked
             ? engine.layer_mask_pipeline
@@ -728,11 +730,11 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
         is_advanced_group_blend(blend_mode)) {
         return nullptr;
     }
-    auto& pipelines = masked
-        ? engine.layer_mask_blend_pipelines
-        : engine.layer_blend_pipelines;
+    auto& pipelines = channels == layer_write_channels::rgb
+        ? (masked ? engine.layer_rgb_mask_blend_pipelines : engine.layer_rgb_blend_pipelines)
+        : (masked ? engine.layer_mask_blend_pipelines : engine.layer_blend_pipelines);
     auto& pipeline = coverage_only
-        ? engine.layer_coverage_pipelines[masked ? 1U : 0U]
+        ? engine.layer_coverage_pipelines[(masked ? 1U : 0U) + (channels == layer_write_channels::alpha ? 2U : 0U)]
         : pipelines[blend_mode];
     if (pipeline != nullptr) {
         cache_hit = true;
@@ -799,7 +801,10 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     WGPUColorTargetState target{};
     target.format = engine.target_format;
     target.blend = &blend;
-    target.writeMask = WGPUColorWriteMask_All;
+    target.writeMask = channels == layer_write_channels::alpha ? WGPUColorWriteMask_Alpha
+        : channels == layer_write_channels::rgb
+            ? WGPUColorWriteMask_Red | WGPUColorWriteMask_Green | WGPUColorWriteMask_Blue
+            : WGPUColorWriteMask_All;
     WGPUFragmentState fragment{};
     fragment.module = engine.image_shader;
     fragment.entryPoint = progpu::native::webgpu::string_view(

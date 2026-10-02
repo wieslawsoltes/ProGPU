@@ -18,15 +18,21 @@ destination-aware replacement for both native providers. No CPU pixel evaluation
 readback or extra submission supplies layer contents. Pipeline caches belong to
 the engine and retire with it; immutable replay spans retain initialization.
 
-Authored controls cover eight opaque/translucent parent, full/half opacity and
+IGNORE_ALPHA owns an alpha-one intermediate, separately from background copy.
+Ordinary source-over draws retain that alpha; nested fixed/advanced replacements
+write RGB only into an opaque parent. Background capture uses an alpha-only GPU
+write after copying, retaining exact copied RGB. Transparent initialization uses
+an opaque-black attachment clear. Reused transient slots take the current replay
+scope's policy, never the last compiled scope's policy.
+
+Authored controls cover 24 opaque/translucent parent, full/half opacity and
 original aliased geometric-mask combinations, every pixel cold/warm on both
 providers, actual Microsoft device-context pixels, original command-list
 translation, and atomic invalid-option/flag rejection. Legacy ClearType rejection
 is retained. These controls are **not executed yet**: validation is deferred to
 the final integrated stack tip.
 
-Remaining implementation: IGNORE_ALPHA intermediate storage and nested replacement
-alpha policy; Clear inside materialized source layers; real ClearType RGB glyph
+Remaining implementation: Clear inside materialized source layers; real ClearType RGB glyph
 coverage and corresponding original Windows controls. None is silently admitted
 by the background flag or inferred from scalar glyph outlines.
 
