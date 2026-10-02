@@ -29,6 +29,7 @@
 #include <iostream>
 #include <limits>
 #include <vector>
+#include "progpu_native_direct2d_rgb_reference.hpp"
 
 using Microsoft::WRL::ComPtr;
 using Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess;
@@ -7961,6 +7962,9 @@ int main()
         {0.0F, 0.0F},
         {0.5F, 0.0F}
     };
+
+    progpu::native::direct2d::tests::capture_original_rgb_parameters(context.Get(),
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), font_face.Get(), glyph_indices[0], require);
 
     // Original Windows command lists retain the actual face, offsets and
     // caller-selected outline rendering parameters. This tests the real
