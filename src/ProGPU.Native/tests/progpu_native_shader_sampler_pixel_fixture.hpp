@@ -38,7 +38,7 @@ inline bool build_original_shader_sampler_scene(progpu_native_mil_channel* chann
         packet(batch, command::target_set_root, 4U, 11U);
     }
     if (variant >= 5U)
-        packet(batch, command::visual_set_render_options, 11U, 2U, 0U, 0U,
+        packet(batch, command::visual_set_render_options, 11U, 1U, 0U, 0U,
             inherited ? 3U : 0U, 0U, 0U, 0U);
     if (variant == 11U) {
         packet(batch, command::channel_create_resource, 12U, 47U);
