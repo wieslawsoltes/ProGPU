@@ -53,3 +53,18 @@ matrix, fractional overrides, negative and nonfinite padding policy, sub-unit
 geometry, float-vs-double multiplication, exact uint conversion boundaries,
 invalid/overflow atomicity and value ownership. Full provider/render/source tests
 remain hosted gates; a pure frame result alone cannot qualify an external sampler.
+
+## Bounded postcommit evidence
+
+Implementation checkpoint `54d51c0fd603a6a8236405379a73c9fd1f460581` preceded
+validation. A separate temporary CPU-only xUnit project linked the actual
+`Rect.cs`, `EffectCaptureFrame.cs` and `EffectCaptureFrameTests.cs`, with no
+renderer/native/source project references. Its NuGet sources were cleared;
+only existing cached test packages were used. Under an explicit 45-second
+process deadline, all six tests passed (0.275 seconds test time), including the
+1,800-case original-arithmetic matrix. Compilation treated warnings as errors.
+The original `Rect` declaration compared verbatim equal to the declaration at
+`2ab3aeac9aa3efc74c1ad42f72a7dfcd96017011` after the move. Roslyn parsed the
+helper, Rect, actual modified compositor and fixture without syntax errors;
+the compositor was not type-compiled in that pure project. Diff checks passed.
+No native, GPU, VM, renderer graph build/execution or runtime staging occurred.
